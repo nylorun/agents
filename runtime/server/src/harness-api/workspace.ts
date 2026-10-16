@@ -15,7 +15,7 @@
  * - **Pod sandboxes** (F7.2, `withPodWorkspaces`): a session attached to a pod sandbox has its
  *   workspace in the pod, served by the sandbox's engine (its host connection). Its tool calls
  *   and disk operations go there whatever serves the other workspaces; with the pod stopped or
- *   starting they are `409 environment_unavailable`.
+ *   starting they are `409 agent_unavailable`.
  */
 import { HarnessApiError, type CoreMethod, type WorkspaceRecord } from "@nylorun/core/harness-api";
 import type { SandboxManifest, SandboxToolName } from "@nylorun/core/define";
@@ -113,7 +113,7 @@ export function remoteWorkspace(options: RemoteWorkspaceOptions): WorkspacePort 
   const unavailable = (error: NoWorkspaceHarness): never =>
     error.pod === undefined
       ? fail(503, error.message, { code: "request_rejected" })
-      : fail(409, error.message, { code: "environment_unavailable" });
+      : fail(409, error.message, { code: "agent_unavailable" });
   /** The harness's answer, or `undefined` when none serves workspaces. */
   const ask = async <M extends CoreMethod>(
     method: M,

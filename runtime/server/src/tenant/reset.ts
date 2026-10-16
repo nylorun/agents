@@ -9,7 +9,7 @@ import { join } from "node:path";
 import type { ResetScope, SessionStore } from "../store/types.js";
 import type { WorkspacePort } from "../harness-api/workspace.js";
 import type { TenantPaths } from "./types.js";
-import { detachAllSessions } from "./environments.js";
+import { detachAllSessions } from "./agents.js";
 import type { BlobStore } from "../blob/index.js";
 import { contentKey } from "../artifacts/folders.js";
 
@@ -62,7 +62,7 @@ export async function resetTenant(
   scope: ResetScope,
 ): Promise<void> {
   const clearSessions = scope === "sessions" || scope === "all";
-  const clearSandboxes = scope === "environments" || scope === "all";
+  const clearSandboxes = scope === "agents" || scope === "all";
   const clearAll = scope === "all";
 
   if (clearSandboxes) {

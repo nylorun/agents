@@ -93,7 +93,6 @@ export async function runFixture(tenantId = newTenantId()): Promise<RunFixture> 
           ownerUserId: "user-1",
           manifest: options.manifest ?? { id: options.agentId ?? "bot" },
           manifestHash: "h",
-          implementationVersion: "1",
           status: "running",
           activeTurnId: options.turnId ?? "turn-1",
           creation: {},

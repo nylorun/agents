@@ -64,9 +64,9 @@ export function tightest(usage: readonly ArtifactUsage[]): ArtifactUsage & { rea
   return { ...best, roomBytes: best.total.limitBytes - best.usedBytes };
 }
 
-/** Whose artifacts a total counts: `The Tenant's artifacts`, or `Environment <id>'s artifacts`. */
+/** Whose artifacts a total counts: `The Tenant's artifacts`, or `Agent <id>'s artifacts`. */
 export function totalSubject(total: ArtifactTotal): string {
-  return total.environmentId === undefined ? "The Tenant's artifacts" : `Environment ${total.environmentId}'s artifacts`;
+  return total.environmentId === undefined ? "The Tenant's artifacts" : `Agent ${total.environmentId}'s artifacts`;
 }
 
 /** The Environment a session's artifacts belong to, if it names one. */

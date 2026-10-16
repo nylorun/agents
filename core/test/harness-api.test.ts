@@ -137,10 +137,10 @@ describe("memory channel", () => {
   });
 });
 
-describe("Harness API 4", () => {
+describe("Harness API 5", () => {
   it("names features in hello, not capabilities, and declares no tools (protocol 15)", async () => {
     const { validateParams } = await import("../src/harness-api/index.js");
-    expect(HARNESS_API_VERSION).toBe(4);
+    expect(HARNESS_API_VERSION).toBe(5);
     const hello = { api: 4, name: "h", version: "0" };
     expect(() => validateParams("hello", { ...hello, features: { workspace: true } })).not.toThrow();
     expect(() =>
@@ -303,8 +303,8 @@ describe("published contract (R4.5)", () => {
     expect(ModelDescriptorSchema.safeParse({ ...model, extra: 1 }).success).toBe(false);
   });
 
-  it("states the turn's Environment on turn.start, its sandbox's workspace with one (protocol 15)", async () => {
-    const { TurnStartSchema, TurnEnvironmentSchema } = await import("../src/harness-api/index.js");
+  it("states the turn's Agent on turn.start, its sandbox's workspace with one (Harness API 5)", async () => {
+    const { TurnStartSchema, TurnAgentSchema } = await import("../src/harness-api/index.js");
     const start = {
       type: "turn.start",
       engine: "agent",
@@ -317,11 +317,13 @@ describe("published contract (R4.5)", () => {
       limits: RUNTIME_LIMIT_DEFAULTS,
     };
     expect(TurnStartSchema.safeParse(start).success).toBe(true);
-    const environment = { id: "env", kind: "virtual", sandbox: { workspace: "/workspace" } };
-    expect(TurnStartSchema.safeParse({ ...start, environment }).success).toBe(true);
-    expect(TurnEnvironmentSchema.safeParse({ id: "env", kind: "none" }).success).toBe(true);
-    expect(TurnEnvironmentSchema.safeParse({ ...environment, kind: "cloud" }).success).toBe(false);
-    expect(TurnEnvironmentSchema.safeParse({ ...environment, sandbox: { workspace: "work" } }).success).toBe(false);
+    const agent = { id: "triage", kind: "virtual", sandbox: { workspace: "/workspace" } };
+    expect(TurnStartSchema.safeParse({ ...start, agent, definition: { name: "triage", version: 3 }, loop: { steps: 5 } }).success).toBe(true);
+    // Harness API 4's environment is gone.
+    expect(TurnStartSchema.safeParse({ ...start, environment: agent }).success).toBe(false);
+    expect(TurnAgentSchema.safeParse({ id: "triage", kind: "none" }).success).toBe(true);
+    expect(TurnAgentSchema.safeParse({ ...agent, kind: "cloud" }).success).toBe(false);
+    expect(TurnAgentSchema.safeParse({ ...agent, sandbox: { workspace: "work" } }).success).toBe(false);
   });
 
   it("states the session's MCP discovery as facts on turn.start, raw names and enabled (protocol 15)", async () => {
@@ -399,7 +401,7 @@ describe("published contract (R4.5)", () => {
     expect(document.title).toBe(`Nylorun Harness API ${HARNESS_API_VERSION}`);
     for (const name of [
       "TurnStart",
-      "TurnEnvironment",
+      "TurnAgent",
       "EffectTarget",
       "ModelDescriptor",
       "TurnOutput",

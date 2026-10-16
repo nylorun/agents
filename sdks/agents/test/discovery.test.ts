@@ -31,9 +31,7 @@ it("shares authenticated, abortable discovery for Studio and application clients
       );
     },
   });
-  expect(await client.listAgents({ signal: controller.signal })).toEqual({
-    agents: [],
-  });
+  expect(await client.agents.list({ signal: controller.signal })).toEqual([]);
   expect(
     await client.listSessions({ agentId: "a/b", signal: controller.signal }),
   ).toEqual({ sessions: [] });

@@ -8,6 +8,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { SubjectScope } from "@nylorun/core/contracts";
 import { Agent } from "@nylorun/core/define";
+import { manifestOf } from "../support/agents.js";
 import { findTenantRoute } from "../../src/api/http/app.js";
 import {
   ALL_SCOPES,
@@ -17,16 +18,16 @@ import {
 } from "./subjects.js";
 
 let tenant: SubjectTenant;
-let environmentId: string;
+let agentId: string;
 let secretName: string;
 beforeAll(async () => {
   tenant = await startSubjectTenant();
   const owner = { subject: "app:owner", scopes: ["sessions:own"] } as const;
   await tenant.call("PUT", "/v1/sessions/owned", {
     as: owner,
-    body: { requestId: "owned", agentId: "bot", ownerUserId: "app:owner" },
+    body: { requestId: "owned", agent: "bot", ownerUserId: "app:owner" },
   });
-  ({ environmentId, secretName } = await createEnvironment(tenant, owner));
+  ({ environmentId: agentId, secretName } = await createEnvironment(tenant, owner));
   await createEnvironment(tenant, owner, { id: "doomed" });
 });
 afterAll(async () => {
@@ -44,24 +45,27 @@ interface Route {
 /** The Management API's routes take no application key, with or without a subject. */
 const isManagement = (route: Route) => route.path.startsWith("/v1/tenant");
 
+const MANIFEST_READ: readonly SubjectScope[] = ["agents:read", "agents:write", "agent-manifests:write"];
+const AGENT_READ: readonly SubjectScope[] = ["sessions:own", "agents:read", "agents:write"];
+
 const routes = (): Route[] => [
-  { method: "GET", path: "/v1/agents", needs: ["agents:read", "agents:write"] },
+  { method: "GET", path: "/v1/agent-manifests", needs: MANIFEST_READ },
   {
     method: "PUT",
-    path: "/v1/agents/drafted",
-    needs: ["agents:write"],
-    body: () => ({
-      requestId: "drafted",
-      manifest: Agent({ id: "drafted", name: "Drafted" }).build().manifest,
-      implementationVersion: "dev",
-    }),
+    path: "/v1/agent-manifests/drafted",
+    needs: ["agent-manifests:write"],
+    body: () => manifestOf(Agent({ id: "drafted", name: "Drafted" }).build()),
   },
+  { method: "GET", path: "/v1/agent-manifests/bot", needs: MANIFEST_READ },
+  { method: "GET", path: "/v1/agent-manifests/bot/versions", needs: MANIFEST_READ },
+  { method: "GET", path: "/v1/agent-manifests/bot/versions/1", needs: MANIFEST_READ },
+  { method: "DELETE", path: "/v1/agent-manifests/drafted", needs: ["agent-manifests:write"] },
   { method: "GET", path: "/v1/sessions", needs: ["sessions:own"] },
   {
     method: "PUT",
     path: "/v1/sessions/fresh",
     needs: ["sessions:own"],
-    body: (subject) => ({ requestId: "fresh", agentId: "bot", ownerUserId: subject }),
+    body: (subject) => ({ requestId: "fresh", agent: "bot", ownerUserId: subject }),
   },
   { method: "GET", path: "/v1/sessions/owned", needs: ["sessions:own"] },
   { method: "GET", path: "/v1/sessions/owned/items", needs: ["sessions:own"] },
@@ -72,41 +76,22 @@ const routes = (): Route[] => [
     needs: ["sessions:own"],
     body: () => ({ requestId: "c", idempotencyKey: "c", type: "cancel" }),
   },
-  {
-    method: "GET",
-    path: "/v1/environments",
-    needs: ["sessions:own", "environments:write"],
-  },
+  { method: "GET", path: "/v1/agents", needs: AGENT_READ },
   {
     method: "PUT",
-    path: "/v1/environments/probe-env",
-    needs: ["environments:write"],
-    body: () => ({ requestId: "probe-env", kind: "none" }),
+    path: "/v1/agents/probe-agent",
+    needs: ["agents:write"],
+    body: () => ({ requestId: "probe-agent", manifest: "bot" }),
   },
-  {
-    method: "GET",
-    path: `/v1/environments/${environmentId}`,
-    needs: ["sessions:own", "environments:write"],
-  },
-  {
-    method: "GET",
-    path: `/v1/environments/${environmentId}/events`,
-    needs: ["sessions:own", "environments:write"],
-  },
-  {
-    method: "GET",
-    path: `/v1/environments/${environmentId}/secrets`,
-    needs: ["sessions:own", "environments:write"],
-  },
-  {
-    method: "GET",
-    path: `/v1/environments/${environmentId}/secrets/${secretName}`,
-    needs: ["sessions:own", "environments:write"],
-  },
+  { method: "GET", path: `/v1/agents/${agentId}`, needs: AGENT_READ },
+  { method: "GET", path: `/v1/agents/${agentId}/events`, needs: AGENT_READ },
+  { method: "GET", path: `/v1/agents/${agentId}/versions`, needs: AGENT_READ },
+  { method: "GET", path: `/v1/agents/${agentId}/secrets`, needs: AGENT_READ },
+  { method: "GET", path: `/v1/agents/${agentId}/secrets/${secretName}`, needs: AGENT_READ },
   {
     method: "PUT",
-    path: `/v1/environments/${environmentId}/secrets/probe`,
-    needs: ["environments:write"],
+    path: `/v1/agents/${agentId}/secrets/probe`,
+    needs: ["agents:write"],
     body: () => ({
       requestId: "probe-secret",
       type: "bearer",
@@ -114,25 +99,28 @@ const routes = (): Route[] => [
       value: "probe-token",
     }),
   },
+  { method: "DELETE", path: `/v1/agents/${agentId}/secrets/probe`, needs: ["agents:write"] },
+  { method: "POST", path: `/v1/agents/${agentId}/stop`, needs: ["agents:write"] },
+  { method: "POST", path: `/v1/agents/${agentId}/reset`, needs: ["agents:write"] },
+  { method: "POST", path: `/v1/agents/${agentId}/snapshot`, needs: ["agents:write"], body: () => ({}) },
   {
-    method: "DELETE",
-    path: `/v1/environments/${environmentId}/secrets/probe`,
-    needs: ["environments:write"],
+    method: "POST",
+    path: `/v1/agents/${agentId}/fork`,
+    needs: ["agents:write"],
+    body: () => ({ id: "forked", dryRun: true }),
   },
-  { method: "POST", path: `/v1/environments/${environmentId}/stop`, needs: ["environments:write"] },
-  { method: "POST", path: `/v1/environments/${environmentId}/reset`, needs: ["environments:write"] },
-  { method: "DELETE", path: "/v1/environments/doomed", needs: ["environments:write"] },
+  { method: "DELETE", path: "/v1/agents/doomed", needs: ["agents:write"] },
   {
     method: "POST",
     path: "/v1/tenant/credential-coverage",
     needs: "never",
-    body: () => ({ agentId: "bot", environmentId }),
+    body: () => ({ agentId }),
   },
   {
     method: "POST",
     path: "/v1/tenant/mcp/preview",
     needs: "never",
-    body: () => ({ url: "https://mcp.example.com/tools", environmentId }),
+    body: () => ({ url: "https://mcp.example.com/tools", agentId }),
   },
   // `tenant:settings` is retired (protocol 8): no scope reaches the Tenant's settings.
   { method: "GET", path: "/v1/tenant", needs: "never" },
@@ -176,10 +164,14 @@ describe("route declarations", () => {
   it("declare no other routes", () => {
     for (const [method, path] of [
       ["GET", "v1/nothing"],
-      ["DELETE", "v1/agents/bot"],
+      ["PATCH", "v1/agents/bot"],
       ["POST", "v1/sessions"],
       ["GET", "v1/sessions/s/items/extra"],
-      ["PATCH", "v1/environments/e"],
+      // Environments are Agents, made from agent manifests (protocol 16).
+      ["GET", "v1/environments"],
+      ["PUT", "v1/environments/e"],
+      ["GET", "v1/environment-manifests"],
+      ["PUT", "v1/environment-manifests/m"],
       // The vault and sandbox paths are gone (protocol 11).
       ["GET", "v1/tenant/vaults"],
       ["POST", "v1/tenant/vaults"],
@@ -214,14 +206,14 @@ it("refuses a route without its scope before reading the request", async () => {
     expect(reply.body.details.scopes).toEqual(route.needs === "never" ? [] : route.needs);
   }
   // Nothing the refused writes named exists, and the reset did not run.
-  const agents = await tenant.call("GET", "/v1/agents");
-  expect(agents.body.agents.map((a: { agentId: string }) => a.agentId)).toEqual(["bot"]);
+  const manifests = await tenant.call("GET", "/v1/agent-manifests");
+  expect(manifests.body.manifests.map((m: { name: string }) => m.name)).toEqual(["bot"]);
   expect((await tenant.call("GET", "/v1/sessions/fresh")).status).toBe(404);
   expect((await tenant.call("GET", "/v1/sessions/owned")).status).toBe(200);
-  expect((await tenant.call("GET", "/v1/environments/probe-env")).status).toBe(404);
-  expect((await tenant.call("GET", "/v1/environments/doomed")).status).toBe(200);
+  expect((await tenant.call("GET", "/v1/agents/probe-agent")).status).toBe(404);
+  expect((await tenant.call("GET", "/v1/agents/doomed")).status).toBe(200);
   expect(
-    (await tenant.call("GET", `/v1/environments/${environmentId}/secrets`)).body.secrets.map(
+    (await tenant.call("GET", `/v1/agents/${agentId}/secrets`)).body.secrets.map(
       (secret: { name: string }) => secret.name
     )
   ).toEqual([secretName]);
@@ -250,17 +242,22 @@ it("answers a subject on a route the table does not know with 404", async () => 
   expect(reply.status).toBe(404);
 });
 
-it("refuses the protocol 10 scope sandboxes:write with a 400 naming environments:write", async () => {
-  for (const scopes of ["sandboxes:write", "sessions:own sandboxes:write"]) {
-    const reply = await tenant.call("GET", "/v1/environments", {
+it("refuses the old scopes sandboxes:write and environments:write with a 400 naming agents:write", async () => {
+  for (const scopes of [
+    "sandboxes:write",
+    "sessions:own sandboxes:write",
+    "environments:write",
+    "agents:read environments:write",
+  ]) {
+    const reply = await tenant.call("GET", "/v1/agents", {
       as: { subject: "app:probe", scopes },
     });
     expect(reply.status, scopes).toBe(400);
-    expect(reply.text, scopes).toContain("environments:write");
+    expect(reply.text, scopes).toContain("agents:write");
   }
   // The new name passes.
-  const renamed = await tenant.call("GET", "/v1/environments", {
-    as: { subject: "app:probe", scopes: "environments:write" },
+  const renamed = await tenant.call("GET", "/v1/agents", {
+    as: { subject: "app:probe", scopes: "agents:write" },
   });
   expect(renamed.status).toBe(200);
 });

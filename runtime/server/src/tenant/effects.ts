@@ -235,23 +235,22 @@ export async function resolveNewFlowEffect(
     await ownedSession(t, lease, workflow.id);
     if (exists) return;
     const definition = leafDefinition(workflow, body, request);
-    // The tree's Environment reaches every agent in it: its sandbox and its vault.
+    // The flow's Agent (Q6) reaches every agent in the tree: its sandbox and its vault. Each leaf
+    // session runs on it, with the flow's manifest version, and its leaf agent's loop manifest.
     const sandbox = workflow.sandbox;
     const created: Session = {
       id: agentSessionId,
-      agentId: body.agentId,
+      agentId: workflow.agentId,
       ownerUserId: workflow.ownerUserId,
       manifest: definition.manifest,
       manifestHash: definition.manifestHash,
-      definitionHash: definition.manifestHash,
-      implementationVersion: definition.implementationVersion,
+      ...(workflow.definition === undefined ? {} : { definition: workflow.definition }),
       status: "idle",
       activeTurnId: null,
       creation: {
         requestId: `flow-put-${request.effectId}`,
-        agentId: body.agentId,
+        agent: workflow.agentId,
         ownerUserId: workflow.ownerUserId,
-        ...(workflow.environmentId === undefined ? {} : { environment: workflow.environmentId }),
       },
       flowRootId: workflow.flowRootId ?? workflow.id,
       ...(workflow.environmentId === undefined
@@ -350,17 +349,12 @@ function leafDefinition(
 ): {
   manifest: AgentManifest | WorkflowManifest;
   manifestHash: string;
-  implementationVersion: string;
 } {
   // A flow agent used as a tool: its manifest is inlined in the parent's pinned tool.
   if (request.context.role === "delegate" && !isWorkflowManifest(workflow.manifest)) {
     const flow = flowDelegateManifest(turnManifestOf(workflow), body.agentId);
     if (!flow) return fail(404, `Agent '${body.agentId}' is not a flow agent used as a tool`);
-    return {
-      manifest: flow,
-      manifestHash: hashManifest(flow),
-      implementationVersion: workflow.implementationVersion,
-    };
+    return { manifest: flow, manifestHash: hashManifest(flow) };
   }
   const leaf = isWorkflowManifest(workflow.manifest)
     ? embeddedAgent(workflow.manifest, body.flow ?? [], body.agentId)
@@ -368,9 +362,5 @@ function leafDefinition(
   if (!leaf || isWorkflowManifest(leaf))
     return fail(404, `Agent '${body.agentId}' is not embedded in workflow '${workflow.manifest.id}'`);
   const manifest = leaf as AgentManifest;
-  return {
-    manifest,
-    manifestHash: hashManifest(manifest),
-    implementationVersion: workflow.implementationVersion,
-  };
+  return { manifest, manifestHash: hashManifest(manifest) };
 }

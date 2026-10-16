@@ -15,7 +15,7 @@ import {
   previewKind,
 } from "@/resources/artifacts";
 import { messageOf, usePages, useRead } from "@/resources/reads";
-import { environmentPath } from "@/environment-path";
+import { agentPath } from "@/agent-path";
 import { sessionHref } from "@/session-open";
 import {
   ResourceLayout,
@@ -39,7 +39,7 @@ const date = (value: string) => new Date(value).toLocaleString();
 const size = (bytes: number) => `${bytes.toLocaleString()} bytes`;
 
 /**
- * The artifacts page, a session's Outputs tab and an Environment's Disk tab share one
+ * The artifacts page, a session's Outputs tab and an Agent's Disk tab share one
  * inspector, each with its own URL state.
  */
 export type ArtifactSelectionScope = "page" | "session" | "disk";
@@ -101,19 +101,19 @@ type ArtifactSelection = ReturnType<typeof useArtifactSelection>;
 /** The Host feature of artifact pages (`GET /v1/artifacts?limit=…`). */
 const ARTIFACT_READS = "artifact-reads";
 
-/** Who holds an artifact: a session, an Environment's disk, or the Tenant itself. */
+/** Who holds an artifact: a session, an Agent's disk, or the Tenant itself. */
 function ArtifactOwner({
   artifact,
 }: {
-  artifact: Pick<ArtifactView, "sessionId" | "environmentId">;
+  artifact: Pick<ArtifactView, "sessionId" | "agentId">;
 }) {
-  if (artifact.environmentId)
+  if (artifact.agentId)
     return (
       <Link
         className="break-all underline underline-offset-4"
-        to={environmentPath(artifact.environmentId, "disk")}
+        to={agentPath(artifact.agentId, "disk")}
       >
-        {artifact.environmentId} · disk
+        {artifact.agentId} · disk
       </Link>
     );
   if (artifact.sessionId)
@@ -131,8 +131,8 @@ function ArtifactOwner({
 /**
  * The Tenant's artifacts (`/artifacts`): every artifact the Studio key reaches, newest first, in
  * pages (Host feature `artifact-reads`), filtered by kind, session and labels, with each one's
- * owner: a session, an Environment's disk, or the Tenant (an application's upload, such as an
- * input file a pod's recipe copies in). A Host without pages gets the session lookup instead,
+ * owner: a session, an Agent's disk, or the Tenant (an application's upload, such as an input
+ * file a pod's runtime copies in). A Host without pages gets the session lookup instead,
  * since Studio never reads the unbounded list.
  */
 export function Artifacts({ tenantId }: { tenantId: string }) {
@@ -224,8 +224,8 @@ export function Artifacts({ tenantId }: { tenantId: string }) {
         <h1 className="text-xl font-semibold">Artifacts</h1>
         <p className="max-w-3xl text-sm text-muted-foreground">
           Every artifact in the Tenant, newest first: a session's outputs, an
-          Environment's disk versions, and the Tenant's own files, such as the
-          input files a pod's recipe copies in.
+          Agent's disk versions, and the Tenant's own files, such as the input
+          files a pod's runtime copies in.
         </p>
         <ReadState
           pending={features.pending}
@@ -427,7 +427,7 @@ function ArtifactTable({
             ? undefined
             : sessionId || kind || labelKey !== "[]"
               ? "No artifacts match these filters."
-              : "No artifacts yet. They appear when a turn exports outputs, a client uploads a file, or an Environment keeps a disk version."
+              : "No artifacts yet. They appear when a turn exports outputs, a client uploads a file, or an Agent keeps a disk version."
         }
       />
       {page.more ? (

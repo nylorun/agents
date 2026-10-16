@@ -10,6 +10,7 @@ import type { ModelProvider } from "../../src/core/provider.js";
 import { MemoryExecution } from "../../src/execution/memory.js";
 import type { DurableExecution, Wake } from "../../src/execution/types.js";
 import { openTestSessionStore } from "../support/store.js";
+import { deploy, openSession, type AgentSource } from "../support/agents.js";
 import type { TenantRuntime } from "../../src/tenant/runtime.js";
 import { TenantWorkers, type TenantExecution } from "../../src/tenant/worker.js";
 import { startTestTenant } from "../support/tenant.js";
@@ -72,27 +73,8 @@ async function openTurn(
   id = "s1",
   register = true
 ) {
-  if (register) {
-    const put = await fetch(`${runtime.url}/v1/agents/bot`, {
-      method: "PUT",
-      headers: server,
-      body: JSON.stringify({
-        requestId: "put-1",
-        manifest,
-        implementationVersion: "dev",
-      }),
-    });
-    expect(put.ok).toBe(true);
-  }
-  const session = await fetch(`${runtime.url}/v1/sessions/${id}`, {
-    method: "PUT",
-    headers: server,
-    body: JSON.stringify({
-      requestId: `session-${id}`,
-      agentId: "bot",
-      ownerUserId: "u",
-    }),
-  });
+  if (register) await deploy(runtime.url, server, manifest as AgentSource);
+  const session = await openSession(runtime.url, server, id, { agent: "bot", ownerUserId: "u" });
   expect(session.ok).toBe(true);
   const message = await fetch(`${runtime.url}/v1/sessions/${id}/commands`, {
     method: "POST",

@@ -1,7 +1,7 @@
 /**
- * What the Runtime API groups (`agents`, `sessions`, `environments`, `artifacts`) share: their
- * flags, the `@nylorun/agents` client of the installation `target.ts` picks, acting for a subject
- * with `--as`, and how they read input and print output.
+ * What the Runtime API commands (`apply`, `agent-manifests`, `agents`, `sessions`, `artifacts`)
+ * share: their flags, the `@nylorun/agents` client of the installation `target.ts` picks, acting
+ * for a subject with `--as`, and how they read input and print output.
  */
 import { readFile } from "node:fs/promises";
 import {

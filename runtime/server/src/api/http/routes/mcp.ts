@@ -30,7 +30,7 @@ export function mcpRoutes(api: OpenAPIHono<TenantEnv>): void {
       tags: ["MCP servers"],
       summary: "Preview an MCP server's tools",
       description:
-        "Connects to the remote MCP server at `url` with the credential for that URL in the vault of `environmentId`, if given (its headers and `via`; never an identity header), under the Host's address policy, lists its tools within 15 s and closes the connection. It never calls a tool. Each tool comes with the name the model would call it (`modelName`, made with `name`), its annotations and its input schema's size. A server that answers `401` is `authRequired`, with its RFC 9728 protected-resource metadata when it publishes any: it needs a person's sign-in, so reach it through a gateway (`via`), or with a key. No credential value is in the answer.",
+        "Connects to the remote MCP server at `url` with the credential for that URL in the vault of the Agent `agentId`, if given (its headers and `via`; never an identity header), under the Host's address policy, lists its tools within 15 s and closes the connection. It never calls a tool. Each tool comes with the name the model would call it (`modelName`, made with `name`), its annotations and its input schema's size. A server that answers `401` is `authRequired`, with its RFC 9728 protected-resource metadata when it publishes any: it needs a person's sign-in, so reach it through a gateway (`via`), or with a key. No credential value is in the answer.",
       request: {
         body: { required: true, content: { "application/json": { schema: McpPreviewRequest } } },
       },
@@ -38,7 +38,7 @@ export function mcpRoutes(api: OpenAPIHono<TenantEnv>): void {
         200: json(McpPreview, "The server's tools, or that it needs a credential (`authRequired`)"),
         409: json(
           Rejected,
-          "The Environment's credential for the URL cannot be used",
+          "The Agent's credential for the URL cannot be used",
         ),
         502: json(
           Rejected,

@@ -15,7 +15,9 @@ import { Agent } from "@nylorun/core/define";
 import { createClient } from "@nylorun/agents";
 import type { BlobStore } from "../src/blob/index.js";
 import type { ModelProvider } from "../src/core/provider.js";
+import type { RuntimeSection } from "@nylorun/core/contracts";
 import { startTestTenant } from "./support/tenant.js";
+import { deploy, openSession as open } from "./support/agents.js";
 
 const APP = "folders-test-application-key-aaaaaaaa";
 const json = { authorization: `Bearer ${APP}`, "content-type": "application/json" };
@@ -61,28 +63,14 @@ async function boot(
   return runtime;
 }
 
-async function openSession(runtime: Runtime, id: string, extra: Record<string, unknown> = {}) {
-  const agent = Agent({ id: "builder", name: "Builder" }).instructions("Build.").build();
-  const put = await fetch(`${runtime.url}/v1/agents/builder`, {
-    method: "PUT",
-    headers: json,
-    body: JSON.stringify({ requestId: "agent", manifest: agent.manifest, implementationVersion: "dev" }),
-  });
-  expect(put.ok, await put.clone().text()).toBe(true);
-  // A session with a sandbox names an Environment, created first (protocol 11).
-  if (typeof extra.environment === "string") {
-    const environment = await fetch(`${runtime.url}/v1/environments/${extra.environment}`, {
-      method: "PUT",
-      headers: json,
-      body: JSON.stringify({ requestId: `env-${extra.environment}`, kind: "virtual" }),
-    });
-    expect(environment.ok, await environment.clone().text()).toBe(true);
-  }
-  const opened = await fetch(`${runtime.url}/v1/sessions/${id}`, {
-    method: "PUT",
-    headers: json,
-    body: JSON.stringify({ requestId: `open-${id}`, agentId: "builder", ownerUserId: "ada", ...extra }),
-  });
+/**
+ * Opens session `id`: on Agent `agent` (a sandbox's, of kind virtual unless `runtime` says
+ * otherwise, made from manifest `agent`), or on Agent `builder`, of kind none.
+ */
+async function openSession(runtime: Runtime, id: string, agent?: string, section: RuntimeSection = { kind: "virtual" }) {
+  const builder = Agent({ id: "builder", name: "Builder" }).instructions("Build.").build();
+  await deploy(runtime.url, json, builder, agent === undefined ? {} : { name: agent, runtime: section });
+  const opened = await open(runtime.url, json, id, { agent: agent ?? "builder", ownerUserId: "ada" });
   expect(opened.ok, await opened.clone().text()).toBe(true);
 }
 
@@ -192,7 +180,7 @@ it("exports /workspace/outputs at turn end as a folder: tree, files with Range, 
       },
     },
   );
-  await openSession(runtime, "s1", { environment: "env-s1" });
+  await openSession(runtime, "s1", "env-s1");
 
   await turn(runtime, "s1", "build");
   const [created] = await eventually(runtime, "s1", "artifact.created");
@@ -331,7 +319,7 @@ it("exports /workspace/outputs at turn end as a folder: tree, files with Range, 
 
 it("exports nothing without a sandbox, or with no outputs in it", async () => {
   const runtime = await boot(turns([[bash("printf 'x' > notes.txt")], [], [], []]));
-  await openSession(runtime, "boxed", { environment: "env-boxed" });
+  await openSession(runtime, "boxed", "env-boxed");
   await openSession(runtime, "plain");
   // The second turn of each starts only once the first's advance (and its export) has ended.
   await turn(runtime, "boxed", "one");
@@ -355,7 +343,7 @@ it("skips an export past the per-file limit with artifact.export.skipped, and th
     body: JSON.stringify({ limits: { fileBytes: 8 } }),
   });
   expect(limits.status, await limits.clone().text()).toBe(200);
-  await openSession(runtime, "s1", { environment: "env-s1" });
+  await openSession(runtime, "s1", "env-s1");
   await turn(runtime, "s1", "build");
   const [skipped] = await eventually(runtime, "s1", "artifact.export.skipped");
   expect(skipped!.payload).toMatchObject({ name: "outputs", reason: "file_too_large", limit: 8, path: "big.bin" });
@@ -365,21 +353,15 @@ it("skips an export past the per-file limit with artifact.export.skipped, and th
   expect(listed.artifacts).toEqual([]);
 });
 
-it("skips an export past its Environment's own total, which its manifest sets", async () => {
+it("skips an export past its Agent's own total, which its manifest sets", async () => {
   const runtime = await boot(
     turns([
       [bash("mkdir -p outputs && printf 'first-file!!' > outputs/a.txt")],
       [bash("rm outputs/a.txt && printf 'second-file!' > outputs/b.txt")],
     ]),
   );
-  const made = await fetch(`${runtime.url}/v1/environments/env-s1`, {
-    method: "PUT",
-    headers: json,
-    body: JSON.stringify({ kind: "virtual", limits: { artifacts: { totalBytes: 20 } } }),
-  });
-  expect(made.status, await made.clone().text()).toBe(200);
-  await openSession(runtime, "s1", { environment: "env-s1" });
-  // 12 bytes fit the Environment's 20; 12 more do not, though the Tenant's 10 GiB has room.
+  await openSession(runtime, "s1", "env-s1", { kind: "virtual", limits: { artifacts: { totalBytes: 20 } } });
+  // 12 bytes fit the Agent's 20; 12 more do not, though the Tenant's 10 GiB has room.
   await turn(runtime, "s1", "first");
   await eventually(runtime, "s1", "artifact.created");
   await turn(runtime, "s1", "second");
@@ -388,7 +370,7 @@ it("skips an export past its Environment's own total, which its manifest sets", 
     name: "outputs",
     reason: "environment_total",
     limit: 20,
-    message: "Environment env-s1's artifacts may hold at most 20 bytes; this folder version adds 12 to 12",
+    message: "Agent env-s1's artifacts may hold at most 20 bytes; this folder version adds 12 to 12",
   });
 });
 
@@ -397,7 +379,7 @@ it("exports the outputs of a sandbox a harness holds over WebSocket (F6.2)", asy
     turns([[bash("mkdir -p outputs/site && printf '<p>hi</p>' > outputs/site/index.html && printf 'x' > scratch.txt")]]),
     { harness: "ws" },
   );
-  await openSession(runtime, "s1", { environment: "env-s1" });
+  await openSession(runtime, "s1", "env-s1");
   await turn(runtime, "s1", "build");
   const [created] = await eventually(runtime, "s1", "artifact.created");
   expect(created!.payload).toMatchObject({ kind: "folder", name: "outputs", version: 1, source: "engine", fileCount: 1 });

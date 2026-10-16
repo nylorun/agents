@@ -11,11 +11,12 @@ import {
 } from "react-router-dom";
 import { Tabs as TabsPrimitive } from "radix-ui";
 import { ArrowDown, PanelRight, RefreshCw } from "lucide-react";
-import { Environments } from "@/components/environments";
-import { useEnvironmentCatalog } from "@/resources/environments";
-import { environmentFilter, manifestOf } from "@/environment-list";
-import { EnvironmentPage } from "@/components/environment-page";
-import { SessionEnvironmentPanel } from "@/components/session-environment";
+import { Agents } from "@/components/agents";
+import { useAgentCatalog } from "@/resources/agents";
+import { agentFilter as agentListFilter } from "@/agent-list";
+import { AgentPage } from "@/components/agent-page";
+import { AgentManifestPage, AgentManifests } from "@/components/agent-manifests";
+import { SessionAgentPanel } from "@/components/session-agent";
 import { Artifacts, SessionArtifacts } from "@/components/artifacts";
 import { artifactReferences } from "@/resources/artifacts";
 import { AppSidebar } from "@/components/app-sidebar";
@@ -83,30 +84,23 @@ import {
   tenantHref,
   tenantScope,
 } from "@/proxy-client";
-import { AGENT_FILTER, loadSessions, sessionsPath } from "@/session-list";
+import { AGENT_FILTER, loadSessions } from "@/session-list";
 import {
   STUDIO_OWNER,
-  asStudioDefinition,
-  definitionForSession,
   isNewSessionState,
-  newSessionEnvironment,
-  sessionEnvironment,
-  type SessionEnvironment,
+  loadSessionDefinition,
 } from "@/session-open";
 import {
-  environmentPath,
-  environmentRoute,
-  legacyEnvironmentRedirect,
-} from "@/environment-path";
-import { NewSessionProvider } from "@/components/new-session";
+  agentPath,
+  agentRoute,
+  legacyRedirect as legacyRedirectOf,
+  manifestRoute,
+} from "@/agent-path";
+import type { PinnedManifestState } from "@/manifest/model";
 import { ApprovalCard } from "@/components/approval-card";
 import { Markdown } from "@/components/markdown";
 import { pendingApprovals } from "@/approvals";
-import type {
-  AgentManifest,
-  Connection,
-  StudioDefinition,
-} from "@/studio-types";
+import type { AgentManifest, Connection } from "@/studio-types";
 import {
   isWorkflowManifest,
   iterationTimelineFromEvents,
@@ -120,11 +114,6 @@ import {
 } from "@/workflow";
 
 export type { AgentManifest, Connection, SessionSummary } from "@/studio-types";
-
-function hashOf(definition: object): string | undefined {
-  const hash = (definition as { manifestHash?: unknown }).manifestHash;
-  return typeof hash === "string" ? hash : undefined;
-}
 
 function studioClient(tenantId: string) {
   return createTenantClient(tenantId);
@@ -159,14 +148,14 @@ const pretty = (value: unknown) =>
 const code =
   "rounded bg-muted px-1.5 py-0.5 font-mono text-sm text-foreground";
 
-/** The tabs beside a session's chat; `artifacts` is the Outputs tab. */
+/** The tabs beside a session's chat; `artifacts` is the Outputs tab, `agent` where it runs. */
 type InspectorTab =
   | "events"
   | "manifest"
   | "tree"
   | "iterations"
   | "artifacts"
-  | "environment"
+  | "agent"
   | "usage";
 
 /** Where Studio remembers whether the session inspector is shown. */
@@ -207,7 +196,7 @@ const tabTrigger =
 /**
  * Studio serves its installation's one Tenant. `/tenants/<id>/…` is its
  * dashboard, with the router based at `/tenants/<id>` so its routes
- * (`/agents/…`, `/environments/…`, `/settings`) stay Tenant-relative. The server
+ * (`/agents/…`, `/agent-manifests/…`, `/settings`) stay Tenant-relative. The server
  * redirects `/` there.
  */
 export default function App() {
@@ -411,9 +400,7 @@ function StudioRoot({ tenantId }: { tenantId?: string }) {
   // embedder's `navigate`) renders it again.
   return (
     <ViewErrorBoundary resetKey={location.pathname}>
-      <NewSessionProvider tenantId={tenant.id}>
-        <Workspace tenant={tenant} />
-      </NewSessionProvider>
+      <Workspace tenant={tenant} />
     </ViewErrorBoundary>
   );
 }
@@ -441,14 +428,12 @@ function OpenTenant({ tenant }: { tenant: StudioTenantInfo }) {
 function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
   const location = useLocation();
   const embedStatus = useEmbedStatus();
-  const match = location.pathname.match(
-    /^\/agents\/([^/]+)(?:\/sessions\/([^/]+))?/,
-  );
+  const match = location.pathname.match(/^\/agents\/([^/]+)\/sessions\/([^/]+)\/?$/);
   const sessionOnly = location.pathname.match(/^\/sessions\/([^/]+)\/?$/);
   const agentId = match?.[1] ? decodeSegment(match[1]) : undefined;
   const sessionId = match?.[2] ? decodeSegment(match[2]) : undefined;
   const redirectSessionId = sessionOnly?.[1] ? decodeSegment(sessionOnly[1]) : undefined;
-  // A segment that is no valid percent-encoding (`%E0`) names no agent or
+  // A segment that is no valid percent-encoding (`%E0`) names no Agent or
   // session: the view says "not found" instead of throwing a URIError.
   const sessionSegment = match?.[2] ?? sessionOnly?.[1];
   const notFound: RouteNotFoundProps | undefined =
@@ -459,7 +444,6 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
         : undefined;
   const [connection, setConnection] = useState<Connection>({
     status: "Connecting",
-    agents: [],
     sessions: [],
   });
   const [error, setError] = useState("");
@@ -469,93 +453,80 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
     () => ({ start: headerStart, end: headerEnd }),
     [headerStart, headerEnd],
   );
-  const refresh = useCallback(async () => {
+  const catalog = useAgentCatalog(tenant.id);
+  const { reload: reloadCatalog } = catalog;
+  const loadList = useCallback(async () => {
     try {
-      const client = studioClient(tenant.id);
-      const [definitions, sessions] = await Promise.all([
-        client.listAgents(),
-        loadSessions(client),
-      ]);
-      setConnection({
-        status: "Running",
-        url: "Runtime",
-        agents: definitions.agents.map((a) =>
-          asStudioDefinition({
-            manifest: a.manifest as unknown as Record<string, unknown> & {
-              id: string;
-              name?: string;
-            },
-            // The Runtime sends it (ListAgentsResponse); the SDK's listAgents type omits it.
-            manifestHash: hashOf(a),
-          }),
-        ),
-        sessions,
-      });
+      const sessions = await loadSessions(studioClient(tenant.id));
+      setConnection({ status: "Running", url: "Runtime", sessions });
       setError("");
     } catch (e) {
       setError(String(e));
       setConnection((c) => ({ ...c, status: "Offline" }));
     }
   }, [tenant.id]);
+  // The sessions and the Agents, whose states a turn changes.
+  const refresh = useCallback(async () => {
+    reloadCatalog();
+    await loadList();
+  }, [reloadCatalog, loadList]);
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    void loadList();
+  }, [loadList]);
   const waiting =
-    connection.status === "Running" && connection.agents.length === 0;
-  // Until the first agent registers, look for it every few seconds.
+    connection.status === "Running" &&
+    catalog.status === "Ready" &&
+    catalog.agents.length === 0 &&
+    connection.sessions.length === 0;
+  // Until the first Agent is made, look for it every few seconds.
   useEffect(() => {
     if (!waiting) return;
     const timer = window.setInterval(() => void refresh(), 3000);
     return () => window.clearInterval(timer);
   }, [waiting, refresh]);
-  const agent = connection.agents.find((a) => a.id === agentId);
-  // Old Environment, Credentials, vault and sandbox links open the Environment's page.
-  const legacyRedirect = legacyEnvironmentRedirect(location.pathname, location.search);
-  const environment = environmentRoute(location.pathname);
+  // Old Environment, Credentials, vault and sandbox links open the Agent's page.
+  const legacyRedirect = legacyRedirectOf(location.pathname, location.search);
+  const agent = agentRoute(location.pathname);
+  const manifest = manifestRoute(location.pathname);
   const resourceActive =
-    environment !== undefined
-      ? "environments"
-      : location.pathname === "/artifacts"
-        ? "artifacts"
-        : undefined;
+    agent !== undefined
+      ? "agents"
+      : manifest !== undefined
+        ? "manifests"
+        : location.pathname === "/artifacts"
+          ? "artifacts"
+          : undefined;
   const settingsActive = location.pathname === "/settings" ||
     location.pathname.startsWith("/settings/");
   const settingsSection = settingsSectionOf(location.pathname);
-  const environments = useEnvironmentCatalog(tenant.id);
-  const { reload: reloadEnvironments } = environments;
-  // Each move to the Environments list or to an Environment's page reads them again, so the
-  // list and the sidebar's counts follow what was made, forked or deleted.
-  const environmentLocation = environment === undefined ? undefined : location.pathname;
-  const lastEnvironmentLocation = useRef(environmentLocation);
+  // Each move to the Agents, an Agent's page or the manifests reads them again, so the lists
+  // and the sidebar follow what was made, forked or deleted.
+  const catalogLocation =
+    agent === undefined && manifest === undefined ? undefined : location.pathname;
+  const lastCatalogLocation = useRef(catalogLocation);
   useEffect(() => {
-    const previous = lastEnvironmentLocation.current;
-    lastEnvironmentLocation.current = environmentLocation;
-    if (environmentLocation !== undefined && environmentLocation !== previous)
-      reloadEnvironments();
-  }, [environmentLocation, reloadEnvironments]);
-  const filter = environmentFilter(location.search);
-  const openEnvironment =
-    environment?.kind === "environment"
-      ? environments.environments.find((e) => e.id === environment.id)
-      : undefined;
+    const previous = lastCatalogLocation.current;
+    lastCatalogLocation.current = catalogLocation;
+    if (catalogLocation !== undefined && catalogLocation !== previous) reloadCatalog();
+  }, [catalogLocation, reloadCatalog]);
+  const filter = agentListFilter(location.search);
+  const manifestVersion = Number(new URLSearchParams(location.search).get("version"));
   const sessionList = /^\/(?:sessions\/?)?$/u.test(location.pathname);
   const agentFilter =
     new URLSearchParams(location.search).get(AGENT_FILTER) || undefined;
+  const openAgentId = agent?.kind === "agent" ? agent.id : agentId;
   return (
     <SidebarProvider className="h-svh overflow-hidden">
       <AppSidebar
         connection={connection}
         tenant={tenant}
-        sessionsActive={sessionList || sessionId !== undefined}
-        activeAgentId={sessionList ? agentFilter : agentId}
-        settingsSection={settingsSection}
-        environmentsActive={resourceActive === "environments"}
-        environments={environments}
-        activeManifest={
-          environment?.kind === "list"
-            ? filter.manifest
-            : openEnvironment && manifestOf(openEnvironment)
-        }
+        catalog={catalog}
+        sessionsActive={sessionList}
+        agentsActive={resourceActive === "agents" || sessionId !== undefined}
+        manifestsActive={resourceActive === "manifests"}
+        {...(openAgentId === undefined ? {} : { activeAgentId: openAgentId })}
+        {...(agent?.kind === "list" && filter.manifest !== undefined ? { activeManifest: filter.manifest } : {})}
+        {...(settingsSection ? { settingsSection } : {})}
       />
       <SidebarInset className="flex h-svh min-h-0 min-w-0 flex-col overflow-hidden">
         <HeaderSlotContext.Provider value={headerSlots}>
@@ -563,17 +534,21 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
           <SidebarTrigger />
           <Separator orientation="vertical" className="mr-1 data-[orientation=vertical]:h-5" />
           <strong className="max-w-64 shrink-0 truncate">
-            {resourceActive === "environments"
-              ? environment?.kind === "environment"
-                ? "Environment"
-                : "Environments"
-              : resourceActive === "artifacts"
-                ? "Artifacts"
-                : settingsSection
-                  ? SETTINGS_SECTIONS[settingsSection]
-                  : sessionList
-                    ? "Sessions"
-                    : (agent?.name ?? "Nylorun Studio")}
+            {resourceActive === "agents"
+              ? agent?.kind === "agent"
+                ? "Agent"
+                : "Agents"
+              : resourceActive === "manifests"
+                ? manifest?.kind === "manifest"
+                  ? "Agent manifest"
+                  : "Agent manifests"
+                : resourceActive === "artifacts"
+                  ? "Artifacts"
+                  : settingsSection
+                    ? SETTINGS_SECTIONS[settingsSection]
+                    : sessionList
+                      ? "Sessions"
+                      : (agentId ?? "Nylorun Studio")}
           </strong>
           <div ref={setHeaderStart} className="flex min-w-0 items-center gap-2 overflow-hidden" />
           {embedStatus === "reconnecting" || embedStatus === "failed" ? (
@@ -587,10 +562,7 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
             size="icon-sm"
             aria-label="Refresh"
             title="Refresh"
-            onClick={() => {
-              void refresh();
-              reloadEnvironments();
-            }}
+            onClick={() => void refresh()}
           >
             <RefreshCw />
           </Button>
@@ -610,12 +582,30 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
             <Navigate to={`${legacyRedirect}${location.hash}`} replace />
           ) : location.pathname === "/settings" ? (
             <Navigate to={`/settings/models${location.search}${location.hash}`} replace />
-          ) : environment?.kind === "invalid" ? (
-            <RouteNotFound what="environment" segment={environment.segment} />
-          ) : environment?.kind === "environment" ? (
-            <EnvironmentPage key={environment.id} tenantId={tenant.id} id={environment.id} />
-          ) : environment?.kind === "list" ? (
-            <Environments tenantId={tenant.id} catalog={environments} filter={filter} />
+          ) : agent?.kind === "invalid" ? (
+            <RouteNotFound what="agent" segment={agent.segment} />
+          ) : agent?.kind === "agent" ? (
+            <AgentPage
+              key={agent.id}
+              tenantId={tenant.id}
+              id={agent.id}
+              sessions={connection.sessions}
+              onChanged={reloadCatalog}
+            />
+          ) : agent?.kind === "list" ? (
+            <Agents tenantId={tenant.id} catalog={catalog} sessions={connection.sessions} filter={filter} />
+          ) : manifest?.kind === "invalid" ? (
+            <RouteNotFound what="manifest" segment={manifest.segment} />
+          ) : manifest?.kind === "manifest" ? (
+            <AgentManifestPage
+              key={manifest.id}
+              tenantId={tenant.id}
+              name={manifest.id}
+              {...(Number.isSafeInteger(manifestVersion) && manifestVersion > 0 ? { version: manifestVersion } : {})}
+              catalog={catalog}
+            />
+          ) : manifest?.kind === "list" ? (
+            <AgentManifests catalog={catalog} />
           ) : resourceActive === "artifacts" ? (
             <Artifacts tenantId={tenant.id} />
           ) : settingsSection ? (
@@ -623,28 +613,23 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
           ) : settingsActive ? (
             <Navigate to="/settings/overview" replace />
           ) : agentId && sessionId ? (
-            // Any session opens, also one whose agent is not registered (a
-            // flow's embedded agent); the session says which agent it runs.
-            connection.status === "Connecting" ? (
-              <p className="p-8 text-muted-foreground">Opening the session…</p>
-            ) : (
-              <SessionWorkspace
-                key={sessionId}
-                routeAgentId={agentId}
-                agents={connection.agents}
-                sessionId={sessionId}
-                tenantId={tenant.id}
-                refresh={refresh}
-              />
-            )
-          ) : agentId ? (
-            // An agent's page is the session list filtered to it.
-            <Navigate to={sessionsPath(agentId)} replace />
+            <SessionWorkspace
+              key={sessionId}
+              routeAgentId={agentId}
+              sessionId={sessionId}
+              tenantId={tenant.id}
+              refresh={refresh}
+            />
           ) : sessionList ? (
-            waiting && connection.sessions.length === 0 ? (
+            waiting ? (
               <TenantOverview tenant={tenant} waitingForAgents />
             ) : (
-              <SessionsTable connection={connection} agentFilter={agentFilter} />
+              <SessionsTable
+                connection={connection}
+                agents={catalog.agents}
+                manifests={catalog.manifests}
+                {...(agentFilter === undefined ? {} : { agentFilter })}
+              />
             )
           ) : (
             <RouteNotFound what="page" segment={location.pathname} />
@@ -657,7 +642,7 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
 }
 
 type RouteNotFoundProps = {
-  what: "agent" | "session" | "environment" | "page";
+  what: "agent" | "session" | "manifest" | "page";
   segment: string;
 };
 
@@ -670,20 +655,21 @@ function RouteNotFound({ what, segment }: RouteNotFoundProps) {
           ? "Agent not found"
           : what === "session"
             ? "Session not found"
-            : what === "environment"
-              ? "Environment not found"
+            : what === "manifest"
+              ? "Agent manifest not found"
               : "Page not found"}
       </h1>
       <p className="mt-2 text-muted-foreground">
-        This Tenant has no {what} <code className={code}>{segment}</code>.
+        This Tenant has no {what === "manifest" ? "agent manifest" : what === "agent" ? "Agent" : what}{" "}
+        <code className={code}>{segment}</code>.
       </p>
     </section>
   );
 }
 
 /**
- * `/tenants/:tenant/sessions/:session` (Studio §8.3): finds the session's agent
- * and replaces itself with the agent's session page. Embedders often know only
+ * `/tenants/:tenant/sessions/:session` (Studio §8.3): finds the session's Agent
+ * and replaces itself with the session's page under it. Embedders often know only
  * the session id.
  */
 function SessionRedirect({
@@ -738,56 +724,66 @@ function SessionRedirect({
 
 type SessionLoad =
   | { kind: "loading" }
-  | { kind: "ready"; agentId: string }
+  | {
+      kind: "ready";
+      agentId: string;
+      definition: AgentManifest;
+      pinned: PinnedManifestState;
+      hasSandbox: boolean;
+    }
   | { kind: "not-found" }
   | { kind: "failed"; message: string };
 
 /**
- * Opens a session by reading it. Only Studio's own "New session" creates one:
- * a PUT with Studio's parameters would answer 409 for a session an application
- * created with another owner, Environment or info.
+ * Opens a session by reading it. Only Studio's own "New session" creates one, on
+ * the Agent its route names: a PUT with Studio's parameters would answer 409 for
+ * a session an application created with another owner, Agent or info. What it
+ * runs is the loop manifest it pinned.
  */
 function SessionWorkspace({
   routeAgentId,
-  agents,
   sessionId,
   tenantId,
   refresh,
 }: {
   routeAgentId: string;
-  agents: readonly StudioDefinition[];
   sessionId: string;
   tenantId: string;
   refresh: () => Promise<void>;
 }) {
   const location = useLocation();
   const create = isNewSessionState(location.state);
-  // The Environment Studio's "New session" picked, kept from the first render of this session.
-  const [environment] = useState(() => newSessionEnvironment(location.state));
-  const routeAgent = agents.find((a) => a.id === routeAgentId);
-  const routeAgentKnown = routeAgent !== undefined;
   const [load, setLoad] = useState<SessionLoad>({ kind: "loading" });
   useEffect(() => {
     const abort = new AbortController();
     const sdk = studioClient(tenantId);
     void (async () => {
+      let agentId: string;
       try {
-        const view = await sdk.session(sessionId).inspect(abort.signal);
-        if (!abort.signal.aborted) setLoad({ kind: "ready", agentId: view.agentId });
+        agentId = (await sdk.session(sessionId).inspect(abort.signal)).agentId;
       } catch (cause) {
         if ((cause as { status?: unknown }).status !== 404) throw cause;
-        if (!create || !routeAgentKnown) {
+        if (!create) {
           if (!abort.signal.aborted) setLoad({ kind: "not-found" });
           return;
         }
         await sdk.createSession({
           id: sessionId,
-          agentId: routeAgentId,
+          agent: routeAgentId,
           ownerUserId: STUDIO_OWNER,
-          ...environment,
         });
-        if (!abort.signal.aborted) setLoad({ kind: "ready", agentId: routeAgentId });
+        agentId = routeAgentId;
       }
+      const [{ definition, pinned }, hasSandbox] = await Promise.all([
+        loadSessionDefinition(sdk, sessionId, agentId, abort.signal),
+        // An Agent that cannot be read, such as a deleted one, counts as a sandbox.
+        sdk.agents.get(agentId, { signal: abort.signal }).then(
+          (found) => found.kind !== "none",
+          () => true,
+        ),
+      ]);
+      if (!abort.signal.aborted)
+        setLoad({ kind: "ready", agentId, definition, pinned, hasSandbox });
     })().catch((cause: unknown) => {
       if (!abort.signal.aborted)
         setLoad({
@@ -796,7 +792,7 @@ function SessionWorkspace({
         });
     });
     return () => abort.abort();
-  }, [tenantId, sessionId, routeAgentId, routeAgentKnown, create]);
+  }, [tenantId, sessionId, routeAgentId, create]);
 
   if (load.kind === "loading")
     return <p className="p-8 text-muted-foreground">Opening the session…</p>;
@@ -819,10 +815,10 @@ function SessionWorkspace({
     );
   return (
     <SessionView
-      agent={definitionForSession(load.agentId, agents, [
-        lookupWorkflowLink(sessionId)?.workflowAgentId,
-        routeAgentId,
-      ])}
+      agent={load.definition}
+      agentId={load.agentId}
+      pinned={load.pinned}
+      hasSandbox={load.hasSandbox}
       sessionId={sessionId}
       tenantId={tenantId}
       refresh={refresh}
@@ -832,11 +828,19 @@ function SessionWorkspace({
 
 function SessionView({
   agent,
+  agentId,
+  pinned,
+  hasSandbox,
   sessionId,
   tenantId,
   refresh,
 }: {
+  /** What the session runs: the loop manifest it pinned. */
   agent: AgentManifest;
+  /** The Agent it runs on. */
+  agentId: string;
+  pinned: PinnedManifestState;
+  hasSandbox: boolean;
   sessionId: string;
   tenantId?: string;
   refresh: () => Promise<void>;
@@ -867,14 +871,14 @@ function SessionView({
   >();
   const workflowLink = lookupWorkflowLink(sessionId);
   const [sessionQuery, setSessionQuery] = useSearchParams();
-  // `null`: the session names no Environment; undefined until the session view loads.
-  const [environment, setEnvironment] = useState<SessionEnvironment | null>();
   useEffect(() => {
-    const tab = sessionQuery.get("inspector");
+    const asked = sessionQuery.get("inspector");
+    // `environment` named the session's Environment tab before protocol 16.
+    const tab = asked === "environment" ? "agent" : asked;
     setActiveTab(
       tab === "artifacts" ||
         tab === "events" ||
-        tab === "environment" ||
+        tab === "agent" ||
         tab === "manifest" ||
         tab === "usage" ||
         (isWorkflow && (tab === "tree" || tab === "iterations"))
@@ -912,12 +916,11 @@ function SessionView({
       setEvents(loaded);
       if (isWorkflow) {
         rememberWorkflowLinks(
-          linksFromEvents(loaded, sessionId, { workflowAgentId: agent.id }),
+          linksFromEvents(loaded, sessionId, { workflowAgentId: agentId }),
         );
       }
       const inspect = await current.inspect(abort.signal);
       setStatus(inspect.status);
-      setEnvironment(sessionEnvironment(inspect) ?? null);
       await refresh();
       for await (const event of current.observe({
         cursor: history.cursor ?? undefined,
@@ -929,7 +932,7 @@ function SessionView({
           ]);
           if (isWorkflow) {
             rememberWorkflowLinks(
-              linksFromEvents(next, sessionId, { workflowAgentId: agent.id }),
+              linksFromEvents(next, sessionId, { workflowAgentId: agentId }),
             );
           }
           return next;
@@ -943,14 +946,13 @@ function SessionView({
       if (!abort.signal.aborted) setError(String(e));
     });
     return () => abort.abort();
-  }, [sessionId, agent.id, refresh, tenantId, isWorkflow]);
+  }, [sessionId, agentId, refresh, tenantId, isWorkflow]);
 
   useEffect(() => {
     setSelectedEvent(undefined);
     setDetailsOpen(false);
     setSelectedNode(undefined);
     setSelectedIteration(undefined);
-    setEnvironment(undefined);
     // An uploaded attachment belongs to its session.
     setAttachments([]);
   }, [sessionId, isWorkflow]);
@@ -1100,19 +1102,13 @@ function SessionView({
             ) : null}
           </HeaderSlot>
           <HeaderSlot side="end">
-            {environment ? (
-              <Link
-                className="hidden max-w-56 truncate whitespace-nowrap text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline lg:inline"
-                to={environmentPath(environment.id)}
-                title={environment.id}
-              >
-                Environment: {environment.id}
-              </Link>
-            ) : environment === null ? (
-              <span className="hidden whitespace-nowrap text-xs text-muted-foreground lg:inline">
-                Environment: None
-              </span>
-            ) : null}
+            <Link
+              className="hidden max-w-56 truncate whitespace-nowrap text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline lg:inline"
+              to={agentPath(agentId)}
+              title={agentId}
+            >
+              Agent: {agentId}
+            </Link>
             <Button
               variant="ghost"
               size="icon-sm"
@@ -1363,10 +1359,10 @@ function SessionView({
                 value="manifest"
                 className={tabTrigger}
               >
-                {workflowManifest ? "Workflow" : "Agent"}
+                {workflowManifest ? "Workflow" : "Manifest"}
               </TabsPrimitive.Trigger>
-              <TabsPrimitive.Trigger value="environment" className={tabTrigger}>
-                Environment
+              <TabsPrimitive.Trigger value="agent" className={tabTrigger}>
+                Agent
               </TabsPrimitive.Trigger>
               <TabsPrimitive.Trigger value="artifacts" className={tabTrigger}>
                 Outputs
@@ -1433,21 +1429,23 @@ function SessionView({
             />
           </TabsPrimitive.Content>
           <TabsPrimitive.Content
-            value="environment"
+            value="agent"
             className="flex min-h-0 flex-1 flex-col overflow-hidden outline-none"
           >
-            <SessionEnvironmentPanel
+            <SessionAgentPanel
               tenantId={tenantId}
               sessionId={sessionId}
-              agentId={agent.id}
-              environment={environment}
+              agentId={agentId}
+              {...((pinned.kind === "pinned" || pinned.kind === "agent") && pinned.version
+                ? { version: pinned.version }
+                : {})}
             />
           </TabsPrimitive.Content>
           <TabsPrimitive.Content
             value="manifest"
             className="flex min-h-0 flex-1 flex-col overflow-hidden outline-none"
           >
-            <AgentManifestPanel agent={agent} tenantId={tenantId} sessionId={sessionId} />
+            <AgentManifestPanel agent={agent} pinned={pinned} hasSandbox={hasSandbox} />
           </TabsPrimitive.Content>
           <TabsPrimitive.Content
             value="usage"

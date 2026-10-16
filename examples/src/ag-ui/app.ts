@@ -33,11 +33,15 @@ export function createSupportApp(options: { client?: AgentsClient; admin?: Manag
     handler,
     listener: toNodeListener({ fetch }),
     /**
-     * Saves the support agent, whose tool the Runtime reaches at `origin` + `TOOLS_PATH`, and adds
-     * the rule that asks the person before each lookup to the Tenant's tool policy.
+     * Saves the support agent's manifest, whose tool the Runtime reaches at `origin` +
+     * `TOOLS_PATH`, makes the Agent `support` the endpoint runs (kind `none`: no sandbox, so one
+     * Agent serves every person), and adds the rule that asks the person before each lookup to the
+     * Tenant's tool policy. The Agent keeps the version it was made from.
      */
     save: async (origin: string) => {
-      const saved = await (client ?? (await createClient())).saveAgent(supportAgent(origin));
+      const runtime = client ?? (await createClient());
+      const saved = await runtime.agentManifests.save({ agent: supportAgent(origin) });
+      await runtime.agents.put("support", { manifest: "support" });
       const admin = options.admin ?? createAdmin();
       const { rules } = await admin.toolPolicy.get();
       const others = rules.filter((rule) => !(rule.agent === "support" && rule.tool === "lookup_order"));

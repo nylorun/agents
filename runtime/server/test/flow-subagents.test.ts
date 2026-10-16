@@ -58,13 +58,13 @@ describe("a flow agent as a subagent, end to end", { timeout: 30_000 }, () => {
     const tenant = await startTestTenant({ applicationKey: APP, modelProvider: provider });
     cleanups.push(() => tenant.close());
     const client = createClient({ url: tenant.url, key: tenant.applicationKey, tenant: tenant.tenantId });
-    await client.saveAgent(lead, { implementationVersion: "phase-3" });
+    await client.agentManifests.save({ agent: lead });
+    await client.agents.put("lead", { manifest: "lead" });
 
-    // The flow is embedded in the parent's manifest, not registered on its own.
-    const { agents } = await client.listAgents();
-    expect(agents.map((a) => a.manifest.id)).toEqual(["lead"]);
+    // The flow is embedded in the parent's manifest, not saved on its own.
+    expect((await client.agentManifests.list()).map((manifest) => manifest.name)).toEqual(["lead"]);
 
-    const session = await client.createSession({ id: "lead-1", agentId: "lead", ownerUserId: "user-1" });
+    const session = await client.createSession({ id: "lead-1", agent: "lead", ownerUserId: "user-1" });
     const events: { type: string; sessionId: string; payload: any }[] = [];
     const done = (async () => {
       for await (const event of session.observe({ follow: true })) {
@@ -90,7 +90,12 @@ describe("a flow agent as a subagent, end to end", { timeout: 30_000 }, () => {
     const flowSession = linked.payload.sessionId as string;
     // The flow's own session: a workflow session whose agents are linked in turn.
     const flow = await client.session(flowSession).inspect();
-    expect(flow).toMatchObject({ agentId: "research", status: "completed" });
+    // It runs on the parent's Agent, under the parent's manifest version; its loop is the flow's.
+    expect(flow).toMatchObject({ agentId: "lead", manifest: { name: "lead", version: 1 }, status: "completed" });
+    const pinned = (await (
+      await fetch(`${tenant.url}/v1/sessions/${flowSession}/manifest`, { headers: tenant.headers() })
+    ).json()) as { agentId: string; manifest: { id: string; kind?: string } };
+    expect(pinned).toMatchObject({ agentId: "lead", manifest: { id: "research", kind: "workflow" } });
     const flowEvents: { type: string; payload: any }[] = [];
     for await (const event of client.session(flowSession).observe()) {
       flowEvents.push({ type: event.type, payload: event.payload });
@@ -127,8 +132,9 @@ describe("a flow agent as a subagent, end to end", { timeout: 30_000 }, () => {
     cleanups.push(() => tenant.close());
     cleanups.push(async () => release());
     const client = createClient({ url: tenant.url, key: tenant.applicationKey, tenant: tenant.tenantId });
-    await client.saveAgent(lead, { implementationVersion: "phase-3" });
-    const session = await client.createSession({ id: "lead-2", agentId: "lead", ownerUserId: "user-1" });
+    await client.agentManifests.save({ agent: lead });
+    await client.agents.put("lead", { manifest: "lead" });
+    const session = await client.createSession({ id: "lead-2", agent: "lead", ownerUserId: "user-1" });
     await session.input("Research the sky.", { idempotencyKey: "msg-1" });
     await searching;
 

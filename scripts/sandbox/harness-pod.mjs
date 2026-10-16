@@ -6,10 +6,10 @@
 //
 // Builds the example harness's image (`examples/harness-minimal`), starts a Tenant
 // (`nylorun start --no-studio`) and turns on its fixture model and sandbox pods. A session on a
-// pod Environment whose `image` is the example and whose `harness` is `minimal` runs `bash`: the
-// pod runs the image's own entrypoint, joins with its join token, takes the turn and runs the
-// command in /workspace. Our harness stays in its container beside it and serves a session with
-// no Environment at the same time.
+// pod Agent, made from an agent manifest whose `harness.id` is `minimal` and whose runtime is a
+// pod with the example as its `image`, runs `bash`: the pod runs the image's own entrypoint, joins
+// with its join token, takes the turn and runs the command in /workspace. Our harness stays in
+// its container beside it and serves a session on a kind none Agent at the same time.
 //
 // Needs what `npm run test:sandboxes` needs (kubectl, a context with agent-sandbox, the workspace
 // builds, images the cluster's node can use: CI loads them with `kind load docker-image`).
@@ -69,25 +69,31 @@ await withStack({ name: "nylorun-harness-pod", images, startArgs: ["--no-studio"
   const seeded = await manage("PUT", "/v1/tenant/config/seed", { fixtureModel: true });
   if (!seeded.ok) throw new Error(`PUT /v1/tenant/config/seed: ${seeded.status} ${await seeded.text()}`);
   const prefix = `hp-${randomUUID().slice(0, 8)}`;
-  await api("PUT", `/v1/agents/${prefix}-agent`, {
+  // Two agent manifests of one harness section: one runs in our harness with no runtime (kind
+  // none), the other names the harness `minimal`, which runs from its pod's image.
+  const harness = { instructions: ["Answer briefly."] };
+  await api("PUT", `/v1/agent-manifests/${prefix}-ours`, {
     requestId: randomUUID(),
-    manifest: {
-      manifestSchemaVersion: 7,
-      id: `${prefix}-agent`,
-      name: "Harness pod",
-      instructions: ["Answer briefly."],
-    },
-    implementationVersion: "harness-pod",
+    manifestSchemaVersion: 8,
+    name: `${prefix}-ours`,
+    harness,
   });
-  await api("PUT", `/v1/environments/${prefix}-pod`, { kind: "pod", harness: "minimal", image: exampleImage });
+  await api("PUT", `/v1/agent-manifests/${prefix}-pod`, {
+    requestId: randomUUID(),
+    manifestSchemaVersion: 8,
+    name: `${prefix}-pod`,
+    harness: { id: "minimal", ...harness },
+    runtime: { kind: "pod", image: exampleImage },
+  });
+  for (const name of [`${prefix}-ours`, `${prefix}-pod`])
+    await api("PUT", `/v1/agents/${name}`, { requestId: randomUUID(), manifest: name });
 
-  /** Opens `session`, sends `content` and waits for the turn's end: the session's items. */
-  const turn = async (session, content, environment) => {
+  /** Opens `session` on Agent `agent`, sends `content` and waits for the turn's end: its items. */
+  const turn = async (session, agent, content) => {
     await api("PUT", `/v1/sessions/${session}`, {
       requestId: randomUUID(),
-      agentId: `${prefix}-agent`,
+      agent,
       ownerUserId: "harness-pod",
-      ...(environment ? { environment } : {}),
     });
     const requestId = randomUUID();
     await api("POST", `/v1/sessions/${session}/commands`, { type: "message", requestId, idempotencyKey: requestId, content });
@@ -104,9 +110,9 @@ await withStack({ name: "nylorun-harness-pod", images, startArgs: ["--no-studio"
     if (!ok) failed = true;
   };
 
-  step(`a session on the pod Environment, harness minimal as ${exampleImage}, beside ours`);
+  step(`a session on the pod Agent, harness minimal as ${exampleImage}, beside ours`);
   const command = `fixture:tool bash ${JSON.stringify({ command: "echo nylorun-pod:$(pwd)" })}`;
-  const [pod, ours] = await Promise.all([turn(`${prefix}-pod`, command, `${prefix}-pod`), turn(`${prefix}-ours`, "fixture:text")]);
+  const [pod, ours] = await Promise.all([turn(`${prefix}-pod`, `${prefix}-pod`, command), turn(`${prefix}-ours`, `${prefix}-ours`, "fixture:text")]);
   const podEnd = pod.find((item) => /^turn\.(completed|failed|cancelled)$/.test(item.type));
   check(
     podEnd?.type === "turn.completed" && podEnd.source?.kind === "harness" && podEnd.source.id === "minimal",
@@ -118,8 +124,8 @@ await withStack({ name: "nylorun-harness-pod", images, startArgs: ["--no-studio"
     `bash ran in /workspace: ${JSON.stringify(ran?.payload?.output?.stdout ?? null)}`
   );
   const oursEnd = ours.find((item) => item.type === "turn.completed");
-  check(oursEnd?.source?.kind === "harness" && oursEnd.source.id === "nylorun", "our harness served the session with no Environment at the same time");
-  await api("DELETE", `/v1/environments/${prefix}-pod`).catch(() => {});
+  check(oursEnd?.source?.kind === "harness" && oursEnd.source.id === "nylorun", "our harness served the session on a kind none Agent at the same time");
+  await api("DELETE", `/v1/agents/${prefix}-pod`).catch(() => {});
   if (failed) await stack.logs().catch(() => {});
 });
 console.log(failed ? "\nharness-pod: FAILED" : "\nharness-pod: passed");

@@ -6,9 +6,12 @@ import { PROTOCOL_FEATURES, PROTOCOL_VERSION } from "@nylorun/agents";
 
 export const TENANT = "tn_00000000000000000000000001";
 export const SESSION = "s-resource";
-export const ENVIRONMENT = "team/build";
-/** A pod Environment with setup commands and an input file. */
+/** A virtual Agent made from `analyst-box`, which it tracks: it runs v2, and v3 is the latest. */
+export const AGENT = "team/build";
+/** A pod Agent with setup commands and an input file. */
 export const POD = "team/pod";
+/** An Agent pinned to `analyst-box@3`, whose session waits on a person: it sorts first. */
+export const ASKING = "z-last";
 export const INPUT_ARTIFACT = "af_01k7aaaaaaaaaaaaaaaaaaaaaa";
 const time = "2026-10-10T00:00:00.000Z";
 const html =
@@ -47,50 +50,78 @@ const entry = {
   contentType: "text/html",
   sha256: "b".repeat(64),
 };
-const environment = (id: string, fields: Record<string, unknown> = {}) => ({
+const runtime = {
+  resources: { cpus: 1, memory: "1024MiB" },
+  network: { allowedHosts: ["pypi.org"] },
+  harness: "nylorun",
+  lifecycle: { idle: "15m" },
+};
+const agent = (id: string, fields: Record<string, unknown> = {}) => ({
   id,
+  manifest: "analyst-box",
+  resolvedVersion: 2,
+  manifestHash: "m2",
+  tracking: "tracking",
   kind: "virtual",
+  harness: "nylorun",
+  owner: null,
   labels: { project: "build" },
-  manifest: {
-    resources: { cpus: 1, memory: "1024MiB" },
-    network: { allowedHosts: ["pypi.org"] },
-    harness: "nylorun",
-    lifecycle: { idle: "15m" },
+  state: "sleeping",
+  attention: [],
+  desired: "on",
+  compute: { state: "ready" },
+  runtime,
+  limits: {
+    artifacts: { fileBytes: 1, totalBytes: 1 },
+    skills: { totalBytes: 1 },
+    disk: { versionBytes: 1, versionEntries: 1 },
   },
-  version: 2,
-  appliedVersion: 2,
-  ownerUserId: null,
-  state: "stopped",
+  sessions: [{ id: SESSION, ownerUserId: "alice", status: "idle", activeTurnId: null }],
+  slots: [{ name: "github", type: "bearer", required: false, set: true }],
+  disk: { latestVersion: null, operation: null },
+  forkedFrom: null,
   lastUsedAt: time,
-  sessions: [{ id: SESSION, activeTurnId: null }],
   createdAt: time,
   updatedAt: time,
   ...fields,
 });
-/** A saved environment manifest, and an Environment made from its version 3. */
-const analystBox = {
+/** A saved agent manifest's versions: v3 is the latest. */
+const analystBox = (version: number) => ({
   name: "analyst-box",
-  version: 3,
-  manifest: { manifestSchemaVersion: 1, name: "analyst-box", kind: "virtual" },
-  manifestHash: "m",
-  environments: 1,
+  version,
+  hash: `m${version}`,
+  manifest: {
+    manifestSchemaVersion: 8,
+    name: "analyst-box",
+    description: "Answers questions about data.",
+    harness: {
+      instructions: ["Analyse the data."],
+      mcpServers: { github: { name: "github", type: "streamable-http", url: "https://api.githubcopilot.com/mcp/" } },
+    },
+    runtime: { kind: "virtual", network: { allowedHosts: ["pypi.org"] }, lifecycle: { idle: "15m" } },
+  },
+  savedBy: { actor: "application" },
   createdAt: time,
-  savedBy: { actor: "studio" },
-};
-const fromManifest = (id: string) =>
-  environment(id, {
-    labels: { team: "data" },
-    manifestName: "analyst-box",
-    manifestVersion: 3,
-    sessions: [],
-  });
+  agents: version === 2 ? 1 : version === 3 ? 1 : 0,
+});
+const asking = agent(ASKING, {
+  manifest: "analyst-box@3",
+  resolvedVersion: 3,
+  tracking: "pinned",
+  labels: { team: "data" },
+  owner: "local-developer",
+  state: "input_required",
+  attention: [{ state: "input_required", sessionId: "s-ask", reason: "paused" }],
+  sessions: [{ id: "s-ask", ownerUserId: "local-developer", status: "paused", activeTurnId: null }],
+  lastUsedAt: "2026-09-01T00:00:00.000Z",
+});
 /** The folder artifact that holds `team/build`'s disk versions. */
 const disk = {
   ...folder,
   artifactId: "a-disk",
   name: "disk",
   sessionId: undefined,
-  environmentId: ENVIRONMENT,
+  agentId: AGENT,
 };
 /** A Tenant-owned file an application uploaded: a pod's input file. */
 const input = {
@@ -104,9 +135,11 @@ const input = {
   versions: [version(1, "text/plain")],
 };
 const pod = (id: string) =>
-  environment(id, {
+  agent(id, {
+    manifest: "pod-box",
+    resolvedVersion: 1,
     kind: "pod",
-    manifest: {
+    runtime: {
       image: "python:3.13-slim",
       resources: { cpus: 1, memory: "1024MiB" },
       storage: "5GiB",
@@ -116,9 +149,10 @@ const pod = (id: string) =>
       setup: [{ command: "pip install -r requirements.txt", cwd: "/workspace/app" }],
       files: [{ artifactId: INPUT_ARTIFACT, version: 1, path: "/workspace/data" }],
     },
-    state: "running",
-    pod: { desired: "running", observed: "running", volumeGeneration: 1, hostEpoch: 1 },
-    disk: { latestVersion: null },
+    compute: {
+      state: "running",
+      pod: { desired: "running", observed: "running", volumeGeneration: 1, hostEpoch: 1 },
+    },
     sessions: [],
   });
 const secret = {
@@ -129,7 +163,7 @@ const secret = {
 };
 const summary = {
   id: SESSION,
-  agentId: "external-agent",
+  agentId: AGENT,
   ownerUserId: "alice",
   status: "idle",
   activeTurnId: null,
@@ -190,45 +224,45 @@ export async function resourceRuntime({ artifactReads = true } = {}) {
             "session-reads",
             "environment-setup",
             "environment-disk-versions",
-            "environment-manifests",
             ...(artifactReads ? ["artifact-reads"] : []),
           ],
         },
       });
     if (path === "/v1/tenant")
       return send(200, { tenant: { id: TENANT, name: "Resource fixture" } });
-    if (path === "/v1/agents") return send(200, { agents: [] });
-    if (path === "/v1/environment-manifests") return send(200, { manifests: [analystBox] });
-    if (path === "/v1/environments")
+    if (path === "/v1/agents") return send(200, { agents: [agent(AGENT), asking, pod(POD)] });
+    if (path === "/v1/agent-manifests")
+      return send(200, { manifests: [analystBox(3), { ...analystBox(1), name: "pod-box", manifest: { ...analystBox(1).manifest, name: "pod-box" } }] });
+    if (path === "/v1/agent-manifests/analyst-box") return send(200, analystBox(3));
+    if (path === "/v1/agent-manifests/analyst-box/versions")
       return send(200, {
-        environments: url.searchParams.has("limit")
-          ? [environment(url.searchParams.has("cursor") ? "z-last" : ENVIRONMENT)]
-          : [environment(ENVIRONMENT), fromManifest("z-last")],
-        ...(url.searchParams.has("limit")
-          ? {
-              nextCursor:
-                url.searchParams.has("cursor") || url.searchParams.has("label")
-                  ? null
-                  : "page2",
-            }
-          : {}),
+        name: "analyst-box",
+        latest: 3,
+        versions: [3, 2, 1].map((n) => {
+          const { manifest: _, name: __, ...rest } = analystBox(n);
+          return rest;
+        }),
       });
-    if (path === "/v1/environments/team%2Fbuild" && req.method === "GET")
+    if (/^\/v1\/agent-manifests\/analyst-box\/versions\/[1-3]$/.test(path))
+      return send(200, analystBox(Number(path.split("/")[5])));
+    if (path.startsWith("/v1/agent-manifests/"))
+      return send(404, { code: "manifest_not_found", message: "Agent manifest not found" });
+    if (path === "/v1/agents/team%2Fbuild" && req.method === "GET")
       return send(
         200,
-        environment(ENVIRONMENT, {
-          disk: { latestVersion: 2 },
+        agent(AGENT, {
+          disk: { latestVersion: 2, operation: null },
           sessions: [
-            { id: SESSION, activeTurnId: null },
-            { id: "s-other", activeTurnId: "t9" },
+            { id: SESSION, ownerUserId: "alice", status: "idle", activeTurnId: null },
+            { id: "s-other", ownerUserId: "bob", status: "running", activeTurnId: "t9" },
           ],
         }),
       );
-    if (path === "/v1/environments/team%2Fpod" && req.method === "GET")
-      return send(200, pod(POD));
-    if (path === "/v1/environments/team%2Fbuild/versions")
+    if (path === "/v1/agents/team%2Fpod" && req.method === "GET") return send(200, pod(POD));
+    if (path === "/v1/agents/z-last" && req.method === "GET") return send(200, asking);
+    if (path === "/v1/agents/team%2Fbuild/versions")
       return send(200, {
-        environmentId: ENVIRONMENT,
+        agentId: AGENT,
         artifactId: disk.artifactId,
         latest: 2,
         versions: [
@@ -236,9 +270,9 @@ export async function resourceRuntime({ artifactReads = true } = {}) {
           { version: 1, bytes: 2048, createdAt: time },
         ],
       });
-    if (path === "/v1/environments/team%2Fbuild/snapshot" && req.method === "POST")
+    if (path === "/v1/agents/team%2Fbuild/snapshot" && req.method === "POST")
       return send(200, {
-        environmentId: ENVIRONMENT,
+        agentId: AGENT,
         artifactId: disk.artifactId,
         version: 3,
         format: "nylorun.folder.v2",
@@ -247,73 +281,87 @@ export async function resourceRuntime({ artifactReads = true } = {}) {
         storedBytes: 1024,
         durationMs: 40,
         unchanged: false,
+        createdAt: time,
       });
-    if (path === "/v1/environments/team%2Fbuild/restore" && req.method === "POST")
-      return send(200, {
-        environmentId: ENVIRONMENT,
-        restored: JSON.parse(raw).version,
-        status: "done",
+    if (path === "/v1/agents/team%2Fbuild/restore" && req.method === "POST")
+      return send(200, { agentId: AGENT, restored: JSON.parse(raw).version, status: "done" });
+    if (/^\/v1\/agents\/team%2Fbuild\/versions\/\d+$/.test(path) && req.method === "DELETE")
+      return send(200, { agentId: AGENT, version: Number(path.split("/")[5]), deleted: true });
+    if (/^\/v1\/agents\/[^/]+\/fork$/.test(path) && req.method === "POST") {
+      const body = JSON.parse(raw);
+      const plan = {
+        source: decodeURIComponent(path.split("/")[3]!),
+        id: body.id,
+        kind: "virtual",
+        manifest: { name: "analyst-box", version: body.manifest === "analyst-box@3" ? 3 : 2 },
+        disk: body.disk === "empty" ? null : body.disk,
+        setup: false,
+        secrets: { copied: body.secrets === "none" ? [] : ["github"], dropped: [], missing: [] },
+        changes: body.manifest === "analyst-box@3" ? [{ path: "harness.instructions", from: [], to: [] }] : [],
+        sessions: 2,
+      };
+      if (body.dryRun) return send(200, { dryRun: true, plan });
+      return send(201, {
+        agent: agent(body.id, {
+          manifest: body.manifest ?? "analyst-box",
+          resolvedVersion: plan.manifest.version,
+          forkedFrom: { agent: plan.source, disk: typeof body.disk === "number" ? body.disk : 2 },
+          sessions: [],
+        }),
+        plan: { ...plan, disk: typeof body.disk === "number" ? body.disk : 2 },
       });
-    if (/^\/v1\/environments\/team%2Fbuild\/versions\/\d+$/.test(path) && req.method === "DELETE")
-      return send(200, {
-        environmentId: ENVIRONMENT,
-        version: Number(path.split("/")[5]),
-        deleted: true,
-      });
-    if (/^\/v1\/environments\/[^/]+$/.test(path) && req.method === "PUT") {
+    }
+    if (/^\/v1\/agents\/[^/]+$/.test(path) && req.method === "PUT") {
       const body = JSON.parse(raw);
       const id = decodeURIComponent(path.split("/")[3]!);
+      const at = body.manifest.lastIndexOf("@");
       return send(
         200,
-        environment(id, {
-          kind: body.kind ?? "virtual",
+        agent(id, {
+          manifest: body.manifest,
+          resolvedVersion: at > 0 ? Number(body.manifest.slice(at + 1)) : 3,
+          tracking: at > 0 ? "pinned" : "tracking",
           labels: body.labels ?? {},
-          ownerUserId: body.ownerUserId ?? null,
-          version: id === ENVIRONMENT ? 3 : 1,
-          appliedVersion: id === ENVIRONMENT ? 3 : 1,
+          owner: body.owner ?? null,
           sessions: [],
         }),
       );
     }
-    // Any other Environment Studio created reads back as a fresh virtual one.
-    if (/^\/v1\/environments\/[^/]+$/.test(path) && req.method === "GET" && !path.endsWith("/missing"))
-      return send(200, environment(decodeURIComponent(path.split("/")[3]!), { sessions: [] }));
-    if (/^\/v1\/environments\/[^/]+$/.test(path) && req.method === "DELETE")
+    // Any other Agent Studio created reads back as a fresh virtual one.
+    if (/^\/v1\/agents\/[^/]+$/.test(path) && req.method === "GET" && !path.endsWith("/missing"))
+      return send(200, agent(decodeURIComponent(path.split("/")[3]!), { sessions: [] }));
+    if (/^\/v1\/agents\/[^/]+$/.test(path) && req.method === "DELETE")
       return send(200, { id: decodeURIComponent(path.split("/")[3]!), deleted: true });
-    if (path === "/v1/environments/team%2Fbuild/secrets")
-      return send(200, { secrets: [secret] });
-    if (/^\/v1\/environments\/team%2Fbuild\/secrets\/[^/]+$/.test(path) && req.method === "PUT") {
+    if (path === "/v1/agents/team%2Fbuild/secrets") return send(200, { secrets: [secret] });
+    if (/^\/v1\/agents\/team%2Fbuild\/secrets\/[^/]+$/.test(path) && req.method === "PUT") {
       const body = JSON.parse(raw);
       return send(200, {
         name: decodeURIComponent(path.split("/")[5]!),
         type: body.type,
-        binding: body.url
-          ? { url: body.url }
-          : body.allowedHosts
-            ? { allowedHosts: body.allowedHosts }
-            : {},
+        binding: body.url ? { url: body.url } : body.allowedHosts ? { allowedHosts: body.allowedHosts } : {},
         createdAt: time,
       });
     }
-    if (path === "/v1/environments/team%2Fbuild/events") {
+    if (/^\/v1\/agents\/[^/]+\/secrets$/.test(path)) return send(200, { secrets: [] });
+    if (path === "/v1/agents/team%2Fbuild/events") {
       const seq = refreshes++;
       return send(200, {
         events: [
           {
-            schema: "nylorun.environment-event/1",
-            eventId: `env_${seq}`,
+            schema: "nylorun.agent-event/1",
+            eventId: `agent_${seq}`,
             tenantId: TENANT,
-            environmentId: ENVIRONMENT,
+            agentId: AGENT,
             seq,
             time,
-            type: seq === 0 ? "environment.created" : "environment.attached",
+            type: seq === 0 ? "agent.created" : "agent.attached",
             payload: {},
           },
         ],
       });
     }
-    if (path.startsWith("/v1/environments/"))
-      return send(404, { code: "not_found", message: "Environment not found" });
+    if (path.startsWith("/v1/agents/"))
+      return send(404, { code: "not_found", message: "Agent not found" });
     if (path === "/v1/sessions")
       return send(
         200,
@@ -322,7 +370,6 @@ export async function resourceRuntime({ artifactReads = true } = {}) {
               sessions: [
                 {
                   ...summary,
-                  environmentId: ENVIRONMENT,
                   createdAt: time,
                   lastEventAt: time,
                   lastTurnId: "t1",
@@ -335,9 +382,9 @@ export async function resourceRuntime({ artifactReads = true } = {}) {
     if (path === `/v1/sessions/${SESSION}`)
       return send(200, {
         ...summary,
+        manifest: { name: "analyst-box", version: 2 },
         manifestHash: "h",
-        implementationVersion: "1",
-        environment: { id: ENVIRONMENT, version: 2 },
+        harness: "nylorun",
         mcpSnapshot: null,
         mcpDiagnostics: [],
         uncertainEffects: [],
@@ -352,10 +399,10 @@ export async function resourceRuntime({ artifactReads = true } = {}) {
     if (path === `/v1/sessions/${SESSION}/manifest`)
       return send(200, {
         sessionId: SESSION,
-        agentId: "external-agent",
-        manifest: { id: "external-agent" },
+        agentId: AGENT,
+        definition: { name: "analyst-box", version: 2 },
+        manifest: { manifestSchemaVersion: 7, id: "analyst-box", instructions: ["Analyse the data."] },
         manifestHash: "h",
-        implementationVersion: "1",
       });
     if (path === "/v1/artifacts" && url.searchParams.has("limit")) {
       // Newest first; page 2 holds the oldest. Filters as the Runtime applies them.
@@ -436,11 +483,10 @@ export async function resourceRuntime({ artifactReads = true } = {}) {
       return send(200, { providers: [] });
     if (path === "/v1/tenant/model") return send(200, { configured: false });
     if (path === "/v1/tenant/credential-coverage" && req.method === "POST") {
-      const { agentId, environmentId } = JSON.parse(raw);
+      const { agentId } = JSON.parse(raw);
       return send(200, {
         agentId,
-        environmentId: environmentId ?? null,
-        complete: environmentId !== undefined,
+        complete: true,
         entries: [
           {
             kind: "mcp",
@@ -448,11 +494,9 @@ export async function resourceRuntime({ artifactReads = true } = {}) {
             serverName: "github",
             url: "https://api.githubcopilot.com/mcp/",
             required: false,
-            status: environmentId ? "covered" : "missing",
-            ...(environmentId ? { credential: { environmentId, name: "github" } } : {}),
-            message: environmentId
-              ? "Sends the Environment's github credential."
-              : "Called without a credential.",
+            status: "covered",
+            credential: { agentId, name: "github" },
+            message: "Sends the Agent's github credential.",
           },
         ],
       });

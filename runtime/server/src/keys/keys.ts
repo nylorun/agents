@@ -16,11 +16,11 @@
 import { EgressAuthority } from "./egress-ca.js";
 import { SignJWT } from "jose";
 import type {
-  EnvironmentSecretView,
+  AgentSecretView,
   HostModelView,
   McpPreview,
   McpPreviewRequest,
-  PutEnvironmentSecretRequest,
+  PutAgentSecretRequest,
   PutHostModelRequest,
   SelectHostModelRequest,
   SigningKeyView,
@@ -45,13 +45,13 @@ export interface Signed {
 }
 
 export interface Keys {
-  /** `PUT /v1/environments/{id}/secrets/{name}` (`VaultService.putEnvironmentSecret`). */
+  /** `PUT /v1/agents/{id}/secrets/{name}` (`VaultService.putEnvironmentSecret`). */
   putEnvironmentSecret(
     environmentId: string,
     name: string,
-    body: PutEnvironmentSecretRequest,
+    body: PutAgentSecretRequest,
     actor: string,
-  ): Promise<EnvironmentSecretView>;
+  ): Promise<AgentSecretView>;
   putHostModel(body: PutHostModelRequest): Promise<HostModelView>;
   selectHostModel(body: SelectHostModelRequest): Promise<HostModelView>;
   /**

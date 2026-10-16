@@ -43,19 +43,21 @@ Which token:
 - A harness container uses its own token, made by the operator with
   `nylorun-operate harness token put <id>` and bound to that harness id. Our harness uses
   `NYLORUN_HARNESS_TOKEN`, bound to `nylorun`.
-- A harness in a pod sandbox holds no token: it joins (§9).
+- A harness in a pod sandbox holds no token: it joins (§9). A custom harness runs this way: an
+  agent manifest names it only with a pod runtime and its `image` ([Build your own harness](#build-your-own-harness)).
 
 ## §2 Work: hello, lease, renew, release
 
-- `hello {api: 4, name, version, features}` is the first request.
+- `hello {api: 5, name, version, features}` is the first request.
   - `name` is the harness id: `^[a-z][a-z0-9-]{1,62}$`, and the one the credential is for.
   - `features.workspace` declares that it serves workspaces (§10, optional). A harness declares
     no tools: each tool call names what runs it (§4).
-  - The answer is `{api: 4, tenantId, sandbox: {backend}, renewEveryMs}`.
+  - The answer is `{api: 5, tenantId, sandbox: {backend}, renewEveryMs}`.
   - Core refuses another `api` and a name that is not the credential's harness.
 - `lease {}` waits until core offers a run, then answers `{run: RunGrant, input: TurnStart}`.
   - Core offers a session's runs only to connections of the harness the session pinned when it
-    opened: its Environment's `harness`, else `nylorun`.
+    opened: its Agent's manifest's `harness.id`, else `nylorun`; a pod Agent's runs, only to
+    its pod's host.
   - `RunGrant` is `{runId, sessionId, turnId, epoch, token, tokenExpiresAt}`; `token` is the
     run token for the gates (§5).
   - Keep one `lease` waiting for each run you can take.
@@ -70,8 +72,9 @@ Which token:
 
 - `type` and `engine`: `turn.start` or `approval.answer`; `agent` or `flow`. A custom harness
   gets agent turns only: flows run in our harness.
-- `manifest`: the turn's agent manifest (v7: the session's definition as registered, or a variant
-  a message named). It is flat: the agent's own `instructions`, `tools`, `skills` and
+- `manifest`: the turn's loop manifest: the `harness` section of the agent manifest version the
+  session pinned, in agent manifest v7's shape, with the manifest's `name` as its `id` (or a
+  variant a message named). It is flat: the agent's own `instructions`, `tools`, `skills` and
   `mcpServers`. A skill or a server that came from an Agent Plugin carries
   `plugin: {name, version?}`. It carries nothing of the Runtime's: what the model reads and which
   tools it is offered are yours to write, from the facts below. Our engine's helpers are in
@@ -88,6 +91,10 @@ Which token:
     `outputs` folder at a completed turn's end (`saveOutputs`, §4b); a harness of your own saves
     one only if it writes it.
   - Artifacts: reading and saving them is yours to offer, over the artifact seam (§4b).
+- `definition` (optional): `{name, version}`, the agent manifest version the session pinned, for
+  your records.
+- `loop` (optional): the harness section's `loop`, your own settings, which the Runtime passes on
+  without reading. Ours reads none yet.
 - `checkpoint` (`HarnessCheckpointSchema`): `sessionId`, `turnId`, `segment`, `manifestHash`,
   `input` and `state`.
   - `input` is the turn's message: a string, `{text, metadata?}`, `{content, metadata?}`, or
@@ -116,13 +123,14 @@ Which token:
     answer is `{mcp?}`, the facts this turn runs with.
 - `routing`: where tool calls go.
   - `rootManifest`: the session's pinned manifest.
-  - `sandbox`: the session's sandbox: `ownerId` and `environmentId`, which key its workspace,
-    `spec`, the sandbox spec the session pinned when it opened (absent without a sandbox), and
-    `environment`, the variables every command gets.
-- `environment` (`TurnEnvironmentSchema`, optional): the Environment the session runs in,
-  `{id, kind, sandbox?: {workspace}}`. `sandbox` is there when the session has a sandbox, and
+  - `sandbox`: the session's sandbox: `ownerId` and `environmentId` (the id of the Agent whose
+    sandbox it is), which key its workspace, `spec`, the sandbox spec the session pinned when it
+    opened (absent without a sandbox), and `environment`, the variables every command gets.
+- `agent` (`TurnAgentSchema`, optional): the Agent the session runs on, `{id, kind, sandbox?:
+  {workspace}}`. `sandbox` is there when the session has a sandbox (kind `virtual` or `pod`), and
   `workspace` is the directory its commands start in (`/workspace`). Offer sandbox tools, and
-  write a note on the sandbox, only then. It is absent when the session names no Environment.
+  write a note on the sandbox, only then. The Agent's runtime section never reaches you. It is
+  absent for a flow.
 - `options.fixtureModel`: informational. With the Tenant's fixture model on, the Model Gate
   answers model calls itself, so call it as usual.
 - `trace`: optional W3C trace context (`{traceparent, tracestate?}`).
@@ -234,7 +242,7 @@ helpers `readArtifact`, `openArtifactWrite` and `writeArtifactBytes` in
 **Scope.** Everything is the run's session's, never one you name. Agents used as tools share it.
 
 - You may read the session's own artifacts, and the Tenant-wide ones its messages named.
-  Another session's, a Tenant-wide one never named, an Environment's disk versions and a
+  Another session's, a Tenant-wide one never named, an Agent's disk versions and a
   missing one are all the same `not_found`, so nothing tells you which exist.
 - You may write a new file artifact of the session, or a new version of one of its own file
   artifacts.
@@ -266,7 +274,7 @@ helpers `readArtifact`, `openArtifactWrite` and `writeArtifactBytes` in
 - **Offsets.** Each chunk's `offset` must be `received`. A repeat of the last chunk, whose answer
   you lost, is acknowledged and not taken twice; any other offset is `invalid`.
 - **Limits.** `maxBytes` is what the upload may hold when it opens: the file limit, or what is
-  left of the Tenant's or the Environment's total. A declared `size` past it, or bytes past it,
+  left of the Tenant's or the Agent's total. A declared `size` past it, or bytes past it,
   are `limit_exceeded`, with `limitBytes` in the message. The totals are checked again at commit.
 - **Idempotency.** `key` makes the write idempotent within the session: a `begin` with a key
   already written answers `{status: "written", created: false}` with that version, and sends
@@ -293,8 +301,8 @@ by file:
 - **Limits.** `maxEntries` is `limits.folderEntries`, `maxFileBytes` the per-file limit and
   `maxBytes` the most the files may hold together; past one, the `file` request is
   `limit_exceeded`. At commit, the version's new content (after dedupe) must fit the Tenant's and
-  the Environment's totals: past one the answer is `refused` with `reason` `tenant_total` or
-  `environment_total`, and nothing is stored.
+  the Agent's totals: past one the answer is `refused` with `reason` `tenant_total` or
+  `environment_total` (the Agent's), and nothing is stored.
 - **Unchanged.** A version whose files are the folder's latest is not added: `written` with
   `created: false` and `unchanged: true` names that version.
 - Our engine's outputs folder writes one at each completed turn's end, keyed `outputs:<turnId>`,
@@ -423,7 +431,7 @@ End each segment with one output request (`TurnOutputSchema`):
 | `waiting` | `turn.waiting` | An effect is `pending`: core waits for it. |
 | `uncertain` | `turn.waiting` | An effect is `uncertain`. |
 | `yielded` | `checkpoint` | The turn goes on in a new segment: same turn, next segment. |
-| `paused` | `turn.paused` | Our engine only, in v4. |
+| `paused` | `turn.paused` | Our engine only, in v5. |
 
 The output also carries:
 
@@ -453,8 +461,8 @@ The answer is `{cursor}`: the transcript's new cursor, for your cache.
 
 ## §9 Pod host
 
-A harness in a pod sandbox is the pod: a pod Environment whose `harness` is not ours runs its
-`image`'s own entrypoint, with nothing of ours copied in.
+A harness in a pod sandbox is the pod: a pod Agent whose manifest's `harness.id` is not ours runs
+its `runtime.image`'s own entrypoint, with nothing of ours copied in.
 
 The pod's environment:
 
@@ -474,12 +482,12 @@ How it joins and stays joined:
    (`HostJoinRequestSchema`). Keep `volumeId` on the volume (`/harness/volume-id`), so a volume
    recreated empty is told apart.
 2. The answer (`HostJoinAnswerSchema`) is `{hostToken, egressToken, sandboxId, epoch,
-   expiresAt, caCertificate}`. On a new disk, a join also carries the Environment's `setup`:
+   expiresAt, caCertificate}`. On a new disk, a join also carries the Agent's `setup`:
    its input files and setup commands. Our engine runs them before it takes turns, and a custom
    harness runs them itself or ignores them. `seeded: true` means the disk starts from a disk
    version, so there is no setup to run.
-3. Connect with the host token as the WebSocket bearer. Say `hello` with the Environment's
-   harness id; any other is refused.
+3. Connect with the host token as the WebSocket bearer. Say `hello` with the Agent's harness id
+   (its manifest's `harness.id`); any other is refused.
 4. Every 5 minutes, `POST .../host/renew` with the host token as bearer. Join again when a
    renewal is refused.
 
@@ -506,11 +514,22 @@ A harness that declares `features.workspace` serves sandbox workspaces: core sen
 There are three numbers:
 
 - the transport (path and header): 1;
-- the messages: `HARNESS_API_VERSION`, 4;
+- the messages: `HARNESS_API_VERSION`, 5;
 - the Runtime protocol, which only the Runtime and Management APIs carry.
 
-v4's schemas are strict, and v4 is frozen: a change to a message is a new version. Core speaks
-one version: a harness that says `api: 3` is refused.
+v5's schemas are strict, and v5 is frozen: a change to a message is a new version. Core speaks
+one version: a harness that says `api: 4` is refused.
+
+What v5 changed (protocol 16, agents from one manifest):
+
+- `turn.start.agent {id, kind, sandbox?}`, the Agent the session runs on, replaced
+  `turn.start.environment` (§3); `routing.sandbox.environmentId` is the Agent's id;
+- `turn.start.definition {name, version}` names the agent manifest version the session pinned,
+  and `turn.start.loop` carries the harness section's `loop`, unread by the Runtime (§3);
+- `manifest` is that version's harness section in v7's shape, with the manifest's name as its
+  `id`;
+- the harness a session pins is its Agent's manifest's `harness.id`; a custom harness runs from
+  its pod's image only (§9).
 
 What v4 changed (protocol 15, the harness boundary):
 
@@ -548,7 +567,7 @@ MCP records, and gave the harness flat manifests (protocol 13); `definition.file
 `offset`/`length` and `turn.start.limits` came within it. The next version adds a window of
 supported versions (N and N−1).
 
-What a custom harness cannot do in v4:
+What a custom harness cannot do in v5:
 
 - pause the turn itself (the tool policy's approvals work without it, §7);
 - run flows;
@@ -560,16 +579,23 @@ What a custom harness cannot do in v4:
    [`examples/harness-minimal`](../examples/harness-minimal/README.md). It shows each section
    above in one loop: hello, lease, read the transcript, call the Model Gate, run `bash`, and
    journal every effect before running it.
-2. **Run it beside ours.** The operator makes its token and names it on an Environment:
+2. **Ship it as a pod image.** Build the harness into the image your agents' tools need (uid
+   1000, read-only root, `HOME=/harness/home`) and push it where the cluster pulls from. Save an
+   agent manifest whose harness section names it, with a pod runtime of that image, make an
+   Agent from it and open sessions on the Agent:
 
-   ```bash
-   docker compose exec runtime nylorun-operate harness token put minimal
+   ```json
+   {
+     "manifestSchemaVersion": 8,
+     "name": "minimal-box",
+     "harness": { "id": "minimal", "instructions": ["Answer briefly."] },
+     "runtime": { "kind": "pod", "image": "<your image>" }
+   }
    ```
 
-   Run the harness on the Compose project's harness network with that token as
-   `NYLORUN_HARNESS_TOKEN`. Create an Environment with `harness: "minimal"`
-   (`PUT /v1/environments/{id}`) and open sessions on it. Sessions on other Environments keep
-   running ours.
+   `PUT /v1/agent-manifests/minimal-box`, then `PUT /v1/agents/{id}` with
+   `{"manifest": "minimal-box"}`. A custom harness off a pod, or without an `image`, is
+   `422 manifest_inconsistent`. Sessions on other Agents keep running ours.
 3. **Check it.** On a Tenant for testing, turn on the fixture model
    (`PUT /v1/tenant/config/seed {fixtureModel: true}`, a management key) and send scripted turns:
    `fixture:text` answers `fixture ok`, and `fixture:tool bash {"command":"echo hi"}` calls
@@ -577,10 +603,9 @@ What a custom harness cannot do in v4:
    `source: {kind: "harness", id: "minimal"}`, `GET /v1/sessions/{id}/calls/model` has one
    metered call per model answer, and `GET /v1/sessions/{id}/calls/tool` has one journaled call
    per command.
-4. **Ship it as a pod image.** Build the harness into the image your agents' tools need (uid
-   1000, read-only root, `HOME=/harness/home`), push it, and use a pod Environment:
-   `{kind: "pod", image: "<your image>", harness: "minimal"}`. Then send the same turns to a
-   session on it.
+4. **Move it to a new version.** An Agent keeps its harness for life: to change the harness or
+   its image, save a new version of the manifest, fork the Agent onto it
+   (`POST /v1/agents/{id}/fork`), and open new sessions on the fork.
 5. **Restrict where harnesses run.** The Tenant's placement
    (`PUT /v1/tenant/sandbox {placement}`) maps harness ids to hosts. `"*": {hosts: []}`
    refuses any harness it does not name.

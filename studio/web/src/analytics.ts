@@ -24,6 +24,7 @@ const ROUTE_WORDS = new Set([
   "agents",
   "sessions",
   "workflows",
+  "agent-manifests",
   "environments",
   "vault",
   "settings",

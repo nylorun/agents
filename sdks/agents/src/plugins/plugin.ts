@@ -12,7 +12,7 @@ export interface PluginPart extends PartDeclaration {
 
 /**
  * Read an Agent Plugin package as one part of an agent, for `.plugin()`. Each part it skips
- * (an invalid MCP server or skill) is a process warning, so building or registering the agent
+ * (an invalid MCP server or skill) is a process warning, so building or saving its manifest
  * says why the agent has less than the package declares. A stdio MCP server throws: Nylorun
  * accepts remote servers only.
  */

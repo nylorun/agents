@@ -22,6 +22,7 @@ import { MemoryExecution } from "../src/execution/memory.js";
 import type { SandboxBackend } from "../src/sandbox/types.js";
 import type { TenantRuntime } from "../src/tenant/runtime.js";
 import { TenantWorkers } from "../src/tenant/worker.js";
+import { deploy } from "./support/agents.js";
 import { openTestSessionStore } from "./support/store.js";
 import { startTestTenant } from "./support/tenant.js";
 
@@ -132,6 +133,8 @@ async function boot(options: {
   toolGate?: ToolGate;
   manual?: boolean;
   sandbox?: SandboxBackend;
+  /** The Agent's id; by default `ws/s1` with a sandbox, else the manifest's name. */
+  agentId?: string;
 }): Promise<Started> {
   const runtime = await startTestTenant({
     applicationKey: APP,
@@ -149,24 +152,17 @@ async function boot(options: {
     ...(options.sandbox ? { sandbox: { backend: "virtual" as const, backends: [options.sandbox] } } : {}),
   });
   open.push(() => runtime.close());
-  if (options.sandbox) {
-    const environment = await fetch(`${runtime.url}/v1/environments/ws%2Fs1`, {
-      method: "PUT",
-      headers,
-      body: JSON.stringify({ kind: "virtual" }),
-    });
-    expect(environment.ok, await environment.clone().text()).toBe(true);
-  }
-  for (const [path, body] of [
-    ["/v1/agents/bot", { requestId: "put-1", manifest: options.agent.manifest, implementationVersion: "dev" }],
-    [
-      "/v1/sessions/s1",
-      { requestId: "session-s1", agentId: "bot", ownerUserId: "u", ...(options.sandbox ? { environment: "ws/s1" } : {}) },
-    ],
-  ] as const) {
-    const response = await fetch(`${runtime.url}${path}`, { method: "PUT", headers, body: JSON.stringify(body) });
-    expect(response.ok, await response.clone().text()).toBe(true);
-  }
+  const agent = options.agentId ?? (options.sandbox ? "ws/s1" : "bot");
+  await deploy(runtime.url, headers, options.agent, {
+    id: agent,
+    ...(options.sandbox ? { runtime: { kind: "virtual" as const } } : {}),
+  });
+  const response = await fetch(`${runtime.url}/v1/sessions/s1`, {
+    method: "PUT",
+    headers,
+    body: JSON.stringify({ requestId: "session-s1", agent, ownerUserId: "u" }),
+  });
+  expect(response.ok, await response.clone().text()).toBe(true);
   return runtime;
 }
 
@@ -365,6 +361,21 @@ describe("the R5 exit", { timeout: 60_000 }, () => {
       expect.objectContaining({ toolName: "bash", kind: "sandbox", status: "failed", attempts: 1 }),
     ]);
     expect(execs).toBe(1);
+  });
+
+  it("names the manifest, not the Agent, as the run token's root agent (protocol 16)", async () => {
+    const service = await refundService({ hold: true });
+    const runtime = await boot({
+      model: oneCall("refund", { charge: "ch_6", amount: 30 }),
+      agent: refundAgent(service.url),
+      agentId: "users/u/desk",
+    });
+    await say(runtime);
+    await service.started;
+    // The model gate keys usage rows and `manifest` budgets on it, as the engine names the agent.
+    expect(runtime.gate!.runGrants.get("s1")?.claims.agentId).toBe("bot");
+    service.release();
+    expect(await settled(runtime)).toBe("completed");
   });
 
   it("runs nothing for a harness that skips the journal", async () => {

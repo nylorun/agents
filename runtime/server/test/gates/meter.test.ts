@@ -39,7 +39,7 @@ describe("usageRow", () => {
       effectKey: "turn-1:0:model:1",
       sessionId: "s1",
       turnId: "turn-1",
-      agentId: "bot",
+      manifestName: "bot",
       provider: "openai",
       model: "gpt-test",
       inputTokens: 12,
@@ -189,9 +189,9 @@ describe("caps", () => {
     expect(await call({ turnId: "turn-2" })).toBe(answered);
   });
 
-  it("stops an agent at its daily USD cap, and counts only that agent and day", async () => {
+  it("stops an agent manifest at its daily USD cap, and counts only that manifest and day", async () => {
     const { store, call } = await metered([
-      budget({ scope: "agent", scopeId: "bot", period: "day", limitUsd: 0.004 }),
+      budget({ scope: "manifest", scopeId: "bot", period: "day", limitUsd: 0.004 }),
     ]);
     await store.tx((t) =>
       t.recordModelUsage({
@@ -204,11 +204,11 @@ describe("caps", () => {
     await call();
     expect(await call()).toMatchObject({
       code: "budget_exhausted",
-      message: expect.stringMatching(/^Agent bot's daily cap of \$0\.004 is reached/),
+      message: expect.stringMatching(/^Agent manifest bot's daily cap of \$0\.004 is reached/),
     });
   });
 
-  it("stops the Tenant at its monthly cap across agents and turns", async () => {
+  it("stops the Tenant at its monthly cap across agent manifests and turns", async () => {
     const { call } = await metered([budget({ scope: "tenant", period: "month", limitTokens: 30 })]);
     await call({ agentId: "a", turnId: "t1" });
     await call({ agentId: "b", turnId: "t2" });

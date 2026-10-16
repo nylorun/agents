@@ -1,16 +1,22 @@
 /**
- * `nylorun agents`: the Tenant's saved agents (`/v1/agents`, Runtime API). `save` takes a manifest
- * and the folders that hold its files: a manifest names each definition file by the SHA-256 of
- * its bytes (a skill's `files`), so the files are matched by content, whatever their paths.
+ * `nylorun agents`: the Tenant's Agents (protocol 16: each is one version of an agent manifest
+ * made live, with one environment and one vault, and the sessions that run on it), through the
+ * Runtime API of the installation `target.ts` picks: create or find one by id from a saved
+ * manifest, fork it onto a new manifest version, stop, reset or delete it, keep and restore
+ * versions of its disk, and write its secrets. The manifests themselves are `agent-manifests.ts`
+ * and `apply.ts`. A secret's value comes from a file or standard input, never from the command
+ * line, and no command reads one back. None of them starts a local Tenant.
  */
-import { readdir, readFile } from "node:fs/promises";
-import { join } from "node:path";
-import { definitionFileHash } from "@nylorun/agents";
-import { CliError } from "../errors.js";
+import type { AgentEventType, AgentView } from "@nylorun/agents";
+import { parseAgentManifestRef } from "@nylorun/core/contracts";
 import type { StackDeps } from "../stack/commands.js";
+import { readSecret } from "./io.js";
 import {
+  integerFlag,
+  labelsOf,
   parseFlags,
   positional,
+  printCursor,
   printJson,
   printTable,
   readJson,
@@ -20,158 +26,345 @@ import {
   usageError,
 } from "./runtime.js";
 
-export const agentsUsage = `nylorun agents <list|get|save>
+export const agentsUsage = `nylorun agents <command>
 
-The Tenant's saved agents, through the Runtime API with an application key (or NYLORUN_TOKEN).
+The Tenant's Agents (each one version of an agent manifest made live, with one environment and
+one vault; sessions run on them), through the Runtime API with an application key (or
+NYLORUN_TOKEN).
 
-  list [--json]                       id, kind and description of each agent
-  get <id>                            the agent's manifest, as JSON
-  save <manifest.json|-> [--files <dir>]... [--implementation-version <v>] [--dry-run]
-                                      save the agent the manifest describes, first uploading the
-                                      definition files it names from the folders given (found by
-                                      their SHA-256, whatever their paths); --dry-run checks it
-                                      and saves nothing
+  list [--state <state>] [--manifest <name>] [--label <key=value>]... [--behind]
+       [--limit <n>] [--cursor <c>] [--json]
+                                      id, manifest version (tracks or pinned), kind, state,
+                                      sessions, owner and labels; --behind: those on an older
+                                      version than their manifest's latest
+  get <id>                            the Agent, as JSON
+  put <id> --manifest <name[@n]> [--owner <user>] [--label <key=value>]...
+                                      create it from a saved manifest (name tracks its latest
+                                      version, name@n pins version n), or find it and change
+                                      its owner and labels (what it runs never changes: fork it)
+  fork <id> <new-id> [--manifest <name[@n]>] [--disk <latest|n|empty>]
+       [--secrets <copy|none>] [--label <key=value>]... [--dry-run]
+                                      a new Agent from a manifest version (default its
+                                      manifest's latest), with this one's disk and the secrets
+                                      it declares; --dry-run prints the plan
+  stop <id> | reset <id>              stop its sandbox; reset its disk
+  rm <id>                             delete it: its sandbox, files and vault (refused while a
+                                      turn runs on it)
+  snapshot <id>                       keep a version of its disk
+  versions <id>                       its disk versions
+  restore <id> <version|latest>       put a version of its disk back
+  delete-version <id> <version>
+  events <id> [--from <n>] [--types <type,…>] [--since <time>] [--until <time>]
+                                      its events (lifecycle, and agent.egress for every
+                                      connection, naming the turns running), as JSON
+  secrets list <id>                   its secrets' names, types and bindings (never a value)
+  secrets get <id> <name>
+  secrets put <id> <name>             the value of a slot its manifest declares, piped in
+                                      on standard input
+  secrets put <id> <name> <secret.json|->
+                                      create or replace a secret: {"type": "bearer", ...}, read
+                                      from a file or standard input
+  secrets rm <id> <name>
 
 ${runtimeFlagsUsage}`;
 
-const HASH = /^sha256:[0-9a-f]{64}$/;
+/** What `agents save` (a definition, before protocol 16) says now. */
+const SAVE_REMOVED =
+  "nylorun agents save was removed in protocol 16: agents run from saved agent manifests. Save one with nylorun apply <dir> (agent.manifest.json; nylorun migrate v8 <agent.json> writes one from a v7 manifest), then make an Agent from it with nylorun agents put <id> --manifest <name>.";
 
-/** Every `sha256:<hex>` a manifest names under a `files` map, with where it names it. */
-export function namedFiles(manifest: unknown): Map<string, string> {
-  const named = new Map<string, string>();
-  const walk = (value: unknown, path: string) => {
-    if (!value || typeof value !== "object") return;
-    if (Array.isArray(value)) return value.forEach((item, index) => walk(item, `${path}[${index}]`));
-    for (const [key, child] of Object.entries(value)) {
-      if (key === "files" && child && typeof child === "object" && !Array.isArray(child)) {
-        for (const [file, hash] of Object.entries(child))
-          if (typeof hash === "string" && HASH.test(hash) && !named.has(hash))
-            named.set(hash, `${path}.files["${file}"]`);
-      } else walk(child, `${path}.${key}`);
-    }
-  };
-  walk(manifest, "manifest");
-  return named;
-}
-
-/** The files under `dirs`, by their hash. */
-async function filesByHash(dirs: readonly string[]): Promise<Map<string, string>> {
-  const found = new Map<string, string>();
-  const visit = async (dir: string): Promise<void> => {
-    for (const entry of await readdir(dir, { withFileTypes: true })) {
-      const path = join(dir, entry.name);
-      if (entry.isDirectory()) await visit(path);
-      else if (entry.isFile())
-        found.set(await definitionFileHash(new Uint8Array(await readFile(path))), path);
-    }
-  };
-  for (const dir of dirs) {
-    try {
-      await visit(dir);
-    } catch (error) {
-      throw new CliError(`Cannot read --files ${dir}: ${(error as Error).message}`, 1);
-    }
-  }
-  return found;
+/** The manifest an Agent runs, as the list prints it: `name@version`, and whether it tracks. */
+function manifestOf(agent: AgentView): string {
+  const name = parseAgentManifestRef(agent.manifest)?.name ?? agent.manifest;
+  return `${name}@${agent.resolvedVersion} ${agent.tracking === "tracking" ? "tracks" : "pinned"}`;
 }
 
 async function list(deps: StackDeps, args: readonly string[]): Promise<number> {
-  const usage = "nylorun agents list [--json]";
-  const flags = parseFlags(args, { booleans: ["--json"] }, usage);
+  const usage =
+    "nylorun agents list [--state <state>] [--manifest <name>] [--label <key=value>]... [--behind] [--limit <n>] [--cursor <c>] [--json]";
+  const flags = parseFlags(
+    args,
+    {
+      booleans: ["--json", "--behind"],
+      values: ["--limit", "--cursor", "--state", "--manifest"],
+      lists: ["--label"],
+    },
+    usage,
+  );
   positional(flags, 0, usage);
-  const { client } = await runtimeClient(deps, flags);
-  const { agents } = await runtimeCall(() => client.listAgents());
+  const labels = labelsOf(flags);
+  const state = flags.values.get("--state");
+  const manifest = flags.values.get("--manifest");
+  const filter = { ...(labels ? { labels } : {}), ...(state ? { state } : {}), ...(manifest ? { manifest } : {}) };
+  const limit = integerFlag(flags, "--limit");
+  const cursor = flags.values.get("--cursor");
+  const { client, connection } = await runtimeClient(deps, flags);
+  const paged = limit !== undefined || cursor !== undefined;
+  const page = paged
+    ? await runtimeCall(() =>
+        client.agents.page({
+          ...filter,
+          ...(limit === undefined ? {} : { limit }),
+          ...(cursor ? { cursor } : {}),
+        }),
+      )
+    : { agents: await runtimeCall(() => client.agents.list(filter)), nextCursor: null };
+  let agents: AgentView[] = page.agents;
+  if (flags.booleans.has("--behind")) {
+    // Made from a version older than its manifest's latest: fork them to move on (until T3).
+    const latest = new Map(
+      (await runtimeCall(() => client.agentManifests.list())).map((saved) => [saved.name, saved.version]),
+    );
+    agents = agents.filter((agent) => {
+      const name = parseAgentManifestRef(agent.manifest)?.name ?? agent.manifest;
+      return agent.resolvedVersion < (latest.get(name) ?? 0);
+    });
+  }
   if (flags.booleans.has("--json")) {
-    printJson(deps, agents);
+    printJson(deps, paged ? { ...page, agents } : agents);
     return 0;
   }
-  if (agents.length === 0) {
-    deps.out("No agents saved.");
-    return 0;
-  }
-  printTable(deps, [
-    ["ID", "KIND", "DESCRIPTION"],
-    ...agents.map((agent) => {
-      const manifest = "manifest" in agent ? (agent.manifest as { kind?: string; description?: string }) : undefined;
-      const description = ("description" in agent ? agent.description : undefined) ?? manifest?.description;
-      return [agent.agentId, manifest?.kind ?? "agent", description ?? "-"];
-    }),
-  ]);
+  if (agents.length === 0) deps.out(`No Agents on ${connection.label}.`);
+  else
+    printTable(deps, [
+      ["ID", "MANIFEST", "KIND", "STATE", "SESSIONS", "OWNER", "LABELS"],
+      ...agents.map((agent) => [
+        agent.id,
+        manifestOf(agent),
+        agent.kind,
+        agent.state,
+        String(agent.sessions.length),
+        agent.owner ?? "-",
+        Object.entries(agent.labels)
+          .map(([key, value]) => `${key}=${value}`)
+          .join(",") || "-",
+      ]),
+    ]);
+  printCursor(deps, page.nextCursor);
   return 0;
 }
 
-async function get(deps: StackDeps, args: readonly string[]): Promise<number> {
-  const usage = "nylorun agents get <id>";
-  const flags = parseFlags(args, {}, usage);
+/** A command that takes one Agent id and prints the Runtime's answer. */
+function byId(
+  name: string,
+  call: (client: Awaited<ReturnType<typeof runtimeClient>>["client"], id: string) => Promise<unknown>,
+) {
+  return async (deps: StackDeps, args: readonly string[]): Promise<number> => {
+    const usage = `nylorun agents ${name} <id>`;
+    const flags = parseFlags(args, {}, usage);
+    const [id] = positional(flags, 1, usage);
+    const { client } = await runtimeClient(deps, flags);
+    printJson(deps, await runtimeCall(() => call(client, id!)));
+    return 0;
+  };
+}
+
+async function put(deps: StackDeps, args: readonly string[]): Promise<number> {
+  const usage = "nylorun agents put <id> --manifest <name[@n]> [--owner <user>] [--label <key=value>]...";
+  for (const removed of ["--kind", "--image"])
+    if (args.includes(removed))
+      throw usageError(
+        `${removed} was removed in protocol 16: an Agent is made from a saved manifest only. Put what it runs in the manifest's runtime section (nylorun apply), then --manifest <name>.`,
+      );
+  const flags = parseFlags(args, { values: ["--manifest", "--owner"], lists: ["--label"] }, usage);
   const [id] = positional(flags, 1, usage);
+  const manifest = flags.values.get("--manifest");
+  if (manifest === undefined) throw usageError(`Usage: ${usage}`);
+  if (parseAgentManifestRef(manifest) === undefined)
+    throw usageError(`--manifest is an agent manifest's name, or name@version such as triage@3, not ${manifest}.`);
+  const owner = flags.values.get("--owner");
+  const labels = labelsOf(flags);
   const { client, connection } = await runtimeClient(deps, flags);
-  const { agents } = await runtimeCall(() => client.listAgents());
-  const agent = agents.find((item) => item.agentId === id);
-  if (!agent) {
-    deps.err(`No agent ${id} on ${connection.label}.`);
-    return 1;
-  }
+  const agent = await runtimeCall(() =>
+    client.agents.put(id!, { manifest, ...(owner ? { owner } : {}), ...(labels ? { labels } : {}) }),
+  );
+  deps.err(`Agent ${agent.id} runs ${manifestOf(agent)} on ${connection.label}.`);
   printJson(deps, agent);
   return 0;
 }
 
-async function save(deps: StackDeps, args: readonly string[]): Promise<number> {
+async function fork(deps: StackDeps, args: readonly string[]): Promise<number> {
   const usage =
-    "nylorun agents save <manifest.json|-> [--files <dir>]... [--implementation-version <v>] [--dry-run]";
+    "nylorun agents fork <id> <new-id> [--manifest <name[@n]>] [--disk <latest|n|empty>] [--secrets <copy|none>] [--label <key=value>]... [--dry-run]";
   const flags = parseFlags(
     args,
-    { booleans: ["--dry-run"], values: ["--implementation-version"], lists: ["--files"] },
+    { booleans: ["--dry-run"], values: ["--manifest", "--disk", "--secrets"], lists: ["--label"] },
     usage,
   );
-  const dryRun = flags.booleans.has("--dry-run");
-  const [path] = positional(flags, 1, usage);
-  const manifest = await readJson(path!, "The manifest");
-  if (typeof manifest.id !== "string" || manifest.id === "")
-    throw usageError("The manifest has no id.");
-  const named = namedFiles(manifest);
-  const found =
-    named.size === 0 ? new Map<string, string>() : await filesByHash(flags.lists.get("--files") ?? []);
-  const missing = [...named].filter(([hash]) => !found.has(hash));
-  if (missing.length > 0)
-    throw new CliError(
-      `The manifest names ${missing.length} ${missing.length === 1 ? "file" : "files"} not found under ${
-        flags.lists.get("--files")?.join(", ") || "any --files folder"
-      }:\n${missing.map(([hash, where]) => `  ${where} = ${hash}`).join("\n")}`,
-      1,
-    );
+  const [id, next] = positional(flags, 2, usage);
+  const disk = flags.values.get("--disk");
+  if (disk !== undefined && disk !== "latest" && disk !== "empty" && !/^[1-9]\d*$/.test(disk))
+    throw usageError("--disk is latest, empty or a version number.");
+  const secrets = flags.values.get("--secrets");
+  if (secrets !== undefined && secrets !== "copy" && secrets !== "none") throw usageError("--secrets is copy or none.");
+  const manifest = flags.values.get("--manifest");
+  const labels = labelsOf(flags);
+  const options = {
+    id: next!,
+    ...(manifest ? { manifest } : {}),
+    ...(disk === undefined ? {} : { disk: disk === "latest" || disk === "empty" ? (disk as "latest" | "empty") : Number(disk) }),
+    ...(secrets ? { secrets: secrets as "copy" | "none" } : {}),
+    ...(labels ? { labels } : {}),
+  };
   const { client, connection } = await runtimeClient(deps, flags);
-  let uploaded = 0;
-  for (const hash of named.keys()) {
-    if (await runtimeCall(() => client.files.has(hash))) continue;
-    const bytes = new Uint8Array(await readFile(found.get(hash)!));
-    await runtimeCall(() => client.files.upload(bytes, { sha256: hash }));
-    uploaded += 1;
+  if (flags.booleans.has("--dry-run")) {
+    printJson(deps, await runtimeCall(() => client.agents.planFork(id!, options)));
+    return 0;
   }
-  const version = flags.values.get("--implementation-version");
-  const saved = await runtimeCall(() =>
-    client.saveAgent(
-      { id: manifest.id as string, manifest: manifest as never },
-      { ...(version === undefined ? {} : { implementationVersion: version }), ...(dryRun ? { dryRun } : {}) },
-    ),
-  );
+  const forked = await runtimeCall(() => client.agents.fork(id!, options));
+  const { plan } = forked;
   deps.err(
-    `${dryRun ? "Checked (and saved nothing of)" : "Saved"} agent ${manifest.id} on ${connection.label}${
-      named.size ? ` (${named.size} files, ${uploaded} uploaded)` : ""
-    }.`,
+    `Forked Agent ${id} into ${next} on ${connection.label}: ${plan.manifest.name}@${plan.manifest.version}, ${
+      plan.disk === null ? "an empty disk" : `disk version ${plan.disk}`
+    }, ${plan.secrets.copied.length} secrets copied${plan.setup ? "; its setup runs before the first turn" : ""}.`,
   );
-  printJson(deps, saved);
+  if (plan.secrets.missing.length > 0)
+    deps.err(`  set before use: ${plan.secrets.missing.join(", ")} (nylorun agents secrets put ${next} <name>)`);
+  printJson(deps, forked);
   return 0;
 }
 
-/** `nylorun agents <list|get|save> ...` */
+async function deleteAgent(deps: StackDeps, args: readonly string[]): Promise<number> {
+  const usage = "nylorun agents rm <id>";
+  const flags = parseFlags(args, {}, usage);
+  const [id] = positional(flags, 1, usage);
+  const { client, connection } = await runtimeClient(deps, flags);
+  const deleted = await runtimeCall(async () => {
+    try {
+      return await client.agents.delete(id!);
+    } catch (error) {
+      if ((error as { status?: number }).status === 404) return undefined;
+      throw error;
+    }
+  });
+  if (!deleted || deleted.deleted === false) {
+    deps.err(`No Agent ${id} on ${connection.label}.`);
+    return 1;
+  }
+  deps.out(`Deleted Agent ${id}: its sandbox, files and vault.`);
+  return 0;
+}
+
+async function restore(deps: StackDeps, args: readonly string[]): Promise<number> {
+  const usage = "nylorun agents restore <id> <version|latest>";
+  const flags = parseFlags(args, {}, usage);
+  const [id, version] = positional(flags, 2, usage);
+  if (version !== "latest" && !/^[1-9]\d*$/.test(version!))
+    throw usageError("The version is a positive number or latest.");
+  const { client } = await runtimeClient(deps, flags);
+  printJson(deps, await runtimeCall(() => client.agents.restore(id!, version === "latest" ? "latest" : Number(version))));
+  return 0;
+}
+
+async function deleteVersion(deps: StackDeps, args: readonly string[]): Promise<number> {
+  const usage = "nylorun agents delete-version <id> <version>";
+  const flags = parseFlags(args, {}, usage);
+  const [id, version] = positional(flags, 2, usage);
+  if (!/^[1-9]\d*$/.test(version!)) throw usageError("The version is a positive number.");
+  const { client } = await runtimeClient(deps, flags);
+  printJson(deps, await runtimeCall(() => client.agents.deleteVersion(id!, Number(version))));
+  return 0;
+}
+
+async function events(deps: StackDeps, args: readonly string[]): Promise<number> {
+  const usage = "nylorun agents events <id> [--from <n>] [--types <type,…>] [--since <time>] [--until <time>]";
+  const flags = parseFlags(args, { values: ["--from", "--types", "--since", "--until"] }, usage);
+  const [id] = positional(flags, 1, usage);
+  const from = integerFlag(flags, "--from");
+  const types = flags.values.get("--types")?.split(",").map((type) => type.trim()).filter(Boolean) as
+    | AgentEventType[]
+    | undefined;
+  const since = flags.values.get("--since");
+  const until = flags.values.get("--until");
+  const { client } = await runtimeClient(deps, flags);
+  printJson(
+    deps,
+    await runtimeCall(() =>
+      client.agents.events(id!, {
+        ...(from === undefined ? {} : { from }),
+        ...(types === undefined || types.length === 0 ? {} : { types }),
+        ...(since === undefined ? {} : { since }),
+        ...(until === undefined ? {} : { until }),
+      }),
+    ),
+  );
+  return 0;
+}
+
+async function secrets(deps: StackDeps, args: readonly string[]): Promise<number> {
+  const [verb, ...rest] = args;
+  if (verb === "list" || verb === "ls") {
+    const usage = "nylorun agents secrets list <id>";
+    const flags = parseFlags(rest, {}, usage);
+    const [id] = positional(flags, 1, usage);
+    const { client } = await runtimeClient(deps, flags);
+    printJson(deps, await runtimeCall(() => client.agents.secrets.list(id!)));
+    return 0;
+  }
+  if (verb === "get") {
+    const usage = "nylorun agents secrets get <id> <name>";
+    const flags = parseFlags(rest, {}, usage);
+    const [id, name] = positional(flags, 2, usage);
+    const { client } = await runtimeClient(deps, flags);
+    printJson(deps, await runtimeCall(() => client.agents.secrets.get(id!, name!)));
+    return 0;
+  }
+  if (verb === "put") {
+    const usage = "nylorun agents secrets put <id> <name> [<secret.json|->]";
+    const flags = parseFlags(rest, {}, usage);
+    if (flags.rest.length < 2 || flags.rest.length > 3) throw usageError(`Usage: ${usage}`);
+    const [id, name, path] = flags.rest as [string, string, string | undefined];
+    if (path === undefined) {
+      // A slot its manifest declares (D64): the value only, piped in; the binding is the slot's.
+      const value = await readSecret(deps, `value of ${name}`, `printf %s "$TOKEN" | nylorun agents secrets put ${id} ${name}`);
+      const { client } = await runtimeClient(deps, flags);
+      printJson(deps, await runtimeCall(() => client.agents.secrets.put(id, name, { value })));
+      return 0;
+    }
+    const secret = await readJson(path, "The secret");
+    if (typeof secret.type !== "string") throw usageError('The secret needs a "type".');
+    const { client } = await runtimeClient(deps, flags);
+    printJson(deps, await runtimeCall(() => client.agents.secrets.put(id, name, secret as never)));
+    return 0;
+  }
+  if (verb === "rm" || verb === "delete") {
+    const usage = "nylorun agents secrets rm <id> <name>";
+    const flags = parseFlags(rest, {}, usage);
+    const [id, name] = positional(flags, 2, usage);
+    const { client } = await runtimeClient(deps, flags);
+    await runtimeCall(() => client.agents.secrets.delete(id!, name!));
+    deps.out(`Deleted secret ${name} of Agent ${id}.`);
+    return 0;
+  }
+  throw usageError(`Usage: nylorun agents secrets <list|get|put|rm> …\n\n${agentsUsage}`);
+}
+
+const COMMANDS: Record<string, (deps: StackDeps, args: readonly string[]) => Promise<number>> = {
+  list,
+  ls: list,
+  get: byId("get", (client, id) => client.agents.get(id)),
+  put,
+  stop: byId("stop", (client, id) => client.agents.stop(id)),
+  reset: byId("reset", (client, id) => client.agents.reset(id)),
+  rm: deleteAgent,
+  delete: deleteAgent,
+  snapshot: byId("snapshot", (client, id) => client.agents.snapshot(id)),
+  versions: byId("versions", (client, id) => client.agents.versions(id)),
+  restore,
+  "delete-version": deleteVersion,
+  events,
+  secrets,
+  fork,
+};
+
+/** `nylorun agents <command> ...` */
 export async function agentsCommand(deps: StackDeps, args: readonly string[]): Promise<number> {
   const [sub, ...rest] = args;
   if (sub === "--help" || sub === "-h") {
     deps.out(agentsUsage);
     return 0;
   }
-  if (sub === "list" || sub === "ls") return list(deps, rest);
-  if (sub === "get") return get(deps, rest);
-  if (sub === "save") return save(deps, rest);
-  throw usageError(sub ? `Unknown agents command ${sub}.\n${agentsUsage}` : agentsUsage);
+  if (sub === "save") throw usageError(SAVE_REMOVED);
+  const command = sub !== undefined && Object.hasOwn(COMMANDS, sub) ? COMMANDS[sub] : undefined;
+  if (!command) throw usageError(sub ? `Unknown agents command ${sub}.\n${agentsUsage}` : agentsUsage);
+  return command(deps, rest);
 }

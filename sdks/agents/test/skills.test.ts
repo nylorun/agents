@@ -109,20 +109,20 @@ it("uploads the skill files the Runtime lacks, binary included, before saving th
         held.set(file, bytes);
         return Response.json({ sha256: file, size: bytes.length }, { status: 201 });
       }
-      if (path === "/v1/agents/assistant" && init?.method === "PUT") {
+      if (path === "/v1/agent-manifests/assistant" && init?.method === "PUT") {
         const body = JSON.parse(String(init.body));
-        for (const hash of Object.values(body.manifest.skills.triage.files))
+        for (const hash of Object.values(body.harness.skills.triage.files))
           expect(held.has(hash as string)).toBe(true);
-        return Response.json({ agentId: "assistant", manifestHash: "x", implementationVersion: "dev" });
+        return Response.json({ manifest: { name: "assistant", version: 1 }, unchanged: false, warnings: [] });
       }
       throw new Error(`unexpected ${init?.method} ${path}`);
     },
   });
-  await client.saveAgent(agent, { implementationVersion: "dev" });
+  await client.agentManifests.save({ agent, runtime: { kind: "virtual" } });
   expect(held.get(sha256(logo))).toEqual(logo);
   expect(calls.filter((call) => call.startsWith("PUT"))).toEqual([
     `PUT /v1/files/${sha256(logo)}`,
-    "PUT /v1/agents/assistant",
+    "PUT /v1/agent-manifests/assistant",
   ]);
   expect(calls.filter((call) => call.startsWith("HEAD"))).toHaveLength(2);
 });

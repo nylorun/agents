@@ -11,6 +11,7 @@
  *
  * Inputs (environment): SMOKE_SESSION_A, SMOKE_SESSION_B (session ids), SMOKE_POSTGRES_IP,
  * SMOKE_HOST_PORTS (host ports, comma-separated, that must not answer: Restate's), SMOKE_PROTOCOL,
+ * SMOKE_HARNESS_API (the Harness API version `hello` names: core's `HARNESS_API_VERSION`),
  * SMOKE_SECRET_HASHES (sha256 hex of the stack's other secrets, comma-separated), and the
  * harness's own NYLORUN_HARNESS_TOKEN.
  */
@@ -28,7 +29,8 @@ const env = process.env;
 const TOKEN = env.NYLORUN_HARNESS_TOKEN ?? "";
 const SESSION_A = env.SMOKE_SESSION_A ?? "";
 const SESSION_B = env.SMOKE_SESSION_B ?? "";
-const PROTOCOL = env.SMOKE_PROTOCOL ?? "6";
+const PROTOCOL = env.SMOKE_PROTOCOL ?? "16";
+const HARNESS_API = Number(env.SMOKE_HARNESS_API ?? "5");
 const SECRET_HASHES = new Set((env.SMOKE_SECRET_HASHES ?? "").split(",").filter(Boolean));
 const failures = [];
 
@@ -293,7 +295,7 @@ report("Harness API checks the Host", (await upgrade("/nylorun/harness/v1", { ..
 
 // 7. Runs this connection does not hold.
 const api = await harnessConnection();
-const hello = await api.request("hello", { api: 4, name: "nylorun", version: "0", features: {} });
+const hello = await api.request("hello", { api: HARNESS_API, name: "nylorun", version: "0", features: {} });
 const tenantId = hello.tenantId;
 const unheld = randomUUID();
 const intent = (runId, sessionId) => ({

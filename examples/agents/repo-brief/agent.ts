@@ -24,8 +24,9 @@ export type RepoBriefServices = Readonly<{ toolsUrl?: string; mcpUrl?: string }>
  * `repo-brief` skill: it writes the brief in the session's sandbox, runs the skill's check
  * script there, and dates the brief with the `now` HTTP tool. The editor verifies each draft,
  * and the last stage is the `publish_brief` HTTP tool. The Runtime runs all of it from the
- * manifest: no code of this project runs during a session, so open the session on an
- * Environment (`createSession({ environment: id })`) for the writer's shell.
+ * manifest: no code of this project runs during a session, so save it with a runtime that has
+ * a sandbox (`agentManifests.save({ agent, runtime: { kind: "virtual" } })`) for the writer's
+ * shell, and open the session on an Agent made from it (`createSession({ agent: id })`).
  * Design: docs/design/agent/flow-agents.md
  */
 export function createRepoBrief({ toolsUrl = TOOLS_URL, mcpUrl = DEEPWIKI_MCP_URL }: RepoBriefServices = {}) {

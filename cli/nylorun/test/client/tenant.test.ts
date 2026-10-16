@@ -80,7 +80,7 @@ async function runtime(options: { tenantOpen?: boolean } = {}) {
         effectId: `ef_${id}`,
         sessionId: "ses_1",
         turnId: "turn_1",
-        agentId: "support",
+        manifestName: "support",
         provider: "openai",
         model: "gpt-test",
         at: "2026-10-14T00:00:00.000Z",
@@ -180,12 +180,15 @@ describe("nylorun status and tenant on a remote installation", { timeout: 20_000
     expect(all.code).toBe(2);
     expect(all.stderr).toContain("pass --yes");
     expect((await nylorun(["tenant", "reset", "--all", "--yes"], host.url)).code).toBe(0);
-    expect((await nylorun(["tenant", "reset", "--environments"], host.url)).code).toBe(0);
+    expect((await nylorun(["tenant", "reset", "--agents"], host.url)).code).toBe(0);
     expect(host.requests.filter((r) => r.url === "/v1/tenant/reset").map((r) => r.body.scope)).toEqual([
       "sessions",
       "all",
-      "environments",
+      "agents",
     ]);
+    const environments = await nylorun(["tenant", "reset", "--environments"], host.url);
+    expect(environments.code).toBe(2);
+    expect(environments.stderr).toContain("--environments is --agents in protocol 16");
     for (const args of [["tenant", "reset", "--all", "--sessions"], ["tenant", "reset", "--everything"]])
       expect((await nylorun(args, host.url)).code).toBe(2);
   });

@@ -18,7 +18,7 @@ import {
   sectionGaps,
 } from "../src/define.js";
 import {
-  agentManifestV8JsonSchema,
+  agentManifestJsonSchema,
   harnessManifestJsonSchema,
   runtimeManifestJsonSchema,
 } from "../src/manifest-schemas.js";
@@ -253,10 +253,29 @@ describe("authoring files", () => {
   });
 
   it("publishes the three files as JSON Schema documents", () => {
-    expect(agentManifestV8JsonSchema().$id).toBe("https://docs.nylorun.com/schemas/agent-manifest/v8.json");
+    expect(agentManifestJsonSchema().$id).toBe("https://docs.nylorun.com/schemas/agent-manifest/v8.json");
     expect(harnessManifestJsonSchema().$id).toBe("https://docs.nylorun.com/schemas/harness-manifest/v1.json");
     const runtime = runtimeManifestJsonSchema();
     expect(runtime.$id).toBe("https://docs.nylorun.com/schemas/runtime-manifest/v1.json");
     expect(Object.keys(runtime.properties as object)).toEqual(expect.arrayContaining(["$schema", "kind", "secrets"]));
+  });
+});
+
+describe("runtime section (environment manifest v1's fields)", () => {
+  it("checks its secret slots as environment manifests did", () => {
+    const runtime = {
+      kind: "pod",
+      secrets: { GH_TOKEN: { type: "environment_secret", allowedHosts: ["api.github.com"], required: true } },
+    };
+    expect(RuntimeSectionSchema.parse(runtime)).toEqual(runtime);
+    expect(RuntimeSectionSchema.safeParse({ ...runtime, secrets: { PATH: { type: "environment_variable" } } }).success).toBe(false);
+    // A slot never carries a value.
+    expect(RuntimeSectionSchema.safeParse({ ...runtime, secrets: { MODE: { type: "environment_variable", value: "x" } } }).success).toBe(false);
+    expect(RuntimeSectionSchema.safeParse({ ...runtime, $schema: "x" }).success).toBe(false);
+  });
+
+  it("lets the runtime file take the composer's { path, from } files entry", () => {
+    expect(RuntimeManifestFileSchema.parse({ kind: "pod", files: [{ path: "/workspace/data", from: "./data" }] }).files).toHaveLength(1);
+    expect(RuntimeSectionSchema.safeParse({ kind: "pod", files: [{ path: "/workspace/data", from: "./data" }] }).success).toBe(false);
   });
 });

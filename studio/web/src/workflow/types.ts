@@ -101,6 +101,7 @@ export type NodeLiveState = {
 export type WorkflowLink = {
   readonly workflowSessionId: string;
   readonly path: string;
+  /** The Agent the flow's session runs on, as its children do (protocol 16). */
   readonly workflowAgentId?: string;
 };
 

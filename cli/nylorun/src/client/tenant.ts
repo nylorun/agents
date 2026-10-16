@@ -26,9 +26,10 @@ The Management API of the installation's one Tenant, with a management key: the 
 --tenant names (else the linked project's, else the default one), or the installation that
 NYLORUN_RUNTIME_URL and NYLORUN_MANAGEMENT_KEY name.
 
-  reset [--sessions|--environments|--all] [--yes] [--tenant <name>]
-                                      clear the Tenant's sessions, Environments or all its data
-                                      (the Project link and keys stay)
+  reset [--sessions|--agents|--all] [--yes] [--tenant <name>]
+                                      clear the Tenant's sessions, its Agents (their vaults,
+                                      disks and sessions) or all its data (the Project link and
+                                      keys stay)
 ${keyUsage}
 ${signingKeysUsage}
 ${modelsUsage}
@@ -86,11 +87,13 @@ export async function remoteStatus(deps: StackDeps, args: readonly string[]): Pr
   return 0;
 }
 
-const RESET_USAGE = "nylorun tenant reset [--sessions|--environments|--all] [--yes] [--tenant <name>]";
-const SCOPES = { "--sessions": "sessions", "--environments": "environments", "--all": "all" } as const;
+const RESET_USAGE = "nylorun tenant reset [--sessions|--agents|--all] [--yes] [--tenant <name>]";
+const SCOPES = { "--sessions": "sessions", "--agents": "agents", "--all": "all" } as const;
 
 /** `nylorun tenant reset`; `--all` asks first. */
 async function reset(deps: StackDeps, args: readonly string[]): Promise<number> {
+  if (args.includes("--environments"))
+    throw usageError("--environments is --agents in protocol 16: Environments are Agents. Pass --agents.");
   const flags = parseStackFlags(
     args,
     { booleans: ["--yes", ...Object.keys(SCOPES)], values: ["--tenant"], aliases: { "-y": "--yes" } },
@@ -98,7 +101,7 @@ async function reset(deps: StackDeps, args: readonly string[]): Promise<number> 
   );
   if (flags.rest.length) throw usageError(`Usage: ${RESET_USAGE}`);
   const chosen = Object.keys(SCOPES).filter((flag) => flags.booleans.has(flag));
-  if (chosen.length > 1) throw usageError("Pass only one of --sessions, --environments, --all.");
+  if (chosen.length > 1) throw usageError("Pass only one of --sessions, --agents, --all.");
   const scope = chosen.length ? SCOPES[chosen[0] as keyof typeof SCOPES] : "sessions";
   const { connection, admin } = await tenantClient(deps, flags.values.get("--tenant"));
   if (scope === "all" && !flags.booleans.has("--yes")) {

@@ -17,6 +17,7 @@ import { Agent } from "@nylorun/core/define";
 import { openTenantDatabase } from "../../src/store/postgres/tenant.js";
 import { startEphemeralRuntime } from "../../src/tenant/ephemeral.js";
 import { until } from "../host/execution-support.js";
+import { deploy } from "../support/agents.js";
 import { fileDatabaseName, testDatabaseUrl } from "../support/database.js";
 import { tenantTestDatabase, testPool } from "../support/store.js";
 
@@ -58,17 +59,9 @@ it("runs a turn on a Tenant in its database, ends its own pool and removes its H
       headers,
       ...(body ? { body: JSON.stringify(body) } : {}),
     });
+  await deploy(runtime.url, headers, bot);
   expect(
-    (
-      await call("/v1/agents/bot", "PUT", {
-        requestId: "put-bot",
-        manifest: bot.manifest,
-        implementationVersion: "dev",
-      })
-    ).ok
-  ).toBe(true);
-  expect(
-    (await call("/v1/sessions/s1", "PUT", { requestId: "s1", agentId: "bot", ownerUserId: "u" }))
+    (await call("/v1/sessions/s1", "PUT", { requestId: "s1", agent: "bot", ownerUserId: "u" }))
       .ok
   ).toBe(true);
   expect(

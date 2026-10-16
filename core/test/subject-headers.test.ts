@@ -25,11 +25,15 @@ describe("parseSubjectHeaders", () => {
     });
   });
 
-  it("names environments:write in place of the renamed sandboxes:write (protocol 11)", () => {
-    expect(SUBJECT_SCOPES).toContain("environments:write");
-    const parsed = parseSubjectHeaders("app:42", "sessions:own sandboxes:write");
-    expect(parsed).toMatchObject({ ok: false });
-    expect(!parsed.ok && parsed.message).toMatch(/environments:write/);
+  it("names agents:write in place of the renamed environments:write (protocol 16) and sandboxes:write", () => {
+    expect(SUBJECT_SCOPES).toContain("agents:write");
+    expect(SUBJECT_SCOPES).toContain("agent-manifests:write");
+    expect(SUBJECT_SCOPES).not.toContain("environments:write");
+    for (const old of ["sandboxes:write", "environments:write"]) {
+      const parsed = parseSubjectHeaders("app:42", `sessions:own ${old}`);
+      expect(parsed).toMatchObject({ ok: false });
+      expect(!parsed.ok && parsed.message).toMatch(/agents:write/);
+    }
   });
 
   it("requires scopes and knows only the listed ones", () => {

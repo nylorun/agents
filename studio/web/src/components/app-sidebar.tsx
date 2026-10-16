@@ -1,11 +1,11 @@
 import { Link } from "react-router-dom";
+import type { AgentView } from "@nylorun/agents";
 import {
   Bot,
-  Box,
   Building2,
   Cpu,
   FileJson,
-  GitBranch,
+  Files,
   LoaderCircle,
   MessagesSquare,
   Plus,
@@ -14,22 +14,20 @@ import type { Connection } from "@/studio-types";
 import { shortTenantId, type StudioTenantInfo } from "@/config";
 import { embedded } from "@/embed/index.ts";
 import { useStartSession } from "@/components/new-session";
-import { AgentName } from "@/components/sessions-table";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { sessionAgents, sessionsPath, type SessionAgent } from "@/session-list";
-import {
-  INLINE_MANIFEST,
-  environmentGroups,
-  environmentsPath,
-  type EnvironmentGroup,
-} from "@/environment-list";
-import type { EnvironmentCatalog } from "@/resources/environments";
+import { sessionsPath } from "@/session-list";
+import { agentGroups, agentsPath, stateLabel, type AgentGroup } from "@/agent-list";
+import { agentPath, manifestPath } from "@/agent-path";
+import { agentUnavailable } from "@/credential-coverage";
+import { STUDIO_OWNER } from "@/session-open";
+import type { AgentCatalog } from "@/resources/agents";
 import {
   Sidebar,
   SidebarContent,
@@ -46,57 +44,64 @@ import {
   SidebarMenuSubItem,
 } from "@/components/ui/sidebar";
 
-/** One agent under Sessions: it filters the session list to that agent. */
-function AgentFilterItem({
-  agent,
-  active,
-}: Readonly<{ agent: SessionAgent; active: boolean }>) {
-  const Icon = agent.workflow ? GitBranch : Bot;
-  return (
-    <SidebarMenuSubItem>
-      <SidebarMenuSubButton asChild isActive={active} size="sm">
-        <Link to={sessionsPath(agent.id)} title={agent.name}>
-          <Icon />
-          <span className="min-w-0 flex-1 truncate">{agent.name}</span>
-          <span className="ml-auto shrink-0 text-xs tabular-nums text-sidebar-foreground/70">
-            {agent.count}
-          </span>
-        </Link>
-      </SidebarMenuSubButton>
-    </SidebarMenuSubItem>
-  );
+/** The dot of an Agent's state: amber when it needs input, red when it fails. */
+function stateDot(state: string): string {
+  return state === "failing"
+    ? "bg-red-500"
+    : state === "input_required"
+      ? "bg-amber-500"
+      : state === "working"
+        ? "bg-sky-500"
+        : "bg-sidebar-foreground/30";
 }
-/** One manifest under Environments: it filters the Environments list to that manifest. */
-function ManifestFilterItem({
+
+/** One manifest under Agents, which filters the list to it, then its Agents, each to its page. */
+function AgentGroupItems({
   group,
-  active,
-}: Readonly<{ group: EnvironmentGroup; active: boolean }>) {
-  const Icon = group.id === INLINE_MANIFEST ? Box : FileJson;
+  activeAgentId,
+  activeManifest,
+}: Readonly<{ group: AgentGroup; activeAgentId?: string; activeManifest?: string }>) {
   return (
-    <SidebarMenuSubItem>
-      <SidebarMenuSubButton asChild isActive={active} size="sm">
-        <Link to={environmentsPath({ manifest: group.id })} title={group.name}>
-          <Icon />
-          <span className="min-w-0 flex-1 truncate">{group.name}</span>
-          <span className="ml-auto shrink-0 text-xs tabular-nums text-sidebar-foreground/70">
-            {group.count}
-          </span>
-        </Link>
-      </SidebarMenuSubButton>
-    </SidebarMenuSubItem>
+    <>
+      <SidebarMenuSubItem>
+        <SidebarMenuSubButton asChild isActive={group.name === activeManifest} size="sm">
+          <Link to={agentsPath({ manifest: group.name })} title={group.name}>
+            <FileJson />
+            <span className="min-w-0 flex-1 truncate">{group.name}</span>
+            <span className="ml-auto shrink-0 text-xs tabular-nums text-sidebar-foreground/70">
+              {group.agents.length}
+            </span>
+          </Link>
+        </SidebarMenuSubButton>
+      </SidebarMenuSubItem>
+      {group.agents.map((agent) => (
+        <SidebarMenuSubItem key={agent.id}>
+          <SidebarMenuSubButton asChild isActive={agent.id === activeAgentId} size="sm" className="pl-6">
+            <Link to={agentPath(agent.id)} title={`${agent.id} · ${stateLabel(agent.state)}`}>
+              <span className={"size-1.5 shrink-0 rounded-full " + stateDot(agent.state)} aria-hidden />
+              <span className="min-w-0 flex-1 truncate font-mono text-xs">{agent.id}</span>
+              <span className="ml-auto shrink-0 text-xs tabular-nums text-sidebar-foreground/70">
+                {agent.sessions.length}
+              </span>
+            </Link>
+          </SidebarMenuSubButton>
+        </SidebarMenuSubItem>
+      ))}
+    </>
   );
 }
-/** Starts a session of the agent picked from its menu, from any page. */
-function NewSessionItem({ agents }: Readonly<{ agents: readonly SessionAgent[] }>) {
+
+/** Starts a session on the Agent picked from its menu, grouped by manifest, from any page. */
+function NewSessionItem({ groups }: Readonly<{ groups: readonly AgentGroup[] }>) {
   const start = useStartSession();
-  const registered = agents.filter((agent) => agent.registered);
+  const withAgents = groups.filter((group) => group.agents.length > 0);
   return (
     <SidebarMenuItem className="pt-1">
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <SidebarMenuButton
             tooltip="New session"
-            disabled={registered.length === 0}
+            disabled={withAgents.length === 0}
             className="h-9 justify-center gap-2 px-3 font-medium bg-primary text-primary-foreground shadow-xs hover:bg-primary/90 hover:text-primary-foreground active:bg-primary/90 active:text-primary-foreground data-[state=open]:bg-primary/90 data-[state=open]:hover:bg-primary/90 data-[state=open]:hover:text-primary-foreground"
           >
             <Plus />
@@ -104,18 +109,46 @@ function NewSessionItem({ agents }: Readonly<{ agents: readonly SessionAgent[] }
             <span className="group-data-[collapsible=icon]:hidden">New session</span>
           </SidebarMenuButton>
         </DropdownMenuTrigger>
-        <DropdownMenuContent side="right" align="start" className="w-56">
+        <DropdownMenuContent side="right" align="start" className="max-h-96 w-64 overflow-y-auto">
           <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
-            Start a session with
+            Start a session on
           </DropdownMenuLabel>
-          {registered.map((agent) => (
-            <DropdownMenuItem key={agent.id} onSelect={() => start(agent)}>
-              <AgentName agent={agent} />
-            </DropdownMenuItem>
+          {withAgents.map((group, index) => (
+            <AgentMenuGroup key={group.name} group={group} separated={index > 0} onPick={start} />
           ))}
         </DropdownMenuContent>
       </DropdownMenu>
     </SidebarMenuItem>
+  );
+}
+
+function AgentMenuGroup({
+  group,
+  separated,
+  onPick,
+}: Readonly<{ group: AgentGroup; separated: boolean; onPick: (agent: AgentView) => void }>) {
+  return (
+    <>
+      {separated ? <DropdownMenuSeparator /> : null}
+      <DropdownMenuLabel className="flex items-center gap-1.5 text-xs font-normal text-muted-foreground">
+        <FileJson className="size-3.5" />
+        {group.name}
+      </DropdownMenuLabel>
+      {group.agents.map((agent) => {
+        const unavailable = agentUnavailable(agent, STUDIO_OWNER);
+        return (
+          <DropdownMenuItem
+            key={agent.id}
+            disabled={unavailable !== undefined}
+            title={unavailable}
+            onSelect={() => onPick(agent)}
+          >
+            <Bot />
+            <span className="truncate font-mono text-xs">{agent.id}</span>
+          </DropdownMenuItem>
+        );
+      })}
+    </>
   );
 }
 function statusDotClass(status: Connection["status"]): string {
@@ -188,28 +221,30 @@ export type SettingsSection = "overview" | "models";
 export function AppSidebar({
   connection,
   tenant,
+  catalog,
   sessionsActive,
+  agentsActive,
+  manifestsActive,
   activeAgentId,
-  settingsSection,
-  environmentsActive,
-  environments,
   activeManifest,
+  settingsSection,
 }: Readonly<{
   connection: Connection;
   tenant?: StudioTenantInfo;
-  /** The session list or a session is open. */
+  catalog: AgentCatalog;
+  /** The session list is open. */
   sessionsActive?: boolean;
-  /** The agent the session list is filtered on, or the open session's agent. */
+  /** The Agents list, an Agent's page or one of its sessions is open. */
+  agentsActive?: boolean;
+  /** The agent manifests or one manifest's page is open. */
+  manifestsActive?: boolean;
+  /** The open Agent, or the open session's. */
   activeAgentId?: string;
-  settingsSection?: SettingsSection;
-  /** The list of Environments or one Environment's page is open. */
-  environmentsActive?: boolean;
-  environments: EnvironmentCatalog;
-  /** The manifest the Environments list is filtered on, or the open Environment's. */
+  /** The manifest the Agents list is filtered on. */
   activeManifest?: string;
+  settingsSection?: SettingsSection;
 }>) {
-  const agents = sessionAgents(connection);
-  const groups = environmentGroups(environments.manifests, environments.environments);
+  const groups = agentGroups(catalog.manifests, catalog.agents);
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader>
@@ -242,7 +277,7 @@ export function AppSidebar({
             tenant={tenant}
             active={settingsSection === "overview"}
           />
-          <NewSessionItem agents={agents} />
+          <NewSessionItem groups={groups} />
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>
@@ -250,11 +285,7 @@ export function AppSidebar({
           <SidebarGroupContent>
             <SidebarMenu>
               <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={sessionsActive && activeAgentId === undefined}
-                  tooltip="Sessions"
-                >
+                <SidebarMenuButton asChild isActive={sessionsActive} tooltip="Sessions">
                   <Link to={sessionsPath()}>
                     <MessagesSquare />
                     <span>Sessions</span>
@@ -265,91 +296,70 @@ export function AppSidebar({
                     ) : null}
                   </Link>
                 </SidebarMenuButton>
-                <SidebarMenuSub>
-                  {agents.map((agent) => (
-                    <AgentFilterItem
-                      key={agent.id}
-                      agent={agent}
-                      active={sessionsActive === true && agent.id === activeAgentId}
-                    />
-                  ))}
-                  {connection.status === "Running" && agents.length === 0 ? (
-                    <SidebarMenuSubItem>
-                      <span className="block px-2 py-1 text-xs text-muted-foreground">
-                        No agents yet
-                      </span>
-                    </SidebarMenuSubItem>
-                  ) : null}
-                  {connection.status === "Offline" ? (
-                    <SidebarMenuSubItem>
-                      <span className="block px-2 py-1 text-xs text-muted-foreground">
-                        Agent server unavailable
-                      </span>
-                    </SidebarMenuSubItem>
-                  ) : null}
-                  {connection.status === "Connecting" ? (
-                    <SidebarMenuSubItem>
-                      <span className="flex items-center gap-2 px-2 py-1 text-xs text-muted-foreground">
-                        <LoaderCircle className="size-3.5 animate-spin" />
-                        Discovering agents
-                      </span>
-                    </SidebarMenuSubItem>
-                  ) : null}
-                </SidebarMenuSub>
               </SidebarMenuItem>
               <SidebarMenuItem>
                 <SidebarMenuButton
                   asChild
-                  isActive={environmentsActive && activeManifest === undefined}
-                  tooltip="Environments"
+                  isActive={agentsActive && activeAgentId === undefined && activeManifest === undefined}
+                  tooltip="Agents"
                 >
-                  <Link to={environmentsPath()}>
-                    <Box />
-                    <span>Environments</span>
-                    {environments.status === "Ready" ? (
+                  <Link to={agentsPath()}>
+                    <Bot />
+                    <span>Agents</span>
+                    {catalog.status === "Ready" ? (
                       <span className="tabular-nums text-sidebar-foreground/70">
-                        ({environments.environments.length})
+                        ({catalog.agents.length})
                       </span>
                     ) : null}
                   </Link>
                 </SidebarMenuButton>
                 <SidebarMenuSub>
                   {groups.map((group) => (
-                    <ManifestFilterItem
-                      key={group.id}
+                    <AgentGroupItems
+                      key={group.name}
                       group={group}
-                      active={environmentsActive === true && group.id === activeManifest}
+                      {...(agentsActive && activeAgentId !== undefined ? { activeAgentId } : {})}
+                      {...(agentsActive && activeManifest !== undefined ? { activeManifest } : {})}
                     />
                   ))}
-                  {environments.status === "Ready" && groups.length === 0 ? (
+                  {catalog.status === "Ready" && groups.length === 0 ? (
                     <SidebarMenuSubItem>
-                      <span className="block px-2 py-1 text-xs text-muted-foreground">
-                        No manifests yet
-                      </span>
+                      <span className="block px-2 py-1 text-xs text-muted-foreground">No Agents yet</span>
                     </SidebarMenuSubItem>
                   ) : null}
-                  {environments.status === "Failed" ? (
+                  {catalog.status === "Failed" ? (
                     <SidebarMenuSubItem>
-                      <span className="block px-2 py-1 text-xs text-muted-foreground">
-                        Environments unavailable
-                      </span>
+                      <span className="block px-2 py-1 text-xs text-muted-foreground">Agents unavailable</span>
                     </SidebarMenuSubItem>
                   ) : null}
-                  {environments.status === "Loading" ? (
+                  {catalog.status === "Loading" ? (
                     <SidebarMenuSubItem>
                       <span className="flex items-center gap-2 px-2 py-1 text-xs text-muted-foreground">
                         <LoaderCircle className="size-3.5 animate-spin" />
-                        Loading manifests
+                        Loading Agents
                       </span>
                     </SidebarMenuSubItem>
                   ) : null}
                 </SidebarMenuSub>
               </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={manifestsActive} tooltip="Agent manifests">
+                  <Link to={manifestPath()}>
+                    <Files />
+                    <span>Agent manifests</span>
+                    {catalog.status === "Ready" && !catalog.manifestsError ? (
+                      <span className="tabular-nums text-sidebar-foreground/70">
+                        ({catalog.manifests.length})
+                      </span>
+                    ) : null}
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
-      {/* Pinned below the agents, which scroll above it. */}
+      {/* Pinned below the Agents, which scroll above it. */}
       <SidebarFooter>
         <SidebarGroup className="p-0">
           <SidebarGroupLabel>Settings</SidebarGroupLabel>

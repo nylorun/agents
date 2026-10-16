@@ -1,6 +1,6 @@
 /**
  * R2 M3: `http()` declares a tool the Runtime runs as an HTTP request. It projects into the
- * manifest with `http`, and has no implementation. R2 M6: `saveAgent` refuses a tool that would
+ * manifest with `http`, and has no implementation. R2 M6: `agentManifests.save` refuses a tool that would
  * run your code. R5 step 2: approval is the Tenant's tool policy, not the tool's.
  */
 import { describe, expect, it } from "vitest";
@@ -72,12 +72,12 @@ describe("http()", () => {
         return Response.json({ ok: true });
       },
     });
-    await client.saveAgent(Agent({ id: "orders" }).tools(refund).build());
-    expect(sent).toEqual(["PUT /v1/agents/orders"]);
+    await client.agentManifests.save({ agent: Agent({ id: "orders" }).tools(refund).build() });
+    expect(sent).toEqual(["PUT /v1/agent-manifests/orders"]);
     const note = tool({ name: "note", input: z.object({ text: z.string() }), run: async ({ text }) => text });
-    await expect(client.saveAgent(Agent({ id: "notes" }).tools(refund, note).build())).rejects.toThrow(
+    await expect(client.agentManifests.save({ agent: Agent({ id: "notes" }).tools(refund, note).build() })).rejects.toThrow(
       "Tool 'note' of agent 'notes' runs your code, but the Runtime runs agents from their manifests alone. Make it an http() tool or serve it from a remote MCP server (see MIGRATION.md).",
     );
-    expect(sent).toEqual(["PUT /v1/agents/orders"]);
+    expect(sent).toEqual(["PUT /v1/agent-manifests/orders"]);
   });
 });

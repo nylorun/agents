@@ -17,6 +17,7 @@ import { startHarnessListener, type HarnessListener } from "../../src/harness-ap
 import { startHarnessService, type HarnessService } from "../../src/harness/service.js";
 import { withTestSessionStore } from "../support/store.js";
 import { APP, boot, server, type Started } from "../host/execution-support.js";
+import { deploy } from "../support/agents.js";
 
 const TOKEN = "ab".repeat(32);
 const logger = { info() {}, warn() {} };
@@ -131,9 +132,8 @@ it("runs a turn with bash in a harness service with its own sandbox and no store
   expect(status.body.harness).toEqual({ mode: "remote", connected: 1, workspace: true });
 
   const agent = Agent({ id: "bot", name: "Bot" }).instructions("Use the sandbox.").build();
-  expect((await api("PUT", "/v1/agents/bot", { requestId: "a", manifest: agent.manifest, implementationVersion: "dev" })).status).toBe(200);
-  expect((await api("PUT", "/v1/environments/ws%2Fu", { kind: "virtual" })).status).toBe(200);
-  expect((await api("PUT", "/v1/sessions/s1", { requestId: "s", agentId: "bot", ownerUserId: "u", environment: "ws/u" })).status).toBe(200);
+  await deploy(runtime.url, server, agent, { id: "ws/u", runtime: { kind: "virtual" } });
+  expect((await api("PUT", "/v1/sessions/s1", { requestId: "s", agent: "ws/u", ownerUserId: "u" })).status).toBe(200);
   await api("POST", "/v1/sessions/s1/commands", { type: "message", requestId: "m", idempotencyKey: "m", content: "go" });
   let view: any;
   for (let i = 0; i < 400; i += 1) {

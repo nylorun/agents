@@ -10,7 +10,7 @@ import type {
   ModelDescriptor,
   RecordedOutcome,
   RuntimeLimits,
-  TurnEnvironment,
+  TurnAgent,
   TurnStart,
 } from "@nylorun/core/harness-api";
 import { SANDBOX_WORKSPACE, type SandboxManifest } from "@nylorun/core/define";
@@ -58,7 +58,7 @@ export interface SegmentStart {
   /** The record position of `transcript` (`foldTranscriptWithCursor`). */
   readonly cursor: number;
   readonly outcomes: RecordedOutcome[];
-  /** The session's sandbox workspace: the session, and the Environment whose workspace it is. */
+  /** The session's sandbox workspace: the session, and the Agent whose workspace it is. */
   readonly sandbox: {
     readonly ownerId: string;
     readonly environmentId?: string;
@@ -68,13 +68,13 @@ export interface SegmentStart {
     readonly spec?: SandboxManifest;
   };
   /**
-   * The Environment the session runs in, as `TurnStart.environment` states it (protocol 15): its
-   * id and kind, and its sandbox's workspace when the session has a sandbox.
+   * The Agent the session runs on, as `TurnStart.agent` states it (Harness API 5): its id and
+   * kind, and its sandbox's workspace when the session has a sandbox.
    */
-  readonly environment?: TurnEnvironment;
+  readonly agent?: TurnAgent;
   /**
-   * The Environment is a pod (F7.2): its engine runs the segment. Its lifecycle state, and
-   * whether its new volume is still being seeded from a disk version (R2d step 3).
+   * The Agent is a pod (F7.2): its engine runs the segment. Its lifecycle state, and whether its
+   * new volume is still being seeded from a disk version (R2d step 3).
    */
   readonly pod?: { readonly id: string; readonly pod: SandboxPodState; readonly seeding?: boolean };
   /** The turn's span context (R7.4): what `TurnStart.trace` hands the harness. */
@@ -127,7 +127,7 @@ export async function startSegment(
         limits,
         outcomes: current.checkpoint ? await bulkOutcomes(t, current, current.checkpoint) : [],
         sandbox,
-        ...(resource ? { environment: environmentOf(resource, current.sandbox) } : {}),
+        ...(resource ? { agent: agentOf(resource, current.sandbox) } : {}),
         ...(key && turnId ? { trace: turnContextOf(key, ctx.store.tenantId, current, turnId) } : {}),
         ...(resource?.pod
           ? { pod: { id: resource.id, pod: resource.pod, ...(resource.diskSeed ? { seeding: true } : {}) } }
@@ -187,18 +187,21 @@ export function buildTurnStart(ctx: TenantContext, segment: SegmentStart): TurnS
     ...(segment.trace ? { trace: segment.trace } : {}),
     limits: harnessLimitsOf(segment.limits),
     ...(segment.model && !flow ? { model: segment.model } : {}),
-    ...(segment.environment && !flow ? { environment: segment.environment } : {}),
+    ...(segment.agent && !flow ? { agent: segment.agent } : {}),
+    // The agent manifest version the session pinned, and its harness's own settings (protocol 16).
+    ...(current.definition === undefined ? {} : { definition: current.definition }),
+    ...(current.loop === undefined || flow ? {} : { loop: current.loop }),
   };
 }
 
 /**
- * The facts of the Environment a session runs in (protocol 15): its id and kind, and, with the
+ * The facts of the Agent a session runs on (Harness API 5): its id and kind, and, with the
  * session's sandbox, the workspace its commands start in. The harness words them.
  */
-function environmentOf(
-  resource: { readonly id: string; readonly kind: TurnEnvironment["kind"] },
+function agentOf(
+  resource: { readonly id: string; readonly kind: TurnAgent["kind"] },
   spec: SandboxManifest | undefined,
-): TurnEnvironment {
+): TurnAgent {
   return {
     id: resource.id,
     kind: resource.kind,

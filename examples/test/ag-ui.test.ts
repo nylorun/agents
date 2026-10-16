@@ -12,7 +12,7 @@ import { join } from "node:path";
 import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { HttpAgent } from "@ag-ui/client";
-import { createClient } from "@nylorun/agents";
+import { createClient, type AgentsClient } from "@nylorun/agents";
 import { createManagementClient } from "@nylorun/admin";
 import { startEphemeralRuntime, type EphemeralRuntime } from "@nylorun/runtime";
 import { createSupportApp } from "../src/ag-ui/app.js";
@@ -23,6 +23,7 @@ let database: Awaited<ReturnType<typeof testDatabase>>;
 let runtime: EphemeralRuntime;
 let server: Server;
 let base: string;
+let client: AgentsClient;
 /** Every body and header the browser received, for the leak check. */
 const received: string[] = [];
 
@@ -34,7 +35,7 @@ beforeAll(async () => {
     model: { kind: "fixture" },
     database: database.url,
   });
-  const client = createClient({
+  client = createClient({
     url: runtime.url,
     key: runtime.applicationKey,
   });
@@ -89,6 +90,10 @@ function chat(user: string, threadId: string) {
 }
 
 describe("the AG-UI example", () => {
+  it("saves the support agent's manifest and makes the Agent its endpoint runs", async () => {
+    expect(await client.agents.get("support")).toMatchObject({ id: "support", manifest: "support", kind: "none" });
+  });
+
   it("runs a chat with an approval for a signed-in person", async () => {
     const { agent, events } = chat("ada", "t-ada");
     agent.addMessage({ id: crypto.randomUUID(), role: "user", content: "Where is demo-123? Ada asking." });

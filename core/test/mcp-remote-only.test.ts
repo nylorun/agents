@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import { Agent, McpError, stdioMcpRefusal } from "../src/define.js";
-import { AgentManifestSchema, PutAgentRequestSchema } from "../src/contracts.js";
+import { AgentManifestSchema, AgentManifestV8Schema } from "../src/contracts.js";
 import { HarnessError } from "../src/errors.js";
 
 const refusal =
@@ -34,11 +34,8 @@ it("refuses a stdio server in the wire schema with the same message", () => {
   const parsed = AgentManifestSchema.safeParse(stdioManifest);
   expect(parsed.success).toBe(false);
   expect(parsed.error?.issues.map((issue) => issue.message)).toContain(refusal);
-  const put = PutAgentRequestSchema.safeParse({
-    requestId: "r1",
-    manifest: stdioManifest,
-    implementationVersion: "1",
-  });
+  const { manifestSchemaVersion: _, id: __, ...harness } = stdioManifest as Record<string, unknown>;
+  const put = AgentManifestV8Schema.safeParse({ manifestSchemaVersion: 8, name: "local", harness });
   expect(put.success).toBe(false);
   expect(JSON.stringify(put.error?.issues)).toContain(refusal);
 });

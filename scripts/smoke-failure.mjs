@@ -194,17 +194,22 @@ try {
         method: "PUT",
         body: { requestId: randomUUID(), idempotencyKey: randomUUID(), ...model.model },
       });
-      await request(runtimeUrl, tenant, "/v1/agents/bot", {
-        method: "PUT",
-        body: {
-          requestId: randomUUID(),
-          implementationVersion: "dev",
-          manifest: { id: "bot", name: "Bot", manifestSchemaVersion: 7 },
-        },
-      });
+      // Saves the agent manifest `id` (its harness and runtime sections) and makes the Agent `id`
+      // from it (protocol 16).
+      const putAgent = async (id, harness, runtime) => {
+        await request(runtimeUrl, tenant, `/v1/agent-manifests/${id}`, {
+          method: "PUT",
+          body: { requestId: randomUUID(), manifestSchemaVersion: 8, name: id, harness, ...(runtime ? { runtime } : {}) },
+        });
+        await request(runtimeUrl, tenant, `/v1/agents/${id}`, {
+          method: "PUT",
+          body: { requestId: randomUUID(), manifest: id },
+        });
+      };
+      await putAgent("bot", {});
       await request(runtimeUrl, tenant, "/v1/sessions/s1", {
         method: "PUT",
-        body: { requestId: randomUUID(), agentId: "bot", ownerUserId: "failure-smoke" },
+        body: { requestId: randomUUID(), agent: "bot", ownerUserId: "failure-smoke" },
       });
       const message = (n) =>
         request(runtimeUrl, tenant, "/v1/sessions/s1/commands", {
@@ -343,13 +348,10 @@ try {
       // 5b. The harness killed mid `bash`: the workspace call is lost with it. A sandbox call has
       // no key to dedupe on, so it fails to the model as `tool.interrupted` at once and is never
       // run again (R5); the model answers and the turn completes. Nothing is uncertain.
-      await request(runtimeUrl, tenant, "/v1/environments/s3", {
-        method: "PUT",
-        body: { requestId: randomUUID(), kind: "virtual" },
-      });
+      await putAgent("sandboxed", {}, { kind: "virtual" });
       await request(runtimeUrl, tenant, "/v1/sessions/s3", {
         method: "PUT",
-        body: { requestId: randomUUID(), agentId: "bot", ownerUserId: "failure-smoke", environment: "s3" },
+        body: { requestId: randomUUID(), agent: "sandboxed", ownerUserId: "failure-smoke" },
       });
       await request(runtimeUrl, tenant, "/v1/sessions/s3/commands", {
         method: "POST",
@@ -539,22 +541,12 @@ try {
       const mcpPublished = (await docker(["port", mcpName, "8080/tcp"])).split("\n")[0].trim();
       const mcpStub = async () => (await fetch(`http://${mcpPublished}/calls`)).json();
       await eventually(() => mcpStub().then(() => true), { timeout: 30_000, message: "the stub MCP server" });
-      await request(runtimeUrl, tenant, "/v1/agents/tooler", {
-        method: "PUT",
-        body: {
-          requestId: randomUUID(),
-          implementationVersion: "dev",
-          manifest: {
-            id: "tooler",
-            name: "Tooler",
-            manifestSchemaVersion: 7,
-            mcpServers: { remote: { name: "remote", type: "streamable-http", url: `http://${MCP_ALIAS}:8080/mcp` } },
-          },
-        },
+      await putAgent("tooler", {
+        mcpServers: { remote: { name: "remote", type: "streamable-http", url: `http://${MCP_ALIAS}:8080/mcp` } },
       });
       await request(runtimeUrl, tenant, "/v1/sessions/s2", {
         method: "PUT",
-        body: { requestId: randomUUID(), agentId: "tooler", ownerUserId: "failure-smoke" },
+        body: { requestId: randomUUID(), agent: "tooler", ownerUserId: "failure-smoke" },
       });
       const toolSession = () => runtimeGet(runtimeUrl, tenant.key, "/v1/sessions/s2");
       const toolHistory = () => runtimeGet(runtimeUrl, tenant.key, "/v1/sessions/s2/items");

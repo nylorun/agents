@@ -7,6 +7,7 @@ import {
 } from "@nylorun/core/contracts";
 import { createClient } from "@nylorun/agents";
 import { startTestTenant } from "../support/tenant.js";
+import { deploy, openSession } from "../support/agents.js";
 import { testTenantPool } from "../support/store.js";
 import { testIssuer } from "../support/issuer.js";
 import { readCursor } from "../../src/reads/cursor.js";
@@ -23,18 +24,19 @@ async function boot(options: Parameters<typeof startTestTenant>[0] = {}) {
   const rt = await startTestTenant(options);
   closers.push(() => rt.close());
   const client = createClient({ url: rt.url, key: rt.applicationKey });
+  // Agents `bot` and `other`, each made from its own manifest.
   for (const agentId of ["bot", "other"]) {
     const built = Agent({ id: agentId, name: agentId })
       .instructions("Answer.")
       .build();
-    await client.saveAgent(built);
+    await deploy(rt.url, rt.headers(), built);
   }
-  for (const [id, agentId, ownerUserId] of [
+  for (const [id, agent, ownerUserId] of [
     ["ann-a", "bot", "ann"],
     ["ann-b", "other", "ann"],
     ["bob-a", "bot", "bob"],
   ])
-    await client.createSession({ id, agentId, ownerUserId });
+    expect((await openSession(rt.url, rt.headers(), id!, { agent: agent!, ownerUserId: ownerUserId! })).status).toBe(200);
   const ids: string[] = [];
   for (const [name, sessionId, labels] of [
     ["tenant.txt", undefined, undefined],

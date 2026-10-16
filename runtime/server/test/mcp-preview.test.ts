@@ -1,6 +1,6 @@
 /**
  * R2b C12: `POST /v1/tenant/mcp/preview` lists a remote MCP server's tools with the credential
- * for its URL in the vault of the Environment the request names (none without one), and calls none. With `NYLORUN_TEST_MODEL_GATE=http` the keys
+ * for its URL in the vault of the Agent the request names (none without one), and calls none. With `NYLORUN_TEST_MODEL_GATE=http` the keys
  * service in the gates service runs it; otherwise the Tenant does, in process.
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
@@ -12,8 +12,9 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { McpPreviewSchema, RUNTIME_LIMIT_DEFAULTS } from "@nylorun/core/contracts";
 import { previewMcpServer, previewServerName } from "../src/mcp/preview.js";
 import { HttpError } from "../src/tenant/http.js";
+import { Agent } from "@nylorun/core/define";
 import { startTestTenant } from "./support/tenant.js";
-import { putEnvironment, putSecret } from "./support/environment-secrets.js";
+import { deploy, putAgent, putSecret } from "./support/agents.js";
 
 const API_KEY = "preview-api-key-plaintext-1a2b3c4d";
 const APP_KEY = "preview-app-key-plaintext-5e6f7a8b";
@@ -118,7 +119,7 @@ let refusing: Runtime;
 let keyed: Awaited<ReturnType<typeof mcpServer>>;
 let gateway: Awaited<ReturnType<typeof mcpServer>>;
 let open: Awaited<ReturnType<typeof mcpServer>>;
-/** The Environments holding the credentials. */
+/** The Agents holding the credentials. */
 const SHARED = "shared";
 const OTHER = "other";
 
@@ -130,8 +131,8 @@ async function post(on: Runtime, path: string, body: unknown, headers = on.manag
 
 const preview = (body: Record<string, unknown>, on = runtime) => post(on, "/v1/tenant/mcp/preview", body);
 
-async function credential(environmentId: string, name: string, body: Record<string, unknown>) {
-  await putSecret(runtime.url, runtime.headers(), environmentId, name, body as never);
+async function credential(agentId: string, name: string, body: Record<string, unknown>) {
+  await putSecret(runtime.url, runtime.headers(), agentId, name, body as never);
 }
 
 beforeAll(async () => {
@@ -142,8 +143,8 @@ beforeAll(async () => {
   ]);
   runtime = await startTestTenant();
   refusing = await startTestTenant({ delivery: { privateAddresses: "refuse" } });
-  await putEnvironment(runtime.url, runtime.headers(), SHARED);
-  await putEnvironment(runtime.url, runtime.headers(), OTHER);
+  await deploy(runtime.url, runtime.headers(), Agent({ id: "vault" }).instructions("Hold credentials.").build(), { id: SHARED });
+  await putAgent(runtime.url, runtime.headers(), OTHER, { manifest: "vault" });
   await credential(SHARED, "keyed", { type: "headers", url: keyed.url, headers: { "X-API-Key": API_KEY, "X-App-Key": APP_KEY } });
   await credential(SHARED, "vendor", {
     type: "headers",
@@ -152,7 +153,7 @@ beforeAll(async () => {
     via: gateway.url,
     identity: { header: "x-user-id" },
   });
-  // The same URL in two Environments: a preview sends the one of the Environment it names.
+  // The same URL in two Agents: a preview sends the one of the Agent it names.
   await credential(SHARED, "open-a", { type: "bearer", url: open.url, value: "open-token-a-plaintext" });
   await credential(OTHER, "open-b", { type: "bearer", url: open.url, value: "open-token-b-plaintext" });
 });
@@ -164,8 +165,8 @@ afterAll(async () => {
 });
 
 describe("POST /v1/tenant/mcp/preview", () => {
-  it("lists a key server's tools with the Environment's header credential, and calls none", async () => {
-    const answer = await preview({ url: keyed.url, name: "tracker", environmentId: SHARED });
+  it("lists a key server's tools with the Agent's header credential, and calls none", async () => {
+    const answer = await preview({ url: keyed.url, name: "tracker", agentId: SHARED });
     expect(answer.status, answer.text).toBe(200);
     expect(McpPreviewSchema.parse(answer.body)).toEqual(answer.body);
     expect(answer.body).toMatchObject({
@@ -194,7 +195,7 @@ describe("POST /v1/tenant/mcp/preview", () => {
   });
 
   it("renames a dotted tool name, and lists the rename", async () => {
-    const answer = await preview({ url: keyed.url, name: "tracker", environmentId: SHARED });
+    const answer = await preview({ url: keyed.url, name: "tracker", agentId: SHARED });
     expect(answer.status, answer.text).toBe(200);
     expect(answer.body.renamed).toEqual([{ serverToolName: "issues.create", name: "tracker__issues_create" }]);
     expect(answer.body.tools).toContainEqual(
@@ -203,7 +204,7 @@ describe("POST /v1/tenant/mcp/preview", () => {
   });
 
   it("names the server after the URL's host when the request names none", async () => {
-    const answer = await preview({ url: keyed.url, environmentId: SHARED });
+    const answer = await preview({ url: keyed.url, agentId: SHARED });
     expect(answer.status, answer.text).toBe(200);
     expect(answer.body.name).toBe("127_0_0_1");
     expect(answer.body.tools).toContainEqual(expect.objectContaining({ modelName: "127_0_0_1__search" }));
@@ -211,7 +212,7 @@ describe("POST /v1/tenant/mcp/preview", () => {
 
   it("sends a gateway credential's requests to its via, without an identity header", async () => {
     const before = gateway.seen.length;
-    const answer = await preview({ url: VENDOR_URL, name: "vendor", environmentId: SHARED });
+    const answer = await preview({ url: VENDOR_URL, name: "vendor", agentId: SHARED });
     expect(answer.status, answer.text).toBe(200);
     expect(answer.body.tools).toHaveLength(2);
     const requests = gateway.seen.slice(before);
@@ -262,7 +263,7 @@ describe("POST /v1/tenant/mcp/preview", () => {
     expect(open.seen.length).toBe(before);
   });
 
-  it("sends no credential without an Environment, and the named Environment's one", async () => {
+  it("sends no credential without an Agent, and the named Agent's one", async () => {
     let before = open.seen.length;
     const bare = await preview({ url: open.url, name: "open" });
     expect(bare.status, bare.text).toBe(200);
@@ -274,12 +275,12 @@ describe("POST /v1/tenant/mcp/preview", () => {
     expect(locked.status, locked.text).toBe(200);
     expect(locked.body).toMatchObject({ credentialSent: false, tools: [], authRequired: {} });
 
-    for (const [environmentId, token] of [
+    for (const [agentId, token] of [
       [OTHER, "open-token-b-plaintext"],
       [SHARED, "open-token-a-plaintext"],
     ] as const) {
       before = open.seen.length;
-      const chosen = await preview({ url: open.url, name: "open", environmentId });
+      const chosen = await preview({ url: open.url, name: "open", agentId });
       expect(chosen.status, chosen.text).toBe(200);
       expect(chosen.body.credentialSent).toBe(true);
       expect(open.seen.length).toBeGreaterThan(before);
@@ -288,17 +289,18 @@ describe("POST /v1/tenant/mcp/preview", () => {
     }
   });
 
-  it("refuses a missing Environment and a bad request", async () => {
-    expect((await preview({ url: keyed.url, environmentId: "missing" })).status).toBe(404);
+  it("refuses a missing Agent and a bad request", async () => {
+    expect((await preview({ url: keyed.url, agentId: "missing" })).status).toBe(404);
     for (const body of [
       {},
       { url: "not a url" },
       { url: "ftp://x.test/mcp" },
       { url: keyed.url, name: "a.b" },
       { url: keyed.url, extra: 1 },
-      { url: keyed.url, environmentId: "not an id" },
-      // Protocol 11: the request names an Environment, not a vault.
+      { url: keyed.url, agentId: "not an id" },
+      // Protocol 11: the request names an Agent, not a vault; protocol 16: no Environment.
       { url: keyed.url, vaultId: SHARED },
+      { url: keyed.url, environmentId: SHARED },
     ]) {
       const answer = await preview(body);
       expect(answer.status, JSON.stringify(body)).toBe(400);

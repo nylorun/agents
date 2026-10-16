@@ -1,18 +1,21 @@
 /**
- * R2d step 2 against an in-memory sandboxes service: a pod Environment's `setup` and `files`.
- * The join hands the engine its disk's plan; input files come only through the host routes,
- * indexed into the applied recipe; a failed setup fails the pod (and stays failed while the pod
- * is ready) until a turn start asks it to run again; a session's artifact or a missing version
- * is refused at the `PUT`, and so is setup on a virtual Environment.
+ * R2d step 2 against an in-memory sandboxes service: a pod Agent's `setup` and `files` (its
+ * manifest's runtime section). The join hands the engine its disk's plan; input files come only
+ * through the host routes, indexed into the applied recipe; a failed setup fails the pod (and
+ * stays failed while the pod is ready) until a turn start asks it to run again; a session's
+ * artifact or a missing version is refused when the manifest is saved, and so is setup on a
+ * virtual Agent.
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Agent } from "@nylorun/core/define";
+import type { RuntimeSection } from "@nylorun/core/contracts";
 import type { ModelProvider } from "../../src/core/provider.js";
 import { startHarnessListener, type HarnessListener } from "../../src/harness-api/ws-server.js";
 import type { HostAuthority } from "../../src/sandbox/join.js";
 import { podName } from "../../src/sandbox/pods/name.js";
 import { fakeSandboxes, type FakeSandboxes } from "../support/fake-sandboxes.js";
 import { startTestTenant } from "../support/tenant.js";
+import { manifestOf, writeManifest } from "../support/agents.js";
 
 const APP = "sandbox-setup-app-key-aaaaaaaaaaaa";
 const KEK = Buffer.alloc(32, 9).toString("base64");
@@ -35,7 +38,12 @@ async function call(method: string, path: string, body?: unknown, key = APP) {
   const text = await response.text();
   return { status: response.status, body: text ? JSON.parse(text) : {} };
 }
-const path = (id: string) => `/v1/environments/${encodeURIComponent(id)}`;
+const path = (id: string) => `/v1/agents/${encodeURIComponent(id)}`;
+const headers = { authorization: `Bearer ${APP}`, "content-type": "application/json" };
+const bot = Agent({ id: "bot", name: "bot" }).instructions("Work.").build();
+/** Saves agent manifest `name` (an Agent id with `-` for `/`): bot's loop on `runtime`. */
+const save = (id: string, section: RuntimeSection) =>
+  writeManifest(runtime.url, headers, manifestOf(bot, { name: id.replaceAll("/", "-"), runtime: section }));
 
 async function until<T>(what: string, read: () => Promise<T>, ok: (value: T) => boolean, ms = 20_000): Promise<T> {
   const deadline = Date.now() + ms;
@@ -47,10 +55,16 @@ async function until<T>(what: string, read: () => Promise<T>, ok: (value: T) => 
   }
 }
 
-async function createPod(id: string, body: Record<string, unknown>) {
-  const created = await until("created", () => call("PUT", path(id), { kind: "pod", ...body }), (reply) => reply.status !== 409);
+async function createPod(id: string, section: Omit<RuntimeSection, "kind">) {
+  const saved = await save(id, { kind: "pod", ...section });
+  expect(saved.status, JSON.stringify(saved.body)).toBe(200);
+  const created = await until(
+    "created",
+    () => call("PUT", path(id), { manifest: id.replaceAll("/", "-") }),
+    (reply) => reply.status !== 409,
+  );
   expect(created.status, JSON.stringify(created.body)).toBe(200);
-  const name = podName(tenantId, id, created.body.pod.volumeGeneration);
+  const name = podName(tenantId, id, created.body.compute.pod.volumeGeneration);
   await until("the pod runs", async () => fake.podUid(name), (uid) => uid !== undefined);
   return { name, view: created.body };
 }
@@ -88,22 +102,24 @@ afterAll(async () => {
   await runtime?.close();
 });
 
-describe("a pod Environment's setup and input files", { timeout: 90_000 }, () => {
-  it("refuses setup and files on a virtual Environment, and a missing artifact version", async () => {
-    const virtual = await call("PUT", path("setup/virtual"), { kind: "virtual", setup: [{ command: "true" }] });
+describe("a pod Agent's setup and input files", { timeout: 90_000 }, () => {
+  it("refuses setup and files on a virtual Agent, and a missing artifact version, at save", async () => {
+    const virtual = await save("setup/virtual", { kind: "virtual", setup: [{ command: "true" }] });
     expect(virtual.status).toBe(400);
-    expect(virtual.body.message).toMatch(/setup is for kind pod/);
-    const missing = await call("PUT", path("setup/missing"), {
+    expect(String(virtual.body.message)).toMatch(/setup is for kind pod/);
+    const missing = await save("setup/missing", {
       kind: "pod",
       files: [{ artifactId, version: 9, path: "/workspace/seed.txt" }],
     });
     expect(missing.status).toBe(400);
-    expect(missing.body.message).toMatch(/has no version 9/);
-    const outside = await call("PUT", path("setup/outside"), {
+    expect(String(missing.body.message)).toMatch(/has no version 9/);
+    const outside = await save("setup/outside", {
       kind: "pod",
       files: [{ artifactId, version: 1, path: "/etc/passwd" }],
     });
     expect(outside.status).toBe(400);
+    for (const name of ["setup-virtual", "setup-missing", "setup-outside"])
+      expect((await call("GET", `/v1/agent-manifests/${name}`)).status).toBe(404);
   });
 
   it("hands the plan to the engine at join, and serves only the recipe's input files", async () => {
@@ -111,8 +127,8 @@ describe("a pod Environment's setup and input files", { timeout: 90_000 }, () =>
       setup: [{ command: "npm ci", cwd: "/workspace/app", timeout: "15m" }, { command: "echo ready" }],
       files: [{ artifactId, version: 1, path: "/workspace/seed.txt" }],
     });
-    expect(view.manifest.setup).toHaveLength(2);
-    expect(view.manifest.files).toEqual([{ artifactId, version: 1, path: "/workspace/seed.txt" }]);
+    expect(view.runtime.setup).toHaveLength(2);
+    expect(view.runtime.files).toEqual([{ artifactId, version: 1, path: "/workspace/seed.txt" }]);
     await call("PUT", `${path("setup/one")}/secrets/REGION`, { type: "environment_variable", value: "eu-west-1" });
     const joined = await hosts.join({ sandboxId: "setup/one", podUid: fake.podUid(name)!, joinToken: fake.joinToken(name)! });
     expect(joined.setup).toEqual({
@@ -144,10 +160,10 @@ describe("a pod Environment's setup and input files", { timeout: 90_000 }, () =>
     const bytes = "#!/bin/sh\necho kit\n";
     const sha256 = `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
     const files = [{ path: "/workspace/kit", files: { "bin/run.sh": sha256, "README.md": sha256 } }];
-    const missing = await call("PUT", path("setup/hashed"), { kind: "pod", files });
+    const missing = await save("setup/hashed", { kind: "pod", files });
     expect(missing.status).toBe(400);
-    expect(missing.body.message).toContain(`names ${sha256}, which the Tenant does not hold`);
-    const escape = await call("PUT", path("setup/hashed"), { kind: "pod", files: [{ path: "/workspace/kit", files: { "../x": sha256 } }] });
+    expect(String(missing.body.message)).toContain(`names ${sha256}, which the Tenant does not hold`);
+    const escape = await save("setup/hashed", { kind: "pod", files: [{ path: "/workspace/kit", files: { "../x": sha256 } }] });
     expect(escape.status).toBe(400);
     const uploaded = await fetch(`${runtime.url}/v1/files/${sha256}`, {
       method: "PUT",
@@ -157,7 +173,7 @@ describe("a pod Environment's setup and input files", { timeout: 90_000 }, () =>
     expect(uploaded.status).toBe(201);
 
     const { name, view } = await createPod("setup/hashed", { files });
-    expect(view.manifest.files).toEqual(files);
+    expect(view.runtime.files).toEqual(files);
     const joined = await hosts.join({ sandboxId: "setup/hashed", podUid: fake.podUid(name)!, joinToken: fake.joinToken(name)! });
     expect(joined.setup?.files).toEqual([{ index: 0, path: "/workspace/kit" }]);
     const base = listener.url.replace(/^ws/, "http");
@@ -179,26 +195,25 @@ describe("a pod Environment's setup and input files", { timeout: 90_000 }, () =>
     const joined = await hosts.join({ sandboxId: "setup/fails", podUid: fake.podUid(name)!, joinToken: fake.joinToken(name)! });
     await hosts.reportSetup(joined.hostToken, { status: "failed", index: 0, exitCode: 3, output: "boom\n" });
     const failed = (await call("GET", path("setup/fails"))).body;
-    expect(failed.pod).toMatchObject({ observed: "failed" });
-    expect(failed.pod.reason).toMatch(/^setup: command 1 \(exit 3\) exited 3: boom/);
+    expect(failed.compute.pod).toMatchObject({ observed: "failed" });
+    expect(failed.state).toBe("failing");
+    expect(failed.compute.pod.reason).toMatch(/^setup: command 1 \(exit 3\) exited 3: boom/);
     const events = (await call("GET", `${path("setup/fails")}/events`)).body.events as { type: string; payload: any }[];
     expect(events.at(-1)).toMatchObject({
-      type: "environment.failed",
+      type: "agent.failed",
       payload: { setup: { index: 0, exitCode: 3, output: "boom\n" } },
     });
     // A reconcile with the pod ready keeps the failure.
     await runtime.handle.worker!.sandbox!("setup/fails", "reconcile", new AbortController().signal);
-    expect((await call("GET", path("setup/fails"))).body.pod.observed).toBe("failed");
+    expect((await call("GET", path("setup/fails"))).body.compute.pod.observed).toBe("failed");
     expect((await hosts.setup(joined.hostToken)).retry).toBe(false);
     // A success clears nothing by itself.
     await hosts.reportSetup(joined.hostToken, { status: "ok" });
-    expect((await call("GET", path("setup/fails"))).body.pod.observed).toBe("failed");
+    expect((await call("GET", path("setup/fails"))).body.compute.pod.observed).toBe("failed");
 
     // A turn start asks the pod to run again: the engine is told to run its setup again.
-    const agent = Agent({ id: "bot" }).instructions("Work.").build();
-    expect((await call("PUT", "/v1/agents/bot", { requestId: "bot", manifest: agent.manifest, implementationVersion: "dev" })).status).toBe(200);
     expect(
-      (await call("PUT", "/v1/sessions/setup-s1", { requestId: "s1", agentId: "bot", ownerUserId: "app:ada", environment: "setup/fails" })).status,
+      (await call("PUT", "/v1/sessions/setup-s1", { requestId: "s1", agent: "setup/fails", ownerUserId: "app:ada" })).status,
     ).toBe(200);
     const sent = await call("POST", "/v1/sessions/setup-s1/commands", {
       type: "message",

@@ -1,3 +1,102 @@
+# Agents from one manifest (protocol 16, Harness API 5)
+
+A fresh start for agents, Environments and sessions: the Runtime speaks protocol 16 only, and
+harnesses Harness API 5 only. Upgrade the Runtime, the SDKs, Studio, the CLI and any custom
+harness together.
+
+- **Environments, their disks and vaults are gone.** Migration 0032 drops every Environment with
+  its pod, volume, disk versions and vault, as protocol 11 dropped sandboxes. Export what you need
+  from a disk before you upgrade (`nylorun environments snapshot`, then the version's zip from
+  `/v1/artifacts`), and write the secrets again into the Agents you make.
+- **Sessions opened before protocol 16 are closed.** Every open session gets
+  `closedReason: "protocol_16"`: a message to one is `409 session_closed`, and its history stays
+  readable. Open new sessions on Agents.
+- **One agent manifest replaces a definition and an environment manifest.** `PUT /v1/agents/{id}`
+  with a v7 manifest (`saveAgent`) and `/v1/environment-manifests` are gone. An agent manifest v8
+  is saved at `PUT /v1/agent-manifests/{name}`, versioned as environment manifests were (with
+  `If-Match` and `?dryRun=true`), with two sections:
+
+  ```json
+  {
+    "manifestSchemaVersion": 8,
+    "name": "triage",
+    "description": "Sorts new GitHub issues",
+    "harness": {
+      "instructions": ["Label and route new issues."],
+      "mcpServers": {
+        "github": {
+          "name": "github",
+          "type": "streamable-http",
+          "url": "https://api.githubcopilot.com/mcp/",
+          "credential": "GITHUB_TOKEN"
+        }
+      }
+    },
+    "runtime": {
+      "kind": "virtual",
+      "secrets": {
+        "GITHUB_TOKEN": { "type": "bearer", "url": "https://api.githubcopilot.com/mcp/", "required": true }
+      }
+    }
+  }
+  ```
+
+  `harness` holds what v7 held at its top level (instructions, tools, skills, MCP servers,
+  `outputSchema`), plus `id` (the harness that runs the loop: `nylorun` or a custom one, which
+  was an environment manifest's `harness`), `plugins` and `loop`; or a flow (`kind: "workflow"`,
+  `root`, `agents`). `runtime` holds an environment manifest's fields without `name` or
+  `harness`, with `kind` required; leave it out for an agent with no compute (kind `none`).
+- **Write the three files once with `nylorun migrate v8`.** It reads a v7 manifest (as
+  `agents save` read it) and, with `--runtime`, an environment manifest, and writes
+  `agent.manifest.json`, `harness.manifest.json` and `runtime.manifest.json`. Save them with
+  `nylorun apply <dir>`, which prints the plan and saves with `If-Match`. A runtime file may be
+  shared: several `agent.manifest.json` may name one. From code, `client.agentManifests.save({
+  agent, runtime })` saves a built agent, and `composeManifest(dir)` reads the three files.
+- **`requires` is checked when the manifest is saved.** The Runtime sees both sections, so a
+  gap is `422 manifest_inconsistent` with `details.gaps` at save, not `409
+  environment_unsuitable` when a session opens: a custom harness needs `runtime.kind` `pod` with
+  an `image`; an MCP server's or HTTP tool's `credential` must name a `bearer` or `headers` slot of
+  `runtime.secrets` bound to its URL; a skill's `secrets` (which replace `requires.secrets`) must
+  name `environment_secret` or `environment_variable` slots; and skills need a sandbox (`virtual`
+  or `pod`). A server that names no `credential` matches the vault by its URL, as before.
+  `requires` leaves the API; a harness file may keep it, and `nylorun apply` checks it.
+- **Environments are Agents.** `/v1/environments/{id}` is `/v1/agents/{id}`, with the same
+  sub-routes (`events`, `stop`, `reset`, `snapshot`, `restore`, `versions`, `fork`, `secrets`), made
+  from a saved manifest only: `PUT /v1/agents/{id} { manifest: "triage" }` tracks the manifest
+  (and resolves its latest version now), `"triage@3"` pins version 3; inline recipe fields are
+  gone, and `ownerUserId` is `owner`. An Agent keeps the version it resolved: a different
+  manifest on an existing Agent is `409 agent_upgrade_unavailable` (`environment_immutable`
+  before) until upgrades ship; fork it onto the new version meanwhile. The view's `manifest` is
+  the reference and `runtime` what it runs (`manifest` before), with `resolvedVersion`; the
+  compute's state moved to `compute.state`, and `state` is the Agent's: `working`, `sleeping`,
+  `input_required`, `failing` or `paused`, with `attention` naming the sessions behind it.
+  `GET /v1/agents?state=input_required` filters on it.
+- **Sessions run on an Agent.** `PUT /v1/sessions/{id}` takes `{ requestId, agent, ownerUserId,
+  info? }` (`agentId` and `environment` before): `createSession({ agent, ownerUserId })`. The
+  session pins its Agent's manifest version; its view's `agentId` is the Agent and `manifest`
+  names the version; `implementationVersion`, `definitionHash` and `environment` are gone. No
+  session is special: to keep one conversation going, reuse a session id you pick.
+- **Names say Agent.** Error codes `agent_not_granted`, `agent_busy`, `agent_unavailable`,
+  `agent_lost`, `agent_owner_mismatch` (each `environment_*` before); events `agent.*` on
+  `GET /v1/agents/{id}/events` and `agent.attached` in a session's log; the scope `agents:write`
+  (`environments:write` before), and `agent-manifests:write` to save manifests (what
+  `agents:write` saved before). An identity file's `agents` lists Agent grants (ids, `p/*`
+  prefixes, `{claim}/*`, `*`; absent reaches none), and its `environments` is refused: move those
+  grants to `agents`. `GET /v1/me` drops `environments`.
+- **A2A and AG-UI route to Agents.** `/v1/a2a/agents/{agentId}` and `/v1/ag-ui/agents/{agentId}`
+  name an Agent: every caller's session runs on that Agent's disk and vault. Make one Agent per
+  audience, or a kind `none` Agent for a public endpoint. AG-UI's
+  `forwardedProps.nylorun.session` takes `info` only.
+- **Model budgets key manifests.** Budget and usage scope `agent` is `manifest`, keyed by the
+  agent manifest's name; migration 0032 renames stored budgets. `ModelCall.agentId` is
+  `manifestName`.
+- **Management API.** `POST /v1/tenant/credential-coverage` takes `{ agentId }` (an Agent: its
+  manifest version against its vault); `POST /v1/tenant/mcp/preview` takes `agentId` for the
+  vault; `POST /v1/tenant/reset` takes scope `agents` (`environments` before).
+- **Harness API 5.** `turn.start.agent { id, kind, sandbox? }` replaces `turn.start.environment`,
+  and `turn.start` adds `definition { name, version }` and the harness section's `loop`. A custom
+  harness names `api: 5` in `hello`.
+
 # The harness boundary: artifacts, inputs, instructions, tools and the workspace are the harness's (protocol 15, Harness API 4)
 
 A fresh start for agent sessions: the Runtime speaks protocol 15 only, and harnesses Harness API 4
@@ -360,7 +459,7 @@ together. Sessions, Environments and their vaults carry over.
   `PUT /v1/environment-manifests/{name}` (`client.environments.manifests.save()`), check it first
   with `?dryRun=true` (`manifests.plan()`), and make Environments from it with
   `{ manifest: "name" }` or `"name@n"`. See
-  [DEPLOYMENT.md](./DEPLOYMENT.md#environment-manifests).
+  [DEPLOYMENT.md](./DEPLOYMENT.md#agent-manifests).
 - **Secret slots.** When what an Environment runs declares `secrets`, write each value with
   `{ value }` (or `{ headers }`); a name it does not declare is `409 secret_not_in_manifest`.
   Environments without slots take typed secret writes as before.

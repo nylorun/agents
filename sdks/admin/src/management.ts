@@ -1,8 +1,8 @@
 /**
  * The Management API client (`/v1/tenant/*`, protocol 8): the Tenant's settings, models,
  * credential coverage, MCP server previews, signing keys and application keys, with a
- * management key. An Environment's secrets are written on the Runtime API
- * (`@nylorun/agents`, `client.environments.secrets`). It imports nothing from
+ * management key. An Agent's secrets are written on the Runtime API
+ * (`@nylorun/agents`, `client.agents.secrets`). It imports nothing from
  * Node, so a browser app that reaches the Runtime through its own proxy (Studio) uses it too:
  * `@nylorun/admin/client`. `createAdmin()` in the package's main entry finds the URL and key.
  */
@@ -65,7 +65,7 @@ export interface ManagementTenant {
   status(): Promise<TenantStatus>;
   /** Seeds the Tenant's configuration where it is unset (`nylorun start` does this). */
   seed(request: Body<SeedTenantConfigRequest>): Promise<SeedTenantConfigResponse>;
-  /** Resets the Tenant's sessions, Environments or both. */
+  /** Resets the Tenant's sessions (`sessions`), its Agents and their sessions (`agents`), or `all`. */
   reset(request: Body<ResetTenantRequest>): Promise<ResetTenantResponse>;
 }
 
@@ -96,7 +96,10 @@ export interface ManagementModels {
    * `settings.inputs` with `put` instead.
    */
   setInputs(request: Body<PutModelInputsRequest>): Promise<ModelInputsView>;
-  /** What the Tenant's model calls used, for one scope and period. */
+  /**
+   * What the Tenant's model calls used, for one scope and period: the Tenant, the Agents made
+   * from one agent manifest (`scope: "manifest"`, `id` its name), or one turn.
+   */
   usage(query: ModelUsageQuery): Promise<ModelUsageTotals>;
   /**
    * Every recorded model call, unfiltered, in safe transaction order (Host feature
@@ -106,7 +109,10 @@ export interface ManagementModels {
   exportCalls(options?: { after?: string; limit?: number }): AsyncIterable<ModelCallExportPage>;
   readonly budgets: {
     get(): Promise<ModelBudgets>;
-    /** Replaces every budget; an empty list removes every cap. */
+    /**
+     * Replaces every budget; an empty list removes every cap. A `manifest` budget caps the
+     * sessions of every Agent made from the agent manifest `id` names.
+     */
     put(request: Body<PutModelBudgetsRequest>): Promise<ModelBudgets>;
   };
 }
@@ -114,7 +120,7 @@ export interface ManagementModels {
 export interface ManagementMcp {
   /**
    * A remote MCP server's tools before an agent names it (R2b C12): the Runtime connects with
-   * the credential for `url` in the vault of `environmentId` (none without one), lists the
+   * the credential for `url` in the vault of Agent `agentId` (none without one), lists the
    * tools and closes; it never calls
    * one. Each tool has the name the model would call it, made with `name` (default: from the
    * URL's host). A server that needs a person's sign-in answers `authRequired`, with its
@@ -138,7 +144,7 @@ export interface ManagementSigningKeys {
 export interface ManagementSettings {
   readonly sandbox: {
     get(): Promise<TenantSandboxView>;
-    /** The Tenant's Environment settings: limits, the pods' stop grace and placement. */
+    /** The Tenant's settings for Agents' environments: limits, the pods' stop grace and placement. */
     put(request: Body<PutTenantEnvironmentsRequest>): Promise<TenantSandboxView>;
   };
   readonly artifacts: {
@@ -147,7 +153,7 @@ export interface ManagementSettings {
   };
   readonly skills: {
     get(): Promise<TenantSkillsView>;
-    /** The most bytes one skill's files may hold together; an Environment's manifest may set less. */
+    /** The most bytes one skill's files may hold together; a manifest's runtime section may set less. */
     put(request: Body<PutTenantSkillsRequest>): Promise<TenantSkillsView>;
   };
   readonly limits: {
@@ -171,9 +177,9 @@ export class ManagementClient {
   readonly keys: ManagementKeys;
   readonly models: ManagementModels;
   /**
-   * Which secret of Environment `environmentId` each remote MCP server and HTTP tool of the
-   * saved agent `agentId` would get in a session that names it (`covered`), or none
-   * (`missing`). Host feature `credential-coverage`.
+   * Which secret of Agent `agentId`'s vault each remote MCP server and HTTP tool of the manifest
+   * version it runs would get in its sessions (`covered`), or none (`missing`). Host feature
+   * `credential-coverage`.
    */
   readonly coverage: (request: Body<CredentialCoverageRequest>) => Promise<CredentialCoverage>;
   readonly mcp: ManagementMcp;

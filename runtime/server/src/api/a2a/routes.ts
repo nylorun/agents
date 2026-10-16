@@ -57,11 +57,13 @@ import { accessOf } from "../../tenant/auth.js";
 import { command } from "../../tenant/commands.js";
 import {
   loadSession,
+  reachesAgent,
   type AuthScope,
   type Session,
   type SessionAccess,
   type TenantContext,
 } from "../../tenant/context.js";
+import { agentGrantsOf, liveEnvironment } from "../../tenant/agents.js";
 import { HttpError, fail } from "../../tenant/http.js";
 import { observeSession, readHistory } from "../../tenant/session-streams.js";
 import { putSession } from "../../tenant/sessions.js";
@@ -178,18 +180,25 @@ async function operation(
   }
 }
 
-/** The agent's definition, or a `404` when it is missing or the caller may not use it. */
+/**
+ * What the card of Agent `agentId` says (the manifest version it runs), or a `404` when it is
+ * missing or the caller may not use it. Every caller's session runs on that Agent, with its disk
+ * and vault (D66, D70): an app that serves several audiences makes an Agent for each.
+ */
 async function definitionFor(
   ctx: TenantContext,
   agentId: string,
   access: SessionAccess | undefined
 ): Promise<CardDefinition> {
-  if (access?.agents !== undefined && !access.agents.has(agentId))
-    return fail(404, "Agent not found");
-  const definition = await ctx.store.tx((t) =>
-    t.get<CardDefinition>("definitions", agentId)
-  );
-  return definition ?? fail(404, "Agent not found");
+  if (!reachesAgent(access, agentId)) return fail(404, "Agent not found");
+  return ctx.store.tx(async (t) => {
+    const agent = (await liveEnvironment(t, agentId)) ?? fail(404, "Agent not found");
+    const version = await t.agentManifest(agent.manifestName, agent.manifestVersion);
+    return {
+      manifest: { id: agentId, ...(version?.body.description === undefined ? {} : { description: version.body.description }) },
+      version: `${agent.manifestName}@${agent.manifestVersion}`,
+    };
+  });
 }
 
 const taskNotFound = (taskId: string): never =>
@@ -276,10 +285,11 @@ async function openContext(caller: Caller, sessionId: string): Promise<Session> 
     sessionId,
     {
       requestId: randomUUID(),
-      agentId: caller.agentId,
+      agent: caller.agentId,
       ownerUserId: caller.access.owner,
     },
-    caller.access
+    caller.access,
+    agentGrantsOf(caller.scope) === undefined ? {} : { agentGrants: agentGrantsOf(caller.scope)! }
   );
 }
 

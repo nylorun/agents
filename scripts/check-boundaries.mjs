@@ -78,7 +78,7 @@ const recordInserts = {
     dirs: ["record"],
     files: ["store/postgres/record-writer"],
     pattern:
-      /INSERT\s+INTO\s+[^\n;]{0,80}?(?:SESSION_EVENTS|LOG_HEADS|session_events|session_log_heads|environment_events)|\.insert\(\s*(?:sessionEvents|sessionLogHeads|environmentEvents)\b/,
+      /INSERT\s+INTO\s+[^\n;]{0,80}?(?:SESSION_EVENTS|LOG_HEADS|session_events|session_log_heads|agent_events)|\.insert\(\s*(?:sessionEvents|sessionLogHeads|agentEvents)\b/,
   },
 };
 // The HTTP framework stays in the HTTP layer: the Host and the API routes.

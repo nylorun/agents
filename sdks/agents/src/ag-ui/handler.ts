@@ -6,15 +6,12 @@
  * work. The browser never sees the Tenant key, the Runtime's URL or the Tenant id.
  *
  * The same threads are reachable directly from a browser with a trusted issuer's token (through
- * the operator's proxy): each thread is one session per subject, agent and thread on both paths.
+ * the operator's proxy): each thread is one session per subject, Agent and thread on both paths.
+ * The path's agent is an Agent id (`client.agents`, protocol 16): the thread's session runs on
+ * that Agent, with its sandbox and its vault's credentials.
  */
 import { parseSubjectHeaders, type SubjectScope } from "@nylorun/core/contracts";
-import type { BuiltWorkflow } from "@nylorun/core/define";
-import {
-  createClient,
-  type AgentSource,
-  type AgentsClient,
-} from "../client.js";
+import { createClient, type AgentsClient } from "../client.js";
 import { IncompatibleRuntimeError } from "../http.js";
 
 /** The Host feature the handler forwards to. */
@@ -23,17 +20,18 @@ const DEFAULT_SCOPES: readonly SubjectScope[] = ["sessions:own"];
 /** Response headers passed back to the browser; nothing else of the Runtime's. */
 const PASSED_HEADERS = ["content-type", "cache-control", "x-accel-buffering"];
 
-/** Per-session parameters the host may add, such as the person's Environment. */
+/** Per-session parameters the host may add. */
 export interface AgUiSessionOptions {
   /** Set when the thread's session is created, on its first run; later runs keep them. */
   info?: Record<string, unknown>;
-  /** The Environment the thread's session runs in: its sandbox and its vault's credentials. */
-  environment?: string;
 }
 
 export interface AgUiHandlerOptions {
-  /** Agents this endpoint may run: built agents, workflows or their ids. Nothing else is reachable. */
-  agents: readonly (AgentSource | BuiltWorkflow | string)[];
+  /**
+   * The Agents this endpoint may run, by id (`client.agents`), or as `client.agents.get` answers
+   * them. Nothing else is reachable.
+   */
+  agents: readonly (string | { readonly id: string })[];
   /** The signed-in person the request is for. `undefined` answers 401; there is no anonymous mode. */
   subject(request: Request): string | undefined | Promise<string | undefined>;
   /** Where `fetch` is mounted, e.g. `/api/agui`. Default `/`. */
@@ -42,7 +40,7 @@ export interface AgUiHandlerOptions {
   client?: AgentsClient | Promise<AgentsClient>;
   /** What each subject may do through this endpoint. Default `["sessions:own"]`. */
   scopes?: readonly SubjectScope[];
-  /** Optional per-session parameters, e.g. the person's Environment with their keys. */
+  /** Optional per-session parameters: the `info` of the thread's session. */
   session?(
     subject: string,
     agentId: string
@@ -186,8 +184,9 @@ export function createAgUiHandler(options: AgUiHandlerOptions): AgUiHandler {
           ? { ...(body.forwardedProps as Record<string, unknown>) }
           : {};
       delete forwarded.nylorun;
-      const extra = (await options.session?.(subject, agentId)) ?? {};
-      if (Object.keys(extra).length > 0) forwarded.nylorun = { session: extra };
+      // The session's Agent is the path's; only its `info` is the host's to add.
+      const { info } = (await options.session?.(subject, agentId)) ?? {};
+      if (info !== undefined) forwarded.nylorun = { session: { info } };
       return await forward(request, subject, `/${segment(agentId)}`, {
         method: "POST",
         headers: { accept: "text/event-stream" },

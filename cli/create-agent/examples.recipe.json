@@ -18,7 +18,8 @@
     "configure": "nylorun tenant models set",
     "test": "vitest run",
     "codex:preflight": "node scripts/codex-preflight.mjs",
-    "ag-ui": "tsx --env-file-if-exists=.env src/ag-ui/server.ts"
+    "ag-ui": "tsx --env-file-if-exists=.env src/ag-ui/server.ts",
+    "triage": "tsx --env-file-if-exists=.env src/triage.ts"
   },
   "index": "// CLI loads the supported registry directly.\nexport { agents } from \"../agents/index.js\";\n"
 }

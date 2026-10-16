@@ -7,6 +7,7 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { Agent, createClient } from "@nylorun/agents";
 import { tenantModelGate } from "../../src/gates/in-process.js";
+import { deploy } from "../support/agents.js";
 import { startTestTenant } from "../support/tenant.js";
 
 vi.mock("../../src/gates/in-process.js", async (importOriginal) => {
@@ -57,10 +58,8 @@ async function turn(): Promise<{ status: string; providerCalls: number }> {
   });
   expect(configured.status).toBe(200);
   const client = createClient({ url: runtime.url, key: runtime.applicationKey, tenant: runtime.tenantId });
-  await client.saveAgent(Agent({ id: "bot", name: "Bot" }).instructions("Answer.").build(), {
-    implementationVersion: "dev",
-  });
-  const session = await client.createSession({ id: "s1", agentId: "bot", ownerUserId: "ada" });
+  await deploy(runtime.url, runtime.headers(), Agent({ id: "bot", name: "Bot" }).instructions("Answer.").build());
+  const session = await client.createSession({ id: "s1", agent: "bot", ownerUserId: "ada" });
   await session.input("hi", { idempotencyKey: "m1" });
   for (let attempt = 0; attempt < 400; attempt += 1) {
     const view = await session.inspect();

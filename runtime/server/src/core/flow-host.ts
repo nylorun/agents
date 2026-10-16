@@ -201,7 +201,6 @@ export type FlowHostSession = {
   ownerUserId: string;
   manifest: any;
   manifestHash: string;
-  implementationVersion: string;
   status: string;
   activeTurnId: string | null;
   info?: any;

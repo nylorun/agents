@@ -15,8 +15,9 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { Agent, createClient, http, type AgentsClient } from "@nylorun/agents";
 import { RUNTIME_LIMIT_DEFAULTS, type LiveEvent } from "@nylorun/core/contracts";
-import type { ModelCall, PromptContentPart } from "@nylorun/core/define";
+import { hashManifest, loopManifestOf, type ModelCall, type PromptContentPart } from "@nylorun/core/define";
 import type { ModelProvider } from "../src/core/provider.js";
+import { deploy, manifestOf } from "./support/agents.js";
 import { startTestTenant } from "./support/tenant.js";
 import { withTestSessionStore } from "./support/store.js";
 
@@ -173,13 +174,14 @@ const model: ModelProvider = async (effect: { input: unknown }) => {
 type Runtime = Awaited<ReturnType<typeof startTestTenant>>;
 let runtime: Runtime;
 let client: AgentsClient;
+let reader: ReturnType<ReturnType<typeof Agent>["build"]>;
 
 let sessions = 0;
-/** Opens a session of `agentId`, runs one turn and returns what it recorded. */
-async function run(agentId = "reader") {
+/** Opens a session on Agent `agent`, runs one turn and returns what it recorded. */
+async function run(agent = "reader") {
   sessions += 1;
   const id = `results-${sessions}`;
-  const session = await client.createSession({ id, agentId, ownerUserId: "u:ada" });
+  const session = await client.createSession({ id, agent, ownerUserId: "u:ada" });
   await session.input("go", { idempotencyKey: `m${sessions}` });
   const deadline = Date.now() + 30_000;
   while (Date.now() < deadline) {
@@ -242,22 +244,12 @@ beforeAll(async () => {
   const [files, report] = await Promise.all([mcpServer(), reportService()]);
   runtime = await startTestTenant({ applicationKey: APP, modelProvider: model });
   client = createClient({ url: runtime.url, key: runtime.applicationKey, tenant: runtime.tenantId });
-  const put = async (agent: { manifest: unknown }) => {
-    const id = (agent.manifest as { id: string }).id;
-    const response = await fetch(`${runtime.url}/v1/agents/${id}`, {
-      method: "PUT",
-      headers: { authorization: `Bearer ${APP}`, "content-type": "application/json" },
-      body: JSON.stringify({ requestId: `put-${id}`, manifest: agent.manifest, implementationVersion: "dev" }),
-    });
-    expect(response.ok).toBe(true);
-  };
-  await put(
-    Agent({ id: "reader" })
-      .mcp({ files: { type: "streamable-http", url: files.url } })
-      .tools(http({ name: "report", input: z.object({}), url: `${report.url}/report` }))
-      .build(),
-  );
-  await put(Agent({ id: "plain" }).instructions("Answer.").build());
+  reader = Agent({ id: "reader" })
+    .mcp({ files: { type: "streamable-http", url: files.url } })
+    .tools(http({ name: "report", input: z.object({}), url: `${report.url}/report` }))
+    .build();
+  await deploy(runtime.url, runtime.headers(), reader);
+  await deploy(runtime.url, runtime.headers(), Agent({ id: "plain" }).instructions("Answer.").build());
 }, 60_000);
 
 afterAll(async () => {
@@ -519,14 +511,14 @@ describe("read_artifact and the files of messages (protocol 12)", () => {
   it("reads a Tenant-wide artifact the session's messages named, at a version", async () => {
     const notes = await upload("/v1/artifacts?name=notes.txt", "first", "text/plain");
     await upload(`/v1/artifacts/${notes}/versions`, "second", "text/plain");
-    await client.createSession({ id: "named-1", agentId: "plain", ownerUserId: "u:ada" });
+    await client.createSession({ id: "named-1", agent: "plain", ownerUserId: "u:ada" });
     expect((await turn("named-1", [notes], { artifactId: notes, version: 1 })).payload).toMatchObject({
       artifactId: notes,
       version: 1,
       content: "first",
     });
     // A session whose messages did not name it does not reach it.
-    await client.createSession({ id: "named-2", agentId: "plain", ownerUserId: "u:ada" });
+    await client.createSession({ id: "named-2", agent: "plain", ownerUserId: "u:ada" });
     expect((await turn("named-2", [], { artifactId: notes })).payload).toMatchObject({
       kind: "failed",
       code: "artifact.not_found",
@@ -534,7 +526,7 @@ describe("read_artifact and the files of messages (protocol 12)", () => {
   });
 
   it("refuses a file of a type the turn's model does not read (protocol 15)", async () => {
-    await client.createSession({ id: "named-3", agentId: "plain", ownerUserId: "u:ada" });
+    await client.createSession({ id: "named-3", agent: "plain", ownerUserId: "u:ada" });
     const pdf = await upload("/v1/artifacts?name=own.pdf&sessionId=named-3", "%PDF-1.4", "application/pdf");
     // Our engine decides by the model descriptor: none here, so text and images only.
     expect((await turn("named-3", [], { artifactId: pdf })).payload).toEqual({
@@ -546,7 +538,7 @@ describe("read_artifact and the files of messages (protocol 12)", () => {
 
   it("inlines a text file a message names into the turn's call (protocol 15)", async () => {
     const notes = await upload("/v1/artifacts?name=brief.md", "# Brief", "text/markdown");
-    await client.createSession({ id: "named-4", agentId: "plain", ownerUserId: "u:ada" });
+    await client.createSession({ id: "named-4", agent: "plain", ownerUserId: "u:ada" });
     // The model reads it once more with read_artifact; the turn's calls carry it inlined.
     expect((await turn("named-4", [notes], { artifactId: notes })).payload).toMatchObject({ content: "# Brief" });
     expect(JSON.stringify(filesMessage(lastPrompt!))).toContain(
@@ -620,14 +612,13 @@ describe("one step's results share a budget", () => {
 });
 
 describe("the session view", () => {
-  it("names the definition a session was opened from beside its pinned manifest's hash", async () => {
-    const session = await client.createSession({ id: "results-view", agentId: "reader", ownerUserId: "u:ada" });
-    const view = (await session.inspect()) as { manifestHash: string; definitionHash?: string };
-    const definitions = await client.listAgents();
-    const registered = definitions.agents.find((agent) => agent.agentId === "reader")!;
-    // Without a sandbox or skills, nothing is pinned beside the definition (protocol 15).
-    expect(view.definitionHash).toBe(registered.manifestHash);
-    expect(view.manifestHash).toBe(registered.manifestHash);
+  it("names the manifest version a session was opened from beside its pinned loop manifest's hash", async () => {
+    const session = await client.createSession({ id: "results-view", agent: "reader", ownerUserId: "u:ada" });
+    const view = await session.inspect();
+    expect(view).toMatchObject({ agentId: "reader", manifest: { name: "reader", version: 1 } });
+    expect(view).not.toHaveProperty("definitionHash");
+    // The loop manifest the version's harness section makes (protocol 16).
+    expect(view.manifestHash).toBe(hashManifest(loopManifestOf(manifestOf(reader)) as never));
   });
 });
 

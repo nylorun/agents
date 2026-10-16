@@ -8,14 +8,14 @@ import { describe, expect, it } from "vitest";
 import { ERROR_CODES } from "../src/compatibility.js";
 import {
   ENVIRONMENT_SECRET_SENTINEL,
-  EnvironmentSecretViewSchema,
+  AgentSecretViewSchema,
   environmentSecretNameError,
   isInjectFormat,
-  PutEnvironmentSecretRequestSchema,
+  PutAgentSecretRequestSchema,
   renderInjectFormat,
 } from "../src/contracts.js";
 
-const put = (body: Record<string, unknown>) => PutEnvironmentSecretRequestSchema.safeParse(body);
+const put = (body: Record<string, unknown>) => PutAgentSecretRequestSchema.safeParse(body);
 const headers = (body: Record<string, unknown>) =>
   put({ type: "headers", url: "https://vendor.test/mcp", headers: { "x-api-key": "k1" }, ...body });
 
@@ -65,8 +65,8 @@ describe("tool credentials", () => {
       identity: { header: "x-user-id" },
       createdAt: "2026-10-07T00:00:00.000Z",
     };
-    expect(EnvironmentSecretViewSchema.safeParse(view).success).toBe(true);
-    expect(EnvironmentSecretViewSchema.safeParse({ ...view, value: "k" }).success).toBe(false);
+    expect(AgentSecretViewSchema.safeParse(view).success).toBe(true);
+    expect(AgentSecretViewSchema.safeParse({ ...view, value: "k" }).success).toBe(false);
   });
 
   it("names credential_rejected and credential_conflict among the error codes", () => {

@@ -13,6 +13,7 @@ import { AgentsClient } from "@nylorun/agents";
 import { startTestTenant } from "../support/tenant.js";
 import { testTenantPool } from "../support/store.js";
 import { contextOf } from "../tenant/streams.suite.js";
+import { manifestOf } from "../support/agents.js";
 
 let rt: Awaited<ReturnType<typeof startTestTenant>>;
 let client: AgentsClient;
@@ -36,21 +37,14 @@ beforeAll(async () => {
   rt = await startTestTenant();
   client = new AgentsClient({ url: rt.url, key: rt.applicationKey });
   const a = Agent({ id: "bot", name: "A" }).instructions("Manifest A").build();
-  expect(
-    (
-      await request("/v1/agents/bot", {
-        requestId: "a",
-        manifest: a.manifest,
-        implementationVersion: "A",
-      })
-    ).status,
-  ).toBe(200);
+  expect((await request("/v1/agent-manifests/bot", manifestOf(a))).status).toBe(200);
+  expect((await request("/v1/agents/bot", { requestId: "a", manifest: "bot" })).status).toBe(200);
   for (const id of ["s-a", "s-b", "s-c", "s-d"])
     expect(
       (
         await request(`/v1/sessions/${id}`, {
           requestId: id,
-          agentId: "bot",
+          agent: "bot",
           ownerUserId: id === "s-d" ? "bob" : "ann",
         })
       ).status,
@@ -91,20 +85,13 @@ it("keeps legacy summaries strict and pages ties and legacy nulls without omissi
   ).toEqual(["s-d"]);
 });
 
-it("pins manifest A after registration B and exposes no session internals", async () => {
+it("pins manifest A after saving B and exposes no session internals", async () => {
   const a = SessionManifestViewSchema.parse(await json("/v1/sessions/s-a/manifest"));
   const b = Agent({ id: "bot", name: "B" }).instructions("Manifest B").build();
-  expect(
-    (
-      await request("/v1/agents/bot", {
-        requestId: "b",
-        manifest: b.manifest,
-        implementationVersion: "B",
-      })
-    ).status,
-  ).toBe(200);
+  expect((await request("/v1/agent-manifests/bot", manifestOf(b))).status).toBe(200);
   expect(await client.session("s-a").manifest()).toEqual(a);
-  expect(a.implementationVersion).toBe("A");
+  expect(a).toMatchObject({ sessionId: "s-a", agentId: "bot", definition: { name: "bot", version: 1 } });
+  expect(a.manifest.instructions).toEqual(["Manifest A"]);
   expect(JSON.stringify(a)).not.toMatch(/checkpoint|credential/);
   expect((await request("/v1/sessions/s-a/manifest", undefined, person("bob"))).status).toBe(404);
   // Spend is the application's: no subject scope reaches usage or calls (protocol 8).
@@ -128,7 +115,7 @@ it("reconciles all billed rows including duplicates, genuine zero and unknown qu
         effectKey: id === "call-b" ? "call-a" : id,
         sessionId: "s-a",
         turnId,
-        agentId: "bot",
+        manifestName: "bot",
         provider: null,
         model: null,
         inputTokens: 0,
@@ -200,7 +187,8 @@ it("advances bounded history over internal events and reapplies ownership and fi
     await t.event("s-a", null, "transcript.updated", { keep: 0, entries: [], length: 0 });
     await t.event("s-a", null, "turn.completed", { output: {} });
   });
-  await expect.poll(async () => (await json("/v1/sessions/s-a/items")).items.length).toBe(1);
+  // `agent.attached`, recorded when the session opened on its Agent (protocol 16), and the turn.
+  await expect.poll(async () => (await json("/v1/sessions/s-a/items")).items.length).toBe(2);
   const legacy = await json("/v1/sessions/s-a/items");
   expect(Object.keys(legacy).sort()).toEqual(["cursor", "items"]);
   let cursor: string | undefined;

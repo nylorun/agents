@@ -1,7 +1,8 @@
 /**
- * Definition files and skills (track R2 M4): the upload route, a definition refused while it
- * names a file the Runtime does not hold, the skill tools the Runtime serves itself, and a
- * skill's files in the session's virtual sandbox.
+ * Definition files and skills (track R2 M4): the upload route, an agent manifest refused while
+ * it names a file the Runtime does not hold, the skill tools the Runtime serves itself, and a
+ * skill's files in the session's virtual sandbox. Skills need a sandbox (protocol 16): every
+ * manifest here that carries one has a runtime section of kind `virtual`.
  */
 import { createHash } from "node:crypto";
 import { cpSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
@@ -18,6 +19,7 @@ import type { BlobStore } from "../src/blob/index.js";
 import type { ModelProvider } from "../src/core/provider.js";
 import { withTestSessionStore } from "./support/store.js";
 import { startTestTenant } from "./support/tenant.js";
+import { manifestOf, openSession, putAgent, writeManifest, type Loop } from "./support/agents.js";
 
 const APP = "definition-files-application-key-aaaa";
 const auth = { authorization: `Bearer ${APP}`, "nylorun-protocol": String(PROTOCOL_VERSION) };
@@ -228,7 +230,11 @@ describe("PUT and HEAD /v1/files/{file}", () => {
   });
 });
 
-describe("a definition naming definition files", () => {
+/** Saves loop manifest `document` (agent manifest v7's shape) as an agent manifest on a virtual sandbox. */
+const saveOn = (runtime: Runtime, document: unknown, runtimeSection: Record<string, unknown> = { kind: "virtual" }) =>
+  writeManifest(runtime.url, json, manifestOf(document as Loop, { runtime: runtimeSection as never }));
+
+describe("an agent manifest naming definition files", () => {
   const skill = (files: Record<string, string>) => ({
     skills: { triage: { name: "triage", description: "Triage an issue.", files } },
   });
@@ -236,16 +242,11 @@ describe("a definition naming definition files", () => {
 
   it("is refused while the Runtime lacks a file, its agents' used as tools included", async () => {
     const runtime = await boot();
-    const putAgent = (document: unknown) =>
-      fetch(`${runtime.url}/v1/agents/${(document as { id: string }).id}`, {
-        method: "PUT",
-        headers: json,
-        body: JSON.stringify({ requestId: "r", manifest: document, implementationVersion: "dev" }),
-      });
+    const putAgent = (document: unknown) => saveOn(runtime, document);
     const files = { "SKILL.md": sha256(SKILL_MD), "references/labels.md": sha256(LABELS) };
     const refused = await putAgent(manifest("bot", skill(files)));
     expect(refused.status).toBe(400);
-    const body = (await refused.json()) as { code: string; message: string; details: { missing: string[] } };
+    const body = refused.body as { code: string; message: string; details: { missing: string[] } };
     expect(body.code).toBe("definition_files_missing");
     expect(body.details.missing).toEqual([...Object.values(files)].sort());
     expect(body.message).toContain(sha256(LABELS));
@@ -262,8 +263,8 @@ describe("a definition naming definition files", () => {
       ],
     });
     const missing = await putAgent(nested);
-    expect(missing.status, await missing.clone().text()).toBe(400);
-    expect(await missing.json()).toMatchObject({ details: { missing: [sha256(LABELS)] } });
+    expect(missing.status, JSON.stringify(missing.body)).toBe(400);
+    expect(missing.body).toMatchObject({ details: { missing: [sha256(LABELS)] } });
 
     await put(runtime, sha256(LABELS), LABELS);
     expect((await putAgent(manifest("bot", skill(files)))).status).toBe(200);
@@ -271,12 +272,7 @@ describe("a definition naming definition files", () => {
 
   it("is refused while a skill's files hold more than 2 GiB together, with no limit per file or on their count", async () => {
     const runtime = await boot();
-    const putAgent = (document: unknown) =>
-      fetch(`${runtime.url}/v1/agents/${(document as { id: string }).id}`, {
-        method: "PUT",
-        headers: json,
-        body: JSON.stringify({ requestId: "r", manifest: document, implementationVersion: "dev" }),
-      });
+    const putAgent = (document: unknown) => saveOn(runtime, document);
     // Files the Tenant holds, by size alone: putting a definition reads their rows, not their bytes.
     const gib = sha256("a GiB");
     const almost = sha256("2 GiB less a byte");
@@ -301,7 +297,7 @@ describe("a definition naming definition files", () => {
     const refused = await putAgent(manifest("over", skill(over)));
     expect(refused.status).toBe(413);
     const bytes = 2 * 1024 ** 3 + Buffer.byteLength(SKILL_MD);
-    expect(await refused.json()).toMatchObject({
+    expect(refused.body).toMatchObject({
       code: "limit_exceeded",
       message: expect.stringContaining(`'triage' holds ${bytes}`),
       details: { limitBytes: SKILL_TOTAL_BYTES_DEFAULT, skills: [{ name: "triage", bytes }] },
@@ -323,7 +319,7 @@ describe("a definition naming definition files", () => {
     const many: Record<string, string> = { "SKILL.md": sha256(SKILL_MD) };
     for (let index = 0; index < 600; index += 1) many[`references/${index}.md`] = sha256(LABELS);
     const stored = await putAgent(manifest("many", skill(many)));
-    expect(stored.status, await stored.clone().text()).toBe(200);
+    expect(stored.status, JSON.stringify(stored.body)).toBe(200);
   });
 });
 
@@ -333,7 +329,7 @@ describe("skill limits", () => {
   });
   const manifest = (id: string, parts: Record<string, unknown>) => ({ manifestSchemaVersion: 7, id, ...parts });
 
-  it("are the Tenant's for every agent and upload, and an Environment's manifest may set less for its sessions", async () => {
+  it("are the Tenant's for every agent and upload, and a manifest's runtime section may set less", async () => {
     const runtime = await boot();
     const manage = { ...runtime.managementHeaders(), "content-type": "application/json" };
     const call = (method: string, path: string, body: unknown, headers: Record<string, string> = json) =>
@@ -366,60 +362,46 @@ describe("skill limits", () => {
     expect((await put(runtime, sha256(SKILL_MD), SKILL_MD)).status).toBe(201);
     expect((await put(runtime, sha256(data), data)).status).toBe(201);
     const files = { "SKILL.md": sha256(SKILL_MD), "data.bin": sha256(data) };
-    const agent = { requestId: "r", manifest: manifest("bot", skill(files)), implementationVersion: "dev" };
-    expect((await call("PUT", "/v1/agents/bot", agent)).status).toBe(200);
-    const twice = await call("PUT", "/v1/agents/twice", {
-      ...agent,
-      manifest: manifest("twice", skill({ ...files, "copy.bin": sha256(data) })),
-    });
+    expect((await saveOn(runtime, manifest("bot", skill(files)))).status).toBe(200);
+    const twice = await saveOn(runtime, manifest("twice", skill({ ...files, "copy.bin": sha256(data) })));
     expect(twice.status).toBe(413);
-    expect(await twice.json()).toMatchObject({ details: { limitBytes: 1000, skills: [{ name: "triage" }] } });
+    expect(twice.body).toMatchObject({ details: { limitBytes: 1000, skills: [{ name: "triage" }] } });
 
-    // An Environment may not ask for more than the Tenant allows, inline or in a manifest.
-    const above = await call("PUT", "/v1/environments/roomy", {
-      kind: "virtual",
-      limits: { skills: { totalBytes: 2000 } },
-    });
+    // A manifest may not ask for more than the Tenant allows.
+    const above = await saveOn(runtime, manifest("roomy", {}), { kind: "virtual", limits: { skills: { totalBytes: 2000 } } });
     expect(above.status).toBe(400);
-    expect(await above.text()).toContain("limits.skills.totalBytes asks for 2000 bytes; this Tenant allows at most 1000.");
-    const saved = await call("PUT", "/v1/environment-manifests/roomy", {
-      manifestSchemaVersion: 1,
-      name: "roomy",
-      limits: { skills: { totalBytes: 2000 } },
-    });
-    expect(saved.status).toBe(400);
+    expect(JSON.stringify(above.body)).toContain("limits.skills.totalBytes asks for 2000 bytes; this Tenant allows at most 1000.");
 
-    // A session opens only where its agent's skills fit: a manifest's lower limit refuses it.
-    const tight = await call("PUT", "/v1/environment-manifests/tight", {
-      manifestSchemaVersion: 1,
-      name: "tight",
+    // A manifest's lower limit holds its own skills to it.
+    const bytes = 900 + Buffer.byteLength(SKILL_MD);
+    const tight = await saveOn(runtime, manifest("tight", skill(files)), {
+      kind: "virtual",
       limits: { skills: { totalBytes: 500 } },
     });
-    expect(tight.status, await tight.clone().text()).toBe(200);
-    const made = await call("PUT", "/v1/environments/tight", { manifest: "tight" });
-    expect(((await made.json()) as { limits: unknown }).limits).toMatchObject({ skills: { totalBytes: 500 } });
-    const refused = await call("PUT", "/v1/sessions/s1", {
-      requestId: "s1",
-      agentId: "bot",
-      ownerUserId: "ada",
-      environment: "tight",
-    });
-    expect(refused.status).toBe(409);
-    const bytes = 900 + Buffer.byteLength(SKILL_MD);
-    expect(await refused.json()).toMatchObject({
-      code: "environment_unsuitable",
-      message: expect.stringContaining(`Environment tight allows a skill's files at most 500 bytes together`),
+    expect(tight.status).toBe(413);
+    expect(tight.body).toMatchObject({
+      code: "limit_exceeded",
       details: { limitBytes: 500, skills: [{ name: "triage", bytes }] },
     });
-    // Without one, the Environment takes the Tenant's limit.
-    await call("PUT", "/v1/environments/plain", { kind: "virtual" });
-    const opened = await call("PUT", "/v1/sessions/s2", {
-      requestId: "s2",
-      agentId: "bot",
-      ownerUserId: "ada",
-      environment: "plain",
+    const fits = await saveOn(runtime, manifest("tight", {}), { kind: "virtual", limits: { skills: { totalBytes: 500 } } });
+    expect(fits.status, JSON.stringify(fits.body)).toBe(200);
+    expect((await putAgent(runtime.url, json, "tight", { manifest: "tight" })).limits).toMatchObject({
+      skills: { totalBytes: 500 },
     });
+
+    // A session opens only where its agent's skills fit the limit in force now: an Agent made
+    // with the Tenant's takes the Tenant's, lowered since.
+    await putAgent(runtime.url, json, "plain", { manifest: "bot" });
+    const opened = await openSession(runtime.url, json, "s1", { agent: "plain", ownerUserId: "ada" });
     expect(opened.status, await opened.clone().text()).toBe(200);
+    expect((await call("PUT", "/v1/tenant/skills", { limits: { totalBytes: 500 } }, manage)).status).toBe(200);
+    const refused = await openSession(runtime.url, json, "s2", { agent: "plain", ownerUserId: "ada" });
+    expect(refused.status).toBe(413);
+    expect(await refused.json()).toMatchObject({
+      code: "limit_exceeded",
+      message: expect.stringContaining("Agent plain allows a skill's files at most 500 bytes together"),
+      details: { limitBytes: 500, skills: [{ name: "triage", bytes }] },
+    });
   });
 });
 
@@ -436,23 +418,27 @@ describe.each(["memory", "ws"] as const)("skills on a %s harness", (harness) => 
     });
     const agent = Agent({ id: "triager", instructions: "Triage." }).skills(skillsFolder()).build();
     const client = new AgentsClient({ url: runtime.url, key: APP });
-    await client.saveAgent(agent, { implementationVersion: "dev" });
+    // The SDK uploads the skill's files before it saves the manifest.
+    await client.agentManifests.save({ agent, runtime: { kind: "virtual" } });
     for (const contents of [SKILL_MD, LABELS, LOGO, SCRIPT])
       expect((await head(runtime, sha256(contents))).status).toBe(200);
-    // No Environment: no sandbox.
-    const session = await client.createSession({ agentId: "triager", ownerUserId: "ada" });
+    await client.agents.put("triager", { manifest: "triager" });
+    const session = await client.createSession({ agent: "triager", ownerUserId: "ada" });
     await session.input("Triage this.", { idempotencyKey: "m1" });
     expect(await settle(runtime, session.id)).toBe("completed");
     const [loaded, labels, logo, unknown] = await toolOutcomes(runtime, session.id);
+    const folder = skillFolderOf(agent.manifest.skills!.triage!);
     expect(loaded.output).toEqual({
       name: "triage",
       content: "Label P0 when the order is lost.\n",
       resources: ["assets/logo.png", "references/labels.md", "scripts/run.sh"],
+      sandboxPath: `${folder}/`,
     });
     expect(labels.output).toEqual({ name: "triage", path: "references/labels.md", content: LABELS });
+    // A binary file is read in the sandbox, where the skill's files are.
     expect(logo.error).toMatchObject({
       code: "skill.binary_resource",
-      message: expect.stringContaining("only text files can be read without a sandbox"),
+      message: expect.stringContaining(`${folder}/assets/logo.png`),
     });
     expect(unknown.error).toMatchObject({ code: "skill.unknown_resource" });
   });
@@ -482,9 +468,9 @@ describe.each(["memory", "ws"] as const)("skills on a %s harness", (harness) => 
       ]),
     });
     const client = new AgentsClient({ url: runtime.url, key: APP });
-    await client.saveAgent(agent, { implementationVersion: "dev" });
-    await client.environments.put("triage", { kind: "virtual" });
-    const session = await client.createSession({ agentId: "triager", ownerUserId: "ada", environment: "triage" });
+    await client.agentManifests.save({ agent, runtime: { kind: "virtual" } });
+    await client.agents.put("triage", { manifest: "triager" });
+    const session = await client.createSession({ agent: "triage", ownerUserId: "ada" });
     await session.input("Triage this.", { idempotencyKey: "m1" });
     expect(await settle(runtime, session.id)).toBe("completed");
     const [loaded, ran, logo, big] = await toolOutcomes(runtime, session.id);
@@ -504,7 +490,7 @@ describe.each(["memory", "ws"] as const)("skills on a %s harness", (harness) => 
     expect(loaded).toMatchObject({ kind: "harness", skill: "triage", plugin });
     expect(ran).toMatchObject({ toolName: "bash", kind: "sandbox", skill: "triage", plugin });
     expect(logo).toMatchObject({ skill: "triage", plugin });
-    // The session pins the definition as registered: our harness words the skills' folders.
+    // The session pins the manifest's harness section: our harness words the skills' folders.
     const { manifest } = await session.manifest();
     expect(manifest).not.toHaveProperty("runtime");
   });

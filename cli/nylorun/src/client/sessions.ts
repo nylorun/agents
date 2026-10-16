@@ -1,5 +1,6 @@
 /**
- * `nylorun sessions`: the Tenant's sessions (`/v1/sessions`, Runtime API): open one, send it a
+ * `nylorun sessions`: the Tenant's sessions (`/v1/sessions`, Runtime API): open one on an Agent
+ * (protocol 16: every session runs on one, and its id is the caller's to choose), send it a
  * message, answer what it waits for, watch its events, and read its history, usage, calls and
  * traces. `exec` runs a command in the session's sandbox, as an app's own tool would.
  */
@@ -25,10 +26,12 @@ export const sessionsUsage = `nylorun sessions <command>
 
 The Tenant's sessions, through the Runtime API with an application key (or NYLORUN_TOKEN).
 
-  list [--agent <id>] [--status <status>] [--environment <id>] [--owner <user>]
+  list [--agent <id>] [--manifest <name>] [--status <status>] [--owner <user>]
        [--limit <n>] [--cursor <c>] [--json]
-  create --agent <id> --owner <user> [--environment <id>] [--id <id>] [--info <json>]
-                                      open a session; prints its id
+                                      --agent: on that Agent; --manifest: on the Agents made
+                                      from that agent manifest
+  create --agent <id> --owner <user> [--id <id>] [--info <json>]
+                                      open a session on Agent <id>; prints its id
   get <id>                            the session: status, active turn, what it waits for
   send <id> [<text>] [--data <json>] [--file <artifact>[@<version>]]... [--idempotency-key <k>]
                                       start a turn with text, JSON data or files (artifacts)
@@ -49,11 +52,17 @@ The Tenant's sessions, through the Runtime API with an application key (or NYLOR
 
 ${runtimeFlagsUsage}`;
 
+/** Protocol 16: a session runs on the Agent `--agent` names, which holds what an Environment did. */
+const ENVIRONMENT_REMOVED =
+  "--environment was removed in protocol 16: a session runs on an Agent, its sandbox and vault included. Pass --agent <id> (nylorun agents list).";
+
 async function list(deps: StackDeps, args: readonly string[]): Promise<number> {
-  const usage = "nylorun sessions list [--agent <id>] [--status <s>] [--environment <id>] [--owner <user>] [--limit <n>] [--cursor <c>] [--json]";
+  const usage =
+    "nylorun sessions list [--agent <id>] [--manifest <name>] [--status <s>] [--owner <user>] [--limit <n>] [--cursor <c>] [--json]";
+  if (args.includes("--environment")) throw usageError(ENVIRONMENT_REMOVED);
   const flags = parseFlags(
     args,
-    { booleans: ["--json"], values: ["--agent", "--status", "--environment", "--owner", "--limit", "--cursor"] },
+    { booleans: ["--json"], values: ["--agent", "--manifest", "--status", "--owner", "--limit", "--cursor"] },
     usage,
   );
   positional(flags, 0, usage);
@@ -64,7 +73,7 @@ async function list(deps: StackDeps, args: readonly string[]): Promise<number> {
     client.sessions.page({
       ...(value("--agent") ? { agentId: value("--agent") } : {}),
       ...(value("--status") ? { status: value("--status") as never } : {}),
-      ...(value("--environment") ? { environmentId: value("--environment") } : {}),
+      ...(value("--manifest") ? { manifest: value("--manifest") } : {}),
       ...(value("--owner") ? { ownerUserId: value("--owner") } : {}),
       ...(limit === undefined ? {} : { limit }),
       ...(value("--cursor") ? { cursor: value("--cursor") } : {}),
@@ -77,13 +86,12 @@ async function list(deps: StackDeps, args: readonly string[]): Promise<number> {
   if (page.sessions.length === 0) deps.out("No sessions.");
   else
     printTable(deps, [
-      ["ID", "AGENT", "OWNER", "STATUS", "ENVIRONMENT", "LAST EVENT"],
+      ["ID", "AGENT", "OWNER", "STATUS", "LAST EVENT"],
       ...page.sessions.map((session) => [
         session.id,
         session.agentId,
         session.ownerUserId,
         session.status,
-        session.environmentId ?? "-",
         session.lastEventAt ?? "-",
       ]),
     ]);
@@ -92,9 +100,9 @@ async function list(deps: StackDeps, args: readonly string[]): Promise<number> {
 }
 
 async function create(deps: StackDeps, args: readonly string[]): Promise<number> {
-  const usage =
-    "nylorun sessions create --agent <id> --owner <user> [--environment <id>] [--id <id>] [--info <json>]";
-  const flags = parseFlags(args, { values: ["--agent", "--owner", "--environment", "--id", "--info"] }, usage);
+  const usage = "nylorun sessions create --agent <id> --owner <user> [--id <id>] [--info <json>]";
+  if (args.includes("--environment")) throw usageError(ENVIRONMENT_REMOVED);
+  const flags = parseFlags(args, { values: ["--agent", "--owner", "--id", "--info"] }, usage);
   positional(flags, 0, usage);
   const agentId = flags.values.get("--agent");
   const ownerUserId = flags.values.get("--owner");
@@ -103,15 +111,13 @@ async function create(deps: StackDeps, args: readonly string[]): Promise<number>
   const parsedInfo = info === undefined ? undefined : parseJsonArgument(info, "--info");
   if (parsedInfo !== undefined && (!parsedInfo || typeof parsedInfo !== "object" || Array.isArray(parsedInfo)))
     throw usageError("--info must be a JSON object.");
-  const environment = flags.values.get("--environment");
   const id = flags.values.get("--id");
   const { client } = await runtimeClient(deps, flags);
   const session = await runtimeCall(() =>
     client.createSession({
-      agentId,
+      agent: agentId,
       ownerUserId,
       ...(id ? { id } : {}),
-      ...(environment ? { environment } : {}),
       ...(parsedInfo ? { info: parsedInfo as Record<string, unknown> } : {}),
     }),
   );

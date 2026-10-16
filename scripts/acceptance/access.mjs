@@ -9,16 +9,17 @@
  * @nylorun/core, @nylorun/agents, @nylorun/admin and nylorun.
  *
  * A1  three subjects (admin, builder, member) on one Tenant, each acting
- *     through `app.as(...)`: a session on the person's own Environment (kind
- *     `none`, owner-guarded, with a bearer secret; created with the application
- *     key: Environments are the Runtime API's, protocol 11) and a turn that
- *     pauses for approval of an HTTP tool, which the Runtime then calls on a
- *     service of this script, and completes
+ *     through `app.as(...)`: a session on the person's own Agent (made from the
+ *     agent manifest `desk`, kind `none`, owner-guarded, with a bearer secret;
+ *     made with the application key: Agents are the Runtime API's, protocol 16)
+ *     and a turn that pauses for approval of an HTTP tool, which the Runtime then
+ *     calls on a service of this script, and completes
  * A2  concurrent event streams: each subject receives only its own events
  * A3  every Tenant route, called by each subject against the others'
  *     resources, answers the 404 or 403 of the scope and owner tables (another
- *     owner's Environment: readable, unchangeable without `environments:write`,
- *     and no session of the caller's may name it; the Management API,
+ *     owner's Agent: readable, unchangeable without `agents:write`, and no
+ *     session of the caller's may run on it; agent manifests: readable, deleted
+ *     only with `agent-manifests:write`; the Management API,
  *     `/v1/tenant/*`: `403 key_role_mismatch` for every subject), and no body
  *     names another subject's session ids; the management key acts for no subject
  *     and reaches no Runtime API route
@@ -36,8 +37,8 @@ import { withResetTenant } from "../lib/stack-tenant.mjs";
 
 // No subject scope reaches the Management API (`tenant:settings` is retired, protocol 8).
 const SUBJECTS = {
-  admin: ["agents:write", "sessions:own", "environments:write"],
-  builder: ["agents:write", "sessions:own"],
+  admin: ["agent-manifests:write", "sessions:own", "agents:write"],
+  builder: ["agent-manifests:write", "sessions:own"],
   member: ["agents:read", "sessions:own"],
 };
 
@@ -89,24 +90,24 @@ function subjectHeaders(as) {
 }
 
 /**
- * A1: each subject's own Environment (the app's to create, owner-guarded to the person, with a
- * bearer secret), session on it and approved turn.
+ * A1: each subject's own Agent (the app's to make from the manifest `desk`, owner-guarded to the
+ * person, with a bearer secret), session on it and approved turn.
  */
 async function a1(runtime, tenant, app) {
   const people = {};
   for (const [role, scopes] of Object.entries(SUBJECTS)) {
     const name = `app:${role}`;
     const client = app.as(name, { scopes });
-    const environmentId = `users/${role}/desk`;
-    await app.environments.put(environmentId, { kind: "none", ownerUserId: name, labels: { role } });
-    await app.environments.secrets.put(environmentId, "token", {
+    const agentId = `users/${role}/desk`;
+    await app.agents.put(agentId, { manifest: "desk", owner: name, labels: { role } });
+    await app.agents.secrets.put(agentId, "token", {
       type: "bearer",
       url: "https://mcp.example.com/tools",
       value: `secret-${role}`,
     });
     const id = `sess-${role}-${randomUUID().slice(0, 8)}`;
-    await client.createSession({ id, agentId: "desk", ownerUserId: name, environment: environmentId });
-    people[role] = { role, name, scopes, client, sessionId: id, environmentId };
+    await client.createSession({ id, agent: agentId, ownerUserId: name });
+    people[role] = { role, name, scopes, client, sessionId: id, agentId };
   }
   return people;
 }
@@ -133,18 +134,18 @@ async function runTurns(runtime, tenant, people) {
 
 /**
  * Every route `caller` might call on `other`'s resources, and what it must answer. An
- * application key acting for a subject reaches every Environment (the app decides who uses
- * which): it reads another owner's, changes one only with `environments:write` (a caller with
- * it is not sent the changes), and opens no session on one another owner guards (the 404).
+ * application key acting for a subject reaches every Agent (the app decides who uses which): it
+ * reads another owner's, changes one only with `agents:write` (a caller with it is not sent the
+ * changes), and opens no session on one another owner guards (the 404).
  */
 function crossRoutes(caller, other) {
   const s = `/v1/sessions/${other.sessionId}`;
-  const e = `/v1/environments/${encodeURIComponent(other.environmentId)}`;
+  const e = `/v1/agents/${encodeURIComponent(other.agentId)}`;
   const command = (body) => ({ requestId: randomUUID(), idempotencyKey: randomUUID(), ...body });
-  const writes = caller.scopes.includes("environments:write")
+  const writes = caller.scopes.includes("agents:write")
     ? []
     : [
-        ["PUT", e, 403, { requestId: randomUUID(), kind: "none", labels: { taken: "yes" } }],
+        ["PUT", e, 403, { requestId: randomUUID(), manifest: "desk", labels: { taken: "yes" } }],
         ["DELETE", e, 403],
         ["POST", `${e}/stop`, 403, {}],
         [
@@ -163,17 +164,17 @@ function crossRoutes(caller, other) {
     ["POST", `${s}/commands`, 404, command({ type: "approve", interactionId: "i", approved: true })],
     ["POST", `${s}/commands`, 404, command({ type: "respond", interactionId: "i", value: 1 })],
     ["POST", `${s}/commands`, 404, command({ type: "cancel" })],
-    // Another owner's Environment: its view lists none of that owner's sessions to the caller,
-    // and its secrets list names and bindings, never a value.
+    // Another owner's Agent: its view lists none of that owner's sessions to the caller, and its
+    // secrets list names and bindings, never a value.
     ["GET", e, 200],
     ["GET", `${e}/secrets`, 200],
     ...writes,
-    // The owner guard: a session of the caller's naming it is the opaque 404.
+    // The owner guard: a session of the caller's on it is the opaque 404.
     [
       "PUT",
       `/v1/sessions/sess-${caller.role}-on-${other.role}-${randomUUID().slice(0, 8)}`,
       404,
-      { requestId: randomUUID(), agentId: "desk", ownerUserId: caller.name, environment: other.environmentId },
+      { requestId: randomUUID(), agent: other.agentId, ownerUserId: caller.name },
     ],
   ];
 }
@@ -184,6 +185,10 @@ function crossRoutes(caller, other) {
  */
 const SCOPED = [
   ["GET", "/v1/agents", { admin: 200, builder: 200, member: 200 }],
+  ["GET", "/v1/agent-manifests", { admin: 200, builder: 200, member: 200 }],
+  ["GET", "/v1/agent-manifests/desk", { admin: 200, builder: 200, member: 200 }],
+  // Deleting a manifest needs agent-manifests:write, and one with Agents made from it stays.
+  ["DELETE", "/v1/agent-manifests/desk", { admin: 409, builder: 409, member: 403 }],
   ["GET", "/v1/tenant", { admin: 403, builder: 403, member: 403 }],
   ["GET", "/v1/tenant/models", { admin: 403, builder: 403, member: 403 }],
   ["GET", "/v1/tenant/providers", { admin: 403, builder: 403, member: 403 }],
@@ -234,7 +239,7 @@ async function a3(runtime, tenant, people) {
     for (const other of others) {
       const reply = await call(caller, "PUT", `/v1/sessions/${other.sessionId}`, {
         requestId: randomUUID(),
-        agentId: "desk",
+        agent: caller.agentId,
         ownerUserId: caller.name,
       });
       assert.equal(reply.status, 404, `${caller.role} PUT ${other.role}'s session`);
@@ -247,16 +252,15 @@ async function a3(runtime, tenant, people) {
       [caller.sessionId],
       `${caller.role} lists only its session`,
     );
-    // Every Environment is listed (the application key reaches them all), each with only the
-    // caller's own sessions: `clean` checks no other subject's session id is in the body.
-    const environments = await call(caller, "GET", "/v1/environments");
-    assert.equal(environments.status, 200, environments.text);
-    clean(environments, "GET /v1/environments");
+    // Every Agent is listed (the application key reaches them all), each with only the caller's
+    // own sessions: `clean` checks no other subject's session id is in the body.
+    const agents = await call(caller, "GET", "/v1/agents");
+    assert.equal(agents.status, 200, agents.text);
+    clean(agents, "GET /v1/agents");
     assert.deepEqual(
-      JSON.parse(environments.text)
-        .environments.flatMap((environment) => environment.sessions.map((s) => s.id)),
+      JSON.parse(agents.text).agents.flatMap((agent) => agent.sessions.map((s) => s.id)),
       [caller.sessionId],
-      `${caller.role} sees only its own session on the Environments`,
+      `${caller.role} sees only its own session on the Agents`,
     );
     // A retired scope still parses and grants nothing: `tenant:settings` reaches no setting.
     const retired = await call(
@@ -286,22 +290,24 @@ async function a3(runtime, tenant, people) {
   const onRuntime = await call(undefined, "GET", "/v1/sessions", undefined, managementKey);
   assert.equal(onRuntime.status, 403, `a management key on the Runtime API: ${onRuntime.text}`);
   assert.equal(JSON.parse(onRuntime.text).code, "key_role_mismatch");
-  const environmentsWithManagement = await call(undefined, "GET", "/v1/environments", undefined, managementKey);
-  assert.equal(environmentsWithManagement.status, 403, environmentsWithManagement.text);
-  assert.equal(JSON.parse(environmentsWithManagement.text).code, "key_role_mismatch");
+  const agentsWithManagement = await call(undefined, "GET", "/v1/agents", undefined, managementKey);
+  assert.equal(agentsWithManagement.status, 403, agentsWithManagement.text);
+  assert.equal(JSON.parse(agentsWithManagement.text).code, "key_role_mismatch");
   checked += 4;
-  // Every session is still there for its owner, and every Environment, unchanged, with its
-  // secret, for the app.
+  // Every session is still there for its owner, every Agent, unchanged, with its secret, for
+  // the app, and the manifest it was made from.
   for (const person of everyone) {
     assert.equal((await call(person, "GET", `/v1/sessions/${person.sessionId}`)).status, 200);
-    const environment = await app.environments.get(person.environmentId);
-    assert.deepEqual(environment.labels, { role: person.role });
-    assert.equal(environment.ownerUserId, person.name);
+    const agent = await app.agents.get(person.agentId);
+    assert.deepEqual(agent.labels, { role: person.role });
+    assert.equal(agent.owner, person.name);
+    assert.equal(agent.manifest, "desk");
     assert.deepEqual(
-      (await app.environments.secrets.list(person.environmentId)).map((secret) => secret.name),
+      (await app.agents.secrets.list(person.agentId)).map((secret) => secret.name),
       ["token"],
     );
   }
+  assert.equal((await app.agentManifests.get("desk")).name, "desk", "the manifest stays");
   return checked;
 }
 
@@ -366,7 +372,7 @@ try {
       );
       const service = await startToolService({ lookup_order: () => ({ status: "shipped" }) });
       try {
-        await app.saveAgent(deskAgent(service));
+        await app.agentManifests.save({ agent: deskAgent(service) });
         await setToolPolicy(runtime, tenant.managementKey, [DESK_APPROVAL]);
         const people = await a1(runtime, tenant, app);
 
@@ -383,21 +389,29 @@ try {
             if (!streams.signal.aborted) throw error;
           }
         });
-        await runTurns(runtime, tenant, people);
-        assert.equal(
-          service.calls.filter((call) => call.name === "lookup_order").length,
-          Object.keys(people).length,
-          "the Runtime called the approved HTTP tool once per turn",
-        );
-        pass("A1", "admin, builder and member each ran a turn with an approved HTTP tool call in their own session");
-        await eventually(
-          () =>
-            Object.values(people).every((person) =>
-              seen[person.role].some((event) => event.type === "turn.completed"),
-            ),
-          { message: "every stream to see its turn complete" },
-        );
-        streams.abort();
+        // A stream's failure is reported below, once the turns are done; until then it must not
+        // end the process as an unhandled rejection.
+        for (const read of reading) read.catch(() => undefined);
+        try {
+          await runTurns(runtime, tenant, people);
+          assert.equal(
+            service.calls.filter((call) => call.name === "lookup_order").length,
+            Object.keys(people).length,
+            "the Runtime called the approved HTTP tool once per turn",
+          );
+          pass("A1", "admin, builder and member each ran a turn with an approved HTTP tool call in their own session");
+          await eventually(
+            () =>
+              Object.values(people).every((person) =>
+                seen[person.role].some((event) => event.type === "turn.completed"),
+              ),
+            { message: "every stream to see its turn complete" },
+          );
+        } finally {
+          // Closed before anything else fails on: the Tenant reset that follows a failure deletes
+          // the sessions, and a stream still open would reconnect to a 404 and hide the failure.
+          streams.abort();
+        }
         await Promise.all(reading);
         for (const person of Object.values(people)) {
           const events = seen[person.role];

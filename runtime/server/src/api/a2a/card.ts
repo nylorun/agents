@@ -1,13 +1,14 @@
 /**
- * The Agent Card of one agent, from its manifest: name, description and one skill, never its
- * instructions, tools or MCP servers. The Runtime does not know where callers reach it, so
+ * The Agent Card of one Agent, from its manifest version: its id as the name, the manifest's
+ * description and one skill, never its instructions, tools or MCP servers. The Runtime does not know where callers reach it, so
  * `supportedInterfaces` is empty: whoever publishes the card (the gateway in v1) adds its own
  * URL, provider and security schemes.
  */
 
 export interface CardDefinition {
   readonly manifest: { id?: unknown; name?: unknown; description?: unknown };
-  readonly implementationVersion: string;
+  /** The manifest version the Agent runs, as `name@version`. */
+  readonly version: string;
 }
 
 import type { ModelInput } from "@nylorun/core/contracts";
@@ -55,7 +56,7 @@ export function agentCard(
     name,
     description,
     supportedInterfaces: [],
-    version: definition.implementationVersion,
+    version: definition.version,
     capabilities: { streaming: false, pushNotifications: false, extendedAgentCard: false },
     defaultInputModes: [...inputModes],
     defaultOutputModes: MODES,

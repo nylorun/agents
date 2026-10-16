@@ -311,30 +311,22 @@ describe.each([["agent"], ["workflow"]] as const)(
           key: first.applicationKey,
           tenant: first.tenantId,
         });
-        await client.saveAgent(buildDefinition(kind, service), {
-          implementationVersion: "parity-v1",
-        });
+        await client.agentManifests.save({ agent: buildDefinition(kind, service) });
+        await client.agents.put("parity", { manifest: "parity" });
         await setToolPolicy(first, [{ effect: "ask", tool: "approved_work" }]);
 
-        const listed = await client.listAgents();
-        const registered = listed.agents.find(
-          (a) => (a.manifest as { id?: string }).id === "parity"
-        );
-        expect(registered).toBeTruthy();
-        if (kind === "workflow") {
-          expect((registered!.manifest as { kind?: string }).kind).toBe(
-            "workflow"
-          );
-        } else {
-          expect((registered!.manifest as { kind?: string }).kind).not.toBe(
-            "workflow"
-          );
-        }
+        const listed = await client.agentManifests.list();
+        const registered = listed.find((manifest) => manifest.name === "parity");
+        expect(registered).toMatchObject({ version: 1 });
+        // A flow is an agent manifest whose harness section is the flow.
+        const harnessKind = (registered!.manifest.harness as { kind?: string }).kind;
+        if (kind === "workflow") expect(harnessKind).toBe("workflow");
+        else expect(harnessKind).not.toBe("workflow");
 
         // --- SD-PAR2 create session + input (happy path completes) ---
         const sessionA = await client.createSession({
           id: `parity-${kind}-a`,
-          agentId: "parity",
+          agent: "parity",
           ownerUserId: "user-1",
         });
         const completedA = collectUntil(sessionA, {
@@ -356,7 +348,7 @@ describe.each([["agent"], ["workflow"]] as const)(
         // --- SD-PAR3 observe + resume from cursor ---
         const sessionB = await client.createSession({
           id: `parity-${kind}-b`,
-          agentId: "parity",
+          agent: "parity",
           ownerUserId: "user-1",
         });
         const firstBatch: { type: string; cursor: string }[] = [];
@@ -409,7 +401,7 @@ describe.each([["agent"], ["workflow"]] as const)(
         gates.requireApproval = true;
         const sessionC = await client.createSession({
           id: `parity-${kind}-c`,
-          agentId: "parity",
+          agent: "parity",
           ownerUserId: "user-1",
         });
         await sessionC.input("needs approval", { idempotencyKey: "msg-c" });
@@ -430,7 +422,7 @@ describe.each([["agent"], ["workflow"]] as const)(
         gates._armHold();
         const sessionD = await client.createSession({
           id: `parity-${kind}-d`,
-          agentId: "parity",
+          agent: "parity",
           ownerUserId: "user-1",
         });
         await sessionD.input("cancel me", { idempotencyKey: "msg-d" });
@@ -447,7 +439,7 @@ describe.each([["agent"], ["workflow"]] as const)(
         gates.holdRun = false;
         const sessionE = await client.createSession({
           id: `parity-${kind}-e`,
-          agentId: "parity",
+          agent: "parity",
           ownerUserId: "user-1",
         });
         await sessionE.input("survive restart", { idempotencyKey: "msg-e" });
@@ -491,7 +483,7 @@ describe.each([["agent"], ["workflow"]] as const)(
         // --- SD-PAR8 redeploy mid-run (pinning) ---
         const sessionF = await client2.createSession({
           id: `parity-${kind}-f`,
-          agentId: "parity",
+          agent: "parity",
           ownerUserId: "user-1",
         });
         const pinF = (await sessionF.inspect()).manifestHash as string;
@@ -502,18 +494,12 @@ describe.each([["agent"], ["workflow"]] as const)(
         const ownerF = ownerSessionOf(sessionF, waitF);
 
         // The live session's pin must remain pinF.
-        await client2.saveAgent(buildRedeployed(kind, service), {
-          implementationVersion: "parity-v2",
-        });
+        await client2.agentManifests.save({ agent: buildRedeployed(kind, service) });
 
-        const listedAfter = await client2.listAgents();
-        const defAfter = listedAfter.agents.find(
-          (a) => (a.manifest as { id?: string }).id === "parity"
-        );
-        expect(defAfter).toBeTruthy();
-        const newHash = (defAfter as { manifestHash?: string }).manifestHash;
-        expect(newHash).toBeTruthy();
-        expect(newHash).not.toBe(pinF);
+        const listedAfter = await client2.agentManifests.list();
+        const defAfter = listedAfter.find((manifest) => manifest.name === "parity");
+        expect(defAfter).toMatchObject({ version: 2 });
+        expect(defAfter!.hash).not.toBe(registered!.hash);
 
         const midView = await sessionF.inspect();
         expect(midView.manifestHash).toBe(pinF);
@@ -525,15 +511,27 @@ describe.each([["agent"], ["workflow"]] as const)(
         const afterView = await sessionF.inspect();
         expect(afterView.manifestHash).toBe(pinF);
 
-        // New session picks up redeployed definition.
+        // An Agent keeps the version it was made from (protocol 16): a new session on it still
+        // pins version 1, and an Agent made from version 2 runs the redeployed definition.
         gates.requireApproval = false;
-        const sessionF2 = await client2.createSession({
-          id: `parity-${kind}-f2`,
-          agentId: "parity",
+        const sessionOld = await client2.createSession({
+          id: `parity-${kind}-f1`,
+          agent: "parity",
           ownerUserId: "user-1",
         });
-        // A session pins its definition as registered (protocol 15).
-        expect((await sessionF2.inspect()).manifestHash).toBe(newHash);
+        expect(await sessionOld.inspect()).toMatchObject({
+          manifest: { name: "parity", version: 1 },
+          manifestHash: pinF,
+        });
+        await client2.agents.put("parity-2", { manifest: "parity@2" });
+        const sessionF2 = await client2.createSession({
+          id: `parity-${kind}-f2`,
+          agent: "parity-2",
+          ownerUserId: "user-1",
+        });
+        const viewF2 = await sessionF2.inspect();
+        expect(viewF2).toMatchObject({ agentId: "parity-2", manifest: { name: "parity", version: 2 } });
+        expect(viewF2.manifestHash).not.toBe(pinF);
         const doneF2 = collectUntil(sessionF2, {
           done: rootTurnDone(sessionF2.id),
         });
@@ -543,7 +541,7 @@ describe.each([["agent"], ["workflow"]] as const)(
         // --- SD-PAR9 same input twice with same idempotency key ---
         const sessionG = await client2.createSession({
           id: `parity-${kind}-g`,
-          agentId: "parity",
+          agent: "parity",
           ownerUserId: "user-1",
         });
         const r1 = await sessionG.input("once", { idempotencyKey: "msg-g" });

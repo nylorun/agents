@@ -7,8 +7,7 @@
  * The Agent Card comes from the Runtime, with this endpoint's URL and the host's provider and
  * security schemes added.
  */
-import type { BuiltWorkflow } from "@nylorun/core/define";
-import { createClient, type AgentSource, type AgentsClient } from "../client.js";
+import { createClient, type AgentsClient } from "../client.js";
 import { IncompatibleRuntimeError, RuntimeError } from "../http.js";
 
 /** The Host feature the handler forwards to. */
@@ -37,8 +36,12 @@ export interface A2aCardOptions {
 }
 
 export interface A2aHandlerOptions {
-  /** Agents this endpoint serves: built agents, workflows or their ids. Nothing else is reachable. */
-  agents: readonly (AgentSource | BuiltWorkflow | string)[];
+  /**
+   * The Agents this endpoint serves, by id (`client.agents`, protocol 16), or as
+   * `client.agents.get` answers them: a partner's tasks run in sessions on them. Nothing else is
+   * reachable.
+   */
+  agents: readonly (string | { readonly id: string })[];
   /**
    * The partner the request is from, authenticated by the host. `undefined` answers `401`;
    * there is no anonymous mode. Not called for the Agent Card, which is public.

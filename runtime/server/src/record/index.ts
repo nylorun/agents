@@ -17,8 +17,8 @@ export {
   type RecordWriter,
 } from "./append.js";
 export {
-  appendEnvironmentEvent,
-  buildEnvironmentEvent,
-  type EnvironmentAppendInput,
-  type EnvironmentRecordWriter,
-} from "./environment.js";
+  appendAgentEvent,
+  buildAgentEvent,
+  type AgentAppendInput,
+  type AgentRecordWriter,
+} from "./agent.js";

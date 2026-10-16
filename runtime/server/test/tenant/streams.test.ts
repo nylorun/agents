@@ -5,6 +5,7 @@ import type { LiveEvent } from "@nylorun/core/contracts";
 import { decodeCursor } from "../../src/record/index.js";
 import { MemoryStreams } from "../../src/streams/memory.js";
 import { openTestSessionStore } from "../support/store.js";
+import { deploy, openSession } from "../support/agents.js";
 import { startTestTenant } from "../support/tenant.js";
 import { contextOf, tenantStreamsSuite } from "./streams.suite.js";
 
@@ -49,16 +50,8 @@ describe("streams passed by the caller", () => {
     roots.push(first.root);
     open.push(first);
     const agent = Agent({ id: "bot", name: "Bot" }).build();
-    await fetch(`${first.url}/v1/agents/bot`, {
-      method: "PUT",
-      headers,
-      body: JSON.stringify({ requestId: "a", manifest: agent.manifest, implementationVersion: "dev" }),
-    });
-    await fetch(`${first.url}/v1/sessions/s1`, {
-      method: "PUT",
-      headers,
-      body: JSON.stringify({ requestId: "s", agentId: "bot", ownerUserId: "ada" }),
-    });
+    await deploy(first.url, headers, agent);
+    await openSession(first.url, headers, "s1", { agent: "bot", ownerUserId: "ada" });
     const before = await turn(first.url, "m1", 1);
     await first.close();
 

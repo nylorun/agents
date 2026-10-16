@@ -1,5 +1,5 @@
 /**
- * Resolves an Environment's recipe (`PUT /v1/environments/{id}`) against its Tenant's limits,
+ * Resolves an Agent's recipe (`PUT /v1/agents/{id}`) against its Tenant's limits,
  * and the sandbox spec a recipe gives a session (`Session.sandbox`) and the pod. Pure: the
  * caller supplies the configuration. Every problem is reported, not only the first, so one
  * response lists all of them.
@@ -41,7 +41,7 @@ export type RecipeResolution =
   | { readonly kind: "recipe"; readonly recipe: EnvironmentRecipe }
   | { readonly kind: "error"; readonly errors: readonly string[] };
 
-/** The recipe `request` asks for an Environment of `kind`, or every reason it cannot have it. */
+/** The recipe `request` asks for an Agent of `kind`, or every reason it cannot have it. */
 export function resolveRecipe(
   kind: EnvironmentKind,
   request: RecipeRequest,
@@ -53,7 +53,7 @@ export function resolveRecipe(
   // Any harness id (R4.1): placement decides where it may run, when a session opens.
   const harness = request.harness ?? DEFAULT_HARNESS;
   if (pod && harness !== DEFAULT_HARNESS && request.image === undefined)
-    errors.push(`harness ${harness} needs image: a pod Environment runs its image as the harness.`);
+    errors.push(`harness ${harness} needs image: a pod Agent runs its image as the harness.`);
   const lifecycle = request.lifecycle ?? {};
   const idle = lifecycle.idle === undefined ? undefined : parseSandboxDuration(lifecycle.idle);
   if (idle !== undefined && idle > (parseSandboxDuration(limits.idle) ?? Infinity))
@@ -61,7 +61,7 @@ export function resolveRecipe(
   if (kind === "none") {
     for (const field of ["image", "resources", "storage", "network", "setup", "files"] as const)
       if (request[field] !== undefined)
-        errors.push(`${field} is for an Environment with a sandbox: kind none has none.`);
+        errors.push(`${field} is for an Agent with a sandbox: kind none has none.`);
     if (errors.length > 0) return { kind: "error", errors };
     return {
       kind: "recipe",
@@ -69,9 +69,9 @@ export function resolveRecipe(
     };
   }
   if (request.image !== undefined && !pod)
-    errors.push("image is for kind pod: a virtual Environment runs no images.");
+    errors.push("image is for kind pod: a virtual Agent runs no images.");
   if (request.storage !== undefined && !pod)
-    errors.push("storage is for kind pod: a virtual Environment has no volume.");
+    errors.push("storage is for kind pod: a virtual Agent has no volume.");
   for (const field of ["setup", "files"] as const)
     if (request[field] !== undefined && request[field]!.length > 0 && !pod)
       errors.push(`${field} is for kind pod: it runs when a pod's disk is made or reset.`);
@@ -81,7 +81,7 @@ export function resolveRecipe(
       errors.push(`network.allowedHosts includes ${host}, which this Tenant does not allow.`);
     else if (host.startsWith("*.") && !pod)
       errors.push(
-        `network.allowedHosts includes ${host}; a virtual Environment allows exact host names only, such as ${host.slice(2)}.`,
+        `network.allowedHosts includes ${host}; a virtual Agent allows exact host names only, such as ${host.slice(2)}.`,
       );
   }
   const cpus = request.resources?.cpus ?? limits.defaultResources.cpus;
@@ -129,7 +129,7 @@ function slotsOf(request: RecipeRequest): Pick<EnvironmentRecipe, "secrets"> {
 
 /**
  * The sandbox spec of a recipe: what a session pins when it opens and the virtual
- * workspace runs. Idle is the Environment's `lifecycle.idle`, else the Tenant's.
+ * workspace runs. Idle is the Agent's `lifecycle.idle`, else the Tenant's.
  */
 export function sandboxSpecOf(recipe: EnvironmentRecipe, tenantIdle: string): SandboxManifest {
   const allow = recipe.network?.allowedHosts ?? [];

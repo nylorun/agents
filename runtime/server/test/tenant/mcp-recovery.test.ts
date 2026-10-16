@@ -14,6 +14,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { Agent } from "@nylorun/core/define";
 import { openTestSessionStore } from "../support/store.js";
+import { deploy, openSession } from "../support/agents.js";
 import type { TenantRuntime } from "../../src/tenant/runtime.js";
 import { MemoryExecution } from "../../src/execution/memory.js";
 import { TenantWorkers, type TenantExecution } from "../../src/tenant/worker.js";
@@ -113,17 +114,8 @@ async function boot(url: string): Promise<Started> {
   const agent = Agent({ id: "bot", name: "Bot" })
     .mcp({ remote: { type: "streamable-http", url } })
     .build();
-  for (const [path, body] of [
-    ["/v1/agents/bot", { requestId: "put-1", manifest: agent.manifest, implementationVersion: "dev" }],
-    ["/v1/sessions/s1", { requestId: "session-s1", agentId: "bot", ownerUserId: "u" }],
-  ] as const) {
-    const response = await fetch(`${runtime.url}${path}`, {
-      method: "PUT",
-      headers: server,
-      body: JSON.stringify(body),
-    });
-    expect(response.ok).toBe(true);
-  }
+  await deploy(runtime.url, server, agent);
+  expect((await openSession(runtime.url, server, "s1", { agent: "bot", ownerUserId: "u" })).ok).toBe(true);
   return runtime;
 }
 

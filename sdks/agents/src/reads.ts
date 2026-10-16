@@ -6,9 +6,11 @@ import {
 } from "@nylorun/core/contracts";
 import type { Transport } from "./http.js";
 export type SessionPageOptions = {
+  /** The Agent the sessions run on. */
   agentId?: string;
+  /** The agent manifest's name their Agents were made from. */
+  manifest?: string;
   status?: SessionListItem["status"];
-  environmentId?: string;
   ownerUserId?: string;
   limit?: number;
   cursor?: string;

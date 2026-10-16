@@ -4,7 +4,7 @@
  * A management key issues application keys, never management keys. Application keys do not
  * reach the Management API, and the old paths (`/v1/vaults`, `/v1/access/signing-keys`) are
  * gone (protocol 8), as are the vault routes (`/v1/tenant/vaults`, protocol 11): an
- * Environment's secrets are written on the Runtime API.
+ * Agent's secrets are written on the Runtime API.
  */
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -17,6 +17,7 @@ import { runOperate } from "../../src/host/operate.js";
 import { hostModelCatalog } from "../../src/model/catalog.js";
 import { startEphemeralRuntime } from "../../src/tenant/ephemeral.js";
 import { isolatedTestDatabase } from "../support/store.js";
+import { manifestOf } from "../support/agents.js";
 
 const closers: { close(): Promise<void> }[] = [];
 const roots: string[] = [];
@@ -143,7 +144,7 @@ describe("the Management API's groups", () => {
     expect((await host.admin.models.setInputs({ ...model, inputs: [] })).inputs).toEqual(["text", "image"]);
   });
 
-  it("checks credential coverage by Environment, and has no vault routes (protocol 11)", async () => {
+  it("checks credential coverage by Agent, and has no vault routes (protocol 11)", async () => {
     const host = await startHost();
     const url = "https://mcp.example.com/mcp";
     const runtimeApi = async (method: string, path: string, body: unknown) => {
@@ -159,24 +160,29 @@ describe("the Management API's groups", () => {
       expect(response.status, await response.clone().text()).toBe(200);
     };
     const agent = Agent({ id: "linear-bot" }).instructions("Triage.").mcp({ linear: { type: "streamable-http", url } }).build();
-    await runtimeApi("PUT", "/v1/agents/linear-bot", { requestId: "agent", manifest: agent.manifest, implementationVersion: "dev" });
-    await runtimeApi("PUT", "/v1/environments/tools", { kind: "none" });
-    await runtimeApi("PUT", "/v1/environments/tools/secrets/linear", { type: "bearer", url, value: "secret" });
+    // Two Agents of the manifest `linear-bot`: one with the server's credential in its vault.
+    await runtimeApi("PUT", "/v1/agent-manifests/linear-bot", manifestOf(agent));
+    await runtimeApi("PUT", "/v1/agents/tools", { requestId: "tools", manifest: "linear-bot" });
+    await runtimeApi("PUT", "/v1/agents/bare", { requestId: "bare", manifest: "linear-bot" });
+    await runtimeApi("PUT", "/v1/agents/tools/secrets/linear", { type: "bearer", url, value: "secret" });
 
-    expect(await host.admin.coverage({ agentId: "linear-bot", environmentId: "tools" })).toMatchObject({
-      agentId: "linear-bot",
-      environmentId: "tools",
+    expect(await host.admin.coverage({ agentId: "tools" })).toMatchObject({
+      agentId: "tools",
       complete: true,
-      entries: [{ kind: "mcp", name: "linear", status: "covered", credential: { environmentId: "tools", name: "linear" } }],
+      entries: [{ kind: "mcp", name: "linear", status: "covered", credential: { agentId: "tools", name: "linear" } }],
     });
-    expect(await host.admin.coverage({ agentId: "linear-bot" })).toMatchObject({
-      environmentId: null,
+    expect(await host.admin.coverage({ agentId: "bare" })).toMatchObject({
+      agentId: "bare",
       complete: false,
       entries: [{ status: "missing" }],
     });
-    expect(await refusal(host.admin.coverage({ agentId: "linear-bot", environmentId: "missing" }))).toMatchObject({
+    expect(await refusal(host.admin.coverage({ agentId: "missing" }))).toMatchObject({
       status: 404,
     });
+    // The old body, naming an agent definition and an Environment, is refused (protocol 16).
+    expect(
+      await refusal(host.admin.coverage({ agentId: "tools", environmentId: "tools" } as never)),
+    ).toMatchObject({ status: 400 });
     // Application keys never reach coverage; the vault routes and the old paths are gone.
     expect(await host.status(host.applicationKey, "POST", "/v1/tenant/credential-coverage")).toBe(403);
     expect(await host.status(host.managementKey, "GET", "/v1/tenant/vaults")).toBe(404);

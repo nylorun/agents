@@ -15,7 +15,7 @@ const call = (id: string) => ({
   effectId: `ef_${id}`,
   sessionId: "ses_1",
   turnId: "turn_1",
-  agentId: "support",
+  manifestName: "support",
   provider: "openai",
   model: "gpt-test",
   at: "2026-10-14T00:00:00.000Z",
@@ -81,7 +81,6 @@ function route(url: string, init?: RequestInit): Response | undefined {
   if (method === "POST" && path === "/v1/tenant/credential-coverage")
     return json({
       agentId: body.agentId,
-      environmentId: body.environmentId ?? null,
       complete: false,
       entries: [
         {
@@ -91,7 +90,7 @@ function route(url: string, init?: RequestInit): Response | undefined {
           url: "https://mcp.github.test/",
           required: false,
           status: "covered",
-          credential: { environmentId: body.environmentId, name: "GITHUB" },
+          credential: { environmentId: body.agentId, name: "GITHUB" },
           message: "Sends GITHUB.",
         },
         {
@@ -215,10 +214,10 @@ describe("nylorun tenant usage and calls", () => {
     const deps = await remote();
     expect(await tenantCommand(deps, ["usage"])).toBe(0);
     expect(JSON.parse(deps.lines.join("\n"))).toMatchObject({ calls: 2, costUsd: 0.01 });
-    expect(await tenantCommand(deps, ["usage", "--scope", "agent", "--id", "support", "--period", "month"])).toBe(0);
+    expect(await tenantCommand(deps, ["usage", "--scope", "manifest", "--id", "support", "--period", "month"])).toBe(0);
     expect(sent(deps).map((r) => r.path)).toEqual([
       "/v1/tenant/usage?scope=tenant&period=total",
-      "/v1/tenant/usage?scope=agent&period=month&id=support",
+      "/v1/tenant/usage?scope=manifest&period=month&id=support",
     ]);
   });
 
@@ -269,7 +268,12 @@ describe("nylorun tenant budgets, tool-policy and settings", () => {
 
   it("put reads the body from a file or from stdin, and what get printed puts back", async () => {
     const dir = await temporaryDir();
-    const budgets = { budgets: [{ scope: "tenant", period: "day", limitUsd: 5 }] };
+    const budgets = {
+      budgets: [
+        { scope: "tenant", period: "day", limitUsd: 5 },
+        { scope: "manifest", id: "support", period: "month", limitTokens: 1000 },
+      ],
+    };
     await writeFile(join(dir, "budgets.json"), JSON.stringify(budgets));
     // What `tool-policy get` printed: its updatedAt is dropped.
     const policy = { rules: [{ effect: "ask", tool: "send_*" }], updatedAt: "2026-10-14T00:00:00.000Z" };
@@ -321,19 +325,19 @@ describe("nylorun tenant budgets, tool-policy and settings", () => {
 });
 
 describe("nylorun tenant coverage", () => {
-  it("posts the agent and Environment and prints a summary and a table, else JSON", async () => {
+  it("posts the Agent and prints a summary and a table, else JSON", async () => {
     const deps = await remote();
-    expect(await tenantCommand(deps, ["coverage", "--agent", "support", "--environment", "env_1"])).toBe(0);
+    expect(await tenantCommand(deps, ["coverage", "--agent", "users/u1/support"])).toBe(0);
     expect(deps.lines.splice(0)).toEqual([
-      "support in env_1: 1 of 2 missing",
+      "Agent users/u1/support: 1 of 2 missing",
       "STATUS   KIND  NAME     URL                       SECRET",
       "covered  mcp   github   https://mcp.github.test/  GITHUB",
       "missing  http  billing  https://billing.test/     (required)",
     ]);
     expect(await tenantCommand(deps, ["coverage", "--agent", "support", "--json"])).toBe(0);
-    expect(JSON.parse(deps.lines.join("\n"))).toMatchObject({ agentId: "support", environmentId: null });
+    expect(JSON.parse(deps.lines.join("\n"))).toMatchObject({ agentId: "support", complete: false });
     expect(sent(deps).map((r) => r.body)).toEqual([
-      { requestId: expect.any(String), agentId: "support", environmentId: "env_1" },
+      { requestId: expect.any(String), agentId: "users/u1/support" },
       { requestId: expect.any(String), agentId: "support" },
     ]);
   });
@@ -352,6 +356,8 @@ describe("nylorun tenant usage errors", () => {
       ["usage", "--scope", "everything"],
       ["usage", "--period", "week"],
       ["usage", "--scope", "agent"],
+      ["usage", "--scope", "agent", "--id", "support"],
+      ["usage", "--scope", "manifest"],
       ["usage", "--id", "support"],
       ["calls", "--limit", "0"],
       ["calls", "--limit", "many"],
@@ -366,6 +372,7 @@ describe("nylorun tenant usage errors", () => {
       ["settings", "sandbox", "put"],
       ["coverage"],
       ["coverage", "--environment", "env_1"],
+      ["coverage", "--agent", "support", "--environment", "env_1"],
       ["coverage", "--agent", "support", "extra"],
       ["nope"],
     ])

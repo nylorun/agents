@@ -48,7 +48,7 @@ async function firstCall(sandboxed: boolean): Promise<unknown> {
       };
     },
   };
-  const environment = {
+  const runsOn = {
     id: "env",
     kind: sandboxed ? ("virtual" as const) : ("none" as const),
     ...(sandboxed ? { sandbox: { workspace: "/workspace" } } : {}),
@@ -58,7 +58,7 @@ async function firstCall(sandboxed: boolean): Promise<unknown> {
     checkpoint,
     host,
     engineTools: (agent) =>
-      engineToolsFor(agent, environment, {
+      engineToolsFor(agent, runsOn, {
         artifactPageBytes: 32768,
         sandboxTools: DEFAULT_SANDBOX_TOOL_LIMITS,
         skillReadBytes: 1024,

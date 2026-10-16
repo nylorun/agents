@@ -2,7 +2,8 @@
  * The model descriptor in `turn.start` (protocol 15): an agent's turn carries the model its
  * calls use when they name none — the Tenant's vault model, or the fixture model when the Tenant
  * uses it — so the harness decides how each file reaches it. A flow's turn, and a Tenant with no
- * model, carry none.
+ * model, carry none. With it (Harness API 5): the Agent the session runs on (`agent`), the
+ * manifest version it pinned (`definition`) and the harness section's own settings (`loop`).
  */
 import { randomUUID } from "node:crypto";
 import { afterEach, expect, it } from "vitest";
@@ -10,7 +11,8 @@ import { HARNESS_API_VERSION, memoryChannels, type HarnessChannel, type TurnStar
 import { buildTurnStart, type SegmentStart } from "../../src/harness-api/start.js";
 import { FIXTURE_DESCRIPTOR } from "../../src/model/descriptor.js";
 import type { TenantContext } from "../../src/tenant/context.js";
-import { boot, openSession, server, type Started } from "../host/execution-support.js";
+import { boot, plain, server, type Started } from "../host/execution-support.js";
+import { deploy } from "../support/agents.js";
 
 const cleanups: (() => Promise<unknown> | void)[] = [];
 afterEach(async () => {
@@ -36,19 +38,20 @@ async function call(runtime: Started, method: string, path: string, body?: unkno
   return { status: response.status, body: (await response.json().catch(() => undefined)) as any };
 }
 
-/** A Runtime with a custom harness connected, session s1 on its Environment; the turn.start of its first turn. */
+/** The harness section's `loop` settings the test's manifest carries. */
+const LOOP = { temperature: 0.2, planner: { steps: 3 } };
+
+/** A Runtime with a harness the test drives, session s1 on Agent env-acme; the turn.start of its first turn. */
 async function firstTurn(setup: (runtime: Started) => Promise<void> = async () => {}): Promise<TurnStart> {
   const runtime = await boot({ harness: "remote", vaultKek: Buffer.alloc(32, 9) });
   cleanups.push(() => runtime.close());
   await setup(runtime);
   const acme = attach(runtime);
-  await acme.request("hello", { api: HARNESS_API_VERSION, name: "acme-mini", version: "0", features: {} });
-  expect((await call(runtime, "PUT", "/v1/environments/env-acme", { kind: "none", harness: "acme-mini" })).status).toBe(200);
-  await openSession(runtime, "seed");
-  expect(
-    (await call(runtime, "PUT", "/v1/sessions/s1", { requestId: "s1", agentId: "bot", ownerUserId: "u", environment: "env-acme" }))
-      .status
-  ).toBe(200);
+  await acme.request("hello", { api: HARNESS_API_VERSION, name: "nylorun", version: "0", features: {} });
+  await deploy(runtime.url, server, plain, { id: "env-acme", loop: LOOP });
+  expect((await call(runtime, "PUT", "/v1/sessions/s1", { requestId: "s1", agent: "env-acme", ownerUserId: "u" })).status).toBe(
+    200
+  );
   const leased = acme.request("lease", {});
   const sent = await call(runtime, "POST", "/v1/sessions/s1/commands", {
     type: "message",
@@ -95,6 +98,17 @@ it("carries no descriptor when the Tenant has no model", async () => {
   expect((await firstTurn()).model).toBeUndefined();
 });
 
+it("carries the Agent, the manifest version the session pinned and the harness's loop settings", async () => {
+  const input = await firstTurn();
+  expect(input.agent).toEqual({ id: "env-acme", kind: "none" });
+  expect(input).not.toHaveProperty("environment");
+  expect(input.definition).toEqual({ name: "bot", version: 1 });
+  expect(input.loop).toEqual(LOOP);
+  // The loop manifest is the harness section, named for the manifest; `loop` is not in it.
+  expect(input.manifest).toMatchObject({ id: "bot" });
+  expect(input.manifest).not.toHaveProperty("loop");
+});
+
 it("carries the fixture model's descriptor when the Tenant uses it", async () => {
   const input = await firstTurn(async (runtime) => {
     const seeded = await call(
@@ -128,4 +142,5 @@ it("leaves the descriptor out of a flow's turn.start", () => {
   const start = buildTurnStart(ctx, segment);
   expect(start.engine).toBe("flow");
   expect(start).not.toHaveProperty("model");
+  expect(start).not.toHaveProperty("agent");
 });

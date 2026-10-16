@@ -8,7 +8,7 @@
  * A session on a pod Environment runs on `sandbox`; every other session (a virtual or `none`
  * Environment, or none) on `harness-container` (D52). A host the Tenant does not allow is
  * `409 placement_refused`. A pod Environment needs sandbox pods: without a cluster (`nylorun
- * sandbox enable`), or with the sandboxes service not ready, it is `409 environment_unavailable`.
+ * sandbox enable`), or with the sandboxes service not ready, it is `409 agent_unavailable`.
  */
 import {
   DEFAULT_HARNESS,
@@ -73,12 +73,12 @@ export async function podsReady(pods: TenantPods): Promise<boolean> {
 export async function requirePods(pods: TenantPods | undefined, what: string): Promise<TenantPods> {
   if (!pods)
     return fail(409, `${what} needs sandbox pods, and this Runtime has no cluster: ${ENABLE_PODS}.`, {
-      code: "environment_unavailable",
+      code: "agent_unavailable",
     });
   if (!(await podsReady(pods)))
     failRetryLater(
       `${what} needs sandbox pods, and the sandboxes service is not ready. Check \`nylorun local sandbox status\`.`,
-      "environment_unavailable",
+      "agent_unavailable",
     );
   return pods;
 }

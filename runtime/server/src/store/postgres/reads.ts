@@ -19,7 +19,7 @@ import {
 import type {
   LiveEvent,
   ModelCall,
-  EnvironmentView,
+  AgentView,
   ToolCall,
   SessionListItem,
   SessionManifestView,
@@ -40,7 +40,6 @@ import {
   effects,
   artifacts,
   modelUsage,
-  environments,
   sandboxes,
   sessions,
   sessionEvents,
@@ -55,13 +54,22 @@ const sessionFields = {
   status: sessions.status,
   activeTurnId: sql<string | null>`${sessions.body}->>'activeTurnId'`,
   lastTurnId: sql<string | null>`${sessions.body}->>'lastTurnId'`,
-  environmentId: sessions.environmentId,
   createdAt: sessions.createdAt,
 };
+/** Rows whose Agent id an Agent grant (`*`, an id, or a `p/*` prefix) reaches; none reach nothing. */
+function grantsWhere(column: typeof sessions.agentId, grants: readonly string[]): SQL {
+  if (grants.includes("*")) return sql`true`;
+  if (grants.length === 0) return sql`false`;
+  return or(
+    ...grants.map((grant) =>
+      grant.endsWith("/*") ? sql`starts_with(${column}, ${grant.slice(0, -1)})` : eq(column, grant),
+    ),
+  )!;
+}
 function accessWhere(access: ReadAccess): SQL | undefined {
   return and(
     access.owner === undefined ? undefined : eq(sessions.ownerUserId, access.owner),
-    access.agents === undefined ? undefined : inArray(sessions.agentId, [...access.agents]),
+    access.agents === undefined ? undefined : grantsWhere(sessions.agentId, access.agents),
   );
 }
 function publicCall(row: ModelUsageRow): ModelCall {
@@ -70,7 +78,7 @@ function publicCall(row: ModelUsageRow): ModelCall {
     effectId: row.effectKey,
     sessionId: row.sessionId,
     turnId: row.turnId,
-    agentId: row.agentId,
+    manifestName: row.manifestName,
     provider: row.provider,
     model: row.model,
     at: row.createdAt,
@@ -260,9 +268,7 @@ export function createPostgresReadStore(source: PostgresClient, tenantId: string
               position,
               filters.agentId === undefined ? undefined : eq(sessions.agentId, filters.agentId),
               filters.status === undefined ? undefined : eq(sessions.status, filters.status),
-              filters.environmentId === undefined
-                ? undefined
-                : eq(sessions.environmentId, filters.environmentId),
+              filters.manifest === undefined ? undefined : eq(sessions.manifestName, filters.manifest),
               filters.ownerUserId === undefined
                 ? undefined
                 : eq(sessions.ownerUserId, filters.ownerUserId),
@@ -288,8 +294,8 @@ export function createPostgresReadStore(source: PostgresClient, tenantId: string
           .select({
             sessionId: sessions.id,
             agentId: sessions.agentId,
+            definition: sql<{ name: string; version: number } | null>`${sessions.body}->'definition'`,
             manifestHash: sql<string>`${sessions.body}->>'manifestHash'`,
-            implementationVersion: sql<string>`${sessions.body}->>'implementationVersion'`,
             manifest: sql<Record<string, unknown>>`${sessions.body}->'manifest'`,
           })
           .from(sessions)
@@ -442,102 +448,6 @@ export function createPostgresReadStore(source: PostgresClient, tenantId: string
           next: last ? cursor.encode([last.txid, last.id]) : (after ?? null),
           caughtUp: rows.length <= limit,
           asOf: new Date().toISOString(),
-        };
-      }),
-    environments: (labels, page, access, grants) =>
-      read(async (tx) => {
-        const cursor = readCursor(tenantId, "environments", labels);
-        const key = keyOf(cursor.decode(page.cursor), 1);
-        const allowed =
-          grants === undefined
-            ? undefined
-            : or(
-                ...grants.map((grant) =>
-                  grant.endsWith("/*")
-                    ? sql`starts_with(${environments.id}, ${grant.slice(0, -1)})`
-                    : eq(environments.id, grant),
-                ),
-              );
-        const rows = await tx
-          .select()
-          .from(environments)
-          .where(
-            and(
-              grants?.length === 0 ? sql`false` : allowed,
-              key ? gt(environments.id, key[0]!) : undefined,
-              or(isNull(environments.desired), ne(environments.desired, "deleted")),
-              ...Object.entries(labels).map(
-                ([k, v]) => sql`${environments.labels}::jsonb->>${k} = ${v}`,
-              ),
-            ),
-          )
-          .orderBy(asc(environments.id))
-          .limit(page.limit + 1);
-        const tenantLimits = await readTenantLimits({
-          getSetting: async (setting) =>
-            (await tx.select({ value: tenantSettings.value }).from(tenantSettings).where(eq(tenantSettings.key, setting)))[0]
-              ?.value,
-        });
-        const items: EnvironmentView[] = [];
-        for (const row of rows.slice(0, page.limit)) {
-          const [related] = await tx
-            .select({
-              items: sql<
-                { id: string; activeTurnId: string | null }[]
-              >`coalesce(json_agg(json_build_object('id', ${sessions.id}, 'activeTurnId', ${sessions.body}->>'activeTurnId') order by ${sessions.id}), '[]'::json)`,
-            })
-            .from(sessions)
-            .where(and(eq(sessions.environmentId, row.id), accessWhere(access)));
-          const [compute] = await tx
-            .select({ body: sandboxes.body })
-            .from(sandboxes)
-            .where(eq(sandboxes.id, sandboxWorkspaceKey(tenantId, row.id)))
-            .limit(1);
-          const isPod = row.kind === "pod";
-          items.push({
-            id: row.id,
-            kind: row.kind,
-            labels: row.labels as Record<string, string>,
-            manifest: row.recipe as EnvironmentView["manifest"],
-            ...(row.manifestName === null ? {} : { manifestName: row.manifestName }),
-            ...(row.manifestVersion === null ? {} : { manifestVersion: row.manifestVersion }),
-            ...(row.manifestHash === null ? {} : { manifestHash: row.manifestHash }),
-            limits: limitsInForce(tenantLimits, (row.recipe as EnvironmentView["manifest"]).limits),
-            ...(row.forkedFrom ? { forkedFrom: row.forkedFrom as NonNullable<EnvironmentView["forkedFrom"]> } : {}),
-            version: row.version,
-            appliedVersion: row.appliedVersion,
-            ownerUserId: row.ownerUserId,
-            state: isPod
-              ? row.observed === "running"
-                ? "running"
-                : row.observed === "creating"
-                  ? "creating"
-                  : "stopped"
-              : row.kind === "none"
-                ? "ready"
-                : ((compute?.body as { state?: string } | undefined)?.state ?? "ready"),
-            ...(isPod
-              ? {
-                  pod: {
-                    desired: row.desired,
-                    observed: row.observed,
-                    volumeGeneration: row.volumeGen,
-                    hostEpoch: row.hostEpoch,
-                    ...(row.reason ? { reason: row.reason } : {}),
-                    ...(row.imageDigest ? { imageDigest: row.imageDigest } : {}),
-                  } as EnvironmentView["pod"],
-                }
-              : {}),
-            lastUsedAt: new Date(row.lastUsedAt).toISOString(),
-            sessions: related!.items,
-            createdAt: row.createdAt,
-            updatedAt: row.updatedAt,
-          });
-        }
-        const last = items.at(-1);
-        return {
-          environments: items,
-          nextCursor: rows.length > page.limit && last ? cursor.encode([last.id]) : null,
         };
       }),
   };

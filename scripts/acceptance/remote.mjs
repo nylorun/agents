@@ -85,7 +85,7 @@ function pass(id, message) {
 }
 const seconds = (ms) => `${(ms / 1000).toFixed(1)} s`;
 
-/** The handler's session id for a person's thread (`sessionIdFor` in sdks/agents/src/ag-ui/handler.ts). */
+/** The session id of a person's thread on an Agent (runtime/server/src/api/ag-ui/session-id.ts). */
 const sessionOf = (subject, agentId, threadId) =>
   createHash("sha256").update(`${subject}\u0000${agentId}\u0000${threadId}`).digest("hex").slice(0, 32);
 
@@ -203,8 +203,11 @@ async function main() {
   );
   const toolCalls = () => service.calls.length;
   const agent = checkAgent(service);
+  // The Agent the AG-UI endpoint runs, made from the manifest `remote-check` (kind none). An Agent
+  // keeps the version it was made from, so each run makes its own, with this run's tools URL.
+  const agentId = `remote-check-${randomUUID().slice(0, 8)}`;
   const handler = createAgUiHandler({
-    agents: [agent],
+    agents: [agentId],
     client,
     subject: (request) => request.headers.get("x-user") ?? undefined,
   });
@@ -213,7 +216,8 @@ async function main() {
   const base = `http://127.0.0.1:${app.address().port}`;
   const idleStream = new AbortController();
   try {
-    await client.saveAgent(agent);
+    await client.agentManifests.save({ agent });
+    await client.agents.put(agentId, { manifest: agent.id });
     // Each lookup waits for a person (R5 step 2): the Tenant's tool policy, with the management key.
     const policy = await fetch(`${url}/v1/tenant/tool-policy`, {
       method: "PUT",
@@ -223,7 +227,7 @@ async function main() {
     });
     assert.ok(policy.ok, `setting the tool policy: ${policy.status} ${await policy.text()}`);
     const post = (body, signal) =>
-      fetch(`${base}/remote-check`, {
+      fetch(`${base}/${agentId}`, {
         method: "POST",
         headers: { "x-user": SUBJECT, "content-type": "application/json" },
         body: JSON.stringify({ tools: [], context: [], state: {}, forwardedProps: {}, ...body }),
@@ -255,7 +259,7 @@ async function main() {
     }
     reading.abort();
     assert.ok(lastId, "the run sent a cursor before the drop");
-    const again = await fetch(`${base}/remote-check/threads/${thread}/events`, {
+    const again = await fetch(`${base}/${agentId}/threads/${thread}/events`, {
       headers: { "x-user": SUBJECT, "last-event-id": lastId },
     });
     assert.equal(again.status, 200, `reattach: ${again.status}`);
@@ -284,7 +288,7 @@ async function main() {
 
     // ── R3: idle ──
     const person = client.as(SUBJECT);
-    const session = await person.session(sessionOf(SUBJECT, agent.id, thread)).inspect();
+    const session = await person.session(sessionOf(SUBJECT, agentId, thread)).inspect();
     assert.equal(session.ownerUserId, SUBJECT, "the thread's session belongs to its subject");
     // Subscribe after everything the thread has so far, so the stream carries only new events.
     let tail;
@@ -387,6 +391,8 @@ ${results.map((r) => `  PASS ${r.id}  ${r.message}`).join("\n")}`);
     app.closeAllConnections();
     await new Promise((resolve) => app.close(resolve));
     await service.close();
+    // The run's Agent goes; its sessions are detached, their history kept.
+    await client.agents.delete(agentId).catch((error) => console.error(`deleting ${agentId}: ${error.message}`));
   }
 }
 

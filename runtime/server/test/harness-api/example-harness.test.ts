@@ -1,9 +1,11 @@
 /**
  * The example harness (`examples/harness-minimal`, R4.8), written only against
- * `@nylorun/core/harness-api`, runs turns on a real Runtime beside ours: it connects over the
- * Harness API's WebSocket with its own per-harness token and says `hello` as `minimal`, and our
- * harness (a harness service over a loopback WebSocket) stays connected. Sessions on an
- * Environment whose harness is `minimal` run on the example, the others on ours (R4.1). Its model
+ * `@nylorun/core/harness-api`, runs turns on a real Runtime beside ours: a custom harness runs
+ * from its pod's image (protocol 16), so each pod Agent whose manifest names `minimal`
+ * (`harness.id`) gets the example in its pod mode, which joins with the pod's join token and
+ * connects over the Harness API's WebSocket with its host token, and says `hello` as `minimal`;
+ * our harness (a harness service over a loopback WebSocket) stays connected. Sessions on those
+ * Agents run on the example, the others on ours (R4.1). Its model
  * calls go through the Model Gate on the fixture model, metered there, and its bash calls are
  * journaled like ours. A harness built from the Harness API is held to what ours is: one run per
  * turn, effect ids keyed by turn and segment, cancels within 2 s, a restart that replays its
@@ -11,13 +13,18 @@
  * retry of a budget refusal, and none of the Runtime's tokens in the record.
  */
 import { randomUUID } from "node:crypto";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import { Agent } from "@nylorun/core/define";
 import { startHarnessListener } from "../../src/harness-api/ws-server.js";
-import { putHarnessToken } from "../../src/tenant/harness-tokens.js";
-import type { SessionStore } from "../../src/store/types.js";
+import { podName } from "../../src/sandbox/pods/name.js";
 import { connect, serve } from "../../../../examples/harness-minimal/src/harness.js";
+import { podHost } from "../../../../examples/harness-minimal/src/pod.js";
 import { boot, server, until, type Started } from "../host/execution-support.js";
+import { deploy } from "../support/agents.js";
+import { fakeSandboxes } from "../support/fake-sandboxes.js";
 
 const cleanups: (() => Promise<unknown> | void)[] = [];
 afterEach(async () => {
@@ -25,11 +32,15 @@ afterEach(async () => {
   vi.unstubAllEnvs();
 });
 
-/** The example, connected with `token` until stopped; `restart` drops its connection and connects again. */
-function runExample(url: string, token: string, gatesUrl: string) {
+/**
+ * The example in its pod mode, as the host of pod `sandboxId`: it joins with the pod's join
+ * token and connects with its host token until stopped; `restart` drops its connection and
+ * connects again.
+ */
+function runExample(url: string, gatesUrl: string, pod: ReturnType<typeof podHost>) {
   let current: { stop(): Promise<void> } | undefined;
   const start = async () => {
-    const channel = await connect(url, token);
+    const channel = await connect(url, await pod.token());
     const stopping = new AbortController();
     const served = serve(channel, { name: "minimal", gatesUrl, signal: stopping.signal });
     current = {
@@ -47,28 +58,39 @@ function runExample(url: string, token: string, gatesUrl: string) {
       await current?.stop();
       await start();
     },
-    stop: () => current?.stop(),
+    stop: async () => {
+      await current?.stop();
+      pod.stop();
+    },
+    /** The host token it connects with. */
+    token: () => pod.token(),
   };
 }
 
+const agent = Agent({ id: "bot", name: "Bot" }).instructions("Answer briefly.").build();
+
+/** The pod Agents the example runs, each from its own manifest naming `minimal`. */
+const PODS = ["text", "box"] as const;
+type Examples = Record<(typeof PODS)[number], ReturnType<typeof runExample>>;
+
 /**
- * A Runtime with a gates service on 127.0.0.1, its fixture model on, our harness connected over a
- * loopback WebSocket, and the example connected with its own token as `minimal`.
+ * A Runtime with a gates service on 127.0.0.1, its fixture model on, sandbox pods on an
+ * in-memory sandboxes service, our harness connected over a loopback WebSocket, Agent `bot` (on
+ * ours), and pod Agents `text` and `box` (on `minimal`), each with the example as its pod's host.
  */
-async function start(): Promise<Started & { example: ReturnType<typeof runExample>; token: string }> {
+async function start(): Promise<Started & { examples: Examples; tokens: () => Promise<string[]> }> {
   // The gates service, and the run tokens the gate requires.
   vi.stubEnv("NYLORUN_TEST_MODEL_GATE", "http");
-  const runtime = await boot({ harness: "ws" });
+  const fake = fakeSandboxes();
+  const runtime = await boot({ harness: "ws", pods: { client: fake, harnessImage: "nylorun-runtime:test" } });
   cleanups.push(() => runtime.close());
-  const store = (runtime.handle as unknown as { ctx: { store: SessionStore } }).ctx.store;
-  // What `nylorun-operate harness token put minimal` does.
-  const put = (await putHarnessToken(store, "minimal")) as { token: string };
   const listener = await startHarnessListener({
     host: "127.0.0.1",
     port: 0,
     allowedHosts: [],
     attach: async () => (channel, peer) => runtime.handle.attachHarness!(channel, peer),
     harnessOfToken: (bearer) => runtime.handle.harnessOfToken!(bearer),
+    hosts: async () => runtime.handle.hostAuthority?.(),
     logger: { info() {}, warn() {} },
   });
   cleanups.push(() => listener.close());
@@ -79,10 +101,37 @@ async function start(): Promise<Started & { example: ReturnType<typeof runExampl
   });
   expect(seeded.status).toBe(200);
 
-  const example = runExample(listener.url, put.token, runtime.gate!.url);
-  await example.start();
-  cleanups.push(() => example.stop());
-  return Object.assign(runtime, { example, token: put.token });
+  await deploy(runtime.url, server, agent);
+  const root = await mkdtemp(join(tmpdir(), "nylorun-example-pods-"));
+  cleanups.push(() => rm(root, { recursive: true, force: true }));
+  const examples = {} as Examples;
+  for (const id of PODS) {
+    const made = await deploy(runtime.url, server, agent, {
+      id,
+      name: id,
+      harness: "minimal",
+      runtime: { kind: "pod", image: "harness-minimal:dev" },
+    });
+    // The fake runs the pod at once; the example is its entrypoint, with the pod's join token.
+    const name = podName(runtime.tenantId, id, made.compute.pod!.volumeGeneration);
+    const podUid = await until(async () => fake.podUid(name), (uid) => uid !== undefined, `the pod of ${id}`);
+    const joinFile = join(root, `${id}.join`);
+    await writeFile(joinFile, fake.joinToken(name)!);
+    const pod = podHost({
+      sandboxId: id,
+      podUid: podUid!,
+      joinFile,
+      harnessUrl: listener.url.replace(/^ws/, "http").replace(/\/nylorun.*$/, ""),
+      root: join(root, id),
+    });
+    examples[id] = runExample(listener.url, runtime.gate!.url, pod);
+    await examples[id].start();
+    cleanups.push(() => examples[id].stop());
+  }
+  return Object.assign(runtime, {
+    examples,
+    tokens: () => Promise.all(PODS.map((id) => examples[id].token())),
+  });
 }
 
 async function api(runtime: Started, method: string, path: string, body?: unknown) {
@@ -121,32 +170,14 @@ async function say(runtime: Started, session: string, content: string, n: number
   );
 }
 
-const agent = Agent({ id: "bot", name: "Bot" }).instructions("Answer briefly.").build();
-
-async function setUp(runtime: Started) {
-  expect(
-    (await api(runtime, "PUT", "/v1/agents/bot", { requestId: "a", manifest: agent.manifest, implementationVersion: "dev" }))
-      .status
-  ).toBe(200);
-  expect((await api(runtime, "PUT", "/v1/environments/text", { kind: "none", harness: "minimal" })).status).toBe(200);
-  expect((await api(runtime, "PUT", "/v1/environments/box", { kind: "virtual", harness: "minimal" })).status).toBe(200);
-}
-
-const open = async (runtime: Started, id: string, environment?: string) =>
-  expect(
-    (
-      await api(runtime, "PUT", `/v1/sessions/${id}`, {
-        requestId: `s-${id}`,
-        agentId: "bot",
-        ownerUserId: "u",
-        ...(environment ? { environment } : {}),
-      })
-    ).status
-  ).toBe(200);
+/** Opens session `id` on Agent `on`: `bot` runs on ours, `text` and `box` on the example. */
+const open = async (runtime: Started, id: string, on: "bot" | (typeof PODS)[number] = "bot") =>
+  expect((await api(runtime, "PUT", `/v1/sessions/${id}`, { requestId: `s-${id}`, agent: on, ownerUserId: "u" })).status).toBe(
+    200
+  );
 
 it("completes fixture turns on the example beside ours, each harness serving its own sessions", async () => {
   const runtime = await start();
-  await setUp(runtime);
   await open(runtime, "s1", "text");
   await open(runtime, "ours");
   expect((await api(runtime, "GET", "/v1/sessions/s1")).body.harness).toBe("minimal");
@@ -155,7 +186,7 @@ it("completes fixture turns on the example beside ours, each harness serving its
   const first = await say(runtime, "s1", "fixture:text", 1);
   expect(first.find((item) => item.type === "turn.completed")?.payload).toMatchObject({
     output: "fixture ok",
-    agentId: "bot",
+    agentId: "text",
     totals: { steps: 1 },
   });
   const assistant = first.find((item) => item.type === "message.assistant");
@@ -185,9 +216,8 @@ it("completes fixture turns on the example beside ours, each harness serving its
   expect((await api(runtime, "GET", "/v1/sessions/s1")).body.status).toBe("completed");
 }, 90_000);
 
-it("runs bash for a session on a virtual Environment, journaled and reported like ours", async () => {
+it("runs bash for a session on a pod Agent, journaled and reported like ours", async () => {
   const runtime = await start();
-  await setUp(runtime);
   await open(runtime, "s2", "box");
 
   const items = await say(runtime, "s2", 'fixture:tool bash {"command":"echo hi"}', 1);
@@ -242,7 +272,6 @@ async function cancel(runtime: Started, session: string): Promise<number> {
 
 it("reports each turn under one run, and keys every effect by its turn and segment", async () => {
   const runtime = await start();
-  await setUp(runtime);
   await open(runtime, "t", "text");
   await open(runtime, "b", "box");
   const turns = [
@@ -263,7 +292,6 @@ it("reports each turn under one run, and keys every effect by its turn and segme
 
 it("runs nothing for a tool the turn does not offer, and ends a budget refusal without a retry", async () => {
   const runtime = await start();
-  await setUp(runtime);
   await open(runtime, "u", "box");
   await open(runtime, "money", "text");
 
@@ -293,7 +321,6 @@ it("runs nothing for a tool the turn does not offer, and ends a budget refusal w
 
 it("cancels a turn within 2 s during a model call and during a command", async () => {
   const runtime = await start();
-  await setUp(runtime);
   await open(runtime, "quiet", "text");
   await open(runtime, "busy", "box");
 
@@ -329,7 +356,6 @@ it("cancels a turn within 2 s during a model call and during a command", async (
 
 it("replays a model outcome after a restart mid-command, and never settles the interrupted command as completed", async () => {
   const runtime = await start();
-  await setUp(runtime);
   await open(runtime, "r", "box");
   const marker = `restart-${randomUUID().slice(0, 8)}.marker`;
   const turnId = await send(runtime, "r", tool("bash", { command: `echo ran >> ${marker}; sleep 30` }));
@@ -338,7 +364,7 @@ it("replays a model outcome after a restart mid-command, and never settles the i
   const before = await calls(runtime, "r", "model", turnId);
   expect(before.length).toBeGreaterThan(0);
 
-  await runtime.example.restart();
+  await runtime.examples.box.restart();
   await until(
     async () => {
       const all = await items(runtime, "r");
@@ -367,7 +393,6 @@ it("replays a model outcome after a restart mid-command, and never settles the i
 
 it("keeps the Runtime's tokens out of the record when a command prints its environment", async () => {
   const runtime = await start();
-  await setUp(runtime);
   await open(runtime, "e", "box");
   await open(runtime, "t2", "text");
   await ended(runtime, "e", await send(runtime, "e", tool("bash", { command: "echo nylorun-env; env" })));
@@ -381,6 +406,6 @@ it("keeps the Runtime's tokens out of the record when a command prints its envir
     expect(record).toContain(session === "e" ? "nylorun-env" : "fixture ok");
     expect(record).not.toMatch(/eyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]+/);
     expect(record).not.toMatch(/NYLORUN_[A-Z_]*(?:TOKEN|SECRET|KEY)=[^\s"\\]{8,}/);
-    expect(record).not.toContain(runtime.token);
+    for (const token of await runtime.tokens()) expect(record).not.toContain(token);
   }
 }, 90_000);

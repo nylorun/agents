@@ -44,7 +44,6 @@ test("loadSessions reads every page when the Runtime offers session reads", asyn
           status: "idle",
           activeTurnId: null,
           lastTurnId: null,
-          environmentId: null,
           createdAt: "2026-10-15T10:00:00.000Z",
           lastEventAt: "2026-10-15T11:00:00.000Z",
         });

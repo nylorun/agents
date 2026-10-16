@@ -11,12 +11,14 @@ import {
 import type { HostEffect } from "@nylorun/harness/run";
 import type { ModelProvider } from "../src/core/provider.js";
 import { startTestTenant } from "./support/tenant.js";
+import { manifestOf, writeManifest } from "./support/agents.js";
 
 /**
- * Flow agents, end to end: a flow agent is saved as one workflow manifest v3 document, its
- * leaves run from the embedded `agents`, and their sessions are named by leaf paths, so
- * wrapping a step in a Loop keeps the step's session. The flow calls no developer code:
- * every stage is an agent turn, and a definition with a tool stage is refused.
+ * Flow agents, end to end: a flow agent is saved as one agent manifest whose harness section is
+ * the flow (`kind: "workflow"`, workflow manifest v3's `root` and `agents`), and runs on the
+ * Agent made from it. Its leaves run from the embedded `agents`, in sessions on the flow's Agent
+ * named by leaf paths, so wrapping a step in a Loop keeps the step's session. The flow calls no
+ * developer code: every stage is an agent turn, and a manifest with a tool stage is refused.
  */
 
 const APP = "workflow-v3-app-token-aaaaaaaaaaa";
@@ -76,13 +78,10 @@ async function run(workflow: BuiltWorkflow, message: string, provider: ModelProv
   const tenant = await startTestTenant({ applicationKey: APP, modelProvider: provider });
   cleanups.push(() => tenant.close());
   const client = createClient({ url: tenant.url, key: tenant.applicationKey, tenant: tenant.tenantId });
-  await client.saveAgent(workflow, { implementationVersion: "v3" });
+  await client.agentManifests.save({ agent: workflow });
+  await client.agents.put(workflow.id, { manifest: workflow.id });
 
-  const session = await client.createSession({
-    id: "desk-session",
-    agentId: workflow.id,
-    ownerUserId: "user-1",
-  });
+  const session = await client.createSession({ id: "desk-session", agent: workflow.id, ownerUserId: "user-1" });
   const events: Event[] = [];
   const done = (async () => {
     for await (const event of session.observe()) {
@@ -146,9 +145,15 @@ describe("workflow manifest v3, end to end", { timeout: 30_000 }, () => {
     expect(result.events.some((e) => e.type === "loop.iteration")).toBe(false);
     expect(result.events.some((e) => e.type.startsWith("action."))).toBe(false);
 
-    // Leaves are embedded: only the flow agent is in the catalog.
-    const { agents } = await result.client.listAgents();
-    expect(agents.map((a) => a.manifest.id)).toEqual(["desk"]);
+    // Leaves are embedded: only the flow agent's manifest is saved.
+    expect((await result.client.agentManifests.list()).map((manifest) => manifest.name)).toEqual(["desk"]);
+    // Each leaf's session runs on the flow's Agent, under its manifest version.
+    for (const { sessionId } of linked(result.events))
+      expect(await result.client.session(sessionId).inspect()).toMatchObject({
+        agentId: "desk",
+        manifest: { name: "desk", version: 1 },
+        status: "completed",
+      });
   });
 
   it("refuses a flow agent with a tool stage: it would run the developer's code", async () => {
@@ -156,16 +161,16 @@ describe("workflow manifest v3, end to end", { timeout: 30_000 }, () => {
     const tenant = await startTestTenant({ applicationKey: APP, modelProvider: model() });
     cleanups.push(() => tenant.close());
     const client = createClient({ url: tenant.url, key: tenant.applicationKey, tenant: tenant.tenantId });
-    await expect(client.saveAgent(desk)).rejects.toThrow(/tool stage 'split'.*runs your code/);
+    await expect(client.agentManifests.save({ agent: desk })).rejects.toThrow(/tool stage 'split'.*runs your code/);
     // The Runtime refuses it too, when a client sends it anyway.
-    const response = await fetch(`${tenant.url}/v1/agents/desk`, {
-      method: "PUT",
-      headers: { authorization: `Bearer ${tenant.applicationKey}`, "content-type": "application/json" },
-      body: JSON.stringify({ requestId: "put-desk", manifest: desk.manifest, implementationVersion: "v3" }),
-    });
+    const response = await writeManifest(
+      tenant.url,
+      { authorization: `Bearer ${tenant.applicationKey}`, "content-type": "application/json" },
+      manifestOf(desk),
+    );
     expect(response.status).toBe(400);
-    expect(await response.text()).toMatch(/runs agents from their manifests alone/);
-    expect((await client.listAgents()).agents).toEqual([]);
+    expect(JSON.stringify(response.body)).toMatch(/runs agents from their manifests alone/);
+    expect(await client.agentManifests.list()).toEqual([]);
   });
 
   it("shows a later agent the original request beside its own input (D12)", async () => {

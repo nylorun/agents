@@ -1,6 +1,6 @@
 /**
  * Our engine's sandbox tools (protocol 15): `bash`, `read`, `write`, `edit`, `grep` and `glob`,
- * offered to every agent of a session with a sandbox (`turn.start.environment.sandbox`), with the
+ * offered to every agent of a session with a sandbox (`turn.start.agent.sandbox`), with the
  * note on the sandbox that goes with them. Our engine names, describes and instructs them; each
  * call is a `sandbox` effect named by its operation, which the host runs in the session's sandbox
  * (`executors.tool`), so the record keeps `environment.exec` and the sandbox's network policy

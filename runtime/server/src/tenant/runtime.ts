@@ -170,7 +170,7 @@ export type TenantOpenHooks = {
   harnessTap?: MemoryPortsOptions["tap"];
   /**
    * Sandbox pods (F7.2): the sandboxes service (`NYLORUN_SANDBOXES_URL`) and the Runtime image
-   * pods copy the engine from. Without it, kind `pod` is `environment_unavailable`.
+   * pods copy the engine from. Without it, kind `pod` is `agent_unavailable`.
    */
   pods?: TenantPods;
   /** How the trace route makes spans (R7.5): the Host's `OTEL_*` resource and content opt-ins. */

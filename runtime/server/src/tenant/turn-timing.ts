@@ -41,19 +41,20 @@ export function resumeTurn(s: TurnTiming, now = new Date()): void {
 /**
  * The facts the event that ends turn `turnId` carries: `durationMs` from its start to now, waits
  * included, so the turn's span holds every crossing in it; `pausedMs`, how long it waited paused
- * (a wait still open ends now, as for a cancel); the session's agent;
+ * (a wait still open ends now, as for a cancel); the session's Agent and the manifest version it runs;
  * and the turn's totals from the usage ledger (one read, as `/v1/tenant/usage` totals a turn;
  * `steps` are the model calls the gate metered). Clears the turn's timing from `s`.
  */
 export async function endTurn(
   t: Tx,
-  s: TurnTiming & { agentId: string },
+  s: TurnTiming & { agentId: string; definition?: { name: string; version: number } },
   turnId: string | null,
   now = new Date(),
 ): Promise<{
   durationMs?: number;
   pausedMs?: number;
   agentId: string;
+  manifest?: { name: string; version: number };
   totals?: { steps: number; tokens: number; costUsd: number };
 }> {
   resumeTurn(s, now);
@@ -62,6 +63,7 @@ export async function endTurn(
   const facts = {
     ...(elapsed === undefined ? {} : { durationMs: Math.max(0, elapsed), pausedMs: s.pausedMs ?? 0 }),
     agentId: s.agentId,
+    ...(s.definition ? { manifest: { name: s.definition.name, version: s.definition.version } } : {}),
     ...(totals ? { totals: { steps: totals.calls, tokens: totals.tokens, costUsd: totals.costUsd } } : {}),
   };
   delete s.turnStartedAt;

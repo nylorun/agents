@@ -104,7 +104,8 @@ function turnRows() {
         output: "Opened PR #482",
         durationMs: 12930,
         pausedMs: 100,
-        agentId: "coder",
+        agentId: "users/alice/coder",
+        manifest: { name: "coder", version: 2 },
         totals: { steps: 3, tokens: 13796, costUsd: 0.0492 },
       },
       { time: "2026-10-11T09:14:12.930Z" },
@@ -134,7 +135,9 @@ describe("spanOf", () => {
     expect(ms(root!.endTimeUnixNano) - ms(root!.startTimeUnixNano)).toBe(12930);
     expect(attrs(root)).toMatchObject({
       "gen_ai.operation.name": "invoke_agent",
-      "gen_ai.agent.id": "coder",
+      // Named for the agent manifest the session runs; its id is the Agent (protocol 16).
+      "gen_ai.agent.id": "users/alice/coder",
+      "gen_ai.agent.name": "coder",
       "gen_ai.conversation.id": SESSION,
       "nylorun.turn.status": "completed",
       "nylorun.turn.steps": "3",

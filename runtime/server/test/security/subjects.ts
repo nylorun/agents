@@ -5,6 +5,7 @@
  */
 import { SCOPES_HEADER, SUBJECT_HEADER } from "@nylorun/core/compatibility";
 import { SUBJECT_SCOPES, type SubjectScope } from "@nylorun/core/contracts";
+import { manifestOf } from "../support/agents.js";
 import { Agent } from "@nylorun/core/define";
 import { startTestTenant, type StartTestTenantOptions } from "../support/tenant.js";
 
@@ -77,15 +78,12 @@ export async function startSubjectTenant(
     return { status: response.status, body, text };
   }
   const agent = Agent({ id: "bot", name: "Bot" }).build();
-  const saved = await call("PUT", "/v1/agents/bot", {
-    body: {
-      requestId: "save-bot",
-      manifest: agent.manifest,
-      implementationVersion: "dev",
-    },
-  });
+  // The manifest `bot`, and its Agent `bot`, which no owner guard holds.
+  const saved = await call("PUT", "/v1/agent-manifests/bot", { body: manifestOf(agent) });
   if (saved.status !== 200)
-    throw new Error(`saving the agent failed: ${saved.status} ${saved.text}`);
+    throw new Error(`saving the agent manifest failed: ${saved.status} ${saved.text}`);
+  const made = await call("PUT", "/v1/agents/bot", { body: { manifest: "bot" } });
+  if (made.status !== 200) throw new Error(`making the Agent failed: ${made.status} ${made.text}`);
   return { runtime, call, close: () => runtime.close() };
 }
 
@@ -102,7 +100,7 @@ export async function createSession(
     as,
     body: {
       requestId: `put-${id}`,
-      agentId: "bot",
+      agent: "bot",
       ownerUserId: as.subject,
       ...extra,
     },
@@ -110,9 +108,10 @@ export async function createSession(
 }
 
 /**
- * An Environment guarded for `as.subject` (`ownerUserId`), with one bearer credential in its
- * vault, created with the application key alone: only `as.subject`'s sessions may name it
- * (protocol 11). Its id is `env-<subject>`, unless `id` names another.
+ * An Agent guarded for `as.subject` (`owner`), made from the manifest `bot` (of kind `none`) or
+ * `bot-virtual` (kind `virtual`), with one bearer credential in its vault, created with the
+ * application key alone: only `as.subject`'s sessions may run on it. Its id is `env-<subject>`,
+ * unless `id` names another.
  */
 export async function createEnvironment(
   tenant: SubjectTenant,
@@ -120,17 +119,26 @@ export async function createEnvironment(
   options: { id?: string; url?: string; kind?: "virtual" | "none" } = {}
 ): Promise<{ environmentId: string; secretName: string }> {
   const environmentId = options.id ?? `env-${as.subject.replace(/[^A-Za-z0-9._-]/g, "-")}`;
-  const path = `/v1/environments/${encodeURIComponent(environmentId)}`;
+  const path = `/v1/agents/${encodeURIComponent(environmentId)}`;
+  let manifest = "bot";
+  if (options.kind === "virtual") {
+    manifest = "bot-virtual";
+    const agent = Agent({ id: "bot", name: "Bot" }).build();
+    const saved = await tenant.call("PUT", `/v1/agent-manifests/${manifest}`, {
+      body: manifestOf(agent, { name: manifest, runtime: { kind: "virtual" } }),
+    });
+    if (saved.status !== 200) throw new Error(`saving the agent manifest failed: ${saved.status} ${saved.text}`);
+  }
   const environment = await tenant.call("PUT", path, {
     body: {
       requestId: `env-${environmentId}`,
-      kind: options.kind ?? "none",
-      ownerUserId: as.subject,
+      manifest,
+      owner: as.subject,
     },
   });
   if (environment.status !== 200)
     throw new Error(
-      `creating an Environment failed: ${environment.status} ${environment.text}`
+      `creating an Agent failed: ${environment.status} ${environment.text}`
     );
   const secret = await tenant.call(
     "PUT",

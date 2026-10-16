@@ -2,16 +2,19 @@
  * The last limits B15 made Tenant settings (B15c): their defaults equal the values they replace,
  * and a lowered limit takes effect in each area: a message's parts, a page, labels, a manifest's
  * description, setup command and secret slots, a secret write, the tool policy, the budgets, and
- * an Environment's events.
+ * an Agent's events.
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { RUNTIME_LIMIT_CEILINGS, RUNTIME_LIMIT_DEFAULTS, type RuntimeLimits } from "@nylorun/core/contracts";
-import { budgetIssues, labelIssues, requiresIssues, secretRequestIssues, toolPolicyIssues } from "../src/tenant/limits.js";
-import { boot, openSession, server, type Started } from "./host/execution-support.js";
+import { budgetIssues, labelIssues, secretRequestIssues, toolPolicyIssues } from "../src/tenant/limits.js";
+import { boot, openSession, plain, server, type Started } from "./host/execution-support.js";
+import { deploy, manifestOf, writeManifest } from "./support/agents.js";
 
 let runtime: Started;
 beforeAll(async () => {
   runtime = await boot({ sandbox: { backend: "virtual" } });
+  // Agent manifest `bot` (and Agent `bot`), which the Agents here are made from.
+  await deploy(runtime.url, server, plain);
 });
 afterAll(async () => {
   await runtime?.close();
@@ -85,14 +88,15 @@ describe("the B15c limits", () => {
   });
 
   it("hold a page to pageItems: a larger limit gets that many, a page with none the lower of its default and the limit", async () => {
-    for (const id of ["p1", "p2", "p3"]) expect((await call("PUT", `/v1/environments/${id}`, { requestId: id })).status).toBe(200);
+    for (const id of ["p1", "p2", "p3"])
+      expect((await call("PUT", `/v1/agents/${id}`, { requestId: id, manifest: "bot" })).status).toBe(200);
     await lowered({ pageItems: 2 }, async () => {
-      const page = await call("GET", "/v1/environments?limit=50");
+      const page = await call("GET", "/v1/agents?limit=50");
       expect(page.status).toBe(200);
-      expect(page.body.environments).toHaveLength(2);
+      expect(page.body.agents).toHaveLength(2);
       expect(page.body.nextCursor).toEqual(expect.any(String));
     });
-    expect((await call("GET", "/v1/environments?limit=250")).status).toBe(200);
+    expect((await call("GET", "/v1/agents?limit=250")).status).toBe(200);
   });
 
   it("hold an artifact's labels to artifactLabels, labelKeyChars and labelValueChars", async () => {
@@ -114,34 +118,39 @@ describe("the B15c limits", () => {
     });
   });
 
-  it("hold an Environment's label keys and values to labelKeyChars and labelValueChars", async () => {
+  it("hold an Agent's label keys and values to labelKeyChars and labelValueChars", async () => {
     await lowered({ labelKeyChars: 2, labelValueChars: 2 }, async () => {
-      const refused = await call("PUT", "/v1/environments/labels", { requestId: "l1", labels: { abc: "1", a: "123" } });
+      const refused = await call("PUT", "/v1/agents/labels", { requestId: "l1", manifest: "bot", labels: { abc: "1", a: "123" } });
       expect(refused.status).toBe(400);
       expect(refused.body.message).toContain("labelKeyChars allows at most 2");
       expect(refused.body.message).toContain("labelValueChars allows at most 2");
     });
     // Past the old schema's 63 characters, now within the limit when the Tenant raises it.
     await lowered({ labelKeyChars: 100 }, async () => {
-      expect((await call("PUT", "/v1/environments/labels", { requestId: "l2", labels: { ["k".repeat(80)]: "v" } })).status).toBe(200);
+      expect(
+        (await call("PUT", "/v1/agents/labels", { requestId: "l2", manifest: "bot", labels: { ["k".repeat(80)]: "v" } })).status,
+      ).toBe(200);
     });
   });
 
   it("hold a saved manifest to setupCommandChars, the description limits and secretHosts", async () => {
     await lowered({ setupCommandChars: 4, manifestDescriptionChars: 5, secretDescriptionChars: 3, secretHosts: 1 }, async () => {
-      const saved = await call("PUT", "/v1/environment-manifests/shaped", {
-        manifestSchemaVersion: 1,
-        name: "shaped",
-        kind: "pod",
-        description: "too long",
-        setup: [{ command: "make all" }],
-        secrets: {
-          GITHUB_TOKEN: {
-            type: "environment_secret",
-            allowedHosts: ["api.github.com", "github.com"],
-            description: "the bot",
+      const saved = await writeManifest(runtime.url, server, {
+        ...manifestOf(plain, {
+          name: "shaped",
+          runtime: {
+            kind: "pod",
+            setup: [{ command: "make all" }],
+            secrets: {
+              GITHUB_TOKEN: {
+                type: "environment_secret",
+                allowedHosts: ["api.github.com", "github.com"],
+                description: "the bot",
+              },
+            },
           },
-        },
+        }),
+        description: "too long",
       });
       expect(saved.status, JSON.stringify(saved.body)).toBe(400);
       const message = JSON.stringify(saved.body);
@@ -153,12 +162,12 @@ describe("the B15c limits", () => {
   });
 
   it("hold a secret's value to secretValueChars when it is written", async () => {
-    expect((await call("PUT", "/v1/environments/vaulted", { requestId: "v1" })).status).toBe(200);
+    expect((await call("PUT", "/v1/agents/vaulted", { requestId: "v1", manifest: "bot" })).status).toBe(200);
     await lowered({ secretValueChars: 4 }, async () => {
-      const refused = await call("PUT", "/v1/environments/vaulted/secrets/MODE", { type: "environment_variable", value: "12345" });
+      const refused = await call("PUT", "/v1/agents/vaulted/secrets/MODE", { type: "environment_variable", value: "12345" });
       expect(refused.status).toBe(400);
       expect(refused.body.message).toContain("secretValueChars allows at most 4");
-      expect((await call("PUT", "/v1/environments/vaulted/secrets/MODE", { type: "environment_variable", value: "1234" })).status).toBe(200);
+      expect((await call("PUT", "/v1/agents/vaulted/secrets/MODE", { type: "environment_variable", value: "1234" })).status).toBe(200);
     });
   });
 
@@ -184,16 +193,16 @@ describe("the B15c limits", () => {
     });
   });
 
-  it("hold one read of an Environment's events to environmentEventItems; from reads on", async () => {
-    expect((await call("PUT", "/v1/environments/evented", { requestId: "e1", labels: { a: "1" } })).status).toBe(200);
-    expect((await call("PUT", "/v1/environments/evented", { requestId: "e2", labels: { a: "2" } })).status).toBe(200);
-    const all = (await call("GET", "/v1/environments/evented/events")).body.events as { seq: number }[];
+  it("hold one read of an Agent's events to environmentEventItems; from reads on", async () => {
+    // Agent bot's stream: created, and an attachment for each session on it.
+    await openSession(runtime, "evented-a", false);
+    const all = (await call("GET", "/v1/agents/bot/events")).body.events as { seq: number }[];
     expect(all.length).toBeGreaterThan(0);
     await lowered({ environmentEventItems: 1 }, async () => {
-      const first = (await call("GET", "/v1/environments/evented/events")).body.events as { seq: number }[];
+      const first = (await call("GET", "/v1/agents/bot/events")).body.events as { seq: number }[];
       expect(first).toHaveLength(1);
       if (all.length > 1) {
-        const next = (await call("GET", `/v1/environments/evented/events?from=${first[0]!.seq + 1}`)).body.events;
+        const next = (await call("GET", `/v1/agents/bot/events?from=${first[0]!.seq + 1}`)).body.events;
         expect(next).toHaveLength(1);
       }
     });
@@ -203,10 +212,6 @@ describe("the B15c limits", () => {
 describe("the B15c checks", () => {
   const limits = { ...RUNTIME_LIMIT_DEFAULTS, environmentSecretSlots: 1, secretValueChars: 3, secretHosts: 1 };
   it("name each limit a request passes", () => {
-    expect(requiresIssues({ secrets: ["A", "B"] }, limits)).toEqual([
-      expect.stringContaining("requires.secrets has 2; the Runtime limit environmentSecretSlots allows at most 1"),
-    ]);
-    expect(requiresIssues(undefined, limits)).toEqual([]);
     expect(secretRequestIssues({ type: "environment_secret", value: "abcd", allowedHosts: ["a.b", "c.d"] }, limits)).toHaveLength(2);
     // A bearer's value has no Runtime limit of its own.
     expect(secretRequestIssues({ type: "bearer", value: "abcd" }, limits)).toEqual([]);

@@ -1,6 +1,8 @@
-import type { Connection, SessionSummary, StudioDefinition } from "@/studio-types";
+import type { AgentManifestView, AgentView } from "@nylorun/agents";
+import type { SessionSummary } from "@/studio-types";
+import { isFlowManifest, manifestNameOf } from "./agent-list.ts";
 
-/** The query parameter of `/sessions` that filters the list to one agent. */
+/** The query parameter of `/sessions` that filters the list to one Agent. */
 export const AGENT_FILTER = "agent";
 
 export function sessionsPath(agentId?: string): string {
@@ -9,41 +11,44 @@ export function sessionsPath(agentId?: string): string {
     : `/sessions?${AGENT_FILTER}=${encodeURIComponent(agentId)}`;
 }
 
+/** A session's page, under the Agent it runs on. */
 export function sessionPath(agentId: string, sessionId: string): string {
   return `/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(sessionId)}`;
 }
 
-export function isWorkflowDefinition(agent: StudioDefinition): boolean {
-  return agent.kind === "workflow" || agent.manifest.kind === "workflow";
-}
-
-/** An agent the session list can filter on, with its number of sessions. */
+/** An Agent the session list can filter on, with its number of sessions. */
 export type SessionAgent = {
   id: string;
+  /** The Agent's id: an Agent has no other name. */
   name: string;
+  /** Its manifest's harness section is a flow. */
   workflow: boolean;
-  /** False for an agent only sessions name, such as a flow's embedded agent. */
-  registered: boolean;
+  /** False for an Agent only sessions name, such as one deleted or not readable. */
+  listed: boolean;
   count: number;
 };
 
-/** The registered agents, then any other agent a session runs, with their session counts. */
-export function sessionAgents(connection: Pick<Connection, "agents" | "sessions">): SessionAgent[] {
+/** The Tenant's Agents, then any other Agent a session runs on, with their session counts. */
+export function sessionAgents(
+  agents: readonly Pick<AgentView, "id" | "manifest">[],
+  sessions: readonly Pick<SessionSummary, "agentId">[],
+  manifests: readonly AgentManifestView[] = [],
+): SessionAgent[] {
   const counts = new Map<string, number>();
-  for (const session of connection.sessions)
+  for (const session of sessions)
     counts.set(session.agentId, (counts.get(session.agentId) ?? 0) + 1);
-  const agents: SessionAgent[] = connection.agents.map((agent) => ({
+  const flows = new Set(manifests.filter((manifest) => isFlowManifest(manifest)).map((manifest) => manifest.name));
+  const listed: SessionAgent[] = agents.map((agent) => ({
     id: agent.id,
-    name: agent.name,
-    workflow: isWorkflowDefinition(agent),
-    registered: true,
+    name: agent.id,
+    workflow: flows.has(manifestNameOf(agent)),
+    listed: true,
     count: counts.get(agent.id) ?? 0,
   }));
-  const registered = new Set(agents.map((agent) => agent.id));
+  const known = new Set(listed.map((agent) => agent.id));
   for (const [id, count] of counts)
-    if (!registered.has(id))
-      agents.push({ id, name: id, workflow: false, registered: false, count });
-  return agents;
+    if (!known.has(id)) listed.push({ id, name: id, workflow: false, listed: false, count });
+  return listed;
 }
 
 /** The page size Studio reads the session list in (the Runtime's most). */

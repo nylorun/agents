@@ -26,8 +26,8 @@ export interface SkillsPart extends PartDeclaration {
  * ```
  *
  * Sets `skills`: each skill's name, description and files (every file of its folder, binary
- * included, by content hash). The client uploads the files the Runtime lacks when it registers
- * the agent; the Runtime adds the skill catalog and serves `load_skill` / `read_skill_resource`
+ * included, by content hash). The client uploads the files the Runtime lacks when it saves the
+ * agent's manifest; the Runtime adds the skill catalog and serves `load_skill` / `read_skill_resource`
  * from them.
  */
 export function skills(directory: string): SkillsPart {

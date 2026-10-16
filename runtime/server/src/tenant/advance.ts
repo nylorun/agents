@@ -72,11 +72,11 @@ import {
   type TranscriptUpdate,
 } from "./history.js";
 import { command } from "./commands.js";
-import { dropRunGrant, grantRun, type RunOf } from "./run-grants.js";
+import { dropRunGrant, grantRun, rootAgentOf, type RunOf } from "./run-grants.js";
 import { startHeartbeat } from "../harness-api/renew.js";
 import { buildTurnStart, startSegment, type SegmentStart } from "../harness-api/start.js";
 import type { RunEnd } from "../harness-api/server.js";
-import { touchEnvironment } from "./environments.js";
+import { touchAgent } from "./agents.js";
 import { endTurn, pauseTurn } from "./turn-timing.js";
 import { hostTuning } from "../tuning.js";
 import {
@@ -165,7 +165,10 @@ export async function advance(
   ctx.work.running.set(id, controller);
   ctx.work.runningTurns.set(id, taken.session.activeTurnId ?? null);
   // A harness renews the lease once it holds the run; until then, and without one, core does.
-  const run: RunOf = { agentId: taken.session.agentId, activeTurnId: taken.session.activeTurnId };
+  // The run token names the root agent as the engine does: the loop manifest's id, i.e. the
+  // agent manifest's name (protocol 16), never the Agent the session runs on. The model gate's
+  // usage rows and `manifest` budgets key on it.
+  const run: RunOf = { agentId: rootAgentOf(taken.session), activeTurnId: taken.session.activeTurnId };
   const heartbeat = startHeartbeat(ctx, lease, controller, run);
   let result = DONE;
   let release = true;
@@ -217,7 +220,7 @@ export async function advance(
       );
     // The Environment was used: `deleteAfter`, and a pod's idle time (D34), count from the end
     // of each segment.
-    if (placed.environment !== undefined) await touchEnvironment(ctx, placed.environment);
+    if (placed.environment !== undefined) await touchAgent(ctx, placed.environment);
   }
   return result;
 }
@@ -233,9 +236,9 @@ function podUnusable(ctx: TenantContext, segment: SegmentStart): string | undefi
   if (!pod) return undefined;
   if (!ctx.pods) return `Environment ${pod.id} is a pod Environment, and this Runtime has no sandbox pods`;
   const state = pod.pod;
-  if (state.desired === "deleted") return `Environment ${pod.id} was deleted`;
-  if (state.observed === "lost") return `Environment ${pod.id} was lost: ${state.reason ?? "its volume is gone"}`;
-  if (state.observed === "failed") return `Environment ${pod.id} failed to start: ${state.reason ?? "its pod was not ready"}`;
+  if (state.desired === "deleted") return `Agent ${pod.id} was deleted`;
+  if (state.observed === "lost") return `Agent ${pod.id} was lost: ${state.reason ?? "its volume is gone"}`;
+  if (state.observed === "failed") return `Agent ${pod.id} failed to start: ${state.reason ?? "its pod was not ready"}`;
   return undefined;
 }
 

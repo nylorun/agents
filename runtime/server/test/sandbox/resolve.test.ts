@@ -1,6 +1,7 @@
 /**
- * An Environment's recipe resolved against the Tenant's limits (`resolveRecipe`, protocol 11),
- * and the sandbox spec a recipe gives a session (`sandboxSpecOf`) and a pod (`podSandboxSpecOf`).
+ * An Agent's recipe (its manifest's runtime section) resolved against the Tenant's limits
+ * (`resolveRecipe`, protocol 11), and the sandbox spec a recipe gives a session (`sandboxSpecOf`)
+ * and a pod (`podSandboxSpecOf`).
  */
 import { describe, expect, it } from "vitest";
 import {
@@ -75,10 +76,10 @@ describe("resolveRecipe", () => {
       kind: "error",
       errors: [
         "lifecycle.idle is 1h; this Tenant allows at most 10m.",
-        "image is for kind pod: a virtual Environment runs no images.",
-        "storage is for kind pod: a virtual Environment has no volume.",
+        "image is for kind pod: a virtual Agent runs no images.",
+        "storage is for kind pod: a virtual Agent has no volume.",
         "network.allowedHosts includes api.openai.com, which this Tenant does not allow.",
-        "network.allowedHosts includes *.example.com; a virtual Environment allows exact host names only, such as example.com.",
+        "network.allowedHosts includes *.example.com; a virtual Agent allows exact host names only, such as example.com.",
         "resources.cpus asks for 8; this Tenant allows at most 4.",
         "resources.memory asks for 16384MiB; this Tenant allows at most 8192MiB.",
       ],
@@ -128,10 +129,10 @@ describe("resolveRecipe", () => {
     ).toEqual({
       kind: "error",
       errors: [
-        "image is for an Environment with a sandbox: kind none has none.",
-        "resources is for an Environment with a sandbox: kind none has none.",
-        "storage is for an Environment with a sandbox: kind none has none.",
-        "network is for an Environment with a sandbox: kind none has none.",
+        "image is for an Agent with a sandbox: kind none has none.",
+        "resources is for an Agent with a sandbox: kind none has none.",
+        "storage is for an Agent with a sandbox: kind none has none.",
+        "network is for an Agent with a sandbox: kind none has none.",
       ],
     });
   });

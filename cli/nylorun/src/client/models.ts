@@ -24,8 +24,9 @@ export const modelsUsage = `  models catalog [--tenant <name>] [--json]
   models select <provider> [--model <id>] [--tenant <name>]
                                       use a provider that has a credential (default: its model)`;
 
-export const usageUsage = `  usage [--scope tenant|agent|turn] [--id <id>] [--period day|month|total] [--tenant <name>]
-                                      what the model calls used and cost (JSON)
+export const usageUsage = `  usage [--scope tenant|manifest|turn] [--id <id>] [--period day|month|total] [--tenant <name>]
+                                      what the model calls used and cost (JSON); --scope
+                                      manifest: the Agents made from agent manifest <id>
   calls [--after <cursor>] [--limit <n>] [--tenant <name>]
                                       every recorded model call, one JSON line each, until
                                       caught up; prints the cursor to resume from on stderr`;
@@ -166,16 +167,21 @@ export async function modelsCommand(deps: StackDeps, args: readonly string[]): P
   throw usageError();
 }
 
-const SCOPES = ["tenant", "agent", "turn"] as const;
+const SCOPES = ["tenant", "manifest", "turn"] as const;
 const PERIODS = ["day", "month", "total"] as const;
 const USAGE_USAGE =
-  "nylorun tenant usage [--scope tenant|agent|turn] [--id <id>] [--period day|month|total] [--tenant <name>]";
+  "nylorun tenant usage [--scope tenant|manifest|turn] [--id <id>] [--period day|month|total] [--tenant <name>]";
 
-/** `nylorun tenant usage`: one scope's totals for one period, as JSON. */
+/**
+ * `nylorun tenant usage`: one scope's totals for one period, as JSON: the Tenant's, the Agents
+ * made from one agent manifest (`--scope manifest --id <name>`), or one turn's.
+ */
 export async function usageCommand(deps: StackDeps, args: readonly string[]): Promise<number> {
   const flags = parseStackFlags(args, { values: ["--tenant", "--scope", "--id", "--period"] }, USAGE_USAGE);
   if (flags.rest.length) throw usageError(`Usage: ${USAGE_USAGE}`);
   const scope = flags.values.get("--scope") ?? "tenant";
+  if (scope === "agent")
+    throw usageError("--scope agent is --scope manifest in protocol 16: --id names an agent manifest.");
   const period = flags.values.get("--period") ?? "total";
   const id = flags.values.get("--id");
   if (!(SCOPES as readonly string[]).includes(scope))
@@ -184,7 +190,9 @@ export async function usageCommand(deps: StackDeps, args: readonly string[]): Pr
     throw usageError(`--period is one of ${PERIODS.join(", ")}.`);
   if ((scope === "tenant") !== (id === undefined))
     throw usageError(
-      scope === "tenant" ? "--id names an agent or a turn: pass --scope agent or turn." : `--scope ${scope} needs --id.`,
+      scope === "tenant"
+        ? "--id names an agent manifest or a turn: pass --scope manifest or turn."
+        : `--scope ${scope} needs --id.`,
     );
   const query: ModelUsageQuery = {
     scope: scope as ModelUsageQuery["scope"],

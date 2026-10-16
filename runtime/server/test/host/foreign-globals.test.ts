@@ -13,6 +13,7 @@ import { expect, it, vi } from "vitest";
 import { PROTOCOL_VERSION } from "@nylorun/core/compatibility";
 import { Agent } from "@nylorun/core/define";
 import { testPool } from "../support/store.js";
+import { manifestOf } from "../support/agents.js";
 
 const native = globalThis.Response;
 getRequestListener(() => new Response("the app"));
@@ -35,17 +36,19 @@ it("answers normally in a process whose Request and Response @hono/node-server r
       authorization: `Bearer ${rt.applicationKey}`,
       "content-type": "application/json",
     };
+    const saved = await fetch(`${rt.url}/v1/agent-manifests/bot`, {
+      method: "PUT",
+      headers,
+      body: JSON.stringify(manifestOf(Agent({ id: "bot", name: "Bot" }).build())),
+    });
+    expect(saved.status).toBe(200);
     const put = await fetch(`${rt.url}/v1/agents/bot`, {
       method: "PUT",
       headers,
-      body: JSON.stringify({
-        requestId: "bot",
-        manifest: Agent({ id: "bot", name: "Bot" }).build().manifest,
-        implementationVersion: "dev",
-      }),
+      body: JSON.stringify({ requestId: "bot", manifest: "bot" }),
     });
     expect(put.status).toBe(200);
-    expect(await put.json()).toMatchObject({ agentId: "bot" });
+    expect(await put.json()).toMatchObject({ id: "bot", manifest: "bot" });
 
     const head = await fetch(`${rt.url}/v1/agents`, { method: "HEAD", headers });
     expect(head.status).toBe(404);
@@ -58,7 +61,7 @@ it("answers normally in a process whose Request and Response @hono/node-server r
     await fetch(`${rt.url}/v1/sessions/s1`, {
       method: "PUT",
       headers,
-      body: JSON.stringify({ requestId: "s1", agentId: "bot", ownerUserId: "app:ann" }),
+      body: JSON.stringify({ requestId: "s1", agent: "bot", ownerUserId: "app:ann" }),
     });
     const stream = new AbortController();
     const events = await fetch(`${rt.url}/v1/sessions/s1/events`, {

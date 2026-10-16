@@ -45,7 +45,7 @@ import {
 import { fail } from "./http.js";
 import { settleToolRow, type ToolRow } from "../harness-api/tool-journal.js";
 import { accessOf } from "./auth.js";
-import { checkEnvironmentTurn } from "./environments.js";
+import { checkAgentTurn } from "./agents.js";
 import { turnManifestOf, variantStore } from "./session.js";
 import { slimModelEffects } from "./slim.js";
 import { resolveMessageParts } from "../artifacts/parts.js";
@@ -168,13 +168,15 @@ export async function command(
         cascadeCancelIds.push(agentId);
       }
     } else {
-      // A session opened before protocol 11 (migration 0020), 13 (migration 0024) or 15
-      // (migrations 0029, 0030) keeps its history but takes no turn.
+      // A session opened before protocol 11 (migration 0020), 13 (migration 0024), 15
+      // (migrations 0029, 0030) or 16 (migration 0032) keeps its history but takes no turn.
       if (s.closedReason !== undefined)
         fail(
           409,
-          s.closedReason === "protocol_11"
-            ? "This session was opened before protocol 11: open a new session that names an Environment."
+          s.closedReason === "protocol_16"
+            ? "This session was opened before protocol 16, from an agent definition: save the agent as an agent manifest (nylorun migrate v8, then nylorun apply), make an Agent from it and open a new session on it."
+            : s.closedReason === "protocol_11"
+            ? "This session was opened before protocol 11: open a new session on an Agent."
             : s.closedReason === "protocol_15"
               ? "This session was opened before protocol 15, and its pinned manifest holds a runtime block: our harness now writes the model's instructions and defines its tools itself. Open a new session."
               : "This session was opened before protocol 13, on a manifest the Runtime no longer runs: register the agent again (manifest 7) and open a new session.",
@@ -185,7 +187,7 @@ export async function command(
           fail(409, "Session has active or unresolved work");
         // Every turn start on a sandbox: it exists, the token's grants reach it, and no other
         // session's turn holds it.
-        await checkEnvironmentTurn(t, s, scope, ctx);
+        await checkAgentTurn(t, s, scope, ctx);
         s.turnStartState = s.state;
         // A new turn folds from the latest snapshot: a cancel or failure only reverts this turn.
         if (s.history?.snapshot !== undefined) s.history = { ...s.history, from: s.history.snapshot };

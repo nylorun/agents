@@ -193,7 +193,7 @@ const run = (
     },
     routing: { rootManifest: { id: "bot" } },
     ...(options.sandbox
-      ? { environment: { id: "env", kind: "virtual", sandbox: { workspace: "/workspace" } } }
+      ? { agent: { id: "env", kind: "virtual", sandbox: { workspace: "/workspace" } } }
       : {}),
   } as unknown as HarnessRun["start"],
   signal: new AbortController().signal,

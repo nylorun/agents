@@ -171,7 +171,7 @@ describe("createAgUiHandler acting for subjects", () => {
       client,
       scopes: ["sessions:own", "agents:read"],
       subject: () => "ada",
-      session: () => ({ vaultIds: ["v1"], info: { plan: "pro" } }),
+      session: () => ({ environment: "users/ada", info: { plan: "pro" } }) as never,
     });
     await handler.fetch(
       new Request("http://app.test/bot", {
@@ -184,7 +184,8 @@ describe("createAgUiHandler acting for subjects", () => {
     expect(sent[0]!.scopes).toBe("sessions:own agents:read");
     expect(sent[0]!.body.forwardedProps).toEqual({
       theme: "dark",
-      nylorun: { session: { vaultIds: ["v1"], info: { plan: "pro" } } },
+      // The path names the Agent: an `environment` (before protocol 16) is not forwarded.
+      nylorun: { session: { info: { plan: "pro" } } },
     });
   });
 

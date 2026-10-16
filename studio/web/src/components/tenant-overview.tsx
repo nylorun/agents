@@ -25,10 +25,11 @@ export function TenantOverview({
         </div>
       </dl>
       <div className="space-y-2 rounded-lg bg-muted p-4 text-sm text-muted-foreground">
-        {waitingForAgents ? <p>No agents registered yet.</p> : null}
+        {waitingForAgents ? <p>No Agents yet.</p> : null}
         <p>
-          Use the Runtime through the SDK, CLI, or your own client. Agents and
-          sessions appear here as you use them. See the{" "}
+          Save an agent manifest with <code className="font-mono">nylorun apply</code>, make an
+          Agent from it, and open sessions on it. Agents and sessions appear here as you use
+          them. See the{" "}
           <a
             className="text-primary underline underline-offset-4"
             href="https://docs.nylorun.com"

@@ -58,7 +58,7 @@ it("documents the session reads with the same privileged credentials as serving"
     expect(op["x-nylorun-browser"]).toBeUndefined();
     expect(op["x-nylorun-scopes"]).toEqual(scopes);
   }
-  for (const path of ["/v1/sessions", "/v1/sessions/{sessionId}/items", "/v1/environments"]) {
+  for (const path of ["/v1/sessions", "/v1/sessions/{sessionId}/items", "/v1/agents"]) {
     expect(operation("get", path).parameters.find((p: {name: string}) => p.name === "limit").required).toBe(false);
   }
 });
@@ -138,12 +138,32 @@ it("publishes one component per event type, on the nylorun.event/2 envelope", ()
   });
 });
 
-it("documents the agent list for issuer tokens too, and agent puts for application keys", () => {
-  expect(operation("get", "/v1/agents").security).toEqual([
-    { applicationKey: [] },
-    { issuerToken: [] },
-  ]);
-  expect(operation("put", "/v1/agents/{agentId}").security).toEqual([{ applicationKey: [] }]);
+it("documents agent manifests for application keys only, and sandbox tools for no subject", () => {
+  const reads = [
+    ["get", "/v1/agent-manifests"],
+    ["get", "/v1/agent-manifests/{name}"],
+    ["get", "/v1/agent-manifests/{name}/versions"],
+    ["get", "/v1/agent-manifests/{name}/versions/{version}"],
+  ] as const;
+  const writes = [
+    ["put", "/v1/agent-manifests/{name}"],
+    ["delete", "/v1/agent-manifests/{name}"],
+  ] as const;
+  for (const [method, path] of [...reads, ...writes]) {
+    const op = operation(method, path);
+    expect(op, `${method} ${path}`).toBeDefined();
+    // A manifest holds an agent's instructions, tools and servers: no token caller reads one.
+    expect(op.security, `${method} ${path}`).toEqual([{ applicationKey: [] }]);
+    expect(op["x-nylorun-credentials"], `${method} ${path}`).toEqual(["application", "subject"]);
+  }
+  for (const [method, path] of reads)
+    expect(operation(method, path)["x-nylorun-scopes"], `${method} ${path}`).toEqual([
+      "agents:read",
+      "agents:write",
+      "agent-manifests:write",
+    ]);
+  for (const [method, path] of writes)
+    expect(operation(method, path)["x-nylorun-scopes"], `${method} ${path}`).toEqual(["agent-manifests:write"]);
   expect(operation("post", "/v1/sessions/{sessionId}/sandbox/{tool}")["x-nylorun-scopes"]).toBe(
     "never",
   );
@@ -163,7 +183,7 @@ it("documents Tenant settings and credential coverage for management keys only (
     expect(op.security, `${method} ${path}`).toEqual([{ managementKey: [] }]);
     expect(op["x-nylorun-scopes"], `${method} ${path}`).toBe("never");
   }
-  // The vault paths are gone (protocol 11: an Environment's secrets replace them), and so are
+  // The vault paths are gone (protocol 11: an Agent's secrets replace them), and so are
   // the old ones and the MCP OAuth connect (protocol 10).
   for (const [method, path] of [
     ["post", "/v1/tenant/vaults"],
@@ -192,25 +212,26 @@ it("documents Tenant settings and credential coverage for management keys only (
   expect(JSON.stringify(document)).not.toContain("tenant:settings");
 });
 
-it("documents the Environment routes for callers that may use sessions or change Environments", () => {
+it("documents the Agent routes for callers that may use sessions or change Agents", () => {
   const reads = [
-    ["get", "/v1/environments"],
-    ["get", "/v1/environments/{environmentId}"],
-    ["get", "/v1/environments/{environmentId}/events"],
-    ["get", "/v1/environments/{environmentId}/secrets"],
-    ["get", "/v1/environments/{environmentId}/secrets/{name}"],
-    ["get", "/v1/environments/{environmentId}/versions"],
+    ["get", "/v1/agents"],
+    ["get", "/v1/agents/{agentId}"],
+    ["get", "/v1/agents/{agentId}/events"],
+    ["get", "/v1/agents/{agentId}/secrets"],
+    ["get", "/v1/agents/{agentId}/secrets/{name}"],
+    ["get", "/v1/agents/{agentId}/versions"],
   ] as const;
   const writes = [
-    ["put", "/v1/environments/{environmentId}"],
-    ["delete", "/v1/environments/{environmentId}"],
-    ["post", "/v1/environments/{environmentId}/stop"],
-    ["post", "/v1/environments/{environmentId}/reset"],
-    ["put", "/v1/environments/{environmentId}/secrets/{name}"],
-    ["delete", "/v1/environments/{environmentId}/secrets/{name}"],
-    ["post", "/v1/environments/{environmentId}/snapshot"],
-    ["post", "/v1/environments/{environmentId}/restore"],
-    ["delete", "/v1/environments/{environmentId}/versions/{version}"],
+    ["put", "/v1/agents/{agentId}"],
+    ["delete", "/v1/agents/{agentId}"],
+    ["post", "/v1/agents/{agentId}/stop"],
+    ["post", "/v1/agents/{agentId}/reset"],
+    ["post", "/v1/agents/{agentId}/fork"],
+    ["put", "/v1/agents/{agentId}/secrets/{name}"],
+    ["delete", "/v1/agents/{agentId}/secrets/{name}"],
+    ["post", "/v1/agents/{agentId}/snapshot"],
+    ["post", "/v1/agents/{agentId}/restore"],
+    ["delete", "/v1/agents/{agentId}/versions/{version}"],
   ] as const;
   for (const [method, path] of [...reads, ...writes]) {
     const op = operation(method, path);
@@ -220,13 +241,17 @@ it("documents the Environment routes for callers that may use sessions or change
   for (const [method, path] of reads)
     expect(operation(method, path)["x-nylorun-scopes"], `${method} ${path}`).toEqual([
       "sessions:own",
-      "environments:write",
+      "agents:read",
+      "agents:write",
     ]);
   for (const [method, path] of writes)
-    expect(operation(method, path)["x-nylorun-scopes"], `${method} ${path}`).toEqual([
-      "environments:write",
-    ]);
-  expect(JSON.stringify(document)).not.toContain("sandboxes:write");
+    expect(operation(method, path)["x-nylorun-scopes"], `${method} ${path}`).toEqual(["agents:write"]);
+  // Environments, environment manifests and agent definitions are gone (protocol 16).
+  for (const path of Object.keys(document.paths ?? {})) expect(path).not.toMatch(/^\/v1\/environment/);
+  const text = JSON.stringify(document);
+  expect(text).not.toContain("sandboxes:write");
+  expect(text).not.toContain('"environments:write"');
+  expect(text).not.toContain("implementationVersion");
 });
 
 it("documents the public keys for every caller or none, and signing keys for management keys", () => {

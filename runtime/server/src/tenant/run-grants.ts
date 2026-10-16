@@ -44,6 +44,11 @@ export function createRunGrants(): RunGrants {
 
 type GrantContext = Pick<TenantContext, "keys" | "config" | "runGrants">;
 
+/** The root agent a session's run token names: its loop manifest's id (the agent manifest's name). */
+export function rootAgentOf(session: { readonly manifest: { readonly id: string } }): string {
+  return session.manifest.id;
+}
+
 /** What a run token names of the session: its root agent and the turn the advance runs. */
 export interface RunOf {
   readonly agentId: string;

@@ -1,14 +1,14 @@
 /**
  * The R7 exit, as the plan words it: one trace per turn in a stock OTel collector, with a span for
- * every model and tool crossing; since D67 an egress connection is the Environment's, on its
- * stream naming the turn, and has no span. Exporting the same log again, or reading it from the
+ * every model and tool crossing; since D67 an egress connection is the Agent's, on its stream
+ * naming the turn, and has no span. Exporting the same log again, or reading it from the
  * trace route, gives the same span ids. A collector that is down costs those spans and nothing
  * else: turns run and Postgres keeps no extra WAL. No credential value or prompt appears in any
  * span.
  *
  * The collector is `otel/opentelemetry-collector` with its file exporter, in the test stack's
  * `traces` profile (`NYLORUN_TEST_PROFILES=traces npm run test:stack:up`); without it this file
- * skips. One turn crosses an MCP server (with a bearer from the Environment's vault), an HTTP
+ * skips. One turn crosses an MCP server (with a bearer from the Agent's vault), an HTTP
  * tool and a sandbox command, which opens a tunnel through egress-gate.
  */
 import { spawnSync } from "node:child_process";
@@ -21,12 +21,13 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { Agent, http } from "@nylorun/agents";
+import { Agent, http } from "@nylorun/core/define";
 import type { ModelProvider } from "../src/core/provider.js";
 import { startEgressGate, storeEgressRecord, type EgressGate } from "../src/gates/egress.js";
 import type { SandboxBackend } from "../src/sandbox/types.js";
 import type { OtlpSpan } from "../src/traces/map.js";
 import { STACK_ENABLED, stackEndpoints } from "./stack/endpoints.js";
+import { deploy, openSession } from "./support/agents.js";
 import { openTestSessionStore, testTenantPool } from "./support/store.js";
 import { startTestTenant } from "./support/tenant.js";
 import {
@@ -245,14 +246,13 @@ describe.skipIf(!COLLECTOR)("the R7 exit", { timeout: 180_000 }, () => {
       .mcp({ notes: { name: "notes", type: "streamable-http", url: mcpUrl } })
       .tools(http({ name: "hook", input: z.object({ n: z.number() }), url: await hookServer() }))
       .build().manifest;
-    const put = async (path: string, body: unknown) => {
-      const response = await fetch(`${runtime.url}${path}`, { method: "PUT", headers, body: JSON.stringify(body) });
-      expect(response.ok, await response.clone().text()).toBe(true);
-    };
-    await put("/v1/environments/ws%2Fs1", { requestId: "e", kind: "virtual" });
-    await put("/v1/environments/ws%2Fs1/secrets/notes", { requestId: "k", type: "bearer", url: mcpUrl, value: MCP_TOKEN });
-    await put("/v1/agents/bot", { requestId: "a", manifest, implementationVersion: "dev" });
-    await put("/v1/sessions/s1", { requestId: "s", agentId: "bot", ownerUserId: OWNER, environment: "ws/s1" });
+    await deploy(runtime.url, headers, manifest, {
+      id: "ws/s1",
+      runtime: { kind: "virtual" },
+      secrets: { notes: { requestId: "k", type: "bearer", url: mcpUrl, value: MCP_TOKEN } },
+    });
+    const opened = await openSession(runtime.url, headers, "s1", { agent: "ws/s1", ownerUserId: OWNER });
+    expect(opened.ok, await opened.clone().text()).toBe(true);
 
     cleanups.push(() => dropSlot(runtime.tenantId, slot), () => dropSlot(runtime.tenantId, copy));
     await testTenantPool(runtime.tenantId)`SELECT pg_create_logical_replication_slot(${slot}, 'pgoutput')`;
@@ -275,10 +275,10 @@ describe.skipIf(!COLLECTOR)("the R7 exit", { timeout: 180_000 }, () => {
     const ended = await turn();
     expect(ended.status, ended.error).toBe("completed");
     first = ended.turnId;
-    // egress-gate records a tunnel when it closes, after the command's answer, on the Environment's
+    // egress-gate records a tunnel when it closes, after the command's answer, on the Agent's
     // stream, naming the turn that ran (D67).
     await until("the tunnel's record", async () => {
-      const response = await fetch(`${runtime.url}/v1/environments/ws%2Fs1/events?types=environment.egress`, { headers });
+      const response = await fetch(`${runtime.url}/v1/agents/ws%2Fs1/events?types=agent.egress`, { headers });
       const { events } = (await response.json()) as { events: { payload: { runningTurns: { sessionId: string; turnId: string }[] } }[] };
       return events.some((event) => event.payload.runningTurns.some((running) => running.sessionId === "s1" && running.turnId === first));
     });

@@ -14,6 +14,7 @@ import { effectSpanOf, turnSpanOf } from "../../src/traces/ids.js";
 import { traceKey } from "../../src/traces/key.js";
 import type { OtlpSpan } from "../../src/traces/map.js";
 import { createTraceProjector } from "../../src/traces/projector.js";
+import { deploy } from "../support/agents.js";
 import { openTestSessionStore, testTenantPool } from "../support/store.js";
 import { startTestTenant } from "../support/tenant.js";
 
@@ -53,13 +54,13 @@ async function boot(content: ReadonlySet<"tool-results">) {
   const manifest = Agent({ id: "bot", name: "Bot" })
     .tools(http({ name: "hook", input: z.object({ n: z.number() }), url: service.url }))
     .build().manifest;
-  for (const [path, body] of [
-    ["/v1/agents/bot", { requestId: "a", manifest, implementationVersion: "dev" }],
-    ["/v1/sessions/s1", { requestId: "s", agentId: "bot", ownerUserId: "person-9c2e" }],
-  ] as const) {
-    const response = await fetch(`${runtime.url}${path}`, { method: "PUT", headers, body: JSON.stringify(body) });
-    expect(response.ok, await response.clone().text()).toBe(true);
-  }
+  await deploy(runtime.url, headers, manifest);
+  const opened = await fetch(`${runtime.url}/v1/sessions/s1`, {
+    method: "PUT",
+    headers,
+    body: JSON.stringify({ requestId: "s", agent: "bot", ownerUserId: "person-9c2e" }),
+  });
+  expect(opened.ok, await opened.clone().text()).toBe(true);
   const sent = await fetch(`${runtime.url}/v1/sessions/s1/commands`, {
     method: "POST",
     headers,

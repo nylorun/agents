@@ -225,6 +225,13 @@
       "when": 1792094620175,
       "tag": "0031_protocol_15_mcp_snapshot",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1792098220175,
+      "tag": "0032_agents",
+      "breakpoints": true
     }
   ]
 }

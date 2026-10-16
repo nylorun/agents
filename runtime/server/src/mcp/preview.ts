@@ -164,22 +164,22 @@ export async function previewMcpServer(
 }
 
 /**
- * The credential of Environment `environmentId`'s vault for the URL; none without an
- * Environment (a preview without a credential). An Environment that does not exist is a 404.
+ * The credential of Agent `agentId`'s vault for the URL; none without an Agent (a preview without
+ * a credential). An Agent that does not exist is a 404.
  */
 async function credentialFor(
   vault: McpPreviewOptions["vault"],
   request: McpPreviewRequest,
 ): Promise<AuthorizeResult> {
-  if (request.environmentId === undefined)
+  if (request.agentId === undefined)
     return { status: "unauthenticated", url: request.url, headers: {} };
-  // The 404 of a missing Environment, before any request leaves.
-  await vault.listEnvironmentSecrets(request.environmentId);
-  const result = await vault.authorize({ environmentId: request.environmentId, url: request.url });
+  // The 404 of a missing Agent, before any request leaves.
+  await vault.listEnvironmentSecrets(request.agentId);
+  const result = await vault.authorize({ environmentId: request.agentId, url: request.url });
   if (result.status !== "refused") return result;
   throw new HttpError(
     409,
-    `Environment ${request.environmentId}'s credential for this URL cannot be used (${result.reason})`,
+    `Agent ${request.agentId}'s credential for this URL cannot be used (${result.reason})`,
     { code: "request_rejected", details: { reason: result.reason, credentialIds: result.credentialIds } },
   );
 }

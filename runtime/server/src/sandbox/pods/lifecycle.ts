@@ -13,14 +13,14 @@
  *   <name>.r<rev>`, so a repeated apply is a no-op at the service, and a Sandbox whose `opId`
  *   is not the row's is applied again.
  * - **Idle** (`trigger: idle`): no turn on a session that names it, and none ended within its
- *   `lifecycle.idle` (at most the Tenant's `limits.idle`) → `Suspended` (`environment.suspended`,
+ *   `lifecycle.idle` (at most the Tenant's `limits.idle`) → `Suspended` (`agent.suspended`,
  *   reason `idle`). The volume is kept; the next turn start asks for `Running` again.
  * - **Lost**: an incarnation that has run (a pod joined) whose Sandbox is gone or whose volume
- *   is missing is `lost` (`environment.lost`): its host epoch moves, its Sandbox is deleted, and
+ *   is missing is `lost` (`agent.lost`): its host epoch moves, its Sandbox is deleted, and
  *   only a reset brings the Environment back. agent-sandbox recreates a deleted claim empty, so
  *   the engine's join also checks the id it keeps on the volume (`join.ts`): a new volume is
  *   lost too. A pod replaced on the same volume is not lost: the new pod's join bumps the epoch
- *   (`environment.relaunched`).
+ *   (`agent.relaunched`).
  * - **Delete** (`desired: deleted`): the Sandbox is deleted, and the row once it is gone.
  * - **Reset** (`tenant/environments.ts`) bumps the volume generation: a new name, so a new
  *   Sandbox and volume; the old name is `retiring` and deleted here.
@@ -35,7 +35,7 @@
  *
  * An unused Environment is deleted by the Tenant sweep (`lifecycle.deleteAfter`), not here.
  */
-import type { EnvironmentEventPayload, EnvironmentEventType } from "@nylorun/core/contracts";
+import type { AgentEventPayload, AgentEventType } from "@nylorun/core/contracts";
 import type { Environment, SandboxPodPatch, SandboxPodState } from "../../store/types.js";
 import type { PodStatus } from "./client.js";
 import { hostTuning } from "../../tuning.js";
@@ -104,9 +104,9 @@ export interface PodFacts {
   readonly trigger: PodTrigger;
 }
 
-export interface PodEvent<T extends EnvironmentEventType = EnvironmentEventType> {
+export interface PodEvent<T extends AgentEventType = AgentEventType> {
   readonly type: T;
-  readonly payload: EnvironmentEventPayload<T>;
+  readonly payload: AgentEventPayload<T>;
 }
 
 export interface PodDecision {
@@ -134,7 +134,7 @@ function gone(status: PodStatus): boolean {
   return !status.exists && !status.podPhase && status.volume === "missing";
 }
 
-const event = <T extends EnvironmentEventType>(type: T, payload: EnvironmentEventPayload<T>): PodEvent =>
+const event = <T extends AgentEventType>(type: T, payload: AgentEventPayload<T>): PodEvent =>
   ({ type, payload }) as PodEvent;
 
 export function decide(facts: PodFacts): PodDecision {
@@ -202,21 +202,21 @@ export function decide(facts: PodFacts): PodDecision {
       patch.desired = desired;
       patch.rev = rev;
       patch.hostEpoch = pod.hostEpoch + 1;
-      events.push(event("environment.suspended", { reason: "idle" }));
+      events.push(event("agent.suspended", { reason: "idle" }));
     } else arm.push({ timer: "idle", at: due });
   }
 
   // An incarnation a pod has joined, whose Sandbox or volume is gone: lost.
   if (pod.podUid !== undefined && (!status.exists || status.deleting || status.volume === "missing")) {
     const reason = !status.exists
-      ? "The Environment's pod and volume were deleted outside the Runtime"
+      ? "The Agent's pod and volume were deleted outside the Runtime"
       : status.deleting
-        ? "The Environment's pod is being deleted outside the Runtime"
-        : "The Environment's volume is gone";
+        ? "The Agent's pod is being deleted outside the Runtime"
+        : "The Agent's volume is gone";
     patch.observed = "lost";
     patch.reason = reason;
     patch.hostEpoch = (patch.hostEpoch ?? pod.hostEpoch) + 1;
-    events.push(event("environment.lost", { reason }));
+    events.push(event("agent.lost", { reason }));
     if (status.exists && !status.deleting) deletes.push(pod.k8sName);
     if (status.exists) again(pollMs);
     return done();
@@ -268,7 +268,7 @@ export function decide(facts: PodFacts): PodDecision {
         `The pod was not ready within ${Math.round(readyDeadlineMs / 1000)} s`;
       patch.observed = "failed";
       patch.reason = reason;
-      events.push(event("environment.failed", { reason }));
+      events.push(event("agent.failed", { reason }));
       return done();
     }
     if (pod.observed !== "creating") patch.observed = "creating";

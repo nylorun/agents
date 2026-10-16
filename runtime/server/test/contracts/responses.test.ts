@@ -13,28 +13,36 @@ import type { ZodType } from "zod";
 import {
   ERROR_CODES,
   AcceptedResponseSchema,
+  AgentDiskVersionsSchema,
+  AgentManifestPlanSchema,
+  AgentManifestVersionsSchema,
+  AgentManifestViewSchema,
+  AgentPageSchema,
   CredentialCoverageSchema,
-  DeleteEnvironmentResponseSchema,
+  DeleteAgentManifestResponseSchema,
+  DeleteAgentResponseSchema,
   DeletedResponseSchema,
-  EnvironmentSecretViewSchema,
-  EnvironmentViewSchema,
+  AgentSecretViewSchema,
+  AgentViewSchema,
+  ForkAgentResponseSchema,
   HealthResponseSchema,
   HostModelCatalogSchema,
   ModelInputsViewSchema,
   HostModelViewSchema,
   JwksSchema,
+  ListAgentEventsResponseSchema,
+  ListAgentManifestsResponseSchema,
+  ListAgentSecretsResponseSchema,
   ListAgentsResponseSchema,
-  ListEnvironmentEventsResponseSchema,
-  ListEnvironmentSecretsResponseSchema,
-  ListEnvironmentsResponseSchema,
   ListProvidersResponseSchema,
-  ListPublicAgentsResponseSchema,
   ListSessionsResponseSchema,
-  PutAgentResponseSchema,
+  MeResponseSchema,
   ReadyResponseSchema,
   ResetTenantResponseSchema,
   SandboxToolOutcomeSchema,
+  SaveAgentManifestResponseSchema,
   SessionItemsResponseSchema,
+  SessionManifestViewSchema,
   SessionViewSchema,
   SigningKeyListSchema,
   TenantSandboxViewSchema,
@@ -49,6 +57,7 @@ import {
 } from "../../src/tenant/ephemeral.js";
 import { testIssuer, type TestIssuer } from "../support/issuer.js";
 import { testPool } from "../support/store.js";
+import { manifestOf } from "../support/agents.js";
 let issuer: TestIssuer;
 let root: string;
 let rt: EphemeralRuntime;
@@ -114,52 +123,63 @@ it("Host answers", async () => {
   expect(ready.harness).toEqual({ mode: "in-process", connected: expect.any(Number) });
 });
 
-it("agents and sessions", async () => {
-  const manifest = Agent({ id: "bot", name: "Bot", description: "Helps" }).build().manifest;
-  await answer(PutAgentResponseSchema, "PUT", "/v1/agents/bot", {
-    body: { requestId: "bot", manifest, implementationVersion: "dev" },
+it("agent manifests, Agents and sessions", async () => {
+  const bot = Agent({ id: "bot", name: "Bot", description: "Helps" }).build();
+  await answer(AgentManifestPlanSchema, "PUT", "/v1/agent-manifests/bot?dryRun=true", { body: manifestOf(bot) });
+  await answer(SaveAgentManifestResponseSchema, "PUT", "/v1/agent-manifests/bot", { body: manifestOf(bot) });
+  // A second version, of kind virtual, so session `sb` runs with a sandbox.
+  await answer(SaveAgentManifestResponseSchema, "PUT", "/v1/agent-manifests/box", {
+    body: manifestOf(bot, { name: "box", runtime: { kind: "virtual", network: { allowedHosts: ["registry.npmjs.org"] } } }),
   });
-  await answer(PutAgentResponseSchema, "PUT", "/v1/agents/spare", {
-    body: {
-      requestId: "spare",
-      manifest: Agent({ id: "spare", name: "Spare" }).build().manifest,
-      implementationVersion: "dev",
-    },
+  await answer(SaveAgentManifestResponseSchema, "PUT", "/v1/agent-manifests/spare", {
+    body: manifestOf(Agent({ id: "spare", name: "Spare" }).build()),
+  });
+  await answer(ListAgentManifestsResponseSchema, "GET", "/v1/agent-manifests");
+  await answer(AgentManifestViewSchema, "GET", "/v1/agent-manifests/bot");
+  await answer(AgentManifestViewSchema, "GET", "/v1/agent-manifests/bot/versions/1");
+  await answer(AgentManifestVersionsSchema, "GET", "/v1/agent-manifests/bot/versions");
+  await answer(DeleteAgentManifestResponseSchema, "DELETE", "/v1/agent-manifests/spare");
+
+  await answer(AgentViewSchema, "PUT", "/v1/agents/bot", { body: { requestId: "bot", manifest: "bot" } });
+  await answer(AgentViewSchema, "PUT", "/v1/agents/env", {
+    body: { requestId: "env", manifest: "box@1", labels: { team: "a" } },
   });
   await answer(ListAgentsResponseSchema, "GET", "/v1/agents");
+  await answer(AgentPageSchema, "GET", "/v1/agents?limit=1");
 
   await answer(SessionViewSchema, "PUT", "/v1/sessions/s1", {
-    body: { requestId: "s1", agentId: "bot", ownerUserId: "app:ann" },
-  });
-  // An Environment, so session `sb` is opened with a sandbox.
-  await answer(EnvironmentViewSchema, "PUT", "/v1/environments/env", {
-    body: {
-      requestId: "env",
-      kind: "virtual",
-      labels: { team: "a" },
-      network: { allowedHosts: ["registry.npmjs.org"] },
-    },
+    body: { requestId: "s1", agent: "bot", ownerUserId: "app:ann" },
   });
   await answer(SessionViewSchema, "PUT", "/v1/sessions/sb", {
-    body: { requestId: "sb", agentId: "bot", ownerUserId: "app:ann", environment: "env" },
+    body: { requestId: "sb", agent: "env", ownerUserId: "app:ann" },
   });
   await answer(AcceptedResponseSchema, "POST", "/v1/sessions/s1/commands", {
     body: { type: "message", requestId: "m1", idempotencyKey: "m1", content: "Hello" },
   });
   await answer(SessionViewSchema, "GET", "/v1/sessions/s1");
-  expect((await answer(SessionViewSchema, "GET", "/v1/sessions/sb")).environment).toEqual({
-    id: "env",
-    version: 1,
+  expect(await answer(SessionViewSchema, "GET", "/v1/sessions/sb")).toMatchObject({
+    agentId: "env",
+    manifest: { name: "box", version: 1 },
   });
+  await answer(SessionManifestViewSchema, "GET", "/v1/sessions/sb/manifest");
   await answer(ListSessionsResponseSchema, "GET", "/v1/sessions");
   await answer(SessionItemsResponseSchema, "GET", "/v1/sessions/s1/items");
   const outcome = await answer(SandboxToolOutcomeSchema, "POST", "/v1/sessions/sb/sandbox/bash", {
     body: { command: "echo hello" },
   });
   expect(outcome.kind).toBe("completed");
-  await answer(EnvironmentViewSchema, "GET", "/v1/environments/env");
-  await answer(ListEnvironmentsResponseSchema, "GET", "/v1/environments?label=team=a");
-  await answer(ListEnvironmentEventsResponseSchema, "GET", "/v1/environments/env/events");
+  expect(await answer(AgentViewSchema, "GET", "/v1/agents/env")).toMatchObject({
+    manifest: "box@1",
+    resolvedVersion: 1,
+    tracking: "pinned",
+    kind: "virtual",
+  });
+  await answer(ListAgentsResponseSchema, "GET", "/v1/agents?label=team=a");
+  await answer(ListAgentEventsResponseSchema, "GET", "/v1/agents/env/events");
+  await answer(AgentDiskVersionsSchema, "GET", "/v1/agents/env/versions");
+  await answer(ForkAgentResponseSchema, "POST", "/v1/agents/env/fork", {
+    body: { id: "env-copy", dryRun: true },
+  });
 });
 
 it("Tenant settings", async () => {
@@ -190,7 +210,7 @@ it("Tenant settings", async () => {
   });
   await answer(ModelUsageTotalsSchema, "GET", "/v1/tenant/usage?scope=turn&id=t1&period=day");
   const budgets = [
-    { scope: "agent", id: "bot", period: "day", limitUsd: 2.5 },
+    { scope: "manifest", id: "bot", period: "day", limitUsd: 2.5 },
     { scope: "tenant", period: "month", limitUsd: 100, limitTokens: 1_000_000 },
     { scope: "turn", limitTokens: 500 },
   ];
@@ -206,12 +226,12 @@ it("Tenant settings", async () => {
   });
 });
 
-it("Environment secrets and credential coverage", async () => {
-  await answer(EnvironmentViewSchema, "PUT", "/v1/environments/keys", {
-    body: { requestId: "keys", kind: "none" },
+it("Agent secrets and credential coverage", async () => {
+  await answer(AgentViewSchema, "PUT", "/v1/agents/keys", {
+    body: { requestId: "keys", manifest: "bot" },
   });
-  const base = "/v1/environments/keys/secrets";
-  await answer(EnvironmentSecretViewSchema, "PUT", `${base}/GITHUB_TOKEN`, {
+  const base = "/v1/agents/keys/secrets";
+  await answer(AgentSecretViewSchema, "PUT", `${base}/GITHUB_TOKEN`, {
     body: {
       requestId: "secret",
       type: "environment_secret",
@@ -220,13 +240,13 @@ it("Environment secrets and credential coverage", async () => {
       inject: { header: "authorization", format: "Bearer {value}" },
     },
   });
-  await answer(EnvironmentSecretViewSchema, "PUT", `${base}/REGION`, {
+  await answer(AgentSecretViewSchema, "PUT", `${base}/REGION`, {
     body: { requestId: "variable", type: "environment_variable", value: "eu" },
   });
-  await answer(EnvironmentSecretViewSchema, "PUT", `${base}/api`, {
+  await answer(AgentSecretViewSchema, "PUT", `${base}/api`, {
     body: { requestId: "bearer", type: "bearer", url: "https://api.example.com", value: "secret-token" },
   });
-  await answer(EnvironmentSecretViewSchema, "PUT", `${base}/gateway`, {
+  await answer(AgentSecretViewSchema, "PUT", `${base}/gateway`, {
     body: {
       requestId: "headers",
       type: "headers",
@@ -236,22 +256,23 @@ it("Environment secrets and credential coverage", async () => {
     },
   });
   // Again, with a new value: the same credential, re-sealed.
-  await answer(EnvironmentSecretViewSchema, "PUT", `${base}/api`, {
+  await answer(AgentSecretViewSchema, "PUT", `${base}/api`, {
     body: { requestId: "rotate", type: "bearer", url: "https://api.example.com", value: "rotated-token" },
   });
-  expect((await answer(ListEnvironmentSecretsResponseSchema, "GET", base)).secrets).toHaveLength(4);
-  await answer(EnvironmentSecretViewSchema, "GET", `${base}/api`);
-  await answer(EnvironmentSecretViewSchema, "GET", `${base}/GITHUB_TOKEN`);
+  expect((await answer(ListAgentSecretsResponseSchema, "GET", base)).secrets).toHaveLength(4);
+  await answer(AgentSecretViewSchema, "GET", `${base}/api`);
+  await answer(AgentSecretViewSchema, "GET", `${base}/GITHUB_TOKEN`);
   await answer(CredentialCoverageSchema, "POST", "/v1/tenant/credential-coverage", {
-    body: { requestId: "coverage", agentId: "bot", environmentId: "keys" },
+    body: { requestId: "coverage", agentId: "keys" },
   });
   await answer(DeletedResponseSchema, "DELETE", `${base}/api`);
-  await answer(DeleteEnvironmentResponseSchema, "DELETE", "/v1/environments/keys");
+  await answer(DeleteAgentResponseSchema, "DELETE", "/v1/agents/keys");
 });
 
-it("access: signing keys, public keys, and the agent list for an issuer token", async () => {
+it("access: signing keys, public keys, and the caller and Agent list for an issuer token", async () => {
   const token = await issuer.sign("app:ann", "sessions:own agents:read");
-  await answer(ListPublicAgentsResponseSchema, "GET", "/v1/agents", {
+  await answer(MeResponseSchema, "GET", "/v1/me", { headers: app({ authorization: `Bearer ${token}` }) });
+  await answer(ListAgentsResponseSchema, "GET", "/v1/agents", {
     headers: app({ authorization: `Bearer ${token}` }),
   });
   await answer(JwksSchema, "GET", "/v1/access/jwks");

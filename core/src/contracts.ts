@@ -39,7 +39,14 @@ export { FILE_NAME_MAX, FILE_PATH_MAX } from "./utils/file-systems.js";
 import { DEFAULT_HARNESS, HARNESS_ID_PATTERN, isHarnessId } from "./utils/harness-id.js";
 export { DEFAULT_HARNESS, HARNESS_ID_PATTERN, isHarnessId };
 import { isDefinitionFileHash, skillFilesIssue } from "./utils/definition-files.js";
-export type { AgentManifest } from "./types/manifest.js";
+export type {
+  AgentHarnessSection,
+  AgentManifest,
+  HarnessMcpServer,
+  HarnessSection,
+  HarnessSkill,
+  WorkflowHarnessSection,
+} from "./types/manifest.js";
 export type { WorkflowManifest } from "./types/workflow.js";
 export { PROTOCOL_VERSION, ERROR_CODES } from "./compatibility.js";
 export {
@@ -586,21 +593,16 @@ type _WorkflowManifestDrift = AssertNoDrift<
 type _WorkflowNodeDrift = AssertNoDrift<
   ManifestDrift<WorkflowNode, z.output<typeof workflowNodeKinds>>
 >;
-/** Registry document: agent (no `kind`, or legacy) or workflow (`kind: "workflow"`). */
+/**
+ * A loop manifest: what the engine runs (agent manifest v7's shape, or workflow manifest v3's),
+ * as the Runtime makes it from an agent manifest v8's harness section (`loopManifestOf`) and a
+ * session pins it.
+ */
 export const DefinitionDocumentSchema = z.union([
   AgentManifestSchema,
   WorkflowManifestSchema,
 ]);
 export type DefinitionDocument = AgentManifest | WorkflowManifest;
-export const PutAgentRequestSchema = z
-  .object({
-    requestId: RequestIdSchema,
-    /** Agent or workflow document. Registry `kind` is carried on the document. */
-    manifest: DefinitionDocumentSchema,
-    implementationVersion: z.string().min(1),
-  })
-  .strict();
-export type PutAgentRequest = z.infer<typeof PutAgentRequestSchema>;
 const hostPatternSchema = z.string().refine(isSandboxHostPattern, {
   message: "network.allowedHosts entries must be host names such as api.github.com or *.example.com",
 });
@@ -624,38 +626,36 @@ const resourcesSchema = z
 // --- Environments (protocol 11, R2d, blueprint D55 and D56) --------------------------------
 
 /**
- * An Environment id: 1–200 characters, one or more `/`-separated segments of letters, digits,
- * `.`, `_` and `-`, each starting with a letter or digit (`user-42`, `users/alice/web`). Ids are
- * hierarchical so a grant can name a family of them (`users/alice/*`).
+ * An Agent id (protocol 16; an Environment id before): 1–200 characters, one or more
+ * `/`-separated segments of letters, digits, `.`, `_` and `-`, each starting with a letter or
+ * digit (`triage`, `users/alice/triage`). Ids are hierarchical so a grant can name a family of
+ * them (`users/alice/*`).
  */
-const ENVIRONMENT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*(?:\/[A-Za-z0-9][A-Za-z0-9._-]*)*$/;
+const AGENT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*(?:\/[A-Za-z0-9][A-Za-z0-9._-]*)*$/;
 /**
  * An identifier's grammar is the protocol's (B15): it crosses the Runtime API, tokens and grants
- * and means the same in every installation, so its length is a constant of protocol 15, not a
+ * and means the same in every installation, so its length is a constant of the protocol, not a
  * setting.
  */
-export const ENVIRONMENT_ID_MAX_LENGTH = 200;
+export const AGENT_ID_MAX_LENGTH = 200;
 
-export function isEnvironmentId(value: unknown): value is string {
-  return (
-    typeof value === "string" &&
-    value.length <= ENVIRONMENT_ID_MAX_LENGTH &&
-    ENVIRONMENT_ID_PATTERN.test(value)
-  );
+export function isAgentId(value: unknown): value is string {
+  return typeof value === "string" && value.length <= AGENT_ID_MAX_LENGTH && AGENT_ID_PATTERN.test(value);
 }
 
-/** An Environment grant: an exact Environment id, or a prefix ending in `/*` (`team-a/*`). */
-export function isEnvironmentGrant(value: unknown): value is string {
+/** An Agent grant: an exact Agent id, or a prefix ending in `/*` (`team-a/*`). */
+export function isAgentGrant(value: unknown): value is string {
   if (typeof value !== "string") return false;
-  return value.endsWith("/*") ? isEnvironmentId(value.slice(0, -2)) : isEnvironmentId(value);
+  return value === "*" || (value.endsWith("/*") ? isAgentId(value.slice(0, -2)) : isAgentId(value));
 }
 
 /**
- * Whether `grants` (a token caller's Environment grants) reach Environment `id`: an exact entry,
- * or a prefix entry `p/*` for any id below `p/`. No grants reach no Environment.
+ * Whether `grants` (a token caller's Agent grants) reach Agent `id`: `*`, an exact entry, or a
+ * prefix entry `p/*` for any id below `p/`. No grants reach no Agent.
  */
-export function environmentGranted(grants: readonly string[] | undefined, id: string): boolean {
+export function agentGranted(grants: readonly string[] | undefined, id: string): boolean {
   for (const grant of grants ?? []) {
+    if (grant === "*") return true;
     if (grant.endsWith("/*")) {
       if (id.startsWith(grant.slice(0, -1))) return true;
     } else if (grant === id) return true;
@@ -663,15 +663,14 @@ export function environmentGranted(grants: readonly string[] | undefined, id: st
   return false;
 }
 
-export const EnvironmentIdSchema = z
+export const AgentIdSchema = z
   .string()
-  .refine(isEnvironmentId, {
-    message:
-      "An Environment id is up to 200 characters: /-separated segments of letters, digits, '.', '_' and '-'",
+  .refine(isAgentId, {
+    message: "An Agent id is up to 200 characters: /-separated segments of letters, digits, '.', '_' and '-'",
   })
-  .meta({ description: "An Environment id, such as `user-42` or `users/alice/web`" });
-export const EnvironmentGrantSchema = z.string().refine(isEnvironmentGrant, {
-  message: "An Environment grant is an Environment id, or a prefix ending in /* such as team-a/*",
+  .meta({ description: "An Agent id, such as `triage` or `users/alice/triage`" });
+export const AgentGrantSchema = z.string().refine(isAgentGrant, {
+  message: "An Agent grant is *, an Agent id, or a prefix ending in /* such as team-a/*",
 });
 
 /**
@@ -797,40 +796,38 @@ export const EnvironmentFileSchema = z.union([
 export type EnvironmentFile = z.infer<typeof EnvironmentFileSchema>;
 
 /**
- * An environment manifest's name (protocol 14, D63): 1–64 letters, digits, `.`, `_` and `-`,
- * starting with a letter or digit, such as `analyst-box`; a version is at most 9 digits.
- * An identifier's grammar is the protocol's (B15): it crosses the Runtime API, tokens and grants
- * and means the same in every installation, so its length is a constant of protocol 15, not a
- * setting.
+ * An agent manifest's name (protocol 16): 1–64 letters, digits, `.`, `_` and `-`, starting with a
+ * letter or digit, such as `triage`; a version is at most 9 digits. Manifest names and Agent ids
+ * are separate namespaces.
  */
-const ENVIRONMENT_MANIFEST_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
-export function isEnvironmentManifestName(value: unknown): value is string {
-  return typeof value === "string" && ENVIRONMENT_MANIFEST_NAME_PATTERN.test(value);
+const AGENT_MANIFEST_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+export function isAgentManifestName(value: unknown): value is string {
+  return typeof value === "string" && AGENT_MANIFEST_NAME_PATTERN.test(value);
 }
-export const EnvironmentManifestNameSchema = z
+export const AgentManifestNameSchema = z
   .string()
-  .refine(isEnvironmentManifestName, {
-    message: "An environment manifest's name is 1-64 letters, digits, '.', '_' and '-', starting with a letter or digit",
+  .refine(isAgentManifestName, {
+    message: "An agent manifest's name is 1-64 letters, digits, '.', '_' and '-', starting with a letter or digit",
   })
-  .meta({ description: "An environment manifest's name, such as `analyst-box`" });
+  .meta({ description: "An agent manifest's name, such as `triage`" });
 /**
- * Which manifest an Environment is made from: `name` (its latest version when the Environment is
- * created) or `name@n` (version `n`). Either way the Environment keeps that version for life.
+ * Which agent manifest an Agent is made from: `name` (tracking: the latest version when the Agent
+ * is created; track T3 moves it on) or `name@n` (pinned to version `n`).
  */
-export function parseEnvironmentManifestRef(ref: string): { name: string; version?: number } | undefined {
+export function parseAgentManifestRef(ref: string): { name: string; version?: number } | undefined {
   const at = ref.lastIndexOf("@");
   const name = at < 0 ? ref : ref.slice(0, at);
-  if (!isEnvironmentManifestName(name)) return undefined;
+  if (!isAgentManifestName(name)) return undefined;
   if (at < 0) return { name };
   const version = ref.slice(at + 1);
   return /^[1-9][0-9]{0,8}$/.test(version) ? { name, version: Number(version) } : undefined;
 }
-export const EnvironmentManifestRefSchema = z
+export const AgentManifestRefSchema = z
   .string()
-  .refine((value) => parseEnvironmentManifestRef(value) !== undefined, {
-    message: "manifest is an environment manifest's name, or name@version such as analyst-box@3",
+  .refine((value) => parseAgentManifestRef(value) !== undefined, {
+    message: "manifest is an agent manifest's name, or name@version such as triage@3",
   })
-  .meta({ description: "`name` (the latest version when the Environment is created) or `name@n`" });
+  .meta({ description: "`name` (tracking) or `name@n` (pinned)" });
 
 /**
  * What an Environment's artifacts, its sessions' skills and its disk versions may hold: part of
@@ -871,93 +868,76 @@ export const EnvironmentLimitsSchema = z
 export type EnvironmentLimits = z.infer<typeof EnvironmentLimitsSchema>;
 
 /**
- * `PUT /v1/environments/{environmentId}`: creates the Environment and its vault, or finds the
- * one with this id, so "get or create" is one call. An Environment is made from one version of an
- * environment manifest (`manifest`) or from the inline manifest these fields make, and never
- * changes what it runs after that (protocol 14, D63): on an existing one, `labels` replace its
- * labels and `ownerUserId` sets or clears its owner guard, a field that matches what it runs is
- * accepted, and anything else is `409 environment_immutable`, naming the fork that makes a new
- * Environment instead.
+ * The fields of a runtime section (agent manifest v8, protocol 16): what the Runtime provides
+ * around an Agent's loop. Environment manifest v1's fields, which they were until protocol 16.
  */
-export const PutEnvironmentRequestSchema = z
+const runtimeFields = {
+  /** `virtual`, `pod` (needs sandbox pods, `nylorun local sandbox enable`) or `none`. Fixed. */
+  kind: z.enum(ENVIRONMENT_KINDS),
+  /** Pods only: the workload image (default the Tenant's, else `python:3.13-slim`). */
+  image: z.string().min(1).optional(),
+  resources: resourcesSchema.optional(),
+  /** Pods only: the volume's size (default 5GiB). Fixed. */
+  storage: z
+    .string()
+    .refine((value) => parseSandboxSize(value) !== undefined, {
+      message: "storage must be a size such as 5GiB",
+    })
+    .optional(),
+  /** Hosts the sandbox may reach; pods also take `*.suffix` patterns. */
+  network: z
+    .object({ allowedHosts: z.array(hostPatternSchema).optional() })
+    .strict()
+    .optional(),
+  lifecycle: EnvironmentLifecycleSchema.optional(),
+  /** Pods only: commands run when the disk is made or reset, before any turn. */
+  setup: z.array(EnvironmentSetupCommandSchema).optional(),
+  /** Pods only: artifact versions or files by hash copied in when the disk is made or reset, before `setup`. */
+  files: z.array(EnvironmentFileSchema).optional(),
+  /** What its artifacts and its sessions' skills may hold, at most the Tenant's limits. Fixed. */
+  limits: EnvironmentLimitsSchema.optional(),
+};
+
+/**
+ * `PUT /v1/agents/{agentId}` (protocol 16): creates the Agent, its vault and its compute from a
+ * saved agent manifest, or finds the one with this id, so "get or create" is one call. An Agent is
+ * the live instance of one version of an agent manifest: `manifest: "name"` records that it
+ * tracks the manifest and `"name@n"` that it is pinned; either way it resolves once, when it is
+ * created, into `resolvedVersion`, and keeps that version (track T3 moves a tracking Agent on). On
+ * an existing Agent, `labels` replace its labels and `owner` sets or clears its owner guard; a
+ * `manifest` that names what it runs is accepted, and any other is
+ * `409 agent_upgrade_unavailable`, naming the fork that makes a new Agent instead.
+ */
+export const PutAgentRequestSchema = z
   .object({
     requestId: RequestIdSchema.optional(),
+    /** The agent manifest it is made from: `name` (tracking) or `name@n` (pinned). */
+    manifest: AgentManifestRefSchema,
     /**
-     * The environment manifest to make the Environment from (Host feature
-     * `environment-manifests`): `name` or `name@n`. With it, none of the inline fields below is
-     * sent; `labels`, `ownerUserId` and `from` still are.
+     * The owner guard: when set, only sessions of this owner may run on the Agent (checked when
+     * a session opens and at every turn start). `null` clears it.
      */
-    manifest: EnvironmentManifestRefSchema.optional(),
-    /** Default `virtual`. `pod` needs sandbox pods (`nylorun local sandbox enable`). Fixed. */
-    kind: z.enum(ENVIRONMENT_KINDS).optional(),
+    owner: z.string().min(1).nullable().optional(),
     labels: EnvironmentLabelsSchema.optional(),
-    /** Pods only: the workload image (default the Tenant's, else `python:3.13-slim`). */
-    image: z.string().min(1).optional(),
-    resources: resourcesSchema.optional(),
-    /** Pods only: the volume's size (default 5GiB). Fixed. */
-    storage: z
-      .string()
-      .refine((value) => parseSandboxSize(value) !== undefined, {
-        message: "storage must be a size such as 5GiB",
-      })
-      .optional(),
-    /** Hosts the sandbox may reach; pods also take `*.suffix` patterns. */
-    network: z
-      .object({ allowedHosts: z.array(hostPatternSchema).optional() })
-      .strict()
-      .optional(),
     /**
-     * The harness that runs the Environment's sessions (track R4): `nylorun` (ours, the default)
-     * or the id of a custom harness. A pod Environment whose harness is not ours runs its
-     * `image` as the harness: the image's own entrypoint, with nothing copied in. It is fixed
-     * for the Environment's life (protocol 14): to run another harness, fork onto a manifest
-     * version that names it. Each session pins the harness when it opens; a session whose
-     * Environment id was deleted and made again with another harness fails its next turn with
-     * `harness_mismatch`.
-     */
-    harness: HarnessIdSchema.optional(),
-    /**
-     * The owner guard: when set, only sessions of this owner may name the Environment (checked
-     * when a session opens and at every turn start). `null` clears it.
-     */
-    ownerUserId: z.string().min(1).nullable().optional(),
-    lifecycle: EnvironmentLifecycleSchema.optional(),
-    /**
-     * Pods only (Host feature `environment-setup`): commands run when the disk is made or reset,
-     * before any turn. A change applies at the next reset.
-     */
-    setup: z.array(EnvironmentSetupCommandSchema).optional(),
-    /** Pods only: artifact versions copied in when the disk is made or reset, before `setup`. */
-    files: z.array(EnvironmentFileSchema).optional(),
-    /**
-     * What its artifacts and its sessions' skills may hold, at most the Tenant's limits; a limit
-     * left out is the Tenant's. Fixed.
-     */
-    limits: EnvironmentLimitsSchema.optional(),
-    /**
-     * The secrets an Environment of this kind needs, by name (D64): each slot's type, binding,
-     * whether it is required and a description, never a value. With slots declared, a secret
-     * write sends only the value and a name not declared is `409 secret_not_in_manifest`.
-     */
-    secrets: z.lazy(() => EnvironmentSecretSlotsSchema).optional(),
-    /**
-     * Only when the `PUT` creates the Environment (Host feature `environment-disk-versions`): its
-     * disk starts from this version of another Environment's disk. Its vault starts empty.
+     * Only when the `PUT` creates the Agent (Host feature `environment-disk-versions`): its disk
+     * starts from this version of another Agent's disk. Its vault starts empty.
      */
     from: z
       .object({
-        environment: EnvironmentIdSchema,
+        agent: AgentIdSchema,
         version: z.union([z.number().int().positive(), z.literal("latest")]),
       })
       .strict()
       .optional(),
   })
   .strict();
-export type PutEnvironmentRequest = z.infer<typeof PutEnvironmentRequestSchema>;
+export type PutAgentRequest = z.infer<typeof PutAgentRequestSchema>;
 
 /**
- * What an Environment runs (its inline manifest, called the recipe before protocol 14), resolved
- * against the Tenant's limits when it was made. It never changes after that.
+ * What an Agent's environment runs: its manifest version's runtime section resolved against the
+ * Tenant's limits when the Agent was made, with the harness that runs its loop. It never changes
+ * after that.
  */
 export const EnvironmentRecipeSchema = z
   .object({
@@ -976,9 +956,14 @@ export const EnvironmentRecipeSchema = z
   .strict();
 export type EnvironmentRecipe = z.infer<typeof EnvironmentRecipeSchema>;
 
-/** A session that names an Environment, as the Environment's view lists it. */
-export const EnvironmentSessionSchema = z
-  .object({ id: z.string(), activeTurnId: z.string().nullable() })
+/** A session on an Agent, as the Agent's view lists it: none is special (D71). */
+export const AgentSessionSchema = z
+  .object({
+    id: z.string(),
+    ownerUserId: z.string(),
+    status: z.string(),
+    activeTurnId: z.string().nullable(),
+  })
   .strict();
 
 /** What the Runtime wants of a pod (`desired`) and what it last saw (`observed`). */
@@ -993,7 +978,7 @@ export const POD_OBSERVED = [
 ] as const;
 export type PodDesired = (typeof POD_DESIRED)[number];
 export type PodObserved = (typeof POD_OBSERVED)[number];
-export const EnvironmentPodViewSchema = z
+export const AgentPodViewSchema = z
   .object({
     desired: z.enum(POD_DESIRED),
     observed: z.enum(POD_OBSERVED),
@@ -1010,31 +995,75 @@ export const EnvironmentPodViewSchema = z
     imageDigest: z.string().optional(),
   })
   .strict();
-export type EnvironmentPodView = z.infer<typeof EnvironmentPodViewSchema>;
+export type AgentPodView = z.infer<typeof AgentPodViewSchema>;
 
 /**
- * The compute states an Environment reports today: `ready` until a tool first runs in a virtual
- * one, then `creating`, `running` or `stopped`. An open set: clients must accept values they do
- * not know (a later release may add one, such as `cold`).
+ * The compute states an Agent's environment reports (`compute.state`): `ready` until a tool
+ * first runs in a virtual one, then `creating`, `running` or `stopped`. An open set: clients must
+ * accept values they do not know.
  */
-export const ENVIRONMENT_STATES = ["ready", "creating", "running", "stopped"] as const;
+export const COMPUTE_STATES = ["ready", "creating", "running", "stopped"] as const;
 
-/** `PUT` and `GET /v1/environments/{environmentId}`. */
-export const EnvironmentViewSchema = z
+/**
+ * An Agent's state (protocol 16), derived when it is read, the first that holds:
+ *
+ * - `paused`: its desired state is `off` (nothing in protocol 16 sets it; track T6 adds the control).
+ * - `failing`: its compute failed or was lost, or a session's latest finished turn failed.
+ * - `input_required`: a session waits on a person (an approval or interaction, or an uncertain
+ *   effect), even while another works.
+ * - `working`: a turn runs.
+ * - `sleeping`: nothing to do.
+ *
+ * An open set: clients must accept values they do not know.
+ */
+export const AGENT_STATES = ["paused", "failing", "input_required", "working", "sleeping"] as const;
+export type AgentState = (typeof AGENT_STATES)[number];
+/** What made an Agent's state, or another state that also holds (`attention`). */
+export const AgentAttentionSchema = z
+  .object({
+    state: z.enum(AGENT_STATES),
+    /** The session behind it; absent for the Agent's compute. */
+    sessionId: z.string().optional(),
+    /** Why, for a person: the session's status, or the compute's failure. */
+    reason: z.string(),
+  })
+  .strict();
+export type AgentAttention = z.infer<typeof AgentAttentionSchema>;
+
+/** `PUT` and `GET /v1/agents/{agentId}`. */
+export const AgentViewSchema = z
   .object({
     id: z.string(),
+    /** The manifest reference it was made with: `name` (tracking) or `name@n` (pinned). */
+    manifest: z.string(),
+    /** The version of the manifest it runs, resolved when it was made. */
+    resolvedVersion: z.number().int().positive(),
+    /** The hash of that version. */
+    manifestHash: z.string(),
+    /** Whether `manifest` tracks the manifest's latest version or pins one. */
+    tracking: z.enum(["tracking", "pinned"]),
     kind: z.enum(ENVIRONMENT_KINDS),
+    /** The harness that runs its loop: its manifest's `harness.id`, else `nylorun`. */
+    harness: z.string(),
+    /** The owner guard, or `null`. */
+    owner: z.string().nullable(),
     labels: z.record(z.string(), z.string()),
-    /**
-     * What it runs, fixed when it was made (protocol 14): its manifest's fields, or the inline
-     * ones, resolved against the Tenant's limits.
-     */
-    manifest: EnvironmentRecipeSchema,
-    /** The environment manifest it was made from and its version, when it was made from one. */
-    manifestName: z.string().optional(),
-    manifestVersion: z.number().int().positive().optional(),
-    /** The hash of what it runs (`manifest`). */
-    manifestHash: z.string().optional(),
+    /** See `AGENT_STATES`: an open set. */
+    state: z.string().meta({ description: "working, sleeping, input_required, failing or paused; an open set" }),
+    /** Every state that holds, with the session behind each: what made `state` first. */
+    attention: z.array(AgentAttentionSchema),
+    /** `on`, or `off` once paused (track T6). */
+    desired: z.enum(["on", "off"]),
+    compute: z
+      .object({
+        /** See `COMPUTE_STATES`: an open set. */
+        state: z.string().meta({ description: "ready, creating, running or stopped; an open set" }),
+        /** Kind `pod`: what the Runtime wants of the pod and what it last saw. */
+        pod: AgentPodViewSchema.optional(),
+      })
+      .strict(),
+    /** What its environment runs, fixed when it was made: the runtime section resolved. */
+    runtime: EnvironmentRecipeSchema,
     /** The limits in force now: its manifest's, else the Tenant's, never above the Tenant's. */
     limits: z
       .object({
@@ -1043,39 +1072,19 @@ export const EnvironmentViewSchema = z
         disk: z.object({ versionBytes: z.number().int(), versionEntries: z.number().int() }).strict(),
       })
       .strict(),
-    /**
-     * The Environment it was forked from (`POST .../fork`, Q15), and the disk version it started
-     * from (`null` for an empty disk).
-     */
-    forkedFrom: z
-      .object({ environment: z.string(), disk: z.number().int().positive().nullable() })
-      .strict()
-      .optional(),
+    /** Its sessions (acting for a subject, only the subject's own). */
+    sessions: z.array(AgentSessionSchema),
     /** Each secret slot its manifest declares, and whether its vault holds a value for it. */
-    slots: z
-      .array(
-        z
-          .object({
-            name: z.string(),
-            type: z.string(),
-            required: z.boolean(),
-            set: z.boolean(),
-          })
-          .strict(),
-      )
-      .optional(),
-    /** Always 1 since protocol 14: an Environment never changes what it runs. */
-    version: z.number().int().positive(),
-    /** Always `version`. */
-    appliedVersion: z.number().int().positive(),
-    /** The owner guard, or `null`. */
-    ownerUserId: z.string().nullable(),
-    /** See `ENVIRONMENT_STATES`: an open set. */
-    state: z.string().meta({ description: "ready, creating, running or stopped; an open set" }),
-    /** Kind `pod`: what the Runtime wants of the pod and what it last saw. */
-    pod: EnvironmentPodViewSchema.optional(),
-    /** When it was last used: a turn, a recipe change, a secret write, a stop or a reset. */
-    lastUsedAt: z.string(),
+    slots: z.array(
+      z
+        .object({
+          name: z.string(),
+          type: z.string(),
+          required: z.boolean(),
+          set: z.boolean(),
+        })
+        .strict(),
+    ),
     /**
      * Its disk versions (Host feature `environment-disk-versions`): the latest, and the copy
      * that holds the disk now, if one does. Absent for kind `none`.
@@ -1090,22 +1099,27 @@ export const EnvironmentViewSchema = z
             startedAt: z.string(),
           })
           .strict()
-          .optional(),
+          .nullable(),
       })
       .strict()
       .optional(),
-    /** Sessions that name it (acting for a subject, only the subject's own). */
-    sessions: z.array(EnvironmentSessionSchema),
+    /** The Agent it was forked from (`POST .../fork`), and the disk version it started from. */
+    forkedFrom: z
+      .object({ agent: z.string(), disk: z.number().int().positive().nullable() })
+      .strict()
+      .nullable(),
+    /** When it was last used: a turn, a secret write, a stop or a reset. */
+    lastUsedAt: z.string(),
     createdAt: z.string(),
     updatedAt: z.string(),
   })
   .strict();
-export type EnvironmentView = z.infer<typeof EnvironmentViewSchema>;
+export type AgentView = z.infer<typeof AgentViewSchema>;
 
-/** `POST /v1/environments/{id}/snapshot`: a new version of the Environment's disk. */
-export const EnvironmentSnapshotSchema = z
+/** `POST /v1/agents/{id}/snapshot`: a new version of the Agent's disk. */
+export const AgentSnapshotSchema = z
   .object({
-    environmentId: z.string(),
+    agentId: z.string(),
     artifactId: z.string(),
     version: z.number().int().positive(),
     format: z.string(),
@@ -1121,32 +1135,32 @@ export const EnvironmentSnapshotSchema = z
     createdAt: z.string(),
   })
   .strict();
-export type EnvironmentSnapshot = z.infer<typeof EnvironmentSnapshotSchema>;
-/** `POST /v1/environments/{id}/restore`: which version of its disk to put back. */
-export const RestoreEnvironmentRequestSchema = z
+export type AgentSnapshot = z.infer<typeof AgentSnapshotSchema>;
+/** `POST /v1/agents/{id}/restore`: which version of its disk to put back. */
+export const RestoreAgentRequestSchema = z
   .object({
     requestId: RequestIdSchema.optional(),
     version: z.union([z.number().int().positive(), z.literal("latest")]),
   })
   .strict();
-export type RestoreEnvironmentRequest = z.infer<typeof RestoreEnvironmentRequestSchema>;
-export const EnvironmentRestoreSchema = z
+export type RestoreAgentRequest = z.infer<typeof RestoreAgentRequestSchema>;
+export const AgentRestoreSchema = z
   .object({
-    environmentId: z.string(),
+    agentId: z.string(),
     restored: z.number().int().positive(),
     /**
-     * `done` once the version is back (a virtual Environment); `pending` while a pod's new volume
-     * is seeded (`disk.operation` in the view until it ends; turns wait for it).
+     * `done` once the version is back (a virtual Agent); `pending` while a pod's new volume is
+     * seeded (`disk.operation` in the view until it ends; turns wait for it).
      */
     status: z.enum(["done", "pending"]),
     volumeGeneration: z.number().int().nonnegative().optional(),
   })
   .strict();
-export type EnvironmentRestore = z.infer<typeof EnvironmentRestoreSchema>;
-/** `GET /v1/environments/{id}/versions`: its disk versions, newest first. */
-export const EnvironmentVersionsSchema = z
+export type AgentRestore = z.infer<typeof AgentRestoreSchema>;
+/** `GET /v1/agents/{id}/versions`: its disk versions, newest first. */
+export const AgentDiskVersionsSchema = z
   .object({
-    environmentId: z.string(),
+    agentId: z.string(),
     /** The folder artifact that holds them (read trees, files and diffs through `/v1/artifacts`). */
     artifactId: z.string().nullable(),
     latest: z.number().int().positive().nullable(),
@@ -1161,30 +1175,25 @@ export const EnvironmentVersionsSchema = z
     ),
   })
   .strict();
-export type EnvironmentVersions = z.infer<typeof EnvironmentVersionsSchema>;
+export type AgentDiskVersions = z.infer<typeof AgentDiskVersionsSchema>;
 
-export const ListEnvironmentsResponseSchema = z
-  .object({ environments: z.array(EnvironmentViewSchema) })
-  .strict();
-export type ListEnvironmentsResponse = z.infer<typeof ListEnvironmentsResponseSchema>;
-
-export const DeleteEnvironmentResponseSchema = z
+export const DeleteAgentResponseSchema = z
   .object({ id: z.string(), deleted: z.boolean() })
   .strict();
-export type DeleteEnvironmentResponse = z.infer<typeof DeleteEnvironmentResponseSchema>;
+export type DeleteAgentResponse = z.infer<typeof DeleteAgentResponseSchema>;
 
-/** A turn that was running on an Environment when one of its connections opened (D67). */
+/** A turn that was running on an Agent when one of its connections opened (D67). */
 export const EgressRunningTurnSchema = z
   .object({ sessionId: z.string(), turnId: z.string() })
   .strict();
 export type EgressRunningTurn = z.infer<typeof EgressRunningTurnSchema>;
 
 /**
- * One connection a pod Environment opened through egress-gate (track R7, Q6): written when it
- * closes, or at once when the gate refused it, to the Environment's own stream as
- * `environment.egress` (D67). The connection is the Environment's: its egress token names the pod,
- * and the Environment's sessions run turns in parallel (D66). `runningTurns` lists the turns
- * active on it as the connection opened, at most 16, as context and never as the owner.
+ * One connection a pod Agent opened through egress-gate (track R7, Q6): written when it closes,
+ * or at once when the gate refused it, to the Agent's own stream as `agent.egress` (D67). The
+ * connection is the Agent's: its egress token names the pod, and the Agent's sessions run turns
+ * in parallel (D66). `runningTurns` lists the turns active on it as the connection opened, at
+ * most 16, as context and never as the owner.
  *
  * `startedAt` is the gate's clock at CONNECT and `durationMs` runs from there to the close, so
  * the span is the gate's own measurement. `bytesUp` is what the sandbox sent, `bytesDown` what it
@@ -1194,7 +1203,7 @@ export type EgressRunningTurn = z.infer<typeof EgressRunningTurnSchema>;
  */
 export const EgressConnectionPayloadSchema = z
   .object({
-    environmentId: z.string(),
+    agentId: z.string(),
     host: z.string(),
     port: z.number().int(),
     outcome: z.enum(["allowed", "refused"]),
@@ -1214,106 +1223,107 @@ export const EgressConnectionPayloadSchema = z
   })
   .passthrough();
 
-/** The schema id of an Environment's lifecycle events (its stream in the record). */
-export const ENVIRONMENT_EVENT_SCHEMA = "nylorun.environment-event/1";
-export const ENVIRONMENT_EVENT_TYPES = [
-  "environment.created",
-  "environment.attached",
-  "environment.detached",
-  "environment.deleted",
+/** The schema id of an Agent's lifecycle events (its stream in the record). */
+export const AGENT_EVENT_SCHEMA = "nylorun.agent-event/1";
+export const AGENT_EVENT_TYPES = [
+  "agent.created",
+  "agent.attached",
+  "agent.detached",
+  "agent.deleted",
   // Kind `pod` (Host feature `sandbox-pods`).
-  "environment.running",
-  "environment.suspended",
-  "environment.relaunched",
-  "environment.lost",
-  "environment.reset",
-  "environment.failed",
-  // Forked into a new Environment (Q15).
-  "environment.forked",
-  // egress-gate: every connection the Environment opens (R7, D67).
-  "environment.egress",
+  "agent.running",
+  "agent.suspended",
+  "agent.relaunched",
+  "agent.lost",
+  "agent.reset",
+  "agent.failed",
+  // Forked into a new Agent (Q15).
+  "agent.forked",
+  // egress-gate: every connection the Agent opens (R7, D67).
+  "agent.egress",
 ] as const;
-export type EnvironmentEventType = (typeof ENVIRONMENT_EVENT_TYPES)[number];
-/** The payload of each Environment lifecycle event. */
-export const ENVIRONMENT_EVENT_PAYLOADS = {
-  "environment.created": z
+export type AgentEventType = (typeof AGENT_EVENT_TYPES)[number];
+/** The payload of each Agent lifecycle event. */
+export const AGENT_EVENT_PAYLOADS = {
+  "agent.created": z
     .object({
       kind: z.enum(ENVIRONMENT_KINDS),
       labels: z.record(z.string(), z.string()),
-      /** The environment manifest and version it was made from (protocol 14, D63). */
-      manifest: z.object({ name: z.string(), version: z.number().int().positive() }).strict().optional(),
-      /** The Environment it was forked from, and the disk version it started from (Q15). */
+      /** The agent manifest and version it was made from, and how it refers to it. */
+      manifest: z
+        .object({ name: z.string(), version: z.number().int().positive(), tracking: z.enum(["tracking", "pinned"]) })
+        .strict(),
+      /** The Agent it was forked from, and the disk version it started from (Q15). */
       forkedFrom: z
-        .object({ environment: z.string(), disk: z.number().int().positive().nullable() })
+        .object({ agent: z.string(), disk: z.number().int().positive().nullable() })
         .strict()
         .optional(),
     })
     .passthrough(),
-  "environment.attached": z.object({ sessionId: z.string() }).passthrough(),
-  "environment.detached": z
+  "agent.attached": z.object({ sessionId: z.string() }).passthrough(),
+  "agent.detached": z
     .object({ sessionId: z.string(), reason: z.enum(["reset"]) })
     .passthrough(),
   /** Deleted by a `DELETE`, or by the sweep once `lifecycle.deleteAfter` passed (`reason`). */
-  "environment.deleted": z
+  "agent.deleted": z
     .object({ reason: z.enum(["delete", "deleteAfter"]).optional() })
     .passthrough(),
-  /** A pod joined and serves the Environment. */
-  "environment.running": z.object({ hostEpoch: z.number().int() }).passthrough(),
+  /** A pod joined and serves the Agent. */
+  "agent.running": z.object({ hostEpoch: z.number().int() }).passthrough(),
   /** Stopped (`POST .../stop`, or idle): the volume is kept; the next turn starts it again. */
-  "environment.suspended": z.object({ reason: z.enum(["stop", "idle"]) }).passthrough(),
+  "agent.suspended": z.object({ reason: z.enum(["stop", "idle"]) }).passthrough(),
   /** Its pod was replaced (same volume): the old pod's host token no longer works. */
-  "environment.relaunched": z.object({ hostEpoch: z.number().int() }).passthrough(),
+  "agent.relaunched": z.object({ hostEpoch: z.number().int() }).passthrough(),
   /** Its volume or node is gone: turns are refused until a reset. */
-  "environment.lost": z.object({ reason: z.string() }).passthrough(),
+  "agent.lost": z.object({ reason: z.string() }).passthrough(),
   /** Reset: a new pod on a new, empty volume. */
-  "environment.reset": z.object({ volumeGeneration: z.number().int() }).passthrough(),
+  "agent.reset": z.object({ volumeGeneration: z.number().int() }).passthrough(),
   /** The pod did not become ready. */
-  "environment.failed": z.object({ reason: z.string() }).passthrough(),
-  /** Forked into Environment `to`: its disk started from version `disk`, `secrets` were copied. */
-  "environment.forked": z
+  "agent.failed": z.object({ reason: z.string() }).passthrough(),
+  /** Forked into Agent `to`: its disk started from version `disk`, `secrets` were copied. */
+  "agent.forked": z
     .object({
       to: z.string(),
       disk: z.number().int().positive().nullable(),
-      manifest: z.object({ name: z.string(), version: z.number().int().positive() }).strict().optional(),
+      manifest: z.object({ name: z.string(), version: z.number().int().positive() }).strict(),
       secrets: z.number().int().nonnegative(),
     })
     .passthrough(),
   /** A connection through egress-gate, with the turns running as it opened (D67). */
-  "environment.egress": EgressConnectionPayloadSchema,
-} as const satisfies Record<EnvironmentEventType, z.ZodType>;
-export type EnvironmentEventPayload<T extends EnvironmentEventType> = z.infer<
-  (typeof ENVIRONMENT_EVENT_PAYLOADS)[T]
->;
-/** One lifecycle event on an Environment's stream, numbered from 0. */
-export const EnvironmentEventSchema = z
+  "agent.egress": EgressConnectionPayloadSchema,
+} as const satisfies Record<AgentEventType, z.ZodType>;
+export type AgentEventPayload<T extends AgentEventType> = z.infer<(typeof AGENT_EVENT_PAYLOADS)[T]>;
+/** One lifecycle event on an Agent's stream, numbered from 0. */
+export const AgentEventSchema = z
   .object({
-    schema: z.literal(ENVIRONMENT_EVENT_SCHEMA),
+    schema: z.literal(AGENT_EVENT_SCHEMA),
     eventId: z.string(),
     tenantId: z.string(),
-    environmentId: z.string(),
+    agentId: z.string(),
     seq: z.number().int().nonnegative(),
     time: z.string(),
-    type: z.enum(ENVIRONMENT_EVENT_TYPES),
+    type: z.enum(AGENT_EVENT_TYPES),
     payload: z.record(z.string(), z.unknown()),
   })
   .strict();
-export type EnvironmentEvent = z.infer<typeof EnvironmentEventSchema>;
-export const ListEnvironmentEventsResponseSchema = z
-  .object({ events: z.array(EnvironmentEventSchema) })
+export type AgentEvent = z.infer<typeof AgentEventSchema>;
+export const ListAgentEventsResponseSchema = z
+  .object({ events: z.array(AgentEventSchema) })
   .strict();
 
+/**
+ * `PUT /v1/sessions/{id}` (protocol 16): the session's Agent, owner and info. The session runs on
+ * the Agent for its life (its sandbox, its vault's credentials) and pins the manifest version the
+ * Agent runs when it opens. No session is special (D71): an app that keeps one conversation
+ * going reuses its id.
+ */
 export const PutSessionRequestSchema = z
   .object({
     requestId: RequestIdSchema,
-    agentId: z.string().min(1),
+    /** The Agent the session runs on. Fixed once the session exists. */
+    agent: AgentIdSchema,
     ownerUserId: z.string().min(1),
     info: jsonObject.optional(),
-    /**
-     * The Environment the session runs in: its sandbox, and its vault's credentials for the
-     * session's shell, MCP servers and HTTP tools. Omitted: no sandbox and no credentials.
-     * Fixed once the session exists.
-     */
-    environment: EnvironmentIdSchema.optional(),
   })
   .strict();
 export type PutSessionRequest = z.infer<typeof PutSessionRequestSchema>;
@@ -1526,7 +1536,7 @@ const EnvironmentValueSchema = z
  */
 export const TOOL_SECRET_NAME_PATTERN = /^[A-Za-z0-9._-]{1,64}$/;
 /**
- * `PUT /v1/environments/{environmentId}/secrets/{name}` (D56): creates or replaces one credential
+ * `PUT /v1/agents/{agentId}/secrets/{name}` (D56): creates or replaces one credential
  * in the Environment's vault. For `environment_secret` and `environment_variable` the name is
  * the variable's name (a POSIX name, not reserved); for `bearer` and `headers` it is a label.
  * The same name and type keeps the credential and re-seals its value and binding; another type
@@ -1534,7 +1544,7 @@ export const TOOL_SECRET_NAME_PATTERN = /^[A-Za-z0-9._-]{1,64}$/;
  * credentials bound to one host, or two `bearer`/`headers` credentials for one URL, are
  * `409 credential_conflict`.
  */
-export const PutEnvironmentSecretRequestSchema = z.discriminatedUnion("type", [
+export const PutAgentSecretRequestSchema = z.discriminatedUnion("type", [
   z
     .object({
       requestId: RequestIdSchema.optional(),
@@ -1570,12 +1580,12 @@ export const PutEnvironmentSecretRequestSchema = z.discriminatedUnion("type", [
     })
     .strict(),
 ]);
-export type PutEnvironmentSecretRequest = z.infer<typeof PutEnvironmentSecretRequestSchema>;
+export type PutAgentSecretRequest = z.infer<typeof PutAgentSecretRequestSchema>;
 /**
  * A secret write on an Environment whose manifest declares the secret's slot (D64): only the
  * value, `value` (or `headers` for a `headers` slot). Its type and binding come from the slot.
  */
-export const PutEnvironmentSecretValueRequestSchema = z
+export const PutAgentSecretValueRequestSchema = z
   .object({
     requestId: RequestIdSchema.optional(),
     value: z.string().min(1).optional(),
@@ -1585,10 +1595,10 @@ export const PutEnvironmentSecretValueRequestSchema = z
   .refine((body) => (body.value === undefined) !== (body.headers === undefined), {
     message: "Send value, or headers for a headers secret",
   });
-export type PutEnvironmentSecretValueRequest = z.infer<typeof PutEnvironmentSecretValueRequestSchema>;
+export type PutAgentSecretValueRequest = z.infer<typeof PutAgentSecretValueRequestSchema>;
 /** Whether `name` may name a secret of `type` (`PUT .../secrets/{name}`); a message when not. */
 export function environmentSecretNameError(
-  type: PutEnvironmentSecretRequest["type"],
+  type: PutAgentSecretRequest["type"],
   name: string,
 ): string | undefined {
   if (type === "environment_secret" || type === "environment_variable") {
@@ -1612,7 +1622,7 @@ const slotBase = {
 };
 /**
  * One secret an Environment of a kind needs (D64): its type and binding, never its value. The
- * value is written into each Environment's vault (`PUT /v1/environments/{id}/secrets/{name}`
+ * value is written into each Environment's vault (`PUT /v1/agents/{id}/secrets/{name}`
  * with `{ value }`, or `{ headers }` for `headers`), and the binding comes from here.
  */
 export const EnvironmentSecretSlotSchema = z.discriminatedUnion("type", [
@@ -1640,152 +1650,10 @@ export const EnvironmentSecretSlotsSchema = z
   });
 export type EnvironmentSecretSlots = z.infer<typeof EnvironmentSecretSlotsSchema>;
 
-/** The schema version of an environment manifest; the Runtime refuses one it does not know. */
-export const ENVIRONMENT_MANIFEST_SCHEMA_VERSION = 1;
-const environmentFields = PutEnvironmentRequestSchema.shape;
-/**
- * An environment manifest (protocol 14, D63): a named, versioned definition of a kind of
- * Environment, saved like an agent (`PUT /v1/environment-manifests/{name}`). It holds what every
- * Environment made from it shares; an Environment's id, labels, owner guard, disk and secret
- * values are its own. Written as a JSON file with `$schema`, which clients drop before saving.
- */
-export const EnvironmentManifestSchema = z
-  .object({
-    manifestSchemaVersion: z.literal(ENVIRONMENT_MANIFEST_SCHEMA_VERSION, {
-      error: (issue) =>
-        `manifestSchemaVersion ${JSON.stringify(issue.input)} is not one this Runtime reads: use ${ENVIRONMENT_MANIFEST_SCHEMA_VERSION}`,
-    }),
-    name: EnvironmentManifestNameSchema,
-    /** At most the Tenant's Runtime limit `manifestDescriptionChars`, checked when it is saved. */
-    description: z.string().optional(),
-    kind: environmentFields.kind,
-    image: environmentFields.image,
-    resources: environmentFields.resources,
-    storage: environmentFields.storage,
-    network: environmentFields.network,
-    harness: environmentFields.harness,
-    lifecycle: environmentFields.lifecycle,
-    setup: environmentFields.setup,
-    files: environmentFields.files,
-    limits: environmentFields.limits,
-    secrets: EnvironmentSecretSlotsSchema.optional(),
-  })
-  .strict();
-export type EnvironmentManifest = z.infer<typeof EnvironmentManifestSchema>;
-/** `PUT /v1/environment-manifests/{name}`: the manifest, whose `name` is the path's. */
-export const PutEnvironmentManifestRequestSchema = EnvironmentManifestSchema.extend({
-  requestId: RequestIdSchema.optional(),
-}).strict();
-export type PutEnvironmentManifestRequest = z.infer<typeof PutEnvironmentManifestRequestSchema>;
-/** Who saved a version: the subject a request acted for, else `application`. */
-export const EnvironmentManifestSavedBySchema = z.object({ actor: z.string() }).strict();
-/** One version of an environment manifest. */
-export const EnvironmentManifestViewSchema = z
-  .object({
-    name: z.string(),
-    version: z.number().int().positive(),
-    /** The hash of `manifest`: equal manifests have equal hashes. */
-    hash: z.string(),
-    manifest: EnvironmentManifestSchema,
-    savedBy: EnvironmentManifestSavedBySchema,
-    createdAt: z.string(),
-    /** How many Environments were made from this version. */
-    environments: z.number().int().nonnegative(),
-  })
-  .strict();
-export type EnvironmentManifestView = z.infer<typeof EnvironmentManifestViewSchema>;
-/** `GET /v1/environment-manifests`: each manifest's latest version, by name. */
-export const ListEnvironmentManifestsResponseSchema = z
-  .object({ manifests: z.array(EnvironmentManifestViewSchema) })
-  .strict();
-export type ListEnvironmentManifestsResponse = z.infer<typeof ListEnvironmentManifestsResponseSchema>;
-/** `GET /v1/environment-manifests/{name}/versions`: every version, newest first. */
-export const EnvironmentManifestVersionsSchema = z
-  .object({
-    name: z.string(),
-    latest: z.number().int().positive(),
-    versions: z.array(
-      z
-        .object({
-          version: z.number().int().positive(),
-          hash: z.string(),
-          savedBy: EnvironmentManifestSavedBySchema,
-          createdAt: z.string(),
-          environments: z.number().int().nonnegative(),
-        })
-        .strict(),
-    ),
-  })
-  .strict();
-export type EnvironmentManifestVersions = z.infer<typeof EnvironmentManifestVersionsSchema>;
-/** Something a save would do that the saver should know: never a refusal. */
-export const EnvironmentManifestWarningSchema = z
-  .object({ code: z.string(), message: z.string() })
-  .strict();
-export type EnvironmentManifestWarning = z.infer<typeof EnvironmentManifestWarningSchema>;
-/**
- * `PUT /v1/environment-manifests/{name}?dryRun=true`: what saving it would do, with nothing
- * saved. `errors` lists every reason the Runtime would refuse it (the Tenant's limits, for one);
- * a save with errors is `400`. `behind` counts the Environments made from an older version than
- * the one it would save. No Environment changes when a version is saved (D63).
- */
-export const EnvironmentManifestPlanSchema = z
-  .object({
-    name: z.string(),
-    /** The latest version now, or `null` for a new manifest. */
-    from: z.number().int().positive().nullable(),
-    /** The version a save would answer: `from` when nothing changed. */
-    to: z.number().int().positive(),
-    unchanged: z.boolean(),
-    changes: z.array(
-      z.object({ path: z.string(), from: z.unknown().optional(), to: z.unknown().optional() }).strict(),
-    ),
-    warnings: z.array(EnvironmentManifestWarningSchema),
-    errors: z.array(z.string()),
-    behind: z.number().int().nonnegative(),
-  })
-  .strict();
-export type EnvironmentManifestPlan = z.infer<typeof EnvironmentManifestPlanSchema>;
-/** `PUT /v1/environment-manifests/{name}`: the version saved (or the latest, unchanged). */
-export const SaveEnvironmentManifestResponseSchema = z
-  .object({
-    manifest: EnvironmentManifestViewSchema,
-    unchanged: z.boolean(),
-    warnings: z.array(EnvironmentManifestWarningSchema),
-  })
-  .strict();
-export type SaveEnvironmentManifestResponse = z.infer<typeof SaveEnvironmentManifestResponseSchema>;
-export const DeleteEnvironmentManifestResponseSchema = z
-  .object({ name: z.string(), deleted: z.boolean() })
-  .strict();
-export type DeleteEnvironmentManifestResponse = z.infer<typeof DeleteEnvironmentManifestResponseSchema>;
 // --- Agent manifest v8 (protocol 16, track T2) ----------------------------------------------
 
 /** The schema version of an agent manifest the Runtime saves at `/v1/agent-manifests/{name}`. */
 export const AGENT_MANIFEST_V8_SCHEMA_VERSION = 8;
-/**
- * An agent manifest's name: the key in `/v1/agent-manifests/{name}`, with the environment
- * manifest's rule. Manifest names and Agent ids are separate namespaces.
- */
-export const AgentManifestNameSchema = z
-  .string()
-  .refine(isEnvironmentManifestName, {
-    message: "An agent manifest's name is 1-64 letters, digits, '.', '_' and '-', starting with a letter or digit",
-  })
-  .meta({ description: "An agent manifest's name, such as `triage`" });
-/**
- * Which agent manifest an Agent is made from: `name` (tracking: the latest version when the Agent
- * is created; T3 moves it on) or `name@n` (pinned to version `n`).
- */
-export const AgentManifestRefSchema = z
-  .string()
-  .refine((value) => parseEnvironmentManifestRef(value) !== undefined, {
-    message: "manifest is an agent manifest's name, or name@version such as triage@3",
-  })
-  .meta({ description: "`name` (tracking) or `name@n` (pinned)" });
-/** Parses `name` or `name@n`; undefined when it is neither. */
-export const parseAgentManifestRef = parseEnvironmentManifestRef;
-
 /** A skill of the harness section: v7's, and the secret slots its scripts read. */
 const harnessSkillSchema = z
   .object({
@@ -1926,14 +1794,14 @@ const runtimeSectionObject = z
       kind: z.enum(ENVIRONMENT_KINDS, {
         error: () => `runtime.kind is required: ${ENVIRONMENT_KINDS.join(", ")}`,
       }),
-      image: environmentFields.image,
-      resources: environmentFields.resources,
-      storage: environmentFields.storage,
-      network: environmentFields.network,
-      lifecycle: environmentFields.lifecycle,
-      setup: environmentFields.setup,
-      files: environmentFields.files,
-      limits: environmentFields.limits,
+      image: runtimeFields.image,
+      resources: runtimeFields.resources,
+      storage: runtimeFields.storage,
+      network: runtimeFields.network,
+      lifecycle: runtimeFields.lifecycle,
+      setup: runtimeFields.setup,
+      files: runtimeFields.files,
+      limits: runtimeFields.limits,
       secrets: EnvironmentSecretSlotsSchema.optional(),
       triggers: z
         .unknown()
@@ -2002,8 +1870,18 @@ export const HarnessManifestFileSchema = z
 export type HarnessManifestFile = z.infer<typeof HarnessManifestFileSchema>;
 /** `runtime.manifest.json`: the runtime section as a file, often shared by many agents. */
 export const RUNTIME_MANIFEST_FILE_SCHEMA_VERSION = 1;
-export const RuntimeManifestFileSchema = runtimeSectionObject
-  .extend({ $schema: z.string().optional() });
+export const RuntimeManifestFileSchema = runtimeSectionObject.extend({
+  $schema: z.string().optional(),
+  /** Also `{ path, from }`: a folder beside the file that the composer uploads by hash as `{ path, files }`. */
+  files: z
+    .array(
+      z.union([
+        EnvironmentFileSchema,
+        z.object({ path: z.string().min(1), from: z.string().min(1) }).strict(),
+      ]),
+    )
+    .optional(),
+});
 export type RuntimeManifestFile = z.infer<typeof RuntimeManifestFileSchema>;
 /**
  * `agent.manifest.json`: an agent manifest v8 whose `harness` and `runtime` may each be a path to
@@ -2024,38 +1902,135 @@ export const AgentManifestFileSchema = z
   .strict();
 export type AgentManifestFile = z.infer<typeof AgentManifestFileSchema>;
 
+
+/** `PUT /v1/agent-manifests/{name}`: the manifest, whose `name` is the path's. */
+export const PutAgentManifestRequestSchema = AgentManifestV8Schema.extend({
+  requestId: RequestIdSchema.optional(),
+}).strict();
+export type PutAgentManifestRequest = z.infer<typeof PutAgentManifestRequestSchema>;
+/** Who saved a version: the subject a request acted for, else `application`. */
+export const AgentManifestSavedBySchema = z.object({ actor: z.string() }).strict();
+/** One version of an agent manifest. */
+export const AgentManifestViewSchema = z
+  .object({
+    name: z.string(),
+    version: z.number().int().positive(),
+    /** The hash of `manifest`: equal manifests have equal hashes. */
+    hash: z.string(),
+    manifest: AgentManifestV8Schema,
+    savedBy: AgentManifestSavedBySchema,
+    createdAt: z.string(),
+    /** How many Agents were made from this version. */
+    agents: z.number().int().nonnegative(),
+  })
+  .strict();
+export type AgentManifestView = z.infer<typeof AgentManifestViewSchema>;
+/** `GET /v1/agent-manifests`: each manifest's latest version, by name. */
+export const ListAgentManifestsResponseSchema = z
+  .object({ manifests: z.array(AgentManifestViewSchema) })
+  .strict();
+export type ListAgentManifestsResponse = z.infer<typeof ListAgentManifestsResponseSchema>;
+/** `GET /v1/agent-manifests/{name}/versions`: every version, newest first. */
+export const AgentManifestVersionsSchema = z
+  .object({
+    name: z.string(),
+    latest: z.number().int().positive(),
+    versions: z.array(
+      z
+        .object({
+          version: z.number().int().positive(),
+          hash: z.string(),
+          savedBy: AgentManifestSavedBySchema,
+          createdAt: z.string(),
+          agents: z.number().int().nonnegative(),
+        })
+        .strict(),
+    ),
+  })
+  .strict();
+export type AgentManifestVersions = z.infer<typeof AgentManifestVersionsSchema>;
+/** Something a save would do that the saver should know: never a refusal. */
+export const AgentManifestWarningSchema = z
+  .object({ code: z.string(), message: z.string() })
+  .strict();
+export type AgentManifestWarning = z.infer<typeof AgentManifestWarningSchema>;
+/** One field a save changes, by its section and its path in it. */
+export const AgentManifestChangeSchema = z
+  .object({
+    /** `harness`, `runtime`, or `manifest` for the top-level fields. */
+    section: z.enum(["manifest", "harness", "runtime"]),
+    path: z.string(),
+    op: z.enum(["add", "remove", "replace"]),
+    from: z.unknown().optional(),
+    to: z.unknown().optional(),
+  })
+  .strict();
+export type AgentManifestChange = z.infer<typeof AgentManifestChangeSchema>;
 /**
- * `POST /v1/environments/{id}/fork` (Q15): how an Environment gets a new manifest version. The
- * fork is a new Environment, made from the version, its disk started from a version of the
- * source's disk and its secrets copied inside the Runtime. The source keeps what it runs, its
- * disk and its sessions.
+ * `PUT /v1/agent-manifests/{name}?dryRun=true`: what saving it would do, with nothing saved.
+ * `errors` lists every reason the Runtime would refuse it: the gaps between its sections, the
+ * Tenant's limits, its files; a save with errors is refused. `behind` counts the Agents made
+ * from an older version than the one it would save: they stay on theirs (track T3 moves them).
  */
-export const ForkEnvironmentRequestSchema = z
+export const AgentManifestPlanSchema = z
+  .object({
+    name: z.string(),
+    /** The latest version now, or `null` for a new manifest. */
+    from: z.number().int().positive().nullable(),
+    /** The version a save would answer: `from` when nothing changed. */
+    to: z.number().int().positive(),
+    unchanged: z.boolean(),
+    changes: z.array(AgentManifestChangeSchema),
+    warnings: z.array(AgentManifestWarningSchema),
+    errors: z.array(z.string()),
+    behind: z.number().int().nonnegative(),
+  })
+  .strict();
+export type AgentManifestPlan = z.infer<typeof AgentManifestPlanSchema>;
+/** `PUT /v1/agent-manifests/{name}`: the version saved (or the latest, unchanged). */
+export const SaveAgentManifestResponseSchema = z
+  .object({
+    manifest: AgentManifestViewSchema,
+    unchanged: z.boolean(),
+    warnings: z.array(AgentManifestWarningSchema),
+  })
+  .strict();
+export type SaveAgentManifestResponse = z.infer<typeof SaveAgentManifestResponseSchema>;
+export const DeleteAgentManifestResponseSchema = z
+  .object({ name: z.string(), deleted: z.boolean() })
+  .strict();
+export type DeleteAgentManifestResponse = z.infer<typeof DeleteAgentManifestResponseSchema>;
+/**
+ * `POST /v1/agents/{id}/fork` (Q15): copies an Agent, with its disk and vault, into a new one,
+ * made from `manifest` (default the source's manifest at its latest version): how an Agent moves
+ * to a newer version before track T3. The source keeps what it runs, its disk and its sessions.
+ */
+export const ForkAgentRequestSchema = z
   .object({
     requestId: RequestIdSchema.optional(),
-    /** The new Environment's id. */
-    id: EnvironmentIdSchema,
-    /** `name` or `name@n`; default the source's manifest at its latest version. */
-    manifest: EnvironmentManifestRefSchema.optional(),
+    /** The new Agent's id. */
+    id: AgentIdSchema,
+    /** `name` or `name@n`; default the source's manifest name (tracking). */
+    manifest: AgentManifestRefSchema.optional(),
     /** Where its disk starts: `latest` (a snapshot taken first; the default), a version, or `empty`. */
     disk: z.union([z.literal("latest"), z.literal("empty"), z.number().int().positive()]).optional(),
-    /** `copy` (the default): the source's secrets the new manifest declares (all, without slots). */
+    /** `copy` (the default): the source's secrets the new manifest declares. */
     secrets: z.enum(["copy", "none"]).optional(),
     labels: EnvironmentLabelsSchema.optional(),
-    ownerUserId: z.string().min(1).nullable().optional(),
+    owner: z.string().min(1).nullable().optional(),
     /** Answer the plan and make nothing. */
     dryRun: z.boolean().optional(),
   })
   .strict();
-export type ForkEnvironmentRequest = z.infer<typeof ForkEnvironmentRequestSchema>;
+export type ForkAgentRequest = z.infer<typeof ForkAgentRequestSchema>;
 /** What a fork does (or, with `dryRun`, would do). */
-export const EnvironmentForkPlanSchema = z
+export const AgentForkPlanSchema = z
   .object({
     source: z.string(),
     id: z.string(),
     kind: z.enum(ENVIRONMENT_KINDS),
-    /** The manifest version it is made from, or `null` for the source's inline fields. */
-    manifest: z.object({ name: z.string(), version: z.number().int().positive() }).strict().nullable(),
+    /** The manifest version it is made from. */
+    manifest: z.object({ name: z.string(), version: z.number().int().positive() }).strict(),
     /** The disk version it starts from: `latest` in a dry run (the snapshot is taken at the fork); `null` for an empty disk. */
     disk: z.union([z.number().int().positive(), z.literal("latest")]).nullable(),
     /** Whether the new manifest's setup runs on the copied disk: it differs from what the source runs. */
@@ -2078,13 +2053,13 @@ export const EnvironmentForkPlanSchema = z
     sessions: z.number().int().nonnegative(),
   })
   .strict();
-export type EnvironmentForkPlan = z.infer<typeof EnvironmentForkPlanSchema>;
-/** `POST /v1/environments/{id}/fork`: the new Environment and the plan it ran, or with `dryRun` the plan only. */
-export const ForkEnvironmentResponseSchema = z.union([
-  z.object({ dryRun: z.literal(true), plan: EnvironmentForkPlanSchema }).strict(),
-  z.object({ environment: EnvironmentViewSchema, plan: EnvironmentForkPlanSchema }).strict(),
+export type AgentForkPlan = z.infer<typeof AgentForkPlanSchema>;
+/** `POST /v1/agents/{id}/fork`: the new Agent and the plan it ran, or with `dryRun` the plan only. */
+export const ForkAgentResponseSchema = z.union([
+  z.object({ dryRun: z.literal(true), plan: AgentForkPlanSchema }).strict(),
+  z.object({ agent: AgentViewSchema, plan: AgentForkPlanSchema }).strict(),
 ]);
-export type ForkEnvironmentResponse = z.infer<typeof ForkEnvironmentResponseSchema>;
+export type ForkAgentResponse = z.infer<typeof ForkAgentResponseSchema>;
 /**
  * What a model may read (protocol 12): `text` always; `image`, `pdf`, `office` (Word, Excel,
  * PowerPoint), `audio` and `video` when its catalog entry or the operator says so. In this order.
@@ -2173,7 +2148,7 @@ export const ENVIRONMENT_SECRET_TYPES = [
  * One credential of an Environment's vault, never its value: what it is bound to (the server
  * `url` for `bearer` and `headers`; the hosts and header for `environment_secret`).
  */
-export const EnvironmentSecretViewSchema = z
+export const AgentSecretViewSchema = z
   .object({
     name: z.string(),
     type: z.enum(ENVIRONMENT_SECRET_TYPES),
@@ -2192,16 +2167,16 @@ export const EnvironmentSecretViewSchema = z
     rotatedAt: z.string().optional(),
   })
   .strict();
-export type EnvironmentSecretView = z.infer<typeof EnvironmentSecretViewSchema>;
-export const ListEnvironmentSecretsResponseSchema = z
-  .object({ secrets: z.array(EnvironmentSecretViewSchema) })
+export type AgentSecretView = z.infer<typeof AgentSecretViewSchema>;
+export const ListAgentSecretsResponseSchema = z
+  .object({ secrets: z.array(AgentSecretViewSchema) })
   .strict();
-export type ListEnvironmentSecretsResponse = z.infer<typeof ListEnvironmentSecretsResponseSchema>;
+export type ListAgentSecretsResponse = z.infer<typeof ListAgentSecretsResponseSchema>;
 /** The MCP transports a preview speaks: a manifest's remote server types. */
 export const MCP_PREVIEW_TYPES = ["streamable-http", "sse"] as const;
 /**
  * `POST /v1/tenant/mcp/preview` (R2b C12): what a remote MCP server offers, before an agent
- * names it. The Runtime connects with the credential for `url` in the vault of `environmentId`
+ * names it. The Runtime connects with the credential for `url` in the vault of Agent `agentId`
  * (none without one), lists the tools and closes the connection; it never calls a tool.
  */
 export const McpPreviewRequestSchema = z
@@ -2229,7 +2204,7 @@ export const McpPreviewRequestSchema = z
      */
     name: modelFacingName("MCP server").optional(),
     /** The Environment whose vault's credential for `url` to send. Default: none is sent. */
-    environmentId: EnvironmentIdSchema.optional(),
+    agentId: AgentIdSchema.optional(),
   })
   .strict();
 export type McpPreviewRequest = z.infer<typeof McpPreviewRequestSchema>;
@@ -2285,25 +2260,23 @@ export const McpPreviewSchema = z
   .strict();
 export type McpPreview = z.infer<typeof McpPreviewSchema>;
 /**
- * `POST /v1/tenant/credential-coverage`: which credential each of a saved agent's remote MCP
- * servers and HTTP tools would get in a session that names `environmentId`, decided as the
- * session's tool calls decide it (by URL). It reads no secret and calls no server.
+ * `POST /v1/tenant/credential-coverage`: which credential each of an Agent's remote MCP servers
+ * and HTTP tools (those of the manifest version it runs) would get in its sessions, decided as the
+ * session's tool calls decide it (by URL) from the Agent's vault. It reads no secret and calls no
+ * server.
  */
 export const CredentialCoverageRequestSchema = z
   .object({
     requestId: RequestIdSchema.optional(),
-    /** A saved agent or flow agent. */
-    agentId: z.string().min(1),
-    /** The Environment the session would name. Default: none (every entry is `missing`). */
-    environmentId: EnvironmentIdSchema.optional(),
+    agentId: AgentIdSchema,
   })
   .strict();
 export type CredentialCoverageRequest = z.infer<typeof CredentialCoverageRequestSchema>;
 /** A credential coverage names: where it is, never its value. */
 export const CoverageCredentialSchema = z
   .object({
-    environmentId: z.string(),
-    /** The secret's name in the Environment's vault. */
+    agentId: z.string(),
+    /** The secret's name in the Agent's vault. */
     name: z.string(),
     /** Where the credential sends the requests instead of the URL (a gateway). */
     via: z.string().optional(),
@@ -2345,7 +2318,6 @@ export type CredentialCoverageEntry = z.infer<typeof CredentialCoverageEntrySche
 export const CredentialCoverageSchema = z
   .object({
     agentId: z.string(),
-    environmentId: z.string().nullable(),
     /** True when every entry is `covered`. */
     complete: z.boolean(),
     /** One per declared MCP server and HTTP tool credential: the agent's, then its agents'. */
@@ -2796,8 +2768,10 @@ export const EffectUncertainPayloadSchema = z
 const turnEndFacts = {
   durationMs: z.number().int().nonnegative().optional(),
   pausedMs: z.number().int().nonnegative().optional(),
-  /** The session's agent. */
+  /** The session's Agent. */
   agentId: z.string().optional(),
+  /** The agent manifest version the session runs (protocol 16): the agent the turn's span names. */
+  manifest: z.object({ name: z.string(), version: z.number().int() }).passthrough().optional(),
   totals: z
     .object({
       steps: z.number().int().nonnegative(),
@@ -2920,11 +2894,11 @@ export const EnvironmentStatePayloadSchema = z
   })
   .passthrough();
 /**
- * `environment.attached`: the session was opened on an Environment (`environment`). The
- * Environment's own stream records the same attachment.
+ * `agent.attached`: the session was opened on its Agent (protocol 16; `environment.attached`
+ * before). The Agent's own stream records the same attachment.
  */
-export const EnvironmentAttachedPayloadSchema = z
-  .object({ environmentId: z.string() })
+export const AgentAttachedPayloadSchema = z
+  .object({ agentId: z.string() })
   .passthrough();
 /** `environment.exec`: one sandbox tool call finished. */
 export const EnvironmentExecPayloadSchema = z
@@ -3154,7 +3128,7 @@ export const EVENT_CATALOG = {
   "mcp.discovered": { payload: McpDiscoveredPayloadSchema, source: "loop", version: 1 },
   "environment.state": { payload: EnvironmentStatePayloadSchema, source: "loop", version: 1 },
   "environment.exec": { payload: EnvironmentExecPayloadSchema, source: "loop", version: 1 },
-  "environment.attached": { payload: EnvironmentAttachedPayloadSchema, source: "api", version: 1 },
+  "agent.attached": { payload: AgentAttachedPayloadSchema, source: "api", version: 1 },
   "node.started": { payload: NodeStartedPayloadSchema, source: "loop", version: 1 },
   "node.completed": { payload: NodeCompletedPayloadSchema, source: "loop", version: 1 },
   "node.agent": { payload: NodeAgentPayloadSchema, source: "loop", version: 1 },
@@ -3495,7 +3469,7 @@ export const TenantStatusSchema = z
       })
       .strict(),
     model: HostModelViewSchema,
-    /** The registered agents. */
+    /** The Tenant's Agents, by id. */
     agents: z.array(z.object({ agentId: z.string() }).strict()),
     counts: z
       .object({
@@ -3604,7 +3578,7 @@ export type SeedTenantConfigResponse = z.infer<
 export const ResetTenantRequestSchema = z
   .object({
     requestId: RequestIdSchema,
-    scope: z.enum(["sessions", "environments", "all"]),
+    scope: z.enum(["sessions", "agents", "all"]),
     activeWork: z.enum(["drain", "cancel"]),
   })
   .strict();
@@ -3613,15 +3587,15 @@ export type ResetTenantRequest = z.infer<typeof ResetTenantRequestSchema>;
 /**
  * Acting for a subject (Host feature `subject-headers`): what an application principal may
  * narrow a request to. `sessions:own` reaches only the subject's own sessions; the others reach
- * Tenant-wide resources. `environments:write` creates, changes and deletes Environments and
- * writes their secrets (protocol 11); a token caller's reach only the ids its Environment
- * grants name.
+ * Tenant-wide resources. `agents:write` creates, changes and deletes Agents and writes their
+ * secrets (protocol 16; `environments:write` before); a token caller's reach only the ids its
+ * Agent grants name. `agent-manifests:write` saves and deletes agent manifests.
  */
 export const SUBJECT_SCOPES = [
   "agents:read",
   "agents:write",
   "sessions:own",
-  "environments:write",
+  "agent-manifests:write",
 ] as const;
 export type SubjectScope = (typeof SUBJECT_SCOPES)[number];
 /**
@@ -3679,10 +3653,10 @@ export function parseSubjectHeaders(
       message: "Nylorun-Scopes is required with Nylorun-Subject",
     };
   const names = named.filter((name) => !RETIRED_SUBJECT_SCOPES.includes(name));
-  if (names.includes("sandboxes:write"))
+  if (names.includes("sandboxes:write") || names.includes("environments:write"))
     return {
       ok: false,
-      message: "sandboxes:write was renamed environments:write in protocol 11",
+      message: "environments:write was renamed agents:write in protocol 16 (sandboxes:write before protocol 11)",
     };
   const unknown = names.filter(
     (name) => !(SUBJECT_SCOPES as readonly string[]).includes(name)
@@ -3699,12 +3673,13 @@ export function parseSubjectHeaders(
 // --- token callers (Host feature `trusted-issuers`) ------------------------------------------
 
 /**
- * Scopes a token caller (a trusted issuer's token) may carry: never `agents:write`.
+ * Scopes a token caller (a trusted issuer's token) may carry: never `agent-manifests:write`.
+ * `agents:write` reaches only the Agents its grants name.
  */
 export const TOKEN_SCOPES = [
   "agents:read",
   "sessions:own",
-  "environments:write",
+  "agents:write",
 ] as const;
 export type TokenScope = (typeof TOKEN_SCOPES)[number];
 /**
@@ -3715,6 +3690,7 @@ export function tenantTokenIssuer(tenantId: string): string {
   return `urn:nylorun:tenant:${tenantId}`;
 }
 
+/** The Agents a caller reaches: `*` for every one, or Agent grants (ids and `p/*` prefixes). */
 const AgentAllowlistSchema = z.union([
   z.literal("*"),
   z.array(z.string().min(1)),
@@ -3785,9 +3761,8 @@ export type CallerScope = (typeof CALLER_SCOPES)[number];
  *   `issuer:<name>` (a token from the identity file's issuer `name`).
  * - `subject` is the person the request acts for; absent for an application key alone.
  * - `scopes`: what the caller holds. An application key alone holds every subject scope.
- * - `agents`: the agents it may reach, `*` for all.
- * - `environments`: the Environment grants of a token caller (empty reaches none); absent for
- *   an application key, alone or acting for a subject, which no grant limits.
+ * - `agents`: the Agents it may reach: `*` for all, else a token caller's Agent grants (ids
+ *   and `p/*` prefixes; empty reaches none).
  */
 export const MeResponseSchema = z
   .object({
@@ -3797,13 +3772,6 @@ export const MeResponseSchema = z
       .meta({ description: "The person the request acts for; absent for an application key alone" }),
     scopes: z.array(z.enum(CALLER_SCOPES)),
     agents: AgentAllowlistSchema,
-    environments: z
-      .array(z.string())
-      .optional()
-      .meta({
-        description:
-          "A token caller's Environment grants (empty reaches none); absent when no grant limits the caller",
-      }),
     via: z.string().meta({
       description:
         "How the caller authenticated: `application:<principalId>`, `management:<principalId>`, `subject` or `issuer:<name>`",
@@ -3833,43 +3801,11 @@ export function isSerializedOrigin(value: string): boolean {
 // Successful answers of the Runtime and Management APIs that had no schema of their own. With the
 // request schemas above they describe every body the Runtime sends (its OpenAPI document).
 
-/** `GET /v1/agents` with an application key: every definition, manifest included. */
-export const AgentDefinitionViewSchema = z
-  .object({
-    agentId: z.string(),
-    manifest: z.record(z.string(), z.unknown()),
-    manifestHash: z.string(),
-    implementationVersion: z.string(),
-  })
-  .strict();
-export type AgentDefinitionView = z.infer<typeof AgentDefinitionViewSchema>;
+/** `GET /v1/agents`: the Agents the caller reaches. */
 export const ListAgentsResponseSchema = z
-  .object({ agents: z.array(AgentDefinitionViewSchema) })
+  .object({ agents: z.array(AgentViewSchema) })
   .strict();
 export type ListAgentsResponse = z.infer<typeof ListAgentsResponseSchema>;
-/** `GET /v1/agents` with a token caller's credential: the allowed agents' names only. */
-export const PublicAgentSchema = z
-  .object({
-    agentId: z.string(),
-    name: z.string().optional(),
-    description: z.string().optional(),
-  })
-  .strict();
-export type PublicAgent = z.infer<typeof PublicAgentSchema>;
-export const ListPublicAgentsResponseSchema = z
-  .object({ agents: z.array(PublicAgentSchema) })
-  .strict();
-export type ListPublicAgentsResponse = z.infer<typeof ListPublicAgentsResponseSchema>;
-export const PutAgentResponseSchema = z
-  .object({
-    agentId: z.string(),
-    manifestHash: z.string(),
-    implementationVersion: z.string(),
-    /** True for `?dryRun=true` (protocol 14): every check ran, and nothing was saved. */
-    dryRun: z.boolean().optional(),
-  })
-  .strict();
-export type PutAgentResponse = z.infer<typeof PutAgentResponseSchema>;
 
 export const SESSION_STATUSES = [
   "idle",
@@ -3885,6 +3821,7 @@ export const SESSION_STATUSES = [
 export const SessionSummarySchema = z
   .object({
     id: z.string(),
+    /** The Agent the session runs on. */
     agentId: z.string(),
     ownerUserId: z.string(),
     status: z.enum(SESSION_STATUSES),
@@ -3900,33 +3837,26 @@ export type ListSessionsResponse = z.infer<typeof ListSessionsResponseSchema>;
 export const SessionViewSchema = z
   .object({
     id: z.string(),
+    /** The Agent the session runs on (protocol 16). */
     agentId: z.string(),
     ownerUserId: z.string(),
-    manifestHash: z.string(),
     /**
-     * The hash of the definition the session was opened from (R2b C11). Since protocol 15 the
-     * session pins its definition as registered, so it equals `manifestHash`. Absent for a
-     * session opened before R2b C11.
+     * The agent manifest version the session pinned when it opened: the one its Agent runs.
+     * Absent for a session closed by protocol 16, opened from a definition.
      */
-    definitionHash: z.string().optional(),
-    implementationVersion: z.string(),
+    manifest: z.object({ name: z.string(), version: z.number().int().positive() }).strict().nullable(),
+    /** The hash of the loop manifest the session pinned. */
+    manifestHash: z.string(),
     status: z.enum(SESSION_STATUSES),
     activeTurnId: z.string().nullable(),
     /**
-     * The Environment the session names, and its recipe version when the session opened (for
-     * reading only); `null` without one.
-     */
-    environment: z
-      .object({ id: z.string(), version: z.number().int().positive() })
-      .strict()
-      .nullable(),
-    /**
      * The harness that runs the session's turns, pinned when it opened (track R4): its
-     * Environment's harness, else `nylorun`.
+     * manifest's `harness.id`, else `nylorun`.
      */
     harness: z.string(),
     /**
-     * Why the session takes no new turn, when it is closed: `protocol_13` for a session opened
+     * Why the session takes no new turn, when it is closed: `protocol_16` for a session opened
+     * before protocol 16 (from a definition), `protocol_13` for a session opened
      * before protocol 13, `protocol_11` for one opened before protocol 11 (a new turn is
      * `409 session_closed`; its history stays readable).
      */
@@ -4095,15 +4025,18 @@ export const TenantSandboxViewSchema = z
   .strict();
 export type TenantSandboxView = z.infer<typeof TenantSandboxViewSchema>;
 
-/** What a usage total or a budget covers: the whole Tenant, one agent, or one turn. */
-export const ModelUsageScopeSchema = z.enum(["tenant", "agent", "turn"]);
+/**
+ * What a usage total or a budget covers: the whole Tenant, the Agents made from one agent manifest
+ * (`manifest`, by its name; scope `agent` keyed a definition id before protocol 16), or one turn.
+ */
+export const ModelUsageScopeSchema = z.enum(["tenant", "manifest", "turn"]);
 export type ModelUsageScope = z.infer<typeof ModelUsageScopeSchema>;
 
 /** `GET /v1/tenant/usage`: which rows of the model usage ledger to total. */
 export const ModelUsageQuerySchema = z
   .object({
     scope: ModelUsageScopeSchema.default("tenant"),
-    /** The agent or turn id; required for those scopes. */
+    /** The manifest's name or the turn id; required for those scopes. */
     id: z.string().min(1).optional(),
     /** The current UTC day or month, or every row. */
     period: z.enum(["day", "month", "total"]).default("total"),
@@ -4134,11 +4067,14 @@ export type ModelUsageTotals = z.infer<typeof ModelUsageTotalsSchema>;
  */
 export const ModelBudgetSchema = z
   .object({
-    /** `turn` caps every turn; `agent` one agent's sessions; `tenant` all of them. */
+    /**
+     * `turn` caps every turn; `manifest` the sessions of every Agent made from one agent
+     * manifest; `tenant` all of them.
+     */
     scope: ModelUsageScopeSchema,
-    /** The agent's id; `agent` only. */
+    /** The agent manifest's name; `manifest` only. */
     id: z.string().min(1).optional(),
-    /** The UTC period spend counts over; `agent` and `tenant` only. */
+    /** The UTC period spend counts over; `manifest` and `tenant` only. */
     period: z.enum(["day", "month"]).optional(),
     /** pi-ai's catalog price; custom endpoints count as $0, so cap them in tokens. */
     limitUsd: z.number().positive().optional(),
@@ -4148,10 +4084,10 @@ export const ModelBudgetSchema = z
   .superRefine((budget, ctx) => {
     if (budget.limitUsd === undefined && budget.limitTokens === undefined)
       ctx.addIssue({ code: "custom", message: "A budget needs limitUsd, limitTokens or both" });
-    if ((budget.scope === "agent") !== (budget.id !== undefined))
-      ctx.addIssue({ code: "custom", message: "An agent budget names the agent in id; other scopes take no id" });
+    if ((budget.scope === "manifest") !== (budget.id !== undefined))
+      ctx.addIssue({ code: "custom", message: "A manifest budget names the agent manifest in id; other scopes take no id" });
     if ((budget.scope === "turn") === (budget.period !== undefined))
-      ctx.addIssue({ code: "custom", message: "A turn budget takes no period; agent and Tenant budgets need one" });
+      ctx.addIssue({ code: "custom", message: "A turn budget takes no period; manifest and Tenant budgets need one" });
   });
 export type ModelBudget = z.infer<typeof ModelBudgetSchema>;
 
@@ -4490,10 +4426,10 @@ export const ArtifactViewSchema = z
     /** The session it belongs to; absent for a Tenant-wide artifact an application made. */
     sessionId: z.string().optional(),
     /**
-     * The Environment whose disk versions it holds (R2d step 3); absent otherwise. Such an
-     * artifact changes only through `/v1/environments/{id}/snapshot` and its versions routes.
+     * The Agent whose disk versions it holds (R2d step 3); absent otherwise. Such an artifact
+     * changes only through `/v1/agents/{id}/snapshot` and its versions routes.
      */
-    environmentId: z.string().optional(),
+    agentId: z.string().optional(),
     latestVersion: z.number().int().positive(),
     labels: z.record(z.string(), z.string()).optional(),
     createdAt: z.string(),
@@ -4731,7 +4667,6 @@ export type TenantLimitsView = z.infer<typeof TenantLimitsViewSchema>;
 /** Opt-in session reads (Host feature `session-reads`). */
 export const SessionListItemSchema = SessionSummarySchema.extend({
   lastTurnId: z.string().nullable(),
-  environmentId: z.string().nullable(),
   createdAt: z.string().nullable(),
   lastEventAt: z.string().nullable(),
 }).strict();
@@ -4743,9 +4678,12 @@ export type SessionPage = z.infer<typeof SessionPageSchema>;
 export const SessionManifestViewSchema = z
   .object({
     sessionId: z.string(),
+    /** The Agent the session runs on. */
     agentId: z.string(),
+    /** The agent manifest version it pinned; `null` for a session closed by protocol 16. */
+    definition: z.object({ name: z.string(), version: z.number().int().positive() }).strict().nullable(),
     manifestHash: z.string(),
-    implementationVersion: z.string(),
+    /** The loop manifest it pinned: that version's harness section, as the harness runs it. */
     manifest: z.record(z.string(), z.unknown()),
   })
   .strict();
@@ -4785,7 +4723,8 @@ export const ModelCallSchema = z
     effectId: z.string(),
     sessionId: z.string(),
     turnId: z.string(),
-    agentId: z.string(),
+    /** The agent manifest the calling agent came from (protocol 16; `agentId` before). */
+    manifestName: z.string(),
     provider: z.string().nullable(),
     model: z.string().nullable(),
     at: z.string(),
@@ -4896,7 +4835,7 @@ export const TurnTraceSchema = z
   })
   .passthrough();
 export type TurnTrace = z.infer<typeof TurnTraceSchema>;
-export const EnvironmentPageSchema = z
-  .object({ environments: z.array(EnvironmentViewSchema), nextCursor: z.string().nullable() })
+export const AgentPageSchema = z
+  .object({ agents: z.array(AgentViewSchema), nextCursor: z.string().nullable() })
   .strict();
-export type EnvironmentPage = z.infer<typeof EnvironmentPageSchema>;
+export type AgentPage = z.infer<typeof AgentPageSchema>;

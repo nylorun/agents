@@ -326,11 +326,12 @@ export const ModelDescriptorSchema = z
   .strict();
 
 /**
- * The Environment a turn runs in (protocol 15): its id and kind and, when the session has a
+ * The Agent a turn runs on (Harness API 5, protocol 16): its id and kind and, when it has a
  * sandbox, the workspace its commands start in. A harness writes the model's instructions and
  * defines its sandbox tools from it; the sandbox's spec is the routing's (`routing.sandbox.spec`).
+ * The Agent's runtime section never reaches the harness.
  */
-export const TurnEnvironmentSchema = z
+export const TurnAgentSchema = z
   .object({
     id,
     kind: z.enum(ENVIRONMENT_KINDS),
@@ -344,8 +345,19 @@ export const TurnStartSchema = z
   .object({
     type: z.enum(["turn.start", "approval.answer"]),
     engine: z.enum(["agent", "flow"]),
-    /** The turn's manifest (agent) or the workflow manifest (flow). */
+    /**
+     * The turn's loop manifest: the harness section of the agent manifest version its session
+     * pinned, with the manifest's name as its `id` (agent manifest v7's shape), or the workflow
+     * manifest (flow). A flow's leaf session gets its embedded agent's.
+     */
     manifest: document,
+    /** The agent manifest version the session pinned (protocol 16), for the harness's records. */
+    definition: z.object({ name: z.string(), version: z.number().int().positive() }).strict().optional(),
+    /**
+     * The harness section's `loop` (protocol 16): the harness's own settings, which the Runtime
+     * passes on without reading. Ours reads none yet.
+     */
+    loop: document.optional(),
     /** The segment's checkpoint; an agent's state has no transcript (`transcript.cursor`). */
     checkpoint: document,
     /**
@@ -391,10 +403,10 @@ export const TurnStartSchema = z
      */
     model: ModelDescriptorSchema.optional(),
     /**
-     * The Environment the session runs in (protocol 15): what our engine writes the sandbox notes
-     * and defines the sandbox tools from. Absent when the session names none, and for a flow.
+     * The Agent the session runs on (Harness API 5; `environment` before): what our engine writes
+     * the sandbox notes and defines the sandbox tools from. Absent for a flow.
      */
-    environment: TurnEnvironmentSchema.optional(),
+    agent: TurnAgentSchema.optional(),
   })
   .strict();
 

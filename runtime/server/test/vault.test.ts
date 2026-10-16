@@ -4,7 +4,7 @@ import { openTestSessionStore, withTestSessionStore } from "./support/store.js";
 import { expect, it } from "vitest";
 import { Agent } from "@nylorun/core/define";
 import { startTestTenant } from "./support/tenant.js";
-import { putEnvironment, putSecret, writeSecret } from "./support/environment-secrets.js";
+import { deploy, openSession, putSecret, writeSecret } from "./support/agents.js";
 
 const KEK = Buffer.alloc(32, 9).toString("base64");
 const ADA_TOKEN = "ada-vault-plaintext-token-7f3c9a2e";
@@ -60,6 +60,11 @@ async function boot(options: BootOpts = {}) {
   };
 }
 
+const bot = Agent({ id: "bot", name: "Bot" }).build();
+/** Saves bot and makes Agent `id` from it, of kind none, with `owner` as its owner guard. */
+const putAgent = (url: string, headers: Record<string, string>, id: string, owner?: string) =>
+  deploy(url, headers, bot, { id, ...(owner === undefined ? {} : { owner }) });
+
 async function json(response: Response) {
   return { status: response.status, body: await response.json() };
 }
@@ -67,7 +72,7 @@ async function json(response: Response) {
 it("stores bearer credentials without returning or persisting the plaintext", async () => {
   const runtime = await boot();
   try {
-    await putEnvironment(runtime.url, server, "ada");
+    await putAgent(runtime.url, server, "ada");
     const credential = await writeSecret(runtime.url, server, "ada", "github", {
       type: "bearer",
       url: URL,
@@ -77,12 +82,12 @@ it("stores bearer credentials without returning or persisting the plaintext", as
     expect(JSON.stringify(credential.body)).not.toContain(ADA_TOKEN);
     expect(credential.body).toMatchObject({ name: "github", type: "bearer", binding: { url: URL } });
     const read = await json(
-      await fetch(`${runtime.url}/v1/environments/ada/secrets/github`, { headers: server }),
+      await fetch(`${runtime.url}/v1/agents/ada/secrets/github`, { headers: server }),
     );
     expect(read.status).toBe(200);
     expect(JSON.stringify(read.body)).not.toContain(ADA_TOKEN);
     expect(read.body).toEqual(credential.body);
-    const listed = await json(await fetch(`${runtime.url}/v1/environments/ada/secrets`, { headers: server }));
+    const listed = await json(await fetch(`${runtime.url}/v1/agents/ada/secrets`, { headers: server }));
     expect(listed.body).toEqual({ secrets: [credential.body] });
     // The same name and type replaces the value; the answer never carries either.
     const replaced = await writeSecret(runtime.url, server, "ada", "github", {
@@ -101,50 +106,23 @@ it("stores bearer credentials without returning or persisting the plaintext", as
     });
     expect(conflict.status).toBe(409);
     expect(conflict.body).toMatchObject({ code: "credential_conflict" });
-    // Acting for a person without environments:write, and with the management key: refused.
+    // Acting for a person without agents:write, and with the management key: refused.
     expect(
       (await writeSecret(runtime.url, actingForBao, "ada", "x", { type: "bearer", url: URL, value: "t" })).status,
     ).toBe(403);
     expect(
       [401, 403],
     ).toContain((await writeSecret(runtime.url, management, "ada", "x", { type: "bearer", url: URL, value: "t" })).status);
-    expect((await fetch(`${runtime.url}/v1/environments/ada/secrets/x`, { headers: server })).status).toBe(404);
+    expect((await fetch(`${runtime.url}/v1/agents/ada/secrets/x`, { headers: server })).status).toBe(404);
   } finally {
     await runtime.close();
     await rm(runtime.root, { recursive: true, force: true });
   }
 });
 
-/** Puts agent `bot` and Ada's session `s-ada`, naming Environment `environmentId`. */
-async function attach(runtime: { url: string }, environmentId: string) {
-  const agent = Agent({ id: "bot", name: "Bot" }).build();
-  expect(
-    (
-      await fetch(`${runtime.url}/v1/agents/bot`, {
-        method: "PUT",
-        headers: server,
-        body: JSON.stringify({
-          requestId: "agent",
-          manifest: agent.manifest,
-          implementationVersion: "dev",
-        }),
-      })
-    ).ok,
-  ).toBe(true);
-  expect(
-    (
-      await fetch(`${runtime.url}/v1/sessions/s-ada`, {
-        method: "PUT",
-        headers: server,
-        body: JSON.stringify({
-          requestId: "session",
-          agentId: "bot",
-          ownerUserId: "ada",
-          environment: environmentId,
-        }),
-      })
-    ).ok,
-  ).toBe(true);
+/** Opens Ada's session `s-ada` on Agent `agent`. */
+async function attach(runtime: { url: string }, agent: string) {
+  expect((await openSession(runtime.url, server, "s-ada", { agent, ownerUserId: "ada" })).ok).toBe(true);
 }
 
 it("keeps ciphertext unreadable without the key-encryption key", async () => {
@@ -152,7 +130,7 @@ it("keeps ciphertext unreadable without the key-encryption key", async () => {
   const { root, tenantId } = runtime;
   let vaultId = "";
   try {
-    await putEnvironment(runtime.url, server, "ada");
+    await putAgent(runtime.url, server, "ada");
     await putSecret(runtime.url, server, "ada", "token", { type: "bearer", url: URL, value: ADA_TOKEN });
     await attach(runtime, "ada");
   } finally {
@@ -209,26 +187,14 @@ it("keeps ciphertext unreadable without the key-encryption key", async () => {
   }
 });
 
-it("sends the credentials of the Environment a session names, behind its owner guard", async () => {
+it("sends the credentials of the Agent a session runs on, behind its owner guard", async () => {
   const runtime = await boot();
   try {
-    const agent = Agent({ id: "bot", name: "Bot" }).build();
-    expect(
-      (
-        await fetch(`${runtime.url}/v1/agents/bot`, {
-          method: "PUT",
-          headers: server,
-          body: JSON.stringify({
-            requestId: "agent",
-            manifest: agent.manifest,
-            implementationVersion: "dev",
-          }),
-        })
-      ).ok,
-    ).toBe(true);
-    await putEnvironment(runtime.url, server, "users/ada", { kind: "none", ownerUserId: "ada" });
+    // Agent bot, with an empty vault; one Agent each for Ada and Bao.
+    await putAgent(runtime.url, server, "bot");
+    await putAgent(runtime.url, server, "users/ada", "ada");
     await putSecret(runtime.url, server, "users/ada", "token", { type: "bearer", url: URL, value: ADA_TOKEN });
-    await putEnvironment(runtime.url, server, "users/bao", { kind: "none", ownerUserId: "bao" });
+    await putAgent(runtime.url, server, "users/bao", "bao");
     await putSecret(runtime.url, server, "users/bao", "token", { type: "bearer", url: URL, value: BAO_TOKEN });
     const foreign = await json(
       await fetch(`${runtime.url}/v1/sessions/s-ada`, {
@@ -236,28 +202,26 @@ it("sends the credentials of the Environment a session names, behind its owner g
         headers: server,
         body: JSON.stringify({
           requestId: "s",
-          agentId: "bot",
+          agent: "users/bao",
           ownerUserId: "ada",
-          environment: "users/bao",
         }),
       }),
     );
     expect(foreign.status).toBe(403);
-    expect(foreign.body).toMatchObject({ code: "environment_owner_mismatch" });
+    expect(foreign.body).toMatchObject({ code: "agent_owner_mismatch" });
     const session = await json(
       await fetch(`${runtime.url}/v1/sessions/s-ada`, {
         method: "PUT",
         headers: server,
         body: JSON.stringify({
           requestId: "s2",
-          agentId: "bot",
+          agent: "users/ada",
           ownerUserId: "ada",
-          environment: "users/ada",
         }),
       }),
     );
     expect(session.status).toBe(200);
-    expect(session.body).toMatchObject({ environment: { id: "users/ada", version: 1 } });
+    expect(session.body).toMatchObject({ agentId: "users/ada", manifest: { name: "bot", version: 1 } });
     expect(
       await runtime.authorize("s-ada", { url: "https://mcp.example.com/other" }),
     ).toMatchObject({ status: "unauthenticated", headers: {} });
@@ -281,9 +245,8 @@ it("sends the credentials of the Environment a session names, behind its owner g
         headers: server,
         body: JSON.stringify({
           requestId: "bao",
-          agentId: "bot",
+          agent: "users/bao",
           ownerUserId: "bao",
-          environment: "users/bao",
         }),
       }),
     );
@@ -292,16 +255,16 @@ it("sends the credentials of the Environment a session names, behind its owner g
       status: "authorized",
       headers: { authorization: `Bearer ${BAO_TOKEN}` },
     });
-    // A session that names no Environment sends nothing.
+    // A session on an Agent whose vault holds none sends nothing.
     const bare = await json(
       await fetch(`${runtime.url}/v1/sessions/s-bare`, {
         method: "PUT",
         headers: server,
-        body: JSON.stringify({ requestId: "bare", agentId: "bot", ownerUserId: "ada" }),
+        body: JSON.stringify({ requestId: "bare", agent: "bot", ownerUserId: "ada" }),
       }),
     );
     expect(bare.status).toBe(200);
-    expect(bare.body).toMatchObject({ environment: null });
+    expect(bare.body).toMatchObject({ agentId: "bot" });
     expect(await runtime.authorize("s-bare", { url: URL })).toMatchObject({
       status: "unauthenticated",
       headers: {},
@@ -312,24 +275,11 @@ it("sends the credentials of the Environment a session names, behind its owner g
   }
 });
 
-it("keeps the host model credential out of Environment vaults and responses", async () => {
+it("keeps the host model credential out of Agent vaults and responses", async () => {
   const runtime = await boot({ retainRoot: true });
   const secret = "host-model-plaintext-key-77ab";
   try {
-    const agent = Agent({ id: "bot", name: "Bot" }).build();
-    expect(
-      (
-        await fetch(`${runtime.url}/v1/agents/bot`, {
-          method: "PUT",
-          headers: server,
-          body: JSON.stringify({
-            requestId: "agent",
-            manifest: agent.manifest,
-            implementationVersion: "dev",
-          }),
-        })
-      ).ok,
-    ).toBe(true);
+    await putAgent(runtime.url, server, "bot");
     expect(
       (await json(await fetch(`${runtime.url}/v1/tenant/model`, { headers: management })))
         .body,
@@ -383,9 +333,9 @@ it("keeps the host model credential out of Environment vaults and responses", as
       await fetch(`${runtime.url}/v1/tenant/models`, { headers: management }),
     );
     expect(JSON.stringify(catalog.body)).not.toContain(secret);
-    // The host vault is no Environment's.
+    // The host vault is no Agent's.
     expect(
-      (await fetch(`${runtime.url}/v1/environments/host/secrets`, { headers: server })).status,
+      (await fetch(`${runtime.url}/v1/agents/host/secrets`, { headers: server })).status,
     ).toBe(404);
     const listed = await json(
       await fetch(`${runtime.url}/v1/tenant/providers`, { headers: management }),
@@ -496,9 +446,8 @@ it("keeps the host model credential out of Environment vaults and responses", as
         headers: server,
         body: JSON.stringify({
           requestId: "session",
-          agentId: "bot",
+          agent: "host",
           ownerUserId: "ada",
-          environment: "host",
         }),
       }),
     );

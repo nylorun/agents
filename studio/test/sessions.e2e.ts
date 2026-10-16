@@ -1,8 +1,9 @@
 /**
- * Opening sessions in the dashboard, in Chromium: a session an application
- * created (another owner, an Environment, info) opens and shows its history, and a
- * flow's child session, whose agent is embedded and not registered, opens from
- * the Workflow tree. Only "New session" creates a session.
+ * Opening sessions in the dashboard, in Chromium (protocol 16): a session an
+ * application created on an Agent (another owner, info) opens and shows its
+ * history, and a flow's child session, which runs on the flow's Agent with the
+ * embedded agent's loop, opens from the Workflow tree. Only "New session"
+ * creates a session, on the Agent picked.
  *
  * Run with `npm run test:e2e` (builds first). Not part of `npm run check`:
  * it needs Playwright's Chromium (`npx playwright install chromium`).
@@ -20,8 +21,12 @@ const ADMIN_KEY = "e".repeat(64);
 const TENANT = "tn_00000000000000000000000001";
 const WEB_ROOT = fileURLToPath(new URL("../dist/web", import.meta.url));
 
+/** Agents: `orders` (made from manifest `orders` v1, which has a v2), `shipping` (a flow). */
 const AGENT = "orders";
 const FLOW = "shipping";
+/** An Agent guarded for another owner: Studio's sessions may not run on it. */
+const GUARDED = "bob-orders";
+/** The agent a flow embeds: its child session runs on the flow's Agent. */
 const CHILD_AGENT = "logistics-planner";
 const ALICE_SESSION = "s-alice";
 const FLOW_SESSION = "s-flow";
@@ -72,21 +77,54 @@ type Command = { sessionId: string; body: Record<string, any> };
 type StoredArtifact = { id: string; name: string; contentType: string; sessionId: string; bytes: Buffer };
 
 const time = "2026-10-10T00:00:00.000Z";
-const environmentView = (id: string, ownerUserId: string | null) => ({
+const ordersLoop = { instructions: ["Answer about orders."], tools: [] };
+const flowLoop = {
+  kind: "workflow",
+  root: { chain: [{ agent: CHILD_AGENT }] },
+  agents: { [CHILD_AGENT]: { manifestSchemaVersion: 7, id: CHILD_AGENT, name: "Logistics planner" } },
+};
+const manifestView = (name: string, version: number, harness: object) => ({
+  name,
+  version,
+  hash: `${name}-${version}`,
+  manifest: { manifestSchemaVersion: 8, name, harness, runtime: { kind: "virtual" } },
+  savedBy: { actor: "application" },
+  createdAt: time,
+  agents: 1,
+});
+const MANIFESTS: Record<string, Record<number, ReturnType<typeof manifestView>>> = {
+  orders: { 1: manifestView("orders", 1, ordersLoop), 2: manifestView("orders", 2, ordersLoop) },
+  shipping: { 1: manifestView("shipping", 1, flowLoop) },
+};
+const agentView = (id: string, manifest: string, fields: Record<string, unknown> = {}) => ({
   id,
+  manifest,
+  resolvedVersion: 1,
+  manifestHash: "h",
+  tracking: manifest.includes("@") ? "pinned" : "tracking",
   kind: "virtual",
+  harness: "nylorun",
+  owner: null,
   labels: {},
-  manifest: { resources: { cpus: 1, memory: "1024MiB" }, network: { allowedHosts: [] }, harness: "nylorun", lifecycle: {} },
-  version: 1,
-  appliedVersion: 1,
-  ownerUserId,
-  state: "ready",
-  lastUsedAt: time,
+  state: "sleeping",
+  attention: [],
+  desired: "on",
+  compute: { state: "ready" },
+  runtime: { resources: { cpus: 1, memory: "1024MiB" }, network: { allowedHosts: [] }, harness: "nylorun", lifecycle: {} },
+  limits: {
+    artifacts: { fileBytes: 1, totalBytes: 1 },
+    skills: { totalBytes: 1 },
+    disk: { versionBytes: 1, versionEntries: 1 },
+  },
   sessions: [],
+  slots: [],
+  disk: { latestVersion: null, operation: null },
+  forkedFrom: null,
+  lastUsedAt: time,
   createdAt: time,
   updatedAt: time,
+  ...fields,
 });
-const ENVIRONMENTS = [environmentView("team/build", null), environmentView("users/alice", "app:alice")];
 
 /** Session creation identity as the Runtime compares it (no requestId). */
 function identity(creation: Creation): string {
@@ -116,12 +154,12 @@ const usageNumbers = (input: number, output: number) => ({
   costUsd: 0.0123,
 });
 
-async function fakeRuntime(environments = false, sessionReads = false) {
+async function fakeRuntime(sessionReads = false) {
   const sessions = new Map<string, { creation: Creation; items: unknown[] }>([
     [
       ALICE_SESSION,
       {
-        creation: { agentId: AGENT, ownerUserId: "app:alice", environment: "team/build", info: { tier: "gold" } },
+        creation: { agent: AGENT, ownerUserId: "app:alice", info: { tier: "gold" } },
         items: [
           event(ALICE_SESSION, "command.message", { type: "message", content: "Where is order 42?" }),
           event(ALICE_SESSION, "turn.completed", { output: "Order 42 ships today." }),
@@ -131,7 +169,7 @@ async function fakeRuntime(environments = false, sessionReads = false) {
     [
       FLOW_SESSION,
       {
-        creation: { agentId: FLOW, ownerUserId: "app:alice" },
+        creation: { agent: FLOW, ownerUserId: "app:alice" },
         items: [
           event(FLOW_SESSION, "node.started", { path: CHILD_AGENT, kind: "agent", key: CHILD_AGENT }),
           event(FLOW_SESSION, "node.agent", { path: CHILD_AGENT, sessionId: CHILD_SESSION, turnId: "t1" }),
@@ -141,14 +179,15 @@ async function fakeRuntime(environments = false, sessionReads = false) {
     [
       CHILD_SESSION,
       {
-        creation: { agentId: CHILD_AGENT, ownerUserId: "app:alice" },
+        // A flow's child session runs on the flow's Agent.
+        creation: { agent: FLOW, ownerUserId: "app:alice" },
         items: [event(CHILD_SESSION, "turn.completed", { output: "Route via Rotterdam." })],
       },
     ],
     [
       FILES_SESSION,
       {
-        creation: { agentId: AGENT, ownerUserId: "app:alice" },
+        creation: { agent: AGENT, ownerUserId: "app:alice" },
         items: [
           event(FILES_SESSION, "command.message", {
             type: "message",
@@ -178,23 +217,36 @@ async function fakeRuntime(environments = false, sessionReads = false) {
     versions: [{ version: 1, size: a.bytes.length, sha256: "0".repeat(64), contentType: a.contentType, source: "upload", createdAt: time }],
   });
   const puts: { id: string; body: Creation }[] = [];
-  const coverage: (string | null)[] = [];
+  const coverage: string[] = [];
+  const agentOf = (id: string) => String(sessions.get(id)!.creation.agent);
+  const manifestOf = (agentId: string) => (agentId === FLOW ? "shipping" : "orders");
   const view = (id: string) => {
     const creation = sessions.get(id)!.creation;
     return {
       id,
-      agentId: creation.agentId,
+      agentId: creation.agent,
       ownerUserId: creation.ownerUserId,
+      manifest: { name: manifestOf(agentOf(id)), version: 1 },
       manifestHash: "h",
-      implementationVersion: "1",
+      harness: "nylorun",
       status: "idle",
       activeTurnId: null,
-      environment: typeof creation.environment === "string" ? { id: creation.environment, version: 1 } : null,
       mcpSnapshot: null,
       mcpDiagnostics: [],
       uncertainEffects: [],
     };
   };
+  const agents = () =>
+    [
+      agentView(AGENT, "orders"),
+      agentView(FLOW, "shipping"),
+      agentView(GUARDED, "orders@1", { owner: "app:bob" }),
+    ].map((agent) => ({
+      ...agent,
+      sessions: [...sessions]
+        .filter(([, s]) => s.creation.agent === agent.id)
+        .map(([id, s]) => ({ id, ownerUserId: s.creation.ownerUserId, status: "idle", activeTurnId: null })),
+    }));
   const protocol = {
     min: PROTOCOL_VERSION,
     max: PROTOCOL_VERSION,
@@ -212,36 +264,29 @@ async function fakeRuntime(environments = false, sessionReads = false) {
     };
     if (path === "/health") return send(200, { status: "ok", protocol });
     if (path === "/v1/tenant") return send(200, { tenant: { id: TENANT, name: "orders" } });
-    if (path === "/v1/agents")
-      return send(200, {
-        agents: [
-          { agentId: AGENT, manifest: { manifestSchemaVersion: 7, id: AGENT, name: "Orders" }, manifestHash: "h", implementationVersion: "1" },
-          {
-            agentId: FLOW,
-            manifest: {
-              kind: "workflow",
-              workflowSchemaVersion: 3,
-              id: FLOW,
-              name: "Shipping",
-              root: { chain: [{ agent: CHILD_AGENT }] },
-              agents: { [CHILD_AGENT]: { manifestSchemaVersion: 7, id: CHILD_AGENT, name: "Logistics planner" } },
-            },
-            manifestHash: "h",
-            implementationVersion: "1",
-          },
-        ],
-      });
+    if (path === "/v1/agents") return send(200, { agents: agents() });
+    const agentMatch = /^\/v1\/agents\/([^/]+)$/u.exec(path);
+    if (agentMatch) {
+      const found = agents().find((agent) => agent.id === decodeURIComponent(agentMatch[1]!));
+      return found ? send(200, found) : send(404, { code: "not_found", message: "Agent not found" });
+    }
+    if (path === "/v1/agent-manifests")
+      return send(200, { manifests: [MANIFESTS.orders![2], MANIFESTS.shipping![1]] });
+    const manifestMatch = /^\/v1\/agent-manifests\/([^/]+)(?:\/versions\/(\d+))?$/u.exec(path);
+    if (manifestMatch) {
+      const versions = MANIFESTS[manifestMatch[1]!]!;
+      return send(200, versions[Number(manifestMatch[2] ?? Math.max(...Object.keys(versions).map(Number)))]);
+    }
     if (path === "/v1/sessions" && sessionReads) {
       assert.match(query, /(?:^|&)limit=200(?:&|$)/u);
       return send(200, {
         sessions: [...sessions].map(([id, s]) => ({
           id,
-          agentId: s.creation.agentId,
+          agentId: s.creation.agent,
           ownerUserId: s.creation.ownerUserId,
           status: "idle",
           activeTurnId: null,
           lastTurnId: null,
-          environmentId: typeof s.creation.environment === "string" ? s.creation.environment : null,
           createdAt: SESSION_TIMES[id]?.createdAt ?? time,
           lastEventAt: SESSION_TIMES[id]?.lastEventAt ?? null,
         })),
@@ -252,14 +297,23 @@ async function fakeRuntime(environments = false, sessionReads = false) {
     if (sessionReads && usageMatch) {
       const id = decodeURIComponent(usageMatch[1]!);
       const asOf = "2026-10-15T11:00:00.000Z";
-      if (usageMatch[2] === "manifest")
+      if (usageMatch[2] === "manifest") {
+        const agentId = agentOf(id);
+        // The loop each session pinned: a flow's child runs its embedded agent's.
+        const manifest =
+          id === CHILD_SESSION
+            ? flowLoop.agents[CHILD_AGENT]
+            : agentId === FLOW
+              ? { id: "shipping", ...flowLoop }
+              : { manifestSchemaVersion: 7, id: "orders", ...ordersLoop };
         return send(200, {
           sessionId: id,
-          agentId: sessions.get(id)!.creation.agentId,
+          agentId,
+          definition: { name: manifestOf(agentId), version: 1 },
           manifestHash: "h",
-          implementationVersion: "1",
-          manifest: { manifestSchemaVersion: 7, id: AGENT, name: "Orders" },
+          manifest,
         });
+      }
       if (usageMatch[2] === "usage")
         return send(200, {
           sessionId: id,
@@ -281,7 +335,7 @@ async function fakeRuntime(environments = false, sessionReads = false) {
             effectId: "eff_1",
             sessionId: id,
             turnId: "t1",
-            agentId: AGENT,
+            manifestName: "orders",
             provider: "openai",
             model: "gpt-test",
             at: "2026-10-15T10:59:58.000Z",
@@ -295,7 +349,7 @@ async function fakeRuntime(environments = false, sessionReads = false) {
       return send(200, {
         sessions: [...sessions].map(([id, s]) => ({
           id,
-          agentId: s.creation.agentId,
+          agentId: s.creation.agent,
           ownerUserId: s.creation.ownerUserId,
           status: "idle",
           activeTurnId: null,
@@ -351,27 +405,21 @@ async function fakeRuntime(environments = false, sessionReads = false) {
       }
       return send(200, view(id));
     }
-    if (path === "/v1/environments") return send(200, { environments: environments ? ENVIRONMENTS : [] });
-    if (path === "/v1/environments/team%2Fbuild") return send(200, ENVIRONMENTS[0]);
     if (path === "/v1/tenant/credential-coverage") {
-      const { agentId, environmentId } = JSON.parse(raw) as { agentId: string; environmentId?: string };
-      coverage.push(environmentId ?? null);
-      const covered = environmentId === "team/build";
+      const { agentId } = JSON.parse(raw) as { agentId: string };
+      coverage.push(agentId);
       return send(200, {
         agentId,
-        environmentId: environmentId ?? null,
-        complete: covered,
-        // Only the Tenant with Environments has an agent that declares an MCP server.
-        entries: !environments ? [] : [
+        complete: false,
+        entries: [
           {
             kind: "mcp",
             name: "tickets",
             serverName: "tickets",
             url: "https://mcp.tickets.example/mcp",
             required: false,
-            status: covered ? "covered" : "missing",
-            ...(covered ? { credential: { environmentId, name: "tickets" } } : {}),
-            message: covered ? "Sends tickets." : "Called without a credential.",
+            status: "missing",
+            message: "Called without a credential.",
           },
         ],
       });
@@ -402,14 +450,13 @@ async function withStudio(
     page: Page;
     studioUrl: string;
     puts: { id: string; body: Creation }[];
-    coverage: (string | null)[];
+    coverage: string[];
     uploads: Upload[];
     commands: Command[];
   }) => Promise<void>,
-  environments = false,
   sessionReads = false,
 ) {
-  const runtime = await fakeRuntime(environments, sessionReads);
+  const runtime = await fakeRuntime(sessionReads);
   const studio = await startStudioServer({
     runtimeUrl: runtime.url,
     adminKey: ADMIN_KEY,
@@ -445,12 +492,12 @@ async function withStudio(
   }
 }
 
-test("a session an application created for another owner, on an Environment and with info, opens with its history", async () => {
+test("a session an application created for another owner, on an Agent and with info, opens with its history", async () => {
   await withStudio(async ({ page, studioUrl, puts }) => {
     await page.goto(`${studioUrl}/tenants/${TENANT}/agents/${AGENT}/sessions/${ALICE_SESSION}`);
     await page.locator("article", { hasText: "Where is order 42?" }).waitFor();
     await page.locator("article", { hasText: "Order 42 ships today." }).waitFor();
-    await page.getByRole("link", { name: "Environment: team/build", exact: true }).waitFor();
+    await page.getByRole("link", { name: `Agent: ${AGENT}`, exact: true }).waitFor();
     assert.equal(await page.getByText("Runtime HTTP 409").count(), 0);
     assert.deepEqual(puts, [], "opening an existing session never PUTs it");
   });
@@ -486,26 +533,29 @@ test("an agent or session segment that does not decode is not found, and the nex
   });
 });
 
-test("the session list shows every session and filters on an agent, from the table and the sidebar", async () => {
+test("the session list shows every session and filters on an Agent; an Agent's page lists its sessions", async () => {
   await withStudio(async ({ page, studioUrl }) => {
     const rows = (count: number) =>
       page.waitForFunction((n) => document.querySelectorAll("tbody tr").length === n, count);
     await page.getByRole("link", { name: ALICE_SESSION, exact: true }).waitFor();
     await rows(4);
-    await page.getByRole("button", { name: "Filter by agent" }).click();
-    await page.getByRole("menuitemcheckbox", { name: /^Shipping/u }).click();
+    await page.getByRole("button", { name: "Filter by Agent" }).click();
+    await page.getByRole("menuitemcheckbox", { name: new RegExp(`^${FLOW}`, "u") }).click();
     await page.waitForURL(`${studioUrl}/tenants/${TENANT}/sessions?agent=${FLOW}`);
-    await rows(1);
+    // A flow's child session runs on the flow's Agent.
+    await rows(2);
     await page.getByRole("link", { name: FLOW_SESSION, exact: true }).waitFor();
-    // A flow's embedded agent, not registered, is a filter too.
-    await page.getByRole("link", { name: new RegExp(`^${CHILD_AGENT}`, "u") }).click();
-    await page.waitForURL(`${studioUrl}/tenants/${TENANT}/sessions?agent=${CHILD_AGENT}`);
     await page.getByRole("link", { name: CHILD_SESSION, exact: true }).waitFor();
-    await rows(1);
-    // An agent's page is its filtered list.
-    await page.goto(`${studioUrl}/tenants/${TENANT}/agents/${AGENT}`);
-    await page.waitForURL(`${studioUrl}/tenants/${TENANT}/sessions?agent=${AGENT}`);
+    // An Agent's page lists the sessions on it; none is special.
+    const sidebar = page.locator("[data-sidebar=sidebar]");
+    await sidebar.locator(`a[href$="/agents/${AGENT}"]`).click();
+    await page.waitForURL(`${studioUrl}/tenants/${TENANT}/agents/${AGENT}`);
+    await page.getByRole("heading", { name: AGENT, exact: true }).waitFor();
+    await page.getByRole("tab", { name: "Sessions", exact: true }).click();
+    await page.waitForURL(/tab=sessions$/u);
+    await page.getByRole("link", { name: FILES_SESSION, exact: true }).waitFor();
     await page.getByRole("link", { name: ALICE_SESSION, exact: true }).click();
+    await page.waitForURL(`${studioUrl}/tenants/${TENANT}/agents/${AGENT}/sessions/${ALICE_SESSION}`);
     await page.locator("article", { hasText: "Order 42 ships today." }).waitFor();
   });
 });
@@ -529,7 +579,6 @@ test("the session list shows each session's last activity, newest first, and sor
       assert.equal(await header.getAttribute("aria-sort"), "ascending");
       assert.deepEqual(await order(), [FILES_SESSION, CHILD_SESSION, FLOW_SESSION, ALICE_SESSION]);
     },
-    false,
     true,
   );
 });
@@ -592,71 +641,59 @@ test("a session's Usage tab shows its token totals and each model call", async (
       assert.equal(await call.count(), 1);
       assert.match((await call.textContent()) ?? "", /gpt-test.*1,234.*567.*200.*1,801/u);
     },
-    false,
     true,
   );
 });
 
-test("New session creates the session for the local developer, with no Environment when the Tenant has none", async () => {
-  await withStudio(async ({ page, puts }) => {
+test("New session opens a session on the Agent picked, for the local developer, and refuses one guarded for another owner", async () => {
+  await withStudio(async ({ page, puts, coverage }) => {
     await page.getByRole("button", { name: "New session" }).click();
-    await page.getByRole("menuitem", { name: "Orders" }).click();
+    // Grouped by manifest; an Agent guarded for another owner cannot be picked.
+    await page.getByRole("menuitem", { name: GUARDED }).waitFor();
+    assert.equal(await page.getByRole("menuitem", { name: GUARDED }).getAttribute("aria-disabled"), "true");
+    await page.getByRole("menuitem", { name: AGENT, exact: true }).click();
     await page.getByRole("textbox", { name: "Message" }).waitFor();
     await page.waitForURL(new RegExp(`/agents/${AGENT}/sessions/[0-9a-f-]{36}$`, "u"));
     assert.equal(puts.length, 1);
-    assert.equal(puts[0]!.body.agentId, AGENT);
-    assert.equal(puts[0]!.body.ownerUserId, "local-developer");
-    assert.equal(puts[0]!.body.environment, undefined);
-    // Its Environment tab says it has none: no sandbox, no secrets.
-    await page.getByText("Environment: None", { exact: true }).waitFor();
-    await page.getByRole("tab", { name: "Environment", exact: true }).click();
-    await page.getByText("This session names no Environment", { exact: false }).waitFor();
-  });
-});
-
-test("New session names the Environment picked, checks its coverage, and refuses one guarded for another owner", async () => {
-  await withStudio(async ({ page, studioUrl, puts, coverage }) => {
-    const sheet = page.getByRole("dialog", { name: "New session · Orders" });
-    const start = async () => {
-      await page.goto(`${studioUrl}/tenants/${TENANT}`);
-      await page.getByRole("button", { name: "New session" }).click();
-      await page.getByRole("menuitem", { name: "Orders" }).click();
-      await sheet.waitFor();
-    };
-    // None: no sandbox, no credentials.
-    await start();
-    await sheet.getByText("No credential", { exact: true }).waitFor();
-    assert.equal(await sheet.getByRole("radio", { name: /users\/alice/u }).isDisabled(), true);
-    await sheet.getByRole("button", { name: "Start session" }).click();
-    await page.getByRole("textbox", { name: "Message" }).waitFor();
-    assert.equal(puts.length, 1);
-    assert.equal(puts[0]!.body.environment, undefined);
-    // An Environment: its coverage, then a session that names it.
-    await start();
-    await sheet.getByRole("radio", { name: /team\/build/u }).check();
-    await sheet.getByText("Covered", { exact: true }).waitFor();
-    await sheet.getByText("Sends tickets", { exact: true }).waitFor();
-    await sheet.getByRole("button", { name: "Start session" }).click();
-    await page.getByRole("link", { name: "Environment: team/build", exact: true }).waitFor();
-    assert.equal(puts.length, 2);
-    assert.equal(puts[1]!.body.environment, "team/build");
-    assert.equal(puts[1]!.body.ownerUserId, "local-developer");
-    assert.ok(coverage.includes("team/build"));
+    const { requestId: _id, ...body } = puts[0]!.body;
+    assert.deepEqual(body, { agent: AGENT, ownerUserId: "local-developer" });
+    // Its Agent tab: where it runs, and what its tools get from the Agent's vault.
+    await page.getByRole("link", { name: `Agent: ${AGENT}`, exact: true }).waitFor();
+    await page.getByRole("tab", { name: "Agent", exact: true }).click();
+    const panel = page.getByRole("tabpanel", { name: "Agent" });
+    await panel.getByText("orders v1", { exact: true }).waitFor();
+    await panel.getByText("MCP server tickets", { exact: true }).waitFor();
+    await panel.getByText("No credential", { exact: true }).waitFor();
+    assert.ok(coverage.includes(AGENT));
+    // Its manifest is older than the latest: the Agent moves by a fork.
+    await page.getByRole("tab", { name: "Manifest", exact: true }).click();
+    await page.getByText("v2 is the latest", { exact: false }).waitFor();
   }, true);
 });
 
-test("a flow node in the Workflow tree opens its child session, whose agent is not registered", async () => {
+test("an Agent's page starts a session on it", async () => {
+  await withStudio(async ({ page, studioUrl, puts }) => {
+    await page.goto(`${studioUrl}/tenants/${TENANT}/agents/${AGENT}`);
+    await page.getByRole("main").getByRole("button", { name: "New session" }).click();
+    await page.getByRole("textbox", { name: "Message" }).waitFor();
+    await page.waitForURL(new RegExp(`/agents/${AGENT}/sessions/[0-9a-f-]{36}$`, "u"));
+    assert.equal(puts[0]!.body.agent, AGENT);
+  });
+});
+
+test("a flow node in the Workflow tree opens its child session, which runs on the flow's Agent", async () => {
   await withStudio(async ({ page, studioUrl, puts }) => {
     await page.goto(`${studioUrl}/tenants/${TENANT}/agents/${FLOW}/sessions/${FLOW_SESSION}`);
     await page.getByRole("main").getByRole("link", { name: new RegExp(CHILD_AGENT, "u") }).first().click();
-    await page.waitForURL(`${studioUrl}/tenants/${TENANT}/agents/${CHILD_AGENT}/sessions/${CHILD_SESSION}`);
+    await page.waitForURL(`${studioUrl}/tenants/${TENANT}/agents/${FLOW}/sessions/${CHILD_SESSION}`);
     await page.locator("article", { hasText: "Route via Rotterdam." }).waitFor();
     // Back to the flow from the child.
     await page.getByRole("link", { name: FLOW_SESSION, exact: true }).waitFor();
-    await page.getByRole("tab", { name: "Agent", exact: true }).click();
-    await page.getByText(CHILD_AGENT).first().waitFor();
+    // It runs the embedded agent's loop.
+    await page.getByRole("tab", { name: "Manifest", exact: true }).click();
+    await page.getByRole("heading", { name: "Logistics planner" }).waitFor();
     assert.deepEqual(puts, []);
-  });
+  }, true);
 });
 
 test("files attached to a message are uploaded into the session, then sent as its file parts", async () => {

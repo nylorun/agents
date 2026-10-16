@@ -24,7 +24,7 @@ import type {
   RunGrantSchema,
   RunRoutingSchema,
   TraceContextSchema,
-  TurnEnvironmentSchema,
+  TurnAgentSchema,
   TurnOutputSchema,
   TurnStartSchema,
   WorkspaceCallSchema,
@@ -36,7 +36,7 @@ import type {
   harnessRequests,
 } from "./schema.js";
 
-export const HARNESS_API_VERSION = 4;
+export const HARNESS_API_VERSION = 5;
 
 /** Why core stopped a run. Matches the advance's abort kinds. */
 export const ABORT_REASONS = ["cancel", "shutdown", "deadline", "ownership.lost"] as const;
@@ -87,7 +87,7 @@ export type EffectIntent = z.infer<typeof EffectIntentSchema>;
 export type EffectTarget = z.infer<typeof EffectTargetSchema>;
 
 /** The Environment a turn runs in (`turn.start.environment`, protocol 15). */
-export type TurnEnvironment = z.infer<typeof TurnEnvironmentSchema>;
+export type TurnAgent = z.infer<typeof TurnAgentSchema>;
 
 /** An artifact as the artifact seam shows it to a harness (`artifact.read`, `artifact.write`). */
 export type ArtifactMeta = z.infer<typeof ArtifactMetaSchema>;

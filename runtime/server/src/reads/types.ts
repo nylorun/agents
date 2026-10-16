@@ -3,7 +3,6 @@ import type {
   ArtifactPage,
   ModelCallExportPage,
   ModelCallsPage,
-  EnvironmentPage,
   ToolCallsPage,
   SessionManifestView,
   SessionPage,
@@ -16,7 +15,8 @@ export type ReadAccess = { owner?: string; agents?: readonly string[] };
 export type SessionFilters = {
   agentId?: string;
   status?: SessionListItem["status"];
-  environmentId?: string;
+  /** Sessions that pinned a version of this agent manifest. */
+  manifest?: string;
   ownerUserId?: string;
 };
 export type PageOptions = { limit: number; cursor?: string };
@@ -50,11 +50,5 @@ export interface ReadStore {
    * for a turn the session never had.
    */
   turnEvents(id: string, turnId: string, access: ReadAccess): Promise<LiveEvent[]>;
-  environments(
-    labels: Record<string, string>,
-    page: PageOptions,
-    access: ReadAccess,
-    grants?: readonly string[],
-  ): Promise<EnvironmentPage>;
   close(): Promise<void>;
 }

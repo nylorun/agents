@@ -13,7 +13,9 @@ import { artifactFiles, FileUnavailableError } from "../src/artifacts/files.js";
 import type { SessionStore } from "../src/store/types.js";
 import { tenantPaths } from "../src/tenant/paths.js";
 import type { ModelProvider } from "../src/core/provider.js";
+import type { RuntimeSection } from "@nylorun/core/contracts";
 import { startTestTenant } from "./support/tenant.js";
+import { deploy, manifestOf, openSession as open, putAgent, writeManifest } from "./support/agents.js";
 
 const APP = "artifact-test-application-key-aaaaaaaa";
 const json = { authorization: `Bearer ${APP}`, "content-type": "application/json" };
@@ -46,33 +48,20 @@ async function boot(options: Parameters<typeof startTestTenant>[0] = {}): Promis
   return runtime;
 }
 
+/**
+ * Opens session `id` for `owner`: on Agent `agent` (a sandbox's, of kind virtual unless `section`
+ * says otherwise, made from manifest `agent`), or on Agent `bot`, of kind none.
+ */
 async function openSession(
   runtime: Runtime,
   id: string,
   owner = "ada",
-  extra: Record<string, unknown> = {},
+  agent?: string,
+  section: RuntimeSection = { kind: "virtual" },
 ): Promise<void> {
-  const agent = Agent({ id: "bot", name: "Bot" }).instructions("Answer.").build();
-  const put = await fetch(`${runtime.url}/v1/agents/bot`, {
-    method: "PUT",
-    headers: json,
-    body: JSON.stringify({ requestId: "agent", manifest: agent.manifest, implementationVersion: "dev" }),
-  });
-  expect(put.ok, await put.clone().text()).toBe(true);
-  // A session with a sandbox names an Environment, created first (protocol 11).
-  if (typeof extra.environment === "string") {
-    const environment = await fetch(`${runtime.url}/v1/environments/${extra.environment}`, {
-      method: "PUT",
-      headers: json,
-      body: JSON.stringify({ requestId: `env-${extra.environment}`, kind: "virtual" }),
-    });
-    expect(environment.ok, await environment.clone().text()).toBe(true);
-  }
-  const opened = await fetch(`${runtime.url}/v1/sessions/${id}`, {
-    method: "PUT",
-    headers: json,
-    body: JSON.stringify({ requestId: `open-${id}`, agentId: "bot", ownerUserId: owner, ...extra }),
-  });
+  const bot = Agent({ id: "bot", name: "Bot" }).instructions("Answer.").build();
+  await deploy(runtime.url, json, bot, agent === undefined ? {} : { name: agent, runtime: section });
+  const opened = await open(runtime.url, json, id, { agent: agent ?? "bot", ownerUserId: owner });
   expect(opened.ok, await opened.clone().text()).toBe(true);
 }
 
@@ -282,23 +271,20 @@ it("refuses a body past the per-file cap mid-stream and stores nothing; then the
   expect(view.usedBytes).toBe(1000);
 });
 
-it("holds an Environment's artifacts to its manifest's limits, within the Tenant's", async () => {
+it("holds an Agent's artifacts to its manifest's limits, within the Tenant's", async () => {
   const runtime = await boot();
-  const putEnvironment = (id: string, body: Record<string, unknown>) =>
-    fetch(`${runtime.url}/v1/environments/${id}`, {
-      method: "PUT",
-      headers: json,
-      body: JSON.stringify({ requestId: `env-${id}`, kind: "virtual", ...body }),
-    });
-  // Above the Tenant's own limit (100 MiB per file by default): refused when it is made.
-  const above = await putEnvironment("big", { limits: { artifacts: { fileBytes: 200 * 1024 * 1024 } } });
+  const bot = Agent({ id: "bot", name: "Bot" }).instructions("Answer.").build();
+  const save = (name: string, limits: RuntimeSection["limits"]) =>
+    writeManifest(runtime.url, json, manifestOf(bot, { name, runtime: { kind: "virtual", limits } }));
+  // Above the Tenant's own limit (100 MiB per file by default): refused when it is saved.
+  const above = await save("big", { artifacts: { fileBytes: 200 * 1024 * 1024 } });
   expect(above.status).toBe(400);
-  expect(await above.text()).toContain(
+  expect(JSON.stringify(above.body)).toContain(
     "limits.artifacts.fileBytes asks for 209715200 bytes; this Tenant allows at most 104857600.",
   );
-  const small = await putEnvironment("small", { limits: { artifacts: { fileBytes: 600, totalBytes: 1000 } } });
-  expect(small.status, await small.clone().text()).toBe(200);
-  expect(((await small.json()) as { limits: unknown }).limits).toEqual({
+  expect((await save("small", { artifacts: { fileBytes: 600, totalBytes: 1000 } })).status).toBe(200);
+  const small = await putAgent(runtime.url, json, "small", { manifest: "small" });
+  expect(small.limits).toEqual({
     artifacts: { fileBytes: 600, totalBytes: 1000 },
     skills: { totalBytes: 2 * 1024 ** 3 },
     disk: {
@@ -306,11 +292,11 @@ it("holds an Environment's artifacts to its manifest's limits, within the Tenant
       versionEntries: RUNTIME_LIMIT_DEFAULTS.diskVersionEntries,
     },
   });
-  await openSession(runtime, "s1", "ada", { environment: "small" });
-  await openSession(runtime, "s2", "ada", { environment: "plain" });
+  expect((await open(runtime.url, json, "s1", { agent: "small", ownerUserId: "ada" })).ok).toBe(true);
+  await openSession(runtime, "s2", "ada", "plain");
   await openSession(runtime, "s3");
 
-  // Past the Environment's file limit, then its total: 600 and 400 fit, one more byte does not.
+  // Past the Agent's file limit, then its total: 600 and 400 fit, one more byte does not.
   const big = await upload(runtime, "name=a.bin&sessionId=s1", new Uint8Array(601));
   expect(big.status).toBe(413);
   expect(await big.json()).toMatchObject({ code: "limit_exceeded", details: { limitBytes: 600 } });
@@ -319,30 +305,29 @@ it("holds an Environment's artifacts to its manifest's limits, within the Tenant
   const full = await upload(runtime, "name=c.bin&sessionId=s1", new Uint8Array(1));
   expect(full.status).toBe(413);
   expect(await full.json()).toMatchObject({
-    message: "Environment small's artifacts hold 1000 of 1000 bytes; delete some first",
+    message: "Agent small's artifacts hold 1000 of 1000 bytes; delete some first",
     details: { limitBytes: 1000 },
   });
 
-  // Another Environment, a session without one and the Tenant's own artifacts: the Tenant's limits.
+  // Another Agent, one of kind none and the Tenant's own artifacts: the Tenant's limits.
   await uploaded(await upload(runtime, "name=d.bin&sessionId=s2", new Uint8Array(601)));
   await uploaded(await upload(runtime, "name=e.bin&sessionId=s3", new Uint8Array(601)));
   await uploaded(await upload(runtime, "name=f.bin", new Uint8Array(601)));
 
-  // A Tenant that lowers its limit lowers it for every Environment, whatever its manifest says.
+  // A Tenant that lowers its limit lowers it for every Agent, whatever its manifest says.
   await fetch(`${runtime.url}/v1/tenant/artifacts`, {
     method: "PUT",
     headers: { ...runtime.managementHeaders(), "content-type": "application/json" },
     body: JSON.stringify({ limits: { fileBytes: 100 } }),
   });
-  const viewed = (await (await fetch(`${runtime.url}/v1/environments/small`, { headers: auth })).json()) as {
+  const viewed = (await (await fetch(`${runtime.url}/v1/agents/small`, { headers: auth })).json()) as {
     limits: unknown;
-    manifest: { limits?: unknown };
+    runtime: { limits?: unknown };
   };
   expect(viewed.limits).toMatchObject({ artifacts: { fileBytes: 100, totalBytes: 1000 }, skills: { totalBytes: 2 * 1024 ** 3 } });
-  expect(viewed.manifest.limits).toEqual({ artifacts: { fileBytes: 600, totalBytes: 1000 } });
+  expect(viewed.runtime.limits).toEqual({ artifacts: { fileBytes: 600, totalBytes: 1000 } });
   // Get-or-create still finds it, though its manifest now asks for more than the Tenant allows.
-  const again = await putEnvironment("small", { limits: { artifacts: { fileBytes: 600, totalBytes: 1000 } } });
-  expect(again.status, await again.clone().text()).toBe(200);
+  expect((await putAgent(runtime.url, json, "small", { manifest: "small" })).id).toBe("small");
   expect((await upload(runtime, "name=g.bin&sessionId=s2", new Uint8Array(101))).status).toBe(413);
 });
 
@@ -625,7 +610,7 @@ it("saves a sandbox file and inline text as artifacts from our engine", async ()
       seen,
     ),
   });
-  await openSession(runtime, "s1", "ada", { environment: "env-s1" });
+  await openSession(runtime, "s1", "ada", "env-s1");
   const sent = await fetch(`${runtime.url}/v1/sessions/s1/commands`, {
     method: "POST",
     headers: json,
@@ -668,7 +653,7 @@ it("copies an artifact into the sandbox with read_artifact's path, for a command
   const seen: unknown[] = [];
   const steps: { name: string; args: Record<string, unknown> }[] = [];
   const runtime = await boot({ modelProvider: scripted(steps, seen) });
-  await openSession(runtime, "s1", "ada", { environment: "env-s1" });
+  await openSession(runtime, "s1", "ada", "env-s1");
   const { artifact } = await uploaded(await upload(runtime, "name=data.csv&sessionId=s1", "a,b\n1,2\n", auth, "text/csv"));
   steps.push(
     { name: "read_artifact", args: { artifactId: artifact.artifactId, path: "in/data.csv" } },

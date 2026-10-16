@@ -52,10 +52,11 @@ test(
       },
       async (base) => {
         const reads = [
-          "/v1/environments?limit=50&label=project%3Dbuild&cursor=c",
-          "/v1/environments/team%2Fa",
-          "/v1/environments/team%2Fa/events?from=2",
-          "/v1/environments/team%2Fa/secrets",
+          "/v1/agents?limit=50&label=project%3Dbuild&cursor=c",
+          "/v1/agents/team%2Fa",
+          "/v1/agents/team%2Fa/events?from=2",
+          "/v1/agents/team%2Fa/secrets",
+          "/v1/agent-manifests/triage/versions",
           "/v1/artifacts?sessionId=s1",
           "/v1/artifacts/a",
           "/v1/artifacts/a/versions/3/tree",
@@ -66,8 +67,9 @@ test(
         for (const path of [
           "/v1/sandboxes?limit=50",
           "/v1/sandboxes/a",
-          "/v1/environments/a/files",
-          "/v1/environments/a/snapshot",
+          "/v1/agents/a/files",
+          "/v1/environments/team%2Fa",
+          "/v1/agents/a/snapshot",
           "/v1/artifacts/a/versions",
           "/v1/artifacts/a/versions/0/content",
           "/v1/artifacts/a/versions/2/files/raw/path",
@@ -78,10 +80,10 @@ test(
             (await fetch(base + "/v1/sandboxes/a", { method })).status,
             404,
           );
-        // Environment writes need Studio's origin; a request without one never reaches Runtime.
+        // Agent writes need Studio's origin; a request without one never reaches Runtime.
         for (const method of ["DELETE", "PUT"])
           assert.equal(
-            (await fetch(base + "/v1/environments/a", { method })).status,
+            (await fetch(base + "/v1/agents/a", { method })).status,
             403,
           );
         assert.deepEqual(

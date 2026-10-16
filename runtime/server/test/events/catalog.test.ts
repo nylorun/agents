@@ -27,8 +27,9 @@ function writtenTypes(): { literals: Set<string>; templates: Set<string> } {
   const call = /\.(?:event|emit)\(\s*[^,]+,\s*[^,]+,\s*"([a-z_.]+)"/g;
   // A type chosen inside the call: `settled ? "delegation.completed" : "delegation.started"`.
   const chosen = /\.event\(\s*[^,]+,\s*[^,]+,\s*[\w.]+\s*\?\s*"([a-z_.]+)"\s*:\s*"([a-z_.]+)"/g;
-  // A type built from a template in a file that writes events: `turn.${result.status}`.
-  const template = /`([a-z]+\.)\$\{/g;
+  // A type built from a template in a file that writes events: `turn.${result.status}`. Not an
+  // error code built the same way (`code: \`agent.${status}\``).
+  const template = /(?<!code: )`([a-z]+\.)\$\{/g;
   for (const file of sources(SRC)) {
     const text = readFileSync(file, "utf8");
     if (!/\.(?:event|emit)\(/.test(text)) continue;

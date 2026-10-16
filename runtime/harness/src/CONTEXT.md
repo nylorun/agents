@@ -128,7 +128,7 @@ _Avoid_: hard-coding any of them in the loop.
 
 **Engine tool**: A tool our engine adds to each agent of a session's tree (protocol 15),
 with the text that goes with it (`engineToolsFor`, `tools/engine-tools.ts`), from the facts
-`turn.start` states: the Environment (`environment.sandbox.workspace`) and the agent's `skills`.
+`turn.start` states: the Agent (`agent.sandbox.workspace`, Harness API 5) and the agent's `skills`.
 In one order, which keeps the prompt's prefix stable (`test/prompt-prefix.test.ts`):
 instructions are the skills' usage and catalog, the sandbox note, the skills' folder note, then
 the artifact notes; tools are the six sandbox tools (`tools/sandbox.ts`), `load_skill` and

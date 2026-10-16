@@ -28,16 +28,21 @@ try {
     key: runtime.applicationKey,
     tenant: runtime.tenantId,
   });
-  // Saves a definition (the Runtime runs no code of the app's) and reads it back.
-  await client.saveAgent(agent, { requestId: "startup-only" });
-  const { agents } = await client.listAgents();
+  // Saves an agent manifest (the Runtime runs no code of the app's), makes its Agent and reads
+  // both back.
+  await client.agentManifests.save({ agent }, { requestId: "startup-only" });
+  await client.agents.put(agent.id, { manifest: agent.id });
   assert.ok(
-    agents.some((saved) => saved.manifest?.id === agent.id),
-    "the saved agent is listed",
+    (await client.agentManifests.list()).some((saved) => saved.name === agent.id),
+    "the saved manifest is listed",
   );
-  console.log("/v1/agents saved and listed", agent.id);
+  assert.ok(
+    (await client.agents.list()).some((made) => made.id === agent.id && made.kind === "none"),
+    "the Agent is listed",
+  );
+  console.log("/v1/agent-manifests saved and /v1/agents made and listed", agent.id);
 } finally {
   await runtime?.close();
   await rm(hostRoot, { recursive: true, force: true });
 }
-console.log("Agent saved and ephemeral Runtime shut down cleanly. No functionality checks run.");
+console.log("Agent manifest saved, Agent made and ephemeral Runtime shut down cleanly. No functionality checks run.");

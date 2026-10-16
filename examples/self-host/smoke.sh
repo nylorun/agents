@@ -3,11 +3,11 @@
 # Tenant with identity.yaml, plus this directory's Compose stack. Needs bash, curl and node.
 #
 #   1. Keycloak signs ben (a member) and ada (with the studio scope) in.
-#   2. ben's token is a trusted issuer's: GET /v1/me renders its subject, scopes and Environment
+#   2. ben's token is a trusted issuer's: GET /v1/me renders its subject, scopes and Agent
 #      grants.
 #   3. A backend's operator key acts for any subject (Nylorun-Subject); browsers cannot use it.
-#   4. ben's token sees only ben's sessions and the Environments his grant reaches, and reaches
-#      no Management API route.
+#   4. ben's token sees only ben's sessions and the Agents his grant reaches, and reaches no
+#      Management API route.
 #   5. Studio, through oauth2-proxy, admits ada (studio scope) and refuses ben.
 #
 # Environment (defaults match compose.yaml): NYLORUN_TENANT (selfhost), NYLORUN_CLI (npx --yes
@@ -19,7 +19,7 @@ TENANT=${NYLORUN_TENANT:-selfhost}
 NYLORUN=${NYLORUN_CLI:-npx --yes nylorun}
 KEYCLOAK_URL=${KEYCLOAK_URL:-http://localhost:8180}
 PROXY_URL=${PROXY_URL:-http://localhost:4180}
-PROTOCOL=13
+PROTOCOL=16
 RUN="$(date +%s)-$$"
 
 work=$(mktemp -d)
@@ -83,12 +83,12 @@ check 'v.via === "issuer:keycloak"' "ben's token is issuer keycloak's"
 check 'v.subject.startsWith("u:")' "ben's subject is u:<sub>"
 check 'v.scopes.includes("sessions:own") && v.scopes.includes("agents:read") && !v.scopes.includes("studio")' \
   "ben holds sessions:own and agents:read, not studio"
-check 'JSON.stringify(v.environments) === JSON.stringify(["acme/*"])' "ben reaches only the Environments acme/*"
+check 'JSON.stringify(v.agents) === JSON.stringify(["acme/*"])' "ben reaches only the Agents acme/*"
 BEN_SUBJECT=$(body | js 'v.subject')
 rt GET /v1/me "$ADA"
 expect 200 "GET /v1/me with ada's token"
 check 'v.scopes.includes("studio")' "ada holds studio"
-pass "GET /v1/me: ben is $BEN_SUBJECT with sessions:own, agents:read and Environments acme/*; ada has studio"
+pass "GET /v1/me: ben is $BEN_SUBJECT with sessions:own, agents:read and the Agents acme/*; ada has studio"
 
 rt GET /v1/me "$BEN" -H "Origin: http://localhost:5173"
 expect 200 "ben's token from a browser (Origin)"
@@ -103,11 +103,20 @@ rt GET /v1/me "$KEY" -H "Origin: http://localhost:5173"
 expect 403 "the operator key from a browser"
 check 'v.code === "origin_rejected"' "the operator key from a browser is origin_rejected"
 
-AGENT=self-host-smoke
-rt PUT "/v1/agents/$AGENT" "$KEY" -H "content-type: application/json" -d "$(json_of '{
-  requestId: a[0], implementationVersion: "smoke",
-  manifest: { id: a[1], name: "Self-host smoke", manifestSchemaVersion: 7 } }' "agent-$RUN" "$AGENT")"
-expect 200 "PUT /v1/agents/$AGENT with the operator key"
+# An agent manifest with no runtime section, and two Agents of it (kind none: no sandbox), one
+# inside ben's grant (acme/*) and one outside it.
+MANIFEST=self-host-smoke
+rt PUT "/v1/agent-manifests/$MANIFEST" "$KEY" -H "content-type: application/json" -d "$(json_of '{
+  requestId: a[0], manifestSchemaVersion: 8, name: a[1],
+  harness: { instructions: ["Answer in one sentence."] } }' "manifest-$RUN" "$MANIFEST")"
+expect 200 "PUT /v1/agent-manifests/$MANIFEST with the operator key"
+AGENT="acme/smoke-$RUN"
+for agent in "$AGENT" "other/smoke-$RUN"; do
+  rt PUT "/v1/agents/${agent/\//%2F}" "$KEY" -H "content-type: application/json" \
+    -d "$(json_of '{ requestId: a[0], manifest: a[1] }' "agent-$agent-$RUN" "$MANIFEST")"
+  expect 200 "PUT /v1/agents/$agent with the operator key"
+done
+pass "the operator key saved the manifest $MANIFEST and made the Agents acme/smoke-$RUN and other/smoke-$RUN"
 
 OWN="smoke-$RUN-ben"
 OTHER="smoke-$RUN-other"
@@ -117,18 +126,10 @@ for pair in "$OWN|$BEN_SUBJECT" "$OTHER|$OTHER_SUBJECT"; do
   subject=${pair#*|}
   rt PUT "/v1/sessions/$id" "$KEY" -H "Nylorun-Subject: $subject" -H "Nylorun-Scopes: sessions:own" \
     -H "content-type: application/json" \
-    -d "$(json_of '{ requestId: a[0], agentId: a[1], ownerUserId: a[2] }' "$id" "$AGENT" "$subject")"
-  expect 200 "PUT /v1/sessions/$id for $subject with the operator key"
+    -d "$(json_of '{ requestId: a[0], agent: a[1], ownerUserId: a[2] }' "$id" "$AGENT" "$subject")"
+  expect 200 "PUT /v1/sessions/$id on $AGENT for $subject with the operator key"
 done
-pass "the operator key created a session for $BEN_SUBJECT and one for $OTHER_SUBJECT"
-
-# Two Environments (no sandbox): one inside ben's grant (acme/*), one outside it.
-for env in "acme/smoke-$RUN" "other/smoke-$RUN"; do
-  rt PUT "/v1/environments/${env/\//%2F}" "$KEY" -H "content-type: application/json" \
-    -d "$(json_of '{ requestId: a[0], kind: "none" }' "env-$env-$RUN")"
-  expect 200 "PUT /v1/environments/$env with the operator key"
-done
-pass "the operator key created the Environments acme/smoke-$RUN and other/smoke-$RUN"
+pass "the operator key opened a session on $AGENT for $BEN_SUBJECT and one for $OTHER_SUBJECT"
 
 # 4. ben sees only his own sessions.
 rt GET /v1/sessions "$BEN"
@@ -139,18 +140,18 @@ check "v.sessions.every((s) => s.ownerUserId === \"$BEN_SUBJECT\")" "ben lists o
 rt GET "/v1/sessions/$OTHER" "$BEN"
 expect 404 "another person's session with ben's token"
 rt PUT "/v1/sessions/smoke-$RUN-steal" "$BEN" -H "content-type: application/json" \
-  -d "$(json_of '{ requestId: a[0], agentId: a[1], ownerUserId: a[2] }' "steal-$RUN" "$AGENT" "$OTHER_SUBJECT")"
+  -d "$(json_of '{ requestId: a[0], agent: a[1], ownerUserId: a[2] }' "steal-$RUN" "$AGENT" "$OTHER_SUBJECT")"
 expect 403 "a session for another owner with ben's token"
-rt GET "/v1/environments/acme%2Fsmoke-$RUN" "$BEN"
-expect 200 "an Environment in ben's grant (acme/*) with ben's token"
-rt GET "/v1/environments/other%2Fsmoke-$RUN" "$BEN"
-expect 404 "an Environment outside ben's grant with ben's token"
-rt PUT "/v1/environments/acme%2Fsmoke-$RUN" "$BEN" -H "content-type: application/json" \
-  -d "$(json_of '{ requestId: a[0], kind: "none", labels: { by: "ben" } }' "env-ben-$RUN")"
-expect 403 "changing an Environment without environments:write with ben's token"
+rt GET "/v1/agents/acme%2Fsmoke-$RUN" "$BEN"
+expect 200 "an Agent in ben's grant (acme/*) with ben's token"
+rt GET "/v1/agents/other%2Fsmoke-$RUN" "$BEN"
+expect 404 "an Agent outside ben's grant with ben's token"
+rt PUT "/v1/agents/acme%2Fsmoke-$RUN" "$BEN" -H "content-type: application/json" \
+  -d "$(json_of '{ requestId: a[0], manifest: a[1], labels: { by: "ben" } }' "agent-ben-$RUN" "$MANIFEST")"
+expect 403 "changing an Agent without agents:write with ben's token"
 rt GET /v1/tenant "$BEN"
 expect 403 "GET /v1/tenant (the Management API) with ben's token"
-pass "ben's token lists only his sessions, gets 404 for another's, reaches only the Environments acme/*, and no Management API route"
+pass "ben's token lists only his sessions, gets 404 for another's, reaches only the Agents acme/*, and no Management API route"
 
 # 5. Studio through oauth2-proxy (Studio verifies the forwarded token with GET /v1/me).
 call GET "$PROXY_URL/_studio/hello"

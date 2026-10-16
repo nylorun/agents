@@ -4,8 +4,9 @@ Terms follow the Runtime Tenants model, Runtime Clients, the Runtime and
 Management APIs (protocol 8), and the Runtime architecture (Postgres, Restate,
 S2). Every agent uses these terms in code, comments, errors and CLI output.
 
-An agent definition is its manifest (manifest 7, flat): instructions, tools, skills and MCP
-servers. The harness engine advances execution.
+An agent is defined by its **agent manifest** (v8, protocol 16): a `harness` section (what runs
+inside the loop) and a `runtime` section (what the Runtime provides around it). An **Agent** is the
+live instance of one version of it. The harness engine advances execution.
 A **Runtime Host** listens once and serves the one **Tenant** of its
 installation: one Runtime with its own database and infrastructure. A developer
 **Project** attaches through a **Project link**, not by owning the Host process
@@ -69,8 +70,7 @@ and `environmentEventItems`; labels' `artifactLabels`, `labelKeyChars`, `labelVa
 `setupReasonChars` and `setupCommandExcerptChars` (`sandbox/setup.ts`); a secret write's
 `secretValueChars` and `secretHosts` (`secretRequestIssues`); the tool policy's `toolRules`,
 `toolRuleFieldChars`, `toolRuleTextChars` (`toolPolicyIssues`) and `modelBudgets`
-(`budgetIssues`); an agent's `requires.secrets` against `environmentSecretSlots`
-(`requiresIssues`); and the flow limits `flowConcurrency` (core's effect dispatch,
+(`budgetIssues`); and the flow limits `flowConcurrency` (core's effect dispatch,
 `core/limits.ts`), `flowMapItems` and `flowLoopIterations` (a flow's
 `turn.start.options.flowLimits`, `flowLimitsOf`). A limit left
 out is its default (`RUNTIME_LIMIT_DEFAULTS`); one above its **ceiling**
@@ -248,55 +248,71 @@ application keys may send it; with a management key it is `403`.
 A **trusted issuer**'s token names its subject itself.
 _Avoid_: "user" for the header value (the Runtime has no user accounts).
 
-**Environment**: Where sessions run (D55, protocol 11, `tenant/environments.ts`, the
-`environments` table): one sandbox, of kind `virtual` (a just-bash workspace in the harness
-container), `pod` (an agent-sandbox pod with its own volume; see **Pod Environment**) or `none` (no
-compute), with what it runs (its `recipe`, the view's `manifest`) and one **vault** (D56). `PUT`/`GET`/`DELETE
-/v1/environments/{id}`, `GET /v1/environments?label=k=v`, `POST .../stop|reset`; ids are
-`/`-separated segments, sent percent-encoded as one path segment. It is made from one version of an
-**Environment manifest** (`manifestName`, `manifestVersion`) or from inline fields, and never
-changes what it runs after that (protocol 14, D63): a `PUT` on an existing id may change labels and
-the owner guard, fields that match are accepted, and anything else is `409 environment_immutable`.
-`recipe` and `applied` stay equal (egress-gate reads `applied.network`), and `version` stays 1;
-`manifestHash` hashes what it runs. When what it runs declares secret **slots** (`recipe.secrets`,
-D64), a secret write sends only the value (`secretRequestFor`) and a name it does not declare is
-`409 secret_not_in_manifest`. A session names
-one with `environment` (`Session.environmentId`) and pins its sandbox spec then
-(`Session.sandbox`, `sandbox/resolve.ts` `sandboxSpecOf`); its workspace is keyed by the
-Environment's id, so its sessions share files, and deleting a session only detaches it. Its
-sessions run their turns at the same time (D66; one turn per session stays); a turn start checks a
-token caller's grants, a disk copy in progress and the **owner guard**
-(`ownerUserId`: only that owner's sessions may name it; `403 environment_owner_mismatch`, the
-opaque `404` to a caller acting for a person) in `checkEnvironmentTurn`. `lifecycle.idle` (at most
-the Tenant's) stops a pod; `lifecycle.deleteAfter` deletes an Environment unused that long, counted
-from `lastUsedAt` (a turn's end, a `PUT`, a secret write, a stop or reset) by the Tenant sweep
-(`sweepUnusedEnvironments`). The Tenant holds at most `limits.environments` (default 100).
-Lifecycle events (`environment.created`, `.attached`, `.detached`, `.deleted` and a pod's) go to
-its own stream in the record (`nylorun_streams.environment_events`, `record/environment.ts`), not
-relayed to S2; the session's log records `environment.attached`. Every egress connection goes
-there too (`environment.egress`, see **Egress event**); `GET .../events` filters by `types`, `since`
-and `until`.
-_Avoid_: "scope" for who uses an Environment (the app maps people to ids), "space", "sandbox
-resource" (protocol 10).
+**Agent manifest**: A named, versioned document (protocol 16, track T2,
+`tenant/agent-manifests.ts`, the `agent_manifests` table) with a `harness` section (the loop: the
+harness's id, instructions, tools, skills with the `secrets` they read, MCP servers with the
+`credential` slot they use, plugins, `outputSchema`, `loop`; or a flow, `kind: "workflow"`) and a
+`runtime` section (`kind` virtual, pod or none, and what an environment manifest said; absent:
+kind `none`). Saved with `PUT /v1/agent-manifests/{name}`: a save whose hash equals the latest's
+answers it `unchanged`, any other writes the next version, under `If-Match`
+(`412 manifest_changed`) and with a plan by section on `?dryRun=true`. Because both sections are
+there, the save checks them against each other (`sectionGaps` in core: a custom harness needs a pod
+with an image, every credential the harness names is a declared slot of the right type, the
+runtime's kind gives the loop the sandbox it needs): `422 manifest_inconsistent` with
+`details.gaps`, in place of `requires` at session open. Each section's own checks run too (no code
+tools or approvals, HTTP tool timeouts, skill files; the Tenant's limits, input files). A version
+records `savedBy` and is never changed; a save changes no Agent. `DELETE` removes every version,
+refused while an Agent names one (`409 manifest_in_use`). The engine runs a version's **loop
+manifest** (`loopManifestOf`: the harness section with the manifest's name as its id, in agent
+manifest v7's shape or workflow manifest v3's), which a session pins.
+_Avoid_: "definition" for the manifest (definitions left in protocol 16), "template".
 
-**Environment manifest**: A named, versioned definition of a kind of Environment (protocol 14,
-D63, `tenant/environment-manifests.ts`, the `environment_manifests` table), saved like an agent
-with `PUT /v1/environment-manifests/{name}`: a save whose hash equals the latest's answers it
-`unchanged`, any other writes the next version, under `If-Match` (`412 manifest_changed`) and with
-a plan on `?dryRun=true`. A version records `savedBy` and is never changed; a save changes no
-Environment. `DELETE` removes every version, refused while an Environment names one
-(`409 manifest_in_use`). An agent manifest's `requires` (D65) is checked against the session's
-Environment when the session opens (`409 environment_unsuitable`, `tenant/sessions.ts`).
-_Avoid_: "recipe" for the manifest (the recipe is what one Environment runs), "template".
+**Agent**: The live instance of one version of an agent manifest (protocol 16; an Environment from
+protocol 11, D55; `tenant/agents.ts`, the `agents` table): a stable id, its manifest reference
+(`manifest`: `name` tracks it, `name@n` pins it) resolved once into `resolvedVersion`, labels, the
+owner guard, and its **environment**: one sandbox of kind `virtual` (a just-bash workspace in the
+harness container), `pod` (an agent-sandbox pod with its own volume; see **Pod Environment**) or
+`none` (no compute), with what it runs (its `recipe`, the view's `runtime`: the version's runtime
+section resolved against the Tenant's limits) and one **vault** (D56). The store's row type and
+most of the sandbox, vault and disk code call this part the Agent's environment
+(`Environment`, `environmentId`, `t.environment(id)`), keyed by the Agent's id. `PUT`/`GET`/`DELETE
+/v1/agents/{id}`, `GET /v1/agents?label=k=v&state=&manifest=`, `POST .../stop|reset|fork`; ids are
+`/`-separated segments, sent percent-encoded as one path segment. Made from a saved manifest only;
+it never changes what it runs after that: a `PUT` on an existing id may change labels and the owner
+guard, a manifest naming what it runs is accepted, and any other is
+`409 agent_upgrade_unavailable` (track T3 moves a tracking Agent on). Creating one opens no session:
+no session is special (D71), and the app opens sessions on it with ids it picks. When its manifest
+declares secret **slots** (`recipe.secrets`, D64), a secret write sends only the value
+(`secretRequestFor`) and a name it does not declare is `409 secret_not_in_manifest`. A session
+names one with `agent` (`Session.agentId`, and `environmentId` for its environment, always the
+same id), pins its manifest version (`Session.definition`) and its sandbox spec then
+(`Session.sandbox`, `sandbox/resolve.ts` `sandboxSpecOf`); its workspace is keyed by the Agent's
+id, so its sessions share files, and deleting a session only detaches it. Its sessions run their
+turns at the same time (D66; one turn per session stays); a turn start checks a token caller's
+grants, a disk copy in progress and the **owner guard** (`owner`: only that owner's sessions may
+run on it; `403 agent_owner_mismatch`, the opaque `404` to a caller acting for a person) in
+`checkAgentTurn`. Its **state** is derived on read (`stateOf`): `paused` (desired `off`, track
+T6), `failing` (its compute failed or was lost, or a session's last turn failed), `input_required`
+(a session paused or uncertain), `working` (a turn runs), `sleeping`; `attention` names the
+sessions behind each state that holds; the compute's own word is `compute.state`.
+`lifecycle.idle` (at most the Tenant's) stops a pod; `lifecycle.deleteAfter` deletes an Agent
+unused that long, counted from `lastUsedAt` (a turn's end, a `PUT`, a secret write, a stop or reset)
+by the Tenant sweep (`sweepUnusedAgents`). The Tenant holds at most `limits.environments` (default
+100). Lifecycle events (`agent.created`, `.attached`, `.detached`, `.deleted` and a pod's) go to its
+own stream in the record (`nylorun_streams.agent_events`, `record/agent.ts`), not relayed to S2;
+the session's log records `agent.attached`. Every egress connection goes there too
+(`agent.egress`, see **Egress event**); `GET .../events` filters by `types`, `since` and `until`.
+_Avoid_: "scope" for who uses an Agent (the app maps people to ids, D70), "main session" (D71),
+"space", "Environment" on the API (protocol 15 and before).
 
-**Fork**: How an Environment gets a new manifest version (Q15, `forkEnvironment` in
-`tenant/environments.ts`), since none ever changes what it runs: `POST /v1/environments/{id}/fork`
-makes a new Environment from the version (default the source's manifest at its latest), its disk
+**Fork**: How an Agent gets a new manifest version before track T3 (Q15, `forkAgent` in
+`tenant/agents.ts`), since none ever changes what it runs: `POST /v1/agents/{id}/fork` makes a new
+Agent from the version (default the source's manifest name at its latest), its disk
 seeded from a version of the source's (`latest` snapshots first) and its secrets copied inside the
 Runtime (`Keys.sealEnvironmentSecretCopies`: unsealed and sealed again under the new vault's ids
 where the vault key lives, before the fork's transaction, only the names its slots declare, with
 the slots' bindings; that transaction inserts the copies, `VaultService.insertEnvironmentSecretCopies`). The view's `forkedFrom` names the
-source; the source gets `environment.forked` and keeps what it runs, its disk and its sessions. A
+source; the source gets `agent.forked` and keeps what it runs, its disk and its sessions. A
 pod fork onto other setup (Q17) keeps its `disk_seed` (`setup`, then `written`) until the engine,
 which connects first (`afterSeed` in the join answer), has run that setup on the written disk;
 turns wait for both.
@@ -333,9 +349,9 @@ _Avoid_: "snapshot" for the stored thing (a snapshot is the act; the result is a
 "checkpoint".
 
 **Vault**: One Environment's secrets (D56, `vault/service.ts`): a `vaults` row whose
-`environment_id` names its Environment (unique, deleted with it), created in the transaction that
-creates the Environment. Its credentials are written on the Runtime API with
-`PUT /v1/environments/{id}/secrets/{name}` (an application key, or `environments:write`; through
+`environment_id` names its Agent (unique, deleted with it), created in the transaction that
+creates the Agent. Its credentials are written on the Runtime API with
+`PUT /v1/agents/{id}/secrets/{name}` (an application key, or `agents:write`; through
 the keys service, `Keys.putEnvironmentSecret`), replaced by name, and never read back; a second
 `environment_secret` for a host or a second `bearer`/`headers` credential for a URL is `409
 credential_conflict` at the write. The `host` vault (no Environment) holds the model credential
@@ -640,14 +656,15 @@ Tenant's skill limit, a
 body of another hash is a `400`; `201` stored, `200` held already; `HEAD` says which); the body
 streams to a staging key (`definitions/uploads/<uuid>`), and only bytes of the named hash are
 copied to `definitions/sha256/<hex>`, where a `definition_files` row says the Tenant holds them.
-`PUT /v1/agents/{id}` refuses a definition naming a file the Tenant lacks
+`PUT /v1/agent-manifests/{name}` refuses a manifest naming a file the Tenant lacks
 (`definition_files_missing`) or a skill whose files hold more than the Tenant's skill limit
 together (`skills.config`, `GET`/`PUT /v1/tenant/skills`, default `SKILL_TOTAL_BYTES_DEFAULT`,
 2 GiB), counted by path from the rows' sizes (`413 limit_exceeded`); no file and no count of
-files has a limit of its own. A session opens on an Environment only when its agent's skills fit
-the Environment's manifest `limits.skills.totalBytes` (at most the Tenant's; else
-`409 environment_unsuitable`). It records each file it names in `definition_file_uses` (agent id,
-manifest hash, file). Nothing deletes them yet: a later sweep removes the unused ones.
+files has a limit of its own; the manifest's own `runtime.limits.skills.totalBytes` may set less.
+A session opens on an Agent only while its skills still fit the Agent's limit (the Tenant's may
+have been lowered since; else `413 limit_exceeded`). A save records each file a version names, its
+skills' and its runtime section's, in `definition_file_uses` (`agent-manifest:<name>`, manifest
+hash, file). Nothing deletes them yet: a later sweep removes the unused ones.
 _Avoid_: calling it an artifact; artifacts are a session's or an application's files.
 
 **Skill tools**: `load_skill` and `read_skill_resource`, our engine's tools (protocol 15: our
@@ -674,6 +691,13 @@ optional Host features `tenant-fixture-model`, `transcript-events`, `subject-hea
 `ag-ui-endpoint`, `a2a-endpoint`, `sandbox-pods`, `trusted-issuers`, `session-reads`,
 `calls-export`, `credential-coverage`, `tool-calls`, `environment-setup`,
 `environment-disk-versions`, `tool-policy`, `traces` and `artifact-reads`).
+Protocol 16 made agents one manifest (track T2, `agents`, Harness API 5): an **agent manifest** v8
+with a harness and a runtime section, checked against each other at save, replaced agent
+definitions and environment manifests, and **Agents** (`/v1/agents/{id}`, made from a manifest
+version, with a derived state) replaced Environments; every session runs on an Agent and pins its
+manifest version; `turn.start.agent` replaced `turn.start.environment`. A fresh start (migration
+0032): every open session is closed (`protocol_16`), and Environments with their disks and vaults
+are dropped.
 Protocol 15 began the harness boundary (`harness-boundary`, Harness API 4): model-facing work
 belongs to the harness. `read_artifact` and `save_artifact` are our harness's tools, run over the
 **artifact seam**. Inputs went to the harness too: a message may name any file (no
@@ -769,9 +793,9 @@ _Avoid_: computing a span from `effects` timestamps or event times.
 **Trace**: One turn as an OpenTelemetry trace (track R7, Host feature `traces`), a projection of
 the session log like SSE and AG-UI: one committed row maps to at most one span (`traces/map.ts`,
 `spanOf`), and nothing is instrumented outside the log. The turn's end is the root span
-`invoke_agent {agentId}`; each span-ready row of a model call (`chat`), tool call or flow stage
+`invoke_agent {name}`, named for the agent manifest the session runs (`gen_ai.agent.name`; `gen_ai.agent.id` is its Agent); each span-ready row of a model call (`chat`), tool call or flow stage
 (`execute_tool`) is its child, with gate times when a gate measured the crossing (egress
-connections are the Environment's, as `environment.egress` events, and in no trace, D67); pauses and answers are markers. A turn whose `command.message` carried a
+connections are the Agent's, as `agent.egress` events, and in no trace, D67); pauses and answers are markers. A turn whose `command.message` carried a
 `traceparent` (R7.4, recorded as `trace`) is in the caller's trace, its root a child of the
 caller's span. Content is left out unless the installation opts in per kind
 (`NYLORUN_TRACE_CONTENT`). `GET /v1/sessions/{id}/turns/{turnId}/trace` answers a turn's spans
@@ -833,7 +857,7 @@ One line each; the module named is where the term lives in code.
 - **MCP tool name**: What the model calls a remote MCP server's tool: the harness's to choose (protocol 15). The Runtime never names one: the snapshot, the facts, the target, the Tool Gate's body and the tool policy carry the server's own raw name. Our engine's names (`mcpToolName`/`mcpToolNames` in `@nylorun/harness`, `runtime/harness/src/CONTEXT.md`) are `server__tool` with characters outside `[A-Za-z0-9_-]` replaced by `_`, shortened to 64 with a hash suffix, which a renamed name that collides also gets; the **MCP tool preview** shows them, and `mcp.discovered` no longer lists `renamed`. Server and declared tool names are checked at save against the same rule (`DELEGATE_NAME_PATTERN`).
 - **MCP tool error**: A failed remote MCP tool call the model sees as a failed tool result with a code (R2b C7, `McpCallFailed` in `mcp/connect.ts`): `mcp.unreachable` (never sent, `retryable`), `credential_rejected` (`401`), `mcp.forbidden` (`403`), `mcp.error` (a JSON-RPC error), `mcp.status` (another HTTP status), `mcp.too-large` (an answer past 8 MiB, R2b C11), and `mcp.lost` (sent, answer lost: the tool may have run; the model decides, R5). The gate answers it as `error.failure`. `isError` results stay `mcp.tool`. A connection found stale before the tool saw the call (`McpConnectionStale`: a `404` to its `Mcp-Session-Id`, or a credential whose `via` moved) is dropped from the pool or the gate, opened again, and the call sent once more; a second failure is `mcp.unreachable`.
 - **HTTP tool**: A tool whose manifest entry has `http` (`url`, `method` GET/POST/PUT/PATCH/DELETE, `credential`, `timeoutMs`; a sibling of `agent`, with `fn` and `command` reserved), built with `http()`: the Tool Gate sends the input as core's `httpToolRequest` maps it (the fields the URL's path names as `{field}` fill it, percent-encoded, and the rest are a JSON body for POST/PUT/PATCH or the query string for GET/DELETE, which send no body; a value that cannot fill its place is `tool.invalid-input`, never sent) with `Nylorun-Session-Id`, `Nylorun-Turn-Id`, `Nylorun-Agent-Id` and the effect id as `Idempotency-Key`, adding the vault credential bound to the URL that the `credential` selection names, sent to the credential's `via` when it has one, with its identity header (`gates/http-tool.ts`, `runHttpTool`; the request and answer alone are `callHttpTarget`). Its outcome is the answer, which the harness shapes to fit the record (see **Record entry limit**), or a failed outcome the model sees (`credential_rejected` on a `401`, `http.status`, `http.timeout`, `http.refused`, `http.unreachable`, `http.lost`, `http.too-large`, `http.credential`, `tool.invalid-output`). An HTTP tool is also a flow stage (a tool node with `http`), and `http({ url })` a Loop's HTTP verifier (`loop.verify: { http }`, POSTed `{ input, output, iteration }`, answering a verdict): their `tool` effects are journaled `invoking` and executed like an agent's (`harness-api/record.ts`), the gate finds the target in the pinned workflow manifest by stage key (`{ sessionId, stage }`, `flowHttpTarget`) and sends the flow agent's id as `Nylorun-Agent-Id`, and a failed outcome fails the stage (or the Loop, `loop.verify-failed`). An HTTP verifier's verdict is recorded as `loop.verified` (`recordVerdict`, `core/flow-host.ts`). _Avoid_: "webhook tool".
-- **Tool policy** (R5 step 2): The Tenant's rules for every MCP and HTTP tool call of every harness (`GET`/`PUT /v1/tenant/tool-policy`, a management key; the `tool-policy` setting): each `{effect: allow|ask|deny, tool?, server?, kind?, agent?, when?, reason?}`, and the strictest matching rule decides; no match runs (`gates/policy.ts`). A rule matches the call's identity (protocol 15, `policyCallOf`: `PolicyCall {kind, tool, server?, agent, input, name?}`): `tool` is an MCP tool's own name on `server` or an HTTP tool's declared name, and the model's name (`name`) never matches. A rule `tool` with `__` in it is refused at `PUT` (`ToolRuleSchema`: name an MCP tool by `server` and `tool`); a stored one makes the policy unreadable (`ToolPolicyUnreadable`): every call is denied with that reason, and `GET` answers `409 request_rejected` until the policy is `PUT` again, so a rule never silently stops matching. Core decides as it journals the call (`recordIntent`, `bypolicy` in `harness-api/record.ts`): `deny` settles it `tool.denied`, unsent; `ask` keeps the row `held`, the segment ends waiting, and settle pauses the turn with one `approval` interaction per held call (its id the effect id); `approve` makes the row `invoking` with its `approval` (the replay sends it) or settles it `tool.denied`. The Tool Gate runs only `invoking` rows, so no harness skips it. A pinned manifest's `approval: "always"` (saved before; new definitions are refused, `approvalRefusal`) is an ask (`pinnedApproval`, by `mcpToolSettings(server, target.tool)`). An MCP call's approval interaction carries `server` and `tool` (`heldCalls`, `tenant/advance.ts`), its prompt `Approve <server> / <tool>?`, and `toolName` stays the model's name. _Avoid_: "static approval".
+- **Tool policy** (R5 step 2): The Tenant's rules for every MCP and HTTP tool call of every harness (`GET`/`PUT /v1/tenant/tool-policy`, a management key; the `tool-policy` setting): each `{effect: allow|ask|deny, tool?, server?, kind?, agent?, when?, reason?}`, and the strictest matching rule decides; no match runs (`gates/policy.ts`). A rule matches the call's identity (protocol 15, `policyCallOf`: `PolicyCall {kind, tool, server?, agent, input, name?}`): `agent` is the calling agent's manifest id (an agent used as a tool's id, else the session's loop manifest's, which protocol 16 makes the agent manifest's name), never the Agent the session runs on; `tool` is an MCP tool's own name on `server` or an HTTP tool's declared name, and the model's name (`name`) never matches. A rule `tool` with `__` in it is refused at `PUT` (`ToolRuleSchema`: name an MCP tool by `server` and `tool`); a stored one makes the policy unreadable (`ToolPolicyUnreadable`): every call is denied with that reason, and `GET` answers `409 request_rejected` until the policy is `PUT` again, so a rule never silently stops matching. Core decides as it journals the call (`recordIntent`, `bypolicy` in `harness-api/record.ts`): `deny` settles it `tool.denied`, unsent; `ask` keeps the row `held`, the segment ends waiting, and settle pauses the turn with one `approval` interaction per held call (its id the effect id); `approve` makes the row `invoking` with its `approval` (the replay sends it) or settles it `tool.denied`. The Tool Gate runs only `invoking` rows, so no harness skips it. A pinned manifest's `approval: "always"` (saved before; new definitions are refused, `approvalRefusal`) is an ask (`pinnedApproval`, by `mcpToolSettings(server, target.tool)`). An MCP call's approval interaction carries `server` and `tool` (`heldCalls`, `tenant/advance.ts`), its prompt `Approve <server> / <tool>?`, and `toolName` stays the model's name. _Avoid_: "static approval".
 - **MCP tool settings**: An MCP server's `tools` map (R2b C9), keyed by the server's own tool names with `"*"` for the rest, each `{enabled?, deferred?}` (and a pinned `approval`), beside the server's own `deferred`; a tool's settings resolve from its entry, then `"*"`, then the server, then the default (`mcpToolSettings`, core). `mcp.discovered` counts the disabled tools (`disabled`) and names keys no listed tool has (`unknownTools`). A turn variant may only tighten them: `enabled: false` or `approval: "always"` (`isVariantOf`). The snapshot keeps every listed tool, disabled ones included; each turn's facts say whether its manifest leaves a tool `enabled` (`mcpFactsOf`), and the record enforces it: a call of a tool the turn disables is `tool.disabled` (`isEnabledIn`), whatever the harness offered. _Avoid_: "allowlist" for the map itself; `"*": {enabled: false}` makes one.
 - **Deferred tool**: A remote MCP tool out of the model's tool list (R2b C10), which the model finds with `tool_search` and runs with `tool_call`: the harness's to decide (protocol 15). A tool's or a server's `deferred` setting reaches it as a hint (`McpToolFact.deferred`, absent when the manifest says nothing); core decides nothing and runs no `tool_search` (`pinDeferral`, `sessionToolsOf` and `tenant/tool-search.ts` are gone). Our engine decides once per session's facts and keeps it in its state (`mcpLayout`, see **Harness state**); `tool_search` is a `harness` call, and `tool_call` makes the deferred tool's own effect with its identity target, so routing, policy, `tool.completed` and scrubbing are a direct call's (`runtime/harness/src/CONTEXT.md`). _Avoid_: "lazy tools" or "tool RAG".
 - **egress-gate**: The `egress` service (F7.2, D42), run in the gateway's process on 4200 (`NYLORUN_EGRESS_LISTEN_*`): pod Environments' only way out, a CONNECT proxy that verifies an egress token, checks its Environment's host epoch, and tunnels only to a host name in its applied recipe's `network.allowedHosts` (exact or `*.suffix`) on 443 or 80 that resolves to a public address, 64 tunnels per sandbox (`gates/egress.ts`). The one exception is a host an `environment_secret` is bound to (R2c, see **Shell credential**); every other connection is an opaque tunnel. Each connection is one event (see **Egress event**); refusals are also logged.
@@ -906,7 +930,8 @@ _Avoid_: "scope" for who shares a sandbox; the Runtime has none.
 | operator listener, operator port, `NYLORUN_ADMIN_PORT`, `NYLORUN_ADMIN_LISTEN_*`, `adminPort` (removed in protocol 8) | the Host's one listener; `nylorun-operate` for Host work |
 | operator key, Host feature `operator-keys` | application key (`PUT /v1/tenant/keys/{keyId}`, `nylorun tenant keys put <id>`); management key for the Management API |
 | `tenant:settings` (retired in protocol 8) | a management key on the Management API, as itself; Studio uses its own key |
-| `/v1/vaults…`, `/v1/access/signing-keys…`, `client.createVault`, `client.access.signingKeys` | `/v1/tenant/signing-keys…`, `admin.signingKeys`; vaults: an Environment's secrets (protocol 11) |
-| `/v1/sandboxes…`, `client.sandboxes`, `sandbox: { id }`, `vaultIds`, `credentialSelections`, `/v1/tenant/vaults…`, `admin.vaults`, user and installation vaults, `sandboxes:write`, `sandbox_*` error codes and events (protocol 10) | `/v1/environments…`, `client.environments`, `environment: <id>`, `PUT /v1/environments/{id}/secrets/{name}`, `environments:write`, `environment_*` codes and events (protocol 11) |
+| `/v1/vaults…`, `/v1/access/signing-keys…`, `client.createVault`, `client.access.signingKeys` | `/v1/tenant/signing-keys…`, `admin.signingKeys`; vaults: an Agent's secrets (protocol 16; an Environment's from protocol 11) |
+| `/v1/sandboxes…`, `client.sandboxes`, `sandbox: { id }`, `vaultIds`, `credentialSelections`, `/v1/tenant/vaults…`, `admin.vaults`, user and installation vaults, `sandboxes:write`, `sandbox_*` error codes and events (protocol 10) | Agents (protocol 16; Environments from protocol 11) |
+| agent definitions, `PUT /v1/agents/{id}` with a v7 manifest, `saveAgent`, `implementationVersion`, environment manifests, `/v1/environments…`, `client.environments`, `environment: <id>` on a session, `environments:write`, `environment_*` codes and events, `requires` (protocol 15) | agent manifests (`/v1/agent-manifests/{name}`, `client.agentManifests`, `nylorun apply`), Agents (`/v1/agents/{id}`, `client.agents`), `agent: <id>` on a session, `agents:write` and `agent-manifests:write`, `agent_*` codes and `agent.*` events, the checks between the sections at save (protocol 16) |
 | required feature `admin-status` on new clients | `management-api` (the Host advertises `admin-status` only for protocol 5 to 7 clients) |
 | `deriveStudioToken(adminKey, tenantId)` | `deriveStudioToken(adminKey)` (Studio key v2) |

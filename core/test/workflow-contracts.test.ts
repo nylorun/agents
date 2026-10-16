@@ -1,7 +1,9 @@
 import { expect, it } from "vitest";
+import { harnessSectionOf, loopManifestOf } from "../src/define.js";
 import {
   MessageEventBodySchema,
-  PutAgentRequestSchema,
+  AgentManifestV8Schema,
+  DefinitionDocumentSchema,
   PutSessionRequestSchema,
   WorkflowManifestSchema,
 } from "../src/contracts.js";
@@ -81,36 +83,28 @@ it("checks that every agent the flow uses is embedded under its id", () => {
   ).toBe(false);
 });
 
-it("registers a workflow through PutAgentRequest", () => {
-  const parsed = PutAgentRequestSchema.parse({
-    requestId: "r1",
-    manifest: shipFeature,
-    implementationVersion: "dev",
+it("saves a workflow as an agent manifest's harness section", () => {
+  const parsed = AgentManifestV8Schema.parse({
+    manifestSchemaVersion: 8,
+    name: "ship-feature",
+    harness: harnessSectionOf(shipFeature),
   });
-  expect(parsed.manifest).toMatchObject({ kind: "workflow", id: "ship-feature" });
+  expect(parsed.harness).toMatchObject({ kind: "workflow" });
+  expect(loopManifestOf(parsed)).toMatchObject({ kind: "workflow", id: "ship-feature" });
 });
 
-it("still registers an agent document without kind", () => {
-  const parsed = PutAgentRequestSchema.parse({
-    requestId: "r1",
-    manifest: {
-      manifestSchemaVersion: 7,
-      id: "coder",
-    },
-    implementationVersion: "dev",
-  });
-  expect(parsed.manifest).toMatchObject({ id: "coder" });
-  expect(parsed.manifest).not.toHaveProperty("kind");
+it("loop manifests stay agent manifest v7 or workflow manifest v3", () => {
+  const parsed = DefinitionDocumentSchema.parse({ manifestSchemaVersion: 7, id: "coder" });
+  expect(parsed).toMatchObject({ id: "coder" });
+  expect(parsed).not.toHaveProperty("kind");
 });
 
-it("names an Environment on a session, and refuses the protocol 10 fields", () => {
-  const base = { requestId: "r1", agentId: "coder", ownerUserId: "u1" };
-  expect(PutSessionRequestSchema.parse({ ...base, environment: "users/u1/web" }).environment).toBe(
-    "users/u1/web",
-  );
-  for (const removed of [{ sandbox: { id: "x" } }, { vaultIds: ["v"] }, { credentialSelections: [] }])
+it("opens a session on an Agent, and refuses the protocol 15 and protocol 10 fields", () => {
+  const base = { requestId: "r1", agent: "users/u1/coder", ownerUserId: "u1" };
+  expect(PutSessionRequestSchema.parse(base).agent).toBe("users/u1/coder");
+  for (const removed of [{ agentId: "coder" }, { environment: "users/u1/web" }, { sandbox: { id: "x" } }, { vaultIds: ["v"] }])
     expect(PutSessionRequestSchema.safeParse({ ...base, ...removed }).success).toBe(false);
-  expect(PutSessionRequestSchema.safeParse({ ...base, environment: "/bad" }).success).toBe(false);
+  expect(PutSessionRequestSchema.safeParse({ ...base, agent: "/bad" }).success).toBe(false);
 });
 
 it("message is exactly one of content or data", () => {

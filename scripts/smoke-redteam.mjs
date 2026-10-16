@@ -7,7 +7,7 @@
 // NYLORUN_RUNTIME_IMAGE / NYLORUN_STUDIO_IMAGE name prebuilt images (CI). Needs the CLI and
 // @nylorun/admin built.
 //
-// 1. A stub model on the Tenant's network; session A (on a virtual Environment) runs bash, and
+// 1. A stub model on the Tenant's network; session A (on a virtual Agent) runs bash, and
 //    session B (another agent) answers once.
 // 2. The harness service is stopped, and runtime/server/test/redteam/harness.mjs runs in a container
 //    of the harness service's own definition (image, user, environment, mounts, network):
@@ -28,6 +28,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { PROTOCOL_VERSION } from "@nylorun/core/compatibility";
+import { HARNESS_API_VERSION } from "@nylorun/core/harness-api";
 import { root, run } from "./lib/repo.mjs";
 import { ensureImages, eventually, runtimeGet, runtimeHeaders, withStack } from "./lib/stack.mjs";
 import { startStubModel } from "./lib/stub-model.mjs";
@@ -63,30 +64,33 @@ try {
         method: "PUT",
         body: { requestId: randomUUID(), idempotencyKey: randomUUID(), ...stub.model },
       });
-      for (const id of ["agent-a", "agent-b"])
-        await request(runtimeUrl, tenant, `/v1/agents/${id}`, {
+      const A = "redteam-a";
+      const B = "redteam-b";
+      // Session A's sandbox is its Agent's, made from a manifest with a virtual runtime; session
+      // B's Agent has none (kind none).
+      for (const [id, runtime] of [
+        [A, { kind: "virtual" }],
+        [B, undefined],
+      ]) {
+        await request(runtimeUrl, tenant, `/v1/agent-manifests/${id}`, {
           method: "PUT",
           body: {
             requestId: randomUUID(),
-            implementationVersion: "dev",
-            manifest: { id, name: id, manifestSchemaVersion: 7 },
+            manifestSchemaVersion: 8,
+            name: id,
+            harness: {},
+            ...(runtime ? { runtime } : {}),
           },
         });
-      const A = "redteam-a";
-      const B = "redteam-b";
-      // Session A's sandbox is a virtual Environment's (protocol 11).
-      await request(runtimeUrl, tenant, `/v1/environments/${A}`, {
-        method: "PUT",
-        body: { requestId: randomUUID(), kind: "virtual" },
-      });
-      await request(runtimeUrl, tenant, `/v1/sessions/${A}`, {
-        method: "PUT",
-        body: { requestId: randomUUID(), agentId: "agent-a", ownerUserId: "redteam", environment: A },
-      });
-      await request(runtimeUrl, tenant, `/v1/sessions/${B}`, {
-        method: "PUT",
-        body: { requestId: randomUUID(), agentId: "agent-b", ownerUserId: "redteam" },
-      });
+        await request(runtimeUrl, tenant, `/v1/agents/${id}`, {
+          method: "PUT",
+          body: { requestId: randomUUID(), manifest: id },
+        });
+        await request(runtimeUrl, tenant, `/v1/sessions/${id}`, {
+          method: "PUT",
+          body: { requestId: randomUUID(), agent: id, ownerUserId: "redteam" },
+        });
+      }
       let n = 0;
       const message = (session, content) =>
         request(runtimeUrl, tenant, `/v1/sessions/${session}/commands`, {
@@ -142,6 +146,7 @@ try {
             "-e", `SMOKE_POSTGRES_IP=${postgresIp}`,
             "-e", `SMOKE_HOST_PORTS=${valueOf("NYLORUN_RESTATE_PORT")}`,
             "-e", `SMOKE_PROTOCOL=${PROTOCOL_VERSION}`,
+            "-e", `SMOKE_HARNESS_API=${HARNESS_API_VERSION}`,
             "-e", `SMOKE_SECRET_HASHES=${secrets.map(sha256).join(",")}`,
             "--entrypoint", "node",
             "harness", "--input-type=module", "-",

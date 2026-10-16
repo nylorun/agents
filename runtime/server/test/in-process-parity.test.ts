@@ -11,6 +11,7 @@ import type { McpServerRef } from "../src/mcp/pool.js";
 import type { ToolGate } from "../src/gates/tool-gate.js";
 import type { ModelProvider } from "../src/core/provider.js";
 import { boot, server, until, view, type Started } from "./host/execution-support.js";
+import { deploy, openSession } from "./support/agents.js";
 
 const cleanups: (() => Promise<unknown> | void)[] = [];
 afterEach(async () => {
@@ -48,17 +49,8 @@ it("calls the model through its gate, metered, and opens MCP servers only throug
   };
   const runtime: Started = await boot({ harness: "memory", modelProvider: model, toolGate });
   cleanups.push(() => runtime.close());
-  const put = await fetch(`${runtime.url}/v1/agents/bot`, {
-    method: "PUT",
-    headers: server,
-    body: JSON.stringify({ requestId: "put-1", manifest: agent.manifest, implementationVersion: "dev" }),
-  });
-  expect(put.ok).toBe(true);
-  const session = await fetch(`${runtime.url}/v1/sessions/s1`, {
-    method: "PUT",
-    headers: server,
-    body: JSON.stringify({ requestId: "session-s1", agentId: "bot", ownerUserId: "u" }),
-  });
+  await deploy(runtime.url, server, agent);
+  const session = await openSession(runtime.url, server, "s1", { agent: "bot", ownerUserId: "u" });
   expect(session.ok).toBe(true);
   const message = await fetch(`${runtime.url}/v1/sessions/s1/commands`, {
     method: "POST",

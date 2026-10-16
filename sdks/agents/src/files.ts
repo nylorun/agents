@@ -1,8 +1,8 @@
 /**
  * Definition files (track R2 M4): `client.files`. A definition names the files it needs by the
  * SHA-256 of their bytes (a skill's folder, `SkillManifest.files`); the Runtime holds each one
- * once, uploaded with `PUT /v1/files/sha256:<hex>`, and refuses a definition naming a file it
- * does not hold (`400 definition_files_missing`). `saveAgent` uploads an agent's files itself.
+ * once, uploaded with `PUT /v1/files/sha256:<hex>`, and refuses a manifest naming a file it
+ * does not hold (`400 definition_files_missing`). `agentManifests.save` uploads them itself.
  */
 import {
   isDefinitionFileHash,

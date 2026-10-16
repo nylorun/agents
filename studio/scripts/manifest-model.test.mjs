@@ -124,19 +124,16 @@ test("schemas become compact fields", () => {
   assert.equal(schemaType({ anyOf: [{ type: "string" }, { type: "null" }] }), "string | null");
 });
 
-test("a session is outdated only when a different manifest is registered", () => {
-  const pinned = { kind: "pinned", manifest: {}, manifestHash: "aaa" };
-  assert.equal(isOutdated({ ...pinned, registeredHash: "bbb" }), true);
-  assert.equal(isOutdated({ ...pinned, registeredHash: "aaa" }), false);
+test("a session is outdated when its agent manifest has a newer version than the one it pinned", () => {
+  const version = { name: "triage", version: 2 };
+  const pinned = { kind: "pinned", manifest: {}, manifestHash: "aaa", version };
+  assert.equal(isOutdated({ ...pinned, latest: 3 }), true);
+  assert.equal(isOutdated({ ...pinned, latest: 2 }), false);
   assert.equal(isOutdated(pinned), false);
-  assert.equal(isOutdated({ kind: "registered-only", registeredHash: "bbb" }), false);
-});
-
-test("a session is outdated by the definition it opened from (R2b C11)", () => {
-  // Since protocol 15 the hashes are the same; an older session's pin may still differ.
-  const pinned = { kind: "pinned", manifest: {}, manifestHash: "pinned", definitionHash: "aaa" };
-  assert.equal(isOutdated({ ...pinned, registeredHash: "aaa" }), false);
-  assert.equal(isOutdated({ ...pinned, registeredHash: "bbb" }), true);
+  assert.equal(isOutdated({ kind: "agent", manifest: {}, version, latest: 3 }), true);
+  // A session opened from a definition before protocol 16 pinned no version.
+  assert.equal(isOutdated({ kind: "pinned", manifest: {}, manifestHash: "aaa", latest: 3 }), false);
+  assert.equal(isOutdated({ kind: "loading" }), false);
 });
 
 test("malformed manifests render as empty", () => {

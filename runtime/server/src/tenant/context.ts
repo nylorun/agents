@@ -15,7 +15,7 @@
  * under ownership (§10.6); `abortLocal` aborts an advance running on this process.
  */
 import type { SessionHistory } from "./history.js";
-import { DEFAULT_HARNESS } from "@nylorun/core/contracts";
+import { DEFAULT_HARNESS, agentGranted } from "@nylorun/core/contracts";
 import type {
   IssuerScope,
   SubjectScope,
@@ -50,19 +50,24 @@ import type { TraceContext } from "../traces/ids.js";
 
 export interface Session {
   id: string;
+  /** The Agent the session runs on (protocol 16; a definition id before). */
   agentId: string;
   ownerUserId: string;
-  /** Session pin — the manifest the session was created with. */
+  /**
+   * Session pin: the loop manifest the session runs, its Agent's manifest version's harness
+   * section as the harness runs it (`loopManifestOf`), or a flow's leaf agent.
+   */
   manifest: any;
   manifestHash: string;
   /**
-   * The hash of the definition the session was opened from (R2b C11); since protocol 15 it equals
-   * `manifestHash`. Absent on older sessions.
+   * The agent manifest version the session pinned when it opened (protocol 16): its Agent's.
+   * Absent on a session opened before protocol 16.
    */
-  definitionHash?: string;
+  definition?: { name: string; version: number };
+  /** The pinned version's `harness.loop`: passed to the harness, never read by the Runtime. */
+  loop?: Record<string, unknown>;
   /** Validated turn-manifest variants, keyed by hash (loops.md §4.2). */
   variants?: Record<string, AgentManifest>;
-  implementationVersion: string;
   info?: any;
   status: string;
   activeTurnId: string | null;
@@ -97,22 +102,22 @@ export interface Session {
   mcpSnapshot?: McpSnapshot;
   mcpDiagnostics?: readonly McpDiagnostic[];
   /**
-   * The Environment the session names (`environment`, protocol 11): its sandbox is the
-   * session's (the Environment's id keys the workspace) and its vault holds the session's
+   * The Agent's environment the session runs on: since protocol 16 always its Agent's id. Its
+   * sandbox is the session's (the id keys the workspace) and its vault holds the session's
    * credentials. It outlives the session.
    */
   environmentId?: string;
-  /** The Environment's recipe version when the session opened (shown, never enforced). */
+  /** Always 1 since protocol 14 (shown, never enforced). */
   environmentVersion?: number;
   /**
-   * The harness that runs the session's turns (R4.1), pinned when it opened: its Environment's
-   * harness, else `nylorun`. Absent on a session opened before R4: ours (`harnessOf`).
+   * The harness that runs the session's turns (R4.1), pinned when it opened: its manifest's
+   * `harness.id`, else `nylorun`. Absent on a session opened before R4: ours (`harnessOf`).
    */
   harness?: string;
   /**
    * A flow agent's linked session: the session whose turn opened the flow tree. Its sessions
    * share the tree's Environment, and their turns nest in the root's, so they do not hold the
-   * Environment against each other (`checkEnvironmentTurn`).
+   * Environment against each other (`checkAgentTurn`).
    */
   flowRootId?: string;
   /**
@@ -124,7 +129,8 @@ export interface Session {
    * Why the session takes no new turn: `protocol_11` for a session opened before protocol 11
    * (migration 0020), `protocol_13` for one opened before protocol 13 (migration 0024),
    * `protocol_15` for an agent session that pinned a `runtime` block before protocol 15
-   * (migrations 0029, 0030). Its history stays readable.
+   * (migrations 0029, 0030), `protocol_16` for one opened from a definition before protocol 16
+   * (migration 0032). Its history stays readable.
    */
   closedReason?: string;
   /**
@@ -144,7 +150,7 @@ export type AuthScope =
   | { kind: "management"; principalId: string }
   /**
    * A trusted issuer's token (Host feature `trusted-issuers`, F9-D12): one subject, with the
-   * issuer's scopes, agents and Environment grants, until `expiresAt` (ms). Only its expiry ends it.
+   * issuer's scopes and Agent grants, until `expiresAt` (ms). Only its expiry ends it.
    */
   | {
       kind: "token";
@@ -153,9 +159,8 @@ export type AuthScope =
       subject: string;
       /** The issuer's scopes the token holds, which may add `studio`. */
       scopes: ReadonlySet<IssuerScope>;
-      agents: ReadonlySet<string> | "*";
-      /** The Environments it reaches: exact ids or `p/*` prefixes. Absent or empty reaches none. */
-      environments?: readonly string[];
+      /** The Agents it reaches: `*`, else exact ids or `p/*` prefixes; empty reaches none. */
+      agents: readonly string[] | "*";
       expiresAt: number;
       /** The token's `jti`, or a hash of it. */
       tokenId: string;
@@ -267,7 +272,7 @@ export interface TenantContext {
   abortLocal(sessionId: string, turnId?: string): void;
   /**
    * Sandbox pods (F7.2): the sandboxes service and the Runtime image pods copy the engine from.
-   * Absent without a cluster (`nylorun local sandbox enable`): kind `pod` is `environment_unavailable`.
+   * Absent without a cluster (`nylorun local sandbox enable`): kind `pod` is `agent_unavailable`.
    */
   readonly pods?: TenantPods;
   /**
@@ -287,11 +292,17 @@ export interface TenantContext {
 
 /**
  * What a request acting for a person may reach: that person's sessions, and, for a token
- * caller, only sessions of the agents its issuer allows. Undefined means the whole Tenant.
+ * caller, only sessions on the Agents its grants reach (ids and `p/*` prefixes). Undefined means
+ * the whole Tenant.
  */
 export interface SessionAccess {
   readonly owner: string;
-  readonly agents?: ReadonlySet<string>;
+  readonly agents?: readonly string[];
+}
+
+/** Whether `access` reaches sessions on Agent `agentId`. */
+export function reachesAgent(access: SessionAccess | undefined, agentId: string): boolean {
+  return access?.agents === undefined || agentGranted(access.agents, agentId);
 }
 
 /**
@@ -307,7 +318,7 @@ function owned<T extends Session>(
     !session ||
     (access !== undefined &&
       (session.ownerUserId !== access.owner ||
-        (access.agents !== undefined && !access.agents.has(session.agentId))))
+        !reachesAgent(access, session.agentId)))
   )
     return fail(404, "Session not found");
   return session;

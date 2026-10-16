@@ -19,6 +19,7 @@ import {
 } from "../../src/tenant/ephemeral.js";
 import { testIssuer, type TestIssuer } from "../support/issuer.js";
 import { testPool } from "../support/store.js";
+import { manifestOf } from "../support/agents.js";
 
 const TENANT = `tn_${"0".repeat(22)}mtrx`;
 const APPLICATION_KEY = "matrix-application-key-0000000000";
@@ -30,7 +31,7 @@ const SUBJECT = "app:ann";
  * Every scope a subject can hold. Older clients still send the retired `vaults:own`
  * (protocol 6) and `tenant:settings` (protocol 7); they grant nothing.
  */
-const ALL_SCOPES = "agents:read agents:write sessions:own environments:write vaults:own tenant:settings";
+const ALL_SCOPES = "agents:read agents:write sessions:own agent-manifests:write vaults:own tenant:settings";
 /** A body every schema rejects, so a write that gets past authorization changes nothing. */
 const INVALID = [] as const;
 /** A definition file that is never stored. */
@@ -42,8 +43,8 @@ let root: string;
 let rt: EphemeralRuntime;
 let issuer: TestIssuer;
 let issuerToken: string;
-/** An Environment that exists, guarded for `SUBJECT`, with no secrets. */
-const ENVIRONMENT = "env-1";
+/** An Agent that exists, guarded for `SUBJECT`, with no secrets. */
+const AGENT = "agent-1";
 const secrets: [string, string][] = [];
 
 type Caller =
@@ -183,13 +184,20 @@ interface Operation {
   body?: unknown;
 }
 
-/** Every Tenant operation, with ids that exist (`s1`, `bot`, `env-1`) or never will. */
+/** Every Tenant operation, with ids that exist (`s1`, `bot`, `agent-1`) or never will. */
 function tenantOperations(): Operation[] {
-  const environment = `/v1/environments/${ENVIRONMENT}`;
+  const agent = `/v1/agents/${AGENT}`;
+  const missing = "/v1/agents/team%2Fagent-missing";
   return [
     { method: "POST", path: "/v1/sessions/s1/commands", body: INVALID },
-    { method: "GET", path: "/v1/agents" },
-    { method: "PUT", path: "/v1/agents/bot", body: INVALID },
+    // Agent manifests (protocol 16): writes fail validation, deletes name one that does not exist.
+    { method: "GET", path: "/v1/agent-manifests" },
+    { method: "PUT", path: "/v1/agent-manifests/bot", body: INVALID },
+    { method: "GET", path: "/v1/agent-manifests/bot" },
+    { method: "GET", path: "/v1/agent-manifests/bot/versions" },
+    { method: "GET", path: "/v1/agent-manifests/bot/versions/1" },
+    { method: "GET", path: "/v1/agent-manifests/missing" },
+    { method: "DELETE", path: "/v1/agent-manifests/missing" },
     // Definition files (R2 M4): the body does not hash to the name, so nothing is stored.
     { method: "PUT", path: `/v1/files/${MISSING_FILE}`, body: INVALID },
     { method: "HEAD", path: `/v1/files/${MISSING_FILE}` },
@@ -200,23 +208,32 @@ function tenantOperations(): Operation[] {
     { method: "GET", path: "/v1/sessions/s1/items" },
     { method: "GET", path: "/v1/sessions/s1/events" },
     { method: "POST", path: "/v1/sessions/s1/sandbox/bash", body: INVALID },
-    // Environments (protocol 11): writes fail validation or name ids that do not exist.
-    { method: "GET", path: "/v1/environments" },
-    { method: "GET", path: "/v1/environments?label=project=acme" },
-    { method: "GET", path: "/v1/environments?limit=1" },
-    { method: "PUT", path: "/v1/environments/team%2Fenv-missing", body: INVALID },
-    { method: "GET", path: "/v1/environments/team%2Fenv-missing" },
-    { method: "GET", path: "/v1/environments/team%2Fenv-missing/events" },
-    { method: "POST", path: "/v1/environments/team%2Fenv-missing/stop" },
-    { method: "POST", path: "/v1/environments/team%2Fenv-missing/reset" },
-    { method: "DELETE", path: "/v1/environments/team%2Fenv-missing" },
-    { method: "GET", path: environment },
-    { method: "GET", path: `${environment}/events` },
-    { method: "POST", path: `${environment}/stop` },
-    { method: "GET", path: `${environment}/secrets` },
-    { method: "GET", path: `${environment}/secrets/missing` },
-    { method: "PUT", path: `${environment}/secrets/token`, body: INVALID },
-    { method: "DELETE", path: `${environment}/secrets/missing` },
+    // Agents (protocol 16; Environments from protocol 11): writes fail validation or name ids
+    // that do not exist.
+    { method: "GET", path: "/v1/agents" },
+    { method: "GET", path: "/v1/agents?label=project=acme" },
+    { method: "GET", path: "/v1/agents?limit=1" },
+    { method: "PUT", path: "/v1/agents/bot", body: INVALID },
+    { method: "PUT", path: missing, body: INVALID },
+    { method: "GET", path: missing },
+    { method: "GET", path: `${missing}/events` },
+    { method: "POST", path: `${missing}/stop` },
+    { method: "POST", path: `${missing}/reset` },
+    { method: "POST", path: `${missing}/snapshot` },
+    { method: "POST", path: `${missing}/restore`, body: INVALID },
+    { method: "POST", path: `${missing}/fork`, body: INVALID },
+    { method: "GET", path: `${missing}/versions` },
+    { method: "DELETE", path: `${missing}/versions/1` },
+    { method: "DELETE", path: missing },
+    { method: "GET", path: agent },
+    { method: "GET", path: `${agent}/events` },
+    { method: "POST", path: `${agent}/stop` },
+    { method: "POST", path: `${agent}/fork`, body: INVALID },
+    { method: "GET", path: `${agent}/versions` },
+    { method: "GET", path: `${agent}/secrets` },
+    { method: "GET", path: `${agent}/secrets/missing` },
+    { method: "PUT", path: `${agent}/secrets/token`, body: INVALID },
+    { method: "DELETE", path: `${agent}/secrets/missing` },
     // File artifacts (protocol 6): an empty name fails validation, so nothing is stored.
     { method: "POST", path: "/v1/artifacts?name=&sessionId=s1", body: INVALID },
     { method: "POST", path: `/v1/artifacts/${MISSING_ARTIFACT}/versions`, body: INVALID },
@@ -245,7 +262,7 @@ function tenantOperations(): Operation[] {
     { method: "GET", path: "/v1/tenant/sandbox" },
     { method: "PUT", path: "/v1/tenant/sandbox", body: INVALID },
     { method: "GET", path: "/v1/tenant/providers" },
-    { method: "GET", path: "/v1/tenant/usage?scope=agent&id=bot&period=month" },
+    { method: "GET", path: "/v1/tenant/usage?scope=manifest&id=bot&period=month" },
     { method: "GET", path: "/v1/tenant/budgets" },
     { method: "PUT", path: "/v1/tenant/budgets", body: INVALID },
     { method: "GET", path: "/v1/tenant/tool-policy" },
@@ -255,7 +272,7 @@ function tenantOperations(): Operation[] {
     { method: "PUT", path: "/v1/tenant/model/selection", body: INVALID },
     // A tool preview (R2b C12): the body fails validation, so no server is called.
     { method: "POST", path: "/v1/tenant/mcp/preview", body: INVALID },
-    // Credential coverage: the body fails validation, so no definition or vault is read.
+    // Credential coverage: the body fails validation, so no Agent or vault is read.
     { method: "POST", path: "/v1/tenant/credential-coverage", body: INVALID },
     { method: "GET", path: "/v1/access/jwks" },
     { method: "GET", path: "/v1/me" },
@@ -309,7 +326,7 @@ function edgeOperations(): Operation[] {
     // MCP OAuth connect (protocol 10): gone.
     { method: "POST", path: "/v1/tenant/vaults/vlt-missing/oauth/start", body: INVALID },
     // Vaults on the Management API and sandbox resources (protocol 11): gone, for an
-    // Environment's secrets and Environments.
+    // Agent's secrets and Agents.
     { method: "POST", path: "/v1/tenant/vaults", body: INVALID },
     { method: "GET", path: `/v1/tenant/vaults?ownerUserId=${SUBJECT}` },
     { method: "GET", path: "/v1/tenant/vaults/vlt-missing" },
@@ -322,6 +339,17 @@ function edgeOperations(): Operation[] {
     { method: "GET", path: "/v1/sandboxes/sbx-missing" },
     { method: "DELETE", path: "/v1/sandboxes/sbx-missing" },
     { method: "GET", path: "/v1/oauth/callback?state=matrix-state&code=matrix-code" },
+    // Environments, environment manifests and agent definitions (protocol 16): gone, for
+    // Agents made from agent manifests.
+    { method: "GET", path: "/v1/environments" },
+    { method: "PUT", path: "/v1/environments/env-1", body: INVALID },
+    { method: "GET", path: "/v1/environments/env-1" },
+    { method: "GET", path: "/v1/environments/env-1/secrets" },
+    { method: "DELETE", path: "/v1/environments/env-1" },
+    { method: "GET", path: "/v1/environment-manifests" },
+    { method: "PUT", path: "/v1/environment-manifests/box", body: INVALID },
+    { method: "GET", path: "/v1/environment-manifests/box" },
+    { method: "GET", path: "/v1/tenant/usage?scope=agent&id=bot&period=month" },
     { method: "GET", path: "/v1/access/signing-keys" },
     { method: "POST", path: "/v1/access/signing-keys/rotate", body: INVALID },
     { method: "GET", path: "/v1/sessions/missing/unknown" },
@@ -366,18 +394,11 @@ beforeAll(async () => {
     expect(response.status, `${method} ${path}: ${JSON.stringify(parsed)}`).toBe(200);
     return parsed;
   };
-  await app("PUT", "/v1/agents/bot", {
-    requestId: "bot",
-    manifest: Agent({ id: "bot", name: "Bot", description: "Helps" }).build().manifest,
-    implementationVersion: "dev",
-  });
+  await app("PUT", "/v1/agent-manifests/bot", manifestOf(Agent({ id: "bot", name: "Bot", description: "Helps" }).build()));
+  await app("PUT", "/v1/agents/bot", { requestId: "bot", manifest: "bot" });
   issuerToken = await issuer.sign(SUBJECT, "sessions:own agents:read", { ttlSeconds: 900 });
-  await app("PUT", "/v1/sessions/s1", { requestId: "s1", agentId: "bot", ownerUserId: SUBJECT });
-  await app("PUT", `/v1/environments/${ENVIRONMENT}`, {
-    requestId: "environment",
-    kind: "none",
-    ownerUserId: SUBJECT,
-  });
+  await app("PUT", "/v1/sessions/s1", { requestId: "s1", agent: "bot", ownerUserId: SUBJECT });
+  await app("PUT", `/v1/agents/${AGENT}`, { requestId: "agent", manifest: "bot", owner: SUBJECT });
   secrets.push([issuerToken, "<issuer-token>"], [TENANT, "<tenant>"]);
 });
 

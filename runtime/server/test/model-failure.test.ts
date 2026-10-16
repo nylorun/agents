@@ -9,6 +9,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Agent, createClient, type AgentsClient } from "@nylorun/agents";
 import { parseTranscriptEvent, type LiveEvent } from "@nylorun/core/contracts";
+import { deploy } from "./support/agents.js";
 import { startTestTenant } from "./support/tenant.js";
 
 const APP = "model-failure-app-token-aaaaaaaa";
@@ -73,9 +74,7 @@ async function tenant(idleTimeoutMs = 5_000) {
     key: runtime.applicationKey,
     tenant: runtime.tenantId,
   });
-  await client.saveAgent(Agent({ id: "bot", name: "Bot" }).instructions("Answer.").build(), {
-    implementationVersion: "dev",
-  });
+  await deploy(runtime.url, runtime.headers(), Agent({ id: "bot", name: "Bot" }).instructions("Answer.").build());
   return { runtime, client };
 }
 
@@ -102,7 +101,7 @@ async function run(reply: Reply, idleTimeoutMs?: number) {
   const counter = provider(reply);
   const { runtime, client } = await tenant(idleTimeoutMs);
   closers.push(() => runtime.close());
-  const session = await client.createSession({ id: "s1", agentId: "bot", ownerUserId: "ada" });
+  const session = await client.createSession({ id: "s1", agent: "bot", ownerUserId: "ada" });
   await session.input("hello", { idempotencyKey: "m1" });
   const view = await settle(session);
   const { items } = await session.history();
@@ -196,7 +195,7 @@ describe.each([["in-process"], ["http"]] as const)("over the %s Model Gate", (tr
     );
     const { runtime, client } = await tenant();
     closers.push(() => runtime.close());
-    const session = await client.createSession({ id: "s1", agentId: "bot", ownerUserId: "ada" });
+    const session = await client.createSession({ id: "s1", agent: "bot", ownerUserId: "ada" });
     await session.input("hello", { idempotencyKey: "m1" });
     await new Promise((resolve) => setTimeout(resolve, 30));
     await session.cancel({ idempotencyKey: "c1" });

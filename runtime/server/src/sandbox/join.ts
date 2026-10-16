@@ -33,7 +33,7 @@
  */
 import { createHash, timingSafeEqual } from "node:crypto";
 import type { HostJoinAnswer as PublishedJoinAnswer, HostJoinRequest } from "@nylorun/core/harness-api";
-import { isEnvironmentId } from "@nylorun/core/contracts";
+import { isAgentId } from "@nylorun/core/contracts";
 import type { Environment } from "../store/types.js";
 import type { TenantContext } from "../tenant/context.js";
 import { recoverLostVolume, runPendingSeed } from "../artifacts/disk.js";
@@ -133,7 +133,7 @@ export function hostAuthority(ctx: TenantContext): HostAuthority {
     async join(request) {
       const { sandboxId, podUid, joinToken, volumeId } = request;
       if (
-        !isEnvironmentId(sandboxId) ||
+        !isAgentId(sandboxId) ||
         typeof podUid !== "string" ||
         !POD_UID.test(podUid) ||
         typeof joinToken !== "string" ||
@@ -178,7 +178,7 @@ export function hostAuthority(ctx: TenantContext): HostAuthority {
           // A new, empty volume under the same Sandbox: the sandbox's files are gone.
           const reason = "The sandbox's volume was replaced: its files are gone";
           await t.updateEnvironmentPod(sandboxId, { observed: "lost", reason, hostEpoch: epoch }, now);
-          await t.environmentEvent(sandboxId, "environment.lost", { reason });
+          await t.agentEvent(sandboxId, "agent.lost", { reason });
           // Its Sandbox is deleted; only a reset brings the sandbox back.
           await t.signal({ type: "host.revoked", sandboxId, epoch });
           await t.signalSandbox(sandboxId, { kind: "reconcile" });
@@ -195,8 +195,8 @@ export function hostAuthority(ctx: TenantContext): HostAuthority {
           now,
         );
         if (pod.podUid !== podUid) {
-          if (pod.podUid !== undefined) await t.environmentEvent(sandboxId, "environment.relaunched", { hostEpoch: epoch });
-          else await t.environmentEvent(sandboxId, "environment.running", { hostEpoch: epoch });
+          if (pod.podUid !== undefined) await t.agentEvent(sandboxId, "agent.relaunched", { hostEpoch: epoch });
+          else await t.agentEvent(sandboxId, "agent.running", { hostEpoch: epoch });
         }
         // The previous host's connection (an older epoch) serves nothing more, on any process.
         await t.signal({ type: "host.revoked", sandboxId, epoch });

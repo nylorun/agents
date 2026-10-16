@@ -141,8 +141,8 @@ describe("Transport headers and compatibility", () => {
               ? {}
               : {
                   protocol: {
-                    min: 16,
-                    max: 16,
+                    min: 17,
+                    max: 17,
                     features: [...PROTOCOL_FEATURES],
                   },
                 },
@@ -154,7 +154,7 @@ describe("Transport headers and compatibility", () => {
             JSON.stringify({
               status: "rejected",
               code: "protocol_unsupported",
-              protocol: { min: 16, max: 16, features: [...PROTOCOL_FEATURES] },
+              protocol: { min: 17, max: 17, features: [...PROTOCOL_FEATURES] },
             }),
             { status: 426, headers: { "content-type": "application/json" } },
           );
@@ -236,6 +236,6 @@ describe("createClient({ url, key })", () => {
         return Response.json({ agents: [] });
       },
     });
-    await expect(client.listAgents()).resolves.toEqual({ agents: [] });
+    await expect(client.agents.list()).resolves.toEqual([]);
   });
 });

@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { z } from "zod";
 import { Agent, createClient, type AgentsClient } from "@nylorun/agents";
+import { deploy } from "./support/agents.js";
 import { startTestTenant } from "./support/tenant.js";
 import { startToolServer, type ToolServer } from "./support/tool-server.js";
 import { setToolPolicy } from "./support/tool-policy.js";
@@ -64,7 +65,7 @@ beforeAll(async () => {
     key: runtime.applicationKey,
     tenant: runtime.tenantId,
   });
-  await client.saveAgent(agent, { implementationVersion: "v1" });
+  await deploy(runtime.url, runtime.headers(), agent);
   await setToolPolicy(runtime, [{ effect: "ask", tool: "lookup_order" }]);
 });
 
@@ -115,7 +116,7 @@ async function toolResults(session: Session) {
 it("pauses an approval-gated tool with an output schema, then completes it on approve", async () => {
   const session = await client.createSession({
     id: "approve",
-    agentId: "orders",
+    agent: "orders",
     ownerUserId: "user",
   });
   await session.input("look up A-1", { idempotencyKey: "msg-approve" });
@@ -147,7 +148,7 @@ it("pauses an approval-gated tool with an output schema, then completes it on ap
 it("reports a denied approval to the model as tool.denied, not as an invalid output", async () => {
   const session = await client.createSession({
     id: "deny",
-    agentId: "orders",
+    agent: "orders",
     ownerUserId: "user",
   });
   await session.input("look up A-1", { idempotencyKey: "msg-deny" });

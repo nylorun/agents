@@ -38,11 +38,14 @@ describe("nylorun", () => {
     expect(stdout).toMatch(/up\|start \[--tenant <name>\]/);
     expect(stdout).toMatch(/down\|stop/);
     expect(stdout).toMatch(/^ {2}doctor sandbox \[--tenant <name>\] \[--json\]/m);
-    expect(stdout).toMatch(/^ {2}agents {8}list \| get \| save/m);
-    expect(stdout).toMatch(/^ {2}sessions {6}list \| create \| get \| send/m);
+    expect(stdout).toMatch(/^ {2}apply \[<dir>\.\.\.\] \[--dry-run\] \[--if-match <n>\]$/m);
+    expect(stdout).toMatch(/^ {2}migrate v8 <agent\.json> \[--runtime <environment-manifest\.json>\] \[--out <dir>\]$/m);
+    expect(stdout).toMatch(/^ {2}agent-manifests {2}list \| get \| versions \| rm$/m);
     expect(stdout).toMatch(
-      /^ {2}environments {2}list \| get \| put \| fork \| stop .*\n {16}versions \| delete-version \| events \| secrets \| manifests$/m,
+      /^ {2}agents {8}list \| get \| put \| fork \| stop .*\n {16}versions \| delete-version \| events \| secrets$/m,
     );
+    expect(stdout).toMatch(/^ {2}sessions {6}list \| create \| get \| send/m);
+    expect(stdout).not.toMatch(/^ {2}environments/m);
     expect(stdout).toMatch(/^ {2}artifacts {5}list \| get \| upload/m);
     expect(stdout).toMatch(
       /^ {2}tenant {8}reset \| keys \| signing-keys \| models \| usage \| calls \| budgets \| tool-policy \|\n {16}settings \| coverage \| mcp$/m,
@@ -54,11 +57,17 @@ describe("nylorun", () => {
   it("each group has its own help", () => {
     expect(nylorun(["local", "--help"]).stdout).toMatch(/^ {2}delete <tenant> --yes/m);
     expect(nylorun(["tenant", "--help"]).stdout).toMatch(/^ {2}keys put <id> \[--management\] \[--tenant <name>\]/m);
-    expect(nylorun(["environments", "--help"]).stdout).toMatch(/^ {2}secrets put <id> <name> <secret\.json\|->/m);
-    expect(nylorun(["agents", "--help"]).stdout).toMatch(/^ {2}save <manifest\.json\|->/m);
+    expect(nylorun(["agents", "--help"]).stdout).toMatch(/^ {2}secrets put <id> <name> <secret\.json\|->/m);
+    expect(nylorun(["agents", "--help"]).stdout).toMatch(/^ {2}put <id> --manifest <name\[@n\]> \[--owner <user>\]/m);
     expect(nylorun(["sessions", "--help"]).stdout).toMatch(/^ {2}exec <id> \[--timeout <s>\] -- <command>/m);
     expect(nylorun(["artifacts", "--help"]).stdout).toMatch(/^ {2}upload <file\|->/m);
     expect(nylorun(["local", "sandbox", "--help"]).stdout).toMatch(/sandbox enable --context <name>/);
+  });
+
+  it("the agent manifest commands have their own help", () => {
+    expect(nylorun(["agent-manifests", "--help"]).stdout).toMatch(/^ {2}get <name>\[@<n>\]/m);
+    expect(nylorun(["apply", "--help"]).stdout).toMatch(/^ {2}--if-match <n> /m);
+    expect(nylorun(["migrate", "--help"]).stdout).toMatch(/^ {2}--runtime <file> /m);
   });
 
   it.each([
@@ -78,10 +87,10 @@ describe("nylorun", () => {
     [["access", "signing-keys", "list"], /nylorun tenant signing-keys/],
     [["env"], /nylorun env was removed: the SDKs read the Project link themselves/],
     [["status", "--env"], /nylorun env was removed/],
-    [["sandbox", "ls"], /^nylorun sandbox ls moved: nylorun environments list$/m],
-    [["sandbox", "rm", "x"], /^nylorun sandbox rm moved: nylorun environments delete <id>$/m],
+    [["sandbox", "ls"], /^nylorun sandbox ls moved: nylorun agents list$/m],
+    [["sandbox", "rm", "x"], /^nylorun sandbox rm moved: nylorun agents rm <id>$/m],
     [["sandbox", "enable"], /^nylorun sandbox moved: nylorun local sandbox enable$/m],
-    [["local", "sandbox", "ls"], /^nylorun sandbox ls moved: nylorun environments list$/m],
+    [["local", "sandbox", "ls"], /^nylorun sandbox ls moved: nylorun agents list$/m],
     [["local", "nothing"], /^Unknown local command nothing\./m],
     [["tenant"], /^nylorun tenant <command>/m],
     [["tenant", "list"], /^Unknown tenant command list\./m],
@@ -90,9 +99,19 @@ describe("nylorun", () => {
     [["tenant", "models"], /^ {2}models set --provider <id> --model <id>/m],
     [["tenant", "models", "set", "--provider", "openai"], /Pass both --provider and --model/],
     [["tenant", "budgets", "put"], /Usage: nylorun tenant budgets \[get \| put <file\|->\]/],
-    [["tenant", "reset", "--sessions", "--all"], /Pass only one of --sessions, --environments, --all/],
-    [["environments"], /^nylorun environments <command>/m],
-    [["agents"], /^nylorun agents <list\|get\|save>/m],
+    [["tenant", "reset", "--sessions", "--all"], /Pass only one of --sessions, --agents, --all/],
+    [["tenant", "reset", "--environments"], /--environments is --agents in protocol 16/],
+    [["environments"], /^nylorun environments is nylorun agents in protocol 16/m],
+    [["environments", "list"], /^nylorun environments is nylorun agents in protocol 16/m],
+    [["agents"], /^nylorun agents <command>/m],
+    [["agents", "save", "agent.json"], /nylorun agents save was removed in protocol 16: .*nylorun apply <dir>/],
+    [["agents", "put", "a1"], /Usage: nylorun agents put <id> --manifest <name\[@n\]>/],
+    [["agents", "put", "a1", "--manifest", "box", "--kind", "pod"], /--kind was removed in protocol 16/],
+    [["agent-manifests"], /^nylorun agent-manifests <command>/m],
+    [["agent-manifests", "get", "bad name"], /is not an agent manifest's name/],
+    [["migrate"], /^nylorun migrate v8 <agent\.json>/m],
+    [["migrate", "v7", "a.json"], /nylorun migrate knows v8 only/],
+    [["sessions", "create", "--agent", "a", "--owner", "u", "--environment", "e"], /--environment was removed in protocol 16/],
     [["sessions", "nope"], /^Unknown sessions command nope\./m],
     [["artifacts"], /^nylorun artifacts <command>/m],
     [["sessions", "send", "s1"], /Nothing to send/],
@@ -101,8 +120,8 @@ describe("nylorun", () => {
     [["sessions", "list", "--scope", "sessions:own"], /--scope needs --as <subject>/],
     [["sessions", "list", "--as", "u1", "--scope", "everything"], /Unknown scope everything/],
     [["sessions", "send", "s1", "--file", "a@x"], /the version must be a positive number/],
-    [["environments", "restore", "e1", "v2"], /The version is a positive number or latest/],
-    [["environments", "list", "--label", "nokey"], /--label must be key=value/],
+    [["agents", "restore", "a1", "v2"], /The version is a positive number or latest/],
+    [["agents", "list", "--label", "nokey"], /--label must be key=value/],
     [["artifacts", "upload", "-"], /Name the file with --name/],
     [["artifacts", "zip", "a1"], /Usage: nylorun artifacts zip/],
     [["doctor", "sandbox", "--tenant"], /Usage: nylorun doctor sandbox \[--tenant <name>\] \[--json\]/],
@@ -125,7 +144,7 @@ describe("nylorun", () => {
     expect(deleted.code).toBe(3);
   });
 
-  it("the tenant and environments groups need a running local Tenant, or a remote installation", () => {
+  it("the tenant and agents groups need a running local Tenant, or a remote installation", () => {
     const keys = nylorun(["tenant", "signing-keys", "list"]);
     expect(keys.code).toBe(3);
     expect(keys.stderr).toMatch(/No Tenant default under .*Run "nylorun start" first/);

@@ -12,9 +12,12 @@ import { TenantWorkers } from "../../src/tenant/worker.js";
 import { fakeSandboxes } from "../support/fake-sandboxes.js";
 import { openTestSessionStore } from "../support/store.js";
 import { startTestTenant } from "../support/tenant.js";
+import { deploy } from "../support/agents.js";
+import { Agent } from "@nylorun/core/define";
 
 const APP = "outbox-app-token-aaaaaaaaaaaaaaaa";
 const headers = { authorization: `Bearer ${APP}`, "content-type": "application/json" };
+const podAgent = Agent({ id: "sb1", name: "Pod" }).build();
 
 type Started = Awaited<ReturnType<typeof startTestTenant>>;
 const open: (() => Promise<unknown>)[] = [];
@@ -81,16 +84,11 @@ async function until<T>(read: () => Promise<T> | T, ok: (value: T) => boolean, w
   throw new Error(`timed out waiting for ${what}`);
 }
 
-it("loses no pod Environment reconcile or timer to a crash between commit and send: the next process sends them", async () => {
-  // Process A creates a pod Environment, then dies before its signals reach the execution.
+it("loses no pod Agent reconcile or timer to a crash between commit and send: the next process sends them", async () => {
+  // Process A creates a pod Agent, then dies before its signals reach the execution.
   const crashed = sandboxExecution(true);
   const a = await boot(crashed, { retainRoot: true });
-  const created = await fetch(`${a.url}/v1/environments/sb1`, {
-    method: "PUT",
-    headers,
-    body: JSON.stringify({ kind: "pod" }),
-  });
-  expect(created.status).toBe(200);
+  await deploy(a.url, headers, podAgent, { runtime: { kind: "pod" } });
   await until(() => crashed.signals, (signals) => signals.length === 2, "both sends tried");
   const [reconcile, arm] = crashed.signals;
   expect(reconcile).toEqual({ kind: "reconcile", key: expect.stringMatching(/^signal:/) });
@@ -114,7 +112,7 @@ it("loses no pod Environment reconcile or timer to a crash between commit and se
   }
 });
 
-it("revokes a pod Environment's host on every process with the Tenant open, not only the one that moved its epoch", async () => {
+it("revokes a pod Agent's host on every process with the Tenant open, not only the one that moved its epoch", async () => {
   const a = await boot(sandboxExecution(false), { retainRoot: true });
   // Process B serves the same Tenant (another API node): the host may be connected there.
   const b = await boot(sandboxExecution(false), { hostRoot: a.root, tenantId: a.tenantId });
@@ -123,13 +121,8 @@ it("revokes a pod Environment's host on every process with the Tenant open, not 
     const server = (runtime.handle as unknown as { ctx: { harness: { revokeHost: Function } } }).ctx.harness;
     server.revokeHost = (sandboxId: string, epoch: number) => revoked.push({ node, sandboxId, epoch });
   }
-  const created = await fetch(`${a.url}/v1/environments/sb1`, {
-    method: "PUT",
-    headers,
-    body: JSON.stringify({ kind: "pod" }),
-  });
-  expect(created.status).toBe(200);
-  const stopped = await fetch(`${a.url}/v1/environments/sb1/stop`, { method: "POST", headers });
+  await deploy(a.url, headers, podAgent, { runtime: { kind: "pod" } });
+  const stopped = await fetch(`${a.url}/v1/agents/sb1/stop`, { method: "POST", headers });
   expect(stopped.status).toBe(200);
   await until(() => revoked, (calls) => calls.length >= 2, "both processes revoked");
   expect(revoked.sort((x, y) => x.node.localeCompare(y.node))).toEqual([

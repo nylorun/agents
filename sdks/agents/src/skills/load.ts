@@ -139,7 +139,7 @@ export function loadSkillsFromDirectory(
     skills[parsed.name] = {
       name: parsed.name,
       description: parsed.description,
-      ...readFiles(parsed.name, boundary, directoryReal, diagnostics, prefix),
+      ...readFiles(`skill '${parsed.name}'`, boundary, directoryReal, diagnostics, prefix),
     };
   }
   return skills;
@@ -171,9 +171,24 @@ function asTrimmedString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
-/** Every file of the skill's folder, hashed, and where to read each one's bytes. */
+/**
+ * Every file of `directory` (a runtime section's `files` entry with `from`), hashed as a skill's
+ * folder is: each by its `/`-separated path, with where to read its bytes. Version control, OS
+ * and `.env` files are left out; a symbolic link outside `boundary` (default the folder) is
+ * skipped with a diagnostic.
+ */
+export function hashFolder(
+  directory: string,
+  diagnostics: SkillDiagnostic[],
+  options: { readonly boundary?: string; readonly codePrefix?: string } = {}
+): Pick<LoadedSkill, "files" | "sources"> {
+  const root = resolveSkillsRoot(directory);
+  return readFiles(`folder ${directory}`, options.boundary ?? root, root, diagnostics, options.codePrefix ?? "files");
+}
+
+/** Every file of the folder, hashed, and where to read each one's bytes. */
 function readFiles(
-  name: string,
+  label: string,
   boundary: string,
   directory: string,
   diagnostics: SkillDiagnostic[],
@@ -193,7 +208,7 @@ function readFiles(
         diagnostics.push({
           severity: "warning",
           code: `${prefix}.resource-denied`,
-          message: `Denied a file of skill '${name}' outside the package: ${entry.name}`,
+          message: `Denied a file of ${label} outside the package: ${entry.name}`,
           path: full,
         });
         continue;
@@ -209,7 +224,7 @@ function readFiles(
       if (issue)
         throw new SkillsError(
           `${prefix}.invalid-path`,
-          `Skill '${name}' has a file whose path ${issue}: ${path}`
+          `${label[0]!.toUpperCase()}${label.slice(1)} has a file whose path ${issue}: ${path}`
         );
       const hash = hashFile(real);
       files[path] = hash;

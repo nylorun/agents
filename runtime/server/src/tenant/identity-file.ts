@@ -15,9 +15,8 @@
  *     # Optional, with their defaults:
  *     subject: "{sub}"                           # scalar claims only
  *     scopes: { claim: scope }                   # or { fixed: [sessions:own, agents:read] }
- *     allowedScopes: [agents:read, sessions:own, environments:write]   # add studio to grant it
- *     agents: [support]                          # absent reaches every agent
- *     environments: ["{org_id}/*"]               # absent reaches no Environment
+ *     allowedScopes: [agents:read, sessions:own, agents:write]   # add studio to grant it
+ *     agents: ["{org_id}/*", support]            # Agent grants; absent reaches no Agent
  *     jwksFetch:                                 # how the JWKS is fetched and cached
  *       timeoutMs: 5000                          # one fetch
  *       maxBytes: 262144                         # the largest JWKS read
@@ -31,7 +30,7 @@ import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 import {
   ISSUER_SCOPES,
-  isEnvironmentGrant,
+  isAgentGrant,
   TIMER_MAX_MS,
   TOKEN_SCOPES,
   type IssuerScope,
@@ -101,10 +100,11 @@ export interface TrustedIssuerConfig {
   readonly scopes: { readonly claim: string } | { readonly fixed: readonly IssuerScope[] };
   /** The scopes its tokens may carry; others are dropped. */
   readonly allowedScopes: readonly IssuerScope[];
-  /** The agents its tokens reach; absent reaches all. */
+  /**
+   * Agent grant templates (protocol 16; `agents` and `environments` before), such as `{org_id}/*`,
+   * `support` or `*`: what its tokens reach. Absent reaches no Agent.
+   */
   readonly agents?: readonly string[];
-  /** Environment grant templates, such as `{org_id}/*`; absent reaches no Environment. */
-  readonly environments?: readonly string[];
   /** How its JWKS is fetched; each setting left out is its default (`JWKS_FETCH_DEFAULTS`). */
   readonly jwksFetch?: Partial<JwksFetchSettings>;
 }
@@ -208,13 +208,12 @@ const IssuerEntrySchema = z
       ], { error: "must be { claim: <name> } or { fixed: [<scope>, ...] }" })
       .default(DEFAULT_SCOPES),
     allowedScopes: z.array(IssuerScopeSchema).min(1).default([...DEFAULT_ALLOWED_SCOPES]),
-    agents: z.array(z.string().min(1)).optional(),
-    environments: z
+    agents: z
       .array(
-        template("an Environment grant").refine(
+        template("an Agent grant").refine(
           // A rendered grant must be a grant: checked here with a sample value per claim.
-          (value) => isEnvironmentGrant(renderTemplate(value, () => "x")),
-          "must render to an Environment id or a prefix ending in /*, as {org_id}/*",
+          (value) => isAgentGrant(renderTemplate(value, () => "x")),
+          "must render to *, an Agent id or a prefix ending in /*, as {org_id}/*",
         ),
       )
       .optional(),
@@ -300,7 +299,12 @@ export function parseIdentityFile(
       (entry as { scopes?: unknown } | null)?.scopes,
     ]);
     if (scopesNamed.includes('"sandboxes:write"'))
-      return fail(`${where}: sandboxes:write: renamed environments:write in protocol 11`);
+      return fail(`${where}: sandboxes:write: renamed agents:write (environments:write in protocol 11)`);
+    // Protocol 16 renamed these: refused, never read as no grants.
+    if (entry && typeof entry === "object" && "environments" in entry)
+      return fail(`${where}: environments: Environments are Agents in protocol 16: move the grants to agents`);
+    if (scopesNamed.includes('"environments:write"'))
+      return fail(`${where}: environments:write: renamed agents:write in protocol 16`);
     const parsed = IssuerEntrySchema.safeParse(entry);
     if (!parsed.success) return fail(`${where}: ${issueText(parsed.error.issues)}`);
     ignored(where, unknownKeys(entry, ENTRY_KEYS));
@@ -336,7 +340,6 @@ export function parseIdentityFile(
       scopes: value.scopes,
       allowedScopes: [...new Set(value.allowedScopes)],
       ...(value.agents ? { agents: [...new Set(value.agents)] } : {}),
-      ...(value.environments ? { environments: value.environments } : {}),
     });
   });
   return issuers;

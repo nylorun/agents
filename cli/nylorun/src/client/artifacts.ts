@@ -1,7 +1,7 @@
 /**
  * `nylorun artifacts`: the Tenant's file artifacts (`/v1/artifacts`, Runtime API): upload a file
  * (to name in a message with `sessions send --file`), list, download, browse a folder artifact
- * (an Environment's disk), share a version with a capability link, and delete.
+ * (an Agent's disk versions), share a version with a capability link, and delete.
  */
 import { createWriteStream } from "node:fs";
 import { readFile } from "node:fs/promises";
@@ -83,8 +83,8 @@ async function list(deps: StackDeps, args: readonly string[]): Promise<number> {
         String(item.latestVersion),
         item.sessionId
           ? `session ${item.sessionId}`
-          : item.environmentId
-            ? `environment ${item.environmentId}`
+          : item.agentId
+            ? `agent ${item.agentId}`
             : "tenant",
       ]),
     ]);

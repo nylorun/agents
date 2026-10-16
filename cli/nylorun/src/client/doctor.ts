@@ -16,7 +16,7 @@ export type SandboxReport = {
     version?: string;
   }[];
   defaultImage?: string;
-  /** The Tenant's Environment settings in force (`environments.config`, protocol 11). */
+  /** The Tenant's settings for Agents' environments in force (`environments.config`). */
   config?: {
     limits?: { network?: readonly string[]; idle?: string; environments?: number };
   };
@@ -74,7 +74,7 @@ export async function doctorSandbox(
   ]);
   rows.push([
     "sessions",
-    "get a sandbox only on an Environment (createSession({ environment }) names one)",
+    "run on an Agent, with the sandbox its manifest's runtime.kind gives (createSession({ agent }))",
   ]);
   const limits = report.config?.limits;
   if (limits)
@@ -82,7 +82,7 @@ export async function doctorSandbox(
       "limits",
       [
         limits.idle ? `idle ${limits.idle}` : undefined,
-        limits.environments === undefined ? undefined : `${limits.environments} environments`,
+        limits.environments === undefined ? undefined : `${limits.environments} Agents`,
         limits.network ? `${limits.network.length} allowed hosts` : undefined,
       ]
         .filter((item) => item !== undefined)

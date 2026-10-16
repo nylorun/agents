@@ -55,16 +55,12 @@ async function open(model: ModelProvider, rollover: { steps?: number; ms?: numbe
   });
   closers.push(() => runtime.close());
   const client = createClient({ url: runtime.url, key: runtime.applicationKey, tenant: runtime.tenantId });
-  await client.saveAgent(Agent({ id: "writer", name: "Writer" }).instructions("Write.").build(), {
-    implementationVersion: "dev",
+  await client.agentManifests.save({
+    agent: Agent({ id: "writer", name: "Writer" }).instructions("Write.").build(),
+    runtime: { kind: "virtual" },
   });
-  await client.environments.put("env-s1", { kind: "virtual" });
-  const session = await client.createSession({
-    id: "s1",
-    agentId: "writer",
-    ownerUserId: "ada",
-    environment: "env-s1",
-  });
+  await client.agents.put("env-s1", { manifest: "writer" });
+  const session = await client.createSession({ id: "s1", agent: "env-s1", ownerUserId: "ada" });
   return { runtime, session };
 }
 

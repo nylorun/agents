@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { afterEach, expect, it } from "vitest";
-import { Agent } from "@nylorun/agents";
+import { Agent } from "@nylorun/core/define";
 import {
   PROTOCOL_HEADER,
   PROTOCOL_VERSION,
@@ -14,6 +14,7 @@ import {
   TenantStatusSchema,
 } from "@nylorun/core/contracts";
 import { startTestTenant } from "./support/tenant.js";
+import { deploy, openSession } from "./support/agents.js";
 import { startEphemeralRuntime } from "../src/tenant/ephemeral.js";
 import { testPool } from "./support/store.js";
 
@@ -86,28 +87,10 @@ it("POST /v1/tenant/reset sessions preserves principals and clears sessions (A17
   });
   closers.push(runtime);
 
-  const putAgent = await fetch(
-    `${runtime.url}/v1/agents/${agentReset.manifest.id}`,
-    {
-      method: "PUT",
-      headers: runtime.headers(),
-      body: JSON.stringify({
-        requestId: randomUUID(),
-        implementationVersion: "dev",
-        manifest: agentReset.manifest,
-      }),
-    },
-  );
-  expect(putAgent.status).toBe(200);
-
-  const session = await fetch(`${runtime.url}/v1/sessions/sess-reset`, {
-    method: "PUT",
-    headers: runtime.headers(),
-    body: JSON.stringify({
-      requestId: randomUUID(),
-      agentId: agentReset.manifest.id,
-      ownerUserId: "user-1",
-    }),
+  await deploy(runtime.url, runtime.headers(), agentReset);
+  const session = await openSession(runtime.url, runtime.headers(), "sess-reset", {
+    agent: agentReset.manifest.id,
+    ownerUserId: "user-1",
   });
   expect(session.status).toBe(200);
 
@@ -229,25 +212,22 @@ it("startEphemeralRuntime opens a private Host with one Tenant (A19)", async () 
   TenantStatusSchema.parse(await status.json());
 });
 
-it("reset environments deletes the Environments, then renames and clears the sandboxes directory (A17)", async () => {
+it("reset agents deletes the Agents, then renames and clears the sandboxes directory (A17)", async () => {
   const runtime = await startTestTenant();
   closers.push(runtime);
   const sandboxes = join(runtime.root, "tenant", "sandboxes");
   writeFileSync(join(sandboxes, "marker.txt"), "keep-me-not");
-  const created = await fetch(`${runtime.url}/v1/environments/e1`, {
-    method: "PUT",
-    headers: runtime.headers(),
-    body: JSON.stringify({ requestId: randomUUID(), kind: "virtual" }),
-  });
-  expect(created.status).toBe(200);
+  await deploy(runtime.url, runtime.headers(), agentReset, { id: "e1", runtime: { kind: "virtual" } });
 
-  // The protocol 10 scope is refused, not read as another.
-  const old = await fetch(`${runtime.url}/v1/tenant/reset`, {
-    method: "POST",
-    headers: runtime.managementHeaders(),
-    body: JSON.stringify({ requestId: randomUUID(), scope: "sandboxes", activeWork: "drain" }),
-  });
-  expect(old.status).toBe(400);
+  // The protocol 10 and 11 scopes are refused, not read as another.
+  for (const scope of ["sandboxes", "environments"]) {
+    const old = await fetch(`${runtime.url}/v1/tenant/reset`, {
+      method: "POST",
+      headers: runtime.managementHeaders(),
+      body: JSON.stringify({ requestId: randomUUID(), scope, activeWork: "drain" }),
+    });
+    expect(old.status, scope).toBe(400);
+  }
   expect(existsSync(join(sandboxes, "marker.txt"))).toBe(true);
 
   const reset = await fetch(`${runtime.url}/v1/tenant/reset`, {
@@ -255,37 +235,26 @@ it("reset environments deletes the Environments, then renames and clears the san
     headers: runtime.managementHeaders(),
     body: JSON.stringify({
       requestId: randomUUID(),
-      scope: "environments",
+      scope: "agents",
       activeWork: "drain",
     }),
   });
   expect(reset.status).toBe(200);
   expect(existsSync(join(sandboxes, "marker.txt"))).toBe(false);
   expect(existsSync(sandboxes)).toBe(true);
-  expect((await fetch(`${runtime.url}/v1/environments/e1`, { headers: runtime.headers() })).status).toBe(404);
+  expect((await fetch(`${runtime.url}/v1/agents/e1`, { headers: runtime.headers() })).status).toBe(404);
+  // The manifest it was made from stays.
+  expect((await fetch(`${runtime.url}/v1/agent-manifests/agent-reset`, { headers: runtime.headers() })).status).toBe(200);
 });
 
-it("reset all clears definitions, Environments with their secrets, and tenant log (A17)", async () => {
+it("reset all clears agent manifests, Agents with their secrets, and tenant log (A17)", async () => {
   const runtime = await startTestTenant({ applicationKey: "reset-all-key-16chars" });
   closers.push(runtime);
 
-  await fetch(`${runtime.url}/v1/agents/${agentAll.manifest.id}`, {
-    method: "PUT",
-    headers: runtime.headers(),
-    body: JSON.stringify({
-      requestId: randomUUID(),
-      implementationVersion: "dev",
-      manifest: agentAll.manifest,
-    }),
-  });
-
-  const environment = await fetch(`${runtime.url}/v1/environments/user-1`, {
-    method: "PUT",
-    headers: runtime.headers(),
-    body: JSON.stringify({ requestId: randomUUID(), kind: "none", ownerUserId: "user-1" }),
-  });
-  expect(environment.status).toBe(200);
-  const secret = await fetch(`${runtime.url}/v1/environments/user-1/secrets/api`, {
+  // Agent user-1, of kind none, guarded for its owner.
+  const agent = await deploy(runtime.url, runtime.headers(), agentAll, { id: "user-1", owner: "user-1" });
+  expect(agent).toMatchObject({ kind: "none", owner: "user-1" });
+  const secret = await fetch(`${runtime.url}/v1/agents/user-1/secrets/api`, {
     method: "PUT",
     headers: runtime.headers(),
     body: JSON.stringify({
@@ -335,13 +304,15 @@ it("reset all clears definitions, Environments with their secrets, and tenant lo
   expect(status.counts.sessions).toBe(0);
   expect(status.model.configured).toBe(true);
 
-  const environments = await fetch(`${runtime.url}/v1/environments`, {
+  const agents = await fetch(`${runtime.url}/v1/agents`, {
     headers: runtime.headers(),
   });
-  expect((await environments.json()).environments).toEqual([]);
+  expect((await agents.json()).agents).toEqual([]);
   expect(
-    (await fetch(`${runtime.url}/v1/environments/user-1/secrets/api`, { headers: runtime.headers() })).status,
+    (await fetch(`${runtime.url}/v1/agents/user-1/secrets/api`, { headers: runtime.headers() })).status,
   ).toBe(404);
+  const manifests = await fetch(`${runtime.url}/v1/agent-manifests`, { headers: runtime.headers() });
+  expect((await manifests.json()).manifests).toEqual([]);
 
   const log = existsSync(logPath) ? readFileSync(logPath, "utf8") : "";
   expect(log).toBe("");

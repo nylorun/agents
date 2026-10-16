@@ -4,18 +4,17 @@
     "title": "Nylorun Management API",
     "version": "0.0.0",
     "x-nylorun-protocol": {
-      "min": 15,
-      "max": 15,
+      "min": 16,
+      "max": 16,
       "features": [
         "studio-principal",
         "artifacts",
         "management-api",
         "resource-server",
-        "environments",
         "model-inputs",
         "flat-manifest",
-        "environment-manifests",
         "harness-boundary",
+        "agents",
         "tenant-fixture-model",
         "transcript-events",
         "subject-headers",
@@ -96,12 +95,12 @@
               "request_rejected",
               "invalid_request",
               "subject_required",
-              "environment_not_granted",
-              "environment_busy",
-              "environment_unavailable",
+              "agent_not_granted",
+              "agent_busy",
+              "agent_unavailable",
               "placement_refused",
-              "environment_lost",
-              "environment_owner_mismatch",
+              "agent_lost",
+              "agent_owner_mismatch",
               "harness_mismatch",
               "session_closed",
               "issuer_unavailable",
@@ -109,9 +108,9 @@
               "credential_rejected",
               "mcp_preview_failed",
               "credential_conflict",
-              "environment_immutable",
+              "agent_upgrade_unavailable",
               "secret_not_in_manifest",
-              "environment_unsuitable",
+              "manifest_inconsistent",
               "manifest_not_found",
               "manifest_in_use",
               "manifest_changed",
@@ -735,7 +734,7 @@
             "type": "string",
             "enum": [
               "sessions",
-              "environments",
+              "agents",
               "all"
             ]
           },
@@ -2010,7 +2009,7 @@
             "type": "string",
             "enum": [
               "tenant",
-              "agent",
+              "manifest",
               "turn"
             ]
           },
@@ -2062,7 +2061,7 @@
                   "type": "string",
                   "enum": [
                     "tenant",
-                    "agent",
+                    "manifest",
                     "turn"
                   ]
                 },
@@ -2114,7 +2113,7 @@
                   "type": "string",
                   "enum": [
                     "tenant",
-                    "agent",
+                    "manifest",
                     "turn"
                   ]
                 },
@@ -2777,12 +2776,6 @@
           "agentId": {
             "type": "string"
           },
-          "environmentId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
           "complete": {
             "type": "boolean"
           },
@@ -2826,7 +2819,7 @@
                 "credential": {
                   "type": "object",
                   "properties": {
-                    "environmentId": {
+                    "agentId": {
                       "type": "string"
                     },
                     "name": {
@@ -2837,7 +2830,7 @@
                     }
                   },
                   "required": [
-                    "environmentId",
+                    "agentId",
                     "name"
                   ],
                   "additionalProperties": false
@@ -2861,7 +2854,6 @@
         },
         "required": [
           "agentId",
-          "environmentId",
           "complete",
           "entries"
         ],
@@ -2876,11 +2868,7 @@
           },
           "agentId": {
             "type": "string",
-            "minLength": 1
-          },
-          "environmentId": {
-            "type": "string",
-            "description": "An Environment id, such as `user-42` or `users/alice/web`"
+            "description": "An Agent id, such as `triage` or `users/alice/triage`"
           }
         },
         "required": [
@@ -3009,9 +2997,9 @@
             "type": "string",
             "pattern": "^[A-Za-z0-9_-]{1,64}$"
           },
-          "environmentId": {
+          "agentId": {
             "type": "string",
-            "description": "An Environment id, such as `user-42` or `users/alice/web`"
+            "description": "An Agent id, such as `triage` or `users/alice/triage`"
           }
         },
         "required": [
@@ -3281,7 +3269,7 @@
                 "agents:read",
                 "agents:write",
                 "sessions:own",
-                "environments:write",
+                "agent-manifests:write",
                 "studio"
               ]
             }
@@ -3302,13 +3290,6 @@
                 }
               }
             ]
-          },
-          "environments": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "A token caller's Environment grants (empty reaches none); absent when no grant limits the caller"
           },
           "via": {
             "type": "string",
@@ -3337,7 +3318,7 @@
           "turnId": {
             "type": "string"
           },
-          "agentId": {
+          "manifestName": {
             "type": "string"
           },
           "provider": {
@@ -3432,7 +3413,7 @@
           "effectId",
           "sessionId",
           "turnId",
-          "agentId",
+          "manifestName",
           "provider",
           "model",
           "at",
@@ -3494,10 +3475,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `15`"
+              "description": "The protocol version, `16`"
             },
             "required": true,
-            "description": "The protocol version, `15`",
+            "description": "The protocol version, `16`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -3596,10 +3577,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `15`"
+              "description": "The protocol version, `16`"
             },
             "required": true,
-            "description": "The protocol version, `15`",
+            "description": "The protocol version, `16`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -3694,7 +3675,7 @@
           "Tenant"
         ],
         "summary": "Reset the Tenant",
-        "description": "Deletes its sessions, its Environments (with their vaults), or both, after draining or cancelling the turns in progress. The Tenant stays open.",
+        "description": "Deletes its sessions, its Agents (with their vaults), or both, after draining or cancelling the turns in progress. The Tenant stays open.",
         "security": [
           {
             "managementKey": []
@@ -3708,10 +3689,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `15`"
+              "description": "The protocol version, `16`"
             },
             "required": true,
-            "description": "The protocol version, `15`",
+            "description": "The protocol version, `16`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -3806,7 +3787,7 @@
           "Tenant"
         ],
         "summary": "Get who the caller is",
-        "description": "The subject, scopes, agents and sandbox grants of the credential that sends it: an application key (alone or acting for a subject), a management key (`via: management:<principalId>`, no scopes, no agents), or a trusted issuer's token (`via: issuer:<name>`).",
+        "description": "The subject, scopes and Agent grants of the credential that sends it: an application key (alone or acting for a subject), a management key (`via: management:<principalId>`, no scopes, no agents), or a trusted issuer's token (`via: issuer:<name>`).",
         "security": [
           {
             "applicationKey": []
@@ -3829,10 +3810,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `15`"
+              "description": "The protocol version, `16`"
             },
             "required": true,
-            "description": "The protocol version, `15`",
+            "description": "The protocol version, `16`",
             "name": "Nylorun-Protocol",
             "in": "header"
           },
@@ -3964,10 +3945,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `15`"
+              "description": "The protocol version, `16`"
             },
             "required": true,
-            "description": "The protocol version, `15`",
+            "description": "The protocol version, `16`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -4076,10 +4057,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `15`"
+              "description": "The protocol version, `16`"
             },
             "required": true,
-            "description": "The protocol version, `15`",
+            "description": "The protocol version, `16`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -4179,10 +4160,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `15`"
+              "description": "The protocol version, `16`"
             },
             "required": true,
-            "description": "The protocol version, `15`",
+            "description": "The protocol version, `16`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -4274,10 +4255,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `15`"
+              "description": "The protocol version, `16`"
             },
             "required": true,
-            "description": "The protocol version, `15`",
+            "description": "The protocol version, `16`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -4376,10 +4357,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `15`"
+              "description": "The protocol version, `16`"
             },
             "required": true,
-            "description": "The protocol version, `15`",
+            "description": "The protocol version, `16`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -4487,10 +4468,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `15`"
+              "description": "The protocol version, `16`"
             },
             "required": true,
-            "description": "The protocol version, `15`",
+            "description": "The protocol version, `16`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -4588,10 +4569,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `15`"
+              "description": "The protocol version, `16`"
             },
             "required": true,
-            "description": "The protocol version, `15`",
+            "description": "The protocol version, `16`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -4687,10 +4668,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `15`"
+              "description": "The protocol version, `16`"
             },
             "required": true,
-            "description": "The protocol version, `15`",
+            "description": "The protocol version, `16`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -4798,10 +4779,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `15`"
+              "description": "The protocol version, `16`"
             },
             "required": true,
-            "description": "The protocol version, `15`",
+            "description": "The protocol version, `16`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -4912,7 +4893,7 @@
               "type": "string",
               "enum": [
                 "tenant",
-                "agent",
+                "manifest",
                 "turn"
               ],
               "default": "tenant"
@@ -4947,10 +4928,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `15`"
+              "description": "The protocol version, `16`"
             },
             "required": true,
-            "description": "The protocol version, `15`",
+            "description": "The protocol version, `16`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -5067,10 +5048,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `15`"
+              "description": "The protocol version, `16`"
             },
             "required": true,
-            "description": "The protocol version, `15`",
+            "description": "The protocol version, `16`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -5168,10 +5149,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `15`"
+              "description": "The protocol version, `16`"
             },
             "required": true,
-            "description": "The protocol version, `15`",
+            "description": "The protocol version, `16`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -5268,10 +5249,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `15`"
+              "description": "The protocol version, `16`"
             },
             "required": true,
-            "description": "The protocol version, `15`",
+            "description": "The protocol version, `16`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -5379,10 +5360,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `15`"
+              "description": "The protocol version, `16`"
             },
             "required": true,
-            "description": "The protocol version, `15`",
+            "description": "The protocol version, `16`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -5479,10 +5460,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `15`"
+              "description": "The protocol version, `16`"
             },
             "required": true,
-            "description": "The protocol version, `15`",
+            "description": "The protocol version, `16`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -5576,8 +5557,8 @@
         "tags": [
           "Credential coverage"
         ],
-        "summary": "Check an agent's credentials against an Environment",
-        "description": "For each remote MCP server and each HTTP tool with a `credential` that the saved agent `agentId` declares (its own, its agents used as tools' and a flow's), the credential a session that names `environmentId` would send: the Environment's secret bound to the URL (`covered`), or none (`missing`). No secret is read and no server is called.",
+        "summary": "Check an Agent's credentials",
+        "description": "For each remote MCP server and each HTTP tool with a `credential` that Agent `agentId`'s manifest version declares (its own, its agents used as tools' and a flow's), the credential its sessions would send: the Agent's secret bound to the URL (`covered`), or none (`missing`). No secret is read and no server is called.",
         "security": [
           {
             "managementKey": []
@@ -5591,10 +5572,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `15`"
+              "description": "The protocol version, `16`"
             },
             "required": true,
-            "description": "The protocol version, `15`",
+            "description": "The protocol version, `16`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -5651,7 +5632,7 @@
             }
           },
           "404": {
-            "description": "No such agent, or no such Environment",
+            "description": "No such Agent",
             "content": {
               "application/json": {
                 "schema": {
@@ -5689,7 +5670,7 @@
           "MCP servers"
         ],
         "summary": "Preview an MCP server's tools",
-        "description": "Connects to the remote MCP server at `url` with the credential for that URL in the vault of `environmentId`, if given (its headers and `via`; never an identity header), under the Host's address policy, lists its tools within 15 s and closes the connection. It never calls a tool. Each tool comes with the name the model would call it (`modelName`, made with `name`), its annotations and its input schema's size. A server that answers `401` is `authRequired`, with its RFC 9728 protected-resource metadata when it publishes any: it needs a person's sign-in, so reach it through a gateway (`via`), or with a key. No credential value is in the answer.",
+        "description": "Connects to the remote MCP server at `url` with the credential for that URL in the vault of the Agent `agentId`, if given (its headers and `via`; never an identity header), under the Host's address policy, lists its tools within 15 s and closes the connection. It never calls a tool. Each tool comes with the name the model would call it (`modelName`, made with `name`), its annotations and its input schema's size. A server that answers `401` is `authRequired`, with its RFC 9728 protected-resource metadata when it publishes any: it needs a person's sign-in, so reach it through a gateway (`via`), or with a key. No credential value is in the answer.",
         "security": [
           {
             "managementKey": []
@@ -5703,10 +5684,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `15`"
+              "description": "The protocol version, `16`"
             },
             "required": true,
-            "description": "The protocol version, `15`",
+            "description": "The protocol version, `16`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -5773,7 +5754,7 @@
             }
           },
           "409": {
-            "description": "The Environment's credential for the URL cannot be used",
+            "description": "The Agent's credential for the URL cannot be used",
             "content": {
               "application/json": {
                 "schema": {
@@ -5834,10 +5815,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `15`"
+              "description": "The protocol version, `16`"
             },
             "required": true,
-            "description": "The protocol version, `15`",
+            "description": "The protocol version, `16`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -5936,10 +5917,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `15`"
+              "description": "The protocol version, `16`"
             },
             "required": true,
-            "description": "The protocol version, `15`",
+            "description": "The protocol version, `16`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -6058,10 +6039,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `15`"
+              "description": "The protocol version, `16`"
             },
             "required": true,
-            "description": "The protocol version, `15`",
+            "description": "The protocol version, `16`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -6158,7 +6139,7 @@
         "tags": [
           "Settings"
         ],
-        "summary": "Get the Tenant's sandbox backend and Environment settings",
+        "summary": "Get the Tenant's sandbox backend and Agent compute settings",
         "security": [
           {
             "managementKey": []
@@ -6172,10 +6153,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `15`"
+              "description": "The protocol version, `16`"
             },
             "required": true,
-            "description": "The protocol version, `15`",
+            "description": "The protocol version, `16`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -6257,8 +6238,8 @@
         "tags": [
           "Settings"
         ],
-        "summary": "Set the Tenant's Environment settings",
-        "description": "The limits every Environment's recipe must fit, the pods' stop grace and where harnesses may run (Tenant setting `environments.config`).",
+        "summary": "Set the Tenant's Agent compute settings",
+        "description": "The limits every Agent's runtime must fit, the pods' stop grace and where harnesses may run (Tenant setting `environments.config`).",
         "security": [
           {
             "managementKey": []
@@ -6272,10 +6253,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `15`"
+              "description": "The protocol version, `16`"
             },
             "required": true,
-            "description": "The protocol version, `15`",
+            "description": "The protocol version, `16`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -6383,10 +6364,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `15`"
+              "description": "The protocol version, `16`"
             },
             "required": true,
-            "description": "The protocol version, `15`",
+            "description": "The protocol version, `16`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -6483,10 +6464,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `15`"
+              "description": "The protocol version, `16`"
             },
             "required": true,
-            "description": "The protocol version, `15`",
+            "description": "The protocol version, `16`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -6594,10 +6575,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `15`"
+              "description": "The protocol version, `16`"
             },
             "required": true,
-            "description": "The protocol version, `15`",
+            "description": "The protocol version, `16`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -6680,7 +6661,7 @@
           "Settings"
         ],
         "summary": "Set the Tenant's skill limit",
-        "description": "The most bytes one skill's files may hold together, for every agent the Tenant stores and every Environment, whose manifest may set a lower one (`limits.skills`). Unset, the limit takes the default (2 GiB). Agents already stored keep their skills; a session opens only while its agent's skills fit.",
+        "description": "The most bytes one skill's files may hold together, for every agent manifest the Tenant stores, whose runtime section may set a lower one (`limits.skills`). Unset, the limit takes the default (2 GiB). Manifests already saved keep their skills; a session opens only while its Agent's skills fit.",
         "security": [
           {
             "managementKey": []
@@ -6694,10 +6675,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `15`"
+              "description": "The protocol version, `16`"
             },
             "required": true,
-            "description": "The protocol version, `15`",
+            "description": "The protocol version, `16`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -6806,10 +6787,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `15`"
+              "description": "The protocol version, `16`"
             },
             "required": true,
-            "description": "The protocol version, `15`",
+            "description": "The protocol version, `16`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -6906,10 +6887,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `15`"
+              "description": "The protocol version, `16`"
             },
             "required": true,
-            "description": "The protocol version, `15`",
+            "description": "The protocol version, `16`",
             "name": "Nylorun-Protocol",
             "in": "header"
           }
@@ -7012,11 +6993,11 @@
     },
     {
       "name": "Credential coverage",
-      "description": "Which secret of an Environment each of an agent's MCP servers and HTTP tools would get, before a session opens. The secrets themselves are written on the Runtime API. `admin.coverage`."
+      "description": "Which secret of an Agent's vault each of its manifest's MCP servers and HTTP tools would get, before a session opens. The secrets themselves are written on the Runtime API. `admin.coverage`."
     },
     {
       "name": "MCP servers",
-      "description": "See a remote MCP server's tools before an agent names it, with an Environment's credential for its URL: their model names, sizes and annotations, or that it needs a person's sign-in. `admin.mcp`."
+      "description": "See a remote MCP server's tools before an agent names it, with an Agent's credential for its URL: their model names, sizes and annotations, or that it needs a person's sign-in. `admin.mcp`."
     },
     {
       "name": "Signing keys",
@@ -7024,7 +7005,7 @@
     },
     {
       "name": "Settings",
-      "description": "The Tenant's sandbox backend, Environment, artifact and skill settings, and its Runtime limits. `admin.settings`."
+      "description": "The Tenant's sandbox backend, Agent compute, artifact and skill settings, and its Runtime limits. `admin.settings`."
     }
   ]
 }

@@ -1,12 +1,13 @@
 /**
- * `POST /v1/tenant/credential-coverage`: what a session of a saved agent would send for each
- * remote MCP server and HTTP tool credential it declares, in the Environment it would name, decided
- * as the session's calls decide it: the Environment's secret bound to the URL, or none.
+ * `POST /v1/tenant/credential-coverage`: what a session on an Agent would send for each remote
+ * MCP server and HTTP tool credential its manifest version declares, decided as the session's
+ * calls decide it: the Agent's secret bound to the URL, or none.
  */
 import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { Agent, http } from "@nylorun/core/define";
 import { credentialNeeds } from "../src/vault/coverage.js";
+import { deploy, manifestOf, putAgent, putSecret, saveManifest } from "./support/agents.js";
 import { startTestTenant } from "./support/tenant.js";
 
 const APP = "coverage-app-key-aaaaaaaaaaaaaaaaa";
@@ -16,6 +17,8 @@ const TICKETS = "https://mcp.tickets.example/mcp";
 const BILLING = "https://billing.example.com/refunds";
 const DOCS = "https://docs.example.com/mcp/";
 const SECRETS = ["tickets-secret-1a2b3c4d", "billing-secret-a-5e6f", "billing-secret-b-7a8b", "docs-secret-9c0d1e2f"];
+
+const GATEWAY = "https://gateway.example.com/billing";
 
 const management = { authorization: `Bearer ${MANAGEMENT}`, "content-type": "application/json" };
 const application = { authorization: `Bearer ${APP}`, "content-type": "application/json" };
@@ -66,31 +69,38 @@ const triage = Agent({ id: "triage" })
   .subagents(researcher)
   .build();
 
+/**
+ * Saves `triage` with its secret slots (the HTTP tool's `credential` names `billing`, a bearer
+ * through a gateway) and makes Agent `triage` from it, whose vault holds nothing.
+ */
 async function boot() {
   const runtime = await startTestTenant({ applicationKey: APP, managementKey: MANAGEMENT, vaultKek: KEK });
   open.push(() => runtime.close());
-  const saved = await call(runtime, "PUT", "/v1/agents/triage", {
-    requestId: "put-triage",
-    manifest: triage.manifest,
-    implementationVersion: "dev",
-  });
-  expect(saved.status, saved.text).toBe(200);
+  await saveManifest(
+    runtime.url,
+    application,
+    manifestOf(triage, {
+      runtime: {
+        kind: "none",
+        secrets: {
+          tickets: { type: "bearer", url: TICKETS },
+          docs: { type: "bearer", url: DOCS },
+          billing: { type: "bearer", url: BILLING, via: GATEWAY },
+        },
+      },
+    }),
+  );
+  await agent(runtime, "triage");
   return runtime;
 }
 
-async function environment(runtime: Started, id: string) {
-  const created = await call(runtime, "PUT", `/v1/environments/${encodeURIComponent(id)}`, { kind: "none" });
-  expect(created.status, created.text).toBe(200);
+async function agent(runtime: Started, id: string) {
+  await putAgent(runtime.url, application, id, { manifest: "triage" });
 }
 
-async function secret(runtime: Started, environmentId: string, name: string, url: string, token: string, via?: string) {
-  const created = await call(
-    runtime,
-    "PUT",
-    `/v1/environments/${encodeURIComponent(environmentId)}/secrets/${name}`,
-    { type: "bearer", url, value: token, ...(via ? { via } : {}) },
-  );
-  expect(created.status, created.text).toBe(200);
+/** Writes slot `name`'s value into Agent `agentId`'s vault. */
+async function secret(runtime: Started, agentId: string, name: string, token: string) {
+  await putSecret(runtime.url, application, agentId, name, { value: token });
 }
 
 const coverage = (runtime: Started, body: Record<string, unknown>) =>
@@ -143,17 +153,18 @@ describe("credentialNeeds", () => {
 });
 
 describe("POST /v1/tenant/credential-coverage", () => {
-  it("says what each declared URL would get in an Environment, and what a missing one does", async () => {
+  it("says what each declared URL would get on an Agent, and what a missing one does", async () => {
     const runtime = await boot();
-    await environment(runtime, "support/triage");
-    await secret(runtime, "support/triage", "tickets", TICKETS, SECRETS[0]!);
+    await agent(runtime, "support/triage");
+    await secret(runtime, "support/triage", "tickets", SECRETS[0]!);
     // The manifest's `:443` is dropped, as the vault compares URLs.
-    await secret(runtime, "support/triage", "docs", DOCS, SECRETS[3]!);
+    await secret(runtime, "support/triage", "docs", SECRETS[3]!);
 
-    // No Environment: nothing is sent.
+    // An Agent whose vault holds nothing: nothing is sent.
     const none = await coverage(runtime, {});
     expect(none.status, none.text).toBe(200);
-    expect(none.body).toMatchObject({ agentId: "triage", environmentId: null, complete: false });
+    expect(none.body).toMatchObject({ agentId: "triage", complete: false });
+    expect(none.body).not.toHaveProperty("environmentId");
     expect(byName(none.body)).toEqual({
       tickets: { status: "missing", credential: undefined },
       refund_order: { status: "missing", credential: undefined },
@@ -161,45 +172,45 @@ describe("POST /v1/tenant/credential-coverage", () => {
     });
     const missing = none.body.entries.find((entry: { name: string }) => entry.name === "refund_order");
     expect(missing).toMatchObject({ kind: "http", required: true, serverName: "billing", url: BILLING });
-    expect(missing.message).toBe("Without an Environment, no credential is sent: each call fails with http.credential.");
+    expect(missing.message).toBe("Agent triage holds no credential for this URL: each call fails with http.credential.");
     const tickets = none.body.entries.find((entry: { name: string }) => entry.name === "tickets");
     expect(tickets).toMatchObject({ kind: "mcp", required: false });
     expect(tickets.message).toContain("only a public server accepts");
 
-    // The Environment covers two of three.
-    const some = await coverage(runtime, { environmentId: "support/triage" });
+    // The Agent covers two of three.
+    const some = await coverage(runtime, { agentId: "support/triage" });
     expect(some.status, some.text).toBe(200);
-    expect(some.body).toMatchObject({ agentId: "triage", environmentId: "support/triage", complete: false });
+    expect(some.body).toMatchObject({ agentId: "support/triage", complete: false });
     expect(byName(some.body)).toEqual({
-      tickets: { status: "covered", credential: { environmentId: "support/triage", name: "tickets" } },
+      tickets: { status: "covered", credential: { agentId: "support/triage", name: "tickets" } },
       refund_order: { status: "missing", credential: undefined },
-      docs: { status: "covered", credential: { environmentId: "support/triage", name: "docs" } },
+      docs: { status: "covered", credential: { agentId: "support/triage", name: "docs" } },
     });
     expect(some.body.entries.find((entry: { name: string }) => entry.name === "docs")).toMatchObject({
       agentId: "researcher",
       url: DOCS,
-      message: "Sends 'docs' from Environment support/triage.",
+      message: "Sends 'docs' from Agent support/triage.",
     });
     expect(some.body.entries.find((entry: { name: string }) => entry.name === "refund_order").message).toBe(
-      "Environment support/triage holds no credential for this URL: each call fails with http.credential.",
+      "Agent support/triage holds no credential for this URL: each call fails with http.credential.",
     );
 
-    // With the billing key, through a gateway, it is complete.
-    await secret(runtime, "support/triage", "billing", BILLING, SECRETS[1]!, "https://gateway.example.com/billing");
-    const all = await coverage(runtime, { environmentId: "support/triage" });
+    // With the billing key, through the slot's gateway, it is complete.
+    await secret(runtime, "support/triage", "billing", SECRETS[1]!);
+    const all = await coverage(runtime, { agentId: "support/triage" });
     expect(all.body.complete).toBe(true);
     expect(all.body.entries.find((entry: { name: string }) => entry.name === "refund_order")).toMatchObject({
       status: "covered",
-      credential: { environmentId: "support/triage", name: "billing", via: "https://gateway.example.com/billing" },
-      message: "Sends 'billing' from Environment support/triage through https://gateway.example.com/billing.",
+      credential: { agentId: "support/triage", name: "billing", via: GATEWAY },
+      message: `Sends 'billing' from Agent support/triage through ${GATEWAY}.`,
     });
 
-    // Another Environment's secrets are not this one's.
-    await environment(runtime, "support/other");
-    await secret(runtime, "support/other", "billing", BILLING, SECRETS[2]!);
-    expect(byName((await coverage(runtime, { environmentId: "support/other" })).body)).toEqual({
+    // Another Agent's secrets are not this one's.
+    await agent(runtime, "support/other");
+    await secret(runtime, "support/other", "billing", SECRETS[2]!);
+    expect(byName((await coverage(runtime, { agentId: "support/other" })).body)).toEqual({
       tickets: { status: "missing", credential: undefined },
-      refund_order: { status: "covered", credential: { environmentId: "support/other", name: "billing" } },
+      refund_order: { status: "covered", credential: { agentId: "support/other", name: "billing", via: GATEWAY } },
       docs: { status: "missing", credential: undefined },
     });
 
@@ -208,13 +219,13 @@ describe("POST /v1/tenant/credential-coverage", () => {
       for (const value of SECRETS) expect(answer.text).not.toContain(value);
   });
 
-  it("refuses a missing agent or Environment, and is the Management API's", async () => {
+  it("refuses a missing Agent, and is the Management API's", async () => {
     const runtime = await boot();
-    expect((await coverage(runtime, { environmentId: "missing" })).status).toBe(404);
-    expect((await coverage(runtime, { agentId: "ghost" })).status).toBe(404);
-    expect((await coverage(runtime, { environmentId: "not an id" })).status).toBe(400);
-    // The old request's fields are gone (protocol 11).
+    expect((await coverage(runtime, { agentId: "missing" })).status).toBe(404);
+    expect((await coverage(runtime, { agentId: "not an id" })).status).toBe(400);
+    // The old requests' fields are gone (protocols 11 and 16).
     expect((await coverage(runtime, { vaultIds: [] })).status).toBe(400);
+    expect((await coverage(runtime, { environmentId: "support/triage" })).status).toBe(400);
 
     const app = await call(runtime, "POST", "/v1/tenant/credential-coverage", { agentId: "triage" }, application);
     expect(app.status).toBe(403);
@@ -223,12 +234,8 @@ describe("POST /v1/tenant/credential-coverage", () => {
 
   it("is empty and complete for an agent that names no credentials", async () => {
     const runtime = await boot();
-    const plain = Agent({ id: "plain" }).instructions("Hi.").tools(lookup).build();
-    expect(
-      (await call(runtime, "PUT", "/v1/agents/plain", { requestId: "p", manifest: plain.manifest, implementationVersion: "dev" }))
-        .status,
-    ).toBe(200);
+    await deploy(runtime.url, application, Agent({ id: "plain" }).instructions("Hi.").tools(lookup).build());
     const answer = await coverage(runtime, { agentId: "plain" });
-    expect(answer.body).toEqual({ agentId: "plain", environmentId: null, complete: true, entries: [] });
+    expect(answer.body).toEqual({ agentId: "plain", complete: true, entries: [] });
   });
 });

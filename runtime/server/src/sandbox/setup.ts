@@ -11,7 +11,7 @@
  * and nothing else of the Object store.
  *
  * A failed command fails the pod (`observed: failed`, a reason that starts `setup:`, and
- * `environment.failed` with the command, its exit code and the end of its output): the turn that
+ * `agent.failed` with the command, its exit code and the end of its output): the turn that
  * waits for it fails with that reason (`podUnusable`, `tenant/advance.ts`), the failure stays
  * until a turn start asks the pod to run again (`wantRunning`), and the engine, polling, runs the
  * setup again then.
@@ -95,7 +95,7 @@ export function parseSetupReport(value: unknown): SetupReport | undefined {
 
 /**
  * Records a failed setup on Environment `id` held at host epoch `epoch` (the reporting engine's):
- * the pod is `failed` with a reason that starts `setup:`, and `environment.failed` says which
+ * the pod is `failed` with a reason that starts `setup:`, and `agent.failed` says which
  * command failed and how, with the end of its output (the Tenant's `setupOutputChars`; the reason
  * quotes `setupReasonChars` of it and `setupCommandExcerptChars` of the command). A report
  * from an older host, or a success, changes nothing.
@@ -124,7 +124,7 @@ export async function recordSetup(
     const tail = output.trim().slice(-setupReasonChars);
     const reason = `${SETUP_FAILED} ${what}${tail ? `: ${tail}` : ""}`;
     await t.updateEnvironmentPod(id, { observed: "failed", reason }, new Date().toISOString());
-    await t.environmentEvent(id, "environment.failed", {
+    await t.agentEvent(id, "agent.failed", {
       reason,
       setup: {
         ...(report.index === undefined ? {} : { index: report.index }),

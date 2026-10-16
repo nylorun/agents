@@ -14,15 +14,15 @@ const client = createClient({
   url: "http://127.0.0.1:8787",
   key: "server",
 });
-const session = await client.createSession({
-  agentId: agent.manifest.id,
-  ownerUserId: "local",
-});
-// Protocol 11: a session's sandbox and credentials come from the Environment it names.
-await client.environments.put("users/local/web", { kind: "virtual" });
+// Protocol 16: an agent is saved as an agent manifest, and sessions run on an Agent made from it.
+await client.agentManifests.save({ agent, runtime: { kind: "virtual", network: { allowedHosts: [] } } });
+await client.agents.put("users/local/web", { manifest: "test", owner: "local" });
+const session = await client.createSession({ agent: "users/local/web", ownerUserId: "local" });
+await client.createSession({ id: "web-1", agent: "users/local/web", ownerUserId: "local", info: { from: "types" } });
+// @ts-expect-error Sessions name an Agent: there is no inline sandbox.
+await client.createSession({ agent: "users/local/web", ownerUserId: "local", sandbox: "virtual" });
+// @ts-expect-error Sessions name an Agent, not a definition and an Environment (protocol 16).
 await client.createSession({ agentId: agent.manifest.id, ownerUserId: "local", environment: "users/local/web" });
-// @ts-expect-error Sessions name an Environment: there is no inline sandbox.
-await client.createSession({ agentId: agent.manifest.id, ownerUserId: "local", sandbox: "virtual" });
 await session.input("hello", { idempotencyKey: "input-1" });
 await session.history();
 await session.cancel({ idempotencyKey: "cancel-1" });
@@ -34,12 +34,15 @@ const lookupOrder = http({
   method: "POST",
   timeoutMs: 10_000,
 });
-await client.saveAgent(Agent({ id: "orders", name: "Orders" }).tools(lookupOrder).build());
-await client.saveAgent(agent, { implementationVersion: "1.0.0", requestId: "save-1" });
+await client.agentManifests.save({ agent: Agent({ id: "orders", name: "Orders" }).tools(lookupOrder).build() });
+await client.agentManifests.save({ agent, runtime: { kind: "virtual" } }, { ifMatch: 0, requestId: "save-1" });
+await client.agentManifests.plan({ agent });
+// @ts-expect-error saveAgent was removed in protocol 16: save an agent manifest.
 await client.saveAgent(agent);
 // With no connection fields the client resolves the Project link (what the starter does).
 const linked = await createClient();
-await linked.saveAgent(agent);
+await linked.agentManifests.save({ agent });
+await linked.agents.put("test", { manifest: "test" });
 // @ts-expect-error Approval is the Tenant's tool policy, not the tool's (R5 step 2).
 http({ name: "x", input: z.object({}), url: "https://example.com", approval: "always" });
 // @ts-expect-error Action handlers were removed: the Runtime runs agents from their manifests alone.

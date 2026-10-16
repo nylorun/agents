@@ -2,8 +2,8 @@
  * The R5 step 2 exit: tool policy. An approval can wait a day and still run the exact input it
  * was shown, whichever harness sent the call: nothing holds a process while it waits, so it
  * survives a restart. A deny rule refuses a matching call before it reaches the tool. A session
- * pinned to a manifest that set `approval` keeps it, and a definition that sets `approval` is
- * refused. The gates run over HTTP, as in the local stack.
+ * pinned to a manifest that set `approval` keeps it, and an agent manifest that sets `approval`
+ * is refused. The gates run over HTTP, as in the local stack.
  */
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -12,6 +12,7 @@ import { z } from "zod";
 import { Agent, http } from "@nylorun/agents";
 import { hashManifest } from "@nylorun/core/define";
 import type { ModelProvider } from "../src/core/provider.js";
+import { deploy, manifestOf, writeManifest, type Loop } from "./support/agents.js";
 import { openTestSessionStore } from "./support/store.js";
 import { startTestTenant } from "./support/tenant.js";
 
@@ -80,9 +81,9 @@ async function setPolicy(runtime: Started, rules: unknown[]) {
   expect(response.status, await response.clone().text()).toBe(200);
 }
 
-async function start(runtime: Started, manifest: unknown) {
-  expect((await put(runtime, "/v1/agents/bot", { requestId: "put-1", manifest, implementationVersion: "dev" })).ok).toBe(true);
-  expect((await put(runtime, "/v1/sessions/s1", { requestId: "session-s1", agentId: "bot", ownerUserId: "u" })).ok).toBe(true);
+async function start(runtime: Started, manifest: Loop) {
+  await deploy(runtime.url, headers, manifest);
+  expect((await put(runtime, "/v1/sessions/s1", { requestId: "session-s1", agent: "bot", ownerUserId: "u" })).ok).toBe(true);
 }
 
 const command = (runtime: Started, body: Record<string, unknown>) =>
@@ -232,8 +233,7 @@ describe("the R5 step 2 exit", { timeout: 60_000 }, () => {
     const flow = Agent({ id: "bot" })
       .pipe(http({ name: "refund", input: z.object({ charge: z.string(), amount: z.number() }), url: service.url }))
       .build();
-    expect((await put(runtime, "/v1/agents/bot", { requestId: "put-1", manifest: flow.manifest, implementationVersion: "dev" })).ok).toBe(true);
-    expect((await put(runtime, "/v1/sessions/s1", { requestId: "session-s1", agentId: "bot", ownerUserId: "u" })).ok).toBe(true);
+    await start(runtime, flow.manifest);
     expect(
       (await command(runtime, { type: "message", requestId: "m1", idempotencyKey: "m1", data: { charge: "ch_6", amount: 5 } })).ok,
     ).toBe(true);
@@ -247,14 +247,14 @@ describe("the R5 step 2 exit", { timeout: 60_000 }, () => {
     expect(service.requests()).toEqual([{ charge: "ch_6", amount: 5 }]);
   });
 
-  it("refuses a definition that sets approval, and reads and replaces the policy", async () => {
+  it("refuses an agent manifest that sets approval, and reads and replaces the policy", async () => {
     const service = await refundService();
     const runtime = await boot(refunder({ charge: "ch_5", amount: 1 }, []));
-    const manifest = structuredClone(refundAgent(service.url).manifest) as any;
-    manifest.tools[0].approval = "always";
-    const refused = await put(runtime, "/v1/agents/bot", { requestId: "put-1", manifest, implementationVersion: "dev" });
+    const manifest = structuredClone(manifestOf(refundAgent(service.url))) as any;
+    manifest.harness.tools[0].approval = "always";
+    const refused = await writeManifest(runtime.url, headers, manifest);
     expect(refused.status).toBe(400);
-    expect(await refused.text()).toContain("approval was removed from the manifest");
+    expect(JSON.stringify(refused.body)).toContain("approval was removed from the manifest");
 
     const empty = await fetch(`${runtime.url}/v1/tenant/tool-policy`, { headers: runtime.managementHeaders() });
     expect(await empty.json()).toEqual({ rules: [], updatedAt: null });

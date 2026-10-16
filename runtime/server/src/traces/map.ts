@@ -5,7 +5,7 @@
  *
  * | Row | Span |
  * | --- | --- |
- * | `turn.completed`, `turn.failed`, `turn.cancelled` | `invoke_agent {agentId}`, the turn's root (INTERNAL) |
+ * | `turn.completed`, `turn.failed`, `turn.cancelled` | `invoke_agent {manifest name}`, the turn's root (INTERNAL) |
  * | `message.assistant`, `model.failed`, `context.compacted` | `chat {model}` (CLIENT) |
  * | `tool.completed` | `execute_tool {toolName}` (INTERNAL) |
  * | `node.completed` | `execute_tool {key}`, a flow's HTTP stage (INTERNAL) |
@@ -154,11 +154,15 @@ export function spanOf(row: LiveEvent, turn: TurnTrace, settings: SpanSettings):
     case "turn.failed":
     case "turn.cancelled": {
       const status = row.type.slice("turn.".length);
+      // The agent the turn ran: its manifest's name (protocol 16), else the Agent's id.
+      const manifest = p.manifest as { name?: unknown } | undefined;
+      const agentName = typeof manifest?.name === "string" ? manifest.name : typeof p.agentId === "string" ? p.agentId : undefined;
       const totals = p.totals as { steps?: number; tokens?: number; costUsd?: number } | undefined;
       const error = row.type === "turn.failed" ? ((p.error ?? {}) as { code?: string; message?: string }) : undefined;
       const attributes = base
         .str("gen_ai.operation.name", "invoke_agent")
         .str("gen_ai.agent.id", p.agentId)
+        .str("gen_ai.agent.name", agentName)
         .str("nylorun.turn.status", status)
         .int("nylorun.turn.paused_ms", p.pausedMs)
         .int("nylorun.turn.steps", totals?.steps)
@@ -177,7 +181,7 @@ export function spanOf(row: LiveEvent, turn: TurnTrace, settings: SpanSettings):
         traceId: turn.traceId,
         spanId: turn.spanId,
         ...(turn.parentSpanId ? { parentSpanId: turn.parentSpanId } : {}),
-        name: typeof p.agentId === "string" ? `invoke_agent ${p.agentId}` : "invoke_agent",
+        name: agentName === undefined ? "invoke_agent" : `invoke_agent ${agentName}`,
         kind: SPAN_KIND.internal,
         ...window(row.time, p.durationMs),
         attributes: attributes.list,

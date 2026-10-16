@@ -10,6 +10,7 @@ import type { Frame } from "@nylorun/core/harness-api";
 import type { ModelProvider } from "../../src/core/provider.js";
 import { withTestSessionStore } from "../support/store.js";
 import { startTestTenant } from "../support/tenant.js";
+import { deploy } from "../support/agents.js";
 
 const INSTRUCTIONS = "Keep notes. (instructions-marker-7f3a)";
 const keeper = Agent({ id: "keeper", description: "Keeps one note." }).pipe(
@@ -50,11 +51,8 @@ it("replays a turn without its prompts: intents only for new effects, the transc
       headers: runtime.headers(),
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     }).then(async (response) => ({ status: response.status, body: (await response.json()) as any }));
-  expect(
-    (await api("PUT", "/v1/agents/notes", { requestId: "a", manifest: agent.manifest, implementationVersion: "dev" }))
-      .status,
-  ).toBe(200);
-  await api("PUT", "/v1/sessions/s1", { requestId: "s", agentId: "notes", ownerUserId: "u" });
+  await deploy(runtime.url, runtime.headers(), agent);
+  await api("PUT", "/v1/sessions/s1", { requestId: "s", agent: "notes", ownerUserId: "u" });
   const send = (n: number) =>
     api("POST", "/v1/sessions/s1/commands", {
       type: "message",

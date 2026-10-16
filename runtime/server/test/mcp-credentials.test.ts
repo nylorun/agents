@@ -1,5 +1,5 @@
 /**
- * R2b C1 and C2, end to end over the Runtime API, with the credentials in Environments' secrets: header map credentials, gateway routing (`via`),
+ * R2b C1 and C2, end to end over the Runtime API, with the credentials in Agents' vaults: header map credentials, gateway routing (`via`),
  * the identity header, and a `401` the model sees as `credential_rejected`, for remote MCP servers
  * and HTTP tools alike. With `NYLORUN_TEST_MODEL_GATE=http` the gates service makes every call
  * (`gates/tool-gate-credentials.test.ts`); otherwise the Tenant does, in process.
@@ -13,7 +13,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { Agent, createClient, http, type AgentsClient } from "@nylorun/agents";
 import type { ModelProvider } from "../src/core/provider.js";
 import { startTestTenant } from "./support/tenant.js";
-import { putEnvironment, putSecret, writeSecret } from "./support/environment-secrets.js";
+import { deploy, writeSecret, type AgentSource, type DeployOptions } from "./support/agents.js";
 
 const APP = "mcp-credentials-app-key-aaaaaaaaaa";
 const API_KEY = "vendor-api-key-plaintext-1a2b3c4d";
@@ -105,31 +105,21 @@ let keyed: Awaited<ReturnType<typeof mcpServer>>;
 let rejecting: Awaited<ReturnType<typeof mcpServer>>;
 let gateway: Awaited<ReturnType<typeof mcpServer>>;
 let service: Awaited<ReturnType<typeof httpService>>;
-/** The Environment every session names unless a test names another; no owner guard. */
-const SHARED = "shared";
-/** Ada's own Environment, guarded for her sessions. */
+/** Ada's own Agent, guarded for her sessions. */
 const ADA = "users/ada";
 
-async function credential(environmentId: string, name: string, body: Record<string, unknown>) {
-  return putSecret(runtime.url, runtime.headers(), environmentId, name, body as never);
-}
-
-async function register(id: string, agent: { manifest: unknown }) {
-  const response = await fetch(`${runtime.url}/v1/agents/${id}`, {
-    method: "PUT",
-    headers: { authorization: `Bearer ${APP}`, "content-type": "application/json" },
-    body: JSON.stringify({ requestId: `put-${id}`, manifest: agent.manifest, implementationVersion: "dev" }),
-  });
-  expect(response.ok).toBe(true);
+/** Saves `agent` as an agent manifest and makes an Agent of it, with `options`' secrets. */
+async function register(agent: AgentSource, options: DeployOptions = {}) {
+  await deploy(runtime.url, runtime.headers(), agent, options);
 }
 
 let sessions = 0;
-/** Opens a session of `agentId` for `owner`, has the model call `tool`, and waits for the turn. */
-async function run(agentId: string, tool: string, owner = "u:ada", environment = SHARED) {
+/** Opens a session on Agent `agent` for `owner`, has the model call `tool`, and waits for the turn. */
+async function run(agent: string, tool: string, owner = "u:ada") {
   next = tool;
   seenByModel = undefined;
   sessions += 1;
-  const session = await client.createSession({ id: `cred-${sessions}`, agentId, ownerUserId: owner, environment });
+  const session = await client.createSession({ id: `cred-${sessions}`, agent, ownerUserId: owner });
   await session.input("go", { idempotencyKey: `m${sessions}` });
   const deadline = Date.now() + 15_000;
   while (Date.now() < deadline) {
@@ -159,40 +149,50 @@ beforeAll(async () => {
   runtime = await startTestTenant({ applicationKey: APP, modelProvider: model });
   client = createClient({ url: runtime.url, key: runtime.applicationKey, tenant: runtime.tenantId });
   const input = z.object({ orderId: z.string() });
-  // A manifest header with a credential header's name loses to the credential (R2b C2).
-  await register("keyed", Agent({ id: "keyed" }).mcp({
-    keyed: { type: "streamable-http", url: keyed.url, headers: { "X-API-Key": "manifest-value", "x-trace": "on" } },
-  }).build());
-  await register("rejecting", Agent({ id: "rejecting" }).mcp({ locked: { type: "streamable-http", url: rejecting.url } }).build());
-  await register("vendor", Agent({ id: "vendor" }).mcp({ vendor: { type: "streamable-http", url: VENDOR_URL } }).build());
+  // A manifest header with a credential header's name loses to the credential (R2b C2). The
+  // MCP servers name no credential: the vault's secret for their URL is theirs.
   await register(
-    "billing",
+    Agent({ id: "keyed" }).mcp({
+      keyed: { type: "streamable-http", url: keyed.url, headers: { "X-API-Key": "manifest-value", "x-trace": "on" } },
+    }).build(),
+    { secrets: { keyed: { type: "headers", url: keyed.url, headers: { "X-API-Key": API_KEY, "X-App-Key": APP_KEY } } } },
+  );
+  await register(Agent({ id: "rejecting" }).mcp({ locked: { type: "streamable-http", url: rejecting.url } }).build(), {
+    id: ADA,
+    owner: "u:ada",
+    secrets: { "locked-mcp": { type: "bearer", url: rejecting.url, value: REJECTED_TOKEN } },
+  });
+  await register(Agent({ id: "vendor" }).mcp({ vendor: { type: "streamable-http", url: VENDOR_URL } }).build(), {
+    secrets: {
+      vendor: {
+        type: "headers",
+        url: VENDOR_URL,
+        headers: { "x-gateway-key": GATEWAY_KEY },
+        via: gateway.url,
+        identity: { header: "X-User-Id" },
+      },
+    },
+  });
+  // The HTTP tools name their credentials: slots of the manifest's runtime section, whose values
+  // the Agent's vault holds (protocol 16).
+  await register(
     Agent({ id: "billing" })
       .tools(
         http({ name: "refund", input, url: BILLING_URL, credential: "billing" }),
         http({ name: "locked", input, url: `${service.url}/locked`, credential: "locked" }),
       )
       .build(),
+    {
+      runtime: {
+        kind: "none",
+        secrets: {
+          billing: { type: "headers", url: BILLING_URL, via: `${service.url}/refunds`, identity: { header: "x-user-id" } },
+          locked: { type: "headers", url: `${service.url}/locked` },
+        },
+      },
+      secrets: { billing: { headers: { "x-api-key": BILLING_KEY } }, locked: { headers: { "x-api-key": BILLING_KEY } } },
+    },
   );
-  await putEnvironment(runtime.url, runtime.headers(), SHARED);
-  await putEnvironment(runtime.url, runtime.headers(), ADA, { kind: "none", ownerUserId: "u:ada" });
-  await credential(SHARED, "keyed", { type: "headers", url: keyed.url, headers: { "X-API-Key": API_KEY, "X-App-Key": APP_KEY } });
-  await credential(ADA, "locked-mcp", { type: "bearer", url: rejecting.url, value: REJECTED_TOKEN });
-  await credential(SHARED, "vendor", {
-    type: "headers",
-    url: VENDOR_URL,
-    headers: { "x-gateway-key": GATEWAY_KEY },
-    via: gateway.url,
-    identity: { header: "X-User-Id" },
-  });
-  await credential(SHARED, "billing", {
-    type: "headers",
-    url: BILLING_URL,
-    headers: { "x-api-key": BILLING_KEY },
-    via: `${service.url}/refunds`,
-    identity: { header: "x-user-id" },
-  });
-  await credential(SHARED, "locked", { type: "headers", url: `${service.url}/locked`, headers: { "x-api-key": BILLING_KEY } });
 });
 
 afterAll(async () => {
@@ -201,7 +201,7 @@ afterAll(async () => {
 });
 
 describe("header map credentials", () => {
-  it("sends both headers from the Environment's secret, over the manifest's header of the same name", async () => {
+  it("sends both headers from the Agent's secret, over the manifest's header of the same name", async () => {
     const result = await run("keyed", "keyed__echo");
     expect(result.status).toBe("completed");
     expect(result.completed).toEqual([expect.objectContaining({ output: "echo hi" })]);
@@ -234,7 +234,7 @@ describe("a credential with via (a gateway)", () => {
     expect(result.history).not.toContain(GATEWAY_KEY);
   });
 
-  it("leaves the identity header out for an installation session on the same Environment", async () => {
+  it("leaves the identity header out for an installation session on the same Agent", async () => {
     const before = gateway.seen.length;
     const result = await run("vendor", "vendor__echo", "installation");
     expect(result.status).toBe("completed");
@@ -262,7 +262,7 @@ describe("a credential with via (a gateway)", () => {
 
 describe("a 401 (R2b C1)", () => {
   it("gives the model credential_rejected for an MCP tool call, once, with a diagnostic", async () => {
-    const result = await run("rejecting", "locked__echo", "u:ada", ADA);
+    const result = await run(ADA, "locked__echo", "u:ada");
     expect(result.status).toBe("completed");
     expect(seenByModel).toMatchObject({ status: "failed", payload: { kind: "failed", code: "credential_rejected" } });
     expect(result.completed).toEqual([
@@ -296,7 +296,7 @@ describe("a 401 (R2b C1)", () => {
 
 describe("the secret routes", () => {
   it("list a headers credential's names, via and identity header, never a value", async () => {
-    const listed = await fetch(`${runtime.url}/v1/environments/${SHARED}/secrets`, {
+    const listed = await fetch(`${runtime.url}/v1/agents/vendor/secrets`, {
       headers: runtime.headers(),
     }).then((response) => response.json() as Promise<{ secrets: Record<string, unknown>[] }>);
     expect(listed.secrets).toContainEqual(
@@ -323,13 +323,13 @@ describe("the secret routes", () => {
       ["nylorun", { headers: { "nylorun-agent-id": "x" } }],
       ["identity", { identity: { header: "content-type" } }],
     ] as const) {
-      const refused = await writeSecret(runtime.url, runtime.headers(), SHARED, key, { ...body, ...change } as never);
+      const refused = await writeSecret(runtime.url, runtime.headers(), "vendor", key, { ...body, ...change } as never);
       expect(refused.status, key).toBe(400);
     }
     expect(
-      ((await fetch(`${runtime.url}/v1/environments/${SHARED}/secrets`, { headers: runtime.headers() }).then((response) =>
+      ((await fetch(`${runtime.url}/v1/agents/vendor/secrets`, { headers: runtime.headers() }).then((response) =>
         response.json(),
       )) as { secrets: { name: string }[] }).secrets.map((item) => item.name),
-    ).toEqual(["billing", "keyed", "locked", "vendor"]);
+    ).toEqual(["vendor"]);
   });
 });
