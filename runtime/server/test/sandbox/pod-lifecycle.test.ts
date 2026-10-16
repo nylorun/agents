@@ -59,6 +59,7 @@ const gone: PodStatus = { name: NAME, exists: false, deleting: false, ready: fal
 function facts(over: Partial<PodFacts>): PodFacts {
   return {
     row: row(),
+    image: "python:3.13-slim",
     config: { idleMs: 60_000 },
     status: status(),
     busy: false,
@@ -167,6 +168,20 @@ describe("pod lifecycle", () => {
     expect(later.patch).toMatchObject({ retiring: null, observed: "running" });
   });
 
+  it("pins only a digest of the repository the Environment asked for", () => {
+    const digest = "b".repeat(64);
+    // kind names an image it loads onto a node `import-<date>`: no registry serves that name.
+    const imported = `docker.io/library/import-2026-10-16@sha256:${digest}`;
+    expect(imageDigestOf(imported, "python:3.13-slim")).toBeUndefined();
+    expect(decide(facts({ status: status({ imageID: imported }) })).patch.imageDigest).toBeUndefined();
+    expect(imageDigestOf(`docker.io/library/node@sha256:${digest}`, "python:3.13-slim")).toBeUndefined();
+    // A registry with a host, a namespaced Docker Hub name and a digest-pinned request all match.
+    expect(imageDigestOf(`ghcr.io/acme/box@sha256:${digest}`, "ghcr.io/acme/box:1.2")).toBe(`ghcr.io/acme/box@sha256:${digest}`);
+    expect(imageDigestOf(`docker.io/acme/box@sha256:${digest}`, "acme/box")).toBe(`docker.io/acme/box@sha256:${digest}`);
+    expect(imageDigestOf(`localhost:5000/box@sha256:${digest}`, `localhost:5000/box@sha256:${digest}`)).toBe(`localhost:5000/box@sha256:${digest}`);
+    expect(decide(facts({ image: "ghcr.io/acme/box:1.2", status: status({ imageID: `ghcr.io/acme/box@sha256:${digest}` }) })).patch.imageDigest).toBe(`ghcr.io/acme/box@sha256:${digest}`);
+  });
+
   it("waits when the sandboxes service does not answer", () => {
     const decision = decide(facts({ status: undefined }));
     expect(decision.apply).toBeUndefined();
@@ -175,11 +190,11 @@ describe("pod lifecycle", () => {
 
   it("pins the image the first ready pod runs by digest, and runs that digest from then on (Q14)", () => {
     const pulled = `docker.io/library/python@sha256:${"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}`;
-    expect(imageDigestOf(pulled)).toBe(pulled);
-    expect(imageDigestOf(`docker-pullable://${pulled}`)).toBe(pulled);
+    expect(imageDigestOf(pulled, "python:3.13-slim")).toBe(pulled);
+    expect(imageDigestOf(`docker-pullable://${pulled}`, "python:3.13-slim")).toBe(pulled);
     // A locally loaded image has no repository to pull it from: nothing is pinned.
-    expect(imageDigestOf(`sha256:${"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}`)).toBeUndefined();
-    expect(imageDigestOf(undefined)).toBeUndefined();
+    expect(imageDigestOf(`sha256:${"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}`, "python:3.13-slim")).toBeUndefined();
+    expect(imageDigestOf(undefined, "python:3.13-slim")).toBeUndefined();
     expect(decide(facts({ status: status({ imageID: pulled }) })).patch).toMatchObject({ observed: "running", imageDigest: pulled });
     // Pinned once: a later pod's image id changes nothing.
     const pinned = row({ observed: "running", imageDigest: pulled });

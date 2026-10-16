@@ -17,6 +17,7 @@
 import { randomBytes } from "node:crypto";
 import type { SandboxPodPatch } from "../../store/types.js";
 import type { TenantContext } from "../../tenant/context.js";
+import { DEFAULT_SANDBOX_IMAGE } from "../policy.js";
 import { effectiveSandboxConfig, readSandboxConfig } from "../tenant-config.js";
 import { podSandboxSpecOf } from "../resolve.js";
 import { sha256Hex } from "../join.js";
@@ -65,6 +66,7 @@ export async function reconcileSandbox(
   const lifecycle = podLifecycleConfig(config, row.recipe);
   const decision = decide({
     row,
+    image: row.applied.image ?? DEFAULT_SANDBOX_IMAGE,
     config: lifecycle,
     status: await status(row.pod.k8sName),
     ...(row.pod.retiring ? { retiring: await status(row.pod.retiring) } : {}),

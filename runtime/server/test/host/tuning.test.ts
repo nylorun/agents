@@ -341,6 +341,7 @@ describe("a value from the Host tuning reaches the code that uses it", () => {
     expect(JSON.parse(podSpecOf(input).env!.NYLORUN_TUNING!)).toEqual({ harness: { podRenewMs: 60_000 } });
     const decision = decide({
       row: { id: "s1", kind: "pod", createdAt: new Date(0).toISOString(), updatedAt: new Date(0).toISOString(), pod: { k8sName: "sbx-a-g0", rev: 1, desired: "running", observed: "creating", hostEpoch: 1, startedAt: new Date(0).toISOString() } } as never,
+      image: "python:3.13-slim",
       config: { idleMs: 60_000 },
       status: { name: "sbx-a-g0", exists: true, deleting: false, ready: false, suspended: false, expired: false, volume: "present", podPhase: "Pending", opId: "sbx-a-g0.r1" } as never,
       busy: false,
