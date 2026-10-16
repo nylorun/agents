@@ -56,6 +56,10 @@ const AGENTS = [
     manifest: "box",
     resolvedVersion: 1,
     tracking: "tracking",
+    targetVersion: null,
+    waitingFor: null,
+    failedVersion: null,
+    startCheck: null,
     kind: "virtual",
     owner: "alice",
     labels: { project: "acme" },
@@ -68,6 +72,10 @@ const AGENTS = [
     manifest: "box@2",
     resolvedVersion: 2,
     tracking: "pinned",
+    targetVersion: 3,
+    waitingFor: "start",
+    failedVersion: null,
+    startCheck: null,
     kind: "pod",
     owner: null,
     labels: {},
@@ -145,6 +153,21 @@ async function running(options: { up?: boolean } = {}) {
       return json({ ...AGENTS[0], id: "users/alice", manifest: body.manifest, owner: body.owner ?? null, labels: body.labels ?? {} }, 201);
     }
     if (path === "/v1/agents/team-a%2Fproj-42/secrets/GH_TOKEN") return json({ name: "GH_TOKEN" });
+    if (path === "/v1/agents/user-7" && init?.method === "GET") return json(AGENTS[1]);
+    if (path === "/v1/agents/user-7" && init?.method === "PUT") {
+      const body = JSON.parse(String(init.body));
+      if (new URL(url).searchParams.get("dryRun") === "true")
+        return json({
+          dryRun: true,
+          plan: { agent: "user-7", manifest: body.manifest, from: 2, to: 3, tracking: "tracking", applies: "next_start", changes: [], missingSecrets: [], dormantSecrets: [], refusals: [], sessions: 0 },
+        });
+      const version = Number(/@(\d+)$/.exec(body.manifest)?.[1] ?? 3);
+      return json({ ...AGENTS[1], manifest: body.manifest, tracking: body.manifest.includes("@") ? "pinned" : "tracking", targetVersion: version === 2 ? null : version, waitingFor: version === 2 ? null : "start" });
+    }
+    if (path === "/v1/agents/user-7/restart") {
+      const body = JSON.parse(String(init!.body));
+      return json({ ...AGENTS[1], resolvedVersion: body.retry ? 2 : 3, targetVersion: null, waitingFor: null });
+    }
     if (path === "/v1/agents/team-a%2Fproj-42" && init?.method === "DELETE")
       return json({ id: "team-a/proj-42", deleted: true });
     if (path.startsWith("/v1/agents/") && init?.method === "DELETE") return json({ id: "x", deleted: false });
@@ -163,9 +186,9 @@ describe("nylorun agents", () => {
     const { home, deps, fetch, docker, keys } = await running();
     expect(await agentsCommand(deps, ["list", "--label", "project=acme", "--state", "working", "--manifest", "box"])).toBe(0);
     expect(deps.lines).toEqual([
-      "ID              MANIFEST      KIND     STATE     SESSIONS  OWNER  LABELS",
-      "team-a/proj-42  box@1 tracks  virtual  working   1         alice  project=acme",
-      "user-7          box@2 pinned  pod      sleeping  0         -      -",
+      "ID              MANIFEST          KIND     STATE     SESSIONS  OWNER  LABELS",
+      "team-a/proj-42  box@1 tracks      virtual  working   1         alice  project=acme",
+      "user-7          box@2 → 3 pinned  pod      sleeping  0         -      -",
     ]);
     const request = fetch.requests.find((item) => item.url.includes("/v1/agents"))!;
     // The SDK checks the Runtime's protocol once, before its first request.
@@ -191,16 +214,39 @@ describe("nylorun agents", () => {
     expect(docker.calls.filter((args) => args.includes("keys"))).toHaveLength(2);
   });
 
-  it("list --json prints the Agents, and --behind those on an older version than their manifest's latest", async () => {
-    const { deps } = await running();
+  it("list --json prints the Agents, and --outdated (or --behind) asks for those moving to another version", async () => {
+    const { deps, fetch } = await running();
     expect(await agentsCommand(deps, ["list", "--json"])).toBe(0);
     expect(JSON.parse(deps.lines.join("\n"))).toEqual(AGENTS);
+    for (const flag of ["--outdated", "--behind"]) {
+      fetch.requests.length = 0;
+      expect(await agentsCommand(deps, ["list", flag, "--json"])).toBe(0);
+      const request = fetch.requests.find((item) => new URL(item.url).pathname === "/v1/agents")!;
+      expect(new URL(request.url).searchParams.get("outdated")).toBe("true");
+    }
+  });
+
+  it("pins, tracks, plans a move, and restarts an Agent on its pending version (track T3)", async () => {
+    const { deps, fetch } = await running();
+    expect(await agentsCommand(deps, ["pin", "user-7", "2"])).toBe(0);
+    const pinned = fetch.requests.filter((item) => item.init?.method === "PUT" && item.url.includes("/v1/agents/user-7")).at(-1)!;
+    expect(JSON.parse(String(pinned.init!.body))).toMatchObject({ manifest: "box@2" });
+    expect(deps.errors.at(-1)).toBe("Agent user-7 runs box@2 pinned on Tenant home-root.");
+    expect(await agentsCommand(deps, ["track", "user-7"])).toBe(0);
+    const tracked = fetch.requests.filter((item) => item.init?.method === "PUT" && item.url.includes("/v1/agents/user-7")).at(-1)!;
+    expect(JSON.parse(String(tracked.init!.body))).toMatchObject({ manifest: "box" });
+    expect(deps.errors.at(-1)).toBe(
+      "Agent user-7 runs box@2 → 3 tracks on Tenant home-root; version 3 applies at its pod's next start (nylorun agents restart user-7 applies it now).",
+    );
     deps.lines.length = 0;
-    expect(await agentsCommand(deps, ["list", "--behind"])).toBe(0);
-    expect(deps.lines).toEqual([
-      "ID              MANIFEST      KIND     STATE    SESSIONS  OWNER  LABELS",
-      "team-a/proj-42  box@1 tracks  virtual  working  1         alice  project=acme",
-    ]);
+    expect(await agentsCommand(deps, ["put", "user-7", "--manifest", "box", "--dry-run"])).toBe(0);
+    expect(JSON.parse(deps.lines.join("\n"))).toMatchObject({ from: 2, to: 3, applies: "next_start" });
+    expect(await agentsCommand(deps, ["restart", "user-7"])).toBe(0);
+    expect(deps.errors.at(-1)).toBe("Agent user-7 runs box@3 pinned on Tenant home-root.");
+    expect(await agentsCommand(deps, ["restart", "user-7", "--retry"])).toBe(0);
+    const retried = fetch.requests.filter((item) => item.url.endsWith("/restart")).at(-1)!;
+    expect(JSON.parse(String(retried.init!.body))).toMatchObject({ retry: true });
+    await expect(agentsCommand(deps, ["pin", "user-7", "two"])).rejects.toMatchObject({ exitCode: 2 });
   });
 
   it("puts an Agent from a manifest, with its owner and labels", async () => {

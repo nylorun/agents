@@ -203,8 +203,8 @@ async function main() {
   );
   const toolCalls = () => service.calls.length;
   const agent = checkAgent(service);
-  // The Agent the AG-UI endpoint runs, made from the manifest `remote-check` (kind none). An Agent
-  // keeps the version it was made from, so each run makes its own, with this run's tools URL.
+  // The Agent the AG-UI endpoint runs, made from the manifest `remote-check` (kind none). Each run
+  // makes its own, with this run's tools URL, so runs at once never move each other's Agent.
   const agentId = `remote-check-${randomUUID().slice(0, 8)}`;
   const handler = createAgUiHandler({
     agents: [agentId],

@@ -21,9 +21,10 @@ saves each agent in `agents/index.ts` to the Runtime as an agent manifest
 (`client.agentManifests.save`), with the runtime section in
 `runtime/scratch.runtime.json` (a virtual workspace with no network), makes the
 **Agent** its sessions run on (`client.agents.put`, named after the agent), and
-exits; from then on the Runtime runs them from what was saved. An Agent keeps
-the manifest version it was made from for life; `npx nylorun@beta agents fork`
-makes a new Agent from a newer one. The project
+exits; from then on the Runtime runs them from what was saved. The Agent tracks
+its manifest: each save moves it to the new version in place, and each
+session's next turn runs it (`npx nylorun@beta agents pin assistant <n>` keeps
+it on one version). The project
 depends only on `@nylorun/agents`; `nylorun` runs with `npx`. It sets up and
 runs this project's local Tenant (Runtime and Studio), links the project to it,
 and manages the Tenant: its status, reset and model provider
@@ -65,13 +66,10 @@ npm start
 `npm start` runs `node dist/src/main.js`, the same entry as development: it
 saves the agents once, a deploy step. Set `NYLORUN_RUNTIME_URL` and
 `NYLORUN_SERVER_KEY` before starting, or keep the Project link beside this
-directory. `agents/index.ts` exports the registry. Under `npm run dev`
-(`--dev`), an Agent made from an older version is made again from the new one
-on each save, so new sessions run your edit (its disk starts empty; sessions
-already open keep the version they pinned). Elsewhere a changed agent reaches
-sessions on an Agent made from its new version: `npx nylorun@beta agents fork
-assistant assistant-2`, or `npx nylorun@beta agents rm assistant` and save
-again. Active-session upgrades are not supported.
+directory. `agents/index.ts` exports the registry. Under `npm run dev` and
+`npm start` alike, each save moves the Agent to the new version: its sessions,
+open ones included, run your edit from their next turn, with its workspace as
+it was (a turn already running ends on its version).
 
 The assistant has no tools yet. A tool is an `http()` tool, a request the
 Runtime makes to a service of yours (see the comment in

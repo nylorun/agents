@@ -100,6 +100,8 @@ export type {
   AgentDiskVersions,
   RestoreAgentRequest,
   AgentForkPlan,
+  AgentMovePlan,
+  RestartAgentRequest,
   ForkAgentRequest,
   ForkAgentResponse,
   DeleteAgentResponse,

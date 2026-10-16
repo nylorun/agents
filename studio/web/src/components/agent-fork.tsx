@@ -124,9 +124,9 @@ export function ForkSheet({
           <SheetHeader>
             <SheetTitle>Fork {source.id}</SheetTitle>
             <SheetDescription>
-              An Agent never changes what it runs. A fork is a new Agent, made from a manifest
-              version, with this one's disk and the secrets the new version declares. Open new
-              sessions on it when you are ready.
+              A fork is a new Agent, made from a manifest version, with this one's disk and the
+              secrets the new version declares: the way to change a kind, harness or storage.
+              Another version of the same manifest moves this Agent in place instead.
             </SheetDescription>
           </SheetHeader>
           <div className="grid gap-4 px-4">

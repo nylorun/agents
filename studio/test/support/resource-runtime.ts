@@ -6,7 +6,7 @@ import { PROTOCOL_FEATURES, PROTOCOL_VERSION } from "@nylorun/agents";
 
 export const TENANT = "tn_00000000000000000000000001";
 export const SESSION = "s-resource";
-/** A virtual Agent made from `analyst-box`, which it tracks: it runs v2, and v3 is the latest. */
+/** A virtual Agent pinned to `analyst-box@2`; v3 is the latest. */
 export const AGENT = "team/build";
 /** A pod Agent with setup commands and an input file. */
 export const POD = "team/pod";
@@ -58,10 +58,14 @@ const runtime = {
 };
 const agent = (id: string, fields: Record<string, unknown> = {}) => ({
   id,
-  manifest: "analyst-box",
+  manifest: "analyst-box@2",
   resolvedVersion: 2,
   manifestHash: "m2",
-  tracking: "tracking",
+  tracking: "pinned",
+  targetVersion: null,
+  waitingFor: null,
+  failedVersion: null,
+  startCheck: null,
   kind: "virtual",
   harness: "nylorun",
   owner: null,

@@ -8,14 +8,14 @@
     "admin": "0.18.0-beta",
     "core": "0.23.0-beta"
   },
-  "templateHash": "3006ba6d6b813015bb5278c05020338fde2defdc5df6cefb46fc179752bef191",
+  "templateHash": "60e316fca211cefcc675f1c8d0685d469808756512538d810a008d2c2cc96a1e",
   "files": {
     ".env.example": "cdb5515339fc0de86e4a7c74ab3fae9c9372383033908b77c9e5c22ac6adc82d",
     ".gitignore": "35d28e69221a58d60f19655637c7d99310a6dd6e0fda5f51c544d876ad19a3a0",
     "package.json": "803495c10f130b3674064755cc784fc5e8e2fc7d25fdc7c89f4e00ed51c02abe",
     "runtime/scratch.runtime.json": "7c5ff586f41d5c33f0554c09f1eae4284fef1730ddcca5dcf21d003e89c0b82d",
     "src/index.ts": "d61a6b97f77f2f813384e82ded8f7a2905f98f2b75399b32510d6f266d057b8e",
-    "src/main.ts": "4ea0ae3410ae5e343aeb7a719e8a5a8b390e0690e384fb9bbca76e0b33488f2f",
+    "src/main.ts": "2a8dcd88129c9d30a1570039bbb22e63d0ff11a3a00f1bfd05fa581990e65c32",
     "tsconfig.build.json": "0210063cd78016582d5c14a7627a703258910a20ff9c57db7951e5c2a9d62c7d",
     "tsconfig.json": "912b9cdf9eac674c7f8e47c51c78594fbf09ba6372cf3131acfa4acb390b4d6a"
   }

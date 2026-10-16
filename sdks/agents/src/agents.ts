@@ -27,6 +27,7 @@ import {
   type AgentEvent,
   type AgentEventType,
   type AgentForkPlan,
+  type AgentMovePlan,
   type AgentRestore,
   type AgentSecretView,
   type AgentSnapshot,
@@ -56,6 +57,8 @@ export interface AgentFilter {
   readonly state?: string;
   /** The agent manifest's name. */
   readonly manifest?: string;
+  /** `true`: only Agents moving to another version of their manifest (track T3); `false`: the others. */
+  readonly outdated?: boolean;
 }
 
 /** The bytes of files by hash, by `sha256:<hex>` (`runtimeFiles(...).bytes`). */
@@ -85,6 +88,7 @@ function filterQuery(filter: AgentFilter, query = new URLSearchParams()): URLSea
   for (const [key, value] of Object.entries(filter.labels ?? {})) query.append("label", `${key}=${value}`);
   if (filter.state !== undefined) query.set("state", filter.state);
   if (filter.manifest !== undefined) query.set("manifest", filter.manifest);
+  if (filter.outdated !== undefined) query.set("outdated", String(filter.outdated));
   return query;
 }
 
@@ -166,6 +170,22 @@ export class AgentInstancesClient {
     return this.transport.json(this.path(agentId), "PUT", { requestId: id(), ...input }, options.signal);
   }
 
+  /**
+   * What `put` would do to the existing Agent (`PUT /v1/agents/{id}?dryRun=true`, track T3): the
+   * version it runs and the one `input.manifest` names, when that applies (`now`, `next_start`,
+   * `secrets`, or `refused` with each fixed field), the changes, and the secrets it would wait
+   * for or leave unused. Nothing changes.
+   */
+  async plan(agentId: string, input: AgentInput, options: { signal?: AbortSignal } = {}): Promise<AgentMovePlan> {
+    const reply = await this.transport.json<{ plan: AgentMovePlan }>(
+      `${this.path(agentId)}?dryRun=true`,
+      "PUT",
+      { requestId: id(), ...input },
+      options.signal,
+    );
+    return reply.plan;
+  }
+
   async get(agentId: string, options: { signal?: AbortSignal } = {}): Promise<AgentView> {
     return this.transport.json(this.path(agentId), "GET", undefined, options.signal);
   }
@@ -194,6 +214,20 @@ export class AgentInstancesClient {
   /** Stops a pod Agent's compute: its volume is kept, and the next turn starts it again. */
   async stop(agentId: string, options: { signal?: AbortSignal } = {}): Promise<AgentView> {
     return this.transport.json(`${this.path(agentId)}/stop`, "POST", {}, options.signal);
+  }
+
+  /**
+   * Applies a version the Agent waits to apply (`POST /v1/agents/{id}/restart`, track T3): a
+   * running pod stops, so the next turn starts it on the version; a stopped one starts at once.
+   * `retry` first moves it to the version that failed to start again. Refused during a turn.
+   */
+  async restart(agentId: string, options: { retry?: boolean; signal?: AbortSignal } = {}): Promise<AgentView> {
+    return this.transport.json(
+      `${this.path(agentId)}/restart`,
+      "POST",
+      { requestId: id(), ...(options.retry ? { retry: true } : {}) },
+      options.signal,
+    );
   }
 
   /** Resets a pod Agent: a new pod on a new, empty volume, with its runtime section applied. */

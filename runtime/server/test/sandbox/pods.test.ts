@@ -2,7 +2,7 @@
  * Pod Agents in the Runtime (F7.2, S3–S8, protocol 16; pod Environments from protocol 11) against
  * an in-memory sandboxes service (`fake-sandboxes.ts`): create at once, join → host token, a turn
  * whose harness runs in the pod (its own engine, the `local` backend, over the Harness API
- * listener with a host token), relaunch, stop, idle, a pod that never changes what it runs, PVC
+ * listener with a host token), relaunch, stop, idle, a pod that moves at its next start, PVC
  * loss → `agent.lost`, reset, delete.
  */
 import { providerModelGate } from "../../src/gates/provider-gate.js";

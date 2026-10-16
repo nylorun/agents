@@ -223,8 +223,8 @@ export type PinnedManifestState =
   | { kind: "failed"; message: string };
 
 /**
- * True when the session runs an older version of its agent manifest than the latest: an Agent
- * keeps the version it was made from, and moves to a newer one through a fork.
+ * True when the session runs an older version of its agent manifest than the latest: its next
+ * turn runs the version its Agent runs then, which moves when it tracks the manifest or is moved.
  */
 export function isOutdated(
   state: PinnedManifestState,

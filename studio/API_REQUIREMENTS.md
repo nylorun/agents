@@ -5,8 +5,9 @@ same-origin proxy. This change adds no database connection, storage client,
 Runtime route or SDK method. Artifacts are read-only except a message's attachments,
 uploaded into its session (protocol 12). Agents (protocol 16) are made from a saved
 agent manifest, relabelled, forked, stopped, reset and deleted, and their disk
-versions kept, restored and deleted, through their public routes. An Agent never
-changes what it runs: a newer manifest version reaches it through a fork. Agent
+versions kept, restored and deleted, through their public routes. An Agent moves
+between versions of its manifest with `PUT` (and `POST .../restart`); a fork changes
+its kind, harness or storage. Agent
 manifests are read only in Studio; they are saved from their repository
 (`nylorun apply`).
 

@@ -304,10 +304,11 @@ A session runs on an **Agent** (protocol 16): the live instance of one version o
 none), one vault, and the sessions that run on it, under an id the app chooses
 (`users/alice/web`, `projects/acme`). It is made only from a saved manifest, with
 `PUT /v1/agents/{id}` (`client.agents.put` in `@nylorun/agents`): `{ "manifest": "analyst" }`
-tracks the manifest and resolves its latest version now, `"analyst@3"` pins version 3. Either
-way it resolves the version once and **never changes what it runs** after that: a new version
-reaches people through a fork. Every session names its Agent when it opens (`agent: "<id>"`),
-and pins the version the Agent runs. No session is special: making an Agent opens none, and the
+tracks the manifest (its latest version now, and each version saved later), `"analyst@3"` pins
+version 3. It runs **one version at a time and moves in place** (track T3): a `PUT` naming
+another version moves it, a save moves every Agent that tracks the manifest, and each session's
+next turn runs the version the Agent runs then. Its kind, harness and storage are fixed: a fork
+changes those. Every session names its Agent when it opens (`agent: "<id>"`). No session is special: making an Agent opens none, and the
 app picks session ids (to keep one conversation going, reuse one). Upgrading from protocol 15,
 which had agent definitions, environment manifests and Environments:
 [MIGRATION.md](./MIGRATION.md#agents-from-one-manifest-protocol-16-harness-api-5).
@@ -395,8 +396,8 @@ which had agent definitions, environment manifests and Environments:
   of that Agent, after a stop, a relaunch or a reset, runs that digest: a tag that moves never
   changes what an Agent runs. A fork pulls the tag afresh. An image loaded onto the node without
   a registry pins nothing.
-- **Forking onto a new version.** An Agent never changes what it runs, so it moves to a new
-  version by a fork: `POST /v1/agents/{id}/fork` with `{ "id": "users/alice/analyst-2" }`
+- **Forking.** An Agent's kind, harness and storage are fixed for its life, so a change to those
+  is a fork: `POST /v1/agents/{id}/fork` with `{ "id": "users/alice/analyst-2" }`
   (`client.agents.fork()`) makes a new Agent from the source's manifest at its latest version
   (or `manifest: "name@n"`). Its disk starts from a version of the source's (`disk: "latest"`,
   the default, snapshots first between turns; a version number; or `"empty"`), and the secrets
