@@ -91,13 +91,13 @@ function NewSessionItem({ agents }: Readonly<{ agents: readonly SessionAgent[] }
   const start = useStartSession();
   const registered = agents.filter((agent) => agent.registered);
   return (
-    <SidebarMenuItem>
+    <SidebarMenuItem className="pt-1">
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <SidebarMenuButton
             tooltip="New session"
             disabled={registered.length === 0}
-            className="bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground active:bg-primary/90 active:text-primary-foreground data-[state=open]:bg-primary/90 data-[state=open]:hover:bg-primary/90 data-[state=open]:hover:text-primary-foreground"
+            className="h-9 justify-center gap-2 px-3 font-medium bg-primary text-primary-foreground shadow-xs hover:bg-primary/90 hover:text-primary-foreground active:bg-primary/90 active:text-primary-foreground data-[state=open]:bg-primary/90 data-[state=open]:hover:bg-primary/90 data-[state=open]:hover:text-primary-foreground"
           >
             <Plus />
             <span>New session</span>
@@ -138,7 +138,13 @@ function TenantNavigation({
   const named = tenant !== undefined && !embedded();
   const title = named ? tenant.name : "Runtime";
   return (
-    <SidebarMenuItem>
+    // Set apart from the brand above it (when shown) and New session below it.
+    <SidebarMenuItem
+      className={
+        "border-b border-sidebar-border py-2" +
+        (embedded() ? "" : " border-t")
+      }
+    >
       <SidebarMenuButton
         size="lg"
         asChild
