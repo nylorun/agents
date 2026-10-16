@@ -14,6 +14,7 @@ import {
   AGENT_STATES,
   isAgentId,
   PutAgentRequestSchema,
+  RestartAgentRequestSchema,
   RestoreAgentRequestSchema,
 } from "@nylorun/core/contracts";
 import {
@@ -32,6 +33,7 @@ import {
   ForkAgentRequest,
   ForkAgentResponse,
   RestoreAgentRequest,
+  RestartAgentRequest,
   AgentSecretView,
   AgentView,
   ListAgentEventsResponse,
@@ -55,12 +57,13 @@ import {
   planAgentPut,
   putAgent,
   resetAgent,
+  restartAgent,
   secretRequestFor,
   secretWritten,
   stopAgent,
 } from "../../../tenant/agents.js";
 import type { TenantEnv } from "../app.js";
-import { readJson } from "../body.js";
+import { bodyLimit, readJson, readText } from "../body.js";
 import { tenantRoute, type RouteAccess } from "../define.js";
 import { pageQuery, pageSize } from "./reads.js";
 import { jsonResponse } from "../respond.js";
@@ -246,7 +249,7 @@ export function agentRoutes(api: OpenAPIHono<TenantEnv>): void {
       tags: ["Agents"],
       summary: "Read an Agent's events",
       description:
-        "`agent.created`, `.attached`, `.detached`, `.deleted`, a pod's `.running`, `.suspended`, `.relaunched`, `.lost`, `.reset` and `.failed`, `.forked`, a move's `.outdated` and `.version_changed` (track T3), and `agent.egress` for every connection its sandbox opens through egress-gate, naming the turns that were running (D67), in order, numbered from 0, at most the Tenant's Runtime limit `environmentEventItems` (default 1000) per call: `from` reads on.",
+        "`agent.created`, `.attached`, `.detached`, `.deleted`, a pod's `.running`, `.suspended`, `.relaunched`, `.lost`, `.reset` and `.failed`, `.forked`, a move's `.outdated`, `.version_changed` and `.start_failed` (track T3), and `agent.egress` for every connection its sandbox opens through egress-gate, naming the turns that were running (D67), in order, numbered from 0, at most the Tenant's Runtime limit `environmentEventItems` (default 1000) per call: `from` reads on.",
       request: {
         params: agentId,
         query: z.object({
@@ -343,6 +346,42 @@ export function agentRoutes(api: OpenAPIHono<TenantEnv>): void {
       async (c) =>
         jsonResponse(200, await run(c.env.tenant, idOf(c.req.param("agentId")), c.get("scope"))),
     );
+
+  tenantRoute(
+    api,
+    WRITE,
+    {
+      method: "post",
+      path: "/v1/agents/{agentId}/restart",
+      tags: ["Agents"],
+      summary: "Restart an Agent on its pending version",
+      description:
+        "Applies a version the Agent waits to apply (track T3): a running pod stops, so the next turn starts it on the version, on the same volume; a stopped or failed one is asked to run at once. `retry: true` first moves it to the version that failed to start (`failedVersion`) again. Kinds `virtual` and `none` apply a version at once, so there is nothing to wait for. Refused during a turn (`agent_busy`). The body is optional.",
+      request: {
+        params: agentId,
+        body: { required: false, content: { "application/json": { schema: RestartAgentRequest } } },
+      },
+      responses: {
+        200: json(AgentView, "The Agent"),
+        409: { description: "A turn holds it (`agent_busy`), its pod was lost (`agent_lost`), or no sandbox pods (`agent_unavailable`)" },
+      },
+    },
+    async (c) => {
+      const text = await readText(c.req.raw, await bodyLimit(c.env.tenant));
+      let raw: unknown = {};
+      if (text.trim() !== "")
+        try {
+          raw = JSON.parse(text);
+        } catch {
+          fail(400, "Invalid JSON");
+        }
+      const body = RestartAgentRequestSchema.parse(raw);
+      return jsonResponse(
+        200,
+        await restartAgent(c.env.tenant, idOf(c.req.param("agentId")), { ...(body.retry ? { retry: true } : {}) }, c.get("scope")),
+      );
+    },
+  );
 
   tenantRoute(
     api,

@@ -12,6 +12,12 @@
  *   any other applies at once. A version that adds a required secret with no value the version
  *   can use waits for it (`resumeMove` after each secret write). Its manifest's name, kind,
  *   harness and storage are fixed for its life (`409 agent_fixed_field`).
+ * - **The start check** (pods): a start on a new version records what ran before
+ *   (`startCheck`) until the new pod's harness joins (`passStartCheck`). A failed setup, a failed
+ *   pod or a start past the Host's `tenant.upgradeStartMs` goes back to it (`revertStart`): the
+ *   definition, not the data. The version is the Agent's `failedVersion`, which a tracking Agent
+ *   does not move to again, until a start on a new version succeeds. While a pod waits to start
+ *   on a new version, it idles at most `tenant.upgradeIdleMs` (`idleMsOf`).
  * - **A turn takes the Agent's version.** A turn's first segment re-pins its session to the
  *   version the Agent runs when that changed since the session's last turn (`repinTurn`), before
  *   anything of the turn has run: no effect is journaled for it yet. The turn keeps that version
@@ -32,7 +38,10 @@ import { effectiveSandboxConfig, readSandboxConfig } from "../sandbox/tenant-con
 import { HARNESS_ID } from "../sandbox/placement.js";
 import { slotHolds } from "../vault/service.js";
 import { manifestRecipeRequest, sectionChanges } from "./agent-manifests.js";
-import { harnessOf, type Session } from "./context.js";
+import { podLifecycleConfig } from "../sandbox/pods/spec.js";
+import type { TenantSandboxConfig } from "../sandbox/tenant-config.js";
+import { hostTuning } from "../tuning.js";
+import { harnessOf, type Session, type TenantContext } from "./context.js";
 import { fail } from "./http.js";
 import { limitIssues, manifestShapeIssues, readTenantLimits } from "./limits.js";
 import { readRuntimeLimits } from "./runtime-limits.js";
@@ -279,6 +288,12 @@ export async function moveAgent(t: Tx, agent: Environment, move: Move, now: stri
       // `applied` stays what runs: `recipe` differs from it until the start applies it.
       await t.updateEnvironment(agent.id, { ...ref, recipe, version: agent.version + 1, targetVersion: plan.to }, now);
       await t.agentEvent(agent.id, "agent.outdated", { from: plan.from, to: plan.to, waitingFor: "start" });
+      // A running pod stops sooner once idle, so its next start applies the version.
+      if (agent.pod?.desired === "running") {
+        const idleMs = Math.min(podLifecycleConfig(await readSandboxConfig(t), recipe).idleMs, hostTuning().tenant.upgradeIdleMs);
+        const at = Math.max(Date.parse(agent.pod.lastActiveAt ?? now) + idleMs, Date.parse(now));
+        await t.signalSandbox(agent.id, { kind: "arm", timer: "idle", at });
+      }
       break;
     case "now":
       await t.updateEnvironment(
@@ -292,6 +307,7 @@ export async function moveAgent(t: Tx, agent: Environment, move: Move, now: stri
           manifestVersion: target.version,
           manifestHash: target.hash,
           targetVersion: null,
+          failedVersion: null,
         },
         now,
       );
@@ -316,13 +332,21 @@ export async function resumeMove(t: Tx, agent: Environment, now: string): Promis
 
 /**
  * At a pod Agent's start (`wantRunning`, `newVolume`): switches `agent` (locked) to the version it
- * moves to when its runtime waits for this start. Applies the target's runtime and version, and
- * drops the pinned image digest when the image changed. Returns whether it switched.
+ * moves to when its runtime waits for this start. Applies the target's runtime and version, drops
+ * the pinned image digest when the image changed, and records what ran before (`startCheck`)
+ * until the new pod's harness joins. Returns whether it switched.
  */
 export async function switchTo(t: Tx, agent: Environment, now: string): Promise<boolean> {
   if (agent.targetVersion === undefined || agent.appliedVersion === agent.version) return false;
   const target = await t.agentManifest(agent.manifestName, agent.targetVersion);
   if (!target) return false;
+  // A start that replaces one still being checked goes back as far as that one would.
+  const from = agent.startCheck?.from ?? {
+    manifestVersion: agent.manifestVersion,
+    manifestHash: agent.manifestHash,
+    applied: agent.applied,
+    ...(agent.pod?.imageDigest === undefined ? {} : { imageDigest: agent.pod.imageDigest }),
+  };
   await t.updateEnvironment(
     agent.id,
     {
@@ -331,6 +355,7 @@ export async function switchTo(t: Tx, agent: Environment, now: string): Promise<
       manifestVersion: target.version,
       manifestHash: target.hash,
       targetVersion: null,
+      ...(agent.pod ? { startCheck: { from, startedAt: now } } : {}),
     },
     now,
   );
@@ -344,4 +369,95 @@ export async function switchTo(t: Tx, agent: Environment, now: string): Promise<
 export function waitingFor(agent: Pick<Environment, "targetVersion" | "appliedVersion" | "version">): "secrets" | "start" | null {
   if (agent.targetVersion === undefined) return null;
   return agent.appliedVersion === agent.version ? "secrets" : "start";
+}
+
+/** How long pod Agent `agent` may idle before it stops: shorter while a start would apply a new version. */
+export function idleMsOf(config: TenantSandboxConfig, agent: Environment): number {
+  const idleMs = podLifecycleConfig(config, agent.recipe).idleMs;
+  return waitingFor(agent) === "start" ? Math.min(idleMs, hostTuning().tenant.upgradeIdleMs) : idleMs;
+}
+
+/**
+ * The harness of pod Agent `id` joined at host epoch `epoch` (its `hello`): a start on a new
+ * version succeeded, setup included. Clears the start check and the failed version.
+ */
+export async function passStartCheck(ctx: TenantContext, id: string, epoch: number): Promise<void> {
+  await ctx.store.tx(async (t) => {
+    const agent = await t.environment(id, { lock: true });
+    if (!agent?.startCheck || agent.pod?.hostEpoch !== epoch) return;
+    await t.updateEnvironment(id, { startCheck: null, failedVersion: null }, new Date().toISOString());
+  });
+}
+
+/**
+ * Pod Agent `agent` (locked) did not start on the version it switched to (`reason`): back to what
+ * it ran before (`startCheck.from`), its definition and not its data, with that version as its
+ * `failedVersion`, and its pod asked to run again. A turn waiting for the start runs on the
+ * version it went back to. Returns whether there was a start to go back from.
+ */
+export async function revertStart(t: Tx, agent: Environment, reason: string, now: string): Promise<boolean> {
+  const check = agent.startCheck;
+  const pod = agent.pod;
+  if (!check || !pod) return false;
+  const version = agent.version + 1;
+  await t.updateEnvironment(
+    agent.id,
+    {
+      recipe: check.from.applied,
+      applied: check.from.applied,
+      version,
+      appliedVersion: version,
+      manifestVersion: check.from.manifestVersion,
+      manifestHash: check.from.manifestHash,
+      targetVersion: null,
+      failedVersion: agent.manifestVersion,
+      startCheck: null,
+    },
+    now,
+  );
+  await t.updateEnvironmentPod(
+    agent.id,
+    {
+      imageDigest: check.from.imageDigest ?? null,
+      desired: "running",
+      rev: pod.rev + 1,
+      observed: "creating",
+      startedAt: now,
+      lastActiveAt: now,
+      reason: null,
+    },
+    now,
+  );
+  await t.agentEvent(agent.id, "agent.start_failed", {
+    from: check.from.manifestVersion,
+    to: agent.manifestVersion,
+    reason,
+    reverted: true,
+  });
+  await t.agentEvent(agent.id, "agent.version_changed", { from: agent.manifestVersion, to: check.from.manifestVersion });
+  await t.signalSandbox(agent.id, { kind: "reconcile" });
+  return true;
+}
+
+/**
+ * The Tenant sweep: each pod Agent whose start on a new version has taken longer than the Host's
+ * `tenant.upgradeStartMs` goes back to the version it ran (`revertStart`).
+ */
+export async function sweepStartChecks(ctx: TenantContext, now = Date.now()): Promise<void> {
+  const limit = hostTuning().tenant.upgradeStartMs;
+  const due = (agent: Environment) => agent.startCheck !== undefined && Date.parse(agent.startCheck.startedAt) + limit <= now;
+  for (const candidate of (await ctx.store.tx((t) => t.listEnvironments())).filter(due)) {
+    try {
+      await ctx.store.tx(async (t) => {
+        const agent = await t.environment(candidate.id, { lock: true });
+        if (!agent || !due(agent)) return;
+        await revertStart(t, agent, `The pod did not start within ${Math.round(limit / 1000)} s`, new Date(now).toISOString());
+      });
+    } catch (error) {
+      ctx.config.logger.warn("agent start check not swept", {
+        environmentId: candidate.id,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
 }

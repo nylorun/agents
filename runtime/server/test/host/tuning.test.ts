@@ -79,6 +79,8 @@ describe("the Host tuning schema", () => {
       signingKeyRotationGraceMs: 60_000,
       retryAfterSeconds: 5,
       seedLeaseMs: 10 * 60_000,
+      upgradeIdleMs: 60_000,
+      upgradeStartMs: 10 * 60_000,
     });
     expect(t.sweep).toEqual({
       intervalMs: 5_000,

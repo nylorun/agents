@@ -323,11 +323,12 @@ which had agent definitions, environment manifests and Environments:
   `resources` and `storage` (pods only), `network.allowedHosts`, `lifecycle`, `setup`, `files`,
   `limits` and `secrets` (slots), resolved against the Tenant's limits when it is made, with
   `manifest`, `resolvedVersion`, `manifestHash` and `tracking` saying where it came from and
-  `harness` the harness that runs its loop (the manifest's `harness.id`, else `nylorun`). A
-  `PUT` on an existing one may change only its labels and owner guard; a manifest that names
-  what it runs is accepted, so get-or-create stays one call, and any other is
-  `409 agent_upgrade_unavailable`, naming the fork. A restart, a reset or a lost pod rebuilds
-  the same thing. Egress is limited to the hosts the runtime allows, within the Tenant's
+  `harness` the harness that runs its loop (the manifest's `harness.id`, else `nylorun`). It
+  moves between versions of its manifest in place (track T3): a pod applies a new runtime at its
+  next start, on the same volume, and a start that fails (its setup, the pod, or longer than
+  `tenant.upgradeStartMs`) goes back to the version it ran with its disk as it is; its kind,
+  harness and storage are fixed (`409 agent_fixed_field`). A reset or a lost pod rebuilds what it
+  runs. Egress is limited to the hosts the runtime allows, within the Tenant's
   `limits.network`; private networks, loopback, the host and cloud metadata endpoints are always
   blocked. Each connection a pod opens, allowed or refused, is one `agent.egress` event on
   `GET /v1/agents/{id}/events?types=agent.egress` (host, port, outcome, bytes, duration and the
@@ -865,6 +866,8 @@ below the run token's, the host token's longer than `harness.podRenewMs`, and
 | `tenant.signingKeyRotationGraceMs` | 60 s | Added to the longest token lifetime before a previous signing key may go (0 allowed) |
 | `tenant.retryAfterSeconds` | 5 | The `Retry-After` of a request refused while its Agent is busy or pods are not ready |
 | `tenant.seedLeaseMs` | 10 min | How long a pending disk seed of an Agent holds the disk before another process may take it over |
+| `tenant.upgradeIdleMs` | 1 min | The longest a pod Agent waiting to start on a new version stays idle before it stops (its own `lifecycle.idle` when shorter) |
+| `tenant.upgradeStartMs` | 10 min | How long a pod may take to start on a new version before the Agent goes back to the one it ran |
 | `sweep.intervalMs` | 5 s | The delay between sweep passes of the Tenant |
 | `sweep.batchSize` | 100 | Rows one sweep query reads at a time |
 | `sweep.signalRetentionMs` | 1 h | How long a control signal is kept |

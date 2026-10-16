@@ -1,9 +1,10 @@
 /**
  * The disk's setup in a pod Environment's engine (R2d step 2): after it joins and before it takes
  * any turn, the engine copies the recipe's input files and runs its setup commands, once per
- * volume. A marker on the volume (`/harness/setup.json`, `{ volumeId, recipeVersion, status }`)
- * says it was done: a resume finds it and skips, a reset (a new volume, a new volume id) runs it
- * again. Commands run as the sandbox tools' do (`localExec`): `/bin/sh -c` in `cwd`, with the
+ * volume. A marker on the volume (`/harness/setup.json`, `{ volumeId, recipeVersion, setupHash,
+ * status }`) says it was done: a resume finds it and skips, a reset (a new volume, a new volume
+ * id) runs it again, and so does a start on a new version whose setup differs (`setupHash`,
+ * track T3). A marker without a hash (written before T3) counts as this setup's. Commands run as the sandbox tools' do (`localExec`): `/bin/sh -c` in `cwd`, with the
  * Environment's variables and secrets (as the sentinel) and egress through egress-gate.
  *
  * A failure is reported to core, which fails the pod and the turn waiting for it; the engine then
@@ -44,7 +45,18 @@ export interface DiskSetupOptions {
 interface Marker {
   readonly volumeId: string;
   readonly recipeVersion: number;
+  readonly setupHash?: string;
   readonly status: "ok";
+}
+
+/** The marker of `setup` done on volume `volumeId`. */
+function markerOf(volumeId: string, setup: DiskSetup | undefined): Marker {
+  return {
+    volumeId,
+    recipeVersion: setup?.recipeVersion ?? 0,
+    ...(setup?.setupHash === undefined ? {} : { setupHash: setup.setupHash }),
+    status: "ok",
+  };
 }
 
 async function readText(path: string): Promise<string | undefined> {
@@ -142,7 +154,7 @@ export async function prepareDisk(options: DiskSetupOptions): Promise<void> {
   } else if (options.host.seeded) {
     // A volume seeded from a disk version: the version holds what setup made, so mark it done.
     if (volumeId) {
-      const done: Marker = { volumeId, recipeVersion: setup?.recipeVersion ?? 0, status: "ok" };
+      const done = markerOf(volumeId, setup);
       await writeAtomic(options.markerFile, new TextEncoder().encode(`${JSON.stringify(done)}\n`));
     }
     options.logger.info("environment_setup_skipped", { reason: "seeded" });
@@ -153,7 +165,8 @@ export async function prepareDisk(options: DiskSetupOptions): Promise<void> {
   if (marker && volumeId) {
     try {
       const done = JSON.parse(marker) as Marker;
-      if (done.volumeId === volumeId && done.status === "ok") return;
+      const same = done.setupHash === undefined || setup.setupHash === undefined || done.setupHash === setup.setupHash;
+      if (done.volumeId === volumeId && done.status === "ok" && same) return;
     } catch {
       /* a broken marker: run the setup again */
     }
@@ -164,7 +177,7 @@ export async function prepareDisk(options: DiskSetupOptions): Promise<void> {
     const report = await runOnce(options, setup);
     if (report.status === "ok") {
       if (volumeId) {
-        const done: Marker = { volumeId, recipeVersion: setup.recipeVersion, status: "ok" };
+        const done = markerOf(volumeId, setup);
         await writeAtomic(options.markerFile, new TextEncoder().encode(`${JSON.stringify(done)}\n`));
       }
       await options.host.reportSetup(report).catch((error: unknown) =>

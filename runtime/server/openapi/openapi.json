@@ -15803,6 +15803,26 @@
                   ],
                   "exclusiveMinimum": 0
                 },
+                "startCheck": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "from": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0
+                    },
+                    "startedAt": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "from",
+                    "startedAt"
+                  ],
+                  "additionalProperties": false
+                },
                 "kind": {
                   "type": "string",
                   "enum": [
@@ -16463,6 +16483,7 @@
                 "targetVersion",
                 "waitingFor",
                 "failedVersion",
+                "startCheck",
                 "kind",
                 "harness",
                 "owner",
@@ -16542,6 +16563,26 @@
                   ],
                   "exclusiveMinimum": 0
                 },
+                "startCheck": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "from": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0
+                    },
+                    "startedAt": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "from",
+                    "startedAt"
+                  ],
+                  "additionalProperties": false
+                },
                 "kind": {
                   "type": "string",
                   "enum": [
@@ -17202,6 +17243,7 @@
                 "targetVersion",
                 "waitingFor",
                 "failedVersion",
+                "startCheck",
                 "kind",
                 "harness",
                 "owner",
@@ -17289,6 +17331,26 @@
               "null"
             ],
             "exclusiveMinimum": 0
+          },
+          "startCheck": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "from": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "startedAt": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "from",
+              "startedAt"
+            ],
+            "additionalProperties": false
           },
           "kind": {
             "type": "string",
@@ -17950,6 +18012,7 @@
           "targetVersion",
           "waitingFor",
           "failedVersion",
+          "startCheck",
           "kind",
           "harness",
           "owner",
@@ -18208,6 +18271,7 @@
                     "agent.forked",
                     "agent.outdated",
                     "agent.version_changed",
+                    "agent.start_failed",
                     "agent.egress"
                   ]
                 },
@@ -18249,6 +18313,19 @@
           "id",
           "deleted"
         ],
+        "additionalProperties": false
+      },
+      "RestartAgentRequest": {
+        "type": "object",
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "retry": {
+            "type": "boolean"
+          }
+        },
         "additionalProperties": false
       },
       "AgentSnapshot": {
@@ -18546,6 +18623,26 @@
                       "null"
                     ],
                     "exclusiveMinimum": 0
+                  },
+                  "startCheck": {
+                    "type": [
+                      "object",
+                      "null"
+                    ],
+                    "properties": {
+                      "from": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0
+                      },
+                      "startedAt": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "from",
+                      "startedAt"
+                    ],
+                    "additionalProperties": false
                   },
                   "kind": {
                     "type": "string",
@@ -19207,6 +19304,7 @@
                   "targetVersion",
                   "waitingFor",
                   "failedVersion",
+                  "startCheck",
                   "kind",
                   "harness",
                   "owner",
@@ -24443,7 +24541,7 @@
           "Agents"
         ],
         "summary": "Read an Agent's events",
-        "description": "`agent.created`, `.attached`, `.detached`, `.deleted`, a pod's `.running`, `.suspended`, `.relaunched`, `.lost`, `.reset` and `.failed`, `.forked`, a move's `.outdated` and `.version_changed` (track T3), and `agent.egress` for every connection its sandbox opens through egress-gate, naming the turns that were running (D67), in order, numbered from 0, at most the Tenant's Runtime limit `environmentEventItems` (default 1000) per call: `from` reads on.",
+        "description": "`agent.created`, `.attached`, `.detached`, `.deleted`, a pod's `.running`, `.suspended`, `.relaunched`, `.lost`, `.reset` and `.failed`, `.forked`, a move's `.outdated`, `.version_changed` and `.start_failed` (track T3), and `agent.egress` for every connection its sandbox opens through egress-gate, naming the turns that were running (D67), in order, numbered from 0, at most the Tenant's Runtime limit `environmentEventItems` (default 1000) per call: `from` reads on.",
         "security": [
           {
             "applicationKey": []
@@ -24864,6 +24962,158 @@
           },
           "409": {
             "description": "A turn holds it (`agent_busy`), or no sandbox pods (`agent_unavailable`)"
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/agents/{agentId}/restart": {
+      "post": {
+        "tags": [
+          "Agents"
+        ],
+        "summary": "Restart an Agent on its pending version",
+        "description": "Applies a version the Agent waits to apply (track T3): a running pod stops, so the next turn starts it on the version, on the same volume; a stopped or failed one is asked to run at once. `retry: true` first moves it to the version that failed to start (`failedVersion`) again. Kinds `virtual` and `none` apply a version at once, so there is nothing to wait for. Refused during a turn (`agent_busy`). The body is optional.",
+        "security": [
+          {
+            "applicationKey": []
+          },
+          {
+            "issuerToken": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "application",
+          "subject",
+          "token"
+        ],
+        "x-nylorun-scopes": [
+          "agents:write"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The Agent id, percent-encoded: `users%2Falice%2Ftriage` for `users/alice/triage`"
+            },
+            "required": true,
+            "description": "The Agent id, percent-encoded: `users%2Falice%2Ftriage` for `users/alice/triage`",
+            "name": "agentId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `16`"
+            },
+            "required": true,
+            "description": "The protocol version, `16`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The person an application key acts for"
+            },
+            "required": false,
+            "description": "The person an application key acts for",
+            "name": "Nylorun-Subject",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The subject's space-separated scopes; required with a subject"
+            },
+            "required": false,
+            "description": "The subject's space-separated scopes; required with a subject",
+            "name": "Nylorun-Scopes",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RestartAgentRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The Agent",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid headers, path, body or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No credential (`credential_required`), one the Tenant does not accept (`credential_invalid`), a token that expired (`token_expired`), or a token whose issuer's keys cannot be fetched now (`issuer_unavailable`). `WWW-Authenticate: Bearer` names the protected resource metadata (`resource_metadata`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A turn holds it (`agent_busy`), its pod was lost (`agent_lost`), or no sandbox pods (`agent_unavailable`)"
           },
           "426": {
             "description": "`Nylorun-Protocol` missing or unsupported",

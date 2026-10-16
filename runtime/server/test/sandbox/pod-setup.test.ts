@@ -4,7 +4,8 @@
  * through the host routes, indexed into the applied recipe; a failed setup fails the pod (and
  * stays failed while the pod is ready) until a turn start asks it to run again; a session's
  * artifact or a missing version is refused when the manifest is saved, and so is setup on a
- * virtual Agent.
+ * virtual Agent. A new version's setup runs at the pod's next start on the same volume, and a
+ * start that fails goes back to the version the Agent ran (track T3).
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Agent } from "@nylorun/core/define";
@@ -16,6 +17,9 @@ import { podName } from "../../src/sandbox/pods/name.js";
 import { fakeSandboxes, type FakeSandboxes } from "../support/fake-sandboxes.js";
 import { startTestTenant } from "../support/tenant.js";
 import { manifestOf, writeManifest } from "../support/agents.js";
+import { withTestSessionStore } from "../support/store.js";
+import { passStartCheck, sweepStartChecks } from "../../src/tenant/agent-versions.js";
+import type { TenantContext } from "../../src/tenant/context.js";
 
 const APP = "sandbox-setup-app-key-aaaaaaaaaaaa";
 const KEK = Buffer.alloc(32, 9).toString("base64");
@@ -133,6 +137,7 @@ describe("a pod Agent's setup and input files", { timeout: 90_000 }, () => {
     const joined = await hosts.join({ sandboxId: "setup/one", podUid: fake.podUid(name)!, joinToken: fake.joinToken(name)! });
     expect(joined.setup).toEqual({
       recipeVersion: 1,
+      setupHash: expect.stringMatching(/^[0-9a-f]{64}$/),
       commands: [
         { command: "npm ci", cwd: "/workspace/app", timeoutMs: 15 * 60_000 },
         { command: "echo ready", cwd: "/workspace", timeoutMs: 10 * 60_000 },
@@ -226,5 +231,78 @@ describe("a pod Agent's setup and input files", { timeout: 90_000 }, () => {
     await runtime.handle.worker!.sandbox!("setup/fails", "reconcile", new AbortController().signal);
     const again = await until("retry", () => hosts.setup(joined.hostToken), (state) => state.retry);
     expect(again.setup?.commands).toEqual([{ command: "exit 3", cwd: "/workspace", timeoutMs: 10 * 60_000 }]);
+  });
+
+  it("runs a new version's setup at the pod's next start, and goes back when it fails", async () => {
+    const id = "setup/moves";
+    const { name } = await createPod(id, { setup: [{ command: "echo one" }] });
+    const first = await hosts.join({ sandboxId: id, podUid: fake.podUid(name)!, joinToken: fake.joinToken(name)! });
+    await hosts.reportSetup(first.hostToken, { status: "ok" });
+    const ctx = (store: unknown) =>
+      ({ store, config: { logger: { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} } } }) as unknown as TenantContext;
+
+    // Version 2's setup waits for the pod's next start.
+    expect((await save(id, { kind: "pod", setup: [{ command: "exit 4" }] })).status).toBe(200);
+    expect((await call("GET", path(id))).body).toMatchObject({ resolvedVersion: 1, targetVersion: 2, waitingFor: "start" });
+    expect((await call("POST", `${path(id)}/stop`)).status).toBe(200);
+    await until("suspended", async () => (await call("GET", path(id))).body, (body) => body.compute.pod.observed === "suspended");
+
+    // A turn wakes it: it switches, and checks the start until the new pod's harness joins.
+    expect((await call("PUT", "/v1/sessions/moves-s1", { requestId: "s1", agent: id, ownerUserId: "app:ada" })).status).toBe(200);
+    const send = (key: string) =>
+      call("POST", "/v1/sessions/moves-s1/commands", { type: "message", requestId: key, idempotencyKey: key, content: "go" });
+    expect((await send("m1")).status).toBe(200);
+    const switched = (await call("GET", path(id))).body;
+    expect(switched).toMatchObject({ resolvedVersion: 2, targetVersion: null, startCheck: { from: 1 }, compute: { pod: { volumeGeneration: 0 } } });
+    // A restart waits for the turn.
+    expect((await call("POST", `${path(id)}/restart`, {})).body.code).toBe("agent_busy");
+    await until("the pod runs again", async () => fake.podUid(name), (uid) => uid !== undefined);
+    const second = await hosts.join({ sandboxId: id, podUid: fake.podUid(name)!, joinToken: fake.joinToken(name)! });
+    expect(second.setup?.commands).toEqual([{ command: "exit 4", cwd: "/workspace", timeoutMs: 10 * 60_000 }]);
+    expect(second.setup?.setupHash).not.toBe(first.setup?.setupHash);
+
+    // Its setup fails: back to version 1, the same volume, version 2 failed.
+    await hosts.reportSetup(second.hostToken, { status: "failed", index: 0, exitCode: 4, output: "no\n" });
+    const back = (await call("GET", path(id))).body;
+    expect(back).toMatchObject({
+      resolvedVersion: 1,
+      targetVersion: null,
+      failedVersion: 2,
+      startCheck: null,
+      state: "failing",
+      runtime: { setup: [{ command: "echo one" }] },
+      compute: { pod: { volumeGeneration: 0, observed: "creating" } },
+    });
+    const events = (await call("GET", `${path(id)}/events`)).body.events as { type: string; payload: any }[];
+    expect(events.find((event) => event.type === "agent.start_failed")?.payload).toMatchObject({
+      from: 1,
+      to: 2,
+      reverted: true,
+      reason: expect.stringContaining("exited 4"),
+    });
+    // The waiting turn runs version 1: it waited for the start, and re-pins at its first segment.
+    await until("re-pinned", async () => (await call("GET", "/v1/sessions/moves-s1")).body, (body) => body.manifest?.version === 1, 30_000);
+    await call("POST", "/v1/sessions/moves-s1/commands", { type: "cancel", requestId: "c1", idempotencyKey: "c1" });
+    await until("settled", async () => (await call("GET", "/v1/sessions/moves-s1")).body, (body) => body.activeTurnId === null, 60_000);
+
+    // A retry moves it to version 2 again; the start passes once the new pod's harness joins.
+    const retried = await call("POST", `${path(id)}/restart`, { retry: true });
+    expect(retried.status, JSON.stringify(retried.body)).toBe(200);
+    expect(retried.body).toMatchObject({ resolvedVersion: 1, targetVersion: 2, waitingFor: "start", failedVersion: 2 });
+    await until("suspended", async () => (await call("GET", path(id))).body, (body) => body.compute.pod.observed === "suspended");
+    expect((await call("POST", `${path(id)}/restart`)).body).toMatchObject({ resolvedVersion: 2, startCheck: { from: 1 } });
+    const epoch = (await call("GET", path(id))).body.compute.pod.hostEpoch;
+    await withTestSessionStore(runtime, (store) => passStartCheck(ctx(store), id, epoch));
+    expect((await call("GET", path(id))).body).toMatchObject({ resolvedVersion: 2, startCheck: null, failedVersion: null });
+
+    // A start slower than `tenant.upgradeStartMs` goes back too (the sweep).
+    expect((await save(id, { kind: "pod", setup: [{ command: "echo three" }] })).status).toBe(200);
+    expect((await call("POST", `${path(id)}/restart`)).status).toBe(200);
+    await until("suspended", async () => (await call("GET", path(id))).body, (body) => body.compute.pod.observed === "suspended");
+    expect((await call("POST", `${path(id)}/restart`)).body).toMatchObject({ resolvedVersion: 3, startCheck: { from: 2 } });
+    await withTestSessionStore(runtime, (store) => sweepStartChecks(ctx(store)));
+    expect((await call("GET", path(id))).body.resolvedVersion).toBe(3);
+    await withTestSessionStore(runtime, (store) => sweepStartChecks(ctx(store), Date.now() + 11 * 60_000));
+    expect((await call("GET", path(id))).body).toMatchObject({ resolvedVersion: 2, failedVersion: 3, startCheck: null });
   });
 });

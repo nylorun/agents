@@ -337,6 +337,9 @@ async function runRemoteSegment(
     if (unusable) throw new Error(unusable);
     // A new volume being seeded from a disk version takes no turn until it holds it (R2d step 3).
     if (segment.pod?.seeding) throw new HarnessUnavailable();
+    // A pod starting on a new version takes no turn until its harness joins (track T3): a start
+    // that fails goes back to the version it ran, and the turn's first segment re-pins to it.
+    if (segment.pod?.starting) throw new HarnessUnavailable();
     const pod = segment.pod?.id;
     if (started.environmentId !== undefined) placed.environment = started.environmentId;
     end = await ctx.harness.offer({
