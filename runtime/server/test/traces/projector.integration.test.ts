@@ -148,13 +148,17 @@ describe.skipIf(!STACK_ENABLED)("trace projector on logical replication", { time
     await until("the projector to read its slot", () => started.projector.status().active);
     const before = await currentLsn(runtime.tenantId);
     await turn();
-    await until("the drop to be logged", () => logged.some((entry) => entry.message === "trace_export_dropped"));
+    // The turn's rows reach the projector over several transactions, and so several posts: each
+    // dropped post is logged with its spans, the turn's four in all.
+    const dropped = () =>
+      logged
+        .filter((entry) => entry.message === "trace_export_dropped")
+        .reduce((sum, entry) => sum + Number(entry.fields?.spans ?? 0), 0);
+    await until("the turn's spans to be dropped and logged", () => dropped() >= 4);
     // Every row of the turn is acknowledged: Postgres keeps no WAL for the dead collector.
     await until("the slot to move past the turn", async () => {
       const confirmed = await confirmedOf(runtime.tenantId, slot);
       return confirmed !== null && (await lsnAtLeast(runtime.tenantId, confirmed, before)) && started.projector.status().pendingTxs === 0;
     });
-    const dropped = logged.filter((entry) => entry.message === "trace_export_dropped");
-    expect(dropped.reduce((sum, entry) => sum + Number(entry.fields?.spans ?? 0), 0)).toBeGreaterThanOrEqual(4);
   });
 });

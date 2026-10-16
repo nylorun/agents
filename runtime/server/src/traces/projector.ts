@@ -83,6 +83,8 @@ export function createTraceProjector(options: TraceProjectorOptions): TraceProje
   let mapping: Promise<void> = Promise.resolve();
   let mappingCount = 0;
   let posting: Promise<void> | undefined;
+  /** Transactions of the batch being posted: not acknowledged until the post settles. */
+  let postingTxs = 0;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let active = false;
   let confirmed: string | null = null;
@@ -175,6 +177,7 @@ export function createTraceProjector(options: TraceProjectorOptions): TraceProje
     const batch = waiting;
     waiting = [];
     waitingSpans = 0;
+    postingTxs = batch.length;
     posting = (async () => {
       const spans = batch.flatMap((tx) => tx.spans);
       // A post a shutdown cut short is not the collector's failure: those rows go again.
@@ -189,6 +192,7 @@ export function createTraceProjector(options: TraceProjectorOptions): TraceProje
       }
     })().finally(() => {
       posting = undefined;
+      postingTxs = 0;
       schedule();
       settle();
     });
@@ -243,7 +247,7 @@ export function createTraceProjector(options: TraceProjectorOptions): TraceProje
     },
     status: () => ({
       active,
-      pendingTxs: waiting.length + mappingCount,
+      pendingTxs: waiting.length + mappingCount + postingTxs,
       pendingSpans: waitingSpans,
       confirmed,
     }),
