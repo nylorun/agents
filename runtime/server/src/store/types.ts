@@ -882,6 +882,8 @@ export interface Tx {
     options: { folder?: string; after?: string; limit?: number; lock?: boolean },
   ): Promise<MemoryRow[]>;
   countMemories(agentId: string): Promise<number>;
+  /** An Agent's newest memories first (by `updatedAt`, then path): what the pinned index lists. */
+  recentMemories(agentId: string, limit: number): Promise<Pick<MemoryRow, "path" | "description" | "bytes">[]>;
   /** Inserts or replaces a memory. */
   putMemory(row: MemoryRow): Promise<void>;
   deleteMemory(agentId: string, path: string): Promise<void>;

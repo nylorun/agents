@@ -1266,6 +1266,19 @@ export const EgressConnectionPayloadSchema = z
 
 /** The schema id of an Agent's lifecycle events (its stream in the record). */
 export const AGENT_EVENT_SCHEMA = "nylorun.agent-event/1";
+/**
+ * `memory.updated` (track T5, D72): the session's agent changed the Agent's memory with its
+ * `memory` tool: each memory the call changed, what changed it and its version after. The Agent's
+ * stream carries the same as `agent.memory_updated`, with the session.
+ */
+export const MemoryUpdatedPayloadSchema = z
+  .object({
+    effectId: z.string(),
+    changes: z
+      .array(z.object({ path: z.string(), operation: z.enum(MEMORY_OPERATIONS), version: z.number().int().positive() }).strict())
+      .min(1),
+  })
+  .passthrough();
 export const AGENT_EVENT_TYPES = [
   "agent.created",
   "agent.attached",
@@ -1291,6 +1304,8 @@ export const AGENT_EVENT_TYPES = [
   "agent.trigger_paused",
   "agent.trigger_resumed",
   "agent.trigger_secret_rotated",
+  // Memory (track T5, D72): a turn changed the Agent's memories.
+  "agent.memory_updated",
 ] as const;
 export type AgentEventType = (typeof AGENT_EVENT_TYPES)[number];
 /** The payload of each Agent lifecycle event. */
@@ -1384,6 +1399,8 @@ export const AGENT_EVENT_PAYLOADS = {
   "agent.trigger_resumed": z.object({ triggerId: z.string() }).passthrough(),
   /** A webhook trigger's signing secret was made or replaced; the one before stopped working. */
   "agent.trigger_secret_rotated": z.object({ triggerId: z.string() }).passthrough(),
+  /** A turn changed the Agent's memories (`memory.updated` in its session): which, and how. */
+  "agent.memory_updated": MemoryUpdatedPayloadSchema.extend({ sessionId: z.string(), turnId: z.string() }),
 } as const satisfies Record<AgentEventType, z.ZodType>;
 
 
@@ -3560,6 +3577,7 @@ export const EVENT_CATALOG = {
   "queue.taken": { payload: QueueTakenPayloadSchema, source: "api", version: 1 },
   "wake.booked": { payload: WakeBookedPayloadSchema, source: "api", version: 1 },
   "wake.cancelled": { payload: WakeCancelledPayloadSchema, source: "api", version: 1 },
+  "memory.updated": { payload: MemoryUpdatedPayloadSchema, source: "api", version: 1 },
   "message.assistant": { payload: AssistantMessagePayloadSchema, source: "loop", version: 1 },
   "model.failed": { payload: ModelFailedPayloadSchema, source: "loop", version: 1 },
   "context.compacted": { payload: ContextCompactedPayloadSchema, source: "loop", version: 1 },

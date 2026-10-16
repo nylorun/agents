@@ -11,6 +11,7 @@ import type {
   RecordedOutcome,
   RuntimeLimits,
   TurnAgent,
+  TurnMemory,
   TurnStart,
 } from "@nylorun/core/harness-api";
 import { SANDBOX_WORKSPACE, type SandboxManifest } from "@nylorun/core/define";
@@ -38,6 +39,8 @@ import { flowLimitsOf } from "../core/limits.js";
 import { turnManifestOf } from "../tenant/session.js";
 import { mcpFactsOf } from "../mcp/snapshot.js";
 import { bulkOutcomes } from "./record.js";
+import { renderMemoryIndex } from "../memory/service.js";
+import { memorySettingsOf } from "../memory/tool.js";
 import { traceKey } from "../traces/key.js";
 import { hostTuning } from "../tuning.js";
 import {
@@ -91,6 +94,8 @@ export interface SegmentStart {
    * hands an agent's harness. Absent for a flow, and when the Tenant has no model.
    */
   readonly model?: ModelDescriptor;
+  /** The Agent's memory (track T5): its access, instructions and the index the harness pins. */
+  readonly memory?: TurnMemory;
 }
 
 /** The segment's starting transaction and fold. */
@@ -130,10 +135,12 @@ export async function startSegment(
         ...(current.sandbox === undefined ? {} : { spec: current.sandbox }),
       };
       const turnId = current.activeTurnId;
+      const memory = isWorkflowManifest(current.manifest) ? undefined : await turnMemoryOf(t, current, limits);
       return {
         current,
         fixtureModel,
         limits,
+        ...(memory ? { memory } : {}),
         outcomes: current.checkpoint ? await bulkOutcomes(t, current, current.checkpoint) : [],
         sandbox,
         ...(resource ? { agent: agentOf(resource, current.sandbox, await selfWakeOf(t, current)) } : {}),
@@ -207,6 +214,24 @@ export function buildTurnStart(ctx: TenantContext, segment: SegmentStart): TurnS
     // The agent manifest version the session pinned, and its harness's own settings (protocol 16).
     ...(current.definition === undefined ? {} : { definition: current.definition }),
     ...(current.loop === undefined || flow ? {} : { loop: current.loop }),
+    ...(segment.memory && !flow ? { memory: segment.memory } : {}),
+  };
+}
+
+/**
+ * The Agent's memory as the segment starts (track T5, D72), when the version the session runs sets
+ * `harness.memory`: its access (the same in every turn), the agent's instructions, and the index of
+ * its memories, newest first, within the Tenant's index limits.
+ */
+async function turnMemoryOf(t: Tx, s: Session, limits: RuntimeLimits): Promise<TurnMemory | undefined> {
+  const settings = await memorySettingsOf(t, s);
+  if (!settings) return undefined;
+  const { index, truncated } = await renderMemoryIndex(t, s.agentId, limits);
+  return {
+    access: settings.access ?? "read_write",
+    ...(settings.instructions === undefined ? {} : { instructions: settings.instructions }),
+    index,
+    truncated,
   };
 }
 

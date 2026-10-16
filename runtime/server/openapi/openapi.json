@@ -8920,6 +8920,9 @@
             "$ref": "#/components/schemas/WakeCancelledEvent"
           },
           {
+            "$ref": "#/components/schemas/MemoryUpdatedEvent"
+          },
+          {
             "$ref": "#/components/schemas/MessageAssistantEvent"
           },
           {
@@ -9000,6 +9003,7 @@
             "queue.taken": "#/components/schemas/QueueTakenEvent",
             "wake.booked": "#/components/schemas/WakeBookedEvent",
             "wake.cancelled": "#/components/schemas/WakeCancelledEvent",
+            "memory.updated": "#/components/schemas/MemoryUpdatedEvent",
             "message.assistant": "#/components/schemas/MessageAssistantEvent",
             "model.failed": "#/components/schemas/ModelFailedEvent",
             "context.compacted": "#/components/schemas/ContextCompactedEvent",
@@ -11494,6 +11498,231 @@
             },
             "required": [
               "effectId"
+            ],
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "schema",
+          "eventId",
+          "tenantId",
+          "sessionId",
+          "runId",
+          "turnId",
+          "incarnation",
+          "epoch",
+          "seq",
+          "cursor",
+          "time",
+          "schemaVersion",
+          "source",
+          "evidence",
+          "visibility",
+          "retention",
+          "type",
+          "payload"
+        ]
+      },
+      "MemoryUpdatedEvent": {
+        "type": "object",
+        "properties": {
+          "schema": {
+            "type": "string",
+            "enum": [
+              "nylorun.event/2"
+            ]
+          },
+          "eventId": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "runId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "turnId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "incarnation": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "epoch": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "time": {
+            "type": "string"
+          },
+          "schemaVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "client",
+                  "core",
+                  "model-gate",
+                  "tool-gate",
+                  "egress-gate",
+                  "sandboxes",
+                  "edge",
+                  "init",
+                  "controller",
+                  "loop",
+                  "supervisor",
+                  "harness",
+                  "evidence",
+                  "operator",
+                  "human",
+                  "api"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ]
+          },
+          "evidence": {
+            "type": "string",
+            "enum": [
+              "observed",
+              "measured",
+              "attested",
+              "claimed",
+              "asserted"
+            ]
+          },
+          "principal": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "application",
+                  "subject",
+                  "flow-host",
+                  "core",
+                  "trigger"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          "trace": {
+            "type": "object",
+            "properties": {
+              "traceId": {
+                "type": "string"
+              },
+              "spanId": {
+                "type": "string"
+              },
+              "parentSpanId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "traceId",
+              "spanId"
+            ]
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "internal",
+              "restricted"
+            ]
+          },
+          "retention": {
+            "type": "string",
+            "enum": [
+              "full",
+              "metadata"
+            ]
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "memory.updated"
+            ]
+          },
+          "payload": {
+            "type": "object",
+            "properties": {
+              "effectId": {
+                "type": "string"
+              },
+              "changes": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    },
+                    "operation": {
+                      "type": "string",
+                      "enum": [
+                        "create",
+                        "str_replace",
+                        "insert",
+                        "delete",
+                        "rename"
+                      ]
+                    },
+                    "version": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "operation",
+                    "version"
+                  ],
+                  "additionalProperties": false
+                },
+                "minItems": 1
+              }
+            },
+            "required": [
+              "effectId",
+              "changes"
             ],
             "additionalProperties": {}
           }
@@ -19240,7 +19469,8 @@
                     "agent.run",
                     "agent.trigger_paused",
                     "agent.trigger_resumed",
-                    "agent.trigger_secret_rotated"
+                    "agent.trigger_secret_rotated",
+                    "agent.memory_updated"
                   ]
                 },
                 "payload": {
@@ -31110,6 +31340,9 @@
                     },
                     {
                       "$ref": "#/components/schemas/WakeCancelledEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/MemoryUpdatedEvent"
                     },
                     {
                       "$ref": "#/components/schemas/MessageAssistantEvent"

@@ -378,6 +378,36 @@ async function rename(a: Applied, rawOld: string, rawNew: string): Promise<Memor
   return { ok: true, text: `Successfully renamed ${oldPath} to ${newPath}`, changes };
 }
 
+// --- the pinned index ------------------------------------------------------------
+
+/**
+ * The index a session pins (`turn.start.memory.index`, design §6.3): a line per memory, newest
+ * first, `- <path>`, then ` — <description>` when it has one, within `memoryIndexLines` lines and
+ * `memoryIndexBytes` bytes. `truncated` when some memories were left out; the harness tells the
+ * model to view folders for the rest.
+ */
+export async function renderMemoryIndex(
+  t: Tx,
+  agentId: string,
+  limits: Pick<RuntimeLimits, "memoryIndexLines" | "memoryIndexBytes">,
+): Promise<{ index: string; truncated: boolean }> {
+  const rows = await t.recentMemories(agentId, limits.memoryIndexLines + 1);
+  const lines: string[] = [];
+  let bytes = 0;
+  let truncated = rows.length > limits.memoryIndexLines;
+  for (const row of rows.slice(0, limits.memoryIndexLines)) {
+    const line = row.description ? `- ${row.path} — ${row.description}` : `- ${row.path}`;
+    const size = Buffer.byteLength(line, "utf8") + 1;
+    if (bytes + size > limits.memoryIndexBytes) {
+      truncated = true;
+      break;
+    }
+    lines.push(line);
+    bytes += size;
+  }
+  return { index: lines.join("\n"), truncated };
+}
+
 // --- views ---------------------------------------------------------------------
 
 export function memorySummaryOf(row: MemoryRow): MemorySummary {

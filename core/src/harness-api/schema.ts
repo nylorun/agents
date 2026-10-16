@@ -94,10 +94,11 @@ export const EffectTargetSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("harness") }).strict(),
   /**
    * An operation the Runtime itself serves, in the transaction that journals the call, keyed by
-   * the effect id (track T4): `schedule_wake` books the session's next turn (D77). Answered
-   * `completed` at once; the harness never executes it.
+   * the effect id (track T4): `schedule_wake` books the session's next turn (D77); `memory` (track
+   * T5, D72) is a call of the `memory` tool, with Anthropic's memory tool parameters as its input,
+   * on the Agent's memories. Answered at once; the harness never executes it.
    */
-  z.object({ kind: z.literal("runtime"), operation: z.enum(["schedule_wake"]) }).strict(),
+  z.object({ kind: z.literal("runtime"), operation: z.enum(["schedule_wake", "memory"]) }).strict(),
 ]);
 
 /**
@@ -353,6 +354,23 @@ export const TurnAgentSchema = z
   })
   .strict();
 
+/**
+ * The Agent's memory as a turn starts (track T5, D72), present when the version its session runs
+ * sets `harness.memory`: its access in every turn, the agent's own `instructions`, and the index a
+ * harness pins in the session (one line per memory, newest first, with its description, within
+ * the Runtime limits `memoryIndexLines` and `memoryIndexBytes`; `truncated` when some were left
+ * out). A harness offers the `memory` tool (a `runtime` effect, operation `memory`), view only for
+ * `read_only` and for its sub-agents.
+ */
+export const TurnMemorySchema = z
+  .object({
+    access: z.enum(["read_write", "read_only"]),
+    instructions: z.string().optional(),
+    index: z.string(),
+    truncated: z.boolean(),
+  })
+  .strict();
+
 /** What a run starts from: `turn.start` (message, continue, resume) or `approval.answer`. */
 export const TurnStartSchema = z
   .object({
@@ -371,6 +389,8 @@ export const TurnStartSchema = z
      * passes on without reading. Ours reads none yet.
      */
     loop: document.optional(),
+    /** The Agent's memory (track T5), when the version its session runs sets `harness.memory`. Absent for a flow. */
+    memory: TurnMemorySchema.optional(),
     /** The segment's checkpoint; an agent's state has no transcript (`transcript.cursor`). */
     checkpoint: document,
     /**
