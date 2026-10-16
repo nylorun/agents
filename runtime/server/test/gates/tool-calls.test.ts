@@ -8,7 +8,8 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { newTenantId } from "@nylorun/core/compatibility";
 import { InflightConflict } from "../../src/gates/inflight.js";
 import type { McpHandler } from "../../src/gates/mcp-handler.js";
-import { createToolCalls, TOOL_CROSSING_TTL_MS } from "../../src/gates/tool-calls.js";
+import { createToolCalls } from "../../src/gates/tool-calls.js";
+import { hostTuning } from "../../src/tuning.js";
 import type { TenantVaults } from "../../src/gates/tenant-vaults.js";
 import type { SessionStore } from "../../src/store/types.js";
 import { createTestSessionStore } from "../support/store.js";
@@ -142,7 +143,7 @@ describe("keyed tool calls at the gate", () => {
     await calls.run(undefined, k, "h", request(held));
     await calls.prune();
     expect(await store.tx((t) => t.toolCrossing(k))).toBeDefined();
-    clock += TOOL_CROSSING_TTL_MS + 1_000;
+    clock += hostTuning().gates.toolCrossingTtlMs + 1_000;
     await calls.prune();
     expect(await store.tx((t) => t.toolCrossing(k))).toBeUndefined();
   });

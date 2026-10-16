@@ -7,7 +7,7 @@
  * per sandbox and keeps its timers.
  *
  * - **Create** is eager: a `PUT` of a new pod sandbox asks for `Running` at once. One that is
- *   not ready within `READY_DEADLINE_MS` is `failed`, with the pod's reason; the next turn
+ *   not ready within `pods.readyDeadlineMs` (Host tuning) is `failed`, with the pod's reason; the next turn
  *   start tries again.
  * - **Every change** the Runtime asks for bumps `rev`; the `PUT` carries `opId =
  *   <name>.r<rev>`, so a repeated apply is a no-op at the service, and a Sandbox whose `opId`
@@ -36,6 +36,7 @@
 import type { EnvironmentEventPayload, EnvironmentEventType } from "@nylorun/core/contracts";
 import type { Environment, SandboxPodPatch, SandboxPodState } from "../../store/types.js";
 import type { PodStatus } from "./client.js";
+import { hostTuning } from "../../tuning.js";
 
 /**
  * The pullable reference of the image id a container status names (`repo@sha256:…`), or
@@ -50,12 +51,6 @@ export function imageDigestOf(imageID: string | undefined): string | undefined {
 
 /** A setup failure's `reason` starts with this (`sandbox/setup.ts`); it is sticky. */
 export const SETUP_FAILED = "setup:";
-/** A pod not ready this long after it was asked to run has failed. */
-export const READY_DEADLINE_MS = 5 * 60_000;
-/** How soon to look again while the pod changes. */
-export const POLL_MS = 2_000;
-/** How soon to look again when the sandboxes service does not answer. */
-export const UNREACHABLE_RETRY_MS = 5_000;
 
 /** The lifecycle settings (D36), read each time a decision is made. */
 export interface PodLifecycleConfig {
@@ -116,6 +111,9 @@ const event = <T extends EnvironmentEventType>(type: T, payload: EnvironmentEven
 
 export function decide(facts: PodFacts): PodDecision {
   const { row, status, now } = facts;
+  // A pod not ready `readyDeadlineMs` after it was asked to run has failed; look again after
+  // `pollMs` while it changes, or `unreachableRetryMs` when the sandboxes service does not answer.
+  const { readyDeadlineMs, pollMs, unreachableRetryMs } = hostTuning().pods;
   const pod = row.pod;
   const patch: SandboxPodPatch = {};
   const events: PodEvent[] = [];
@@ -137,15 +135,15 @@ export function decide(facts: PodFacts): PodDecision {
   // An earlier incarnation's Sandbox (reset, loss) is deleted until it is gone.
   if (pod.retiring !== undefined) {
     const retiring = facts.retiring;
-    if (retiring === undefined) again(UNREACHABLE_RETRY_MS);
+    if (retiring === undefined) again(unreachableRetryMs);
     else if (gone(retiring)) patch.retiring = null;
     else {
       if (retiring.exists && !retiring.deleting) deletes.push(pod.retiring);
-      again(POLL_MS);
+      again(pollMs);
     }
   }
   if (status === undefined) {
-    again(UNREACHABLE_RETRY_MS);
+    again(unreachableRetryMs);
     return done();
   }
 
@@ -154,14 +152,14 @@ export function decide(facts: PodFacts): PodDecision {
       return done({ removeRow: true });
     if (status.exists && !status.deleting) deletes.push(pod.k8sName);
     if (pod.observed !== "deleting") patch.observed = "deleting";
-    again(POLL_MS);
+    again(pollMs);
     return done();
   }
 
   // Lost is terminal: only a reset (a new name) leaves it.
   if (pod.observed === "lost") {
     if (status.exists && !status.deleting) deletes.push(pod.k8sName);
-    if (status.exists) again(POLL_MS);
+    if (status.exists) again(pollMs);
     return done();
   }
 
@@ -192,13 +190,13 @@ export function decide(facts: PodFacts): PodDecision {
     patch.hostEpoch = (patch.hostEpoch ?? pod.hostEpoch) + 1;
     events.push(event("environment.lost", { reason }));
     if (status.exists && !status.deleting) deletes.push(pod.k8sName);
-    if (status.exists) again(POLL_MS);
+    if (status.exists) again(pollMs);
     return done();
   }
 
   if (status.deleting) {
     // The previous incarnation of this name is still going (an Environment deleted and created again).
-    again(POLL_MS);
+    again(pollMs);
     return done();
   }
   const opId = opIdOf({ k8sName: pod.k8sName, rev });
@@ -214,7 +212,7 @@ export function decide(facts: PodFacts): PodDecision {
     }
     // A pod started by this apply (a create, a resume) is the Environment's first, not a relaunch.
     if (desired === "running" && pod.podUid !== undefined) patch.podUid = null;
-    again(POLL_MS);
+    again(pollMs);
     return done({
       apply: { mode: desired === "running" ? "Running" : "Suspended", rotateJoin: !status.exists },
     });
@@ -236,17 +234,17 @@ export function decide(facts: PodFacts): PodDecision {
     }
     const startedAt = Date.parse(pod.startedAt ?? row.updatedAt);
     if (pod.observed === "failed") return done();
-    if (now - startedAt >= READY_DEADLINE_MS) {
+    if (now - startedAt >= readyDeadlineMs) {
       const reason =
         [status.reason, status.message].filter(Boolean).join(": ") ||
-        `The pod was not ready within ${READY_DEADLINE_MS / 60_000} minutes`;
+        `The pod was not ready within ${Math.round(readyDeadlineMs / 1000)} s`;
       patch.observed = "failed";
       patch.reason = reason;
       events.push(event("environment.failed", { reason }));
       return done();
     }
     if (pod.observed !== "creating") patch.observed = "creating";
-    again(POLL_MS);
+    again(pollMs);
     return done();
   }
 
@@ -255,6 +253,6 @@ export function decide(facts: PodFacts): PodDecision {
     if (pod.observed !== "suspended") patch.observed = "suspended";
     return done();
   }
-  again(POLL_MS);
+  again(pollMs);
   return done();
 }

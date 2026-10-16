@@ -104,6 +104,15 @@ describe("public API", () => {
         "DEFAULT_OUTPUTS_CONFIG",
         "outputsConfigOf",
         "saveOutputs",
+        // Our engine's loop and harness settings, each with its default (B15).
+        "DEFAULT_COMPACTION_CONFIG",
+        "DEFAULT_LEASE_RETRY_MS",
+        "DEFAULT_LOOP_CONFIG",
+        "DEFAULT_PARTIAL_OUTPUT_CHARS",
+        "DEFAULT_RESEND_DELAYS_MS",
+        "DEFAULT_TRANSCRIPT_CACHE_MB",
+        "compactionConfigOf",
+        "loopConfigOf",
       ].sort(),
     );
   });

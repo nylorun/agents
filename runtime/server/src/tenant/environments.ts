@@ -73,8 +73,9 @@ import { manifestChanges, manifestRecipeRequest } from "./environment-manifests.
 import { labelIssues, limitIssues, limitsInForce, manifestShapeIssues, readTenantLimits } from "./limits.js";
 import { readRuntimeLimits } from "./runtime-limits.js";
 import { harnessOf, sessionOf, type AuthScope, type Session, type TenantContext } from "./context.js";
-import { fail } from "./http.js";
+import { fail, failRetryLater } from "./http.js";
 import type { SealedSecretCopies } from "../vault/service.js";
+import { hostTuning } from "../tuning.js";
 
 /** The Environment grants that limit `scope`, or undefined when it reaches every Environment. */
 export function environmentGrantsOf(scope: AuthScope): readonly string[] | undefined {
@@ -401,10 +402,7 @@ export async function putEnvironment(
     };
     const deleting = (row: Environment | undefined) => {
       if (row && !live(row))
-        fail(409, `Environment ${id} is being deleted. Try again once it is gone.`, {
-          code: "environment_busy",
-          details: { retryAfterSeconds: 5 },
-        }, { "retry-after": "5" });
+        failRetryLater(`Environment ${id} is being deleted. Try again once it is gone.`, "environment_busy");
     };
     const found = async (existing: Environment): Promise<EnvironmentView> => {
       if (fork !== undefined) fail(409, `Environment ${id} exists: a fork makes a new Environment, so name another id.`);
@@ -476,7 +474,7 @@ export async function putEnvironment(
               kind: "seed" as const,
               version: seed.version,
               startedAt: now,
-              until: new Date(Date.now() + SEED_LEASE_MS).toISOString(),
+              until: new Date(Date.now() + hostTuning().tenant.seedLeaseMs).toISOString(),
             },
           }
         : {}),
@@ -816,10 +814,7 @@ export function diskHeld(environment: Environment, now = Date.now()): boolean {
 /** Refused while a snapshot or restore copies the disk (a pending seed does not count). */
 export function refuseDiskCopy(environment: Environment): void {
   if (diskHeld(environment) && environment.diskOp!.kind !== "seed")
-    fail(409, `Environment ${environment.id}'s disk is being copied (${environment.diskOp!.kind}). Try again shortly.`, {
-      code: "environment_busy",
-      details: { retryAfterSeconds: 5 },
-    }, { "retry-after": "5" });
+    failRetryLater(`Environment ${environment.id}'s disk is being copied (${environment.diskOp!.kind}). Try again shortly.`, "environment_busy");
 }
 
 /** Refused while a session that names Environment `id` has a turn running. */
@@ -828,10 +823,7 @@ async function refuseBusy(t: Tx, id: string): Promise<void> {
     (session) => session.activeTurnId !== null,
   );
   if (busy)
-    fail(409, `Environment ${id} has a turn running. Cancel it, or wait for it to end.`, {
-      code: "environment_busy",
-      details: { retryAfterSeconds: 5 },
-    }, { "retry-after": "5" });
+    failRetryLater(`Environment ${id} has a turn running. Cancel it, or wait for it to end.`, "environment_busy");
 }
 
 /**
@@ -990,10 +982,7 @@ export async function resetEnvironment(
     refuseDiskCopy(environment);
     const pod = environment.pod;
     if (pod.retiring !== undefined)
-      fail(409, `Environment ${id} is still deleting its previous volume. Try again shortly.`, {
-        code: "environment_busy",
-        details: { retryAfterSeconds: 5 },
-      }, { "retry-after": "5" });
+      failRetryLater(`Environment ${id} is still deleting its previous volume. Try again shortly.`, "environment_busy");
     await newVolume(ctx, t, environment);
     return viewOf(ctx, t, (await t.environment(id)) ?? environment, subjectOf(scope));
   });
@@ -1033,7 +1022,7 @@ export async function newVolume(
               kind: "seed",
               version: options.seed.version,
               startedAt: now,
-              until: new Date(Date.now() + SEED_LEASE_MS).toISOString(),
+              until: new Date(Date.now() + hostTuning().tenant.seedLeaseMs).toISOString(),
             },
           }),
     },
@@ -1067,9 +1056,6 @@ export async function newVolume(
   await revokeHost(t, id, epoch);
   return volumeGen;
 }
-
-/** How long a pending seed holds the disk before another process may take it over. */
-export const SEED_LEASE_MS = 10 * 60_000;
 
 /** `GET /v1/environments/{id}/events`: the Environment's lifecycle stream. */
 export async function environmentEventsOf(

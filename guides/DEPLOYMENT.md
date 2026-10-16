@@ -743,6 +743,239 @@ folder; W3C `tracestate`'s 512 characters. A custom endpoint's `contextWindow` a
 default to 32,768 and 8,192 (`settings` of `PUT /v1/tenant/model`), and a trusted issuer's
 JWKS fetch has its own settings in the identity file (`jwksFetch`).
 
+## Host tuning
+
+The Runtime's own timings, retries, poll intervals and internal sizes are the Host tuning:
+one JSON object in `NYLORUN_TUNING`, read once when a process starts. Set only what you
+change; everything left out keeps its default, which is the value the Runtime used before it
+was a setting. An unknown key, a value of the wrong kind, or one past its ceiling stops the
+process with the key's path in the message, such as `NYLORUN_TUNING: tenant.openTimeoutMs: Too
+small: expected number to be >=1`.
+
+```sh
+NYLORUN_TUNING='{"tenant":{"openTimeoutMs":60000},"sweep":{"intervalMs":2000}}' nylorun start
+```
+
+`nylorun start` passes `NYLORUN_TUNING` from its shell to the runtime, gateway and harness
+containers. Set it the same for every container of a deployment: each reads the groups it
+uses. Core hands a sandbox pod's engine the `harness` and `engine` groups you set, as JSON
+of at most 4096 bytes (the most the sandboxes service puts in one of a pod's variables).
+
+Every value in milliseconds (`…Ms`) is a whole number from 1 (0 where the table says so) to
+2,147,483,647, the longest delay a Node timer takes. A backoff (`…Retry`, `…Backoff`,
+`harness.reconnect`) is `{ "minMs", "maxMs" }`: the first wait, doubled after each failure up
+to the longest, with `minMs` at most `maxMs`. Tenant-facing limits are not here: they are the
+[Runtime limits](#runtime-limits) and the Tenant's settings.
+
+### Kept as constants
+
+These are fixed by a standard or a dependency, so they are ceilings the tuning is checked
+against, not settings: Node's longest timer (2^31 - 1 ms); S3's part sizes (5 MiB to 5 GiB) and
+its 1024-byte object key; S2's batch of 1000 records and 1 MiB; the sandboxes service's longest
+`?wait=` (30 s) and its 4096-byte pod variables; the
+`environment.egress` event's 16 running turns (its contract); W3C Trace Context's 512-character
+`tracestate`; and the 24-hour floor of a wake's dedupe key (Durable Session Execution §12.3).
+
+### Keys, the Harness API and the API
+
+| Setting | Default | What it sets |
+| --- | --- | --- |
+| `keys.bodyBytes` | 1 MiB | The largest request body the keys service reads |
+| `keys.timeoutMs` | 30 s | How long core waits for the keys service to answer one call |
+| `keys.leafBackdateMs` | 5 min | How far before now an egress leaf certificate is valid from (0 allowed) |
+| `keys.leafLifetimeMs` | 1 h | How long a leaf certificate egress-gate presents is valid |
+| `keys.caBackdateMs` | 1 h | How far before now the egress CA is valid from (0 allowed) |
+| `keys.caLifetimeDays` | 3650 | How many days a new egress CA is valid |
+| `harnessApi.joinBodyBytes` | 8 KiB | The largest `host/join` or `host/renew` body |
+| `harnessApi.reportBodyBytes` | 64 KiB | The largest setup report a pod's engine posts |
+| `harnessApi.closeGraceMs` | 1 s | How long the listener waits for connections to close before it ends them (0 allowed) |
+| `harnessApi.offerWaitMs` | 10 s | How long a run offered to the harnesses waits for one to take it |
+| `harnessApi.podOfferWaitMs` | 60 s | How long a pod sandbox's segment waits for its engine |
+| `harnessApi.loopbackConnectTimeoutMs` | 10 s | How long the Tenant's own harness has to connect to its loopback listener |
+| `harnessApi.loopbackBackoff` | 50 ms to 500 ms | How the Tenant's own harness reconnects to it |
+| `harnessApi.rolloverSteps` | 50 | A turn ends its segment after this many steps and goes on in a new one |
+| `harnessApi.rolloverMs` | 20 min | ...or after this long, well inside the advance deadline |
+| `api.agUiHeartbeatMs` | 15 s | How often an AG-UI event stream sends a heartbeat |
+| `api.eventStreamKeepaliveMs` | 15 s | How often a session event stream sends a keepalive |
+| `host.shutdownGraceMs` | 10 s | How long shutdown waits for requests in progress (0 allowed) |
+| `host.readinessTimeoutMs` | 2 s | The bound on one `/ready` pass |
+| `objectStore.partSizeBytes` | 8 MiB | One part of a multipart upload: 5 MiB to 5 GiB |
+| `objectStore.attempts` | 3 | Tries of a request answered `5xx` or `429`, or unreachable |
+| `objectStore.retryBaseMs` | 100 ms | The wait after the first failed try, doubled after each |
+| `objectStore.bucketRetry` | 1 s to 5 s | How core retries creating the bucket while the store starts |
+| `objectStore.bucketAttempts` | 10 | Tries at creating the bucket before core logs it unavailable |
+
+### The Tenant, its sweep and Durable Session Execution
+
+| Setting | Default | What it sets |
+| --- | --- | --- |
+| `tenant.openTimeoutMs` | 30 s | The bound on opening the Tenant; a slower open fails with `open-timeout` |
+| `tenant.openRetry` | 1 s to 30 s | Retries of an open that failed outside the Tenant |
+| `tenant.ownerLeaseMs` | 30 s | An advance's ownership lease, renewed every third |
+| `tenant.busyRetryMinMs` | 25 ms | The shortest retry of an advance whose session another owns |
+| `tenant.unavailableRetryMs` | 1 s | How soon an advance no harness took is tried again |
+| `tenant.drainTimeoutMs` | 30 s | How long a reset or a drain waits for running turns |
+| `tenant.statusTimeoutMs` | 5 s | How long status waits for the execution's stuck invocations |
+| `tenant.signingKeyRotationGraceMs` | 60 s | Added to the longest token lifetime before a previous signing key may go (0 allowed) |
+| `tenant.retryAfterSeconds` | 5 | The `Retry-After` of a request refused while its Environment is busy or pods are not ready |
+| `tenant.seedLeaseMs` | 10 min | How long a pending Environment seed holds the disk before another process may take it over |
+| `sweep.intervalMs` | 5 s | The delay between sweep passes of the Tenant |
+| `sweep.batchSize` | 100 | Rows one sweep query reads at a time |
+| `sweep.signalRetentionMs` | 1 h | How long a control signal is kept |
+| `sweep.outboxGraceMs` | 30 s | How old an outbox row is before the sweep delivers it (0 allowed) |
+| `sweep.orphanScanMs` | 60 s | How often the orphan scan and the stale pod check run |
+| `sweep.drainBudgetMs` | 2 s | How long one pass may spend on the outbox, and on orphaned sessions |
+| `sweep.outboxAttempts` | 10 | Failed deliveries after which an outbox row is parked |
+| `sweep.outboxRetry` | 5 s to 10 min | The wait after an outbox row's failed delivery |
+| `sweep.stalePodMs` | 60 s | How long a pod row may go unchanged before the sweep reconciles it |
+| `execution.stopGraceMs` | 30 s | How long stopping waits for running handlers; keep it at the advance grace (0 allowed) |
+| `execution.dedupeRetentionMs` | 24 h | How long a wake's dedupe key merges repeated wakes; at least 24 h |
+| `execution.memoryRetryMs` | 50 ms | The in-process execution's first retry of a throwing handler |
+| `execution.memoryAttempts` | 5 | The in-process execution's attempts before it reports a handler |
+| `restate.sendRetryMs` | 10 s | How long one send through the ingress keeps retrying; under `sweep.outboxGraceMs` |
+| `restate.sendBackoff` | 100 ms to 2 s | Its waits |
+| `restate.sendTimeoutMs` | 10 s | How long the ingress may take to accept one send |
+| `restate.inactivityMs` | 1 h | How long an invocation may run without journal progress; above the longest segment |
+| `restate.abortMs` | 1 h | How long after that Restate aborts the attempt |
+| `restate.handlerRetry` | 100 ms to 30 s | Retries of a handler that throws |
+| `restate.handlerAttempts` | 70 | Its attempts before the invocation is paused |
+| `restate.registrationDeadlineMs` | 60 s | How long `start` keeps registering the Worker while Restate comes up |
+| `restate.registrationBackoff` | 100 ms to 2 s | Its waits |
+| `restate.registrationRequestTimeoutMs` | 30 s | How long one registration request may take |
+| `restate.queryTimeoutMs` | 10 s | How long one admin query may take |
+| `restate.closeGraceMs` | 2 s | How long stopping lets Restate read answers before it drops connections (0 allowed) |
+| `restate.staleSweepMinMs` | 60 s | A sweep chain is stale past three intervals, never sooner than this |
+| `restate.stuckListDefault` | 100 | Stuck invocations one status lists by default... |
+| `restate.stuckListMax` | 1000 | ...and at most |
+
+### Postgres and Durable Streams
+
+| Setting | Default | What it sets |
+| --- | --- | --- |
+| `postgres.poolSize` | 10 | The Tenant pool's connections |
+| `postgres.statementTimeoutMs` | 60 s | The pool's statement timeout (0 turns it off) |
+| `postgres.idleInTransactionTimeoutMs` | 60 s | The pool's idle-in-transaction timeout (0 turns it off) |
+| `postgres.closeTimeoutSeconds` | 5 | Seconds closing a pool waits for its queries (0 allowed) |
+| `postgres.idleTimeoutSeconds` | 30 | Seconds an idle pooled connection stays open |
+| `postgres.connectTimeoutSeconds` | 10 | Seconds a connection may take to open |
+| `postgres.readPoolSize` | 4 | The read pool's connections (`nylorun-reads`) |
+| `postgres.readConnectTimeoutSeconds` | 2 | Seconds a read connection may take to open |
+| `postgres.readStatementTimeoutMs` | 2 s | The read pool's statement and idle-in-transaction timeouts |
+| `postgres.readCloseTimeoutSeconds` | 2 | Seconds closing the read pool waits (0 allowed) |
+| `postgres.controlPollMs` | 5 s | How often the control bus reads back signals it may have missed |
+| `postgres.controlWindowSeconds` | 120 | How far back a read-back looks; longer than the poll |
+| `postgres.controlRetry` | 100 ms to 5 s | How the control bus listens again after its connection ends |
+| `postgres.replicationRetryMs` | 5 s | How soon the stream relay and trace projector try again to take their slot |
+| `streams.retry` | 100 ms to 2 s | Session stream reads, basin deletions and repairs |
+| `streams.basinRetryMaxMs` | 5 s | The longest wait between two basin repairs |
+| `streams.basinRepairCooldownMs` | 1 s | A repair this soon after the last waits for the next failure (0 allowed) |
+| `streams.feedCheckMs` | 30 s | How often every session stream is checked against its session |
+| `streams.retireGraceMs` | 60 s | How long a retired basin stays for readers that have not moved (0 allowed) |
+| `streams.retireAttempts` | 5 | Attempts to delete a retired basin before the next open tries again |
+| `streams.probeTimeoutMs` | 2 s | How long a streams probe waits |
+| `streams.relayRetry` | 50 ms to 2 s | The stream relay's retries of a failed append |
+| `streams.relayBatchRecords` | 500 | Records per relay append, at most 1000 (S2) |
+| `streams.relayBatchBytes` | 768 KiB | Bytes per relay append, at most 1 MiB (S2) |
+| `streams.relayReconcileConcurrency` | 8 | Sessions the relay reconciles at once |
+| `streams.relayHeadsPage` | 500 | Session heads the relay reads a page at a time |
+| `streams.s2Retry` | 100 ms to 2 s | S2 reads retried |
+| `streams.s2ConflictAttempts` | 6 | Attempts of an append that loses a `transaction_conflict` race |
+| `streams.s2ConflictRetryMs` | 25 ms | Its first wait, doubled, with jitter |
+| `streams.s2BasinRetryMs` | 500 ms | The first wait while a basin's deletion finishes |
+| `streams.s2BasinDeletionWaitMs` | 2 min | How long creating a basin waits for its deletion to finish |
+
+### The gateway and egress-gate
+
+| Setting | Default | What it sets |
+| --- | --- | --- |
+| `gates.clientTimeoutMs` | 630 s | How long the loop's connection to the gate may stay silent; above the 600 s provider timeout |
+| `gates.shortTimeoutMs` | 2 s | How long a cancel or a close may take |
+| `gates.keepAliveMs` | 30 s | TCP keepalive of the loop's connections to the gate |
+| `gates.requestTimeoutMs` | 660 s | The gate listener's request timeout; above `gates.clientTimeoutMs` |
+| `gates.probeTimeoutMs` | 2 s | How long the gate's database probe may take |
+| `gates.mcpIdleMs` | 15 min | How long the gate's MCP connections may sit unused |
+| `gates.errorMessageChars` | 2000 | How much of an MCP connection's unexpected error the loop is told |
+| `gates.mcpSweepMinMs` | 1 s | Idle MCP connections are swept every `gates.mcpIdleMs`, at least this often... |
+| `gates.mcpSweepMaxMs` | 60 s | ...and at most this long apart |
+| `gates.toolCrossingTtlMs` | 24 h | How long a settled tool call crossing is kept |
+| `gates.toolCrossingPruneMs` | 1 h | How often old crossings are pruned |
+| `gates.drainMs` | 10 s | How long the gate drains calls in progress when it stops (0 allowed) |
+| `gates.drainPollMs` | 50 ms | How often it checks meanwhile |
+| `gates.inflightTtlMs` | 30 min | How long a settled model call is kept for a retry to join |
+| `gates.inflightMax` | 10,000 | How many are kept, the oldest settled dropped first |
+| `egress.maxTunnelsPerSandbox` | 64 | Tunnels one sandbox may hold open at once |
+| `egress.idleMs` | 5 min | A tunnel with no traffic for this long is closed |
+| `egress.cacheMs` | 5 s | How long a sandbox's epoch and allowlist are reused (0 allowed) |
+| `egress.cacheEntries` | 4096 | How many sandboxes' are kept |
+| `egress.connectTimeoutMs` | 10 s | How long the gate waits for the upstream connection |
+| `egress.headersTimeoutMs` | 10 s | The proxy listener's header timeout |
+| `egress.requestTimeoutMs` | 15 s | The proxy listener's request timeout |
+| `egress.credentialsHeadersTimeoutMs` | 60 s | The header timeout of a tunnel whose TLS the gate terminates for a bound secret |
+
+### Sandbox pods, harnesses and traces
+
+| Setting | Default | What it sets |
+| --- | --- | --- |
+| `pods.readyDeadlineMs` | 5 min | How long a pod may take to be ready before its start fails |
+| `pods.pollMs` | 2 s | How often a pod that is changing is checked |
+| `pods.unreachableRetryMs` | 5 s | How soon a pod is checked again when the sandboxes service did not answer |
+| `pods.readyCacheMs` | 5 s | How long the sandboxes service's readiness answer is reused (0 allowed) |
+| `pods.reconcileRetryMs` | 5 s | How soon a reconcile whose apply failed runs again |
+| `pods.requestTimeoutMs` | 20 s | One request to the sandboxes service |
+| `pods.readyProbeTimeoutMs` | 3 s | Its `/ready` probe |
+| `pods.waitMs` | 30 s | How long a `?wait=` request waits; the service takes 30 s at most |
+| `pods.waitSlackMs` | 10 s | Added to a `?wait=` request's timeout for its answer to arrive (0 allowed) |
+| `harness.pingMs` | 30 s | How often core pings a harness's WebSocket |
+| `harness.silenceMs` | 90 s | How long either end may hear nothing before it drops the connection |
+| `harness.reconnect` | 500 ms to 10 s | How a harness reconnects to core's Harness API, with jitter |
+| `harness.handshakeTimeoutMs` | 10 s | How long the WebSocket handshake may take |
+| `harness.reconnectStopMs` | 5 s | How long a lost connection's runs have to wind down (0 allowed) |
+| `harness.stopMs` | 10 s | How long stopping a harness container waits for its runs (0 allowed) |
+| `harness.podStopMs` | 7 s | ...and a pod's engine, inside the pod's stop grace (0 allowed) |
+| `harness.runTokensMax` | 10,000 | The sessions whose last run token a harness keeps |
+| `harness.mcpSweepMs` | 60 s | How often a harness closes idle MCP connections |
+| `harness.mcpIdleMs` | 15 min | How long one may sit unused |
+| `harness.podRenewMs` | 5 min | How often a pod's engine renews its host and egress tokens |
+| `harness.podRenewEarlyMs` | 60 s | It renews before a call when its token expires sooner than this (0 allowed) |
+| `harness.podJoinTimeoutMs` | 15 s | How long `host/join` and `host/renew` may take |
+| `harness.podRequestTimeoutMs` | 5 min | How long another host call (setup, files) may take |
+| `harness.networkPolicyTimeoutMs` | 120 s | How long a pod's engine waits for its NetworkPolicy before it starts |
+| `harness.networkProbeMs` | 1 s | One probe of an address the policy blocks |
+| `harness.networkPauseMs` | 250 ms | The pause after a probe that connected (0 allowed) |
+| `harness.networkConfirmations` | 3 | Failed probes in a row that prove an address blocked |
+| `harness.setupRetryPollMs` | 5 s | How often a failed Environment setup asks whether to run again |
+| `harness.setupAfterSeedPollMs` | 1 s | How often a fork's setup asks whether its disk version is written |
+| `harness.setupReportTailChars` | 4096 | The characters of a failed setup command's output its report keeps |
+| `traces.timeoutMs` | 10 s | How long one OTLP request may take |
+| `traces.retries` | 3 | Tries after the first, for a `429`, a `5xx` or a lost connection (0 allowed) |
+| `traces.backoffMs` | 500 ms | The wait before the first retry, doubled after each |
+| `traces.batchSpans` | 512 | Spans per post |
+| `traces.batchDelayMs` | 2 s | How long a span waits for its batch to fill |
+| `traces.queuedSpansMax` | 8192 | Spans that may wait while a post is out; past it they are dropped |
+| `traces.turnCacheSize` | 1024 | Turns whose trace the projector keeps |
+| `traces.retryMs` | 1 s | How soon the projector reads again when Postgres did not answer |
+
+### Our engine
+
+`engine` holds the options of our engine (`createHarness` in `@nylorun/harness`), which a harness
+container, a pod's engine and the Tenant's own harness pass to it. Nothing is set by default:
+each option left out is the engine's own default, listed with `createHarness` in
+[runtime/harness/src/CONTEXT.md](../runtime/harness/src/CONTEXT.md).
+
+| Setting | Engine default | What it sets |
+| --- | --- | --- |
+| `engine.transcriptCacheMb` | 256 | The transcript cache's budget, in MiB |
+| `engine.artifactPageBytes` | 32 KiB | The most bytes one `read_artifact` page holds |
+| `engine.skillReadBytes` | 10 MiB | The most bytes of one skill file read into the model's context |
+| `engine.leaseRetryMs` | 100 ms | How soon a failed `lease` request is sent again |
+| `engine.resendDelaysMs` | `[1000, 2000, 4000]` | The waits before each resend of a tool call whose gate hop lost its answer; the last repeats |
+| `engine.partialOutputChars` | 4000 | How much of a failed agent-as-tool's last output its parent sees |
+| `engine.compaction` | `DEFAULT_COMPACTION_CONFIG` | `keepTokens` (20,000), `keepShare` (0.3), `reserveTokens` (8,192), `maxReserveTokens` (16,384), `maxReserveShare` (0.25), `clipChars` (2,000), `summaryOverheadTokens` (1,024), `imageTokens` (1,600), `fileBytesPerToken` (8), `fileTokensMax` (100,000), `minChunkTokens` (1,000), `minSummaryTokens` (256), `summaryShare` (0.8), `charsPerToken` (4) |
+| `engine.sandboxTools` | `DEFAULT_SANDBOX_TOOL_LIMITS` | The `bash` timeouts and output, `read`, `grep` and `glob` counts |
+| `engine.mcpTools` | `DEFAULT_MCP_TOOL_CONFIG` | When MCP tools are deferred, and `tool_search`'s limits |
+| `engine.toolResults` | `DEFAULT_TOOL_RESULT_CONFIG` | Inline caps, previews and the step budget of tool results |
+| `engine.outputs` | `DEFAULT_OUTPUTS_CONFIG` | The outputs folder (`dir`, absolute) and the most bytes one save stores |
+
 ## MCP servers and HTTP tools
 
 An agent names its remote MCP servers and HTTP tools by URL, and its manifest never holds a

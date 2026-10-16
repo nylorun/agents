@@ -11,8 +11,8 @@
  *   exists exactly when what it announces committed.
  * - **Follow.** `followControlSignals` holds one connection of its own that LISTENs (a pooled
  *   connection cannot). Each notification reads back the signals of the last
- *   `WINDOW_SECONDS` and delivers those this follower has not delivered yet. So does a poll
- *   every `pollMs`, and every LISTEN after a reconnect: Postgres does not queue notifications
+ *   `postgres.controlWindowSeconds` (Host tuning) and delivers those this follower has not delivered yet. So does a poll
+ *   every `pollMs` (`postgres.controlPollMs`), and every LISTEN after a reconnect: Postgres does not queue notifications
  *   for a session that is not connected, and the rows are what catches up. Ids are never read
  *   as a cursor: they are allocated at insert and commit out of order, so a later id can be
  *   visible first.
@@ -25,16 +25,12 @@ import { gte, lt, sql } from "drizzle-orm";
 import type { Sql } from "postgres";
 import type { ControlSignal, FollowSignalsOptions, SignalFollower } from "../types.js";
 import { createPostgresListenClient } from "./connect.js";
+import { hostTuning } from "../../tuning.js";
 import type { Database, Queryable } from "./db.js";
 import { controlSignals } from "./schema.js";
 
 /** The channel every signal is notified on. */
 export const CONTROL_CHANNEL = "nylorun_control";
-/** How far back a read-back looks. Longer than the poll, so a missed notification is caught. */
-const WINDOW_SECONDS = 120;
-const POLL_MS = 5000;
-const RETRY_MIN_MS = 100;
-const RETRY_MAX_MS = 5000;
 
 const SIGNAL = {
   id: controlSignals.id,
@@ -91,7 +87,11 @@ export async function followControlSignals(
   onSignal: (signal: ControlSignal) => void,
   options: FollowSignalsOptions = {},
 ): Promise<SignalFollower> {
-  const pollMs = options.pollMs ?? POLL_MS;
+  const tuning = hostTuning().postgres;
+  const pollMs = options.pollMs ?? tuning.controlPollMs;
+  // How far back a read-back looks: longer than the poll, so a missed notification is caught.
+  const windowSeconds = tuning.controlWindowSeconds;
+  const { minMs: retryMinMs, maxMs: retryMaxMs } = tuning.controlRetry;
   const onError = options.onError ?? (() => {});
   // Drizzle leaves timestamps to its column types, so a raw read of one is text.
   const [start] = await db.execute<{ now: string }>(sql`SELECT clock_timestamp()::text AS now`);
@@ -100,7 +100,7 @@ export async function followControlSignals(
   const delivered = new Map<number, number>();
   let stopped = false;
   let retry: NodeJS.Timeout | undefined;
-  let delay = RETRY_MIN_MS;
+  let delay = retryMinMs;
   let draining: Promise<void> | undefined;
   let again = false;
 
@@ -120,14 +120,14 @@ export async function followControlSignals(
       void listen();
     }, delay);
     retry.unref();
-    delay = Math.min(delay * 2, RETRY_MAX_MS);
+    delay = Math.min(delay * 2, retryMaxMs);
   }
 
   async function listen(): Promise<void> {
     if (stopped) return;
     try {
       await client.unsafe(`LISTEN ${CONTROL_CHANNEL}`);
-      delay = RETRY_MIN_MS;
+      delay = retryMinMs;
       drain();
     } catch (error) {
       if (stopped) return;
@@ -152,7 +152,7 @@ export async function followControlSignals(
             .where(
               gte(
                 controlSignals.createdAt,
-                sql`greatest(${since}::timestamptz, clock_timestamp() - make_interval(secs => ${WINDOW_SECONDS}))`,
+                sql`greatest(${since}::timestamptz, clock_timestamp() - make_interval(secs => ${windowSeconds}))`,
               ),
             )
             .orderBy(controlSignals.id);
@@ -181,7 +181,7 @@ export async function followControlSignals(
 
   /** A row a read-back can still return is younger than the window: keep twice that. */
   function forgetOld(): void {
-    const before = Date.now() - 2 * WINDOW_SECONDS * 1000;
+    const before = Date.now() - 2 * windowSeconds * 1000;
     for (const [id, at] of delivered) if (at < before) delivered.delete(id);
   }
 

@@ -30,6 +30,7 @@ import { defaultSandboxBackends } from "../sandbox/select.js";
 import type { SandboxBackend } from "../sandbox/types.js";
 import { harnessExecutors } from "./executors.js";
 import { connectHarness, type HarnessClient, type HarnessClientOptions } from "./ws-client.js";
+import { hostTuning, type EngineTuning } from "../tuning.js";
 
 /** Which request runs each sandbox tool. */
 const METHODS: Readonly<Record<SandboxToolName, string>> = {
@@ -40,9 +41,6 @@ const METHODS: Readonly<Record<SandboxToolName, string>> = {
   write: "workspace.write",
   edit: "workspace.write",
 };
-
-/** How often the harness closes MCP connections idle past their timeout. */
-const MCP_SWEEP_MS = 60_000;
 
 export interface HarnessServiceOptions {
   readonly url: string;
@@ -62,7 +60,8 @@ export interface HarnessServiceOptions {
   readonly ephemeral?: boolean;
   /**
    * The sandbox tools' limits: what our engine's schemas name and what this harness runs them
-   * with. Each left out is its default (`DEFAULT_SANDBOX_TOOL_LIMITS`).
+   * with. Default the Host tuning's `engine.sandboxTools`; each left out is its default
+   * (`DEFAULT_SANDBOX_TOOL_LIMITS`).
    */
   readonly sandboxTools?: HarnessOptions["sandboxTools"];
   readonly logger: HarnessClientOptions["logger"];
@@ -76,6 +75,18 @@ export interface HarnessService {
   readonly client: HarnessClient;
   /** Stops leasing and gives runs back (at most `waitMs`), then closes MCP and sandboxes. */
   stop(waitMs?: number): Promise<void>;
+}
+
+/**
+ * The options of `createHarness` the Host tuning's `engine` group sets (`tuning.ts`): only the
+ * ones set, so the engine keeps its own default for the rest.
+ */
+export function engineOptionsOf(engine: EngineTuning): Pick<HarnessOptions, keyof EngineTuning> {
+  // Every key of the group is an option of `createHarness`, with a type it takes.
+  const options: Pick<HarnessOptions, keyof EngineTuning> = engine;
+  return Object.fromEntries(
+    Object.entries(options).filter(([, value]) => value !== undefined),
+  ) as Pick<HarnessOptions, keyof EngineTuning>;
 }
 
 /** The SandboxManager's view of the session a workspace request acts for. */
@@ -100,9 +111,17 @@ export function startHarnessService(options: HarnessServiceOptions): HarnessServ
   };
 
   const pool = new McpPool({ openRemote: openMcpThrough(options.toolGate) });
-  const sweep = setInterval(() => void pool.sweep().catch(() => undefined), MCP_SWEEP_MS);
+  // How often the harness closes MCP connections idle past their timeout.
+  const sweep = setInterval(
+    () => void pool.sweep().catch(() => undefined),
+    hostTuning().harness.mcpSweepMs,
+  );
   sweep.unref();
 
+  // Our engine's settings from the Host tuning (`engine`): the executors run the sandbox tools
+  // with the limits the engine writes into their schemas.
+  const engine = engineOptionsOf(hostTuning().engine);
+  const sandboxTools = options.sandboxTools ?? engine.sandboxTools;
   const executors = harnessExecutors({
     model: {
       get tenantId() {
@@ -113,7 +132,7 @@ export function startHarnessService(options: HarnessServiceOptions): HarnessServ
     toolGate: options.toolGate,
     mcp: pool,
     sandbox,
-    ...(options.sandboxTools ? { sandboxTools: options.sandboxTools } : {}),
+    ...(sandboxTools ? { sandboxTools } : {}),
   });
 
   const serve: RequestHandler = async (method, params, signal) => {
@@ -180,7 +199,8 @@ export function startHarnessService(options: HarnessServiceOptions): HarnessServ
     name: DEFAULT_HARNESS,
     ...(options.version ? { version: options.version } : {}),
     features: { workspace: { backends: backends.map((backend) => backend.name) } },
-    ...(options.sandboxTools ? { sandboxTools: options.sandboxTools } : {}),
+    ...engine,
+    ...(sandboxTools ? { sandboxTools } : {}),
     onHello(answer) {
       tenantId = answer.tenantId;
       manager ??= new SandboxManager({

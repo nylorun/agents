@@ -9,9 +9,6 @@
  */
 export const KEYS_PATH = "/nylorun/v1/keys";
 
-/** Largest request body: a credential with its secret, or a token's claims. */
-export const MAX_KEYS_BODY_BYTES = 1024 * 1024;
-
 export interface KeysError {
   readonly kind: "vault" | "http";
   readonly status: number;

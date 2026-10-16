@@ -14,7 +14,8 @@ import { createFsBlobStore, type BlobStore } from "../../src/blob/index.js";
 import { MODEL_CALLS_PATH } from "../../src/gates/contract.js";
 import { GateRefusal, type TenantVaults } from "../../src/gates/tenant-vaults.js";
 import { failure } from "../../src/model/classify.js";
-import { GATES_REQUEST_TIMEOUT_MS, startGates, type GatesServer } from "../../src/host/gates.js";
+import { startGates, type GatesServer } from "../../src/host/gates.js";
+import { hostTuning } from "../../src/tuning.js";
 import { KEYS_PATH } from "../../src/keys/contract.js";
 import type { HostModelSecret } from "../../src/vault/service.js";
 import type { RunGrant } from "../../src/tenant/run-token.js";
@@ -579,8 +580,8 @@ describe("the gates service", () => {
 
   it("never times out a request before the longest model call", async () => {
     const server = await gate();
-    expect(GATES_REQUEST_TIMEOUT_MS).toBeGreaterThan(630_000);
-    expect(server.server.requestTimeout).toBe(GATES_REQUEST_TIMEOUT_MS);
+    expect(hostTuning().gates.requestTimeoutMs).toBeGreaterThan(hostTuning().gates.clientTimeoutMs);
+    expect(server.server.requestTimeout).toBe(hostTuning().gates.requestTimeoutMs);
     expect(server.server.timeout).toBe(0);
   });
 

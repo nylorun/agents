@@ -29,6 +29,7 @@ import { podHost, type PodHost } from "./pod.js";
 import { prepareDisk } from "./setup.js";
 import { harnessRunTokens } from "./run-tokens.js";
 import { startHarnessService } from "./service.js";
+import { hostTuning } from "../tuning.js";
 
 /**
  * `baseline` is the allowlisted environment of a pod's sandbox tools (`baselineEnvironment`),
@@ -115,7 +116,7 @@ export async function runHarness(
       // Runs are given back (core resumes them in its next advance), then MCP and sandboxes stop.
       pod?.stop();
       void service
-        .stop(pod ? 7_000 : 10_000)
+        .stop(pod ? hostTuning().harness.podStopMs : hostTuning().harness.stopMs)
         .catch((error: unknown) =>
           logger.warn("harness_stop_failed", { message: error instanceof Error ? error.message : String(error) })
         )

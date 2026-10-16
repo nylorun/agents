@@ -41,11 +41,14 @@
  * `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, with `OTEL_EXPORTER_OTLP_HEADERS`), what they say of
  * their source (`OTEL_SERVICE_NAME`, `OTEL_RESOURCE_ATTRIBUTES`) and which content they carry
  * (`NYLORUN_TRACE_CONTENT`, or all of it with `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=true`).
+ * So is the Host tuning (`NYLORUN_TUNING`, `tuning.ts`), for every service: its timings,
+ * retries and internal sizes.
  */
 import { DEFAULT_SERVICE_NAME, type TraceResource } from "../traces/otlp.js";
 import { TRACE_CONTENT_KINDS, type TraceContentKind } from "../traces/map.js";
 import { isTenantId } from "@nylorun/core/compatibility";
 import { blockedAddresses, type BlockedAddress } from "../sandbox/pods/network-gate.js";
+import { HostTuningError, parseHostTuning, type HostTuning } from "../tuning.js";
 
 /** A Runtime service this release has. */
 export type RuntimeService = "core" | "loop" | "gates" | "keys" | "egress" | "harness";
@@ -296,6 +299,11 @@ export interface StackConfig {
    * present only with an endpoint (Q5): without one there is no replication slot and no cost.
    */
   traces?: TraceConfig;
+  /**
+   * Present when `NYLORUN_TUNING` is set: the Host tuning (`tuning.ts`) over its defaults,
+   * and the overrides as written, which core hands a pod sandbox's engine. Every service reads it.
+   */
+  tuning?: { values: HostTuning; overrides: Record<string, unknown> };
 }
 
 /** Traces (R7.2), from the standard `OTEL_*` variables and `NYLORUN_TRACE_CONTENT`. */
@@ -574,7 +582,9 @@ export function parseStackConfig(
   argv: readonly string[],
 ): StackConfig {
   const { services, deprecatedRole } = parseServices(argv);
-  if (services.has("harness")) return { services, harness: parseHarnessService(env), endpoints: {} };
+  const tuning = parseTuning(env);
+  if (services.has("harness"))
+    return { services, harness: parseHarnessService(env), endpoints: {}, ...(tuning ? { tuning } : {}) };
   // The image sets NYLORUN_LISTEN_*: only the API's processes read them.
   const servesApi = services.has("core") || services.has("loop");
   const listen = servesApi ? parseListen(env) : undefined;
@@ -661,7 +671,21 @@ export function parseStackConfig(
     ...(tenant ? { tenant } : {}),
     ...(objectStore ? { objectStore } : {}),
     ...(traces ? { traces } : {}),
+    ...(tuning ? { tuning } : {}),
   };
+}
+
+/** `StackConfig.tuning` from `NYLORUN_TUNING`, or undefined when it is unset. */
+function parseTuning(env: EnvSnapshot): StackConfig["tuning"] {
+  const raw = read(env, "NYLORUN_TUNING");
+  if (raw === undefined) return undefined;
+  try {
+    const { tuning, overrides } = parseHostTuning(raw);
+    return { values: tuning, overrides: overrides ?? {} };
+  } catch (error) {
+    if (error instanceof HostTuningError) throw new StackConfigError(error.message);
+    throw error;
+  }
 }
 
 /**

@@ -26,9 +26,7 @@ import {
 } from "./inflight.js";
 import type { TenantVaults } from "./tenant-vaults.js";
 import type { McpAnswer } from "./tool-contract.js";
-
-/** How long a settled crossing is kept. */
-export const TOOL_CROSSING_TTL_MS = 24 * 60 * 60_000;
+import { hostTuning } from "../tuning.js";
 
 /** A tool call's answer: an MCP `CallToolResult`, or an HTTP tool's outcome. */
 export type ToolCallAnswer = McpAnswer<Record<string, unknown>>;
@@ -54,7 +52,7 @@ export interface ToolCalls {
   cancel(key: string, sessionId?: string): boolean;
   /** Aborts every running call (gateway shutdown). */
   close(): void;
-  /** Deletes crossings settled more than `TOOL_CROSSING_TTL_MS` ago. */
+  /** Deletes crossings settled more than `gates.toolCrossingTtlMs` (Host tuning, 24 h) ago. */
   prune(): Promise<void>;
 }
 
@@ -137,7 +135,7 @@ export function createToolCalls(options: ToolCallsOptions): ToolCalls {
     async prune() {
       try {
         const vault = await vaults.open(undefined);
-        const before = new Date(now() - TOOL_CROSSING_TTL_MS).toISOString();
+        const before = new Date(now() - hostTuning().gates.toolCrossingTtlMs).toISOString();
         await vault.store.tx((t) => t.pruneToolCrossings(before));
       } catch {
         // The database is not ready yet; the next pass prunes.

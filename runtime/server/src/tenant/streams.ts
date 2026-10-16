@@ -34,6 +34,7 @@ import type { ChangeHandlers, ChangeSource } from "../streams/relay/types.js";
 import type { DurableStreams } from "../streams/types.js";
 import type { TenantContext } from "./context.js";
 import { retry } from "../retry.js";
+import { hostTuning } from "../tuning.js";
 import { checkSessionStreams, currentBasin } from "./session-streams.js";
 
 export interface WireStreamsOptions {
@@ -76,16 +77,14 @@ export interface StreamsWiring {
   close(): Promise<void>;
 }
 
-const RETRY_MIN_MS = 100;
-const RETRY_MAX_MS = 2000;
-/** The longest wait between two `ensureTenant` attempts while the basin is being repaired. */
-const BASIN_RETRY_MAX_MS = 5000;
-/** A repair started within this long after the last one succeeded waits for the next failure. */
-const BASIN_REPAIR_COOLDOWN_MS = 1000;
-/** How often every session stream is checked against its session (backstop for lost signals). */
-const FEED_CHECK_MS = 30_000;
-/** How long a retired basin stays for readers that have not moved yet. */
-const RETIRE_GRACE_MS = 60_000;
+/*
+ * Timings are the Host tuning's `streams` group (`tuning.ts`): `retry` for deletions and
+ * repairs, `basinRetryMaxMs` (the longest wait between two `ensureTenant` attempts while the
+ * basin is being repaired), `basinRepairCooldownMs` (a repair started within this long after the
+ * last one succeeded waits for the next failure), `feedCheckMs` (how often every session stream is
+ * checked against its session, the backstop for lost signals), `retireGraceMs` (how long a retired
+ * basin stays for readers that have not moved yet).
+ */
 
 const messageOf = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
@@ -104,7 +103,7 @@ export async function wireStreams(
   const { store, streams, tenantId } = options;
   const logger = ctx.config.logger;
   const stop = new AbortController();
-  const graceMs = options.retireGraceMs ?? RETIRE_GRACE_MS;
+  const graceMs = options.retireGraceMs ?? hostTuning().streams.retireGraceMs;
   // Nothing is reported once the wiring stops: the Tenant (and its log directory) may be gone,
   // and a throwing report in a detached loop would be an unhandled rejection.
   const report = (what: string) => (error: unknown) => {
@@ -141,7 +140,7 @@ export async function wireStreams(
   // Streams whose session was reset end on the `sessions.reset` signal; this catches lost ones.
   const feedCheck = setInterval(
     () => void checkSessionStreams(ctx).catch(report("session stream check failed")),
-    FEED_CHECK_MS
+    hostTuning().streams.feedCheckMs
   );
   feedCheck.unref();
 
@@ -181,9 +180,8 @@ export async function wireStreams(
   async function deleteRetired(generation: number): Promise<void> {
     try {
       await retry(() => streams.deleteTenant(basinOf(tenantId, generation)), {
-        minMs: RETRY_MIN_MS,
-        maxMs: RETRY_MAX_MS,
-        attempts: 5,
+        ...hostTuning().streams.retry,
+        attempts: hostTuning().streams.retireAttempts,
       });
       await store.tx((t) => t.forgetRetiredGeneration(generation));
       logger.info("retired stream basin deleted", { generation });
@@ -263,7 +261,7 @@ export async function streamsStatus(
   const wiring = ctx.sessionStreams.wiring;
   return {
     reachable: wiring
-      ? await probe(wiring.streams, options.probeTimeoutMs ?? 2000)
+      ? await probe(wiring.streams, options.probeTimeoutMs ?? hostTuning().streams.probeTimeoutMs)
       : false,
     basin: wiring?.basin() ?? { ready: false, failures: 0, lastError: null },
     generation: ctx.sessionStreams.generation,
@@ -342,14 +340,14 @@ function basinKeeper(
     ensure,
     repair() {
       if (repairing || signal.aborted) return;
-      if (ready && readyFor === basinKey() && Date.now() - repairedAt < BASIN_REPAIR_COOLDOWN_MS)
+      if (ready && readyFor === basinKey() && Date.now() - repairedAt < hostTuning().streams.basinRepairCooldownMs)
         return;
       repairing = true;
       ready = false;
       void (async () => {
         await retry(ensure, {
-          minMs: RETRY_MIN_MS,
-          maxMs: BASIN_RETRY_MAX_MS,
+          minMs: hostTuning().streams.retry.minMs,
+          maxMs: hostTuning().streams.basinRetryMaxMs,
           signal,
           onError: (error) => {
             if (failures === 1 || failures % 10 === 0) onError(error);

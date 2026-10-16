@@ -34,6 +34,7 @@ import { artifactView } from "../../artifacts/service.js";
 import { sandboxWorkspaceKey } from "../../sandbox/records.js";
 import { database, driverError, type Transaction } from "./db.js";
 import { createPostgresReadClient, type PostgresClient } from "./connect.js";
+import { hostTuning } from "../../tuning.js";
 import { toolCallDuration, toolCallStatus } from "../../harness-api/tool-status.js";
 import {
   effects,
@@ -190,7 +191,7 @@ export function createPostgresReadStore(source: PostgresClient, tenantId: string
     return row.id;
   }
   return {
-    close: () => pool.end({ timeout: 2 }),
+    close: () => pool.end({ timeout: hostTuning().postgres.readCloseTimeoutSeconds }),
     artifacts: (filters, page, access) =>
       read(async (tx) => {
         if (filters.sessionId !== undefined) await requireSession(tx, filters.sessionId, access);

@@ -10,6 +10,7 @@
  */
 import { RUNTIME_VERSION } from "../version.js";
 import { GENAI_SEMCONV, type OtlpKeyValue, type OtlpSpan } from "./map.js";
+import { hostTuning } from "../tuning.js";
 
 /** What every batch says about its source: `OTEL_SERVICE_NAME` and `OTEL_RESOURCE_ATTRIBUTES`. */
 export interface TraceResource {
@@ -42,11 +43,11 @@ export interface OtlpPosterOptions {
   /** `OTEL_EXPORTER_OTLP_HEADERS`. */
   readonly headers?: Readonly<Record<string, string>>;
   readonly resource: TraceResource;
-  /** Tries after the first, for a `429`, a `5xx` or a lost connection. Default 3. */
+  /** Tries after the first, for a `429`, a `5xx` or a lost connection. Default `traces.retries` (Host tuning, 3). */
   readonly retries?: number;
-  /** The wait before the first retry, doubled for each one after. Default 500 ms. */
+  /** The wait before the first retry, doubled for each one after. Default `traces.backoffMs` (500 ms). */
   readonly backoffMs?: number;
-  /** How long one request may take. Default 10 s. */
+  /** How long one request may take. Default `traces.timeoutMs` (10 s). */
   readonly timeoutMs?: number;
   readonly fetch?: typeof fetch;
   readonly log?: (message: string, fields?: Record<string, unknown>) => void;
@@ -57,9 +58,10 @@ export type OtlpPoster = (spans: readonly OtlpSpan[], signal?: AbortSignal) => P
 
 export function createOtlpPoster(options: OtlpPosterOptions): OtlpPoster {
   const send = options.fetch ?? fetch;
-  const retries = options.retries ?? 3;
-  const backoffMs = options.backoffMs ?? 500;
-  const timeoutMs = options.timeoutMs ?? 10_000;
+  const tuning = hostTuning().traces;
+  const retries = options.retries ?? tuning.retries;
+  const backoffMs = options.backoffMs ?? tuning.backoffMs;
+  const timeoutMs = options.timeoutMs ?? tuning.timeoutMs;
   const log = options.log ?? (() => {});
   return async (spans, signal) => {
     if (spans.length === 0) return "posted";

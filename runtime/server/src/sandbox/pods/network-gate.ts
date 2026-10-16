@@ -4,18 +4,16 @@
  * (`10.96.0.1:443`) for 0.5 to 5 s after it started (8a). So before the engine joins, or runs
  * anything, it connects to addresses the policy must block (the API server's service address,
  * `KUBERNETES_SERVICE_HOST:KUBERNETES_SERVICE_PORT`, which the kubelet always sets) until each
- * fails `CONFIRMATIONS` times in a row (refused, unreachable or timed out). A connection that
+ * fails `harness.networkConfirmations` times in a row (Host tuning) (refused, unreachable or timed out). A connection that
  * succeeds starts the count again. Past `timeoutMs` the engine exits, and the pod restarts it.
  */
 import { connect } from "node:net";
+import { hostTuning } from "../../tuning.js";
 
 export interface BlockedAddress {
   readonly host: string;
   readonly port: number;
 }
-
-/** Consecutive failed connections that prove an address blocked. */
-export const CONFIRMATIONS = 3;
 
 /** The addresses a pod's NetworkPolicy must block: the API server's service address. */
 export function blockedAddresses(env: Readonly<Record<string, string | undefined>>): BlockedAddress[] {
@@ -54,21 +52,23 @@ export function opens(address: BlockedAddress, timeoutMs: number): Promise<boole
 
 export interface NetworkGateOptions {
   readonly addresses: readonly BlockedAddress[];
-  /** Give up after this long. Default 120 s. */
+  /** Give up after this long. Default `harness.networkPolicyTimeoutMs` (Host tuning, 120 s). */
   readonly timeoutMs?: number;
-  /** One connection attempt. Default 1 s. */
+  /** One connection attempt. Default `harness.networkProbeMs` (1 s). */
   readonly attemptMs?: number;
-  /** Between attempts after a connection opened. Default 250 ms. */
+  /** Between attempts after a connection opened. Default `harness.networkPauseMs` (250 ms). */
   readonly pauseMs?: number;
+  /** Consecutive failed connections that prove an address blocked. Default `harness.networkConfirmations` (3). */
   readonly confirmations?: number;
   readonly log?: (message: string, fields: Record<string, unknown>) => void;
 }
 
 /** Resolves once every address is blocked; rejects past the timeout. */
 export async function awaitNetworkPolicy(options: NetworkGateOptions): Promise<{ waitedMs: number }> {
+  const tuning = hostTuning().harness;
   const started = Date.now();
-  const deadline = started + (options.timeoutMs ?? 120_000);
-  const needed = options.confirmations ?? CONFIRMATIONS;
+  const deadline = started + (options.timeoutMs ?? tuning.networkPolicyTimeoutMs);
+  const needed = options.confirmations ?? tuning.networkConfirmations;
   for (const address of options.addresses) {
     let failures = 0;
     let opened = 0;
@@ -77,10 +77,10 @@ export async function awaitNetworkPolicy(options: NetworkGateOptions): Promise<{
         throw new Error(
           `The pod's NetworkPolicy is not in force: ${address.host}:${address.port} still answered ${opened} time(s)`,
         );
-      if (await opens(address, options.attemptMs ?? 1_000)) {
+      if (await opens(address, options.attemptMs ?? tuning.networkProbeMs)) {
         failures = 0;
         opened += 1;
-        await new Promise((resolve) => setTimeout(resolve, options.pauseMs ?? 250));
+        await new Promise((resolve) => setTimeout(resolve, options.pauseMs ?? tuning.networkPauseMs));
       } else failures += 1;
     }
     options.log?.("sandbox_network_policy_checked", {

@@ -25,7 +25,11 @@ const effect = {
   context: { callId: "call-1", invocationId: "inv-1" },
 } as unknown as HostEffect;
 
-function harness(options: { answers: ("execute" | "interrupted")[]; failures: number }) {
+function harness(options: {
+  answers: ("execute" | "interrupted")[];
+  failures: number;
+  resendDelaysMs?: readonly number[];
+}) {
   const intents: unknown[] = [];
   const outcomes: unknown[] = [];
   let sends = 0;
@@ -65,7 +69,12 @@ function harness(options: { answers: ("execute" | "interrupted")[]; failures: nu
     signal: new AbortController().signal,
   };
   return {
-    host: apiHost(channel, executors, run, engineConfig()),
+    host: apiHost(
+      channel,
+      executors,
+      run,
+      engineConfig(options.resendDelaysMs ? { resendDelaysMs: options.resendDelaysMs } : {}),
+    ),
     intents,
     outcomes,
     sends: () => sends,
@@ -93,5 +102,14 @@ describe("a tool call whose gate hop lost the answer (R5.3)", { timeout: 20_000 
     });
     expect(h.sends()).toBe(2);
     expect(h.outcomes).toEqual([]);
+  });
+
+  it("waits the harness's resend delays, the last repeated", async () => {
+    const h = harness({ answers: [], failures: 3, resendDelaysMs: [1, 2] });
+    const started = Date.now();
+    await h.host.resolveEffect(effect);
+    // Three resends: 1, 2 and 2 ms, well under the default's 7 s.
+    expect(h.sends()).toBe(4);
+    expect(Date.now() - started).toBeLessThan(1_000);
   });
 });

@@ -24,6 +24,7 @@ import { recoverLostVolume } from "../../artifacts/disk.js";
 import type { PodStatus } from "./client.js";
 import { decide, type PodRow, type PodTimer, type PodTrigger } from "./lifecycle.js";
 import { podLifecycleConfig, podSpecOf } from "./spec.js";
+import { hostTuning } from "../../tuning.js";
 
 /** What a reconcile asks of the `Sandbox` object next. */
 export interface SandboxReconcileResult {
@@ -131,7 +132,7 @@ export async function reconcileSandbox(
         message: error instanceof Error ? error.message : String(error),
       });
       // Nothing of the decision is written: the next reconcile decides again.
-      return { retryAfterMs: decision.retryAfterMs ?? 5_000 };
+      return { retryAfterMs: decision.retryAfterMs ?? hostTuning().pods.reconcileRetryMs };
     }
   }
 

@@ -64,6 +64,15 @@ describe("compose.yaml", () => {
     expect(runtime).not.toContain("NYLORUN_TENANT_ID");
   });
 
+  it("passes the Host tuning from the shell to every Runtime container", () => {
+    const remote = renderComposeFile("nylorun-shop", "shop", { harness: "remote" });
+    for (const service of ["gateway", "runtime", "harness"]) {
+      const start = remote.indexOf(`  ${service}:`);
+      const block = remote.slice(start, remote.indexOf("\n  ", remote.indexOf("restart:", start)));
+      expect(block, service).toContain("NYLORUN_TUNING: ${NYLORUN_TUNING:-}");
+    }
+  });
+
   it("initialises Postgres with C collation", () => {
     expect(compose).toContain('POSTGRES_INITDB_ARGS: "--locale=C"');
   });

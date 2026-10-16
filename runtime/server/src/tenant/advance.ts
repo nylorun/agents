@@ -78,6 +78,7 @@ import { buildTurnStart, startSegment, type SegmentStart } from "../harness-api/
 import type { RunEnd } from "../harness-api/server.js";
 import { touchEnvironment } from "./environments.js";
 import { endTurn, pauseTurn } from "./turn-timing.js";
+import { hostTuning } from "../tuning.js";
 import {
   AdvanceAbort,
   AdvanceDeadlineError,
@@ -128,15 +129,6 @@ class HarnessUnavailable extends Error {
 }
 
 const DONE: AdvanceResult = { status: "done" };
-/** How soon an advance whose segment no harness took is tried again. */
-const UNAVAILABLE_RETRY_MS = 1000;
-/**
- * How long a pod sandbox's segment waits for its engine (F7.2): a pod that is starting, or
- * resuming, takes longer than a harness that is already connected.
- */
-const POD_OFFER_WAIT_MS = 60_000;
-/** Shortest `busy` retry, so a lease about to lapse is not polled in a tight loop. */
-const MIN_RETRY_MS = 25;
 
 type Taken =
   | { status: "owned"; lease: Lease; session: Session }
@@ -158,7 +150,9 @@ export async function advance(
     return {
       status: "busy",
       retryAfterMs: Math.min(
-        Math.max(Date.parse(taken.ownerExpiresAt) - Date.now(), MIN_RETRY_MS),
+        // The shortest `busy` retry (`tenant.busyRetryMinMs`), so a lease about to lapse is not
+        // polled in a tight loop.
+        Math.max(Date.parse(taken.ownerExpiresAt) - Date.now(), hostTuning().tenant.busyRetryMinMs),
         ctx.ownerLeaseMs
       ),
     };
@@ -192,7 +186,7 @@ export async function advance(
         sessionId: id,
         epoch: lease.epoch,
       });
-      result = { status: "busy", retryAfterMs: UNAVAILABLE_RETRY_MS };
+      result = { status: "busy", retryAfterMs: hostTuning().tenant.unavailableRetryMs };
     } else if (error instanceof SegmentStopped && error.kind === "shutdown") {
       // Left for the next advance, which resumes from the checkpoint once this one releases.
       ctx.config.logger.info("advance stopped for shutdown; session left for the next advance", {
@@ -351,7 +345,8 @@ async function runRemoteSegment(
       onTaken,
       // Only a connection of the session's harness takes its runs (R4.1).
       harness: harnessOf(segment.current),
-      ...(pod === undefined ? {} : { pod, waitMs: POD_OFFER_WAIT_MS }),
+      // A pod that is starting, or resuming, takes longer than a harness already connected.
+      ...(pod === undefined ? {} : { pod, waitMs: hostTuning().harnessApi.podOfferWaitMs }),
     });
     if (end.kind === "unavailable") {
       // A pod stopped, or not yet started: make sure it is asked to run.

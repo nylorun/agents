@@ -524,7 +524,7 @@ export type ControlSignal =
     };
 
 export interface FollowSignalsOptions {
-  /** How often recent signals are read back. Default 5 s. */
+  /** How often recent signals are read back. Default `postgres.controlPollMs` (Host tuning, 5 s). */
   pollMs?: number;
   onError?: (error: unknown) => void;
 }

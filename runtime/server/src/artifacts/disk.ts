@@ -42,10 +42,10 @@ import {
   diskHeld,
   liveEnvironment,
   newVolume,
-  SEED_LEASE_MS,
   wakePod,
 } from "../tenant/environments.js";
 import { fail } from "../tenant/http.js";
+import { hostTuning } from "../tuning.js";
 import { artifactQuota, totalSubject } from "./quota.js";
 import { limitsInForce, readTenantLimits } from "../tenant/limits.js";
 import { readRuntimeLimits } from "../tenant/runtime-limits.js";
@@ -535,7 +535,7 @@ export async function runPendingSeed(ctx: TenantContext, id: string): Promise<vo
         await new Promise((resolve) => setTimeout(resolve, 250));
       }
     }
-    const beat = heartbeat(ctx, id, limits, SEED_LEASE_MS);
+    const beat = heartbeat(ctx, id, limits, hostTuning().tenant.seedLeaseMs);
     let done = false;
     try {
       const started = Date.now();

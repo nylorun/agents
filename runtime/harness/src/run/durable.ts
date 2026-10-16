@@ -23,6 +23,7 @@ import { execute } from "../loop/run.js";
 import { initializeExecutionState } from "../loop/initial-state.js";
 import { HostSuspension } from "../loop/host-suspension.js";
 import { CHECKPOINT_VERSION, ENGINE_VERSION } from "../compatibility.js";
+import type { LoopConfig } from "../loop/config.js";
 
 /** Private persistence contract for hosts; this is not a session wire type. */
 export interface DurableCheckpoint {
@@ -172,6 +173,8 @@ export async function runDurable(options: {
   model?: ModelDescriptor;
   /** How the turn's files reach the model (`representFiles`), for the root and every child. */
   files?: FileContext;
+  /** The loop's settings (compaction, a failed child's partial output). Default `DEFAULT_LOOP_CONFIG`. */
+  loop?: LoopConfig;
 }): Promise<DurableResult> {
   // `hostedDefinition` checks the manifest against AgentManifestSchema (`agentFrom`).
   const { manifest, checkpoint, host } = options;
@@ -399,7 +402,11 @@ export async function runDurable(options: {
           ...(options.model === undefined ? {} : { model: options.model }),
           ...(options.files === undefined ? {} : { files: options.files }),
         },
-        { delegation, ...(options.yieldAfter ? { yieldAfter: options.yieldAfter } : {}) },
+        {
+          delegation,
+          ...(options.yieldAfter ? { yieldAfter: options.yieldAfter } : {}),
+          ...(options.loop ? { loop: options.loop } : {}),
+        },
       ),
     );
     return {

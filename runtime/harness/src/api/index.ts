@@ -5,7 +5,26 @@
  * Harness API's seams. Our engine writes the model's instructions and defines its tools from the
  * turn's facts (`engineToolsFor`); a harness of your own may use the same helpers.
  */
-export { createHarness, type Harness, type HarnessLogger, type HarnessOptions } from "./harness.js";
+export {
+  DEFAULT_LEASE_RETRY_MS,
+  DEFAULT_RESEND_DELAYS_MS,
+  DEFAULT_TRANSCRIPT_CACHE_MB,
+  createHarness,
+  type Harness,
+  type HarnessLogger,
+  type HarnessOptions,
+} from "./harness.js";
+export {
+  DEFAULT_COMPACTION_CONFIG,
+  compactionConfigOf,
+  type CompactionConfig,
+} from "../loop/compaction/config.js";
+export {
+  DEFAULT_LOOP_CONFIG,
+  DEFAULT_PARTIAL_OUTPUT_CHARS,
+  loopConfigOf,
+  type LoopConfig,
+} from "../loop/config.js";
 export { ABORT_MESSAGES, RunAbort, runAbortKind } from "./abort.js";
 export type {
   FailedFileOutcome,
@@ -17,7 +36,7 @@ export type {
   PreparedRun,
   ToolCallContext,
 } from "./executors.js";
-export { apiHost, type EngineToolConfig } from "./host.js";
+export { apiHost, type EngineConfig } from "./host.js";
 export {
   artifactInstructions,
   artifactToolsFor,

@@ -5,6 +5,8 @@ import { DEFAULT_SANDBOX_TOOL_LIMITS } from "../src/tools/sandbox.js";
 import { DEFAULT_MCP_TOOL_CONFIG } from "../src/tools/mcp.js";
 import { DEFAULT_TOOL_RESULT_CONFIG } from "../src/tools/results.js";
 import { DEFAULT_OUTPUTS_CONFIG } from "../src/tools/outputs.js";
+import { DEFAULT_LOOP_CONFIG } from "../src/loop/config.js";
+import { DEFAULT_RESEND_DELAYS_MS } from "../src/api/harness.js";
 import {
   Agent,
   AgentBuildError,
@@ -223,11 +225,13 @@ export function toolSet(tools: readonly import("../src/run/durable.js").DurableS
   };
 }
 
-/** Our engine's configuration of its own tools, with the defaults for what a test leaves out. */
+/** Our engine's configuration in a harness, with the defaults for what a test leaves out. */
 export function engineConfig(
-  set: Partial<import("../src/tools/engine-tools.js").EngineToolOptions> = {},
-): import("../src/tools/engine-tools.js").EngineToolOptions {
+  set: Partial<import("../src/api/host.js").EngineConfig> = {},
+): import("../src/api/host.js").EngineConfig {
   return {
+    loop: DEFAULT_LOOP_CONFIG,
+    resendDelaysMs: DEFAULT_RESEND_DELAYS_MS,
     artifactPageBytes: 32 * 1024,
     sandboxTools: DEFAULT_SANDBOX_TOOL_LIMITS,
     skillReadBytes: 1024,

@@ -7,6 +7,7 @@ import { parseSandboxDuration, parseSandboxSize, type SandboxManifest } from "@n
 import { DEFAULT_HARNESS, type EnvironmentRecipe } from "@nylorun/core/contracts";
 import type { TenantSandboxConfig } from "../tenant-config.js";
 import { idleMsOf, memoryMiBOf } from "../policy.js";
+import { podTuningEnv } from "../../tuning.js";
 import type { SandboxPodState } from "../../store/types.js";
 import type { PodSpec } from "./client.js";
 import { opIdOf, type PodLifecycleConfig } from "./lifecycle.js";
@@ -85,6 +86,8 @@ export function podSpecOf(input: PodSpecInput): PodSpec {
     env: {
       NYLORUN_SANDBOX_ID: input.environmentId,
       NYLORUN_HARNESS_ROOT: POD_HARNESS_ROOT,
+      // The `harness` and `engine` tuning the operator set: the pod's engine runs with them.
+      ...podTuningEnv(),
     },
     ...(input.joinToken ? { joinToken: input.joinToken } : {}),
   };

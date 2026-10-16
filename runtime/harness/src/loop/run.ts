@@ -43,6 +43,7 @@ export async function execute(
   }
   const invocation = createInvocation({ agent, options, state, definitions, internals });
   const { signal, observe, record } = invocation;
+  const compaction = invocation.loop.compaction;
   const finish = (result: FinishInput) => finishInvocation(invocation, result);
 
   try {
@@ -65,10 +66,11 @@ export async function execute(
         turnId,
         stepId,
         trigger,
-        budget: contextBudget(invocation.state.transcript, options.model),
+        budget: contextBudget(invocation.state.transcript, options.model, compaction),
         ...(options.files === undefined ? {} : { files: options.files }),
         invoke: options.onModelCall,
         signal,
+        config: compaction,
       });
       if (!next) return false;
       invocation.state = { ...invocation.state, transcript: next };
@@ -127,10 +129,10 @@ export async function execute(
       stepsRun++;
       const stepId = createId("step");
       // Keep the next prompt inside the model's window, before it is sent.
-      const budget = contextBudget(invocation.state.transcript, options.model);
+      const budget = contextBudget(invocation.state.transcript, options.model, compaction);
       if (
         budget &&
-        estimateTokens(invocation.state.transcript, turnId, options.files) >
+        estimateTokens(invocation.state.transcript, turnId, options.files, compaction) >
           budget.contextWindow - budget.reserve
       )
         await compactHistory("threshold", stepId);

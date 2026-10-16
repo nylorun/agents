@@ -46,6 +46,7 @@ import type { SessionStore } from "../store/types.js";
 import { isPrivateAddress } from "../tenant/outbound.js";
 import type { Logger } from "../tenant/types.js";
 import { bindListener } from "../host/http.js";
+import { hostTuning } from "../tuning.js";
 import {
   CONNECT_ESTABLISHED,
   credentialTerminator,
@@ -67,7 +68,11 @@ export interface EgressSandboxes {
 /** One connection's record (R7.3, D67): `environment.egress`'s payload. */
 export type EgressConnection = EnvironmentEventPayload<"environment.egress">;
 
-/** How many running turns one connection names, at most. */
+/**
+ * How many running turns one connection names, at most: fixed by the `environment.egress` event
+ * contract (`runningTurns` holds at most 16 in `/core/contracts`), which every reader
+ * validates against, so not a setting here.
+ */
 export const EGRESS_RUNNING_TURNS_MAX = 16;
 
 /** Where egress-gate records connections (R7.3, D67). */
@@ -80,14 +85,6 @@ export interface EgressRecord {
 
 /** Ports a tunnel may open. */
 export const EGRESS_PORTS: readonly number[] = [443, 80];
-/** Tunnels one sandbox may hold open at once. */
-export const EGRESS_MAX_PER_SANDBOX = 64;
-/** A tunnel with no traffic either way for this long is closed. */
-export const EGRESS_IDLE_MS = 5 * 60_000;
-/** How long a sandbox's epoch and allowlist are reused before they are read again. */
-export const EGRESS_CACHE_MS = 5_000;
-/** How long the gate waits for the upstream connection. */
-export const EGRESS_CONNECT_TIMEOUT_MS = 10_000;
 
 export interface StartEgressGateOptions {
   readonly listen: { readonly host: string; readonly port: number };
@@ -95,9 +92,13 @@ export interface StartEgressGateOptions {
   /** Verifies a presented egress token (`verifyEgressToken` over the Tenant's keys). */
   verify(raw: string): Promise<EgressTokenVerdict>;
   readonly sandboxes: EgressSandboxes;
+  /** A tunnel with no traffic either way for this long is closed. Default `egress.idleMs`. */
   readonly idleMs?: number;
+  /** Tunnels one sandbox may hold open at once. Default `egress.maxTunnelsPerSandbox`. */
   readonly maxPerSandbox?: number;
+  /** How long a sandbox's epoch and allowlist are reused. Default `egress.cacheMs`. */
   readonly cacheMs?: number;
+  /** How long the gate waits for the upstream connection. Default `egress.connectTimeoutMs`. */
   readonly connectTimeoutMs?: number;
   /** Tests replace name resolution. */
   readonly lookup?: (host: string) => Promise<readonly { address: string; family: number }[]>;
@@ -286,10 +287,11 @@ function connectionRecord(
 
 export async function startEgressGate(options: StartEgressGateOptions): Promise<EgressGate> {
   const { logger, sandboxes } = options;
-  const idleMs = options.idleMs ?? EGRESS_IDLE_MS;
-  const maxPerSandbox = options.maxPerSandbox ?? EGRESS_MAX_PER_SANDBOX;
-  const cacheMs = options.cacheMs ?? EGRESS_CACHE_MS;
-  const connectTimeoutMs = options.connectTimeoutMs ?? EGRESS_CONNECT_TIMEOUT_MS;
+  const tuning = hostTuning().egress;
+  const idleMs = options.idleMs ?? tuning.idleMs;
+  const maxPerSandbox = options.maxPerSandbox ?? tuning.maxTunnelsPerSandbox;
+  const cacheMs = options.cacheMs ?? tuning.cacheMs;
+  const connectTimeoutMs = options.connectTimeoutMs ?? tuning.connectTimeoutMs;
   const blocked = options.blocked ?? isEgressBlocked;
   const lookup =
     options.lookup ?? ((host: string) => dnsLookup(host, { all: true, verbatim: true }));
@@ -303,7 +305,7 @@ export async function startEgressGate(options: StartEgressGateOptions): Promise<
       return cached.value;
     const value = await sandboxes.live(sandboxId);
     cache.set(sandboxId, { at: Date.now(), value });
-    if (cache.size > 4096) cache.delete(cache.keys().next().value!);
+    if (cache.size > tuning.cacheEntries) cache.delete(cache.keys().next().value!);
     return value;
   }
 
@@ -440,8 +442,8 @@ export async function startEgressGate(options: StartEgressGateOptions): Promise<
     res.writeHead(405, { allow: "CONNECT", "content-type": "text/plain; charset=utf-8", connection: "close" });
     res.end("egress-gate: only CONNECT is served; set HTTPS_PROXY and HTTP_PROXY to this address\n");
   });
-  server.headersTimeout = 10_000;
-  server.requestTimeout = 15_000;
+  server.headersTimeout = tuning.headersTimeoutMs;
+  server.requestTimeout = tuning.requestTimeoutMs;
   server.on("connect", (req: IncomingMessage, client: Duplex, head: Buffer) => {
     // A client socket: idle from the request on, through the tunnel's life.
     client.on("error", () => {});

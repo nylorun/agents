@@ -11,9 +11,7 @@ import {
   type McpToolOutcome,
 } from "./connect.js";
 import type { McpDiagnostic, McpServerRecord, McpSnapshot } from "./snapshot.js";
-
-/** A connection unused this long is closed by the sweep; the next call opens it again. */
-export const DEFAULT_MCP_IDLE_MS = 15 * 60_000;
+import { hostTuning } from "../tuning.js";
 
 interface LiveServer {
   readonly serverName: string;
@@ -38,7 +36,10 @@ export class McpPool {
 
   constructor(
     private readonly options: {
-      /** Default `DEFAULT_MCP_IDLE_MS`. */
+      /**
+       * A connection unused this long is closed by the sweep; the next call opens it again.
+       * Default `harness.mcpIdleMs` (Host tuning, 15 min).
+       */
       readonly idleMs?: number;
       readonly now?: () => number;
       /**
@@ -49,7 +50,7 @@ export class McpPool {
       readonly openRemote: (server: McpServerRef) => Promise<LiveConnection>;
     },
   ) {
-    this.idleMs = options.idleMs ?? DEFAULT_MCP_IDLE_MS;
+    this.idleMs = options.idleMs ?? hostTuning().harness.mcpIdleMs;
     this.now = options.now ?? Date.now;
   }
 

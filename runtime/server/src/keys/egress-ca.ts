@@ -12,9 +12,6 @@ import { decryptSecret, encryptSecret } from "../vault/crypto.js";
 import { createCertificateAuthority, issueLeafCertificate, type CertificateAuthority } from "./x509.js";
 
 const SETTING = "egress.ca";
-/** How long a leaf egress-gate presents is valid: one connection rarely lasts this long. */
-export const EGRESS_LEAF_MINUTES = 60;
-
 interface StoredAuthority {
   readonly certificate: string;
   readonly kekId: string;
@@ -43,7 +40,8 @@ export class EgressAuthority {
 
   /** A leaf for `host` and the caller's P-256 public key (SPKI PEM); the caller keeps its key. */
   async signLeaf(host: string, publicKey: string): Promise<string> {
-    return issueLeafCertificate({ authority: await this.load(), host, publicKey, minutes: EGRESS_LEAF_MINUTES });
+    // Valid for `keys.leafLifetimeMs` (Host tuning): one connection rarely lasts this long.
+    return issueLeafCertificate({ authority: await this.load(), host, publicKey });
   }
 
   private async load(): Promise<CertificateAuthority> {

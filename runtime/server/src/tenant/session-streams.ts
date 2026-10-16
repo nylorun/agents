@@ -24,6 +24,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import type { LiveEvent } from "@nylorun/core/contracts";
 import { decodeCursor, encodeCursor } from "../record/index.js";
 import { sleep } from "../retry.js";
+import { hostTuning } from "../tuning.js";
 import { basinOf } from "../streams/basin.js";
 import {
   sessionStream,
@@ -91,8 +92,6 @@ export interface SessionStreams {
 export function createSessionStreams(): SessionStreams {
   return { wiring: undefined, generation: 0, sessions: new Map() };
 }
-const RETRY_MIN_MS = 100;
-const RETRY_MAX_MS = 2000;
 
 function frame(event: LiveEvent): string {
   return `id: ${event.cursor}\nevent: ${event.type}\ndata: ${JSON.stringify(
@@ -133,7 +132,7 @@ export function openSse(
     "x-accel-buffering": "no",
   });
   response.flushHeaders();
-  const timer = setInterval(() => send(response, ": keepalive\n\n"), 15000);
+  const timer = setInterval(() => send(response, ": keepalive\n\n"), hostTuning().api.eventStreamKeepaliveMs);
   timer.unref();
   request.on("close", () => {
     clearInterval(timer);
@@ -443,7 +442,9 @@ function runFeed(ctx: TenantContext, feed: SessionStream): void {
   const read = feed.read;
   const signal = read.signal;
   void (async () => {
-    let delay = RETRY_MIN_MS;
+    // A failed read is retried after `streams.retry` (Host tuning), doubling.
+    const { minMs: retryMinMs, maxMs: retryMaxMs } = hostTuning().streams.retry;
+    let delay = retryMinMs;
     while (!signal.aborted) {
       const streams = ctx.sessionStreams.wiring?.streams;
       if (!streams) break;
@@ -458,7 +459,7 @@ function runFeed(ctx: TenantContext, feed: SessionStream): void {
           if (signal.aborted || feed.read !== read) return;
           if (record.seq < feed.next) continue;
           feed.next = record.seq + 1;
-          delay = RETRY_MIN_MS;
+          delay = retryMinMs;
           for (const observer of feed.observers) deliver(observer, record);
         }
         if (signal.aborted) return;
@@ -472,7 +473,7 @@ function runFeed(ctx: TenantContext, feed: SessionStream): void {
       }
       if (!(await stillCurrent(ctx, feed))) break;
       await sleep(delay, signal);
-      delay = Math.min(delay * 2, RETRY_MAX_MS);
+      delay = Math.min(delay * 2, retryMaxMs);
     }
     if (signal.aborted || feed.read !== read) return;
     endFeed(ctx.sessionStreams, feed);

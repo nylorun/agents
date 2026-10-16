@@ -6,6 +6,7 @@
  *
  * Later waves: stable; the streams seam (Wave 2 / Y) keeps using these helpers.
  */
+import { hostTuning } from "../tuning.js";
 
 /** D5's opaque failure: a 404 that says nothing of why. */
 export const OPAQUE_NOT_FOUND = {
@@ -39,6 +40,15 @@ export const fail = (
   headers?: Readonly<Record<string, string>>
 ): never => {
   throw new HttpError(status, message, rejection, headers);
+};
+
+/**
+ * A 409 the client may try again: `code`, and when, in `details.retryAfterSeconds` and
+ * `Retry-After` (`tenant.retryAfterSeconds`, Host tuning).
+ */
+export const failRetryLater = (message: string, code: string): never => {
+  const seconds = hostTuning().tenant.retryAfterSeconds;
+  return fail(409, message, { code, details: { retryAfterSeconds: seconds } }, { "retry-after": String(seconds) });
 };
 
 export class OpaqueAuthError extends Error {

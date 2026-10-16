@@ -4,13 +4,14 @@
  * header. Each connection runs one `createHarness`: it says `hello`, leases runs, and answers
  * core's `workspace.*` requests (`serve`). When the connection is lost its runs stop (core gives
  * their segments to the next advance, which resumes them by replay) and the client connects
- * again after a jittered backoff of 0.5 to 10 s.
+ * again after a jittered backoff (`harness.reconnect` in the Host tuning, 0.5 to 10 s).
  */
 import { createChannel, type HarnessChannel, type RequestHandler } from "@nylorun/core/harness-api";
 import { createHarness, type Harness, type HarnessOptions } from "@nylorun/harness/api";
 import { WebSocket } from "ws";
 import { HARNESS_API_HEADER, HARNESS_API_TRANSPORT, HARNESS_MAX_PAYLOAD } from "@nylorun/core/harness-api";
 import { wsPort, type WsPortOptions } from "./ws-port.js";
+import { hostTuning } from "../tuning.js";
 
 export interface HarnessClientOptions
   extends Omit<HarnessOptions, "channel" | "logger"> {
@@ -27,7 +28,7 @@ export interface HarnessClientOptions
   };
   /** Answers core's requests (`workspace.*`). */
   readonly serve?: RequestHandler;
-  /** Reconnect backoff bounds. Default 500 ms to 10 s. */
+  /** Reconnect backoff bounds. Default `harness.reconnect` (Host tuning, 500 ms to 10 s). */
   readonly backoff?: { readonly minMs: number; readonly maxMs: number };
   readonly liveness?: Omit<WsPortOptions, "ping">;
 }
@@ -45,7 +46,8 @@ export interface HarnessClient {
 
 export function connectHarness(options: HarnessClientOptions): HarnessClient {
   const { logger } = options;
-  const backoff = options.backoff ?? { minMs: 500, maxMs: 10_000 };
+  const tuning = hostTuning().harness;
+  const backoff = options.backoff ?? tuning.reconnect;
   let stopped = false;
   let connected = false;
   let current: { channel: HarnessChannel; harness: Harness } | undefined;
@@ -59,7 +61,7 @@ export function connectHarness(options: HarnessClientOptions): HarnessClient {
       const socket = new WebSocket(options.url, {
         headers: { authorization: `Bearer ${token}`, [HARNESS_API_HEADER]: HARNESS_API_TRANSPORT },
         maxPayload: HARNESS_MAX_PAYLOAD,
-        handshakeTimeout: 10_000,
+        handshakeTimeout: tuning.handshakeTimeoutMs,
       });
       socket.once("open", () => {
         socket.removeAllListeners("error");
@@ -106,7 +108,7 @@ export function connectHarness(options: HarnessClientOptions): HarnessClient {
     } finally {
       connected = false;
       // The connection is gone: its runs were aborted with it; let them wind down.
-      if (!stopped) await harness.stop(5_000);
+      if (!stopped) await harness.stop(tuning.reconnectStopMs);
       channel.close("reconnecting");
       current = undefined;
     }
@@ -140,7 +142,7 @@ export function connectHarness(options: HarnessClientOptions): HarnessClient {
       return connected;
     },
     channel: () => current?.channel,
-    async stop(waitMs = 10_000) {
+    async stop(waitMs = tuning.stopMs) {
       stopped = true;
       wake?.();
       const live = current;

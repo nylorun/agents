@@ -24,14 +24,15 @@ import { readRuntimeLimits } from "../tenant/runtime-limits.js";
 import type { Logger } from "../tenant/types.js";
 import type { McpAnswer, McpGateError } from "./tool-contract.js";
 import { GateRefusal, type TenantVault, type TenantVaults } from "./tenant-vaults.js";
-
-/** A connection unused this long is closed; the next request opens it again. */
-export const GATE_MCP_IDLE_MS = 15 * 60_000;
+import { hostTuning } from "../tuning.js";
 
 export interface McpHandlerOptions {
   readonly vaults: TenantVaults;
   readonly logger: Logger;
-  /** Default `GATE_MCP_IDLE_MS`. */
+  /**
+   * A connection unused this long is closed; the next request opens it again. Default
+   * `gates.mcpIdleMs` (Host tuning, 15 min).
+   */
   readonly idleMs?: number;
   readonly now?: () => number;
   /** Tests replace how a server is opened. */
@@ -89,7 +90,7 @@ class NotDeclared extends Error {}
 
 export function createMcpHandler(options: McpHandlerOptions): McpHandler {
   const { vaults, logger } = options;
-  const idleMs = options.idleMs ?? GATE_MCP_IDLE_MS;
+  const idleMs = options.idleMs ?? hostTuning().gates.mcpIdleMs;
   const now = options.now ?? Date.now;
   const open = options.open ?? openMcpServer;
   const live = new Map<string, Live>();
@@ -315,7 +316,7 @@ function errorOf(error: unknown): McpGateError {
       ...(error.code === "credential_rejected" ? { code: 401 } : {}),
       failure: error.failure,
     };
-  const message = error instanceof Error ? error.message.slice(0, 2000) : String(error);
+  const message = error instanceof Error ? error.message.slice(0, hostTuning().gates.errorMessageChars) : String(error);
   const code =
     error && typeof error === "object" && "code" in error && typeof (error as { code?: unknown }).code === "number"
       ? (error as { code: number }).code

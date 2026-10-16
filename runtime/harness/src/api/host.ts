@@ -44,9 +44,17 @@ import {
 import { isToolSearch, runToolSearch } from "../tools/tool-search.js";
 import { runAbortKind } from "./abort.js";
 import type { HarnessExecutors, HarnessRun } from "./executors.js";
+import type { LoopConfig } from "../loop/config.js";
 
-/** What our engine's own tools run with: the harness's configuration of them. */
-export type EngineToolConfig = EngineToolOptions;
+/**
+ * Our engine's configuration in a harness (`createHarness`): its own tools, its loop, and how it
+ * sends again a tool call whose gate hop lost its answer.
+ */
+export interface EngineConfig extends EngineToolOptions {
+  readonly loop: LoopConfig;
+  /** The waits before each resend; the last repeats for every resend after. */
+  readonly resendDelaysMs: readonly number[];
+}
 
 /**
  * The host of one run. A `harness` tool call is one of our engine's own tools, run here: the skill
@@ -58,7 +66,7 @@ export function apiHost(
   channel: HarnessChannel,
   executors: HarnessExecutors,
   run: HarnessRun,
-  engine: EngineToolConfig,
+  engine: EngineConfig,
   mcp?: McpToolSet,
 ): DurableHost {
   const recorded = new Map<string, RecordedOutcome>(
@@ -111,7 +119,8 @@ export function apiHost(
         if (recoverable && kind === "shutdown") throw error;
         // The hop lost the answer: core counts one more send, and the call goes again (R5.3).
         if (!model && kind === undefined && executors.resends?.(effect, error, run)) {
-          await pause(RESEND_DELAYS_MS[Math.min(resent, RESEND_DELAYS_MS.length - 1)]!, signal);
+          const delays = engine.resendDelaysMs;
+          await pause(delays[Math.min(resent, delays.length - 1)]!, signal);
           const again = await ask("effect.intent", {
             runId,
             effect: intentOf(effect),
@@ -272,9 +281,6 @@ function tooLarge(value: unknown) {
 
 /** Answers that say the run is no longer this harness's to go on with. */
 const LOST: ReadonlySet<string> = new Set(["ownership_lost", "run_not_held", "turn_cancelled"]);
-
-/** How long the harness waits before it sends a call whose gate hop was lost again. */
-const RESEND_DELAYS_MS = [1_000, 2_000, 4_000] as const;
 
 /** Waits `ms`, or throws the reason as soon as `signal` aborts. */
 function pause(ms: number, signal: AbortSignal): Promise<void> {

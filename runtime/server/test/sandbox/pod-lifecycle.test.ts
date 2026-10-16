@@ -5,7 +5,8 @@
  */
 import { describe, expect, it } from "vitest";
 import type { PodStatus } from "../../src/sandbox/pods/client.js";
-import { decide, imageDigestOf, opIdOf, READY_DEADLINE_MS, type PodFacts, type PodRow } from "../../src/sandbox/pods/lifecycle.js";
+import { decide, imageDigestOf, opIdOf, type PodFacts, type PodRow } from "../../src/sandbox/pods/lifecycle.js";
+import { hostTuning } from "../../src/tuning.js";
 import { podName } from "../../src/sandbox/pods/name.js";
 import { podLifecycleConfig, podSpecOf } from "../../src/sandbox/pods/spec.js";
 
@@ -90,7 +91,7 @@ describe("pod lifecycle", () => {
 
   it("fails a pod not ready within the deadline, with its reason", () => {
     const decision = decide(
-      facts({ status: status({ ready: false, reason: "ImagePullBackOff", message: "no such image" }), now: T0 + READY_DEADLINE_MS + 1 }),
+      facts({ status: status({ ready: false, reason: "ImagePullBackOff", message: "no such image" }), now: T0 + hostTuning().pods.readyDeadlineMs + 1 }),
     );
     expect(decision.patch).toMatchObject({ observed: "failed", reason: "ImagePullBackOff: no such image" });
     expect(decision.events).toEqual([{ type: "environment.failed", payload: { reason: "ImagePullBackOff: no such image" } }]);

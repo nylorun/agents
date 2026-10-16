@@ -7,6 +7,8 @@ import {
   type TranscriptEntry,
 } from "@nylorun/core/define";
 import { compact, contextBudget, estimateTokens, findCut } from "../src/loop/compaction/index.js";
+import { compactionConfigOf } from "../src/loop/compaction/config.js";
+import { loopConfigOf } from "../src/loop/config.js";
 import {
   createDurableCheckpoint,
   runDurable,
@@ -329,6 +331,29 @@ describe("compaction and files (protocol 12)", () => {
     ).toBe(estimateTokens([csv]));
   });
 
+  it("estimates and budgets with the harness's compaction settings", () => {
+    const image = upload("t1", "af_i", "image/png", 1_000);
+    const pdf = upload("t1", "af_p", "application/pdf", 80_000);
+    const config = compactionConfigOf({ imageTokens: 10, fileBytesPerToken: 80, charsPerToken: 2 });
+    const base = estimateTokens([image, pdf], undefined, undefined, config);
+    expect(estimateTokens([image, pdf], "t1", undefined, config)).toBe(base + 10 + 1_000);
+    const model = { contextWindow: 200_000, maxOutputTokens: 64_000 };
+    expect(contextBudget([input("t1", "go")], model)).toEqual({
+      contextWindow: 200_000,
+      reserve: 16_384,
+    });
+    expect(
+      contextBudget([input("t1", "go")], model, compactionConfigOf({ maxReserveTokens: 1_000 })),
+    ).toEqual({ contextWindow: 200_000, reserve: 1_000 });
+    expect(
+      contextBudget(
+        [input("t1", "go")],
+        { contextWindow: 1_000, maxOutputTokens: 64_000 },
+        compactionConfigOf({ maxReserveShare: 0.1 }),
+      ),
+    ).toEqual({ contextWindow: 1_000, reserve: 100 });
+  });
+
   it("budgets by the model descriptor before any answer reports a window", () => {
     expect(contextBudget([input("t1", "go")])).toBeUndefined();
     expect(
@@ -355,6 +380,8 @@ describe("compaction in the turn loop", () => {
     const journal = new Map<string, EffectResolution>();
     const requests = new Map<string, HostEffect>();
     const kinds: string[] = [];
+    /** The output limit of each summary call. */
+    const summaryLimits: (number | undefined)[] = [];
     let modelSteps = 0;
     const size = (call: ModelCall) => Math.ceil(JSON.stringify(call.prompt).length / 4);
     const resolveEffect: DurableHost["resolveEffect"] = async (effect) => {
@@ -370,6 +397,7 @@ describe("compaction in the turn loop", () => {
         const call = effect.input as ModelCall;
         const compaction = String(effect.context.invocationId).startsWith("compaction-");
         kinds.push(compaction ? "compaction" : "model");
+        if (compaction) summaryLimits.push(call.model?.controls?.maxOutputTokens);
         const tokens = size(call);
         if (!compaction && tokens > options.window)
           value = {
@@ -404,8 +432,29 @@ describe("compaction in the turn loop", () => {
       journal.set(effect.effectId, resolution);
       return resolution;
     };
-    return { host: { resolveEffect } satisfies DurableHost, kinds };
+    return { host: { resolveEffect } satisfies DurableHost, kinds, summaryLimits };
   }
+
+  it("runs with the loop's compaction settings (createHarness({ compaction }))", async () => {
+    const manifest = agent().manifest;
+    const checkpoint = createDurableCheckpoint({
+      manifest,
+      sessionId: "session",
+      turnId: "turn",
+      input: "go",
+    });
+    // Defaults: a summary may take 0.8 of the 512-token reserve.
+    const defaults = host({ window: 4_000, steps: 20, report: true });
+    await runDurable({ manifest, checkpoint, host: defaults.host });
+    expect(defaults.summaryLimits[0]).toBe(Math.max(256, Math.floor(512 * 0.8)));
+    // Set: a reserve of at most 100 tokens, and a summary of at least 300.
+    const set = host({ window: 4_000, steps: 20, report: true });
+    const loop = loopConfigOf({ compaction: { maxReserveTokens: 100, minSummaryTokens: 300 } });
+    const result = await runDurable({ manifest, checkpoint, host: set.host, loop });
+    expect(result.status).toBe("completed");
+    expect(set.summaryLimits.length).toBeGreaterThan(0);
+    expect(set.summaryLimits.every((limit) => limit === 300)).toBe(true);
+  });
 
   it("compacts before a call that would not fit, and the turn completes", async () => {
     const manifest = agent().manifest;

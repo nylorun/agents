@@ -16,6 +16,7 @@ import { createDatabase, type PostgresClient } from "./database.js";
 import { createExecution, executionKind, type CreateExecutionOptions } from "./execution.js";
 import { createReadiness, infraProbes, type Readiness } from "./readiness.js";
 import { createStreams, streamsKind, type CreateStreamsOptions } from "./streams.js";
+import { hostTuning } from "../tuning.js";
 
 export { createDatabase, probeDatabase } from "./database.js";
 export { createExecution, probeExecution, WORKER_LISTEN } from "./execution.js";
@@ -68,7 +69,7 @@ export function createInfra(
     ...(streams ? { streams } : {}),
     ...(readiness ? { readiness } : {}),
     async close() {
-      await Promise.allSettled([database?.end({ timeout: 5 }), streams?.close()]);
+      await Promise.allSettled([database?.end({ timeout: hostTuning().postgres.closeTimeoutSeconds }), streams?.close()]);
     },
   };
 }

@@ -33,7 +33,7 @@ import {
 } from "../mcp/connect.js";
 import type { McpServerRef } from "../mcp/pool.js";
 import { TENANT_HEADER } from "./contract.js";
-import { GATE_CLIENT_TIMEOUT_MS } from "./http-client.js";
+import { hostTuning } from "../tuning.js";
 import {
   HTTP_CALLS_PATH,
   MCP_CLOSE_PATH,
@@ -58,9 +58,6 @@ export class GateCallLost extends Error {
   override readonly name = "GateCallLost";
 }
 
-/** How long a close or a cancel may take; neither changes an outcome. */
-const SHORT_TIMEOUT_MS = 2_000;
-
 export interface HttpToolGateOptions {
   /** The gates service, e.g. `http://gateway:4100` (`NYLORUN_GATES_URL`). */
   readonly url: string;
@@ -74,7 +71,7 @@ export interface HttpToolGateOptions {
   readonly runTokens?: RunTokens;
   /** Sent as `Nylorun-Tenant`; the gate checks it against its database's Tenant. */
   readonly tenantId?: string;
-  /** How long an MCP request may stay silent. Default `GATE_CLIENT_TIMEOUT_MS`. */
+  /** How long an MCP request may stay silent. Default `gates.clientTimeoutMs` (Host tuning). */
   readonly timeoutMs?: number;
 }
 
@@ -95,7 +92,7 @@ type Exchange =
 
 export function httpToolGate(options: HttpToolGateOptions): ToolGate {
   const where = new URL(options.url).origin;
-  const timeoutMs = options.timeoutMs ?? GATE_CLIENT_TIMEOUT_MS;
+  const timeoutMs = options.timeoutMs ?? hostTuning().gates.clientTimeoutMs;
 
   function exchange(
     path: string,
@@ -156,7 +153,7 @@ export function httpToolGate(options: HttpToolGateOptions): ToolGate {
           );
         },
       );
-      outgoing.on("socket", (socket) => socket.setKeepAlive(true, 30_000));
+      outgoing.on("socket", (socket) => socket.setKeepAlive(true, hostTuning().gates.keepAliveMs));
       outgoing.on("finish", () => {
         sent = true;
       });
@@ -220,7 +217,8 @@ export function httpToolGate(options: HttpToolGateOptions): ToolGate {
 
   async function fireAndForget(path: string, scope: Scoped<unknown>): Promise<void> {
     await exchange(path, scope.body, {
-      timeoutMs: SHORT_TIMEOUT_MS,
+      // A close or a cancel is short (`gates.shortTimeoutMs`); neither changes an outcome.
+      timeoutMs: hostTuning().gates.shortTimeoutMs,
       ...(scope.bearer ? { bearer: scope.bearer } : {}),
     });
   }

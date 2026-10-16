@@ -27,6 +27,7 @@ import type {
   CommittedTx,
   RecordRow,
 } from "../../streams/relay/types.js";
+import { hostTuning } from "../../tuning.js";
 
 export interface PgoutputSourceOptions {
   /** A Postgres URL whose role may replicate (`REPLICATION`) and read `nylorun_streams`. */
@@ -44,7 +45,7 @@ export interface PgoutputSourceOptions {
   schema?: string;
   /** The connections' `application_name`. Default `nylorun-stream-relay`. */
   applicationName?: string;
-  /** Wait between attempts to take the slot. Default 5 s. */
+  /** Wait between attempts to take the slot. Default `postgres.replicationRetryMs` (Host tuning, 5 s). */
   retryMs?: number;
   log?: (message: string, fields?: Record<string, unknown>) => void;
 }
@@ -59,7 +60,7 @@ export function createPgoutputSource(options: PgoutputSourceOptions): ChangeSour
   const slot = options.slot ?? DEFAULT_RELAY_SLOT;
   const publication = options.publication ?? "nylorun_stream_relay";
   const schema = options.schema ?? "nylorun_streams";
-  const retryMs = options.retryMs ?? 5000;
+  const retryMs = options.retryMs ?? hostTuning().postgres.replicationRetryMs;
   const applicationName = options.applicationName ?? "nylorun-stream-relay";
   const { tenantId } = options;
   const log = options.log ?? (() => {});

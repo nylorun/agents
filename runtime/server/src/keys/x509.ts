@@ -10,6 +10,7 @@
  * CA's key identifier. Go (`gh`), OpenSSL (`curl`, `git`), Node and Python accept that shape.
  */
 import { isIP } from "node:net";
+import { hostTuning } from "../tuning.js";
 import {
   createHash,
   createPrivateKey,
@@ -123,7 +124,13 @@ export interface CertificateAuthority {
 }
 
 
-/** A new P-256 CA, valid from an hour ago for `days` days. */
+/** Milliseconds in a day: a unit, not a setting. */
+const DAY_MS = 86_400_000;
+
+/**
+ * A new P-256 CA, valid from `keys.caBackdateMs` ago (Host tuning, an hour) for `days` days
+ * (default `keys.caLifetimeDays`).
+ */
 export function createCertificateAuthority(options: {
   readonly commonName: string;
   readonly days?: number;
@@ -131,6 +138,7 @@ export function createCertificateAuthority(options: {
 }): CertificateAuthority {
   const { publicKey, privateKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
   const now = options.now ?? new Date();
+  const tuning = hostTuning().keys;
   const subject = name({ commonName: options.commonName, organization: "Nylorun" });
   const ski = keyIdentifier(publicKey);
   const tbs = seq(
@@ -138,7 +146,10 @@ export function createCertificateAuthority(options: {
     serial(),
     seq(oid(OID.ecdsaWithSha256)),
     subject,
-    seq(time(new Date(now.getTime() - 3_600_000)), time(new Date(now.getTime() + (options.days ?? 3650) * 86_400_000))),
+    seq(
+      time(new Date(now.getTime() - tuning.caBackdateMs)),
+      time(new Date(now.getTime() + (options.days ?? tuning.caLifetimeDays) * DAY_MS)),
+    ),
     subject,
     spki(publicKey),
     explicit(
@@ -157,15 +168,16 @@ export function createCertificateAuthority(options: {
 }
 
 /**
- * A leaf for `host` and the caller's `publicKey` (SPKI PEM), signed by the CA, valid from five
- * minutes ago for `minutes` minutes. The caller keeps the leaf's private key: only the
+ * A leaf for `host` and the caller's `publicKey` (SPKI PEM), signed by the CA, valid from
+ * `keys.leafBackdateMs` ago (Host tuning, five minutes) for `lifetimeMs` (default
+ * `keys.leafLifetimeMs`, an hour: one connection rarely lasts this long). The caller keeps the leaf's private key: only the
  * certificate comes back, so no private key leaves whoever holds it.
  */
 export function issueLeafCertificate(options: {
   readonly authority: CertificateAuthority;
   readonly host: string;
   readonly publicKey: string;
-  readonly minutes?: number;
+  readonly lifetimeMs?: number;
   readonly now?: Date;
 }): string {
   if (isIP(options.host) !== 0 || !/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(options.host))
@@ -176,13 +188,17 @@ export function issueLeafCertificate(options: {
   if (publicKey.asymmetricKeyType !== "ec" || publicKey.asymmetricKeyDetails?.namedCurve !== "prime256v1")
     throw new Error("A leaf key must be ECDSA P-256");
   const now = options.now ?? new Date();
+  const tuning = hostTuning().keys;
   const issuer = Buffer.from(ca.raw);
   const tbs = seq(
     explicit(0, integer(Buffer.from([2]))),
     serial(),
     seq(oid(OID.ecdsaWithSha256)),
     subjectOf(issuer),
-    seq(time(new Date(now.getTime() - 300_000)), time(new Date(now.getTime() + (options.minutes ?? 60) * 60_000))),
+    seq(
+      time(new Date(now.getTime() - tuning.leafBackdateMs)),
+      time(new Date(now.getTime() + (options.lifetimeMs ?? tuning.leafLifetimeMs))),
+    ),
     name({ commonName: options.host }),
     spki(publicKey),
     explicit(

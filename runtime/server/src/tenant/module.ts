@@ -1,6 +1,7 @@
 import type { HarnessStatus, HostTenant, TenantEnvelope } from "@nylorun/core/contracts";
 import { openError, TenantOpenError, type TenantCause } from "./cause.js";
 import { TimeoutError, withTimeout } from "./pool.js";
+import { hostTuning } from "../tuning.js";
 import {
   TenantUnavailableError,
   type Logger,
@@ -10,16 +11,14 @@ import {
   type TenantResolution,
 } from "./types.js";
 
-const OPEN_TIMEOUT_MS = 30_000;
-/** Retries of an open that failed outside the Tenant: from 1 s, doubling, at most 30 s apart. */
-const RETRY_FIRST_MS = 1_000;
-const RETRY_MAX_MS = 30_000;
-
 export interface CreateTenantModuleOptions {
   /** Opens the Host's Tenant (`store-pg.ts`). */
   open: TenantOpener;
   logger: Logger;
-  /** Bound on opening the Tenant; a slower open fails with `open-timeout`. */
+  /**
+   * Bound on opening the Tenant; a slower open fails with `open-timeout`. Default the Host
+   * tuning's `tenant.openTimeoutMs` (30 s).
+   */
   openTimeoutMs?: number;
   /**
    * Runs once the Tenant is open, at start or on a later retry: the Host starts what needs the
@@ -47,11 +46,15 @@ type State =
  * with backoff, and by the next request, which gets 503 meanwhile.
  */
 export function createTenantModule(options: CreateTenantModuleOptions): TenantModule {
-  const { logger, openTimeoutMs = OPEN_TIMEOUT_MS } = options;
+  const tuning = hostTuning().tenant;
+  const { logger, openTimeoutMs = tuning.openTimeoutMs } = options;
+  // Retries of an open that failed outside the Tenant: from `openRetry.minMs`, doubling, at most
+  // `openRetry.maxMs` apart.
+  const { minMs: firstRetryMs, maxMs: maxRetryMs } = tuning.openRetry;
   let state: State = { kind: "idle" };
   let opening: Promise<void> | undefined;
   let retry: NodeJS.Timeout | undefined;
-  let nextDelayMs = RETRY_FIRST_MS;
+  let nextDelayMs = firstRetryMs;
   const current = (): State => state;
 
   async function openOnce(): Promise<void> {
@@ -99,7 +102,7 @@ export function createTenantModule(options: CreateTenantModuleOptions): TenantMo
       return;
     }
     state = { kind: "open", handle };
-    nextDelayMs = RETRY_FIRST_MS;
+    nextDelayMs = firstRetryMs;
     logger.info("tenant opened", { tenantId: handle.envelope.id });
     try {
       await options.onOpen?.(handle);
@@ -126,7 +129,7 @@ export function createTenantModule(options: CreateTenantModuleOptions): TenantMo
   function scheduleRetry(): void {
     if (retry) return;
     const delayMs = nextDelayMs;
-    nextDelayMs = Math.min(delayMs * 2, RETRY_MAX_MS);
+    nextDelayMs = Math.min(delayMs * 2, maxRetryMs);
     retry = setTimeout(() => {
       retry = undefined;
       void load();

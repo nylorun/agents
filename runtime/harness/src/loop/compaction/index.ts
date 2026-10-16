@@ -19,19 +19,9 @@ import { HarnessError, isModelFailureOutcome, mediaReferenceOf } from "@nylorun/
 import { isText, modelInputOf } from "@nylorun/core/contracts";
 import type { ModelDescriptor } from "@nylorun/core/harness-api";
 import { fileView, mediaReferenceLine, type FileViewContext } from "../model/files.js";
+import { DEFAULT_COMPACTION_CONFIG, type CompactionConfig } from "./config.js";
 
-/** Characters per token for the heuristic estimate; the reserve absorbs its error. */
-const CHARS_PER_TOKEN = 4;
-/** The kept tail is at most this many tokens, and at most this share of the window. */
-const KEEP_TOKENS = 20_000;
-const KEEP_SHARE = 0.3;
-/** Room held back for the reply when the adapter does not report an output limit. */
-const DEFAULT_RESERVE = 8_192;
-const MAX_RESERVE = 16_384;
-/** Tool inputs and results are clipped to this many characters in the summarizer's input. */
-const CLIP = 2_000;
-/** Tokens the summary instructions, format and previous summary take in a summary call. */
-const SUMMARY_OVERHEAD = 1_024;
+export { DEFAULT_COMPACTION_CONFIG, compactionConfigOf, type CompactionConfig } from "./config.js";
 
 export interface ContextBudget {
   readonly contextWindow: number;
@@ -41,12 +31,16 @@ export interface ContextBudget {
 /**
  * The window and output limit the adapter reported on the latest candidate
  * (`evidence.extras.contextWindow`, `maxOutputTokens`). Before any answer reports them, the
- * turn's model descriptor's (`turn.start.model`); undefined without either.
+ * turn's model descriptor's (`turn.start.model`); undefined without either. The reserve is the
+ * output limit, held to `maxReserveTokens` and `maxReserveShare` of the window.
  */
 export function contextBudget(
   transcript: readonly TranscriptEntry[],
   model?: Pick<ModelDescriptor, "contextWindow" | "maxOutputTokens">,
+  config: CompactionConfig = DEFAULT_COMPACTION_CONFIG,
 ): ContextBudget | undefined {
+  const reserveOf = (output: number, window: number) =>
+    Math.min(output, config.maxReserveTokens, Math.floor(window * config.maxReserveShare));
   for (let index = transcript.length - 1; index >= 0; index--) {
     const entry = transcript[index]!;
     if (entry.kind !== "candidate") continue;
@@ -54,17 +48,16 @@ export function contextBudget(
     const window = extras?.contextWindow;
     if (typeof window !== "number" || window <= 0) continue;
     const output = extras?.maxOutputTokens;
-    const reserve = Math.min(
-      typeof output === "number" && output > 0 ? output : DEFAULT_RESERVE,
-      MAX_RESERVE,
-      Math.floor(window / 4),
+    const reserve = reserveOf(
+      typeof output === "number" && output > 0 ? output : config.reserveTokens,
+      window,
     );
     return { contextWindow: window, reserve };
   }
   if (!model) return undefined;
   return {
     contextWindow: model.contextWindow,
-    reserve: Math.min(model.maxOutputTokens, MAX_RESERVE, Math.floor(model.contextWindow / 4)),
+    reserve: reserveOf(model.maxOutputTokens, model.contextWindow),
   };
 }
 
@@ -79,8 +72,11 @@ export function estimateTokens(
   transcript: readonly TranscriptEntry[],
   turnId?: string,
   files?: FileViewContext,
+  config: CompactionConfig = DEFAULT_COMPACTION_CONFIG,
 ): number {
-  const live = (item: TranscriptEntry) => (item.turnId === turnId ? fileTokens(item, files) : 0);
+  const fileTokens = (item: TranscriptEntry) => filesTokens(item, files, config);
+  const tokens = (item: TranscriptEntry) => entryTokens(item, config);
+  const live = (item: TranscriptEntry) => (item.turnId === turnId ? fileTokens(item) : 0);
   for (let index = transcript.length - 1; index >= 0; index--) {
     const entry = transcript[index]!;
     if (entry.kind !== "candidate" || !entry.candidate.usage) continue;
@@ -97,36 +93,33 @@ export function estimateTokens(
         ? 0
         : transcript
             .slice(0, index)
-            .reduce(
-              (sum, item) => sum + (item.turnId === entry.turnId ? fileTokens(item, files) : 0),
-              0,
-            );
+            .reduce((sum, item) => sum + (item.turnId === entry.turnId ? fileTokens(item) : 0), 0);
     return Math.max(
       0,
       reported -
         dropped +
-        transcript.slice(index + 1).reduce((sum, item) => sum + entryTokens(item) + live(item), 0),
+        transcript.slice(index + 1).reduce((sum, item) => sum + tokens(item) + live(item), 0),
     );
   }
-  return transcript.reduce((sum, item) => sum + entryTokens(item) + live(item), 0);
+  return transcript.reduce((sum, item) => sum + tokens(item) + live(item), 0);
 }
-
-/** Tokens per image, and the most one other file counts for, in the estimate. */
-const IMAGE_TOKENS = 1_600;
-const FILE_TOKENS_MAX = 100_000;
 
 /**
  * A rough token count of the files an entry names, as the model gets them: a note counts
- * nothing (its line is text), inlined text by its size, an image a fixed count, another file by
- * its size up to a cap. Without `files`, each counts by its type.
+ * nothing (its line is text), inlined text by its size, an image `imageTokens`, another file by
+ * its size (`fileBytesPerToken`) up to `fileTokensMax`. Without `files`, each counts by its type.
  */
-function fileTokens(entry: TranscriptEntry, files: FileViewContext | undefined): number {
+function filesTokens(
+  entry: TranscriptEntry,
+  files: FileViewContext | undefined,
+  config: CompactionConfig,
+): number {
   return filesOf(entry).reduce((sum, { part }) => {
     const size = mediaReferenceOf(part.reference)?.size ?? 0;
     if (files && fileView(part, files.model, files.limits).kind === "note") return sum;
-    if (isText(part.mediaType)) return sum + Math.ceil(size / CHARS_PER_TOKEN);
-    if (modelInputOf(part.mediaType) === "image") return sum + IMAGE_TOKENS;
-    return sum + Math.min(Math.ceil(size / 8), FILE_TOKENS_MAX);
+    if (isText(part.mediaType)) return sum + Math.ceil(size / config.charsPerToken);
+    if (modelInputOf(part.mediaType) === "image") return sum + config.imageTokens;
+    return sum + Math.min(Math.ceil(size / config.fileBytesPerToken), config.fileTokensMax);
   }, 0);
 }
 
@@ -159,8 +152,11 @@ function filesOf(
 }
 
 /** A rough token count of what one entry contributes to a prompt. */
-export function entryTokens(entry: TranscriptEntry): number {
-  return Math.ceil(entryText(entry, Number.POSITIVE_INFINITY).length / CHARS_PER_TOKEN);
+export function entryTokens(
+  entry: TranscriptEntry,
+  config: CompactionConfig = DEFAULT_COMPACTION_CONFIG,
+): number {
+  return Math.ceil(entryText(entry, Number.POSITIVE_INFINITY).length / config.charsPerToken);
 }
 
 /**
@@ -168,12 +164,16 @@ export function entryTokens(entry: TranscriptEntry): number {
  * starts with tool results (their call stays with them), and never keeps the previous
  * summary. Returns 0 or 1 when there is nothing older to summarize.
  */
-export function findCut(transcript: readonly TranscriptEntry[], keepTokens: number): number {
+export function findCut(
+  transcript: readonly TranscriptEntry[],
+  keepTokens: number,
+  config: CompactionConfig = DEFAULT_COMPACTION_CONFIG,
+): number {
   const first = transcript[0]?.kind === "compaction" ? 1 : 0;
   let kept = 0;
   let cut = transcript.length;
   while (cut > first) {
-    const tokens = entryTokens(transcript[cut - 1]!);
+    const tokens = entryTokens(transcript[cut - 1]!, config);
     if (kept + tokens > keepTokens && cut < transcript.length) break;
     kept += tokens;
     cut--;
@@ -194,6 +194,8 @@ export interface CompactionInput {
   readonly files?: FileViewContext;
   readonly invoke: ModelAdapter;
   readonly signal: AbortSignal;
+  /** The harness's configuration of compaction. Default `DEFAULT_COMPACTION_CONFIG`. */
+  readonly config?: CompactionConfig;
 }
 
 /**
@@ -205,10 +207,14 @@ export async function compact(
   input: CompactionInput,
 ): Promise<readonly TranscriptEntry[] | undefined> {
   const { transcript } = input;
-  const tokensBefore = estimateTokens(transcript, input.turnId, input.files);
+  const config = input.config ?? DEFAULT_COMPACTION_CONFIG;
+  const tokensBefore = estimateTokens(transcript, input.turnId, input.files, config);
   const window = input.budget?.contextWindow ?? tokensBefore;
-  const keepTokens = Math.max(1, Math.min(KEEP_TOKENS, Math.floor(window * KEEP_SHARE)));
-  const cut = findCut(transcript, keepTokens);
+  const keepTokens = Math.max(
+    1,
+    Math.min(config.keepTokens, Math.floor(window * config.keepShare)),
+  );
+  const cut = findCut(transcript, keepTokens, config);
   const previous = transcript[0]?.kind === "compaction" ? transcript[0] : undefined;
   const start = previous ? 1 : 0;
   if (cut <= start) return undefined;
@@ -230,31 +236,40 @@ export async function compact(
         .flatMap((entry) => filesOf(entry).map(({ line }) => line)),
     ]),
   ];
-  const keptTokens = tail.reduce((sum, entry) => sum + entryTokens(entry), 0);
-  const reserve = input.budget?.reserve ?? DEFAULT_RESERVE;
-  const maxOutputTokens = Math.max(256, Math.floor(reserve * 0.8));
+  const keptTokens = tail.reduce((sum, entry) => sum + entryTokens(entry, config), 0);
+  const reserve = input.budget?.reserve ?? config.reserveTokens;
+  const maxOutputTokens = Math.max(
+    config.minSummaryTokens,
+    Math.floor(reserve * config.summaryShare),
+  );
   // The summarizer sees at most what fits its window: older history is summarized in
   // chunks, each merged into the running summary. A single call would fail on a provider,
   // or lose the start of the history on a server that truncates silently.
   const chunkTokens = input.budget
-    ? Math.max(1_000, input.budget.contextWindow - reserve - SUMMARY_OVERHEAD)
+    ? Math.max(
+        config.minChunkTokens,
+        input.budget.contextWindow - reserve - config.summaryOverheadTokens,
+      )
     : Number.POSITIVE_INFINITY;
-  const chunks = chunked(older, chunkTokens);
+  const chunks = chunked(older, chunkTokens, config);
   // A step can compact before its call and again after an overflow; each is its own effect.
   const base = `compaction-${input.stepId}${input.trigger === "overflow" ? "-overflow" : ""}`;
   let summary = previous?.summary;
   for (const [index, chunk] of chunks.entries()) {
-    const outcome = await input.invoke(summaryCall(input, chunk, summary, maxOutputTokens), {
-      request: summaryRequest(input),
-      invocationId: index === 0 ? base : `${base}-${index}`,
-      signal: input.signal,
-      compaction: {
-        trigger: input.trigger,
-        tokensBefore,
-        keptTokens,
+    const outcome = await input.invoke(
+      summaryCall(input, chunk, summary, maxOutputTokens, config.clipChars),
+      {
+        request: summaryRequest(input),
+        invocationId: index === 0 ? base : `${base}-${index}`,
+        signal: input.signal,
+        compaction: {
+          trigger: input.trigger,
+          tokensBefore,
+          keptTokens,
+        },
+        reportPreparedCall() {},
       },
-      reportPreparedCall() {},
-    });
+    );
     if (isModelFailureOutcome(outcome))
       throw new HarnessError(
         `model.${outcome.code}`,
@@ -279,7 +294,7 @@ export async function compact(
     summary,
     trigger: input.trigger,
     tokensBefore,
-    tokensAfter: keptTokens + Math.ceil(summary.length / CHARS_PER_TOKEN),
+    tokensAfter: keptTokens + Math.ceil(summary.length / config.charsPerToken),
     ...(files.length > 0 ? { files } : {}),
   };
   return Object.freeze([Object.freeze(entry), ...tail]);
@@ -318,12 +333,13 @@ const FORMAT = [
 function chunked(
   entries: readonly TranscriptEntry[],
   limit: number,
+  config: CompactionConfig,
 ): readonly (readonly TranscriptEntry[])[] {
   const chunks: TranscriptEntry[][] = [];
   let current: TranscriptEntry[] = [];
   let size = 0;
   for (const entry of entries) {
-    const tokens = Math.ceil(entryText(entry, CLIP).length / CHARS_PER_TOKEN);
+    const tokens = Math.ceil(entryText(entry, config.clipChars).length / config.charsPerToken);
     if (current.length && size + tokens > limit) {
       chunks.push(current);
       current = [];
@@ -341,9 +357,10 @@ function summaryCall(
   older: readonly TranscriptEntry[],
   previous: string | undefined,
   maxOutputTokens: number,
+  clip: number,
 ): ModelCall {
   const conversation = older
-    .map((entry) => entryText(entry, CLIP))
+    .map((entry) => entryText(entry, clip))
     .filter((text) => text !== "")
     .join("\n\n");
   const text = [

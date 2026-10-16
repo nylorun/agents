@@ -14,6 +14,9 @@ import {
 import type { ExecutionEvent } from "../src/types/execution.js";
 import { engineToolsFor } from "../src/tools/engine-tools.js";
 import { DEFAULT_SANDBOX_TOOL_LIMITS } from "../src/tools/sandbox.js";
+import { execute } from "../src/loop/run.js";
+import { loopConfigOf } from "../src/loop/config.js";
+import { definitionFromBinding } from "../src/definition/agent-definition.js";
 
 type Text = { readonly type: string; readonly text?: string };
 const text = (content: readonly Text[]) => content.map((part) => part.text ?? "").join("");
@@ -148,6 +151,27 @@ describe("agents used as tools, in process", () => {
     expect(decode(b.text)).toContain(
       "Partial output (evidence, not an answer):\nnot json, just my notes",
     );
+  });
+
+  it("shows the parent as much of a failed child's output as the loop's settings say", async () => {
+    const parent = agents({ childOutput: z.object({ summary: z.string() }) });
+    const adapter: ModelAdapter = async (call) => {
+      const done = results(call);
+      if (isChild(call)) return "not json, just my notes";
+      if (!done.length)
+        return {
+          output: [{ type: "tool-call", id: "d1", name: "researcher", args: { task: "A" } }],
+        };
+      return JSON.stringify(done);
+    };
+    const result = await execute(
+      definitionFromBinding(bindingFromAgent(parent).authoring!),
+      { input: "x", onModelCall: adapter },
+      { loop: loopConfigOf({ partialOutputChars: 7 }) },
+    );
+    if (result.status !== "completed") throw new Error(result.status);
+    const [a] = JSON.parse(result.output as string);
+    expect(decode(a.text)).toMatch(/Partial output \(evidence, not an answer\):\nnot jso…$/);
   });
 
   it("gives a child the parent's model and files, so it reads its tools' files the same way (protocol 15)", async () => {
