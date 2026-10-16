@@ -22,8 +22,9 @@
 
 ARG NODE_IMAGE=node:24-bookworm-slim
 
-# Every workspace manifest, so `npm ci` sees the lockfile's workspace layout.
-FROM ${NODE_IMAGE} AS manifests
+# Every workspace manifest, so `npm ci` sees the lockfile's workspace layout. Files
+# only, so both the build and the target's deps can start from them.
+FROM scratch AS manifests
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY core/package.json core/
@@ -36,7 +37,11 @@ COPY cli/nylorun/package.json cli/nylorun/
 COPY cli/legacy/package.json cli/legacy/
 COPY cli/create-agent/package.json cli/create-agent/
 
-FROM manifests AS build
+# The build runs on the builder's own platform: it emits only JavaScript (dist), and
+# the deps stage installs node_modules, native addons included, for the target.
+FROM --platform=$BUILDPLATFORM ${NODE_IMAGE} AS build
+WORKDIR /app
+COPY --from=manifests /app ./
 RUN --mount=type=cache,target=/root/.npm \
     npm ci --ignore-scripts --no-audit --no-fund \
       --workspace core --workspace runtime/harness --workspace runtime/server
@@ -57,7 +62,9 @@ RUN npm run build --workspace core \
 # Install scripts run here: optional native addons (zstd, lzma for the virtual
 # shell) fetch prebuilt binaries. When one cannot, npm drops that optional
 # dependency and the shell reports the format as unsupported.
-FROM manifests AS deps
+FROM ${NODE_IMAGE} AS deps
+WORKDIR /app
+COPY --from=manifests /app ./
 RUN --mount=type=cache,target=/root/.npm \
     npm ci --omit=dev --no-audit --no-fund \
       --workspace core --workspace runtime/harness --workspace runtime/server
