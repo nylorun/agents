@@ -9818,6 +9818,22 @@
               "agentId": {
                 "type": "string"
               },
+              "manifest": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "version": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "name",
+                  "version"
+                ],
+                "additionalProperties": {}
+              },
               "totals": {
                 "type": "object",
                 "properties": {
@@ -10281,6 +10297,22 @@
               "agentId": {
                 "type": "string"
               },
+              "manifest": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "version": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "name",
+                  "version"
+                ],
+                "additionalProperties": {}
+              },
               "totals": {
                 "type": "object",
                 "properties": {
@@ -10502,6 +10534,22 @@
               },
               "agentId": {
                 "type": "string"
+              },
+              "manifest": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "version": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "name",
+                  "version"
+                ],
+                "additionalProperties": {}
               },
               "totals": {
                 "type": "object",

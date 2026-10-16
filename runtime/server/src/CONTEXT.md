@@ -793,9 +793,9 @@ _Avoid_: computing a span from `effects` timestamps or event times.
 **Trace**: One turn as an OpenTelemetry trace (track R7, Host feature `traces`), a projection of
 the session log like SSE and AG-UI: one committed row maps to at most one span (`traces/map.ts`,
 `spanOf`), and nothing is instrumented outside the log. The turn's end is the root span
-`invoke_agent {agentId}`; each span-ready row of a model call (`chat`), tool call or flow stage
+`invoke_agent {name}`, named for the agent manifest the session runs (`gen_ai.agent.name`; `gen_ai.agent.id` is its Agent); each span-ready row of a model call (`chat`), tool call or flow stage
 (`execute_tool`) is its child, with gate times when a gate measured the crossing (egress
-connections are the Environment's, as `environment.egress` events, and in no trace, D67); pauses and answers are markers. A turn whose `command.message` carried a
+connections are the Agent's, as `agent.egress` events, and in no trace, D67); pauses and answers are markers. A turn whose `command.message` carried a
 `traceparent` (R7.4, recorded as `trace`) is in the caller's trace, its root a child of the
 caller's span. Content is left out unless the installation opts in per kind
 (`NYLORUN_TRACE_CONTENT`). `GET /v1/sessions/{id}/turns/{turnId}/trace` answers a turn's spans

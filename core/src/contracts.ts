@@ -2770,6 +2770,8 @@ const turnEndFacts = {
   pausedMs: z.number().int().nonnegative().optional(),
   /** The session's Agent. */
   agentId: z.string().optional(),
+  /** The agent manifest version the session runs (protocol 16): the agent the turn's span names. */
+  manifest: z.object({ name: z.string(), version: z.number().int() }).passthrough().optional(),
   totals: z
     .object({
       steps: z.number().int().nonnegative(),
