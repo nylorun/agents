@@ -117,11 +117,11 @@ it("refuses a turn of a session whose Agent was made again with another harness"
   await acmeAgent(runtime);
   await openSession(runtime, "s-other", true);
   expect((await openOn(runtime, "s-acme", "env-acme")).status).toBe(200);
-  // An Agent never changes what it runs: another manifest is refused...
+  // An Agent's manifest and harness are fixed for its life: another manifest is refused...
   await deployCustom(runtime.url, server, plain, { id: "env-next", harness: "acme-next", name: "acme-next" });
   const changed = await call(runtime, "PUT", "/v1/agents/env-acme", { manifest: "acme-next" });
   expect(changed.status).toBe(409);
-  expect(changed.body).toMatchObject({ code: "agent_upgrade_unavailable" });
+  expect(changed.body).toMatchObject({ code: "agent_fixed_field" });
   // ...but the id can name a new one, made from a manifest with another harness.
   const deleted = await call(runtime, "DELETE", "/v1/agents/env-acme");
   expect(deleted.status, JSON.stringify(deleted.body)).toBe(200);

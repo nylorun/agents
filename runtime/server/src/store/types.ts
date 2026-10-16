@@ -232,6 +232,26 @@ export interface Environment {
   desiredState: "on" | "off";
   /** The Agent it was forked from and the disk version it started from (Q15). */
   forkedFrom?: { agent: string; disk: number | null };
+  /**
+   * The manifest version it moves to while it is outdated (track T3, D73): it waits for its
+   * required secrets or its pod's next start. Absent when it runs the version it should.
+   */
+  targetVersion?: number;
+  /** A version that failed to start (T3): a tracking Agent does not move to it again on its own. */
+  failedVersion?: number;
+  /** While a pod starts on a new version (T3): what it ran before, which a failed start reverts to. */
+  startCheck?: AgentStartCheck;
+}
+
+/** What a pod Agent ran before it started on a new version (track T3), and since when it starts. */
+export interface AgentStartCheck {
+  from: {
+    manifestVersion: number;
+    manifestHash: string;
+    applied: EnvironmentRecipe;
+    imageDigest?: string;
+  };
+  startedAt: string;
 }
 
 /** A pending seed of an Environment's disk (`disk_seed`). */
@@ -717,8 +737,8 @@ export interface Tx {
   createEnvironment(row: Environment, limit: number): Promise<"created" | "exists" | "limit">;
   /**
    * Changes an Environment's columns other than its pod's (the caller holds the row's lock):
-   * labels, recipe and version, the applied recipe and its version, the owner guard (`null`
-   * clears it), and when it was last used.
+   * labels, recipe and version, the applied recipe and its version, the manifest version it runs
+   * and how it names it (track T3), the owner guard (`null` clears it), and when it was last used.
    */
   updateEnvironment(
     id: string,
@@ -728,6 +748,12 @@ export interface Tx {
       version?: number;
       applied?: EnvironmentRecipe;
       appliedVersion?: number;
+      manifestVersion?: number;
+      manifestHash?: string;
+      manifestRef?: "tracking" | "pinned";
+      targetVersion?: number | null;
+      failedVersion?: number | null;
+      startCheck?: AgentStartCheck | null;
       ownerUserId?: string | null;
       lastUsedAt?: string;
       diskOp?: DiskOperation | null;

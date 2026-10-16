@@ -318,37 +318,36 @@ describe("pod Agents", { timeout: 90_000 }, () => {
     await until("pod gone", async () => fake.podUid(other), (uid) => uid === undefined);
   });
 
-  it("never changes what a pod runs: a stop and the next start keep it", async () => {
+  it("moves a pod at its next start, on the same volume; its kind and storage are fixed", async () => {
     const { name } = await createPod("recipe/one", { storage: "5GiB" });
     await joinAs("recipe/one", name);
     // Another manifest is refused, naming the fork.
     await saveManifest(runtime.url, headers, manifestOf(bot, { name: "recipe-virtual", runtime: { kind: "virtual" } }));
     const other = await call("PUT", path("recipe/one"), { manifest: "recipe-virtual" });
     expect(other.status).toBe(409);
-    expect(other.body).toMatchObject({ code: "agent_upgrade_unavailable", details: { manifest: "recipe-one@1" } });
+    expect(other.body).toMatchObject({ code: "agent_fixed_field", details: { fields: [{ field: "manifest" }] } });
     expect(other.body.message).toContain("/fork");
     // The Tenant's limits.idle (2s) is the most a manifest may ask for: refused at save.
     expect((await save("recipe-one", { kind: "pod", storage: "5GiB", lifecycle: { idle: "1h" } })).status).toBe(400);
-    // A newer version (storage, network and image are what it runs) leaves the Agent on its own.
-    const newer = await save("recipe-one", {
-      kind: "pod",
-      storage: "10GiB",
-      image: "node:24-slim",
-      network: { allowedHosts: ["pypi.org"] },
-    });
+    // A version with other storage cannot move it: the tracking Agent stays on version 1.
+    const newer = await save("recipe-one", { kind: "pod", storage: "10GiB" });
     expect(newer.status, JSON.stringify(newer.body)).toBe(200);
+    expect(newer.body.warnings.map((warning: { code: string }) => warning.code)).toContain("agents_behind");
+    expect(await view("recipe/one")).toMatchObject({ resolvedVersion: 1, targetVersion: null, runtime: { storage: "5GiB" } });
+    const plan = await call("PUT", `${path("recipe/one")}?dryRun=true`, { manifest: "recipe-one@2" });
+    expect(plan.body).toMatchObject({ dryRun: true, plan: { from: 1, to: 2, applies: "refused", refusals: [{ field: "storage", from: "5GiB", to: "10GiB" }] } });
     const pinned = await call("PUT", path("recipe/one"), { manifest: "recipe-one@2" });
     expect(pinned.status).toBe(409);
-    expect(pinned.body).toMatchObject({ code: "agent_upgrade_unavailable", details: { manifest: "recipe-one@1", asked: "recipe-one@2" } });
-    expect((await call("PUT", path("recipe/one"), { manifest: "recipe-one" })).body).toMatchObject({
-      resolvedVersion: 1,
-      runtime: { storage: "5GiB" },
-    });
+    expect(pinned.body).toMatchObject({ code: "agent_fixed_field", details: { fields: [{ field: "storage" }] } });
+    // A new image waits for the pod's next start: the Agent is outdated meanwhile.
+    const image = await save("recipe-one", { kind: "pod", storage: "5GiB", image: "node:24-slim", network: { allowedHosts: ["pypi.org"] } });
+    expect(image.body.warnings.find((warning: { code: string }) => warning.code === "agents_move")?.message).toContain("1 at their pod's next start");
+    expect(await view("recipe/one")).toMatchObject({ resolvedVersion: 1, targetVersion: 3, waitingFor: "start", runtime: { storage: "5GiB" } });
+    expect((await call("GET", "/v1/agents?outdated=true")).body.agents.map((agent: { id: string }) => agent.id)).toEqual(["recipe/one"]);
     const before = fake.calls.filter((item) => item.method === "PUT" && item.name === name).length;
-    const image = fake.calls.filter((item) => item.method === "PUT" && item.name === name).at(-1)?.spec?.image;
     expect((await call("POST", `${path("recipe/one")}/stop`)).status).toBe(200);
     await until("suspended", () => view("recipe/one"), (body) => body.compute.pod.observed === "suspended");
-    // The next turn start runs it again, as it was.
+    // The next turn start applies it: the same pod name (same volume), the new image.
     expect((await open("recipe-s1", "recipe/one")).status).toBe(200);
     expect((await message("recipe-s1")).status).toBe(200);
     await until(
@@ -357,8 +356,14 @@ describe("pod Agents", { timeout: 90_000 }, () => {
       (calls) => calls.some((item) => item.spec?.mode === "Running"),
     );
     const running = fake.calls.filter((item) => item.method === "PUT" && item.name === name).slice(before);
-    expect(running.filter((item) => item.spec?.mode === "Running").every((item) => item.spec?.image === image)).toBe(true);
-    expect(await view("recipe/one")).toMatchObject({ resolvedVersion: 1, runtime: { storage: "5GiB" } });
+    expect(running.filter((item) => item.spec?.mode === "Running").every((item) => item.spec?.image === "node:24-slim")).toBe(true);
+    expect(await view("recipe/one")).toMatchObject({
+      resolvedVersion: 3,
+      targetVersion: null,
+      waitingFor: null,
+      runtime: { storage: "5GiB", image: "node:24-slim", network: { allowedHosts: ["pypi.org"] } },
+    });
+    expect(await events("recipe/one")).toEqual(expect.arrayContaining(["agent.outdated", "agent.version_changed"]));
     await call("POST", "/v1/sessions/recipe-s1/commands", { type: "cancel", requestId: "c-recipe", idempotencyKey: "c-recipe" });
     await settled("recipe-s1");
   });

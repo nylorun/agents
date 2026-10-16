@@ -116,7 +116,8 @@ describe("saving", () => {
       harness: { ...next.harness, instructions: ["Work harder."] },
     });
     expect(plan.status, JSON.stringify(plan.body)).toBe(200);
-    expect(plan.body).toMatchObject({ name: "planned", from: 1, to: 2, unchanged: false, errors: [], behind: 1 });
+    // A tracking Agent of kind virtual cannot move to kind pod (a fixed field): it stays behind.
+    expect(plan.body).toMatchObject({ name: "planned", from: 1, to: 2, unchanged: false, errors: [], behind: 1, moves: { now: 0, nextStart: 0, secrets: 0 } });
     expect(plan.body.changes.map((change: { section: string; path: string; op: string }) => `${change.section} ${change.path} ${change.op}`)).toEqual([
       "harness instructions replace",
       "runtime image add",
@@ -124,7 +125,7 @@ describe("saving", () => {
       "runtime network.allowedHosts replace",
     ]);
     expect(plan.body.warnings.map((warning: { code: string }) => warning.code)).toEqual(["image_tag", "pods_unavailable", "agents_behind"]);
-    expect(plan.body.warnings.at(-1).message).toContain("1 Agent was made from planned@1");
+    expect(plan.body.warnings.at(-1).message).toContain("1 Agent stays on an older version of planned");
     // Nothing was saved.
     expect((await call("GET", manifests("planned"))).body.version).toBe(1);
     const tooBig = box("planned", { resources: { cpus: 64 } });
@@ -198,7 +199,7 @@ describe("the checks between the sections", () => {
 });
 
 describe("Agents made from a manifest", () => {
-  it("resolves the version once: a later save changes nothing in it, and another manifest is refused", async () => {
+  it("moves a tracking Agent on each save, keeps a pinned one, and refuses another manifest", async () => {
     await call("PUT", manifests("pinned"), box("pinned", { lifecycle: { idle: "5m" } }));
     const made = await call("PUT", agents("pinned/one"), { manifest: "pinned", labels: { team: "a" }, owner: "app:ada" });
     expect(made.status, JSON.stringify(made.body)).toBe(200);
@@ -219,22 +220,32 @@ describe("Agents made from a manifest", () => {
       sessions: [],
       forkedFrom: null,
     });
-    expect((await call("PUT", manifests("pinned"), box("pinned", { lifecycle: { idle: "10m" } }))).body.manifest.version).toBe(2);
-    // The Agent keeps version 1; a bare name still matches it, and labels still change.
-    const again = await call("PUT", agents("pinned/one"), { manifest: "pinned", labels: { team: "b" } });
+    // Pinned to version 1 by name@n: the next save leaves it there.
+    expect((await call("PUT", agents("pinned/one"), { manifest: "pinned@1" })).body).toMatchObject({ resolvedVersion: 1, tracking: "pinned" });
+    const saved = await call("PUT", manifests("pinned"), box("pinned", { lifecycle: { idle: "10m" } }));
+    expect(saved.body.manifest.version).toBe(2);
+    expect(saved.body.warnings.map((warning: { code: string }) => warning.code)).toEqual(["agents_behind"]);
+    const again = await call("PUT", agents("pinned/one"), { manifest: "pinned@1", labels: { team: "b" } });
     expect(again.body).toMatchObject({ resolvedVersion: 1, runtime: { lifecycle: { idle: "5m" } }, labels: { team: "b" } });
-    const moved = await call("PUT", agents("pinned/one"), { manifest: "pinned@2" });
-    expect(moved.status).toBe(409);
-    expect(moved.body).toMatchObject({ code: "agent_upgrade_unavailable", details: { manifest: "pinned@1", asked: "pinned@2" } });
-    expect((await call("PUT", agents("pinned/one"), { manifest: "box" })).body.code).toBe("agent_upgrade_unavailable");
+    // A bare name tracks: it moves to the latest at once (kind virtual), and with each save after.
+    const tracked = await call("PUT", agents("pinned/one"), { manifest: "pinned" });
+    expect(tracked.body).toMatchObject({ resolvedVersion: 2, tracking: "tracking", targetVersion: null, runtime: { lifecycle: { idle: "10m" } } });
+    const third = await call("PUT", manifests("pinned"), box("pinned", { lifecycle: { idle: "15m" } }));
+    expect(third.body.warnings).toEqual([{ code: "agents_move", message: expect.stringContaining("1 at once") }]);
+    expect((await call("GET", agents("pinned/one"))).body).toMatchObject({ resolvedVersion: 3, runtime: { lifecycle: { idle: "15m" } } });
+    // Back to version 1, pinned, and another manifest is fixed for its life.
+    expect((await call("PUT", agents("pinned/one"), { manifest: "pinned@1" })).body).toMatchObject({ resolvedVersion: 1, tracking: "pinned" });
+    const other = await call("PUT", agents("pinned/one"), { manifest: "box" });
+    expect(other.status).toBe(409);
+    expect(other.body).toMatchObject({ code: "agent_fixed_field", details: { fields: [{ field: "manifest", from: "pinned", to: "box" }] } });
     // A new Agent takes the latest, or the version it names, and says which.
-    expect((await call("PUT", agents("pinned/two"), { manifest: "pinned" })).body.resolvedVersion).toBe(2);
+    expect((await call("PUT", agents("pinned/two"), { manifest: "pinned" })).body.resolvedVersion).toBe(3);
     expect((await call("PUT", agents("pinned/three"), { manifest: "pinned@1" })).body).toMatchObject({
       manifest: "pinned@1",
       resolvedVersion: 1,
       tracking: "pinned",
     });
-    expect((await call("GET", manifests("pinned", "/versions"))).body.versions.map((v: { agents: number }) => v.agents)).toEqual([1, 2]);
+    expect((await call("GET", manifests("pinned", "/versions"))).body.versions.map((v: { agents: number }) => v.agents)).toEqual([1, 0, 2]);
     // The created event names it.
     const events = await call("GET", `${agents("pinned/one")}/events`);
     expect(events.body.events[0]).toMatchObject({
@@ -243,7 +254,14 @@ describe("Agents made from a manifest", () => {
       payload: { manifest: { name: "pinned", version: 1, tracking: "tracking" } },
     });
     // A session pins the version its Agent runs; no session was opened by making the Agent.
-    expect((await open("pinned-s1", "pinned/two")).body).toMatchObject({ agentId: "pinned/two", manifest: { name: "pinned", version: 2 } });
+    expect((await open("pinned-s1", "pinned/two")).body).toMatchObject({ agentId: "pinned/two", manifest: { name: "pinned", version: 3 } });
+    // Each move is on the Agent's stream.
+    const moves = (await call("GET", `${agents("pinned/one")}/events?types=agent.version_changed`)).body.events;
+    expect(moves.map((event: { payload: unknown }) => event.payload)).toEqual([
+      { from: 1, to: 2 },
+      { from: 2, to: 3 },
+      { from: 3, to: 1 },
+    ]);
   });
 
   it("refuses a missing manifest, a bad reference and inline fields", async () => {

@@ -4,11 +4,12 @@
  * checks every turn start makes on it.
  *
  * - **The instance of a manifest.** An Agent is made from one version of a saved agent manifest
- *   (`manifest: "name"`, tracking, or `"name@n"`, pinned; `agent-manifests.ts`) and keeps that
- *   version (`resolvedVersion`): a `PUT` on an existing id may change its labels and owner guard,
- *   a `manifest` naming what it runs is accepted (so get-or-create stays one call), and any other
- *   is `409 agent_upgrade_unavailable` until track T3 ships upgrades; a fork makes a new Agent on
- *   another version meanwhile. Its kind is its manifest's `runtime.kind` (`none` without a
+ *   (`manifest: "name"`, tracking, or `"name@n"`, pinned; `agent-manifests.ts`) and runs one
+ *   version of it at a time (`resolvedVersion`). A `PUT` on an existing id may change its labels
+ *   and owner guard, and moves it to the version its `manifest` names (track T3,
+ *   `agent-versions.ts`; `?dryRun=true` answers the plan); a save moves every Agent that tracks
+ *   the manifest. Its manifest's name, kind, harness and storage are fixed for its life: a fork
+ *   makes a new Agent to change them. Its kind is its manifest's `runtime.kind` (`none` without a
  *   runtime section).
  * - **No scope, no main session** (D70, D71). The Runtime decides nothing about who uses an
  *   Agent or which sessions it has: the app opens sessions on it with ids it picks, and deleting
@@ -52,6 +53,7 @@ import {
   PutAgentSecretValueRequestSchema,
   type AgentAttention,
   type AgentForkPlan,
+  type AgentMovePlan,
   type AgentState,
   type EnvironmentKind,
   type EnvironmentRecipe,
@@ -75,6 +77,8 @@ import { requirePods } from "../sandbox/placement.js";
 import type { SandboxRouteDeps } from "../core/sandbox-routes.js";
 import { deleteDiskArtifact, forkSeedOf, runPendingSeed, snapshotEnvironment } from "../artifacts/disk.js";
 import { manifestChanges, manifestRecipeRequest } from "./agent-manifests.js";
+import { idleMsOf, moveAgent, planMove, resumeMove, switchTo, waitingFor, type Move } from "./agent-versions.js";
+import { slotHolds } from "../vault/service.js";
 import {
   labelIssues,
   limitIssues,
@@ -143,18 +147,26 @@ const STATE_RANK: readonly AgentState[] = ["paused", "failing", "input_required"
 /**
  * An Agent's state (protocol 16), from its desired state, its compute and its sessions, and
  * every state that holds with the session behind it (`attention`), highest first. A session waits
- * on a person while it is paused (an approval or an interaction) or uncertain; its last turn
+ * on a person while it is paused (an approval or an interaction) or uncertain, and the Agent while
+ * a move waits for its required secrets (track T3); a session's last turn
  * failed while it is `failed`; a turn runs while it is `running`, `runnable` or `waiting`.
  */
 export function stateOf(
-  agent: Pick<Environment, "desiredState" | "pod">,
+  agent: Pick<Environment, "desiredState" | "pod"> &
+    Partial<Pick<Environment, "targetVersion" | "appliedVersion" | "version" | "failedVersion">>,
   sessions: readonly Pick<Session, "id" | "status">[],
 ): { state: AgentState; attention: AgentAttention[] } {
   const attention: AgentAttention[] = [];
   if (agent.desiredState === "off") attention.push({ state: "paused", reason: "desired off" });
+  // A move that waits for a person to set its required secrets (track T3).
+  if (agent.targetVersion !== undefined && agent.appliedVersion === agent.version)
+    attention.push({ state: "input_required", reason: `secret_required: version ${agent.targetVersion} waits for its required secrets` });
   const pod = agent.pod;
   if (pod && (pod.observed === "failed" || pod.observed === "lost") && pod.desired !== "deleted")
     attention.push({ state: "failing", reason: `compute ${pod.observed}${pod.reason ? `: ${pod.reason}` : ""}` });
+  // A start on a new version failed and went back (track T3): until a start on a new one succeeds.
+  if (agent.failedVersion !== undefined)
+    attention.push({ state: "failing", reason: `start_failed: version ${agent.failedVersion} did not start` });
   for (const session of sessions) {
     const status = String(session.status);
     const state: AgentState | undefined =
@@ -199,8 +211,14 @@ async function viewOf(
     resolvedVersion: environment.manifestVersion,
     manifestHash: environment.manifestHash,
     tracking: environment.manifestRef,
+    targetVersion: environment.targetVersion ?? null,
+    waitingFor: waitingFor(environment),
+    failedVersion: environment.failedVersion ?? null,
+    startCheck: environment.startCheck
+      ? { from: environment.startCheck.from.manifestVersion, startedAt: environment.startCheck.startedAt }
+      : null,
     kind: environment.kind,
-    harness: environment.recipe.harness,
+    harness: environment.applied.harness,
     owner: environment.ownerUserId ?? null,
     labels: environment.labels,
     state,
@@ -221,7 +239,7 @@ async function viewOf(
           }
         : {}),
     },
-    runtime: environment.recipe,
+    runtime: environment.applied,
     limits: limitsInForce(await readTenantLimits(t), environment.applied.limits),
     sessions: visible.map((session) => ({
       id: session.id,
@@ -251,15 +269,32 @@ async function viewOf(
   };
 }
 
-/** Each secret slot `environment` declares, and whether its vault holds a value for it. */
+/**
+ * The secret slots a secret write fills (D64): the version `environment` moves to while it is
+ * outdated (track T3), so its new slots can be set before it applies, else the one it runs.
+ */
+async function slotsAhead(t: Tx, environment: Environment): Promise<EnvironmentRecipe["secrets"]> {
+  if (environment.targetVersion === undefined) return environment.applied.secrets;
+  // Waiting for its pod's start, `recipe` is the target's runtime.
+  if (environment.appliedVersion !== environment.version) return environment.recipe.secrets;
+  const target = await t.agentManifest(environment.manifestName, environment.targetVersion);
+  return target ? runtimeOf(target.body).secrets : environment.applied.secrets;
+}
+
+/** Each secret slot `environment` declares (`slotsAhead`), and whether its vault holds a value that fills it. */
 async function slotsOf(t: Tx, environment: Environment): Promise<AgentView["slots"] | undefined> {
-  const declared = environment.recipe.secrets;
+  const declared = await slotsAhead(t, environment);
   if (declared === undefined) return undefined;
   const vault = await t.vaultOfEnvironment(environment.id);
-  const held = new Set(vault ? (await t.credentialsForVault(vault.id)).map((row) => row.name) : []);
+  const rows = vault ? await t.credentialsForVault(vault.id) : [];
   return Object.entries(declared)
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([name, slot]) => ({ name, type: slot.type, required: slot.required ?? false, set: held.has(name) }));
+    .map(([name, slot]) => ({
+      name,
+      type: slot.type,
+      required: slot.required ?? false,
+      set: rows.some((row) => row.name === name && slotHolds(slot, row)),
+    }));
 }
 
 /**
@@ -336,7 +371,8 @@ async function wantRunning(t: Tx, environment: PodEnvironment, now: string): Pro
     );
     return;
   }
-  if (environment.appliedVersion !== environment.version)
+  // A move whose runtime waits for this start switches now (track T3).
+  if (!(await switchTo(t, environment, now)) && environment.appliedVersion !== environment.version)
     await t.updateEnvironment(
       environment.id,
       { applied: environment.recipe, appliedVersion: environment.version },
@@ -359,9 +395,10 @@ async function wantRunning(t: Tx, environment: PodEnvironment, now: string): Pro
 /**
  * `PUT /v1/agents/{id}`: creates the Agent and its vault (within the Tenant's limit on their
  * number) from a saved agent manifest's version, or finds the one with this id, so "get or
- * create" is one call. An existing one never changes what it runs: its labels and owner guard
- * may change, a `manifest` that names what it runs is accepted, and any other is
- * `409 agent_upgrade_unavailable` (track T3). Every `PUT` counts as the Agent's use.
+ * create" is one call. On an existing one, its labels and owner guard may change, and `manifest`
+ * moves it to the version it names (track T3, `moveAgent`): `name` tracks the latest (unless that
+ * failed to start), `name@n` pins `n`. Another manifest name is `409 agent_fixed_field`. Every
+ * `PUT` counts as the Agent's use.
  */
 export async function putAgent(
   ctx: TenantContext,
@@ -391,17 +428,11 @@ export async function putAgent(
     const found = async (existing: Environment): Promise<AgentView> => {
       if (fork !== undefined) fail(409, `Agent ${id} exists: a fork makes a new Agent, so name another id.`);
       if (body.from !== undefined) fail(409, `Agent ${id} exists: from applies only when a PUT creates one.`);
-      // A bare name matches the manifest it was made from, whatever its latest version is now.
-      if (ref.name !== existing.manifestName || (ref.version !== undefined && ref.version !== existing.manifestVersion))
-        fail(
-          409,
-          `Agent ${id} runs ${existing.manifestName}@${existing.manifestVersion}, and moving an Agent to another manifest version is not available yet (track T3): fork it into a new Agent with POST /v1/agents/${encodeURIComponent(id)}/fork, or use another id.`,
-          {
-            code: "agent_upgrade_unavailable",
-            details: { manifest: `${existing.manifestName}@${existing.manifestVersion}`, asked: body.manifest },
-          },
-        );
       checkGuard(scope, body.owner, existing.ownerUserId);
+      const move = await moveOf(t, existing, ref);
+      // A tracking Agent named as it is made (get-or-create) stays where it can move to.
+      const stays = move.plan.applies === "refused" && ref.version === undefined && existing.manifestRef === "tracking";
+      if (!stays) await moveAgent(t, existing, move, now);
       const patch: Parameters<Tx["updateEnvironment"]>[1] = { lastUsedAt: now };
       if (body.labels !== undefined && canonical(body.labels) !== canonical(existing.labels)) patch.labels = body.labels;
       if (body.owner !== undefined && (body.owner ?? undefined) !== existing.ownerUserId) patch.ownerUserId = body.owner;
@@ -528,6 +559,64 @@ export async function putAgent(
 }
 
 /**
+ * The move a `PUT` naming `ref` asks of existing Agent `agent` (track T3): to version `n` for
+ * `name@n` (pinned), else to the latest version (tracking), unless that one failed to start, when
+ * it stays on what it runs. Another manifest name is `409 agent_fixed_field`.
+ */
+async function moveOf(t: Tx, agent: Environment, ref: { name: string; version?: number }): Promise<Move> {
+  if (ref.name !== agent.manifestName)
+    fail(
+      409,
+      `Agent ${agent.id} runs agent manifest ${agent.manifestName}, which is fixed for its life: fork it into a new Agent made from ${ref.name} with POST /v1/agents/${encodeURIComponent(agent.id)}/fork.`,
+      { code: "agent_fixed_field", details: { fields: [{ field: "manifest", from: agent.manifestName, to: ref.name }] } },
+    );
+  const missing = (): never =>
+    fail(404, `Agent manifest ${ref.name} has no version ${ref.version}.`, { code: "manifest_not_found" });
+  let target = (await t.agentManifest(ref.name, ref.version)) ?? missing();
+  if (ref.version === undefined && target.version === agent.failedVersion)
+    target = (await t.agentManifest(ref.name, agent.manifestVersion)) ?? target;
+  return planMove(t, agent, target, ref.version === undefined ? "tracking" : "pinned");
+}
+
+/**
+ * `PUT /v1/agents/{id}?dryRun=true` (track T3): what moving existing Agent `id` to the version
+ * `body.manifest` names would do (`AgentMovePlan`), with nothing changed.
+ */
+export async function planAgentPut(
+  ctx: TenantContext,
+  id: string,
+  body: PutAgentRequest,
+  scope: AuthScope,
+): Promise<{ dryRun: true; plan: AgentMovePlan }> {
+  reachable(agentGrantsOf(scope), id);
+  const ref =
+    parseAgentManifestRef(body.manifest) ??
+    fail(400, "manifest is an agent manifest's name, or name@version such as triage@3.");
+  return ctx.store.tx(async (t) => {
+    const agent = (await liveEnvironment(t, id)) ?? fail(404, "Agent not found: a dry run plans the move of an existing Agent.");
+    return { dryRun: true as const, plan: (await moveOf(t, agent, ref)).plan };
+  });
+}
+
+/**
+ * After a secret write on Agent `id`: a move that waited for its required secrets goes on once
+ * they are set (track T3). Best effort: the write stands either way.
+ */
+export async function secretWritten(ctx: TenantContext, id: string): Promise<void> {
+  try {
+    await ctx.store.tx(async (t) => {
+      const agent = await liveEnvironment(t, id, { lock: true });
+      if (agent) await resumeMove(t, agent, new Date().toISOString());
+    });
+  } catch (error) {
+    ctx.config.logger.warn("agent move not resumed after a secret write", {
+      environmentId: id,
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+/**
  * The secret write `raw` asks of Environment `id` (D64). When what it runs declares secret
  * slots, the name must be one (`409 secret_not_in_manifest`), and the body is `{ value }` (or
  * `{ headers }` for a `headers` slot) with the binding from the slot; a full typed body is
@@ -552,14 +641,17 @@ async function parseSecretRequest(
   name: string,
   raw: unknown,
 ): Promise<PutAgentSecretRequest> {
-  const environment = await ctx.store.tx((t) => liveEnvironment(t, id));
-  const slots = environment?.recipe.secrets;
+  const { environment, slots } = await ctx.store.tx(async (t) => {
+    const environment = await liveEnvironment(t, id);
+    return { environment, slots: environment && (await slotsAhead(t, environment)) };
+  });
   if (!environment || slots === undefined) return PutAgentSecretRequestSchema.parse(raw);
+  const named = `${environment.manifestName}@${environment.targetVersion ?? environment.manifestVersion}`;
   const slot =
     slots[name] ??
     fail(
       409,
-      `Agent ${id}'s manifest (${environment.manifestName}@${environment.manifestVersion}) declares no secret ${name}: add the slot to the manifest's runtime section, then make or fork an Agent from the new version.`,
+      `Agent ${id}'s manifest (${named}) declares no secret ${name}: add the slot to the manifest's runtime section, then move the Agent to the new version.`,
       { code: "secret_not_in_manifest", details: { declared: Object.keys(slots).sort() } },
     );
   const full = slotRequest(slot);
@@ -624,8 +716,8 @@ interface Fork {
 }
 
 /**
- * `POST /v1/agents/{id}/fork` (Q15): copies an Agent into a new one, which is how an Agent moves
- * to a newer manifest version before track T3. A new Agent `body.id` is made from the manifest
+ * `POST /v1/agents/{id}/fork` (Q15): copies an Agent into a new one, which is how an Agent changes
+ * what is fixed for its life (its manifest, kind, harness or storage). A new Agent `body.id` is made from the manifest
  * (default the source's manifest name, tracking, at its latest version), its disk started from a
  * version of the source's (`latest` takes a snapshot first, refused during a turn), and its
  * secrets copied inside the Runtime. A fork onto other setup runs that setup on the copied disk
@@ -692,7 +784,7 @@ export async function forkAgent(
       setup:
         kind === "pod" &&
         disk !== null &&
-        canonical(recipe) !== canonical(source.recipe) &&
+        canonical(recipe) !== canonical(source.applied) &&
         Boolean(recipe.setup?.length || recipe.files?.length),
       secrets: {
         copied,
@@ -702,7 +794,7 @@ export async function forkAgent(
           .map(([item]) => item)
           .sort(),
       },
-      changes: manifestChanges(source.recipe, recipe),
+      changes: manifestChanges(source.applied, recipe),
       sessions: (await t.sessionsOnEnvironment(sourceId)).length,
     };
     const slots =
@@ -773,11 +865,16 @@ export async function getAgent(
   });
 }
 
-/** What `GET /v1/agents` filters on: labels (all of them), the derived state and the manifest's name. */
+/**
+ * What `GET /v1/agents` filters on: labels (all of them), the derived state, the manifest's name
+ * and whether it is outdated.
+ */
 export interface AgentFilters {
   labels: Record<string, string>;
   state?: string;
   manifest?: string;
+  /** Only Agents moving to another version (track T3): waiting for their secrets or their pod's start. */
+  outdated?: boolean;
 }
 
 /**
@@ -799,6 +896,7 @@ export async function listAgents(
     for (const environment of found) {
       if (!live(environment) || (grants !== undefined && !agentGranted(grants, environment.id))) continue;
       if (filters.manifest !== undefined && environment.manifestName !== filters.manifest) continue;
+      if (filters.outdated !== undefined && (environment.targetVersion !== undefined) !== filters.outdated) continue;
       if (page?.after !== undefined && environment.id <= page.after) continue;
       const view = await viewOf(ctx, t, environment, subjectOf(scope));
       if (filters.state !== undefined && view.state !== filters.state) continue;
@@ -990,6 +1088,53 @@ export async function stopAgent(
 }
 
 /**
+ * `POST /v1/agents/{id}/restart` (track T3): applies a pending version now, refused during a
+ * turn. With `retry`, it first moves the Agent to the version that failed to start again. A
+ * running pod stops, so the next turn starts it on the version; a stopped or failed one is asked
+ * to run at once. Kinds `virtual` and `none` apply a version at once anyway.
+ */
+export async function restartAgent(
+  ctx: TenantContext,
+  id: string,
+  options: { retry?: boolean },
+  scope: AuthScope,
+): Promise<AgentView> {
+  reachable(agentGrantsOf(scope), id);
+  return ctx.store.tx(async (t) => {
+    let agent = (await liveEnvironment(t, id, { lock: true })) ?? notFound();
+    await refuseBusy(t, id);
+    refuseDiskCopy(agent);
+    const now = new Date().toISOString();
+    if (options.retry && agent.failedVersion !== undefined) {
+      const failed =
+        (await t.agentManifest(agent.manifestName, agent.failedVersion)) ??
+        fail(404, `Agent manifest ${agent.manifestName} has no version ${agent.failedVersion}.`, { code: "manifest_not_found" });
+      await moveAgent(t, agent, await planMove(t, agent, failed, agent.manifestRef), now);
+      agent = (await t.environment(id, { lock: true }))!;
+    }
+    const pod = agent.pod;
+    if (pod && waitingFor(agent) === "start") {
+      if (!ctx.pods) fail(409, `Agent ${id} runs on a pod, and this Runtime has no sandbox pods.`, { code: "agent_unavailable" });
+      if (pod.observed === "lost")
+        fail(409, `Agent ${id}'s pod was lost (${pod.reason ?? "its volume is gone"}). Reset it to continue.`, { code: "agent_lost" });
+      if (pod.desired === "running" && pod.observed !== "failed") {
+        // Stopped now; the next turn starts it on the version.
+        const epoch = pod.hostEpoch + 1;
+        await t.updateEnvironmentPod(id, { desired: "suspended", rev: pod.rev + 1, hostEpoch: epoch }, now);
+        await t.agentEvent(id, "agent.suspended", { reason: "restart" });
+        await reconcileAfter(t, id);
+        await revokeHost(t, id, epoch);
+      } else {
+        await wantRunning(t, agent as PodEnvironment, now);
+        await reconcileAfter(t, id);
+      }
+    }
+    await t.updateEnvironment(id, { lastUsedAt: now }, now);
+    return viewOf(ctx, t, (await t.environment(id)) ?? agent, subjectOf(scope));
+  });
+}
+
+/**
  * `POST /v1/agents/{id}/reset`: a new pod on a new, empty volume (the next volume
  * generation), with a new join token and the recipe applied; the old Sandbox and volume are
  * deleted. Leaves `lost` and `failed`. Refused during a turn, and while an earlier reset's
@@ -1036,6 +1181,8 @@ export async function newVolume(
   const now = new Date().toISOString();
   const volumeGen = pod.volumeGen + 1;
   const epoch = pod.hostEpoch + 1;
+  // A move whose runtime waits for a start switches now (track T3).
+  await switchTo(t, environment, now);
   await t.updateEnvironment(
     id,
     {
@@ -1227,7 +1374,7 @@ export async function touchAgent(ctx: TenantContext, id: string): Promise<void> 
       await t.updateEnvironment(id, { lastUsedAt: iso }, iso);
       if (!environment.pod || environment.pod.desired !== "running") return;
       await t.updateEnvironmentPod(id, { lastActiveAt: iso }, iso);
-      const idleMs = podLifecycleConfig(await readSandboxConfig(t), environment.recipe).idleMs;
+      const idleMs = idleMsOf(await readSandboxConfig(t), environment);
       await t.signalSandbox(id, { kind: "arm", timer: "idle", at: now.getTime() + idleMs });
     });
   } catch (error) {
@@ -1255,7 +1402,7 @@ export async function rearmPodTimers(ctx: TenantContext): Promise<void> {
         await ctx.sandboxSignal(row.id, {
           kind: "arm",
           timer: "idle",
-          at: Date.parse(row.pod.lastActiveAt ?? row.createdAt) + podLifecycleConfig(config, row.recipe).idleMs,
+          at: Date.parse(row.pod.lastActiveAt ?? row.createdAt) + idleMsOf(config, row),
         });
   } catch (error) {
     ctx.config.logger.warn("pod idle timers not re-armed", {

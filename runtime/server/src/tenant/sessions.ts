@@ -1,18 +1,17 @@
 /**
  * Session resources: `PUT /v1/sessions/:id` (create, or find an identical one), the session list
  * and the session view. A session runs on one Agent (protocol 16) and pins the manifest version
- * the Agent runs when it opens. Reads use the store's typed queries; `PUT /v1/sessions/:id` runs in
+ * the Agent runs when it opens; each turn takes the version the Agent runs then
+ * (`agent-versions.ts`). Reads use the store's typed queries; `PUT /v1/sessions/:id` runs in
  * one transaction with the Agent's checks.
  */
 import { type PutSessionRequest } from "@nylorun/core/contracts";
-import { hashManifest } from "@nylorun/core/compatibility";
-import { loopManifestOf } from "@nylorun/core/define";
 import { aggregateWaits, isWorkflowManifest } from "../core/flow-host.js";
 import { canonical } from "../store/canonical.js";
-import type { AgentManifestRow, Environment, Tx } from "../store/types.js";
-import { sandboxSpecOf } from "../sandbox/resolve.js";
-import { effectiveSandboxConfig, readSandboxConfig } from "../sandbox/tenant-config.js";
-import { HARNESS_ID, checkPlacement, requirePods } from "../sandbox/placement.js";
+import type { Environment, Tx } from "../store/types.js";
+import { readSandboxConfig } from "../sandbox/tenant-config.js";
+import { checkPlacement, requirePods } from "../sandbox/placement.js";
+import { pinOf } from "./agent-versions.js";
 import { openAgent, recordAttachment } from "./agents.js";
 import {
   harnessOf,
@@ -67,7 +66,8 @@ export async function listSessions(
  * The session runs on its Agent for its life: the Agent's sandbox (kinds `virtual` and `pod`) is
  * the session's, with the spec of what the Agent runs pinned now, and the Agent's vault holds the
  * session's credentials. It pins the manifest version the Agent runs (`definition`), as the loop
- * manifest that version's harness section makes, and the harness that section names.
+ * manifest that version's harness section makes, and the harness that section names (`pinOf`);
+ * a turn's first segment pins the version the Agent runs then (`repinTurn`).
  */
 export async function putSession(
   ctx: TenantContext,
@@ -111,51 +111,34 @@ export async function putSession(
       ownerUserId: body.ownerUserId,
       opaque,
     });
-    // The version the Agent runs: saved once and never changed, so it is here.
-    const version =
-      (await t.agentManifest(agent.manifestName, agent.manifestVersion)) ??
-      fail(409, `Agent ${agent.id}'s manifest ${agent.manifestName}@${agent.manifestVersion} is gone.`, {
-        code: "agent_unavailable",
-      });
-    const manifest = loopManifestOf(version.body);
-    await checkSkillLimit(t, manifest, agent);
+    // The version the Agent runs, both sections (T3): its loop manifest, harness and sandbox spec.
+    const { pin } = await pinOf(t, agent);
+    await checkSkillLimit(t, pin.manifest, agent);
     const config = await readSandboxConfig(t);
-    // The harness the session runs for its life (R4.1): its manifest's. A flow runs in core and
-    // our engine.
-    const harness = isWorkflowManifest(manifest) ? HARNESS_ID : agent.applied.harness;
     // Placement (D38, D52): where this session's harness may run, decided now and kept.
-    checkPlacement(config, agent.kind, harness);
+    checkPlacement(config, agent.kind, pin.harness);
     if (agent.kind === "pod") await requirePods(ctx.pods, `Agent ${agent.id}`);
-    const spec =
-      agent.kind === "none" ? undefined : sandboxSpecOf(agent.applied, effectiveSandboxConfig(config).limits.idle);
-    const loop = loopOf(version);
-    const manifestHash = hashManifest(manifest as never);
     const created: Session = {
       id,
       agentId: agent.id,
       ownerUserId: body.ownerUserId,
-      manifest,
-      manifestHash,
-      definition: { name: version.name, version: version.version },
-      ...(loop === undefined ? {} : { loop }),
+      manifest: pin.manifest,
+      manifestHash: pin.manifestHash,
+      definition: { ...pin.definition },
+      ...(pin.loop === undefined ? {} : { loop: pin.loop }),
       info: body.info,
       status: "idle",
       activeTurnId: null,
       creation: body,
-      harness,
+      harness: pin.harness,
       environmentId: agent.id,
       environmentVersion: agent.version,
-      ...(spec === undefined ? {} : { sandbox: spec }),
+      ...(pin.sandbox === undefined ? {} : { sandbox: pin.sandbox }),
     };
     await t.put("sessions", id, created);
     await recordAttachment(t, id, agent.id);
     return created;
   });
-}
-
-/** A manifest version's `harness.loop`, when it sets one. */
-function loopOf(version: AgentManifestRow): Record<string, unknown> | undefined {
-  return version.body.harness.loop as Record<string, unknown> | undefined;
 }
 
 /**

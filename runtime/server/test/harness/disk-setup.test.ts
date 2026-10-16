@@ -91,6 +91,39 @@ describe("prepareDisk", () => {
     expect(await readFile(join(work, "all.txt"), "utf8")).toBe("seed\na\nb\n");
   });
 
+  it("runs a new version's setup on the same volume once its hash differs (track T3)", async () => {
+    const work = join(root, "workspace");
+    const one: DiskSetup = {
+      recipeVersion: 1,
+      setupHash: "a".repeat(64),
+      files: [],
+      commands: [{ command: "echo one >> runs.txt", cwd: work, timeoutMs: 10_000 }],
+      environment: {},
+    };
+    const options = (setup: DiskSetup) => ({
+      host: host(setup),
+      exec,
+      volumeFile: join(root, "volume-id"),
+      markerFile: join(root, "setup.json"),
+      logger,
+    });
+    await prepareDisk(options(one));
+    expect(JSON.parse(await readFile(join(root, "setup.json"), "utf8"))).toEqual({
+      volumeId: "vol-1",
+      recipeVersion: 1,
+      setupHash: "a".repeat(64),
+      status: "ok",
+    });
+    // The same setup at another recipe version (a change elsewhere): nothing runs again.
+    await prepareDisk(options({ ...one, recipeVersion: 2 }));
+    expect(await readFile(join(work, "runs.txt"), "utf8")).toBe("one\n");
+    // Another setup: it runs on the volume as it is.
+    const two: DiskSetup = { ...one, recipeVersion: 3, setupHash: "b".repeat(64), commands: [{ command: "echo two >> runs.txt", cwd: work, timeoutMs: 10_000 }] };
+    await prepareDisk(options(two));
+    expect(await readFile(join(work, "runs.txt"), "utf8")).toBe("one\ntwo\n");
+    expect(JSON.parse(await readFile(join(root, "setup.json"), "utf8")).setupHash).toBe("b".repeat(64));
+  });
+
   it("reports a failed command with its exit code and output, then runs the setup core hands back", async () => {
     const work = join(root, "workspace");
     const failing: DiskSetup = {

@@ -902,11 +902,14 @@ const runtimeFields = {
  * `PUT /v1/agents/{agentId}` (protocol 16): creates the Agent, its vault and its compute from a
  * saved agent manifest, or finds the one with this id, so "get or create" is one call. An Agent is
  * the live instance of one version of an agent manifest: `manifest: "name"` records that it
- * tracks the manifest and `"name@n"` that it is pinned; either way it resolves once, when it is
- * created, into `resolvedVersion`, and keeps that version (track T3 moves a tracking Agent on). On
- * an existing Agent, `labels` replace its labels and `owner` sets or clears its owner guard; a
- * `manifest` that names what it runs is accepted, and any other is
- * `409 agent_upgrade_unavailable`, naming the fork that makes a new Agent instead.
+ * tracks the manifest (its latest version, and every version saved later) and `"name@n"` that it
+ * is pinned to one; the version it runs is `resolvedVersion`. On an existing Agent, `labels`
+ * replace its labels, `owner` sets or clears its owner guard, and `manifest` moves it (track T3,
+ * D73): to another version of its manifest, tracking or pinned. A move changes no data: its id,
+ * disk, vault and sessions stay. A harness-only change applies at once; a runtime change of a pod
+ * waits for its next start; one that adds a required secret waits for its value. Its manifest's
+ * name, kind, harness and storage are fixed (`409 agent_fixed_field`); fork it to change them.
+ * `?dryRun=true` answers the move's plan (`AgentMovePlan`) and changes nothing.
  */
 export const PutAgentRequestSchema = z
   .object({
@@ -1034,14 +1037,35 @@ export type AgentAttention = z.infer<typeof AgentAttentionSchema>;
 export const AgentViewSchema = z
   .object({
     id: z.string(),
-    /** The manifest reference it was made with: `name` (tracking) or `name@n` (pinned). */
+    /** How it names its manifest: `name` (tracking) or `name@n` (pinned). */
     manifest: z.string(),
-    /** The version of the manifest it runs, resolved when it was made. */
+    /** The version of the manifest it runs: each turn takes it when the turn starts. */
     resolvedVersion: z.number().int().positive(),
     /** The hash of that version. */
     manifestHash: z.string(),
     /** Whether `manifest` tracks the manifest's latest version or pins one. */
     tracking: z.enum(["tracking", "pinned"]),
+    /**
+     * Track T3: the version it moves to while it is outdated, else `null`. It waits for a value of
+     * each required secret the version adds (`waitingFor: "secrets"`) or for its pod's next start
+     * (`"start"`); turns run `resolvedVersion` meanwhile.
+     */
+    targetVersion: z.number().int().positive().nullable(),
+    /** What the move to `targetVersion` waits for, else `null`. */
+    waitingFor: z.enum(["secrets", "start"]).nullable(),
+    /**
+     * A version that failed to start: the Agent went back to the one it ran, and a tracking Agent
+     * does not move to it again on its own. `null` once a start on a new version succeeds.
+     */
+    failedVersion: z.number().int().positive().nullable(),
+    /**
+     * While its pod starts on a new version: the version it ran before, which a failed start
+     * goes back to, and since when it starts. `null` otherwise.
+     */
+    startCheck: z
+      .object({ from: z.number().int().positive(), startedAt: z.string() })
+      .strict()
+      .nullable(),
     kind: z.enum(ENVIRONMENT_KINDS),
     /** The harness that runs its loop: its manifest's `harness.id`, else `nylorun`. */
     harness: z.string(),
@@ -1062,7 +1086,7 @@ export const AgentViewSchema = z
         pod: AgentPodViewSchema.optional(),
       })
       .strict(),
-    /** What its environment runs, fixed when it was made: the runtime section resolved. */
+    /** What its environment runs: the runtime section of `resolvedVersion`, resolved. */
     runtime: EnvironmentRecipeSchema,
     /** The limits in force now: its manifest's, else the Tenant's, never above the Tenant's. */
     limits: z
@@ -1239,6 +1263,10 @@ export const AGENT_EVENT_TYPES = [
   "agent.failed",
   // Forked into a new Agent (Q15).
   "agent.forked",
+  // Moved to another version of its manifest (track T3, D73).
+  "agent.outdated",
+  "agent.version_changed",
+  "agent.start_failed",
   // egress-gate: every connection the Agent opens (R7, D67).
   "agent.egress",
 ] as const;
@@ -1271,7 +1299,7 @@ export const AGENT_EVENT_PAYLOADS = {
   /** A pod joined and serves the Agent. */
   "agent.running": z.object({ hostEpoch: z.number().int() }).passthrough(),
   /** Stopped (`POST .../stop`, or idle): the volume is kept; the next turn starts it again. */
-  "agent.suspended": z.object({ reason: z.enum(["stop", "idle"]) }).passthrough(),
+  "agent.suspended": z.object({ reason: z.enum(["stop", "idle", "restart"]) }).passthrough(),
   /** Its pod was replaced (same volume): the old pod's host token no longer works. */
   "agent.relaunched": z.object({ hostEpoch: z.number().int() }).passthrough(),
   /** Its volume or node is gone: turns are refused until a reset. */
@@ -1287,6 +1315,33 @@ export const AGENT_EVENT_PAYLOADS = {
       disk: z.number().int().positive().nullable(),
       manifest: z.object({ name: z.string(), version: z.number().int().positive() }).strict(),
       secrets: z.number().int().nonnegative(),
+    })
+    .passthrough(),
+  /**
+   * Asked to move to version `to` of its manifest, which waits (track T3): for a value of each
+   * required secret it adds (`secrets`), or for its pod's next start (`start`).
+   */
+  "agent.outdated": z
+    .object({
+      from: z.number().int().positive(),
+      to: z.number().int().positive(),
+      waitingFor: z.enum(["secrets", "start"]),
+    })
+    .passthrough(),
+  /** Runs version `to` of its manifest now: turns that start from here run it (track T3). */
+  "agent.version_changed": z
+    .object({ from: z.number().int().positive(), to: z.number().int().positive() })
+    .passthrough(),
+  /**
+   * Its pod did not start on version `to` (its setup failed, the pod failed, or it took longer
+   * than the Host allows): it went back to version `from`, with its disk as it was (track T3).
+   */
+  "agent.start_failed": z
+    .object({
+      from: z.number().int().positive(),
+      to: z.number().int().positive(),
+      reason: z.string(),
+      reverted: z.boolean(),
     })
     .passthrough(),
   /** A connection through egress-gate, with the turns running as it opened (D67). */
@@ -1969,8 +2024,9 @@ export type AgentManifestChange = z.infer<typeof AgentManifestChangeSchema>;
 /**
  * `PUT /v1/agent-manifests/{name}?dryRun=true`: what saving it would do, with nothing saved.
  * `errors` lists every reason the Runtime would refuse it: the gaps between its sections, the
- * Tenant's limits, its files; a save with errors is refused. `behind` counts the Agents made
- * from an older version than the one it would save: they stay on theirs (track T3 moves them).
+ * Tenant's limits, its files; a save with errors is refused. A save moves every Agent that tracks
+ * the manifest (track T3): `moves` counts them by when the new version applies. `behind` counts
+ * the Agents that stay on an older version: pinned ones, and tracking ones it cannot move.
  */
 export const AgentManifestPlanSchema = z
   .object({
@@ -1984,6 +2040,14 @@ export const AgentManifestPlanSchema = z
     warnings: z.array(AgentManifestWarningSchema),
     errors: z.array(z.string()),
     behind: z.number().int().nonnegative(),
+    /** The tracking Agents a save moves: at once, at their pod's next start, once their secrets are set. */
+    moves: z
+      .object({
+        now: z.number().int().nonnegative(),
+        nextStart: z.number().int().nonnegative(),
+        secrets: z.number().int().nonnegative(),
+      })
+      .strict(),
   })
   .strict();
 export type AgentManifestPlan = z.infer<typeof AgentManifestPlanSchema>;
@@ -2002,8 +2066,9 @@ export const DeleteAgentManifestResponseSchema = z
 export type DeleteAgentManifestResponse = z.infer<typeof DeleteAgentManifestResponseSchema>;
 /**
  * `POST /v1/agents/{id}/fork` (Q15): copies an Agent, with its disk and vault, into a new one,
- * made from `manifest` (default the source's manifest at its latest version): how an Agent moves
- * to a newer version before track T3. The source keeps what it runs, its disk and its sessions.
+ * made from `manifest` (default the source's manifest at its latest version): how an Agent
+ * changes what is fixed for its life (its kind, harness, storage or manifest). The source keeps
+ * what it runs, its disk and its sessions.
  */
 export const ForkAgentRequestSchema = z
   .object({
@@ -2060,6 +2125,61 @@ export const ForkAgentResponseSchema = z.union([
   z.object({ agent: AgentViewSchema, plan: AgentForkPlanSchema }).strict(),
 ]);
 export type ForkAgentResponse = z.infer<typeof ForkAgentResponseSchema>;
+/**
+ * `PUT /v1/agents/{id}?dryRun=true` on an existing Agent (track T3): what moving it to the
+ * version `manifest` names would do, with nothing changed. `applies`: `none` (it runs that
+ * version), `now` (turns that start from here run it), `next_start` (a runtime change: its pod's
+ * next start applies it), `secrets` (it waits for a value of each of `missingSecrets`), or
+ * `refused` (`refusals` names each fixed field it would change: `409 agent_fixed_field`).
+ */
+export const AgentMovePlanSchema = z
+  .object({
+    agent: z.string(),
+    manifest: z.string(),
+    /** The version it runs now, and the one it would run. */
+    from: z.number().int().positive(),
+    to: z.number().int().positive(),
+    /** How it names its manifest after the move. */
+    tracking: z.enum(["tracking", "pinned"]),
+    applies: z.enum(["none", "now", "next_start", "secrets", "refused"]),
+    /** How the version differs from the one it runs, by section. */
+    changes: z.array(
+      z
+        .object({
+          section: z.enum(["manifest", "harness", "runtime"]),
+          path: z.string(),
+          op: z.enum(["add", "remove", "replace"]),
+          from: z.unknown().optional(),
+          to: z.unknown().optional(),
+        })
+        .strict(),
+    ),
+    /** Required secrets of the version with no value the version can use. */
+    missingSecrets: z.array(z.string()),
+    /** Its secrets the version does not declare: kept, and unused while it runs the version. */
+    dormantSecrets: z.array(z.string()),
+    /** What is fixed for its life that the version would change: kind, harness, storage. */
+    refusals: z.array(
+      z.object({ field: z.string(), from: z.unknown().optional(), to: z.unknown().optional() }).strict(),
+    ),
+    /** Its sessions: each takes the version at its next turn once it applies. */
+    sessions: z.number().int().nonnegative(),
+  })
+  .strict();
+export type AgentMovePlan = z.infer<typeof AgentMovePlanSchema>;
+/**
+ * `POST /v1/agents/{id}/restart` (track T3): applies a pending version now. A running pod stops,
+ * so the next turn starts it on the version (a stopped one starts at once); `retry` first moves
+ * it to the version that failed to start (`failedVersion`) again.
+ */
+export const RestartAgentRequestSchema = z
+  .object({ requestId: RequestIdSchema.optional(), retry: z.boolean().optional() })
+  .strict();
+export type RestartAgentRequest = z.infer<typeof RestartAgentRequestSchema>;
+export const PutAgentDryRunResponseSchema = z
+  .object({ dryRun: z.literal(true), plan: AgentMovePlanSchema })
+  .strict();
+export type PutAgentDryRunResponse = z.infer<typeof PutAgentDryRunResponseSchema>;
 /**
  * What a model may read (protocol 12): `text` always; `image`, `pdf`, `office` (Word, Excel,
  * PowerPoint), `audio` and `video` when its catalog entry or the operator says so. In this order.

@@ -273,8 +273,8 @@ export const agents = nylorun.table(
      */
     diskSeed: jsonText(),
     /**
-     * The agent manifest it was made from and the version it resolved when it was made, which it
-     * runs: never changed after creation in protocol 16 (track T3 moves a tracking Agent on).
+     * The agent manifest it was made from and the version of it that it runs (track T3 moves it:
+     * `PUT /v1/agents/{id}`, and a save of the manifest for a tracking one).
      */
     manifestName: textC().notNull(),
     manifestVersion: integer().notNull(),
@@ -286,6 +286,18 @@ export const agents = nylorun.table(
     desiredState: text({ enum: ["on", "off"] }).notNull().default("on"),
     /** The Agent it was forked from: `{ agent, disk }` (Q15). Never changed. */
     forkedFrom: jsonText(),
+    /**
+     * The manifest version it is moving to while it is outdated (track T3, D73): it waits for its
+     * required secrets, or for its pod's next start. `manifestVersion` stays the one it runs.
+     */
+    targetVersion: integer(),
+    /** A version that failed to start (T3): a tracking Agent does not move to it again on its own. */
+    failedVersion: integer(),
+    /**
+     * While a pod starts on a new version (T3): `{ from, startedAt }`, what it ran before, which a
+     * failed start reverts to. Cleared when the new pod's harness joins.
+     */
+    startCheck: jsonText(),
   },
   (t) => [
     check("agents_kind_check", sql`${t.kind} IN ('virtual', 'pod', 'none')`),

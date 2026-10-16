@@ -20,6 +20,7 @@ import { sandboxWorkspaceOf } from "../sandbox/share.js";
 import { ownedTx } from "../store/ownership.js";
 import type { SandboxPodState, Tx } from "../store/types.js";
 import { harnessOf, type Lease, type Session, type TenantContext } from "../tenant/context.js";
+import { repinTurn } from "../tenant/agent-versions.js";
 import { HARNESS_ID } from "../sandbox/placement.js";
 import {
   checkParity,
@@ -76,7 +77,13 @@ export interface SegmentStart {
    * The Agent is a pod (F7.2): its engine runs the segment. Its lifecycle state, and whether its
    * new volume is still being seeded from a disk version (R2d step 3).
    */
-  readonly pod?: { readonly id: string; readonly pod: SandboxPodState; readonly seeding?: boolean };
+  readonly pod?: {
+    readonly id: string;
+    readonly pod: SandboxPodState;
+    readonly seeding?: boolean;
+    /** It starts on a new version (track T3) and has not joined yet: a failed start goes back. */
+    readonly starting?: boolean;
+  };
   /** The turn's span context (R7.4): what `TurnStart.trace` hands the harness. */
   readonly trace?: TraceContext;
   /**
@@ -101,6 +108,8 @@ export async function startSegment(
     id,
     lease.epoch,
     async (t, current) => {
+      // A turn's first segment runs the version its Agent runs now (T3, D73).
+      if (options.harness && (await repinTurn(t, current))) await t.put("sessions", id, current);
       // A transcript left on our engine's state by an older Runtime is recorded once; another
       // harness's state is its own (R4.2).
       const limits = await readRuntimeLimits(t);
@@ -130,7 +139,14 @@ export async function startSegment(
         ...(resource ? { agent: agentOf(resource, current.sandbox) } : {}),
         ...(key && turnId ? { trace: turnContextOf(key, ctx.store.tenantId, current, turnId) } : {}),
         ...(resource?.pod
-          ? { pod: { id: resource.id, pod: resource.pod, ...(resource.diskSeed ? { seeding: true } : {}) } }
+          ? {
+              pod: {
+                id: resource.id,
+                pod: resource.pod,
+                ...(resource.diskSeed ? { seeding: true } : {}),
+                ...(resource.startCheck ? { starting: true } : {}),
+              },
+            }
           : {}),
       };
     }

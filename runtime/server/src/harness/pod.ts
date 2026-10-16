@@ -29,6 +29,8 @@ interface Held {
 /** What to run and copy on a new disk (`sandbox/setup.ts` in core), from the join answer. */
 export interface DiskSetup {
   readonly recipeVersion: number;
+  /** The sha256 of the commands and files (track T3): a marker with another runs the setup again. */
+  readonly setupHash?: string;
   readonly commands: readonly { readonly command: string; readonly cwd: string; readonly timeoutMs: number }[];
   readonly files: readonly { readonly index: number; readonly path: string }[];
   readonly environment: Readonly<Record<string, string>>;

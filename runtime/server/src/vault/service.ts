@@ -91,6 +91,7 @@ import type {
   CredentialCoverageRequest,
   CredentialIdentity,
   EnvironmentSecretInject,
+  EnvironmentSecretSlot,
   AgentSecretView,
   HostModelProviderInfo,
   HostModelView,
@@ -501,8 +502,10 @@ export class VaultService {
     const vault = await t.vaultOfEnvironment(environmentId);
     if (!vault) return {};
     const environment: Record<string, string> = {};
+    const live = await liveFilter(t, environmentId);
     for (const row of await t.credentialsForVault(vault.id)) {
       if (row.type !== "environment_secret" && row.type !== "environment_variable") continue;
+      if (!live(row)) continue;
       const binding = JSON.parse(row.bindingJson) as CredentialBinding;
       if (row.type === "environment_secret") environment[binding.secretName!] = ENVIRONMENT_SECRET_SENTINEL;
       else environment[binding.variableName!] = binding.variableValue!;
@@ -574,8 +577,10 @@ export class VaultService {
           });
           return { result: { status: "refused", url, credentialIds: [], reason: "vault_missing" } };
         }
+        const live = await liveFilter(t, environmentId);
         const matches = (await t.credentialsForVault(vault.id))
           .filter(isUserCredential)
+          .filter(live)
           .filter((row) => bindingUrl(row) === url)
           .sort((a, b) => a.id.localeCompare(b.id));
         if (matches.length === 0) return { result: { status: "unauthenticated", url, headers: {} } };
@@ -658,8 +663,9 @@ export class VaultService {
       const credentials: { row: VaultCredentialRow; url?: string }[] = [];
       {
         const vault = await this.environmentVault(t, environmentId);
+        const live = await liveFilter(t, environmentId);
         for (const row of await t.credentialsForVault(vault.id))
-          if (isUserCredential(row)) credentials.push({ row, url: bindingUrl(row) });
+          if (isUserCredential(row) && live(row)) credentials.push({ row, url: bindingUrl(row) });
       }
       const entries = credentialNeeds(manifest).map((need): CredentialCoverageEntry => {
         let url: string;
@@ -1384,9 +1390,46 @@ async function environmentSecretsFor(t: Tx, environmentId: string, host: string)
   const lower = host.toLowerCase();
   const vault = await t.vaultOfEnvironment(environmentId);
   if (!vault) return [];
+  const live = await liveFilter(t, environmentId);
   return (await t.credentialsForVault(vault.id)).filter(
     (row): row is UserCredentialRow =>
       row.type === "environment_secret" &&
+      live(row) &&
       (credentialBinding(row as UserCredentialRow).allowedHosts ?? []).includes(lower),
   );
+}
+
+/**
+ * Whether the credential in `row` fills secret slot `slot` (D64): of the slot's type, with its
+ * binding (the hosts and header of an `environment_secret`, the URL of a `bearer` or `headers`).
+ */
+export function slotHolds(slot: EnvironmentSecretSlot, row: Pick<VaultCredentialRow, "type" | "bindingJson">): boolean {
+  if (row.type !== slot.type) return false;
+  const binding = JSON.parse(row.bindingJson) as CredentialBinding;
+  if (slot.type === "environment_variable") return true;
+  if (slot.type === "environment_secret") {
+    const hosts = (list: readonly string[] | undefined) => canonical([...(list ?? [])].map((host) => host.toLowerCase()).sort());
+    const inject = slot.inject ? { header: slot.inject.header, format: slot.inject.format } : null;
+    return hosts(slot.allowedHosts) === hosts(binding.allowedHosts) && canonical(inject) === canonical(binding.inject ?? null);
+  }
+  try {
+    return normalizeVaultUrl(slot.url) === binding.url;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Which of Agent `environmentId`'s credentials are live (track T3, D73): with secret slots in the
+ * runtime it applies, only those that fill a slot of the name (`slotHolds`). Another stays in the
+ * vault, dormant: a slot the version dropped, or one whose binding changed until it gets a value
+ * again. Without slots, every one.
+ */
+async function liveFilter(t: Tx, environmentId: string): Promise<(row: VaultCredentialRow) => boolean> {
+  const slots = (await t.environment(environmentId))?.applied.secrets;
+  if (slots === undefined) return () => true;
+  return (row) => {
+    const slot = slots[row.name];
+    return slot !== undefined && slotHolds(slot, row);
+  };
 }

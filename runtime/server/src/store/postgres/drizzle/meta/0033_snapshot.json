@@ -1,5 +1,5 @@
 {
-  "id": "37b9badc-81c5-4f8c-b932-16b163e64688",
+  "id": "8e5b1aa4-5393-4615-bb1f-b790a3830e5f",
   "prevId": "d107a093-d5cd-4b15-ab37-07adff9fd79f",
   "version": "7",
   "dialect": "postgresql",
@@ -318,6 +318,24 @@
         },
         "forked_from": {
           "name": "forked_from",
+          "type": "json",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "target_version": {
+          "name": "target_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "failed_version": {
+          "name": "failed_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "start_check": {
+          "name": "start_check",
           "type": "json",
           "primaryKey": false,
           "notNull": false
@@ -1662,95 +1680,6 @@
         }
       },
       "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "nylorun.session_queue": {
-      "name": "session_queue",
-      "schema": "nylorun",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text COLLATE \"C\"",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "session_id": {
-          "name": "session_id",
-          "type": "text COLLATE \"C\"",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "seq": {
-          "name": "seq",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "command": {
-          "name": "command",
-          "type": "json",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "input": {
-          "name": "input",
-          "type": "json",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "file_artifacts": {
-          "name": "file_artifacts",
-          "type": "json",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "writer": {
-          "name": "writer",
-          "type": "json",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "trace": {
-          "name": "trace",
-          "type": "json",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "text COLLATE \"C\"",
-          "primaryKey": false,
-          "notNull": true
-        }
-      },
-      "indexes": {
-        "session_queue_order": {
-          "name": "session_queue_order",
-          "columns": [
-            {
-              "expression": "session_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "seq",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},

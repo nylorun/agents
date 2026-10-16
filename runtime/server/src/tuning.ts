@@ -192,6 +192,13 @@ export const HostTuningSchema = z
       retryAfterSeconds: count(5),
       /** How long a pending Environment seed holds the disk before another process may take it over. */
       seedLeaseMs: ms(10 * MINUTE),
+      /**
+       * The longest a pod Agent waiting to start on a new version (track T3) stays idle before it
+       * stops, so its next start applies the version: its own `lifecycle.idle` when shorter.
+       */
+      upgradeIdleMs: ms(MINUTE),
+      /** How long a pod may take to start on a new version before it goes back to the one it ran (T3). */
+      upgradeStartMs: ms(10 * MINUTE),
     }),
     /** The Tenant's sweep (`tenant/sweep.ts`): outbox, orphaned sessions, stale pods. */
     sweep: group({
