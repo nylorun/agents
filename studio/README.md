@@ -152,8 +152,9 @@ Images, PDF, Audio and Video in `settings.inputs` (text only when none).
 An Agent (protocol 16) is the live instance of one version of an agent manifest:
 its compute (kind `virtual`, `pod` or `none`), one vault of secrets, versions of
 its disk, and the sessions that run on it. It is made only from a saved manifest,
-tracking it (`name`: its latest version when it is made) or pinned (`name@n`), and
-keeps that version: a newer one reaches it through a fork.
+tracking it (`name`: its latest version, and each version saved later) or pinned
+(`name@n`), and moves in place: its page moves it (Move to vN, Pin, Track), restarts
+a pod on a version waiting for its next start, and retries one that failed to start.
 
 The Agents table (`/agents`, `GET /v1/agents`) lists every Agent: its id (with its
 labels), the manifest version it runs (`triage@3`, **tracks** or **pinned**), its

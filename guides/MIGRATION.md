@@ -64,9 +64,14 @@ harness together.
   sub-routes (`events`, `stop`, `reset`, `snapshot`, `restore`, `versions`, `fork`, `secrets`), made
   from a saved manifest only: `PUT /v1/agents/{id} { manifest: "triage" }` tracks the manifest
   (and resolves its latest version now), `"triage@3"` pins version 3; inline recipe fields are
-  gone, and `ownerUserId` is `owner`. An Agent keeps the version it resolved: a different
-  manifest on an existing Agent is `409 agent_upgrade_unavailable` (`environment_immutable`
-  before) until upgrades ship; fork it onto the new version meanwhile. The view's `manifest` is
+  gone, and `ownerUserId` is `owner`. An Agent runs one version at a time and evolves in place
+  (track T3): a `PUT` naming another version moves it (`?dryRun=true` for the plan), a save moves
+  every Agent that tracks the manifest, and each session's next turn runs the new version. A
+  harness change applies at once; a pod's runtime change at its next start, on the same volume
+  (`targetVersion`, `waitingFor`; `POST .../restart` applies it now), and a start that fails goes
+  back to the version it ran (`failedVersion`, `agent.start_failed`). Its manifest's name, kind,
+  harness and storage are fixed: `409 agent_fixed_field` (`environment_immutable` before), so fork
+  it to change those. The view's `manifest` is
   the reference and `runtime` what it runs (`manifest` before), with `resolvedVersion`; the
   compute's state moved to `compute.state`, and `state` is the Agent's: `working`, `sleeping`,
   `input_required`, `failing` or `paused`, with `attention` naming the sessions behind it.

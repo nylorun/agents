@@ -36,7 +36,7 @@ export function createSupportApp(options: { client?: AgentsClient; admin?: Manag
      * Saves the support agent's manifest, whose tool the Runtime reaches at `origin` +
      * `TOOLS_PATH`, makes the Agent `support` the endpoint runs (kind `none`: no sandbox, so one
      * Agent serves every person), and adds the rule that asks the person before each lookup to the
-     * Tenant's tool policy. The Agent keeps the version it was made from.
+     * Tenant's tool policy. The Agent tracks the manifest: a later save moves it to the new version.
      */
     save: async (origin: string) => {
       const runtime = client ?? (await createClient());

@@ -122,8 +122,9 @@ test("Agents: the list sorts and filters, the sidebar groups them by manifest, a
     await page.waitForURL(/\/agents\/team%2Fbuild$/u);
     await page.getByRole("heading", { name: AGENT, exact: true }).waitFor();
     await page.getByText("A virtual workspace has no pod", { exact: false }).waitFor();
-    // Its manifest has a newer version: it moves by a fork.
-    await page.getByRole("button", { name: "Fork to v3" }).waitFor();
+    // Its manifest has a newer version: the pinned Agent moves to it in place (track T3).
+    await page.getByRole("button", { name: "Move to v3" }).waitFor();
+    await page.getByRole("button", { name: "Track the manifest" }).waitFor();
     // A virtual Agent has no pod to stop or reset.
     assert.equal(await page.getByRole("button", { name: "Stop", exact: true }).count(), 0);
     assert.equal(await page.getByRole("button", { name: "Reset", exact: true }).count(), 0);
@@ -254,11 +255,11 @@ test("an Agent is made from a manifest version, its labels and owner edited, for
       await edit.waitFor({ state: "hidden" });
       const edited = requests.find((r) => r.method === "PUT" && r.path === "/v1/agents/team%2Fbuild");
       const { requestId: _edit, ...change } = edited?.body as Record<string, unknown>;
-      // An Agent never changes what it runs: an edit names its manifest as it was made.
-      assert.deepEqual(change, { manifest: "analyst-box", labels: { project: "build", team: "a" }, owner: null });
+      // An edit names the version it runs: it moves nothing.
+      assert.deepEqual(change, { manifest: "analyst-box@2", labels: { project: "build", team: "a" }, owner: null });
 
-      // Fork to the newer version: check the plan, then fork.
-      await page.getByRole("button", { name: "Fork to v3" }).click();
+      // Fork onto the newer version: check the plan, then fork.
+      await page.getByRole("button", { name: "Fork", exact: true }).click();
       const fork = page.getByRole("dialog", { name: `Fork ${AGENT}` });
       assert.equal(await fork.getByRole("textbox", { name: "Agent manifest" }).inputValue(), "analyst-box@3");
       await fork.getByRole("button", { name: "Check" }).click();

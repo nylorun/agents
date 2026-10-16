@@ -403,8 +403,8 @@ jobs:
   # with a joined pod sandbox.
   #
   # pods: F7.2 8b, pod sandboxes end to end (scripts/sandbox/suite.mjs); R4, a custom
-  # harness as a pod's image (scripts/sandbox/harness-pod.mjs); T2's exit test
-  # (scripts/sandbox/t2-exit.mjs).
+  # harness as a pod's image (scripts/sandbox/harness-pod.mjs); T2's and T3's exit tests
+  # (scripts/sandbox/t2-exit.mjs, t3-exit.mjs).
   sandboxes:
     needs: scope
     if: needs.scope.outputs.full == 'true'
@@ -511,6 +511,13 @@ jobs:
         env:
           NYLORUN_STUDIO_IMAGE: nylorun-studio:ci
         run: npm run test:t2-exit -- --context kind-nylorun --host-address 172.17.0.1
+      # T3's exit test as one scenario: a busy pod Agent moves three times (an instruction change
+      # at the next turn, a runtime change at the pod's next start on the same volume, a failed
+      # setup that goes back), keeping its id, vault, session and disk.
+      - name: T3 exit test
+        if: matrix.leg == 'pods'
+        timeout-minutes: 25
+        run: npm run test:t3-exit -- --context kind-nylorun --host-address 172.17.0.1
       - name: Cluster diagnostics
         if: failure()
         run: |

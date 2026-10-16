@@ -44,6 +44,7 @@ import {
   computeOf,
   date,
   otherSessionsNote,
+  pendingLabel,
 } from "@/components/agents";
 import { AgentSecrets } from "@/components/agent-secrets";
 import { AgentDisk } from "@/components/agent-disk";
@@ -98,7 +99,7 @@ export function AgentPage({
   const load = useCallback((signal: AbortSignal) => sdk.agents.get(id, { signal }), [sdk, id]);
   const read = useRead(load);
   const name = read.data ? manifestNameOf(read.data) : undefined;
-  // The latest version of its manifest: a newer one reaches it by a fork.
+  // The latest version of its manifest: a pinned Agent moves to it (track T3).
   const loadLatest = useCallback(
     async (signal: AbortSignal) =>
       name === undefined
@@ -123,6 +124,33 @@ export function AgentPage({
     if (value === "overview") next.delete("tab");
     else next.set("tab", value);
     setQuery(next);
+  }
+  /** Moves it within its manifest (track T3): `name` tracks, `name@n` pins; or applies a pending version. */
+  async function move(what: "move" | "track" | "pin" | "restart" | "retry"): Promise<void> {
+    if (!s || name === undefined) return;
+    setActing(true);
+    setActionError("");
+    setNotice("");
+    try {
+      const agent =
+        what === "restart" || what === "retry"
+          ? await sdk.agents.restart(id, what === "retry" ? { retry: true } : {})
+          : await sdk.agents.put(id, {
+              manifest: what === "track" ? name : `${name}@${what === "move" ? latest : s.resolvedVersion}`,
+            });
+      const pending = agent.targetVersion
+        ? agent.waitingFor === "secrets"
+          ? `; v${agent.targetVersion} waits for its required secrets (Secrets tab)`
+          : `; v${agent.targetVersion} applies at its pod's next start`
+        : "";
+      setNotice(`${id} runs ${name}@${agent.resolvedVersion}${agent.tracking === "tracking" ? ", tracking the manifest" : ", pinned"}${pending}.`);
+      read.reload();
+      onChanged?.();
+    } catch (cause) {
+      setActionError(messageOf(cause));
+    } finally {
+      setActing(false);
+    }
   }
   async function act(what: "stop" | "reset" | "delete"): Promise<void> {
     if (!s) return;
@@ -202,8 +230,26 @@ export function AgentPage({
               <Button variant="outline" disabled={acting} onClick={() => setEditing(true)}>
                 Edit labels and owner
               </Button>
-              <Button variant={newer ? "default" : "outline"} disabled={acting} onClick={() => setForking(true)}>
-                {newer ? `Fork to v${latest}` : "Fork"}
+              {newer && s.tracking === "pinned" && !s.targetVersion ? (
+                <Button disabled={acting} onClick={() => void move("move")}>
+                  Move to v{latest}
+                </Button>
+              ) : null}
+              <Button variant="outline" disabled={acting} onClick={() => void move(s.tracking === "tracking" ? "pin" : "track")}>
+                {s.tracking === "tracking" ? `Pin to v${s.resolvedVersion}` : "Track the manifest"}
+              </Button>
+              {s.kind === "pod" && s.waitingFor === "start" ? (
+                <Button disabled={acting} onClick={() => void move("restart")}>
+                  Restart on v{s.targetVersion}
+                </Button>
+              ) : null}
+              {s.kind === "pod" && s.failedVersion && !s.targetVersion ? (
+                <Button variant="outline" disabled={acting} onClick={() => void move("retry")}>
+                  Retry v{s.failedVersion}
+                </Button>
+              ) : null}
+              <Button variant="outline" disabled={acting} onClick={() => setForking(true)}>
+                Fork
               </Button>
               {s.kind === "pod" ? (
                 <>
@@ -378,10 +424,14 @@ function AgentOverview({ agent: s, latest }: { agent: AgentView; latest?: number
                   {name}@{s.resolvedVersion}
                 </Link>{" "}
                 {s.tracking === "tracking" ? "(tracks the manifest)" : "(pinned)"}
-                {latest !== undefined && latest > s.resolvedVersion ? ` · v${latest} available: fork to move` : ""}
+                {pendingLabel(s)}
+                {latest !== undefined && latest > s.resolvedVersion && !s.targetVersion ? ` · v${latest} available` : ""}
               </span>,
             ],
-            ["Changes", "Never: a newer version reaches it through a fork"],
+            [
+              "Changes",
+              "In place, with its disk, vault and sessions: a harness change at each session's next turn, a pod's runtime at its next start. Its kind, harness and storage only through a fork.",
+            ],
             ...(s.forkedFrom
               ? ([
                   [
@@ -635,8 +685,8 @@ function EditAgentSheet({
         <SheetHeader>
           <SheetTitle>Edit {agent.id}</SheetTitle>
           <SheetDescription>
-            An Agent never changes what it runs: here only its labels and owner guard change. To
-            run another manifest version, fork it.
+            Its labels and owner guard. To run another version of its manifest, move it from its
+            page (Pin, Track, Move); to change its kind, harness or storage, fork it.
           </SheetDescription>
         </SheetHeader>
         <form className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4" onSubmit={(event) => void submit(event)}>

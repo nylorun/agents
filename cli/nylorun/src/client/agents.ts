@@ -2,8 +2,9 @@
  * `nylorun agents`: the Tenant's Agents (protocol 16: each is one version of an agent manifest
  * made live, with one environment and one vault, and the sessions that run on it), through the
  * Runtime API of the installation `target.ts` picks: create or find one by id from a saved
- * manifest, fork it onto a new manifest version, stop, reset or delete it, keep and restore
- * versions of its disk, and write its secrets. The manifests themselves are `agent-manifests.ts`
+ * manifest, move it to another version (`pin`, `track`, `put`; track T3) and apply a pending one
+ * (`restart`), fork it, stop, reset or delete it, keep and restore versions of its disk, and
+ * write its secrets. The manifests themselves are `agent-manifests.ts`
  * and `apply.ts`. A secret's value comes from a file or standard input, never from the command
  * line, and no command reads one back. None of them starts a local Tenant.
  */
@@ -32,16 +33,22 @@ The Tenant's Agents (each one version of an agent manifest made live, with one e
 one vault; sessions run on them), through the Runtime API with an application key (or
 NYLORUN_TOKEN).
 
-  list [--state <state>] [--manifest <name>] [--label <key=value>]... [--behind]
+  list [--state <state>] [--manifest <name>] [--label <key=value>]... [--outdated]
        [--limit <n>] [--cursor <c>] [--json]
-                                      id, manifest version (tracks or pinned), kind, state,
-                                      sessions, owner and labels; --behind: those on an older
-                                      version than their manifest's latest
+                                      id, manifest version (tracks or pinned, and the version
+                                      it moves to), kind, state, sessions, owner and labels;
+                                      --outdated (or --behind): those moving to another version
   get <id>                            the Agent, as JSON
-  put <id> --manifest <name[@n]> [--owner <user>] [--label <key=value>]...
+  put <id> --manifest <name[@n]> [--owner <user>] [--label <key=value>]... [--dry-run]
                                       create it from a saved manifest (name tracks its latest
-                                      version, name@n pins version n), or find it and change
-                                      its owner and labels (what it runs never changes: fork it)
+                                      version, name@n pins version n), or find it, change its
+                                      owner and labels and move it to that version; --dry-run
+                                      prints what the move would do
+  pin <id> <version>                  move it to that version of its manifest, and keep it there
+  track <id>                          move it to its manifest's latest version, and with each save
+  restart <id> [--retry]              apply the version it waits to start on now (a running pod
+                                      stops; the next turn starts it); --retry: the version that
+                                      failed to start, again
   fork <id> <new-id> [--manifest <name[@n]>] [--disk <latest|n|empty>]
        [--secrets <copy|none>] [--label <key=value>]... [--dry-run]
                                       a new Agent from a manifest version (default its
@@ -72,19 +79,31 @@ ${runtimeFlagsUsage}`;
 const SAVE_REMOVED =
   "nylorun agents save was removed in protocol 16: agents run from saved agent manifests. Save one with nylorun apply <dir> (agent.manifest.json; nylorun migrate v8 <agent.json> writes one from a v7 manifest), then make an Agent from it with nylorun agents put <id> --manifest <name>.";
 
-/** The manifest an Agent runs, as the list prints it: `name@version`, and whether it tracks. */
+/**
+ * The manifest an Agent runs, as the list prints it: `name@version`, the version it moves to
+ * (track T3), and whether it tracks.
+ */
 function manifestOf(agent: AgentView): string {
   const name = parseAgentManifestRef(agent.manifest)?.name ?? agent.manifest;
-  return `${name}@${agent.resolvedVersion} ${agent.tracking === "tracking" ? "tracks" : "pinned"}`;
+  const target = agent.targetVersion ? ` → ${agent.targetVersion}` : "";
+  return `${name}@${agent.resolvedVersion}${target} ${agent.tracking === "tracking" ? "tracks" : "pinned"}`;
+}
+
+/** What a move left pending, for a person: the version, and what it waits for. */
+function pendingOf(agent: AgentView): string {
+  if (!agent.targetVersion) return "";
+  return agent.waitingFor === "secrets"
+    ? `; version ${agent.targetVersion} waits for its required secrets (nylorun agents secrets put ${agent.id} <name>)`
+    : `; version ${agent.targetVersion} applies at its pod's next start (nylorun agents restart ${agent.id} applies it now)`;
 }
 
 async function list(deps: StackDeps, args: readonly string[]): Promise<number> {
   const usage =
-    "nylorun agents list [--state <state>] [--manifest <name>] [--label <key=value>]... [--behind] [--limit <n>] [--cursor <c>] [--json]";
+    "nylorun agents list [--state <state>] [--manifest <name>] [--label <key=value>]... [--outdated] [--limit <n>] [--cursor <c>] [--json]";
   const flags = parseFlags(
     args,
     {
-      booleans: ["--json", "--behind"],
+      booleans: ["--json", "--outdated", "--behind"],
       values: ["--limit", "--cursor", "--state", "--manifest"],
       lists: ["--label"],
     },
@@ -94,7 +113,14 @@ async function list(deps: StackDeps, args: readonly string[]): Promise<number> {
   const labels = labelsOf(flags);
   const state = flags.values.get("--state");
   const manifest = flags.values.get("--manifest");
-  const filter = { ...(labels ? { labels } : {}), ...(state ? { state } : {}), ...(manifest ? { manifest } : {}) };
+  // Moving to another version (track T3); --behind is its former name.
+  const outdated = flags.booleans.has("--outdated") || flags.booleans.has("--behind");
+  const filter = {
+    ...(labels ? { labels } : {}),
+    ...(state ? { state } : {}),
+    ...(manifest ? { manifest } : {}),
+    ...(outdated ? { outdated: true } : {}),
+  };
   const limit = integerFlag(flags, "--limit");
   const cursor = flags.values.get("--cursor");
   const { client, connection } = await runtimeClient(deps, flags);
@@ -108,19 +134,9 @@ async function list(deps: StackDeps, args: readonly string[]): Promise<number> {
         }),
       )
     : { agents: await runtimeCall(() => client.agents.list(filter)), nextCursor: null };
-  let agents: AgentView[] = page.agents;
-  if (flags.booleans.has("--behind")) {
-    // Made from a version older than its manifest's latest: fork them to move on (until T3).
-    const latest = new Map(
-      (await runtimeCall(() => client.agentManifests.list())).map((saved) => [saved.name, saved.version]),
-    );
-    agents = agents.filter((agent) => {
-      const name = parseAgentManifestRef(agent.manifest)?.name ?? agent.manifest;
-      return agent.resolvedVersion < (latest.get(name) ?? 0);
-    });
-  }
+  const agents: AgentView[] = page.agents;
   if (flags.booleans.has("--json")) {
-    printJson(deps, paged ? { ...page, agents } : agents);
+    printJson(deps, paged ? page : agents);
     return 0;
   }
   if (agents.length === 0) deps.out(`No Agents on ${connection.label}.`);
@@ -159,13 +175,13 @@ function byId(
 }
 
 async function put(deps: StackDeps, args: readonly string[]): Promise<number> {
-  const usage = "nylorun agents put <id> --manifest <name[@n]> [--owner <user>] [--label <key=value>]...";
+  const usage = "nylorun agents put <id> --manifest <name[@n]> [--owner <user>] [--label <key=value>]... [--dry-run]";
   for (const removed of ["--kind", "--image"])
     if (args.includes(removed))
       throw usageError(
         `${removed} was removed in protocol 16: an Agent is made from a saved manifest only. Put what it runs in the manifest's runtime section (nylorun apply), then --manifest <name>.`,
       );
-  const flags = parseFlags(args, { values: ["--manifest", "--owner"], lists: ["--label"] }, usage);
+  const flags = parseFlags(args, { booleans: ["--dry-run"], values: ["--manifest", "--owner"], lists: ["--label"] }, usage);
   const [id] = positional(flags, 1, usage);
   const manifest = flags.values.get("--manifest");
   if (manifest === undefined) throw usageError(`Usage: ${usage}`);
@@ -174,10 +190,39 @@ async function put(deps: StackDeps, args: readonly string[]): Promise<number> {
   const owner = flags.values.get("--owner");
   const labels = labelsOf(flags);
   const { client, connection } = await runtimeClient(deps, flags);
-  const agent = await runtimeCall(() =>
-    client.agents.put(id!, { manifest, ...(owner ? { owner } : {}), ...(labels ? { labels } : {}) }),
-  );
-  deps.err(`Agent ${agent.id} runs ${manifestOf(agent)} on ${connection.label}.`);
+  const input = { manifest, ...(owner ? { owner } : {}), ...(labels ? { labels } : {}) };
+  if (flags.booleans.has("--dry-run")) {
+    printJson(deps, await runtimeCall(() => client.agents.plan(id!, input)));
+    return 0;
+  }
+  const agent = await runtimeCall(() => client.agents.put(id!, input));
+  deps.err(`Agent ${agent.id} runs ${manifestOf(agent)} on ${connection.label}${pendingOf(agent)}.`);
+  printJson(deps, agent);
+  return 0;
+}
+
+/** `pin <id> <version>` and `track <id>`: moves an Agent within its manifest (track T3). */
+async function move(deps: StackDeps, args: readonly string[], pin: boolean): Promise<number> {
+  const usage = pin ? "nylorun agents pin <id> <version>" : "nylorun agents track <id>";
+  const flags = parseFlags(args, {}, usage);
+  const [id, version] = positional(flags, pin ? 2 : 1, usage);
+  if (pin && !/^[1-9]\d*$/.test(version!)) throw usageError("The version is a positive number.");
+  const { client, connection } = await runtimeClient(deps, flags);
+  const current = await runtimeCall(() => client.agents.get(id!));
+  const name = parseAgentManifestRef(current.manifest)?.name ?? current.manifest;
+  const agent = await runtimeCall(() => client.agents.put(id!, { manifest: pin ? `${name}@${version}` : name }));
+  deps.err(`Agent ${agent.id} runs ${manifestOf(agent)} on ${connection.label}${pendingOf(agent)}.`);
+  printJson(deps, agent);
+  return 0;
+}
+
+async function restart(deps: StackDeps, args: readonly string[]): Promise<number> {
+  const usage = "nylorun agents restart <id> [--retry]";
+  const flags = parseFlags(args, { booleans: ["--retry"] }, usage);
+  const [id] = positional(flags, 1, usage);
+  const { client, connection } = await runtimeClient(deps, flags);
+  const agent = await runtimeCall(() => client.agents.restart(id!, { ...(flags.booleans.has("--retry") ? { retry: true } : {}) }));
+  deps.err(`Agent ${agent.id} runs ${manifestOf(agent)} on ${connection.label}${pendingOf(agent)}.`);
   printJson(deps, agent);
   return 0;
 }
@@ -343,6 +388,9 @@ const COMMANDS: Record<string, (deps: StackDeps, args: readonly string[]) => Pro
   ls: list,
   get: byId("get", (client, id) => client.agents.get(id)),
   put,
+  pin: (deps, args) => move(deps, args, true),
+  track: (deps, args) => move(deps, args, false),
+  restart,
   stop: byId("stop", (client, id) => client.agents.stop(id)),
   reset: byId("reset", (client, id) => client.agents.reset(id)),
   rm: deleteAgent,

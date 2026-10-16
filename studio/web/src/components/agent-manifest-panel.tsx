@@ -236,8 +236,8 @@ function VersionAlert({ pinned }: Readonly<{ pinned: PinnedManifestState }>) {
         <Info />
         <AlertDescription className="text-xs">
           This session runs {pinned.version.name} v{pinned.version.version}; v{pinned.latest} is
-          the latest. Its Agent keeps the version it was made from: fork the Agent to run the
-          newer one.
+          the latest. Its next turn runs the version its Agent runs: move the Agent (Track, or
+          Move to v{pinned.latest} on its page) to run the newer one.
         </AlertDescription>
       </Alert>
     );

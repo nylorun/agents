@@ -103,6 +103,20 @@ export function AgentState({ state, title }: Readonly<{ state: string; title?: s
 }
 
 /** The manifest version an Agent runs (`triage@3`), and whether it tracks or pins it. */
+/**
+ * What a move left pending (track T3), after the version it runs: the version it moves to and
+ * what it waits for, or the version that failed to start.
+ */
+export function pendingLabel(agent: AgentView): string {
+  if (agent.targetVersion)
+    return agent.waitingFor === "secrets"
+      ? ` · v${agent.targetVersion} waits for secrets`
+      : ` · v${agent.targetVersion} at next start`;
+  if (agent.startCheck) return ` · starting, from v${agent.startCheck.from}`;
+  if (agent.failedVersion) return ` · v${agent.failedVersion} failed to start`;
+  return "";
+}
+
 export function ManifestVersion({
   agent,
   onFilter,
@@ -116,6 +130,7 @@ export function ManifestVersion({
       </span>
       <span className="shrink-0 text-xs text-muted-foreground">
         {agent.tracking === "tracking" ? "tracks" : "pinned"}
+        {pendingLabel(agent)}
       </span>
     </>
   );
@@ -479,8 +494,7 @@ export function NewAgentSheet({
             <SheetTitle>New Agent</SheetTitle>
             <SheetDescription>
               Made from a saved agent manifest: tracking it, it runs the latest version when it is
-              made; pinned, the version picked. It keeps that version; a newer one reaches it by a
-              fork. Write its secrets on its Secrets tab once it exists.
+              made, and each version saved after it; pinned, the version picked until you move it. Write its secrets on its Secrets tab once it exists.
             </SheetDescription>
           </SheetHeader>
           <div className="grid gap-4 px-4">
