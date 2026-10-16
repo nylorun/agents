@@ -335,7 +335,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        smoke: ["test:stack", "test:failure", "test:acceptance:access", "test:redteam"]
+        # test:t4-exit: track T4's exit test (scripts/t4-exit.mjs), schedules and a webhook on a
+        # Compose Tenant with no client, a restart across due times included.
+        smoke: ["test:stack", "test:failure", "test:acceptance:access", "test:redteam", "test:t4-exit"]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
