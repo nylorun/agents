@@ -72,7 +72,10 @@
       "import": "./dist/manifest-schemas.js"
     },
     "./schemas/agent-manifest.json": "./dist/schemas/agent-manifest.schema.json",
-    "./schemas/environment-manifest.json": "./dist/schemas/environment-manifest.schema.json"
+    "./schemas/environment-manifest.json": "./dist/schemas/environment-manifest.schema.json",
+    "./schemas/agent-manifest-v8.json": "./dist/schemas/agent-manifest-v8.schema.json",
+    "./schemas/harness-manifest.json": "./dist/schemas/harness-manifest.schema.json",
+    "./schemas/runtime-manifest.json": "./dist/schemas/runtime-manifest.schema.json"
   },
   "peerDependencies": {
     "zod": "^4.6.5"

@@ -1,5 +1,5 @@
 import type { JsonObject } from "./shared.js";
-import type { WorkflowManifest } from "./workflow.js";
+import type { WorkflowManifest, WorkflowNode } from "./workflow.js";
 
 /**
  * Published manifest schema version (no top-level model — Runtime-owned). Version 7 is flat: the
@@ -173,3 +173,71 @@ export interface AgentRequirements {
   /** Secret names (environment variables) its skills' scripts read, which the vault must hold. */
   readonly secrets?: readonly string[];
 }
+
+/**
+ * Agent manifest v8 (protocol 16, track T2): one versioned document saved at
+ * `/v1/agent-manifests/{name}`, with what runs inside the agent loop (`harness`) and what the
+ * Runtime provides around it (`runtime`). An Agent is made from one version of it.
+ */
+export type AgentManifestV8SchemaVersion = 8;
+
+/** A skill as an agent manifest v8 declares it: a v7 skill, and the secret slots its scripts read. */
+export interface HarnessSkill extends SkillManifest {
+  /**
+   * The `runtime.secrets` slots its scripts read, each of type `environment_secret` or
+   * `environment_variable`: checked when the manifest is saved. Replaces `requires.secrets`.
+   */
+  readonly secrets?: readonly string[];
+}
+
+/** A remote MCP server as an agent manifest v8 declares it: no `approval`, which v8 refuses. */
+export type HarnessMcpServer = (McpServerManifest extends infer Server
+  ? Server extends unknown
+    ? Omit<Server, "approval">
+    : never
+  : never) & {
+  /**
+   * The `runtime.secrets` slot of type `bearer` or `headers` bound to this server's URL: checked
+   * when the manifest is saved. A server that names none keeps matching the vault by its URL.
+   */
+  readonly credential?: string;
+};
+
+/** What runs inside the loop of an agent: the `harness` section of an agent manifest v8. */
+export interface AgentHarnessSection {
+  /** The harness that runs the loop: `nylorun` (ours, the default) or a custom harness's id. */
+  readonly id?: string;
+  readonly instructions?: readonly string[];
+  /** An HTTP tool's `credential` names a `runtime.secrets` slot, checked at save. */
+  readonly tools?: readonly ToolManifest[];
+  readonly skills?: Readonly<Record<string, HarnessSkill>>;
+  readonly mcpServers?: Readonly<Record<string, HarnessMcpServer>>;
+  /** The Agent Plugins folded into it when it was composed, so a version records what built it. */
+  readonly plugins?: readonly PluginLabel[];
+  readonly outputSchema?: JsonObject;
+  /** The harness's own settings: passed to it in `turn.start`, never read by the Runtime. */
+  readonly loop?: JsonObject;
+}
+
+/**
+ * A flow's `harness` section: workflow manifest v3's flow without its identity, which the
+ * manifest holds, or its sandbox, which the `runtime` section provides.
+ */
+export interface WorkflowHarnessSection {
+  readonly kind: "workflow";
+  /** Flows run in our harness: `nylorun` when set. */
+  readonly id?: string;
+  readonly inputSchema?: JsonObject;
+  readonly outputSchema?: JsonObject;
+  readonly root: WorkflowNode;
+  readonly agents: Readonly<Record<string, AgentManifest | WorkflowManifest>>;
+  readonly plugins?: readonly PluginLabel[];
+  readonly loop?: JsonObject;
+}
+
+export type HarnessSection = AgentHarnessSection | WorkflowHarnessSection;
+
+/**
+ * The rest of agent manifest v8 (`AgentManifestV8`, `RuntimeSection`) is the zod schemas' output
+ * in `contracts.ts`: the runtime section reuses environment manifest v1's field schemas.
+ */

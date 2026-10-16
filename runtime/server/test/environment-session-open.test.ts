@@ -284,7 +284,7 @@ it("refuses to register a definition that sets runtime, which the manifest no lo
       body: JSON.stringify({ requestId: "put-old", manifest, implementationVersion: "dev" }),
     });
     expect(refused.status).toBe(400);
-    expect(await refused.text()).toContain("Manifest field runtime was removed");
+    expect(await refused.text()).toContain("This is a pre-v8 runtime block");
   } finally {
     await runtime.close();
   }
