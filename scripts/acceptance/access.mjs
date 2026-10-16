@@ -389,21 +389,29 @@ try {
             if (!streams.signal.aborted) throw error;
           }
         });
-        await runTurns(runtime, tenant, people);
-        assert.equal(
-          service.calls.filter((call) => call.name === "lookup_order").length,
-          Object.keys(people).length,
-          "the Runtime called the approved HTTP tool once per turn",
-        );
-        pass("A1", "admin, builder and member each ran a turn with an approved HTTP tool call in their own session");
-        await eventually(
-          () =>
-            Object.values(people).every((person) =>
-              seen[person.role].some((event) => event.type === "turn.completed"),
-            ),
-          { message: "every stream to see its turn complete" },
-        );
-        streams.abort();
+        // A stream's failure is reported below, once the turns are done; until then it must not
+        // end the process as an unhandled rejection.
+        for (const read of reading) read.catch(() => undefined);
+        try {
+          await runTurns(runtime, tenant, people);
+          assert.equal(
+            service.calls.filter((call) => call.name === "lookup_order").length,
+            Object.keys(people).length,
+            "the Runtime called the approved HTTP tool once per turn",
+          );
+          pass("A1", "admin, builder and member each ran a turn with an approved HTTP tool call in their own session");
+          await eventually(
+            () =>
+              Object.values(people).every((person) =>
+                seen[person.role].some((event) => event.type === "turn.completed"),
+              ),
+            { message: "every stream to see its turn complete" },
+          );
+        } finally {
+          // Closed before anything else fails on: the Tenant reset that follows a failure deletes
+          // the sessions, and a stream still open would reconnect to a 404 and hide the failure.
+          streams.abort();
+        }
         await Promise.all(reading);
         for (const person of Object.values(people)) {
           const events = seen[person.role];

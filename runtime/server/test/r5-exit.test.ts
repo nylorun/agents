@@ -133,6 +133,8 @@ async function boot(options: {
   toolGate?: ToolGate;
   manual?: boolean;
   sandbox?: SandboxBackend;
+  /** The Agent's id; by default `ws/s1` with a sandbox, else the manifest's name. */
+  agentId?: string;
 }): Promise<Started> {
   const runtime = await startTestTenant({
     applicationKey: APP,
@@ -150,7 +152,7 @@ async function boot(options: {
     ...(options.sandbox ? { sandbox: { backend: "virtual" as const, backends: [options.sandbox] } } : {}),
   });
   open.push(() => runtime.close());
-  const agent = options.sandbox ? "ws/s1" : "bot";
+  const agent = options.agentId ?? (options.sandbox ? "ws/s1" : "bot");
   await deploy(runtime.url, headers, options.agent, {
     id: agent,
     ...(options.sandbox ? { runtime: { kind: "virtual" as const } } : {}),
@@ -359,6 +361,21 @@ describe("the R5 exit", { timeout: 60_000 }, () => {
       expect.objectContaining({ toolName: "bash", kind: "sandbox", status: "failed", attempts: 1 }),
     ]);
     expect(execs).toBe(1);
+  });
+
+  it("names the manifest, not the Agent, as the run token's root agent (protocol 16)", async () => {
+    const service = await refundService({ hold: true });
+    const runtime = await boot({
+      model: oneCall("refund", { charge: "ch_6", amount: 30 }),
+      agent: refundAgent(service.url),
+      agentId: "users/u/desk",
+    });
+    await say(runtime);
+    await service.started;
+    // The model gate keys usage rows and `manifest` budgets on it, as the engine names the agent.
+    expect(runtime.gate!.runGrants.get("s1")?.claims.agentId).toBe("bot");
+    service.release();
+    expect(await settled(runtime)).toBe("completed");
   });
 
   it("runs nothing for a harness that skips the journal", async () => {

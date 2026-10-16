@@ -72,7 +72,7 @@ import {
   type TranscriptUpdate,
 } from "./history.js";
 import { command } from "./commands.js";
-import { dropRunGrant, grantRun, type RunOf } from "./run-grants.js";
+import { dropRunGrant, grantRun, rootAgentOf, type RunOf } from "./run-grants.js";
 import { startHeartbeat } from "../harness-api/renew.js";
 import { buildTurnStart, startSegment, type SegmentStart } from "../harness-api/start.js";
 import type { RunEnd } from "../harness-api/server.js";
@@ -165,7 +165,10 @@ export async function advance(
   ctx.work.running.set(id, controller);
   ctx.work.runningTurns.set(id, taken.session.activeTurnId ?? null);
   // A harness renews the lease once it holds the run; until then, and without one, core does.
-  const run: RunOf = { agentId: taken.session.agentId, activeTurnId: taken.session.activeTurnId };
+  // The run token names the root agent as the engine does: the loop manifest's id, i.e. the
+  // agent manifest's name (protocol 16), never the Agent the session runs on. The model gate's
+  // usage rows and `manifest` budgets key on it.
+  const run: RunOf = { agentId: rootAgentOf(taken.session), activeTurnId: taken.session.activeTurnId };
   const heartbeat = startHeartbeat(ctx, lease, controller, run);
   let result = DONE;
   let release = true;

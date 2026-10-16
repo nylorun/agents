@@ -111,7 +111,8 @@ describe("the tool policy", () => {
 });
 
 describe("a call as the policy reads it (protocol 15)", () => {
-  const session = { agentId: "support" } as Session;
+  // Protocol 16: the session runs on the Agent `users/ada/support`, made from the manifest `support`.
+  const session = { agentId: "users/ada/support", manifest: { id: "support" } } as Session;
   const effect = (fields: Partial<HostEffect>): HostEffect =>
     ({ kind: "tool", effectId: "e1", sessionId: "s", turnId: "t", input: {}, context: {}, ...fields }) as HostEffect;
 
@@ -124,6 +125,16 @@ describe("a call as the policy reads it (protocol 15)", () => {
       name: "pay",
     });
     expect(policyCallOf(session, effect({ key: "stage" }), "http")).toMatchObject({ tool: "stage" });
+  });
+
+  it("names the calling agent by its manifest, never by the Agent the session runs on (protocol 16)", () => {
+    const http = effect({ target: { kind: "http", tool: "lookup_order" } });
+    expect(policyCallOf(session, http, "http").agent).toBe("support");
+    expect(decide([{ effect: "ask", tool: "lookup_order", agent: "support" }], policyCallOf(session, http, "http")).effect).toBe("ask");
+    expect(decide([{ effect: "ask", agent: "users/*" }], policyCallOf(session, http, "http")).effect).toBe("allow");
+    // An agent used as a tool is named by its own id.
+    const delegated = effect({ target: { kind: "http", tool: "lookup_order" }, agent: { id: "billing", path: "billing" } });
+    expect(policyCallOf(session, delegated, "http").agent).toBe("billing");
   });
 
   it("finds a pinned approval by the tool's identity", () => {

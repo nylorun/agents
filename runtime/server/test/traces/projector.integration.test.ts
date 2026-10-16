@@ -8,10 +8,11 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
-import { Agent, http } from "@nylorun/agents";
+import { Agent, http } from "@nylorun/core/define";
 import type { ModelProvider } from "../../src/core/provider.js";
 import type { OtlpSpan } from "../../src/traces/map.js";
 import { STACK_ENABLED } from "../stack/endpoints.js";
+import { deploy, openSession } from "../support/agents.js";
 import { testTenantPool } from "../support/store.js";
 import { startTestTenant } from "../support/tenant.js";
 import {
@@ -51,13 +52,9 @@ async function boot() {
   const manifest = Agent({ id: "bot", name: "Bot" })
     .tools(http({ name: "hook", input: z.object({ n: z.number() }), url: `http://127.0.0.1:${(server.address() as AddressInfo).port}/` }))
     .build().manifest;
-  for (const [path, body] of [
-    ["/v1/agents/bot", { requestId: "a", manifest, implementationVersion: "dev" }],
-    ["/v1/sessions/s1", { requestId: "s", agentId: "bot", ownerUserId: "u" }],
-  ] as const) {
-    const response = await fetch(`${runtime.url}${path}`, { method: "PUT", headers, body: JSON.stringify(body) });
-    expect(response.ok, await response.clone().text()).toBe(true);
-  }
+  await deploy(runtime.url, headers, manifest);
+  const opened = await openSession(runtime.url, headers, "s1", { agent: "bot", ownerUserId: "u" });
+  expect(opened.ok, await opened.clone().text()).toBe(true);
   let n = 0;
   /** Runs one turn to its end; its id. */
   const turn = async (): Promise<string> => {

@@ -409,7 +409,8 @@ export function tenantStreamsSuite(
       const t = await setup();
       const a = await t.node();
       await t.createSession(a);
-      const base = (await t.items(a)).items.length;
+      // The log opens with agent.attached, in the history once the relay has appended it.
+      const base = await eventually("agent.attached in the history", async () => (await t.items(a)).items.length || undefined);
 
       const first = t.observe(a);
       // Ten batches of ten concurrent commits, spread out so the reconnect lands mid-way.
@@ -524,7 +525,8 @@ export function tenantStreamsSuite(
       const t = await setup();
       const a = await t.node();
       await t.createSession(a);
-      const base = (await t.items(a)).items.length;
+      // The log opens with agent.attached, in the history once the relay has appended it.
+      const base = await eventually("agent.attached in the history", async () => (await t.items(a)).items.length || undefined);
       const ctx = contextOf(a.handle);
       await ctx.store.tx(async (tx) => {
         for (let i = 0; i < 6; i += 1)

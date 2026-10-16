@@ -41,7 +41,7 @@ export interface PolicyCall {
   readonly tool: string;
   /** The MCP server's name. */
   readonly server?: string;
-  /** The agent that calls it. */
+  /** The agent that calls it: its manifest's id (an agent manifest's name), never an Agent's id. */
   readonly agent: string;
   readonly input: unknown;
   /** The name the model called it by, for display only: no rule matches it. */
@@ -104,8 +104,13 @@ export async function toolCallDecision(
   return decide(rules, policyCallOf(s, request, kind), pinnedApproval(turnManifestOf(s), request));
 }
 
-/** `request` as the policy reads it: by its target's identity (protocol 15). */
-export function policyCallOf(s: Pick<Session, "agentId">, request: HostEffect, kind: "mcp" | "http"): PolicyCall {
+/**
+ * `request` as the policy reads it: by its target's identity (protocol 15), and by the agent that
+ * calls it: an agent used as a tool by its id, the session's root agent by its loop manifest's id
+ * (protocol 16: the agent manifest's name). Never the session's Agent id (`s.agentId`), which
+ * protocol 16 made the Agent the session runs on (`users/ada/desk` for the manifest `desk`).
+ */
+export function policyCallOf(s: Pick<Session, "manifest">, request: HostEffect, kind: "mcp" | "http"): PolicyCall {
   const target = request.target;
   return {
     kind,
@@ -114,7 +119,7 @@ export function policyCallOf(s: Pick<Session, "agentId">, request: HostEffect, k
         ? target.tool
         : (request.key ?? request.effectId),
     ...(target?.kind === "mcp" ? { server: target.server } : {}),
-    agent: request.agent?.id ?? s.agentId,
+    agent: request.agent?.id ?? (s.manifest as { id: string }).id,
     input: request.input,
     ...(request.toolName === undefined ? {} : { name: request.toolName }),
   };
