@@ -78,7 +78,7 @@
     "./schemas/runtime-manifest.json": "./dist/schemas/runtime-manifest.schema.json"
   },
   "peerDependencies": {
-    "zod": "^4.6.5"
+    "zod": "^4.6.7"
   },
   "sideEffects": false
 }
