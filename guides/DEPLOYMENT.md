@@ -493,6 +493,57 @@ the secret slots, `secrets`). Its JSON Schema is
   of them, refused while an Agent was made from one (`409 manifest_in_use`). Model budgets of
   scope `manifest` (`PUT /v1/tenant/budgets`) cap a manifest's calls by its name.
 
+### Triggers, webhooks and wakes
+
+An Agent starts turns with no client connected (track T4) from what its manifest's
+`runtime.triggers` declares, by id. Each trigger has exactly one of `schedule` (five-field cron,
+in `timezone`, an IANA name, UTC by default), `at` (one time, RFC 3339 with an offset) or
+`webhook` (`"standard-webhooks"`), and the `session` its runs go to and its `prompt`:
+
+```json
+"runtime": {
+  "kind": "none",
+  "triggers": {
+    "hourly-check": { "schedule": "0 * * * *", "timezone": "Asia/Kolkata", "session": "triage-inbox", "prompt": "Check for new issues." },
+    "alerts": { "webhook": "standard-webhooks", "session": "new", "prompt": "An alert arrived. Investigate it." },
+    "launch-day": { "at": "2026-11-01T09:00:00+05:30", "session": "launch", "prompt": "Post the launch checklist." }
+  },
+  "selfWake": true
+}
+```
+
+- **Sessions.** `session` is a session id of the Agent, opened by the trigger's first run (owned
+  by the Agent's owner, or `installation`) and open to people and apps like any session, or
+  `"new"` for a session per run (`run-<runId>`). A named session that belongs to another Agent
+  fails the run (`session_conflict`).
+- **Runs.** Each time a trigger fires is a run, at `GET /v1/agents/{id}/runs`
+  (`nylorun agents runs`): `started` a turn, `queued` behind a running turn, `skipped`
+  (`overlap`, `rate_limited`, `paused`) or `failed`. A trigger fires on the Runtime's durable
+  timers, with Postgres holding when each one is due: after downtime it fires once, marked `late`,
+  and never backfills the times it missed. A schedule's runs move by a fixed offset per trigger
+  (`triggerJitterPercent`). A schedule adds at most one queued run to a busy session; its later
+  fires are skipped (`overlap`).
+- **Status.** Triggers start active with a new Agent; a trigger a newer version adds arrives
+  `paused` (`new`). `GET /v1/agents/{id}/triggers`, `POST .../triggers/{id}/pause`, `/resume`
+  and `/run` (with an `Idempotency-Key`), and `nylorun agents triggers`.
+- **Webhooks.** A webhook trigger's endpoint is `webhookUrl`, `POST /v1/webhooks/{endpointId}`:
+  no credential and no protocol header, Standard Webhooks signatures (`webhook-id`,
+  `webhook-timestamp` within `triggers.webhookToleranceMs`, `webhook-signature`), any body up to
+  `webhookBodyBytes`. Make its signing secret with `POST .../triggers/{id}/secret`
+  (`nylorun agents triggers new-secret`); it is shown once and replaces the one before. Relay
+  GitHub, Stripe or Slack through your app, signing with that secret. The payload reaches the
+  model under the prompt, labelled as data from an outside sender; it never approves anything.
+  Put a Runtime that faces the internet behind a proxy that limits requests to `/v1/webhooks/`.
+- **Wakes.** `"selfWake": true` offers the agent `schedule_wake`: it books its session's next turn
+  (`in` or `at`, and a `note` that is that turn's message), one booking per session.
+- **The session queue.** A message to a session whose turn runs is queued and starts the next
+  turn (protocol 17); `delivery: "reject"` answers `409 session_busy` instead.
+- **Limits.** `triggersPerAgent`, `triggerMinIntervalMs`, `triggerRunsPerHour` (the guard against
+  an Agent triggering itself), `triggerPromptChars`, `triggerRunRetentionMs`, `wakeMaxAheadMs`,
+  `wakeNoteChars`, `webhookBodyBytes` and `sessionQueuedMessages` ([Runtime limits](#runtime-limits)).
+  An hourly trigger on a hundred Agents is 2,400 turns a day: set model budgets before leaving
+  Agents running unattended.
+
 ## Postgres for session events
 
 Postgres holds the record of every session event (`nylorun_streams.session_events`), and
