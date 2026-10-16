@@ -1275,6 +1275,7 @@ export const AGENT_EVENT_TYPES = [
   "agent.run",
   "agent.trigger_paused",
   "agent.trigger_resumed",
+  "agent.trigger_secret_rotated",
 ] as const;
 export type AgentEventType = (typeof AGENT_EVENT_TYPES)[number];
 /** The payload of each Agent lifecycle event. */
@@ -1366,6 +1367,8 @@ export const AGENT_EVENT_PAYLOADS = {
     .passthrough(),
   "agent.trigger_paused": z.object({ triggerId: z.string(), reason: z.string() }).passthrough(),
   "agent.trigger_resumed": z.object({ triggerId: z.string() }).passthrough(),
+  /** A webhook trigger's signing secret was made or replaced; the one before stopped working. */
+  "agent.trigger_secret_rotated": z.object({ triggerId: z.string() }).passthrough(),
 } as const satisfies Record<AgentEventType, z.ZodType>;
 
 
@@ -1934,6 +1937,13 @@ export const TriggerViewSchema = z
     /** When it fires next, or `null` while paused or completed. */
     nextRunAt: z.string().nullable(),
     lastRunAt: z.string().nullable(),
+    /**
+     * A webhook trigger's endpoint (D75): `POST` Standard Webhooks deliveries to it. The origin is
+     * the one this read reached.
+     */
+    webhookUrl: z.string().optional(),
+    /** Whether a webhook trigger has a signing secret (`POST .../secret` makes one). */
+    secretSet: z.boolean().optional(),
   })
   .strict();
 export type TriggerView = z.infer<typeof TriggerViewSchema>;
@@ -1968,14 +1978,26 @@ export const TriggerRunPageSchema = z
   .object({ runs: z.array(TriggerRunSchema), nextCursor: z.string().nullable() })
   .strict();
 export type TriggerRunPage = z.infer<typeof TriggerRunPageSchema>;
+/**
+ * `POST /v1/agents/{id}/triggers/{triggerId}/secret` (D75): a webhook trigger's new signing secret,
+ * in the Standard Webhooks format (`whsec_` and 32 random bytes in base64), shown this once. It
+ * replaces the one before at once.
+ */
+export const WebhookSecretResponseSchema = z
+  .object({ triggerId: z.string(), webhookUrl: z.string(), secret: z.string() })
+  .strict();
+/** `POST /v1/webhooks/{endpointId}`: the run a delivery made, or the run a repeated delivery made. */
+export const WebhookAcceptedResponseSchema = z
+  .object({ runId: z.string(), status: z.enum(TRIGGER_RUN_STATUSES), reason: z.string().nullable() })
+  .strict();
 /** `POST /v1/agents/{id}/triggers/{triggerId}/run`: the run it made. */
 export const RunTriggerResponseSchema = z.object({ run: TriggerRunSchema }).strict();
 
 /**
  * What the Runtime provides around the loop: the `runtime` section of agent manifest v8, with
  * environment manifest v1's fields but its identity and its `harness` (now `harness.id`).
- * `triggers` (track T4, D74) start the Agent's turns with no client connected; webhook triggers
- * and `selfWake` are reserved for T4's next steps and refused until then.
+ * `triggers` (track T4, D74) start the Agent's turns with no client connected; `selfWake` is
+ * reserved for T4's next step and refused until then.
  */
 const runtimeSectionObject = z
   .strictObject(
@@ -1994,11 +2016,6 @@ const runtimeSectionObject = z
       secrets: EnvironmentSecretSlotsSchema.optional(),
       triggers: z
         .record(TriggerIdSchema, TriggerSchema)
-        .superRefine((triggers, ctx) => {
-          for (const [id, trigger] of Object.entries(triggers))
-            if (trigger.webhook !== undefined)
-              ctx.addIssue({ code: "custom", path: [id, "webhook"], message: "webhook triggers are not available yet" });
-        })
         .optional()
         .meta({ description: "What starts the Agent's turns with no client connected, by trigger id (D74)" }),
       selfWake: z

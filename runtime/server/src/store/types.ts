@@ -852,6 +852,8 @@ export interface Tx {
     after?: { agentId: string; triggerId: string };
     limit: number;
   }): Promise<AgentTriggerRow[]>;
+  /** The webhook trigger whose endpoint id is `endpointId`. */
+  agentTriggerByEndpoint(endpointId: string): Promise<AgentTriggerRow | undefined>;
   /** The earliest next fire time of an Agent's active triggers, or `null`. */
   nextWakeAt(agentId: string): Promise<string | null>;
   /** Records a run; false when one with the same `runKey` exists for the Agent. */

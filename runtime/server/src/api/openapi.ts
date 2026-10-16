@@ -205,13 +205,15 @@ const RUNTIME_TAGS: readonly Tag[] = [
     name: "Triggers",
     group: "Agents",
     description:
-      "What starts an Agent's turns with no client connected (track T4, D74): the schedules and one-shot times its manifest's `runtime.triggers` declare. Each trigger's status is the Agent's: pause and resume it, run it now, and read its runs (`started`, `queued`, `skipped` or `failed`, with a reason). In `@nylorun/agents` and `nylorun agents triggers`.",
+      "What starts an Agent's turns with no client connected (track T4, D74): the schedules, one-shot times and webhook endpoints its manifest's `runtime.triggers` declare. Each trigger's status is the Agent's: pause and resume it, run it now, make a webhook trigger's signing secret, and read its runs (`started`, `queued`, `skipped` or `failed`, with a reason). In `@nylorun/agents` and `nylorun agents triggers`.",
     operations: [
       "GET /v1/agents/{agentId}/triggers",
       "POST /v1/agents/{agentId}/triggers/{triggerId}/pause",
       "POST /v1/agents/{agentId}/triggers/{triggerId}/resume",
       "POST /v1/agents/{agentId}/triggers/{triggerId}/run",
       "GET /v1/agents/{agentId}/runs",
+      "POST /v1/agents/{agentId}/triggers/{triggerId}/secret",
+      "POST /v1/webhooks/{endpointId}",
     ],
   },
   {

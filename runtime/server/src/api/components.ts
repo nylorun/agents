@@ -10,6 +10,8 @@ import {
   TriggerListSchema,
   TriggerRunPageSchema,
   RunTriggerResponseSchema,
+  WebhookSecretResponseSchema,
+  WebhookAcceptedResponseSchema,
   AgentManifestV8Schema,
   EnvironmentSecretSlotsSchema,
   DeleteAgentManifestResponseSchema,
@@ -192,6 +194,8 @@ export const QueuedResponse = named("QueuedResponse", QueuedResponseSchema);
 export const TriggerList = named("TriggerList", TriggerListSchema);
 export const TriggerRunPage = named("TriggerRunPage", TriggerRunPageSchema);
 export const RunTriggerResponse = named("RunTriggerResponse", RunTriggerResponseSchema);
+export const WebhookSecretResponse = named("WebhookSecretResponse", WebhookSecretResponseSchema);
+export const WebhookAcceptedResponse = named("WebhookAcceptedResponse", WebhookAcceptedResponseSchema);
 
 export const ListSessionsResponse = named("ListSessionsResponse", ListSessionsResponseSchema);
 export const PutSessionRequest = named("PutSessionRequest", PutSessionRequestSchema);

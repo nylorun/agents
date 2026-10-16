@@ -232,6 +232,8 @@ export const HostTuningSchema = z
       lateGraceMs: ms(2 * MINUTE),
       /** How many upcoming fires the save check reads to find a cron's smallest gap. */
       intervalCheckFires: count(100, 2, 10_000),
+      /** The clock skew a webhook delivery's `webhook-timestamp` may have, either way (D75). */
+      webhookToleranceMs: ms(5 * MINUTE),
     }),
     /** Durable Session Execution: Restate, or the in-process execution. */
     execution: group({

@@ -758,6 +758,7 @@ What only the Runtime checks:
 | `triggerJitterMaxMs` | The most that offset may be | 5 min | A JavaScript timer |
 | `triggerPromptChars` | One trigger's `prompt` | 8,000 characters | One record entry, escaped |
 | `triggerRunRetentionMs` | How long an Agent's runs are kept | 30 days | A JavaScript number; floor 24 h (runs dedupe repeated fires) |
+| `webhookBodyBytes` | The largest delivery a webhook endpoint reads, before it verifies it (`413` past it) | 256 KiB | 960 KiB: the payload goes into one record entry |
 
 A limit above its ceiling, or under its floor, is `400`, naming the bound and why, and nothing changes.
 Each limit is read where it is checked, so a new value holds for the next request, write, call
@@ -889,6 +890,7 @@ below the run token's, the host token's longer than `harness.podRenewMs`, and
 | `sweep.stalePodMs` | 60 s | How long a pod row may go unchanged before the sweep reconciles it |
 | `triggers.lateGraceMs` | 2 min | How long after it was due a trigger's fire counts as late, and how overdue an active trigger is before the sweep arms its timer again |
 | `triggers.intervalCheckFires` | 100 | How many upcoming fires the save check reads to find a schedule's smallest gap |
+| `triggers.webhookToleranceMs` | 5 min | The clock skew a webhook delivery's `webhook-timestamp` may have, either way |
 | `execution.advanceDeadlineMs` | 50 min | How long one advance may run before its signal aborts; below `restate.inactivityMs` |
 | `execution.advanceGraceMs` | 30 s | How long an aborted advance has to settle before it is abandoned (0 allowed) |
 | `execution.stopGraceMs` | 30 s | How long stopping waits for running handlers; keep it at the advance grace (0 allowed) |

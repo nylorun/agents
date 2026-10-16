@@ -63,7 +63,7 @@ nylorun agents fork <id> <new-id> [--manifest <name[@n]>] [--disk <latest|n|empt
 nylorun agents restore <id> <version|latest>
 nylorun agents delete-version <id> <version>
 nylorun agents events <id> [--from <n>] [--types <type,…>] [--since <time>] [--until <time>]
-nylorun agents triggers list <id> | pause|resume <id> <trigger> | run <id> <trigger> [--idempotency-key <k>]
+nylorun agents triggers list <id> | pause|resume <id> <trigger> | run <id> <trigger> [--idempotency-key <k>] | new-secret <id> <trigger>
 nylorun agents runs <id> [--trigger <id>] [--limit <n>] [--cursor <c>]   # what each trigger fire came to
 nylorun agents secrets list|get|put|rm <id> [<name>] [<secret.json|->]   # put without a file: a slot's value on stdin
 nylorun sessions list [--agent <id>] [--manifest <name>] [--status <s>] [--owner <user>] [--limit <n>] [--cursor <c>] [--json]

@@ -16,7 +16,12 @@ Additive: the Runtime serves protocol 16 and 17, and Harness API 5 is unchanged.
   `timezone`) and `at` triggers start the Agent's turns on the session each names, with no client
   connected. They start active when an Agent is made; read and change them at
   `/v1/agents/{id}/triggers`, and their runs at `/v1/agents/{id}/runs`. Agent reads add
-  `nextWakeAt`. `webhook` triggers and `selfWake` are still refused.
+  `nextWakeAt`. A `webhook` trigger has an endpoint, `POST /v1/webhooks/{endpointId}`, that takes
+  Standard Webhooks deliveries with no credential: make its signing secret with
+  `POST /v1/agents/{id}/triggers/{triggerId}/secret` (`nylorun agents triggers new-secret`) and
+  give the sender the secret and the trigger's `webhookUrl`. Relay other senders (GitHub, Stripe,
+  Slack) through your app. `selfWake` is still refused. A Runtime on the internet should sit
+  behind a proxy that limits requests to `/v1/webhooks/`.
 - **Custom harnesses.** A turn that takes more than one queued message starts from
   `checkpoint.input` `{kind: "messages", messages: [...]}`, each one of the input shapes a single
   message has. Write each as its own `input` transcript entry.

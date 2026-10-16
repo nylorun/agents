@@ -192,8 +192,8 @@ export function pathnameIsLogged(rawUrl: string | undefined): boolean {
 }
 
 /**
- * Redact path parameters after `/v1/sessions/` for Host logs, and a capability link's token
- * (a credential) after `/v1/artifact-links/`.
+ * Redact path parameters after `/v1/sessions/` for Host logs, a capability link's token (a
+ * credential) after `/v1/artifact-links/`, and a webhook endpoint's id after `/v1/webhooks/`.
  */
 export function redactRoutePath(pathname: string): string {
   const parts = pathname.split("/");
@@ -203,6 +203,8 @@ export function redactRoutePath(pathname: string): string {
   }
   if (parts[1] === "v1" && parts[2] === "artifact-links" && parts.length > 3)
     return "/v1/artifact-links/:token";
+  // A webhook endpoint's id is its address: whoever has it may try to deliver (T4).
+  if (parts[1] === "v1" && parts[2] === "webhooks" && parts.length > 3) return "/v1/webhooks/:endpointId";
   return pathname;
 }
 
