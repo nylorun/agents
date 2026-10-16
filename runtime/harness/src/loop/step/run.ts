@@ -52,6 +52,7 @@ export async function runStep(input: {
     arrivals: Object.freeze([...input.arrivals]),
     toolResults: Object.freeze([...input.toolResults]),
     transcript: Object.freeze([...input.state.transcript]),
+    ...(input.state.pinned ? { pinned: Object.freeze([...input.state.pinned]) } : {}),
   });
   const configuration = new ModelConfigurationDraft();
   const context = new StepContext(stepInput, configuration);

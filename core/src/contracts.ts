@@ -42,15 +42,19 @@ import { isDefinitionFileHash, skillFilesIssue } from "./utils/definition-files.
 import { MEMORY_ACCESS, MEMORY_INSTRUCTIONS_MAX, MEMORY_OPERATIONS } from "./utils/memory.js";
 export {
   MEMORY_ACCESS,
+  MEMORY_COMMANDS,
   MEMORY_DESCRIPTION_MAX,
   MEMORY_INSTRUCTIONS_MAX,
   MEMORY_OPERATIONS,
   MEMORY_PATH_MAX,
   MEMORY_ROOT,
+  checkMemoryCall,
+  memoryAliasOf,
   memoryDescriptionOf,
   memoryPathOf,
   memoryPathWithin,
   type MemoryAccess,
+  type MemoryCommandName,
   type MemoryOperation,
 } from "./utils/memory.js";
 export type {

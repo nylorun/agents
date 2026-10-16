@@ -4,43 +4,20 @@
  * applies a write once and sees the same `view`, and a BYO harness gets the same answers by sending
  * the same target. The input is Anthropic's memory tool's: `command` and its parameters.
  *
- * The checks are here, not in the engine: a call missing a command's parameter, or with a
- * parameter of the wrong type, fails with Anthropic-style text (`Error: create requires file_text.`)
- * and changes nothing. Writes need `access: "read_write"` in the version the session runs and the
+ * Core checks every call, whichever harness sent it (our engine runs the same `checkMemoryCall`
+ * before it sends one): a call missing a command's parameter, or with a parameter of the wrong
+ * type, fails with Anthropic-style text (`Error: create requires file_text.`) and changes nothing. Writes need `access: "read_write"` in the version the session runs and the
  * root agent: a sub-agent's call (one that names its `agent`) may only view (`memory.forbidden`).
  */
-import type { AgentMemorySettings } from "@nylorun/core/contracts";
+import { checkMemoryCall, type AgentMemorySettings, type MemoryCommandName } from "@nylorun/core/contracts";
 import type { Tx } from "../store/types.js";
 import type { Session } from "../tenant/context.js";
 import { readRuntimeLimits } from "../tenant/runtime-limits.js";
 import { applyMemoryCommand, viewMemory, type MemoryCommand } from "./service.js";
 
-const COMMANDS = ["view", "create", "str_replace", "insert", "delete", "rename"] as const;
-type Command = (typeof COMMANDS)[number];
-
-/** Each command's parameters: name → required, and its kind. */
-const PARAMETERS: Record<Command, Record<string, { required: boolean; kind: "string" | "integer" | "range" }>> = {
-  view: { path: { required: true, kind: "string" }, view_range: { required: false, kind: "range" } },
-  create: { path: { required: true, kind: "string" }, file_text: { required: true, kind: "string" } },
-  str_replace: {
-    path: { required: true, kind: "string" },
-    old_str: { required: true, kind: "string" },
-    new_str: { required: false, kind: "string" },
-  },
-  insert: {
-    path: { required: true, kind: "string" },
-    insert_line: { required: true, kind: "integer" },
-    insert_text: { required: true, kind: "string" },
-  },
-  delete: { path: { required: true, kind: "string" } },
-  rename: { old_path: { required: true, kind: "string" }, new_path: { required: true, kind: "string" } },
-};
-
 type Outcome =
   | { kind: "completed"; output: string }
   | { kind: "failed"; code: string; message: string };
-
-const invalid = (message: string): Outcome => ({ kind: "failed", code: "tool.invalid-input", message: `Error: ${message}` });
 
 /** `harness.memory` of the agent manifest version session `s` runs, when it sets one. */
 export async function memorySettingsOf(t: Tx, s: Pick<Session, "definition">): Promise<AgentMemorySettings | undefined> {
@@ -50,31 +27,7 @@ export async function memorySettingsOf(t: Tx, s: Pick<Session, "definition">): P
   return harness?.kind === "workflow" ? undefined : harness?.memory;
 }
 
-/** Checks a call's input against its command's parameters; answers the command, or why not. */
-function parse(input: unknown): { command: Command; args: Record<string, unknown> } | Outcome {
-  if (input === null || typeof input !== "object" || Array.isArray(input)) return invalid("the input is an object with a command.");
-  const args = input as Record<string, unknown>;
-  const command = args.command;
-  if (typeof command !== "string" || !(COMMANDS as readonly string[]).includes(command))
-    return invalid(`command must be one of ${COMMANDS.join(", ")}; got ${JSON.stringify(command ?? null)}.`);
-  const parameters = PARAMETERS[command as Command];
-  const missing = Object.entries(parameters)
-    .filter(([name, spec]) => spec.required && (args[name] === undefined || args[name] === null))
-    .map(([name]) => name);
-  if (missing.length > 0) return invalid(`${command} requires ${missing.join(" and ")}.`);
-  for (const [name, spec] of Object.entries(parameters)) {
-    const value = args[name];
-    if (value === undefined || value === null) continue;
-    if (spec.kind === "string" && typeof value !== "string") return invalid(`${name} must be a string.`);
-    if (spec.kind === "integer" && !(Number.isInteger(value) || (typeof value === "string" && /^-?\d+$/.test(value))))
-      return invalid(`${name} must be an integer.`);
-    if (spec.kind === "range" && !(Array.isArray(value) && value.length === 2 && value.every((item) => Number.isInteger(Number(item)))))
-      return invalid(`${name} must be [start_line, end_line].`);
-  }
-  return { command: command as Command, args };
-}
-
-function commandOf(command: Exclude<Command, "view">, args: Record<string, unknown>): MemoryCommand {
+function commandOf(command: Exclude<MemoryCommandName, "view">, args: Record<string, unknown>): MemoryCommand {
   switch (command) {
     case "create":
       return { command, path: args.path as string, fileText: args.file_text as string };
@@ -107,8 +60,8 @@ export async function serveMemoryTool(
 ): Promise<Outcome> {
   const settings = await memorySettingsOf(t, s);
   if (!settings) return { kind: "failed", code: "tool.unavailable", message: "This session's agent has no memory (harness.memory)." };
-  const parsed = parse(request.input);
-  if ("kind" in parsed) return parsed;
+  const parsed = checkMemoryCall(request.input);
+  if ("error" in parsed) return { kind: "failed", code: "tool.invalid-input", message: parsed.error };
   const { command, args } = parsed;
   if (command === "view") {
     const range = Array.isArray(args.view_range) ? ([Number(args.view_range[0]), Number(args.view_range[1])] as const) : undefined;

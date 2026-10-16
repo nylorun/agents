@@ -35,6 +35,9 @@ export function projectModelCall(
   return freezeGraph({
     prompt: Object.freeze([
       ...projectInstructions(request.instructions, request.outputSchema),
+      ...(request.pinned ?? []).map((text) =>
+        freezeItem({ kind: "context", role: "user", content: [textPart(text)] }),
+      ),
       ...request.transcript.flatMap((entry) => projectEntry(entry, request.turnId)),
       ...projectContext(request.context),
       ...projectFiles(liveFilesOf(request), files),

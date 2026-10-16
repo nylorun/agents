@@ -166,6 +166,11 @@ export interface ModelRequest {
   /** Canonical, immutable Harness-owned model configuration for this call. */
   readonly configuration: ModelConfigurationSnapshot;
   readonly instructions: readonly string[];
+  /**
+   * Text the engine keeps at the head of the conversation, after the instructions, as user-role
+   * context: the Agent's memory index (track T5). The same for every call until it is re-pinned.
+   */
+  readonly pinned?: readonly string[];
   readonly context: ContextSnapshot;
   readonly transcript: readonly TranscriptEntry[];
   readonly arrivals: readonly InputEvent[];

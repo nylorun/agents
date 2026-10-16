@@ -76,3 +76,75 @@ export function memoryDescriptionOf(content: string): string | null {
   if (value === "") return null;
   return value.length > MEMORY_DESCRIPTION_MAX ? `${value.slice(0, MEMORY_DESCRIPTION_MAX - 1)}…` : value;
 }
+
+/** The `memory` tool's commands, Anthropic's memory tool's. */
+export const MEMORY_COMMANDS = ["view", "create", "str_replace", "insert", "delete", "rename"] as const;
+export type MemoryCommandName = (typeof MEMORY_COMMANDS)[number];
+
+/** Each command's parameters: name → whether it is required, and its kind. */
+const MEMORY_PARAMETERS: Record<
+  MemoryCommandName,
+  Record<string, { required: boolean; kind: "string" | "integer" | "range" }>
+> = {
+  view: { path: { required: true, kind: "string" }, view_range: { required: false, kind: "range" } },
+  create: { path: { required: true, kind: "string" }, file_text: { required: true, kind: "string" } },
+  str_replace: {
+    path: { required: true, kind: "string" },
+    old_str: { required: true, kind: "string" },
+    new_str: { required: false, kind: "string" },
+  },
+  insert: {
+    path: { required: true, kind: "string" },
+    insert_line: { required: true, kind: "integer" },
+    insert_text: { required: true, kind: "string" },
+  },
+  delete: { path: { required: true, kind: "string" } },
+  rename: { old_path: { required: true, kind: "string" }, new_path: { required: true, kind: "string" } },
+};
+
+/**
+ * Checks a `memory` call's input against its command's parameters, which a JSON schema cannot
+ * tie to the command: answers the command, or the error text the model reads
+ * (`Error: create requires file_text.`). Our engine checks before it sends a call, and the
+ * Runtime checks again for every harness.
+ */
+export function checkMemoryCall(
+  input: unknown,
+): { command: MemoryCommandName; args: Record<string, unknown> } | { error: string } {
+  const error = (message: string) => ({ error: `Error: ${message}` });
+  if (input === null || typeof input !== "object" || Array.isArray(input))
+    return error("the input is an object with a command.");
+  const args = input as Record<string, unknown>;
+  const command = args.command;
+  if (typeof command !== "string" || !(MEMORY_COMMANDS as readonly string[]).includes(command))
+    return error(`command must be one of ${MEMORY_COMMANDS.join(", ")}; got ${JSON.stringify(command ?? null)}.`);
+  const parameters = MEMORY_PARAMETERS[command as MemoryCommandName];
+  const missing = Object.entries(parameters)
+    .filter(([name, spec]) => spec.required && (args[name] === undefined || args[name] === null))
+    .map(([name]) => name);
+  if (missing.length > 0) return error(`${command} requires ${missing.join(" and ")}.`);
+  for (const [name, spec] of Object.entries(parameters)) {
+    const value = args[name];
+    if (value === undefined || value === null) continue;
+    if (spec.kind === "string" && typeof value !== "string") return error(`${name} must be a string.`);
+    if (spec.kind === "integer" && !(Number.isInteger(value) || (typeof value === "string" && /^-?\d+$/.test(value))))
+      return error(`${name} must be an integer.`);
+    if (
+      spec.kind === "range" &&
+      !(Array.isArray(value) && value.length === 2 && value.every((item) => Number.isInteger(Number(item))))
+    )
+      return error(`${name} must be [start_line, end_line].`);
+  }
+  return { command: command as MemoryCommandName, args };
+}
+
+/**
+ * The `memory` call a tool name stands for when a model names the command in it (E-P1):
+ * `memory.create` and `memory/create` are `memory` with `command: "create"`. Answers the command,
+ * or `undefined` for any other name.
+ */
+export function memoryAliasOf(name: string): MemoryCommandName | undefined {
+  const match = /^memory[./]([a-z_]+)$/.exec(name);
+  const command = match?.[1];
+  return command && (MEMORY_COMMANDS as readonly string[]).includes(command) ? (command as MemoryCommandName) : undefined;
+}

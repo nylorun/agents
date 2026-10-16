@@ -27,6 +27,7 @@ import { runAbortKind } from "./abort.js";
 import type { HarnessExecutors, HarnessRun } from "./executors.js";
 import { apiHost, type EngineConfig } from "./host.js";
 import { engineToolsFor } from "../tools/engine-tools.js";
+import { memoryIndexBlock } from "../tools/memory.js";
 import { mcpToolSet } from "../tools/mcp.js";
 import { saveOutputs } from "../tools/outputs.js";
 import type { TranscriptCache } from "./transcript-cache.js";
@@ -90,7 +91,21 @@ export async function runTurn(ctx: RunContext, run: HarnessRun): Promise<void> {
     }
     // The session's MCP tools as our engine offers them (protocol 15): named, and laid out as our
     // state pinned them while the facts stay the same.
-    const engineTools = (agent: AgentManifest) => engineToolsFor(agent, start.agent, ctx.engine);
+    // The Agent's memory (track T5): its tool and rules for every agent of the tree, writes for
+    // the root only, and its index pinned at the head of the conversation.
+    const memory = start.engine === "agent" ? start.memory : undefined;
+    const rootId = (start.manifest as AgentManifest).id;
+    const engineTools = (agent: AgentManifest) =>
+      engineToolsFor(
+        agent,
+        start.agent,
+        ctx.engine,
+        memory && {
+          access: memory.access,
+          ...(memory.instructions === undefined ? {} : { instructions: memory.instructions }),
+          root: agent.id === rootId,
+        },
+      );
     const mcp =
       start.engine === "agent" && start.mcp
         ? mcpToolSet(start.mcp, start.manifest as AgentManifest, {
@@ -119,6 +134,7 @@ export async function runTurn(ctx: RunContext, run: HarnessRun): Promise<void> {
             ...(mcp ? { mcp } : {}),
             // Our engine's own tools and text, from the turn's facts (protocol 15).
             engineTools,
+            ...(memory ? { pinned: [memoryIndexBlock(memory)] } : {}),
             ...(start.options.yieldAfter ? { yieldAfter: start.options.yieldAfter } : {}),
             ...(start.model ? { model: start.model } : {}),
             files: filesOf(ctx, run, start),

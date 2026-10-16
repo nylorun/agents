@@ -6,19 +6,21 @@
  *
  * - instructions: the skills' usage and catalog; the sandbox note; the skills' folder note;
  *   the artifact notes;
- * - tools: the six sandbox tools; the skill tools; `save_artifact`; `read_artifact`; and
- *   `schedule_wake` when the session's version sets `runtime.selfWake` (track T4).
+ * - tools: the six sandbox tools; the skill tools; `save_artifact`; `read_artifact`;
+ *   `schedule_wake` when the session's version sets `runtime.selfWake` (track T4); and `memory`
+ *   when it sets `harness.memory` (track T5).
  *
  * They come after the agent's own and before the session's MCP tools (`mcpToolSet`), and are
  * not hashed.
  */
 import type { AgentManifest } from "@nylorun/core/define";
-import type { TurnAgent } from "@nylorun/core/harness-api";
+import type { TurnAgent, TurnMemory } from "@nylorun/core/harness-api";
 import type { DurableSessionTool } from "../run/durable.js";
 import { artifactInstructions, artifactToolsFor } from "./artifacts.js";
 import { sandboxInstructions, sandboxTools, type SandboxToolLimits } from "./sandbox.js";
 import { skillCatalogText, skillFolderNote, skillTools } from "./skills.js";
 import { wakeTool } from "./wake.js";
+import { memoryTool } from "./memory.js";
 import type { McpToolConfig } from "./mcp.js";
 import type { ToolResultConfig } from "./results.js";
 import type { OutputsConfig } from "./outputs.js";
@@ -45,11 +47,16 @@ export interface EngineTools {
   readonly instructions: readonly string[];
 }
 
-/** Our engine's tools and text for `agent`, in a session on Agent `runsOn` (`turn.start.agent`). */
+/**
+ * Our engine's tools and text for `agent`, in a session on Agent `runsOn` (`turn.start.agent`)
+ * with its memory (`turn.start.memory`). `memory.root` is false for an agent used as a tool,
+ * which may only view memory.
+ */
 export function engineToolsFor(
   agent: Pick<AgentManifest, "skills">,
   runsOn: TurnAgent | undefined,
   options: Pick<EngineToolOptions, "artifactPageBytes" | "sandboxTools" | "skillReadBytes">,
+  memory?: Pick<TurnMemory, "access" | "instructions"> & { readonly root: boolean },
 ): EngineTools {
   const skills = Object.values(agent.skills ?? {});
   const workspace = runsOn?.sandbox?.workspace;
@@ -64,12 +71,16 @@ export function engineToolsFor(
   // A session that may book its own next turn (track T4, D77).
   const wake = runsOn?.selfWake === true ? wakeTool() : undefined;
   if (wake) instructions.push(wake.instructions);
+  // The Agent's memory (track T5, D72).
+  const remember = memory ? memoryTool(memory, memory.root) : undefined;
+  if (remember) instructions.push(remember.instructions);
   return {
     tools: [
       ...(sandboxed ? sandboxTools(options.sandboxTools, workspace) : []),
       ...skillTools(skills),
       ...artifactToolsFor(sandboxed, { pageBytes: options.artifactPageBytes }),
       ...(wake ? [wake.tool] : []),
+      ...(remember ? [remember.tool] : []),
     ],
     instructions,
   };

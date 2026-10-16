@@ -479,6 +479,28 @@ describe("compaction in the turn loop", () => {
     expect(replay).toEqual(result);
   });
 
+  it("drops the pinned text at a compaction, so the next segment pins it afresh (track T5)", async () => {
+    const manifest = agent().manifest;
+    const checkpoint = createDurableCheckpoint({
+      manifest,
+      sessionId: "session",
+      turnId: "turn",
+      input: "go",
+    });
+    const { host: journaled, kinds } = host({ window: 4_000, steps: 20, report: true });
+    const result = await runDurable({
+      manifest,
+      checkpoint,
+      host: journaled,
+      pinned: ["<memory-index>old</memory-index>"],
+    });
+    expect(result.status).toBe("completed");
+    expect(kinds).toContain("compaction");
+    expect(
+      (result as { result: { state: { pinned?: string[] } } }).result.state.pinned,
+    ).toBeUndefined();
+  });
+
   it("compacts once and retries when the provider reports an overflow", async () => {
     const manifest = agent().manifest;
     const checkpoint = createDurableCheckpoint({

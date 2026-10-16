@@ -16,6 +16,7 @@ import { assertJson, copyJson } from "@nylorun/core/define";
 import type { CanonicalCall } from "./canonicalize.js";
 import type { StepContext } from "./step-context.js";
 import type { TurnOutputContract } from "@nylorun/core/define";
+import { memoryAliasOf } from "@nylorun/core/contracts";
 
 export interface SealedToolCall {
   readonly callId: string;
@@ -173,7 +174,9 @@ function sealCall(
     };
 
   const tool = catalog.get(candidate.name);
-  if (!tool)
+  if (!tool) {
+    // `memory.<command>` whose own `command` disagrees: not mapped (`memoryAliasCall`).
+    const alias = catalog.has("memory") ? memoryAliasOf(candidate.name) : undefined;
     return {
       order,
       canonical,
@@ -181,9 +184,12 @@ function sealCall(
         candidate.id,
         candidate.name,
         "tool.unknown",
-        `Unknown Tool '${candidate.name}'`,
+        alias
+          ? `Unknown Tool '${candidate.name}'. Call memory with command "${alias}"; a call's command must match its name.`
+          : `Unknown Tool '${candidate.name}'`,
       ),
     };
+  }
   const args = validatedArguments(tool, candidate);
   if (!args.ok)
     return {

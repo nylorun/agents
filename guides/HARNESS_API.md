@@ -102,7 +102,10 @@ Which token:
   `memoryIndexLines` and `memoryIndexBytes` (`truncated` when some were left out). Pin the index
   where the prompt prefix stays cacheable (ours: a user-role entry at the head of the session,
   fresh after a compaction), and offer a `memory` tool whose calls are `runtime` effects
-  (below); offer only `view` for `read_only` and to sub-agents.
+  (below); offer only `view` for `read_only` and to sub-agents. Ours words it with `memoryTool`
+  and `memoryIndexBlock` (`@nylorun/harness/api`), checks each command's parameters before it
+  sends a call (`checkMemoryCall`, `@nylorun/core/contracts`; core checks again), and takes a
+  call named `memory.<command>` or `memory/<command>` as `memory` with that command.
 - `checkpoint` (`HarnessCheckpointSchema`): `sessionId`, `turnId`, `segment`, `manifestHash`,
   `input` and `state`.
   - `input` is the turn's message: a string, `{text, metadata?}`, `{content, metadata?}`, or
