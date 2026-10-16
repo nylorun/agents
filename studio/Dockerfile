@@ -15,7 +15,10 @@
 
 ARG NODE_IMAGE=node:24-slim
 
-FROM ${NODE_IMAGE} AS build
+# The build runs on the builder's own platform: it emits only JavaScript (dist), and
+# the deps stage installs node_modules for the target. Under QEMU, vite build for
+# arm64 once hung for an hour.
+FROM --platform=$BUILDPLATFORM ${NODE_IMAGE} AS build
 WORKDIR /repo
 ENV NPM_CONFIG_UPDATE_NOTIFIER=false NPM_CONFIG_FUND=false NPM_CONFIG_AUDIT=false
 # Every workspace manifest, so npm ci can read the lockfile.
