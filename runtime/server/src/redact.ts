@@ -1,3 +1,5 @@
+import { hostTuning } from "./tuning.js";
+
 export interface ScrubOptions {
   /**
    * Replace only `secrets` (R2b C8, Q16): no value under a secret-looking key, and no inline
@@ -9,12 +11,12 @@ export interface ScrubOptions {
 }
 
 /**
- * `value` with each of `secrets` (those of at least 8 characters) replaced by `[redacted]`. By
+ * `value` with each of `secrets` (those of at least `harness.scrubMinChars`, 8 by default) replaced by `[redacted]`. By
  * default also any value under a key such as `token` or `secret`, and inline image data.
  */
 export function scrub(value: unknown, secrets: readonly string[], options: ScrubOptions = {}): unknown {
   // The longest first, so a header value goes whole before the token inside it.
-  const sorted = secrets.filter((secret) => secret.length >= 8).sort((a, b) => b.length - a.length);
+  const sorted = secrets.filter((secret) => secret.length >= hostTuning().harness.scrubMinChars).sort((a, b) => b.length - a.length);
   let replaced = 0;
   const walk = (item: unknown): unknown => {
     if (typeof item === "string") {

@@ -37,6 +37,14 @@ export const JS_STRING_MAX_LENGTH = 2 ** 29 - 24;
  */
 export const TIMER_MAX_MS = 2 ** 31 - 1;
 
+/**
+ * The longest single argument Linux passes to a program (`MAX_ARG_STRLEN`, 32 pages of 4 KiB),
+ * its terminating NUL included: a setup command is one argument of `/bin/sh -c`.
+ */
+export const LINUX_ARG_MAX_BYTES = 32 * 4096;
+/** The longest setup command that fits it: UTF-8 takes at most 3 bytes for one UTF-16 code unit. */
+const SETUP_COMMAND_MAX_CHARS = Math.floor((LINUX_ARG_MAX_BYTES - 1) / 3);
+
 /** The most bytes base64 of `length` characters decodes to: groups of 4 characters, 3 bytes each. */
 const base64Bytes = (length: number) => Math.floor(length / 4) * 3;
 
@@ -88,6 +96,11 @@ const harnessLimits = {
  *
  * Requests and uploads:
  * - `requestBodyBytes`: the largest JSON body a Runtime or Management API route reads.
+ * - `messageParts`: the most parts one user message carries (text and files).
+ * - `pageItems`: the most items one page of a listing holds (`limit`), and `exportPageItems` one
+ *   page of the model call export (`GET /v1/tenant/calls/model`). A page asked for with no
+ *   `limit` holds the route's default, or this limit when it is lower; one asking more holds this
+ *   many. `environmentEventItems`: the most events one read of an Environment's events returns.
  * - `inlineFileBytes`: the largest file a message carries inline, decoded (AG-UI, A2A). Such an
  *   endpoint reads a body of one file at this size in base64 and `requestBodyBytes` more
  *   (`inlineBodyBytes`).
@@ -95,15 +108,28 @@ const harnessLimits = {
  * - `errorExcerptChars`: how much of a failed MCP server's or HTTP tool's answer an error quotes.
  * - `traceContentBytes`: the most UTF-8 bytes of one content attribute of an exported span.
  *
- * Environments (checked when one is made, and its labels whenever they are set):
- * - `environmentLabels`: the most labels one Environment carries.
+ * Labels (an Environment's and an artifact's, checked whenever they are set):
+ * - `environmentLabels`, `artifactLabels`: the most labels one Environment, and one artifact,
+ *   carries.
+ * - `labelKeyChars`, `labelValueChars`: the longest label key, and value.
+ *
+ * Environments (checked when one is made):
  * - `environmentSetupCommands`, `environmentFiles`: the most setup commands, and input file
  *   entries, one manifest holds.
  * - `environmentFilesPerEntry`: the most files one input file entry by hash names.
  * - `environmentSecretSlots`: the most secret slots one manifest declares.
+ * - `setupCommandChars`: the longest setup command.
  * - `setupCommandMs`: the longest `timeout` one setup command may ask for (a command's default is
  *   10 minutes).
- * - `setupOutputChars`: how much of a failed setup command's output its event and reason keep.
+ * - `setupOutputChars`: how much of a failed setup command's output its event keeps.
+ * - `setupReasonChars`, `setupCommandExcerptChars`: how much of the end of that output, and of
+ *   the start of the command, a failed pod's reason quotes.
+ * - `manifestDescriptionChars`, `secretDescriptionChars`: the longest description of an
+ *   environment manifest, and of one of its secret slots.
+ *
+ * Secrets (checked when one is written, and a manifest's slots when it is put):
+ * - `secretValueChars`: the longest value of an `environment_secret` or `environment_variable`.
+ * - `secretHosts`: the most hosts one `environment_secret` may be sent to (`allowedHosts`).
  *
  * Disk versions:
  * - `diskVersionEntries`, `diskVersionBytes`: the most entries, and bytes of files, one version
@@ -131,22 +157,45 @@ const harnessLimits = {
  *   does not fit is left out, with a diagnostic.
  * - `mcpPreviewMs`: how long an MCP preview may take, `initialize` and every `tools/list` page.
  * - `mcpMetadataBytes`: the largest protected-resource metadata document a preview reads.
+ * - `toolRules`: the most rules the Tenant's tool policy holds; `toolRuleFieldChars` the longest
+ *   selector (`tool`, `server`, `agent`) or `when` path of one, and `toolRuleTextChars` the
+ *   longest `reason` or `matches` expression.
+ * - `modelBudgets`: the most model budgets the Tenant sets.
+ *
+ * Flows (`workflows.md` §13):
+ * - `flowConcurrency`: the most effects one flow turn runs at once; the rest wait their turn.
+ * - `flowMapItems`: the most items one map stage may fan out to (`map.too-many-items` past it).
+ * - `flowLoopIterations`: the most iterations one loop stage runs (`loop.too-many-iterations`).
  */
 export const RuntimeLimitsSchema = z
   .object({
     ...harnessLimits,
     requestBodyBytes: z.number().int().positive(),
+    messageParts: z.number().int().positive(),
+    pageItems: z.number().int().positive(),
+    exportPageItems: z.number().int().positive(),
+    environmentEventItems: z.number().int().positive(),
     inlineFileBytes: z.number().int().positive(),
     a2aWaitMs: z.number().int().positive(),
     errorExcerptChars: z.number().int().positive(),
     traceContentBytes: z.number().int().positive(),
     environmentLabels: z.number().int().positive(),
+    artifactLabels: z.number().int().positive(),
+    labelKeyChars: z.number().int().positive(),
+    labelValueChars: z.number().int().positive(),
     environmentSetupCommands: z.number().int().positive(),
     environmentFiles: z.number().int().positive(),
     environmentFilesPerEntry: z.number().int().positive(),
     environmentSecretSlots: z.number().int().positive(),
+    setupCommandChars: z.number().int().positive(),
     setupCommandMs: z.number().int().positive(),
     setupOutputChars: z.number().int().positive(),
+    setupReasonChars: z.number().int().positive(),
+    setupCommandExcerptChars: z.number().int().positive(),
+    manifestDescriptionChars: z.number().int().positive(),
+    secretDescriptionChars: z.number().int().positive(),
+    secretValueChars: z.number().int().positive(),
+    secretHosts: z.number().int().positive(),
     diskVersionEntries: z.number().int().positive(),
     diskVersionBytes: z.number().int().positive(),
     diskLeaseMs: z.number().int().positive(),
@@ -162,6 +211,13 @@ export const RuntimeLimitsSchema = z
     mcpSnapshotBytes: z.number().int().positive(),
     mcpPreviewMs: z.number().int().positive(),
     mcpMetadataBytes: z.number().int().positive(),
+    toolRules: z.number().int().positive(),
+    toolRuleFieldChars: z.number().int().positive(),
+    toolRuleTextChars: z.number().int().positive(),
+    modelBudgets: z.number().int().positive(),
+    flowConcurrency: z.number().int().positive(),
+    flowMapItems: z.number().int().positive(),
+    flowLoopIterations: z.number().int().positive(),
   })
   .strict();
 export type RuntimeLimits = z.infer<typeof RuntimeLimitsSchema>;
@@ -182,7 +238,15 @@ export function harnessLimitsOf(limits: RuntimeLimits): HarnessLimits {
 }
 
 /** What a limit counts. */
-export type RuntimeLimitUnit = "bytes" | "entries" | "characters" | "milliseconds" | "attempts" | "retries";
+export type RuntimeLimitUnit =
+  | "bytes"
+  | "entries"
+  | "characters"
+  | "milliseconds"
+  | "attempts"
+  | "retries"
+  | "effects"
+  | "iterations";
 
 interface Ceiling {
   readonly value: number;
@@ -212,6 +276,21 @@ const inRequest = (what: string, item: unknown): Ceiling => {
     why: `${what} arrive in one request body, read as one string of at most ${JS_STRING_MAX_LENGTH} characters, and each takes at least ${chars}`,
   };
 };
+/** A count of items one answer carries, which is written as one string. */
+const inAnswer = (what: string, item: unknown): Ceiling => {
+  const chars = minChars(item);
+  return {
+    value: Math.floor(JS_STRING_MAX_LENGTH / chars),
+    unit: "entries",
+    why: `${what} go in one response body, written as one string of at most ${JS_STRING_MAX_LENGTH} characters, and each takes at least ${chars}`,
+  };
+};
+/** A text one request carries. */
+const inRequestText = (what: string): Ceiling => ({
+  value: JS_STRING_MAX_LENGTH,
+  unit: "characters",
+  why: `${what} arrives in one request body, read as one string of at most ${JS_STRING_MAX_LENGTH} characters`,
+});
 /** A text quoted in one record entry, as JSON. */
 const quoted = (what: string): Ceiling => ({
   value: Math.floor(recordEntryCeiling / JSON_ESCAPE_MAX_BYTES),
@@ -264,6 +343,10 @@ export const RUNTIME_LIMIT_CEILINGS: { readonly [K in RuntimeLimit]: Ceiling } =
     unit: "bytes",
     why: `a body is read as one string, of at most ${JS_STRING_MAX_LENGTH} characters`,
   },
+  messageParts: inRequest("parts", { type: "text", text: "a" }),
+  pageItems: inAnswer("a page's items", {}),
+  exportPageItems: inAnswer("a page's calls", {}),
+  environmentEventItems: inAnswer("the events", {}),
   inlineFileBytes: {
     value: base64Bytes(JS_STRING_MAX_LENGTH),
     unit: "bytes",
@@ -277,12 +360,26 @@ export const RUNTIME_LIMIT_CEILINGS: { readonly [K in RuntimeLimit]: Ceiling } =
     why: `span content is cut from one record entry, which holds at most ${recordEntryCeiling} bytes`,
   },
   environmentLabels: inRequest("labels", { a: "" }),
+  artifactLabels: inRequest("labels", { a: "" }),
+  labelKeyChars: inRequestText("a label key"),
+  labelValueChars: inRequestText("a label value"),
   environmentSetupCommands: inRequest("setup commands", { command: "a" }),
   environmentFiles: inRequest("input file entries", { path: "/workspace", files: {} }),
   environmentFilesPerEntry: inRequest("the files of an entry", { a: `sha256:${"0".repeat(64)}` }),
   environmentSecretSlots: inRequest("secret slots", { A: { type: "environment_variable" } }),
+  setupCommandChars: {
+    value: SETUP_COMMAND_MAX_CHARS,
+    unit: "characters",
+    why: `a command runs as one argument of /bin/sh -c, which Linux takes up to ${LINUX_ARG_MAX_BYTES} bytes long (MAX_ARG_STRLEN, with its NUL), and UTF-8 may take 3 bytes for a character`,
+  },
   setupCommandMs: timer("the engine times a command"),
   setupOutputChars: quoted("the output"),
+  setupReasonChars: quoted("the reason"),
+  setupCommandExcerptChars: quoted("the reason"),
+  manifestDescriptionChars: inRequestText("a description"),
+  secretDescriptionChars: inRequestText("a description"),
+  secretValueChars: inRequestText("a value"),
+  secretHosts: inRequest("hosts", "a.b"),
   diskVersionEntries: {
     value: Math.min(
       Math.floor(JS_STRING_MAX_LENGTH / FOLDER_ENTRY_MIN_CHARS),
@@ -313,6 +410,13 @@ export const RUNTIME_LIMIT_CEILINGS: { readonly [K in RuntimeLimit]: Ceiling } =
     unit: "bytes",
     why: `the document is read as one string, of at most ${JS_STRING_MAX_LENGTH} characters`,
   },
+  toolRules: inRequest("rules", { effect: "allow" }),
+  toolRuleFieldChars: inRequestText("a selector"),
+  toolRuleTextChars: inRequestText("a text"),
+  modelBudgets: inRequest("budgets", { scope: "tenant" }),
+  flowConcurrency: counted("effects", "running effects are counted"),
+  flowMapItems: counted("entries", "items are counted"),
+  flowLoopIterations: counted("iterations", "iterations are counted"),
 };
 
 /**
@@ -330,17 +434,31 @@ export const RUNTIME_LIMIT_DEFAULTS: RuntimeLimits = Object.freeze({
   chunkBytes: 16 * 1024 * 1024,
   folderEntries: 10_000,
   requestBodyBytes: 1024 * 1024,
+  messageParts: 32,
+  pageItems: 200,
+  exportPageItems: 1_000,
+  environmentEventItems: 1_000,
   inlineFileBytes: 20 * 1024 * 1024,
   a2aWaitMs: 5 * 60_000,
   errorExcerptChars: 2_000,
   traceContentBytes: 8 * 1024,
   environmentLabels: 32,
+  artifactLabels: 32,
+  labelKeyChars: 63,
+  labelValueChars: 256,
   environmentSetupCommands: 16,
   environmentFiles: 16,
   environmentFilesPerEntry: 1_000,
   environmentSecretSlots: 64,
+  setupCommandChars: 4_096,
   setupCommandMs: 30 * 60_000,
   setupOutputChars: 4 * 1024,
+  setupReasonChars: 500,
+  setupCommandExcerptChars: 80,
+  manifestDescriptionChars: 1_024,
+  secretDescriptionChars: 500,
+  secretValueChars: 8_192,
+  secretHosts: 32,
   diskVersionEntries: 200_000,
   diskVersionBytes: 10 * 1024 ** 3,
   diskLeaseMs: 2 * 60_000,
@@ -356,6 +474,13 @@ export const RUNTIME_LIMIT_DEFAULTS: RuntimeLimits = Object.freeze({
   mcpSnapshotBytes: 4 * 1024 * 1024,
   mcpPreviewMs: 15_000,
   mcpMetadataBytes: 64 * 1024,
+  toolRules: 200,
+  toolRuleFieldChars: 200,
+  toolRuleTextChars: 500,
+  modelBudgets: 100,
+  flowConcurrency: 8,
+  flowMapItems: 1_000,
+  flowLoopIterations: 100,
 });
 
 /** The Runtime limits a harness gets when the Tenant sets none. */

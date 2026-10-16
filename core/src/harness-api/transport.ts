@@ -34,14 +34,17 @@ export const HOST_RENEW_PATH = `${HARNESS_API_PATH}/host/renew`;
  * mounted join file (afresh each time: a reset writes a new one), and the id the harness keeps on
  * the volume (`/harness/volume-id`), so a volume recreated empty is told apart.
  */
+/**
+ * A pod's UID or a volume id: a Kubernetes UID is an RFC 4122 UUID (36 characters); 64 leaves a
+ * volume id room. With the join token's 512, an identifier's grammar is the protocol's (it crosses the Runtime API, the Harness API and tokens, and means the same in every installation), so its length is a constant of protocol 15, not a setting.
+ */
+export const POD_UID_PATTERN = /^[A-Za-z0-9-]{1,64}$/;
+export const JOIN_TOKEN_MAX = 512;
 export const HostJoinRequestSchema = z.strictObject({
   sandboxId: z.string().min(1),
-  podUid: z.string().regex(/^[A-Za-z0-9-]{1,64}$/),
-  joinToken: z.string().min(1).max(512),
-  volumeId: z
-    .string()
-    .regex(/^[A-Za-z0-9-]{1,64}$/)
-    .optional(),
+  podUid: z.string().regex(POD_UID_PATTERN),
+  joinToken: z.string().min(1).max(JOIN_TOKEN_MAX),
+  volumeId: z.string().regex(POD_UID_PATTERN).optional(),
 });
 export type HostJoinRequest = z.infer<typeof HostJoinRequestSchema>;
 

@@ -33,8 +33,6 @@ export const MCP_VAULT_REMOVED =
 export const MCP_CONNECT_REMOVED =
   `The connect subcommand of nylorun mcp was removed with MCP OAuth (protocol 10): ${SECRET_HINT.replace("write it", "write the server's key")}, or reach a server that needs a person's sign-in through a gateway (a secret with via). See its tools with nylorun tenant mcp inspect <url> --environment <id>.`;
 
-/** The preview takes up to 15 s in the Runtime; the hop gets a margin. */
-const PREVIEW_TIMEOUT_MS = 30_000;
 const DESCRIPTION_CHARS = 60;
 
 const usageError = (message: string) => new CliError(message, 2);
@@ -69,8 +67,8 @@ async function inspect(deps: StackDeps, args: readonly string[]): Promise<number
       ...(name === undefined ? {} : { name }),
       ...(environmentId === undefined ? {} : { environmentId }),
     }),
+    // The Runtime bounds the preview (its Runtime limit mcpPreviewMs, each step); the CLI waits.
     redirect: "error",
-    signal: AbortSignal.timeout(PREVIEW_TIMEOUT_MS),
   });
   const body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
   if (response.status === 404 && body.code === "not_found")

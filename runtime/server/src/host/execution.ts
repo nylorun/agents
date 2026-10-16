@@ -37,6 +37,7 @@ import {
   type TenantWorker,
 } from "../tenant/worker.js";
 import type { RuntimeServices } from "./stack-config.js";
+import { hostTuning } from "../tuning.js";
 
 export interface CreateHostExecutionOptions {
   execution: DurableExecution;
@@ -70,8 +71,6 @@ export interface HostExecution {
   disarm(tenantId: string): Promise<void>;
 }
 
-/** How many sweep arms `armAll` sends at once. */
-const ARM_CONCURRENCY = 16;
 
 export function createHostExecution(
   options: CreateHostExecutionOptions
@@ -131,7 +130,7 @@ export function createHostExecution(
         }
       };
       await Promise.all(
-        Array.from({ length: Math.min(ARM_CONCURRENCY, queue.length) }, next)
+        Array.from({ length: Math.min(hostTuning().sweep.armConcurrency, queue.length) }, next)
       );
       if (failures.length > 0)
         throw new AggregateError(

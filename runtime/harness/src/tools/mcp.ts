@@ -22,7 +22,7 @@
  */
 import { createHash } from "node:crypto";
 import { schemaFromJSON, type AgentManifest, type JsonObject } from "@nylorun/core/define";
-import { delegatesOf } from "@nylorun/core/define";
+import { delegatesOf, MODEL_TOOL_NAME_MAX } from "@nylorun/core/define";
 import type { McpFacts, ModelDescriptor } from "@nylorun/core/harness-api";
 import type { DurableSessionTool } from "../run/durable.js";
 import {
@@ -33,8 +33,9 @@ import {
   type DeferredServerNote,
 } from "./tool-search.js";
 
-/** The longest tool name every model provider accepts (R2b C6, Q14): a provider's ceiling. */
-export const MODEL_TOOL_NAME_MAX = 64;
+export { MODEL_TOOL_NAME_MAX };
+/** The hex characters of the hash a shortened or colliding tool name ends with. */
+const NAME_HASH_CHARS = 8;
 
 /** The harness's configuration of the MCP tools our engine offers. */
 export interface McpToolConfig {
@@ -85,8 +86,13 @@ export function mcpToolName(
 ): string {
   const name = `${server}__${tool}`.replace(/[^A-Za-z0-9_-]/gu, "_");
   if (name.length <= MODEL_TOOL_NAME_MAX && !options.suffixed) return name;
-  const hash = createHash("sha256").update(`${server}/${tool}`).digest("hex").slice(0, 8);
-  return `${name.slice(0, MODEL_TOOL_NAME_MAX - 9)}_${hash}`;
+  // Part of the names pinned sessions' tools already have (protocol 15's naming), so a constant:
+  // 8 hex characters of the hash and the `_` before them.
+  const hash = createHash("sha256")
+    .update(`${server}/${tool}`)
+    .digest("hex")
+    .slice(0, NAME_HASH_CHARS);
+  return `${name.slice(0, MODEL_TOOL_NAME_MAX - NAME_HASH_CHARS - 1)}_${hash}`;
 }
 
 /** A tool whose model-facing name is not `server__tool`. */

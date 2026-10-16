@@ -31,6 +31,7 @@ import {
   type FlowEffect,
 } from "../core/flow-host.js";
 import { mayDispatchMore } from "../core/limits.js";
+import { readRuntimeLimits } from "./runtime-limits.js";
 import type { Tx } from "../store/types.js";
 import type { AuthorizeResult } from "../vault/service.js";
 import { sessionCredentials, type McpCredentialRequest } from "../vault/sources.js";
@@ -145,7 +146,7 @@ export async function resolveNewFlowEffect(
     );
     // When the run journaled the effect (R7.1); a queued effect keeps it once dispatched.
     const startedAt = (existing?.startedAt as string | undefined) ?? new Date().toISOString();
-    if (!mayDispatchMore(active, ctx.flowLimits)) {
+    if (!mayDispatchMore(active, await readRuntimeLimits(t))) {
       if (!existing || existing.status !== "queued")
         await t.put("effects", request.effectId, {
           request,

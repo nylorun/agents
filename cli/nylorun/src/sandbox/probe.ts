@@ -4,6 +4,7 @@ import type { DockerRunner } from "../stack/docker.js";
 import type { PortProbe } from "../stack/ports.js";
 import type { Kube } from "./kubectl.js";
 import { networkPolicy, PROBE_IMAGE, probePod } from "./manifests.js";
+import { cliTuning } from "../tuning.js";
 
 /**
  * The NetworkPolicy probe `nylorun local sandbox enable` runs before it trusts a cluster (D32), in
@@ -71,8 +72,8 @@ async function sleep(ms: number): Promise<void> {
 /** `wget` from a probe pod; true when the connection succeeds. */
 async function reaches(kube: Kube, namespace: string, pod: string, address: string, port: number): Promise<boolean> {
   const result = await kube.run(
-    ["exec", "-n", namespace, pod, "--", "wget", "-q", "-O", "-", "-T", "3", `http://${address}:${port}/`],
-    { timeoutMs: 20_000 },
+    ["exec", "-n", namespace, pod, "--", "wget", "-q", "-O", "-", "-T", String(cliTuning().sandbox.probeWgetSeconds), `http://${address}:${port}/`],
+    { timeoutMs: cliTuning().sandbox.probeExecMs },
   );
   return result.code === 0;
 }
@@ -85,7 +86,8 @@ export async function runProbe(
   const suffix = randomBytes(3).toString("hex");
   const namespace = `nylorun-sbx-probe-${suffix}`;
   const listener = namespace;
-  const poll = deps.pollMs ?? 1000;
+  const tuning = cliTuning().sandbox;
+  const poll = deps.pollMs ?? tuning.pollMs;
   let listenerStarted = false;
   const fail = (message: string) =>
     new CliError(`Refusing context ${kube.context}: ${message}`, 6);
@@ -97,8 +99,8 @@ export async function runProbe(
       probePod(namespace, "restricted", { role: "restricted" }),
     ]);
     await kube.check("Waiting for the probe pods", [
-      "wait", "--for=condition=Ready", "pod", "--all", "-n", namespace, "--timeout=180s",
-    ], { timeoutMs: 200_000 });
+      "wait", "--for=condition=Ready", "pod", "--all", "-n", namespace, `--timeout=${tuning.probeReadySeconds}s`,
+    ], { timeoutMs: tuning.probeReadySeconds * 1000 + tuning.kubectlMarginMs });
 
     let hostAddress = options.hostAddress;
     if (!hostAddress) {
@@ -138,7 +140,7 @@ export async function runProbe(
     await kube.apply("Applying the probe NetworkPolicy", [
       networkPolicy(namespace, hostAddress, [allowed], { name: "probe", podSelector: { "nylorun.dev/probe": "restricted" } }),
     ]);
-    const deadline = Date.now() + (deps.policyTimeoutMs ?? 30_000);
+    const deadline = Date.now() + (deps.policyTimeoutMs ?? tuning.policyTimeoutMs);
     while (await reaches(kube, namespace, "restricted", peer, 8080)) {
       if (Date.now() > deadline)
         throw fail(
@@ -191,7 +193,7 @@ async function prePull(deps: ProbeDeps, namespace: string, images: readonly stri
   await kube.apply("Pre-pulling images", pods.map((pod) => pod.manifest));
   const failed = new Set<string>();
   const done = new Set<string>();
-  const deadline = Date.now() + 300_000;
+  const deadline = Date.now() + cliTuning().sandbox.prepullMs;
   while (done.size + failed.size < pods.length && Date.now() < deadline) {
     const list = await kube.getJson<PodList>(["pods", "-n", namespace, "-l", "nylorun.dev/probe=pull"]);
     for (const item of list?.items ?? []) {
@@ -201,7 +203,7 @@ async function prePull(deps: ProbeDeps, namespace: string, images: readonly stri
       if (/ErrImagePull|ImagePullBackOff|InvalidImageName|ErrImageNeverPull/.test(reason)) failed.add(pod.name);
       else if (item.status?.phase && item.status.phase !== "Pending") done.add(pod.name);
     }
-    if (done.size + failed.size < pods.length) await sleep(deps.pollMs ?? 2000);
+    if (done.size + failed.size < pods.length) await sleep(deps.pollMs ?? cliTuning().sandbox.prepullPollMs);
   }
   return images.filter((image) =>
     pods.some((pod) => pod.image === image && !done.has(pod.name)),

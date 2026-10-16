@@ -334,6 +334,9 @@ export const ARTIFACT_ID_PATTERN = /^af_[0-9a-hjkmnp-tv-z]{26}$/;
 /**
  * An application key's id: an operator key's name, which names its client (e.g. `backend`).
  * `studio` is reserved for the key Studio derives from the admin key.
+ * An identifier's grammar is the protocol's (B15): it crosses the Runtime API, tokens and grants
+ * and means the same in every installation, so its length is a constant of protocol 15, not a
+ * setting.
  */
 export const APPLICATION_KEY_ID_PATTERN = /^[a-z][a-z0-9-]{0,31}$/;
 

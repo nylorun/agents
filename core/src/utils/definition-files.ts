@@ -64,7 +64,7 @@ export function skillFilesIssue(files: unknown): string | undefined {
   if (!(SKILL_ENTRY in files)) return `files must include ${SKILL_ENTRY}`;
   for (const [path, hash] of entries) {
     const issue = skillFilePathIssue(path);
-    if (issue) return `file path ${JSON.stringify(path.slice(0, 80))} ${issue}`;
+    if (issue) return `file path ${JSON.stringify(path.slice(0, FILE_PATH_MAX))} ${issue}`;
     if (!isDefinitionFileHash(hash))
       return `file ${JSON.stringify(path)} must name its content as sha256:<64 lowercase hex>`;
   }

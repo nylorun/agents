@@ -1,4 +1,17 @@
 import { PINNED_IMAGES } from "./images.js";
+import { cliTuning, type CliTuning } from "../tuning.js";
+
+/** A service's healthcheck lines, from the CLI tuning (`compose.healthchecks`). */
+function healthcheck(service: keyof CliTuning["compose"]["healthchecks"]): string {
+  const { intervalSeconds, timeoutSeconds, retries } = cliTuning().compose.healthchecks[service];
+  return `      interval: ${intervalSeconds}s\n      timeout: ${timeoutSeconds}s\n      retries: ${retries}\n`;
+}
+
+/** Postgres's `max_slot_wal_keep_size` (`compose.walKeepSizeMb`), in GB when it is whole GB. */
+function walKeepSize(): string {
+  const mb = cliTuning().compose.walKeepSizeMb;
+  return mb % 1024 === 0 ? `${mb / 1024}GB` : `${mb}MB`;
+}
 
 /**
  * A local Tenant's Compose file (Runtime Architecture §14.3), written to
@@ -70,6 +83,9 @@ import { PINNED_IMAGES } from "./images.js";
  *
  * With `identity` (when `<Host root>/identity.yaml` exists) the runtime reads its trusted issuers
  * from it, through the Host root mount (NYLORUN_IDENTITY_FILE=/nylorun/identity.yaml).
+ *
+ * The healthchecks and Postgres's WAL cap come from the CLI tuning (`NYLORUN_CLI_TUNING`). The
+ * `tmpfs` masks are empty: 4096 bytes is one page, the least a tmpfs takes (Linux's page size).
  */
 export function renderComposeFile(
   project: string,
@@ -96,8 +112,8 @@ services:
     image: ${PINNED_IMAGES.postgres}
     container_name: ${project}-postgres
     labels: *tenant
-    # Logical replication feeds the stream relay; a stuck slot is capped at 4 GB of WAL.
-    command: ["postgres", "-c", "wal_level=logical", "-c", "max_slot_wal_keep_size=4GB"]
+    # Logical replication feeds the stream relay; a stuck slot's WAL is capped (compose.walKeepSizeMb).
+    command: ["postgres", "-c", "wal_level=logical", "-c", "max_slot_wal_keep_size=${walKeepSize()}"]
     environment:
       POSTGRES_USER: nylorun
       POSTGRES_PASSWORD: \${NYLORUN_POSTGRES_PASSWORD:?run nylorun start}
@@ -108,10 +124,7 @@ services:
     networks: [store]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U nylorun -d nylorun"]
-      interval: 2s
-      timeout: 5s
-      retries: 30
-    restart: unless-stopped
+${healthcheck("postgres")}    restart: unless-stopped
 
   restate: # Durable Session Execution
     image: ${PINNED_IMAGES.restate}
@@ -125,10 +138,7 @@ services:
       - \${NYLORUN_HOST_ROOT:?run nylorun start}/docker/restate-identity.pem:/run/nylorun/restate-identity.pem:ro
 ${restateUi ? RESTATE_UI : RESTATE_CLOSED}    healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:9070/health"]
-      interval: 2s
-      timeout: 5s
-      retries: 30
-    restart: unless-stopped
+${healthcheck("restate")}    restart: unless-stopped
 
   s2-lite: # Durable Streams; not published, only the Runtime reaches it
     image: ${PINNED_IMAGES.s2}
@@ -160,10 +170,7 @@ ${restateUi ? RESTATE_UI : RESTATE_CLOSED}    healthcheck:
     networks: [store]
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:9000/health"]
-      interval: 2s
-      timeout: 5s
-      retries: 30
-    restart: unless-stopped
+${healthcheck("rustfs")}    restart: unless-stopped
 
   gateway: # the Model and Tool Gates and keys: the vault key, credentials, signing, outbound calls; not published${sandboxes ? ", but for sandbox pods" : ""}
     image: \${NYLORUN_RUNTIME_IMAGE:?run nylorun start}
@@ -198,10 +205,7 @@ ${sandboxes ? SANDBOXES_GATES_PORT : ""}    # Egress and the stores; the harness
     networks: [default, store, harness]
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://localhost:4100/ready').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
-      interval: 2s
-      timeout: 5s
-      retries: 60
-    restart: unless-stopped
+${healthcheck("gateway")}    restart: unless-stopped
 
   runtime:
     image: \${NYLORUN_RUNTIME_IMAGE:?run nylorun start}
@@ -283,10 +287,7 @@ ${sandboxes ? SANDBOXES_GATES_PORT : ""}    # Egress and the stores; the harness
       - "127.0.0.1:\${NYLORUN_PORT:?run nylorun start}:4000" # Runtime and Management APIs, SSE, browsers${sandboxes ? SANDBOXES_RUNTIME_PORT : ""}
     healthcheck: # liveness: a Tenant that cannot open is reported by nylorun start (/ready, nylorun-operate status), not by a 300 s wait
       test: ["CMD", "node", "-e", "fetch('http://localhost:4000/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
-      interval: 2s
-      timeout: 5s
-      retries: 60
-    restart: unless-stopped
+${healthcheck("runtime")}    restart: unless-stopped
 
   studio: # dashboard + trusted proxy
     image: \${NYLORUN_STUDIO_IMAGE:?run nylorun start}
@@ -318,10 +319,7 @@ ${sandboxes ? SANDBOXES_GATES_PORT : ""}    # Egress and the stores; the harness
       - "127.0.0.1:\${NYLORUN_STUDIO_PORT:?run nylorun start}:3000" # opened as http://localhost:<port>
     healthcheck: # /healthz needs no session; Host studio:3000 is accepted
       test: ["CMD", "node", "-e", "require('http').get({port:3000,path:'/healthz',headers:{host:'studio:3000'}},r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
-      interval: 2s
-      timeout: 5s
-      retries: 30
-    restart: unless-stopped
+${healthcheck("studio")}    restart: unless-stopped
 ${remote ? harnessService(project) : ""}${sandboxes ? sandboxesService(project) : ""}
 networks:
   default:
@@ -382,10 +380,7 @@ function harnessService(project: string): string {
     networks: [harness]
     healthcheck: # healthy once connected to core's Harness API
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4300/health').then(r=>r.json()).then(b=>process.exit(b.connected?0:1),()=>process.exit(1))"]
-      interval: 2s
-      timeout: 5s
-      retries: 90
-    restart: unless-stopped
+${healthcheck("harness")}    restart: unless-stopped
 `;
 }
 
@@ -458,9 +453,6 @@ function sandboxesService(project: string): string {
     networks: [default] # the cluster's API server, through host.docker.internal
     healthcheck: # /ready: informers synced and the API server answers
       test: ["CMD", "/sandboxes", "healthcheck"]
-      interval: 5s
-      timeout: 5s
-      retries: 24
-    restart: unless-stopped
+${healthcheck("sandboxes")}    restart: unless-stopped
 `;
 }

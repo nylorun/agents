@@ -66,7 +66,7 @@ export function createPgoutputSource(options: PgoutputSourceOptions): ChangeSour
   const log = options.log ?? (() => {});
   const pool = new pg.Pool({
     connectionString: options.connectionString,
-    max: 2,
+    max: hostTuning().postgres.replicationPoolSize,
     application_name: applicationName,
   });
   let service: LogicalReplicationService | undefined;

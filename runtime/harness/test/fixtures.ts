@@ -21,6 +21,7 @@ import {
   type ToolExecutionContext,
   type ToolOutcome,
 } from "@nylorun/core/define";
+import { DEFAULT_FLOW_VALUE_CHARS } from "../src/flow/limits.js";
 export const objectSchema = z.object({}).passthrough();
 
 /** Test-only convenience for existing pipeline assertions. All execution uses Promise run(). */
@@ -231,6 +232,7 @@ export function engineConfig(
 ): import("../src/api/host.js").EngineConfig {
   return {
     loop: DEFAULT_LOOP_CONFIG,
+    flowValueChars: DEFAULT_FLOW_VALUE_CHARS,
     resendDelaysMs: DEFAULT_RESEND_DELAYS_MS,
     artifactPageBytes: 32 * 1024,
     sandboxTools: DEFAULT_SANDBOX_TOOL_LIMITS,

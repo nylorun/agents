@@ -17,6 +17,7 @@ import { HarnessLimitsSchema, RUNTIME_LIMIT_CEILINGS } from "../utils/runtime-li
 import { SANDBOX_TOOL_NAMES } from "../utils/sandbox.js";
 import { McpFactsSchema, McpSnapshotSchema } from "./mcp.js";
 
+/** An id in a Harness API frame, at most 512 characters: an identifier's grammar is the protocol's (it crosses the Runtime API, the Harness API and tokens, and means the same in every installation), so its length is a constant of protocol 15, not a setting. */
 const id = z.string().min(1).max(512);
 const hex64 = z.string().regex(/^[0-9a-f]{64}$/);
 const runId = z.object({ runId: id });
@@ -165,7 +166,7 @@ export const ArtifactMetaSchema = z
 /** A workspace's compute record, as the harness keeps it. */
 export const WorkspaceRecordSchema = z
   .object({
-    key: z.string().min(1).max(512),
+    key: id,
     sessionId: id,
     environmentId: id.optional(),
     backend: z.string(),

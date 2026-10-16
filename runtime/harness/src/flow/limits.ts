@@ -1,10 +1,9 @@
 /**
- * Operator flow ceilings for the engine (`workflows.md` §13).
- * Host-side assert helpers live in the Runtime package; harness duplicates the
- * codes here so the engine never depends on Runtime.
- * Codes must stay identical: `map.too-many-items`, `loop.too-many-iterations`.
+ * Flow ceilings for the engine (`workflows.md` §13): the Tenant's Runtime limits `flowMapItems`
+ * and `flowLoopIterations`, which a flow's `turn.start.options.flowLimits` carries.
  */
 
+import { RUNTIME_LIMIT_DEFAULTS } from "@nylorun/core/contracts";
 import { FlowNodeError } from "./types.js";
 
 export type FlowOperatorLimits = {
@@ -12,11 +11,17 @@ export type FlowOperatorLimits = {
   readonly maxLoopIterations: number;
 };
 
-/** Same defaults as Runtime `FLOW_LIMIT_DEFAULTS` (item/iteration ceilings). */
+/**
+ * What the engine holds a flow to when its `turn.start` names no limits: the defaults of the
+ * Runtime limits `flowMapItems` and `flowLoopIterations`, which a Tenant sets.
+ */
 export const FLOW_OPERATOR_DEFAULTS: FlowOperatorLimits = {
-  maxMapItems: 1000,
-  maxLoopIterations: 100,
+  maxMapItems: RUNTIME_LIMIT_DEFAULTS.flowMapItems,
+  maxLoopIterations: RUNTIME_LIMIT_DEFAULTS.flowLoopIterations,
 };
+
+/** How many characters of a value a flow's failure message quotes, by default (engine config). */
+export const DEFAULT_FLOW_VALUE_CHARS = 80;
 
 export function resolveOperatorLimits(
   limits?: Partial<FlowOperatorLimits> | null,

@@ -4,6 +4,7 @@
  * Runtime sets itself, so a credential can never replace them.
  */
 import { VaultError } from "./error.js";
+import { hostTuning } from "../tuning.js";
 
 /** Headers the MCP transport and the HTTP tool call own. */
 const RESERVED_HEADERS = new Set([
@@ -30,11 +31,12 @@ export function credentialSecrets(
 ): string[] {
   const skip = identity?.header.toLowerCase();
   const secrets = new Set<string>();
+  const least = hostTuning().harness.scrubMinChars;
   for (const [name, value] of Object.entries(headers)) {
     if (name.toLowerCase() === skip) continue;
-    if (value.length >= 8) secrets.add(value);
+    if (value.length >= least) secrets.add(value);
     const bearer = /^bearer\s+(\S+)\s*$/iu.exec(value)?.[1];
-    if (bearer !== undefined && bearer.length >= 8) secrets.add(bearer);
+    if (bearer !== undefined && bearer.length >= least) secrets.add(bearer);
   }
   return [...secrets];
 }

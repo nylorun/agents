@@ -27,7 +27,6 @@ import type {
 } from "@nylorun/harness/run";
 import type { AgentManifest, JsonValue, SandboxManifest } from "@nylorun/core/define";
 import type { OutboxRequest, SessionStore, StoredSession, Tx } from "../store/types.js";
-import type { FlowLimits } from "../core/limits.js";
 import type { ModelGate } from "../gates/model-gate.js";
 import type { ToolGate } from "../gates/tool-gate.js";
 import type { Keys } from "../keys/keys.js";
@@ -189,7 +188,6 @@ export interface TenantContext {
    * else the harness that serves workspaces (`harness-api/workspace.ts`).
    */
   readonly sandbox: WorkspacePort;
-  readonly flowLimits: FlowLimits;
   /**
    * True when the Runtime's model is not the vault's (scripted, the fixture model, an embedder's
    * provider): `modelGate` serves it, and no vault model need be configured.

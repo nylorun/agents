@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { Readable } from "node:stream";
-import { PROTOCOL_HEADER, PROTOCOL_VERSION } from "@nylorun/agents";
+import { PROTOCOL_HEADER, PROTOCOL_VERSION, RUNTIME_LIMIT_DEFAULTS } from "@nylorun/agents";
 
 const LOCAL_OWNER = "local-developer";
 /** What an agent's tools would get from the Environment a new session names. */
@@ -66,12 +66,37 @@ export type StudioProxyOptions = {
   prefix?: string;
   /** Origins allowed to change state. Default: only `origin`. */
   allowedOrigins?: ReadonlySet<string>;
-  /** The largest file a message attachment upload forwards. Default `MAX_UPLOAD_BYTES`. */
+  /**
+   * The largest file a message attachment upload forwards. Default: no cap of Studio's own; the
+   * Runtime holds the upload to the Tenant's artifact limits (`/v1/tenant/artifacts`).
+   */
   maxUploadBytes?: number;
 };
 
-/** Default cap on one attachment upload (`POST /v1/artifacts`): 32 MiB. */
-export const MAX_UPLOAD_BYTES = 32 * 1024 * 1024;
+/**
+ * The largest JSON body the Runtime reads: the Tenant's Runtime limit `requestBodyBytes`. Studio
+ * reads a write it parses (it rewrites some) up to the limit's default without asking, and asks
+ * the Runtime only for a larger one, so it refuses only what the Runtime would.
+ */
+async function requestBodyBytes(options: StudioProxyOptions, signal: AbortSignal): Promise<number | undefined> {
+  try {
+    const answer = await fetch(`${options.runtimeUrl}/v1/tenant/limits`, {
+      redirect: "error",
+      signal,
+      headers: {
+        authorization: `Bearer ${options.serverKey}`,
+        [PROTOCOL_HEADER]: String(PROTOCOL_VERSION),
+        accept: "application/json",
+      },
+    });
+    const limits = answer.ok ? ((await answer.json()) as { limits?: { requestBodyBytes?: unknown } }).limits : undefined;
+    if (typeof limits?.requestBodyBytes === "number") return limits.requestBodyBytes;
+    await answer.body?.cancel().catch(() => {});
+  } catch {
+    // Unreachable: the write is answered 502.
+  }
+  return undefined;
+}
 
 /**
  * The bytes of a request, as a stream that errors once more than `limit` bytes have passed
@@ -194,7 +219,7 @@ export async function proxyRuntime(
     if (declared === undefined || !/^\d+$/.test(declared))
       return refuse(411, "An upload needs a Content-Length");
     const length = Number(declared);
-    const limit = options.maxUploadBytes ?? MAX_UPLOAD_BYTES;
+    const limit = options.maxUploadBytes ?? Number.POSITIVE_INFINITY;
     if (length > limit)
       return refuse(413, `A file can be at most ${limit} bytes`);
     // Only into a session that exists: Studio's key could otherwise make Tenant-wide artifacts.
@@ -237,11 +262,20 @@ export async function proxyRuntime(
   ) {
     if (!request.headers["content-type"]?.startsWith("application/json"))
       return fail(415, "JSON required");
+    let most: number = RUNTIME_LIMIT_DEFAULTS.requestBodyBytes;
+    let asked = false;
     let text = "";
     for await (const chunk of request) {
       text += chunk;
-      if (Buffer.byteLength(text) > 1024 * 1024)
-        return fail(413, "Request too large");
+      if (Buffer.byteLength(text) <= most) continue;
+      if (!asked) {
+        asked = true;
+        const limit = await requestBodyBytes(options, controller.signal);
+        if (limit === undefined) return fail(502, "Runtime is unavailable");
+        most = limit;
+        if (Buffer.byteLength(text) <= most) continue;
+      }
+      return fail(413, "Request too large");
     }
     let value: any;
     try {

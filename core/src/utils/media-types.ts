@@ -63,11 +63,17 @@ export function essence(contentType: string): string {
   return contentType.split(";")[0]!.trim().toLowerCase();
 }
 
+/**
+ * The longest `Content-Type` kept, its parameters included: RFC 6838 §4.2's type and subtype of at
+ * most 127 characters each and the slash between them. A standard's constant.
+ */
+const MEDIA_TYPE_MAX = 127 + 1 + 127;
+
 /** A declared `Content-Type` as stored, or undefined when it is not a media type. */
 export function normalizeContentType(value: string | undefined): string | undefined {
   if (value === undefined) return undefined;
   const trimmed = value.trim();
-  if (trimmed === "" || trimmed.length > 255) return undefined;
+  if (trimmed === "" || trimmed.length > MEDIA_TYPE_MAX) return undefined;
   return MEDIA_TYPE.test(essence(trimmed)) ? trimmed : undefined;
 }
 

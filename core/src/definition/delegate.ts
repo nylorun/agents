@@ -32,8 +32,13 @@ export function isFlowDelegate(
   return (delegate.manifest as { kind?: unknown }).kind === "workflow";
 }
 
+/**
+ * The longest tool name every model provider accepts (R2b C6, Q14): OpenAI's and Anthropic's
+ * `^[a-zA-Z0-9_-]{1,64}$`. A provider's ceiling, not a setting.
+ */
+export const MODEL_TOOL_NAME_MAX = 64;
 /** Model-facing tool names: what every supported provider accepts. */
-export const DELEGATE_NAME_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
+export const DELEGATE_NAME_PATTERN = new RegExp(`^[A-Za-z0-9_-]{1,${MODEL_TOOL_NAME_MAX}}$`);
 
 const taskSchema = z
   .object({

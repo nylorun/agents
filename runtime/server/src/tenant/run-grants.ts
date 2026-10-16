@@ -9,7 +9,8 @@
  * gates in this process nothing is minted (G6): the trust boundary is the gate's HTTP route.
  */
 import type { Lease, TenantContext } from "./context.js";
-import { mintRunToken, RUN_TOKEN_RENEW_SECONDS, type RunGrant } from "./run-token.js";
+import { mintRunToken, type RunGrant } from "./run-token.js";
+import { hostTuning } from "../tuning.js";
 
 /** What a gate client reads: the current run token of a session, if an advance holds one. */
 export interface RunTokens {
@@ -84,7 +85,7 @@ export async function renewRunGrant(
   if (!ctx.runGrants || !run.activeTurnId) return;
   const held = ctx.runGrants.get(lease.sessionId);
   if (held && held.claims.epoch !== lease.epoch) return;
-  if (held && held.claims.expiresAt - Date.now() > RUN_TOKEN_RENEW_SECONDS * 1000) return;
+  if (held && held.claims.expiresAt - Date.now() > hostTuning().keys.runTokenRenewSeconds * 1000) return;
   const grant = await mintRunToken(ctx, lease, held ? { agentId: held.claims.agentId, activeTurnId: held.claims.turnId } : run);
   if (active()) ctx.runGrants.set(grant);
 }

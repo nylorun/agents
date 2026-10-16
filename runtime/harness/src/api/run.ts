@@ -110,6 +110,7 @@ export async function runTurn(ctx: RunContext, run: HarnessRun): Promise<void> {
             signal,
             host,
             limits: start.options.flowLimits as Partial<FlowOperatorLimits> | undefined,
+            valueChars: ctx.engine.flowValueChars,
           })
         : await runDurable({
             manifest: start.manifest as AgentManifest,

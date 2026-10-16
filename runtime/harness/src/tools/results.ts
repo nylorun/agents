@@ -29,6 +29,7 @@
  */
 import { createHash } from "node:crypto";
 import {
+  ARTIFACT_NAME_MAX,
   DEFAULT_CONTENT_TYPE,
   extensionFor,
   isText,
@@ -56,6 +57,8 @@ export interface ToolResultConfig {
   readonly stubBytes: number;
   /** A result this small is never shaped. Default 1 KiB. */
   readonly smallBytes: number;
+  /** The smallest preview a stub keeps when its step's budget is nearly spent; less is none. Default 64. */
+  readonly minPreviewBytes: number;
   /**
    * What a step's transcript entry holds beside its results (ids, calls, stubs), kept out of the
    * step's budget under the record entry limit. Default 4 KiB.
@@ -70,6 +73,7 @@ export const DEFAULT_TOOL_RESULT_CONFIG: ToolResultConfig = Object.freeze({
   stepBudgetBytes: 256 * 1024,
   stubBytes: 512,
   smallBytes: 1024,
+  minPreviewBytes: 64,
   entryEnvelopeBytes: 4 * 1024,
 });
 
@@ -380,7 +384,7 @@ function withPreview(stub: Part, text: string, limit: number, config: ToolResult
     const shaped = { ...stub, preview: previewOf(text, budget, config) };
     const over = jsonBytes(shaped) - limit;
     if (over <= 0 || budget === 0) return shaped;
-    budget = budget - over < 64 ? 0 : budget - over;
+    budget = budget - over < config.minPreviewBytes ? 0 : budget - over;
   }
 }
 
@@ -388,8 +392,13 @@ function withPreview(stub: Part, text: string, limit: number, config: ToolResult
 function nameOf(ctx: ShapeContext, contentType: string, index?: number): string {
   const tool = (ctx.effect.toolName ?? "tool").replace(/[^A-Za-z0-9_.-]/gu, "_");
   const extension = extensionFor(contentType) ?? "bin";
-  return `${tool.slice(0, 200)}-result${index === undefined ? "" : `-${index + 1}`}.${extension}`;
+  const suffix = `-result${index === undefined ? "" : `-${index + 1}`}.${extension}`;
+  // The name is a file name when the artifact is copied into a workspace (`ARTIFACT_NAME_MAX`).
+  return `${tool.slice(0, ARTIFACT_NAME_MAX - suffix.length)}${suffix}`;
 }
+
+/** What `previewOf` puts between a text's start and its end. */
+const PREVIEW_SEPARATOR = "\n…\n";
 
 /**
  * The start and end of `text` in whole characters, `budget` bytes split as `previewHeadBytes` is
@@ -407,15 +416,17 @@ export function previewOf(
   const tailBytes = Math.floor(budget * share);
   const head = utf8Boundary(bytes, budget - tailBytes, "down");
   const tail = utf8Boundary(bytes, bytes.byteLength - tailBytes, "up");
-  return `${decoder.decode(bytes.subarray(0, head))}\n…\n${decoder.decode(bytes.subarray(tail))}`;
+  return `${decoder.decode(bytes.subarray(0, head))}${PREVIEW_SEPARATOR}${decoder.decode(bytes.subarray(tail))}`;
 }
 
 /** A message past `limit`: its start and end, and how long it was. */
 export function cutMessage(message: string, limit: number, config: ToolResultConfig): string {
   const note = `\n(The message was ${encoder.encode(message).byteLength} bytes; its middle is not shown.)`;
+  // Room for the note and the separator `previewOf` puts between the start and the end, as
+  // JSON: their bytes, escapes and the quotes.
   const budget = Math.min(
     config.previewHeadBytes + config.previewTailBytes,
-    limit - note.length - 16,
+    limit - jsonBytes(`${note}${PREVIEW_SEPARATOR}`),
   );
   return `${previewOf(message, Math.max(0, budget), config)}${note}`;
 }

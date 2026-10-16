@@ -552,3 +552,46 @@ test("proxy forwards a same-origin model inputs change on the Management API", a
     },
   );
 });
+
+test("a JSON write past the default request body is read up to the Tenant's requestBodyBytes (B15c)", async () => {
+  let limit = 2 * 1024 * 1024;
+  const seen: string[] = [];
+  await withUpstream(
+    async (req, res) => {
+      for await (const _ of req);
+      seen.push(`${req.method} ${req.url}`);
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify(req.url === "/v1/tenant/limits" ? { limits: { requestBodyBytes: limit } } : { ok: true }));
+    },
+    async (upstreamUrl) => {
+      const origin = "http://127.0.0.1:4161";
+      const studio = createServer((req, res) => {
+        void proxyRuntime(req, res, { origin, runtimeUrl: upstreamUrl, serverKey: "server-secret" });
+      });
+      studio.listen(0, "127.0.0.1");
+      await once(studio, "listening");
+      const address = studio.address();
+      assert.ok(address && typeof address === "object");
+      const put = (labels: Record<string, string>) =>
+        fetch(`http://127.0.0.1:${address.port}/_studio/runtime/v1/environments/big`, {
+          method: "PUT",
+          headers: { origin, "content-type": "application/json" },
+          body: JSON.stringify({ requestId: "r", labels }),
+        });
+      try {
+        // Within the default: no question to the Runtime.
+        assert.equal((await put({ a: "small" })).status, 200);
+        assert.deepEqual(seen, ["PUT /v1/environments/big"]);
+        // Past it: the Tenant's limit decides.
+        const big = { a: "x".repeat(1536 * 1024) };
+        assert.equal((await put(big)).status, 200);
+        assert.deepEqual(seen.slice(1), ["GET /v1/tenant/limits", "PUT /v1/environments/big"]);
+        limit = 1024 * 1024;
+        assert.equal((await put(big)).status, 413);
+      } finally {
+        studio.close();
+        await once(studio, "close");
+      }
+    },
+  );
+});

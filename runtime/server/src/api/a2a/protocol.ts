@@ -182,6 +182,10 @@ export function checkVersion(value: string | null | undefined): void {
     );
 }
 
+/**
+ * At most 200 characters: an identifier's grammar is the protocol's (B15), the same in every
+ * installation, so its length is a constant, not a setting.
+ */
 const MAX_ID = 200;
 const VISIBLE = /^[\x21-\x7e]+$/;
 

@@ -5,6 +5,7 @@ import type {
   CredentialInfo,
   CredentialStore,
 } from "@earendil-works/pi-ai";
+import { hostTuning } from "../tuning.js";
 
 export class ProjectCredentialStore implements CredentialStore {
   #chain = Promise.resolve();
@@ -89,15 +90,16 @@ export class ProjectCredentialStore implements CredentialStore {
   async #locked<T>(operation: () => Promise<T>): Promise<T> {
     await mkdir(dirname(this.file), { recursive: true });
     const lock = this.file + ".lock";
-    for (let attempt = 0; attempt < 100; attempt += 1) {
+    const { credentialLockPollMs: pollMs, credentialLockAttempts: attempts } = hostTuning().host;
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
       try {
         await mkdir(lock);
         break;
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-        await new Promise((resolve) => setTimeout(resolve, 25));
+        await new Promise((resolve) => setTimeout(resolve, pollMs));
       }
-      if (attempt === 99)
+      if (attempt === attempts - 1)
         throw new Error("Timed out waiting for the credential store.");
     }
     try {

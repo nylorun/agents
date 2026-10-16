@@ -3,7 +3,7 @@
  * other credential, for UIs, `<img>` tags and sharing. The token in the path is an ES256 JWT
  * (`typ: nylorun-artifact+jwt`) signed with the Tenant's current signing key by the keys
  * service, like run tokens: `sub` is the artifact, `ver` the version, `aud`
- * `nylorun-artifact`, and it lives at most `ARTIFACT_LINK_MAX_TTL_SECONDS` (`TOKEN_TTL_MAX_SECONDS`,
+ * `nylorun-artifact`, and it lives at most `keys.tokenTtlMaxSeconds` (Host tuning,
  * so a key rotation never revokes a live link). A link opens nothing once its artifact
  * is deleted. A folder's link (F8.2) opens its zip, or with a `path` claim one of its files.
  */
@@ -11,14 +11,14 @@ import { randomUUID } from "node:crypto";
 import { errors, jwtVerify } from "jose";
 import {
   ARTIFACT_LINK_DEFAULT_TTL_SECONDS,
-  ARTIFACT_LINK_MAX_TTL_SECONDS,
   ARTIFACT_LINK_TOKEN_TYPE,
   tenantTokenIssuer,
 } from "@nylorun/core/contracts";
 import { isArtifactId } from "@nylorun/core/compatibility";
 import type { TenantContext } from "../tenant/context.js";
 import { failOpaque, HttpError } from "../tenant/http.js";
-import { CLOCK_TOLERANCE_SECONDS, tokenKeyId } from "../tenant/jwt.js";
+import { clockToleranceSeconds, tokenKeyId } from "../tenant/jwt.js";
+import { hostTuning } from "../tuning.js";
 
 /** The audience of every capability link. */
 export const ARTIFACT_LINK_AUDIENCE = "nylorun-artifact";
@@ -42,7 +42,7 @@ export async function mintArtifactLink(
     1,
     Math.min(
       Math.floor(link.expiresIn ?? ARTIFACT_LINK_DEFAULT_TTL_SECONDS),
-      ARTIFACT_LINK_MAX_TTL_SECONDS,
+      hostTuning().keys.tokenTtlMaxSeconds,
     ),
   );
   const iat = Math.floor(Date.now() / 1000);
@@ -88,7 +88,7 @@ export async function verifyArtifactLink(
       issuer: tenantTokenIssuer(ctx.config.tenantId),
       audience: ARTIFACT_LINK_AUDIENCE,
       typ: ARTIFACT_LINK_TOKEN_TYPE,
-      clockTolerance: CLOCK_TOLERANCE_SECONDS,
+      clockTolerance: clockToleranceSeconds(),
       requiredClaims: ["sub", "aud", "iat", "exp", "jti"],
     });
     claims = verified.payload as Record<string, unknown>;
@@ -110,7 +110,7 @@ export async function verifyArtifactLink(
     !Number.isInteger(ver) ||
     ver < 1 ||
     (path !== undefined && (typeof path !== "string" || path === "")) ||
-    exp - iat > ARTIFACT_LINK_MAX_TTL_SECONDS
+    exp - iat > hostTuning().keys.tokenTtlMaxSeconds
   )
     return refused(ctx, "artifact_link_claims");
   return { artifactId: sub, version: ver, ...(typeof path === "string" ? { file: path } : {}) };

@@ -60,7 +60,19 @@ timeout again when a setup plan is made; `setupOutputChars`), disk versions
 `modelRetryDelayMs`, `modelProviderRetries`, `modelRetryDelayMaxMs`: the gates read them for each
 call, `modelCallSettings`) and tools (`toolAttempts`; `httpToolTimeoutMs`, checked at deploy and
 held at each call; `mcpSnapshotBytes`, what a session pins of its MCP servers, past which a server
-is left out with a diagnostic, `fitSnapshot`; `mcpPreviewMs`, `mcpMetadataBytes`). A limit left
+is left out with a diagnostic, `fitSnapshot`; `mcpPreviewMs`, `mcpMetadataBytes`). B15c added:
+`messageParts` (`artifacts/parts.ts`, `api/inbound-files.ts`), the page sizes `pageItems`,
+`exportPageItems` (`pageSize` in `api/http/routes/reads.ts`: a page asked larger holds that many)
+and `environmentEventItems`; labels' `artifactLabels`, `labelKeyChars`, `labelValueChars`
+(`labelIssues`); a manifest's `setupCommandChars`, `manifestDescriptionChars`,
+`secretDescriptionChars` and `secretHosts` (`manifestShapeIssues`), a failed pod's
+`setupReasonChars` and `setupCommandExcerptChars` (`sandbox/setup.ts`); a secret write's
+`secretValueChars` and `secretHosts` (`secretRequestIssues`); the tool policy's `toolRules`,
+`toolRuleFieldChars`, `toolRuleTextChars` (`toolPolicyIssues`) and `modelBudgets`
+(`budgetIssues`); an agent's `requires.secrets` against `environmentSecretSlots`
+(`requiresIssues`); and the flow limits `flowConcurrency` (core's effect dispatch,
+`core/limits.ts`), `flowMapItems` and `flowLoopIterations` (a flow's
+`turn.start.options.flowLimits`, `flowLimitsOf`). A limit left
 out is its default (`RUNTIME_LIMIT_DEFAULTS`); one above its **ceiling**
 (`RUNTIME_LIMIT_CEILINGS`, `{value, unit, why}`, from a dependency: S2's record, the Harness
 API's 64 MiB frame, the longest JavaScript string and timer, a request read as one string, a
@@ -70,9 +82,13 @@ segment's start), and a harness gets its own in `turn.start.limits`. Past one, a
 refused with `limit_exceeded` (`413` to an API client, `RecordEntryTooLargeError` in
 `record/append.ts`; the Harness API error code to a harness), a body with `413`, a manifest with
 `400`, or a tool answer is `mcp.too-large`/`http.too-large`. Dependency ceilings and constants a
-standard fixes are not settings: a token's size (`http.maxHeaderSize`, `tenant/jwt.ts`), an
-artifact name's and a folder path's length (`FILE_NAME_MAX`, `FILE_PATH_MAX` in
-`@nylorun/core`), W3C `tracestate`'s 512 characters. Host process timings (retries, pollers,
+standard fixes are not settings: a token's size (`http.maxHeaderSize`, `tenant/jwt.ts`), and a
+page cursor's (`reads/cursor.ts`), an artifact name's and a folder path's length
+(`FILE_NAME_MAX`, `FILE_PATH_MAX` in `@nylorun/core`), a link target's (`LINK_TARGET_MAX`,
+Linux's `PATH_MAX`), a model-facing tool name's 64 (`MODEL_TOOL_NAME_MAX`), a `Content-Type`'s
+255 (RFC 6838), W3C `tracestate`'s 512 characters. An identifier's grammar is the protocol's,
+so its length is a constant too (an Environment's id, a subject, a manifest's or credential's
+name, a harness id, a key id, an issuer's name, an A2A id, a token id, the Harness API's ids). Host process timings (retries, pollers,
 leases of the host's own) are host configuration, not Runtime limits.
 _Avoid_: "quota" for them (quotas are the artifact and skill totals), "max sizes".
 
@@ -87,8 +103,12 @@ and an option a test passes still wins. Defaults are the values the Runtime used
 unknown key or a value past its ceiling stops the process naming the key. Core hands a pod's
 engine the `harness` and `engine` groups the operator set (`podTuningEnv`, in the pod's
 `NYLORUN_TUNING`). Ceilings fixed by a standard or a dependency stay constants checked against:
-`MAX_TIMER_MS`, `S3_MIN_PART_BYTES`/`S3_MAX_PART_BYTES`, `S2_BATCH_MAX_RECORDS`/`_BYTES`,
-`SANDBOXES_MAX_WAIT_MS`, `DEDUPE_RETENTION_MIN_MS`. Not Tenant-facing: those are Runtime limits
+`MAX_TIMER_MS` (core's `TIMER_MAX_MS`), `S3_MIN_PART_BYTES`/`S3_MAX_PART_BYTES`,
+`S2_BATCH_MAX_RECORDS`/`_BYTES`, `SANDBOXES_MAX_WAIT_MS`, `DEDUPE_RETENTION_MIN_MS`,
+`POSTGRES_MAX_PARAMETERS` (which bounds `postgres.contentBatchRows`); and settings that only work
+against another are refused together (token lifetimes within `keys.tokenTtlMaxSeconds`,
+`execution.advanceDeadlineMs` below `restate.inactivityMs`). `nylorun-operate` reads the
+container's `NYLORUN_TUNING` itself (`host.operateReadyTimeoutMs`, `postgres.closeTimeoutSeconds`). Not Tenant-facing: those are Runtime limits
 and Tenant settings. Listed whole in `guides/DEPLOYMENT.md` (a test checks).
 _Avoid_: "config" alone, which means a Tenant's settings or an agent's manifest.
 

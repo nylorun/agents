@@ -15,3 +15,9 @@ export const FILE_NAME_MAX = 255;
  * 4096).
  */
 export const FILE_PATH_MAX = 1024;
+
+/**
+ * The longest target a symbolic link of a folder artifact may name: Linux's `PATH_MAX` (4096,
+ * `<linux/limits.h>`), the most `symlink(2)` stores, since a sandbox's disk is a Linux file system.
+ */
+export const LINK_TARGET_MAX = 4096;

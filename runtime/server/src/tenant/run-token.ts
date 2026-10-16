@@ -6,7 +6,7 @@
  *
  * Signed by the keys service with the Tenant's current signing key, like capability links,
  * and told apart from them by `typ` and `aud`. Internal: not in `openapi.json`. A token lives
- * `RUN_TOKEN_TTL_SECONDS`, no longer than `TOKEN_TTL_MAX_SECONDS`, so a key rotation never
+ * `keys.runTokenTtlSeconds` (Host tuning), no longer than `keys.tokenTtlMaxSeconds`, so a key rotation never
  * revokes a live one (`signing-keys.ts`).
  *
  * ```text
@@ -21,16 +21,11 @@ import { tenantTokenIssuer } from "@nylorun/core/contracts";
 import type { Keys } from "../keys/keys.js";
 import type { SessionStore } from "../store/types.js";
 import type { Lease } from "./context.js";
-import { CLOCK_TOLERANCE_SECONDS, tokenKeyId } from "./jwt.js";
+import { clockToleranceSeconds, tokenKeyId } from "./jwt.js";
+import { hostTuning } from "../tuning.js";
 
 export const RUN_TOKEN_TYP = "nylorun-run+jwt";
 export const RUN_TOKEN_AUD = "nylorun-gates";
-/** How long a run token lives. */
-export const RUN_TOKEN_TTL_SECONDS = 15 * 60;
-/** The lease heartbeat re-mints a token with less than this left. */
-export const RUN_TOKEN_RENEW_SECONDS = 5 * 60;
-/** Allowed spread between `iat` and `exp` beyond the lifetime. */
-const LIFETIME_SLACK_SECONDS = 60;
 
 /** What a verified run token says: one lease of one session's turn. */
 export interface RunClaims {
@@ -70,7 +65,7 @@ export async function mintRunToken(
   if (!turnId) throw new Error(`Session ${lease.sessionId} has no active turn to mint a run token for`);
   const tenantId = signer.config.tenantId;
   const iat = Math.floor(Date.now() / 1000);
-  const exp = iat + RUN_TOKEN_TTL_SECONDS;
+  const exp = iat + hostTuning().keys.runTokenTtlSeconds;
   // Signed by the keys service (F4.2): this process never holds the private key.
   const { token } = await signer.keys.sign({
     typ: RUN_TOKEN_TYP,
@@ -142,7 +137,7 @@ export async function verifyRunToken(
       issuer: tenantTokenIssuer(tenantId),
       audience: RUN_TOKEN_AUD,
       typ: RUN_TOKEN_TYP,
-      clockTolerance: CLOCK_TOLERANCE_SECONDS,
+      clockTolerance: clockToleranceSeconds(),
       requiredClaims: ["sub", "iat", "exp", "jti"],
     });
     payload = verified.payload as Record<string, unknown>;
@@ -168,7 +163,7 @@ export async function verifyRunToken(
     typeof epc !== "number" ||
     !Number.isSafeInteger(epc) ||
     epc < 1 ||
-    exp - iat > RUN_TOKEN_TTL_SECONDS + LIFETIME_SLACK_SECONDS
+    exp - iat > hostTuning().keys.runTokenTtlSeconds + hostTuning().keys.tokenLifetimeSlackSeconds
   )
     return refused("claims");
   return {

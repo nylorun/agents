@@ -14,7 +14,6 @@ import {
 } from "@nylorun/core/contracts";
 import {
   RUN_TOKEN_AUD,
-  RUN_TOKEN_TTL_SECONDS,
   RUN_TOKEN_TYP,
   mintRunToken,
   staleRun,
@@ -22,6 +21,9 @@ import {
 } from "../../src/tenant/run-token.js";
 import { createRunGrants, grantRun, renewRunGrant } from "../../src/tenant/run-grants.js";
 import { runFixture, type RunFixture } from "../support/run-tokens.js";
+import { DEFAULT_HOST_TUNING, hostTuningOf, useHostTuning } from "../../src/tuning.js";
+
+const RUN_TOKEN_TTL_SECONDS = DEFAULT_HOST_TUNING.keys.runTokenTtlSeconds;
 
 let runs: RunFixture;
 beforeAll(async () => {
@@ -52,6 +54,18 @@ async function signed(overrides: Record<string, unknown> = {}, typ = RUN_TOKEN_T
 }
 
 describe("run tokens", () => {
+  it("live as long as the Host tuning's keys.runTokenTtlSeconds says (B15)", async () => {
+    useHostTuning(hostTuningOf({ keys: { runTokenTtlSeconds: 120, runTokenRenewSeconds: 60 } }));
+    try {
+      const grant = await runs.run("rt-short", { agentId: "bot", turnId: "turn-1" });
+      const left = grant.claims.expiresAt - Date.now();
+      expect(left).toBeLessThanOrEqual(120_000);
+      expect(left).toBeGreaterThan(110_000);
+    } finally {
+      useHostTuning(DEFAULT_HOST_TUNING);
+    }
+  });
+
   it("round-trips: the claims name the lease's session, turn, root agent and epoch", async () => {
     const grant = await runs.run("rt-session", { agentId: "bot", turnId: "turn-7" });
     expect(decodeProtectedHeader(grant.token)).toMatchObject({ alg: "ES256", typ: RUN_TOKEN_TYP });

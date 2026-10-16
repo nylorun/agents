@@ -46,6 +46,7 @@ async function run(
   agents: (call: AgentCall) => unknown = ({ agentId }) => `${agentId} out`,
   options: {
     limits?: { maxMapItems?: number; maxLoopIterations?: number };
+    valueChars?: number;
     pending?: (effect: HostEffect) => boolean;
     /** Answers the HTTP stages and verifiers, as the host's Tool Gate would. */
     http?: (effect: HostEffect) => unknown;
@@ -95,6 +96,7 @@ async function run(
     }),
     host,
     ...(options.limits ? { limits: options.limits } : {}),
+    ...(options.valueChars === undefined ? {} : { valueChars: options.valueChars }),
   });
   return { result, seen, journal };
 }
@@ -433,6 +435,11 @@ describe("map", () => {
     expect(failure(run1)).toMatchObject({ code: "map.not-a-list", path: "@1" });
     expect(failure(run1)!.message).toBe(
       'A Map runs over an array or { items: [...] }; got {"route":"bug","summary":""}',
+    );
+    // How much of the value it quotes is engine configuration (`flowValueChars`, default 80).
+    const short = await run(f, "x", () => ({ route: "bug", summary: "" }), { valueChars: 10 });
+    expect(failure(short)!.message).toBe(
+      'A Map runs over an array or { items: [...] }; got {"route...',
     );
     const items = await run(f, "x", () => ({ items: "nope" }));
     expect(failure(items)).toMatchObject({ code: "map.not-a-list" });

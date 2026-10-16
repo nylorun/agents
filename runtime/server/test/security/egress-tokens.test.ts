@@ -11,7 +11,7 @@ import { newTenantId } from "@nylorun/core/compatibility";
 import { ARTIFACT_LINK_TOKEN_TYPE, tenantTokenIssuer } from "@nylorun/core/contracts";
 import {
   EGRESS_TOKEN_AUD,
-  EGRESS_TOKEN_MAX_TTL_SECONDS,
+  egressTokenMaxTtlSeconds,
   EGRESS_TOKEN_TYP,
   mintEgressToken,
   verifyEgressToken,
@@ -56,7 +56,7 @@ describe("egress tokens", () => {
     const grant = await mint();
     expect(decodeProtectedHeader(grant.token)).toMatchObject({ alg: "ES256", typ: EGRESS_TOKEN_TYP });
     expect(Buffer.byteLength(grant.token)).toBeLessThan(1024);
-    expect(grant.claims.expiresAt - Date.now()).toBeGreaterThan((EGRESS_TOKEN_MAX_TTL_SECONDS - 5) * 1000);
+    expect(grant.claims.expiresAt - Date.now()).toBeGreaterThan((egressTokenMaxTtlSeconds() - 5) * 1000);
     expect(await verify(grant.token)).toEqual({
       ok: true,
       claims: {
@@ -71,7 +71,7 @@ describe("egress tokens", () => {
 
   it("mints only a lifetime up to the maximum, a positive epoch and named sandbox and pod", async () => {
     expect((await mint({ ttl: 60 })).claims.expiresAt - Date.now()).toBeLessThanOrEqual(61_000);
-    await expect(mint({ ttl: EGRESS_TOKEN_MAX_TTL_SECONDS + 1 })).rejects.toThrow(/lives/);
+    await expect(mint({ ttl: egressTokenMaxTtlSeconds() + 1 })).rejects.toThrow(/lives/);
     await expect(mint({ ttl: 0 })).rejects.toThrow(/lives/);
     await expect(mint({ epoch: 0 })).rejects.toThrow(/epoch/);
     await expect(mint({ podUid: "" })).rejects.toThrow(/pod/);
@@ -106,7 +106,7 @@ describe("egress tokens", () => {
       { epc: 0 },
       { epc: 1.5 },
       { epc: "1" },
-      { exp: iat + EGRESS_TOKEN_MAX_TTL_SECONDS * 2 },
+      { exp: iat + egressTokenMaxTtlSeconds() * 2 },
     ])
       expect(await verify(await signed(claims))).toEqual({ ok: false, reason: "egress_token_claims" });
   });

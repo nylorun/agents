@@ -96,7 +96,8 @@ export function parseSetupReport(value: unknown): SetupReport | undefined {
 /**
  * Records a failed setup on Environment `id` held at host epoch `epoch` (the reporting engine's):
  * the pod is `failed` with a reason that starts `setup:`, and `environment.failed` says which
- * command failed and how, with the end of its output (the Tenant's `setupOutputChars`). A report
+ * command failed and how, with the end of its output (the Tenant's `setupOutputChars`; the reason
+ * quotes `setupReasonChars` of it and `setupCommandExcerptChars` of the command). A report
  * from an older host, or a success, changes nothing.
  */
 export async function recordSetup(
@@ -115,12 +116,12 @@ export async function recordSetup(
         await t.updateEnvironment(id, { diskSeed: null }, new Date().toISOString());
       return;
     }
-    const { setupOutputChars } = await readRuntimeLimits(t);
+    const { setupOutputChars, setupReasonChars, setupCommandExcerptChars } = await readRuntimeLimits(t);
     const output = (report.output ?? "").slice(-setupOutputChars);
     const command = report.index === undefined ? undefined : environment.applied.setup?.[report.index];
     const what =
-      command === undefined ? "copying the input files failed" : `command ${report.index! + 1} (${command.command.slice(0, 80)}) exited ${report.exitCode ?? "abnormally"}`;
-    const tail = output.trim().slice(-500);
+      command === undefined ? "copying the input files failed" : `command ${report.index! + 1} (${command.command.slice(0, setupCommandExcerptChars)}) exited ${report.exitCode ?? "abnormally"}`;
+    const tail = output.trim().slice(-setupReasonChars);
     const reason = `${SETUP_FAILED} ${what}${tail ? `: ${tail}` : ""}`;
     await t.updateEnvironmentPod(id, { observed: "failed", reason }, new Date().toISOString());
     await t.environmentEvent(id, "environment.failed", {

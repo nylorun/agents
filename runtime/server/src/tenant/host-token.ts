@@ -28,15 +28,15 @@ import { errors, importJWK, jwtVerify } from "jose";
 import { tenantTokenIssuer } from "@nylorun/core/contracts";
 import type { Keys } from "../keys/keys.js";
 import type { SessionStore } from "../store/types.js";
-import { CLOCK_TOLERANCE_SECONDS, tokenKeyId } from "./jwt.js";
+import { clockToleranceSeconds, tokenKeyId } from "./jwt.js";
+import { hostTuning } from "../tuning.js";
 
 export const HOST_TOKEN_TYP = "nylorun-host+jwt";
 export const HOST_TOKEN_AUD = "nylorun-harness-api";
 export const EGRESS_TOKEN_TYP = "nylorun-egress+jwt";
 export const EGRESS_TOKEN_AUD = "nylorun-egress";
-/** How long a host or egress token lives. The engine renews them before. */
-export const HOST_TOKEN_TTL_SECONDS = 15 * 60;
-const LIFETIME_SLACK_SECONDS = 60;
+/** How long a host or egress token lives (`keys.hostTokenTtlSeconds`). The engine renews them before. */
+export const hostTokenTtlSeconds = (): number => hostTuning().keys.hostTokenTtlSeconds;
 
 /** What a verified host or egress token says. */
 export interface HostClaims {
@@ -69,7 +69,7 @@ export interface EgressTokenRequest {
   /** The host epoch the join set. */
   readonly epoch: number;
   readonly podUid: string;
-  /** Seconds. Default and maximum `HOST_TOKEN_TTL_SECONDS`. */
+  /** Seconds. Default and maximum `keys.hostTokenTtlSeconds`. */
   readonly ttl?: number;
 }
 
@@ -82,9 +82,10 @@ export async function mintEgressToken(
   request: EgressTokenRequest,
 ): Promise<{ readonly token: string; readonly claims: HostClaims }> {
   const { tenantId, sandboxId, epoch, podUid } = request;
-  const ttl = request.ttl ?? HOST_TOKEN_TTL_SECONDS;
-  if (!Number.isSafeInteger(ttl) || ttl < 1 || ttl > HOST_TOKEN_TTL_SECONDS)
-    throw new Error(`An egress token lives 1 to ${HOST_TOKEN_TTL_SECONDS} s, not ${ttl}`);
+  const most = hostTokenTtlSeconds();
+  const ttl = request.ttl ?? most;
+  if (!Number.isSafeInteger(ttl) || ttl < 1 || ttl > most)
+    throw new Error(`An egress token lives 1 to ${most} s, not ${ttl}`);
   if (!Number.isSafeInteger(epoch) || epoch < 1) throw new Error(`Host epoch ${epoch} is not a positive integer`);
   if (sandboxId === "" || podUid === "") throw new Error("An egress token names a sandbox and a pod");
   const iat = Math.floor(Date.now() / 1000);
@@ -112,7 +113,7 @@ export async function mintHostTokens(
 ): Promise<HostGrant> {
   const tenantId = signer.config.tenantId;
   const iat = Math.floor(Date.now() / 1000);
-  const exp = iat + HOST_TOKEN_TTL_SECONDS;
+  const exp = iat + hostTokenTtlSeconds();
   const [hostToken, egress] = await Promise.all([
     signer.keys.sign({
       typ: HOST_TOKEN_TYP,
@@ -188,7 +189,7 @@ export async function verifyHostToken(
       issuer: tenantTokenIssuer(tenantId),
       audience: aud,
       typ,
-      clockTolerance: CLOCK_TOLERANCE_SECONDS,
+      clockTolerance: clockToleranceSeconds(),
       requiredClaims: ["iat", "exp", "jti"],
     });
     payload = verified.payload as Record<string, unknown>;
@@ -209,7 +210,7 @@ export async function verifyHostToken(
     typeof epc !== "number" ||
     !Number.isSafeInteger(epc) ||
     epc < 1 ||
-    exp - iat > HOST_TOKEN_TTL_SECONDS + LIFETIME_SLACK_SECONDS
+    exp - iat > hostTokenTtlSeconds() + hostTuning().keys.tokenLifetimeSlackSeconds
   )
     return refused("claims");
   return {

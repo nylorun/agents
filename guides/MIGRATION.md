@@ -212,6 +212,63 @@ only. Upgrade the Runtime, the SDKs, Studio, the CLI and any custom harness toge
   compaction functions take a `CompactionConfig`. `EngineToolConfig` is `EngineConfig` (the tool
   config with `loop` and `resendDelaysMs`), and `apiHost` takes it.
 
+- **The last limits are configuration (B15c).** Every default is the value before.
+  - **21 more Runtime limits** (`GET`/`PUT /v1/tenant/limits`): `messageParts` (32),
+    `pageItems` (200) and `exportPageItems` (1,000), `environmentEventItems` (1,000),
+    `artifactLabels` (32), `labelKeyChars` (63) and `labelValueChars` (256), `setupCommandChars`
+    (4,096), `setupReasonChars` (500) and `setupCommandExcerptChars` (80), `manifestDescriptionChars`
+    (1,024), `secretDescriptionChars` (500), `secretValueChars` (8,192), `secretHosts` (32),
+    `toolRules` (200), `toolRuleFieldChars` (200), `toolRuleTextChars` (500), `modelBudgets` (100),
+    and the flow limits `flowConcurrency` (8), `flowMapItems` (1,000) and `flowLoopIterations`
+    (100). An agent's `requires.secrets` is held to `environmentSecretSlots` at deploy. The request
+    schemas lose these maxima (the OpenAPI documents no longer state them) and the Runtime refuses a
+    request past the Tenant's limit with `400` naming it.
+  - **A page asked larger than `pageItems` holds that many**, with a cursor to the rest, where a
+    `limit` over 200 (1,000 for the export) was `400 query_invalid`. A page with no `limit` holds
+    the route's default (50, 200 for the export) or the limit when it is lower. One read of an
+    Environment's events holds at most `environmentEventItems`; `from` reads on.
+  - **The flow limits are Runtime limits.** `NYLORUN_FLOW_MAX_CONCURRENCY`,
+    `NYLORUN_FLOW_MAX_MAP_ITEMS` and `NYLORUN_FLOW_MAX_LOOP_ITERATIONS` (which no Host read) and the
+    Tenant configuration's `flow` and `flowEnv` are removed, with `resolveFlowLimits`,
+    `FLOW_LIMIT_DEFAULTS` and `FLOW_LIMIT_ENV`; set `flowConcurrency`, `flowMapItems` and
+    `flowLoopIterations` instead. A flow's `turn.start.options.flowLimits` carries the last two.
+  - **More Host tuning** (`NYLORUN_TUNING`): `keys.tokenTtlMaxSeconds` (900), `runTokenTtlSeconds`,
+    `runTokenRenewSeconds`, `hostTokenTtlSeconds`, `tokenLifetimeSlackSeconds`,
+    `clockToleranceSeconds`; `host.operateReadyTimeoutMs` (`nylorun-operate status` reads the
+    container's `NYLORUN_TUNING`), `credentialLockPollMs`, `credentialLockAttempts`;
+    `sweep.armConcurrency`; `execution.advanceDeadlineMs` (below `restate.inactivityMs`) and
+    `advanceGraceMs`; `restate.staleSweepIntervals`; `postgres.replicationPoolSize`,
+    `contentBatchRows`; `streams.basinLogEveryFailures`; `egress.credentialsMaxSockets`;
+    `pods.enginePollMs`, `memoryFloorMiB`; `harness.mcpListPages`, `mcpDiagnosticChars`,
+    `helperCommandTimeoutMs`, `helperCommandExcerptChars`, `scrubMinChars`, `execCommandChars`,
+    `commandStreamBytes`; `engine.flowValueChars` and `engine.toolResults.minPreviewBytes`.
+    The disk copy's `409`s take `Retry-After` from `tenant.retryAfterSeconds`, as the others do.
+  - **The CLI's own waits are `NYLORUN_CLI_TUNING`** (DEPLOYMENT.md, "The CLI"): `nylorun start`'s
+    waits and polls, the Compose healthchecks and WAL cap, and `nylorun local sandbox`'s waits.
+    `nylorun tenant mcp inspect` no longer aborts after 30 s (the Runtime bounds the preview), and
+    `nylorun tenant calls --limit` takes any whole number (a page holds at most `exportPageItems`).
+  - **Studio follows the Runtime's limits**: its proxy no longer caps an upload at 32 MiB (the
+    Tenant's artifact limits hold it) and asks the Runtime for `requestBodyBytes` when a JSON
+    write it parses is past the default (`MAX_UPLOAD_BYTES` is removed from `@nylorun/studio`;
+    `@nylorun/agents` exports `RUNTIME_LIMIT_DEFAULTS`); its Environment form no longer caps CPUs
+    at 64.
+  - **Caps with no dependency are gone**: a sandbox's `resources.cpus` (64: the Tenant's
+    `limits.resources.cpus` holds it), an environment variable name's 128 characters, a custom
+    model's `contextWindow` floor of 1,024, a Studio embed route's 2,048 characters, an identity
+    file template's 200 characters, and the 0–99 index of a pod's setup files.
+  - **Removed from `@nylorun/core`**: `MAX_MESSAGE_PARTS`, `TOKEN_TTL_MAX_SECONDS` and
+    `ARTIFACT_LINK_MAX_TTL_SECONDS` (`keys.tokenTtlMaxSeconds`; a link asked longer gets that).
+    New: `LINK_TARGET_MAX` (Linux's 4,096), `MODEL_TOOL_NAME_MAX` (64, from `@nylorun/core/define`),
+    `POD_UID_PATTERN`, `JOIN_TOKEN_MAX`, `LINUX_ARG_MAX_BYTES`. From `@nylorun/runtime`:
+    `RUN_TOKEN_TTL_SECONDS`, `RUN_TOKEN_RENEW_SECONDS`, `HOST_TOKEN_TTL_SECONDS`
+    (`hostTokenTtlSeconds()`), `EGRESS_TOKEN_MAX_TTL_SECONDS` (`egressTokenMaxTtlSeconds()`),
+    `CLOCK_TOLERANCE_SECONDS` (`clockToleranceSeconds()`), `HELPER_COMMAND_TIMEOUT_MS`
+    (`helperCommandTimeoutMs()`), `DEFAULT_ADVANCE_DEADLINE_MS` and `DEFAULT_ADVANCE_GRACE_MS`.
+  - Visible differences at the defaults: a page past its limit, a cut tool message's preview
+    (up to 6 bytes longer: its room is now measured as JSON), a shortened tool result's artifact
+    name (its tool part now fills up to 255 characters with the suffix), and Studio's egress
+    rows, which say they are cut short only when a next read finds more.
+
 - **The remaining request, upload, token and sandbox limits are Tenant settings.**
   `GET /v1/tenant/limits` answers 27 more Runtime limits, each with today's value as its default:
   `requestBodyBytes` (1 MiB), `inlineFileBytes` (20 MiB; an inline endpoint reads one such file's

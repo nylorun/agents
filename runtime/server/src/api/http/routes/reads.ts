@@ -14,15 +14,45 @@ import { turnTrace } from "../../../traces/read.js";
 import { readAccess, readStoreOf } from "../../../reads/access.js";
 import { requireApplication, requirePrincipal } from "../../../tenant/auth.js";
 import { fail } from "../../../tenant/http.js";
+import { readRuntimeLimits } from "../../../tenant/runtime-limits.js";
 import { environmentGrantsOf } from "../../../tenant/environments.js";
 import type { TenantEnv } from "../app.js";
 import { tenantRoute } from "../define.js";
 import { jsonResponse } from "../respond.js";
 
+/** A page's `limit`, held to the Tenant's Runtime limit `pageItems` (`pageSize`). */
+const limitParam = (fallback?: number) =>
+  z.coerce
+    .number()
+    .int()
+    .min(1)
+    .optional()
+    .meta({
+      description: `A page holds at most the Tenant's Runtime limit \`pageItems\` (default 200); a larger limit gets that many${fallback === undefined ? "" : `. Default ${fallback}, or that limit when it is lower`}`,
+    });
 export const pageQuery = z.object({
-  limit: z.coerce.number().int().min(1).max(200).optional(),
+  limit: limitParam(),
   cursor: z.string().optional(),
 });
+/** The size of a page of a session's calls when the query names none (within `pageItems`). */
+const CALLS_PAGE_DEFAULT = 50;
+/** The size of a page of the model call export when the query names none (within `exportPageItems`). */
+const EXPORT_PAGE_DEFAULT = 200;
+
+/**
+ * The size of a page: `asked`, or, when the query names none, `fallback`, each within the Tenant's
+ * Runtime limit `name` (read for each request): a page asked larger holds that many, and its
+ * cursor reads on.
+ */
+export async function pageSize(
+  ctx: TenantEnv["Bindings"]["tenant"],
+  asked: number | undefined,
+  options: { fallback?: number; name?: "pageItems" | "exportPageItems" } = {},
+): Promise<number> {
+  const name = options.name ?? "pageItems";
+  const limit = (await ctx.store.tx((t) => readRuntimeLimits(t)))[name];
+  return Math.min(asked ?? options.fallback ?? limit, limit);
+}
 export const sessionPageQuery = pageQuery
   .extend({
     agentId: z.string().optional(),
@@ -43,7 +73,7 @@ export async function sessionPage(
   const { limit, cursor, ...filters } = parseQuery(sessionPageQuery, query);
   if (limit === undefined) return fail(400, "Pagination requires limit");
   if (filters.ownerUserId !== undefined) requireApplication(scope);
-  return readStoreOf(ctx).sessions(filters, { limit, cursor }, readAccess(scope));
+  return readStoreOf(ctx).sessions(filters, { limit: await pageSize(ctx, limit), cursor }, readAccess(scope));
 }
 export async function environmentPage(
   ctx: TenantEnv["Bindings"]["tenant"],
@@ -58,7 +88,7 @@ export async function environmentPage(
   if (limit === undefined) return fail(400, "Pagination requires limit");
   return readStoreOf(ctx).environments(
     labels,
-    { limit, cursor },
+    { limit: await pageSize(ctx, limit), cursor },
     readAccess(scope),
     environmentGrantsOf(scope),
   );
@@ -93,16 +123,14 @@ export function readRoutes(api: OpenAPIHono<TenantEnv>): void {
       );
     },
   );
+  const callsQuery = turnQuery
+    .extend({
+      limit: limitParam(CALLS_PAGE_DEFAULT),
+      cursor: z.string().optional(),
+    })
+    .strict();
   for (const kind of ["usage", "calls/model"] as const) {
-    const query =
-      kind === "usage"
-        ? turnQuery
-        : turnQuery
-            .extend({
-              limit: z.coerce.number().int().min(1).max(200).default(50),
-              cursor: z.string().optional(),
-            })
-            .strict();
+    const query = kind === "usage" ? turnQuery : callsQuery;
     // Spend is the application's to show: no subject scope reaches it (`tenant:settings`,
     // which used to, is retired in protocol 8).
     tenantRoute(
@@ -137,22 +165,15 @@ export function readRoutes(api: OpenAPIHono<TenantEnv>): void {
           const q = parseQuery(turnQuery, c.req.query());
           return jsonResponse(200, await store.usage(id, q.turnId, access));
         }
-        const q = parseQuery(
-          turnQuery
-            .extend({
-              limit: z.coerce.number().int().min(1).max(200).default(50),
-              cursor: z.string().optional(),
-            })
-            .strict(),
-          c.req.query(),
-        );
-        return jsonResponse(200, await store.modelCalls(id, q.turnId, q, access));
+        const q = parseQuery(callsQuery, c.req.query());
+        const limit = await pageSize(c.env.tenant, q.limit, { fallback: CALLS_PAGE_DEFAULT });
+        return jsonResponse(200, await store.modelCalls(id, q.turnId, { ...q, limit }, access));
       },
     );
   }
   const toolCallsQuery = turnQuery
     .extend({
-      limit: z.coerce.number().int().min(1).max(200).default(50),
+      limit: limitParam(CALLS_PAGE_DEFAULT),
       cursor: z.string().optional(),
     })
     .strict();
@@ -177,12 +198,13 @@ export function readRoutes(api: OpenAPIHono<TenantEnv>): void {
     async (c) => {
       requirePrincipal(c.get("scope"));
       const q = parseQuery(toolCallsQuery, c.req.query());
+      const limit = await pageSize(c.env.tenant, q.limit, { fallback: CALLS_PAGE_DEFAULT });
       return jsonResponse(
         200,
         await readStoreOf(c.env.tenant).toolCalls(
           c.req.param("sessionId")!,
           q.turnId,
-          q,
+          { ...q, limit },
           readAccess(c.get("scope")),
         ),
       );
@@ -220,7 +242,14 @@ export function readRoutes(api: OpenAPIHono<TenantEnv>): void {
   const exportQuery = z
     .object({
       after: z.string().optional(),
-      limit: z.coerce.number().int().min(1).max(1000).default(200),
+      limit: z.coerce
+        .number()
+        .int()
+        .min(1)
+        .optional()
+        .meta({
+          description: `A page holds at most the Tenant's Runtime limit \`exportPageItems\` (default 1000); a larger limit gets that many. Default ${EXPORT_PAGE_DEFAULT}, or that limit when it is lower`,
+        }),
     })
     .strict();
   // The whole Tenant's ledger is the Management API's (protocol 8): a management key, as itself.
@@ -242,7 +271,8 @@ export function readRoutes(api: OpenAPIHono<TenantEnv>): void {
     },
     async (c) => {
       const q = parseQuery(exportQuery, c.req.query());
-      return jsonResponse(200, await readStoreOf(c.env.tenant).exportModel(q.after, q.limit));
+      const limit = await pageSize(c.env.tenant, q.limit, { fallback: EXPORT_PAGE_DEFAULT, name: "exportPageItems" });
+      return jsonResponse(200, await readStoreOf(c.env.tenant).exportModel(q.after, limit));
     },
   );
 }

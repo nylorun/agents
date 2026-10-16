@@ -11,6 +11,7 @@ import type { MessagePart } from "@nylorun/core/contracts";
 import type { JsonObject, JsonValue } from "@nylorun/core/define";
 import type { Tx } from "../store/types.js";
 import { fail } from "../tenant/http.js";
+import { readRuntimeLimits } from "../tenant/runtime-limits.js";
 import { readableArtifact, versionOf, type ArtifactAccess } from "./service.js";
 
 /** A user-message content part, as the engine's `MessageInput.content` takes it. */
@@ -35,7 +36,8 @@ export function fileReferenceOf(value: JsonValue | undefined): FileReference | u
 /**
  * The parts with each file pinned to a version: for the engine (`engine`) and for a workflow's
  * JSON input (`pinned`). Reads in the caller's transaction. A file part must name a file the
- * caller may read, of this session or Tenant-wide, and a version that exists.
+ * caller may read, of this session or Tenant-wide, and a version that exists. A message carries at
+ * most the Tenant's Runtime limit `messageParts` of them.
  */
 export async function resolveMessageParts(
   t: Tx,
@@ -43,6 +45,11 @@ export async function resolveMessageParts(
   sessionId: string,
   access: ArtifactAccess,
 ): Promise<{ engine: EnginePart[]; pinned: MessagePart[] }> {
+  const { messageParts } = await readRuntimeLimits(t);
+  if (parts.length > messageParts)
+    fail(400, `A message may carry at most ${messageParts} parts (the Runtime limit messageParts)`, {
+      code: "invalid_request",
+    });
   const engine: EnginePart[] = [];
   const pinned: MessagePart[] = [];
   for (const part of parts) {

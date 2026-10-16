@@ -44,7 +44,7 @@ import {
   newVolume,
   wakePod,
 } from "../tenant/environments.js";
-import { fail } from "../tenant/http.js";
+import { fail, failRetryLater } from "../tenant/http.js";
 import { hostTuning } from "../tuning.js";
 import { artifactQuota, totalSubject } from "./quota.js";
 import { limitsInForce, readTenantLimits } from "../tenant/limits.js";
@@ -130,10 +130,7 @@ async function lease(
     if (environment.kind === "none") fail(400, `Environment ${id} is of kind none: it has no disk.`);
     const busy = (await t.sessionsOnEnvironment(id)).some((session) => (session as { activeTurnId?: string | null }).activeTurnId);
     if (busy || diskHeld(environment))
-      fail(409, `Environment ${id} has a turn running or its disk is being copied. Try again shortly.`, {
-        code: "environment_busy",
-        details: { retryAfterSeconds: 5 },
-      }, { "retry-after": "5" });
+      failRetryLater(`Environment ${id} has a turn running or its disk is being copied. Try again shortly.`, "environment_busy");
     const now = new Date();
     const operation = {
       kind,
@@ -191,11 +188,8 @@ async function awaitEngine(ctx: TenantContext, id: string, waitMs: number): Prom
   const deadline = Date.now() + waitMs;
   while (!ctx.harness.hosting(id)) {
     if (Date.now() > deadline)
-      fail(409, `Environment ${id}'s pod did not start within ${waitMs / 1000} s (the Runtime limit diskPodWaitMs).`, {
-        code: "environment_unavailable",
-        details: { retryAfterSeconds: 5 },
-      }, { "retry-after": "5" });
-    await new Promise((resolve) => setTimeout(resolve, 250));
+      failRetryLater(`Environment ${id}'s pod did not start within ${waitMs / 1000} s (the Runtime limit diskPodWaitMs).`, "environment_unavailable");
+    await new Promise((resolve) => setTimeout(resolve, hostTuning().pods.enginePollMs));
   }
 }
 
@@ -490,10 +484,7 @@ export async function restoreEnvironment(
       const environment = (await liveEnvironment(t, id, { lock: true })) ?? fail(404, "Environment not found");
       const busy = (await t.sessionsOnEnvironment(id)).some((session) => (session as { activeTurnId?: string | null }).activeTurnId);
       if (busy || diskHeld(environment) || environment.pod!.retiring !== undefined)
-        fail(409, `Environment ${id} has a turn running, its disk is being copied or its last volume is still being deleted.`, {
-          code: "environment_busy",
-          details: { retryAfterSeconds: 5 },
-        }, { "retry-after": "5" });
+        failRetryLater(`Environment ${id} has a turn running, its disk is being copied or its last volume is still being deleted.`, "environment_busy");
       return newVolume(ctx, t, environment, { seed, reason: "restore" });
     });
     return { environmentId: id, restored: seed.version, status: "pending", volumeGeneration };
@@ -532,7 +523,7 @@ export async function runPendingSeed(ctx: TenantContext, id: string): Promise<vo
       // The engine on the new volume: the old one's connection may still be open.
       while (!ctx.harness.hosting(id, environment.pod?.hostEpoch)) {
         if (Date.now() > deadline) return;
-        await new Promise((resolve) => setTimeout(resolve, 250));
+        await new Promise((resolve) => setTimeout(resolve, hostTuning().pods.enginePollMs));
       }
     }
     const beat = heartbeat(ctx, id, limits, hostTuning().tenant.seedLeaseMs);
@@ -634,10 +625,7 @@ export async function deleteEnvironmentVersion(
     const artifact = await t.diskArtifact(id, { lock: true });
     if (!artifact) return undefined;
     if (environment.diskSeed?.artifactId === artifact.id && environment.diskSeed.version === version)
-      fail(409, `A new volume of Environment ${id} is being seeded from version ${version}.`, {
-        code: "environment_busy",
-        details: { retryAfterSeconds: 5 },
-      }, { "retry-after": "5" });
+      failRetryLater(`A new volume of Environment ${id} is being seeded from version ${version}.`, "environment_busy");
     await t.lockArtifactQuota();
     const content = await t.artifactContentShas({ artifactId: artifact.id });
     const key = await t.deleteArtifactVersion(artifact.id, version);

@@ -25,7 +25,7 @@ import {
   httpVerifierIssue,
 } from "./definition/http-tool.js";
 import { canonical } from "./utils/canonical.js";
-import { FILE_NAME_MAX, FILE_PATH_MAX } from "./utils/file-systems.js";
+import { FILE_NAME_MAX, FILE_PATH_MAX, LINK_TARGET_MAX } from "./utils/file-systems.js";
 export { FILE_NAME_MAX, FILE_PATH_MAX } from "./utils/file-systems.js";
 import { DEFAULT_HARNESS, HARNESS_ID_PATTERN, isHarnessId } from "./utils/harness-id.js";
 export { DEFAULT_HARNESS, HARNESS_ID_PATTERN, isHarnessId };
@@ -76,6 +76,7 @@ export {
 export type { ErrorCode } from "./compatibility.js";
 import { ERROR_CODES, isArtifactId } from "./compatibility.js";
 export const RequestIdSchema = z.string().min(1);
+/** At most 256 characters: an identifier's grammar is the protocol's (it crosses the Runtime API, the Harness API and tokens, and means the same in every installation), so its length is a constant of protocol 15, not a setting. */
 export const IdempotencyKeySchema = z.string().min(1).max(256);
 const jsonObject = z.record(z.string(), z.unknown());
 /**
@@ -191,7 +192,8 @@ const sandboxManifestSchema = z
       .optional(),
     resources: z
       .object({
-        cpus: z.number().int().min(1).max(64).optional(),
+        /** At most the Tenant's `limits.resources.cpus` (`environments.config`). */
+        cpus: z.number().int().min(1).optional(),
         memory: z
           .string()
           .refine((value) => parseSandboxSize(value) !== undefined, {
@@ -269,6 +271,12 @@ const removedFieldError =
     return removed === undefined ? undefined : removedFields[removed];
   };
 /**
+ * An environment variable name a shell secret or plain variable may take (R2c, D50): a POSIX
+ * name, of any length (POSIX and Linux set none; a request's body bounds it). Names the sandbox
+ * needs for itself (the proxy, the trust store, `PATH`, `HOME`) and `NYLORUN_*` are reserved.
+ */
+export const ENVIRONMENT_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
+/**
  * What an agent needs of the Environment its session opens on (protocol 14, D65), checked when a
  * session opens (`409 environment_unsuitable`). `sandbox`: `any` needs kind `virtual` or `pod`,
  * `pod` needs kind `pod`, `none` needs nothing. `secrets`: names its skills' scripts read, which
@@ -277,7 +285,8 @@ const removedFieldError =
 const agentRequirementsSchema = z
   .object({
     sandbox: z.enum(["none", "any", "pod"]).optional(),
-    secrets: z.array(z.string().regex(/^[A-Za-z_][A-Za-z0-9_]{0,127}$/, "A secret name in requires is an environment variable name")).max(64).optional(),
+    /** At most the Tenant's Runtime limit `environmentSecretSlots`, checked when the agent is deployed. */
+    secrets: z.array(z.string().regex(ENVIRONMENT_NAME_PATTERN, "A secret name in requires is an environment variable name")).optional(),
   })
   .strict();
 const agentManifestSchema = z
@@ -592,7 +601,8 @@ const durationSchema = (name: string) =>
   });
 const resourcesSchema = z
   .object({
-    cpus: z.number().int().min(1).max(64).optional(),
+    /** At most the Tenant's `limits.resources.cpus` (`environments.config`), which it sets. */
+    cpus: z.number().int().min(1).optional(),
     memory: z
       .string()
       .refine((value) => parseSandboxSize(value) !== undefined, {
@@ -610,6 +620,11 @@ const resourcesSchema = z
  * hierarchical so a grant can name a family of them (`users/alice/*`).
  */
 const ENVIRONMENT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*(?:\/[A-Za-z0-9][A-Za-z0-9._-]*)*$/;
+/**
+ * An identifier's grammar is the protocol's (B15): it crosses the Runtime API, tokens and grants
+ * and means the same in every installation, so its length is a constant of protocol 15, not a
+ * setting.
+ */
 export const ENVIRONMENT_ID_MAX_LENGTH = 200;
 
 export function isEnvironmentId(value: unknown): value is string {
@@ -660,18 +675,19 @@ export type EnvironmentKind = (typeof ENVIRONMENT_KINDS)[number];
 /** The kinds with a sandbox (a disk and the sandbox tools). */
 export type SandboxKind = Exclude<EnvironmentKind, "none">;
 
-const LABEL_KEY_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9._/-]{0,61}[A-Za-z0-9])?$/;
-const LABEL_VALUE_PATTERN = /^[\x20-\x7e]{0,256}$/;
+const LABEL_KEY_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9._/-]*[A-Za-z0-9])?$/;
+const LABEL_VALUE_PATTERN = /^[\x20-\x7e]*$/;
 /**
- * The developer's own key-value pairs; the Runtime stores and filters them, never reads them. At
- * most the Tenant's Runtime limit `environmentLabels` of them, checked when they are set.
+ * The developer's own key-value pairs; the Runtime stores and filters them, never reads them. How
+ * many, and how long a key and a value may be, are the Tenant's Runtime limits
+ * `environmentLabels`, `labelKeyChars` and `labelValueChars`, checked when they are set.
  */
 export const EnvironmentLabelsSchema = z.record(
   z.string().regex(LABEL_KEY_PATTERN, {
-    message: "Label keys are 1-63 letters, digits, '.', '_', '/' and '-'",
+    message: "Label keys are letters, digits, '.', '_', '/' and '-', and start and end with a letter or digit",
   }),
   z.string().regex(LABEL_VALUE_PATTERN, {
-    message: "Label values are up to 256 printable ASCII characters",
+    message: "Label values are printable ASCII characters",
   }),
 );
 export type EnvironmentLabels = z.infer<typeof EnvironmentLabelsSchema>;
@@ -718,7 +734,8 @@ const absoluteWorkspacePath = (name: string) =>
  */
 export const EnvironmentSetupCommandSchema = z
   .object({
-    command: z.string().min(1).max(4096),
+    /** At most the Tenant's Runtime limit `setupCommandChars`, checked when the manifest is put. */
+    command: z.string().min(1),
     /** Where it runs. Default `/workspace`. */
     cwd: absoluteWorkspacePath("cwd").optional(),
     /** Default 10m (`ENVIRONMENT_SETUP_TIMEOUT_DEFAULT`), at most the Tenant's `setupCommandMs`. */
@@ -772,7 +789,10 @@ export type EnvironmentFile = z.infer<typeof EnvironmentFileSchema>;
 
 /**
  * An environment manifest's name (protocol 14, D63): 1–64 letters, digits, `.`, `_` and `-`,
- * starting with a letter or digit, such as `analyst-box`.
+ * starting with a letter or digit, such as `analyst-box`; a version is at most 9 digits.
+ * An identifier's grammar is the protocol's (B15): it crosses the Runtime API, tokens and grants
+ * and means the same in every installation, so its length is a constant of protocol 15, not a
+ * setting.
  */
 const ENVIRONMENT_MANIFEST_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 export function isEnvironmentManifestName(value: unknown): value is string {
@@ -1406,12 +1426,6 @@ const credentialRoutingChange = {
   via: CredentialViaSchema.nullable().optional(),
   identity: CredentialIdentitySchema.nullable().optional(),
 };
-/**
- * An environment variable name a shell secret or plain variable may take (R2c, D50): a POSIX
- * name. Names the sandbox needs for itself (the proxy, the trust store, `PATH`, `HOME`) and
- * `NYLORUN_*` are reserved.
- */
-export const ENVIRONMENT_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/;
 export const RESERVED_ENVIRONMENT_NAMES: ReadonlySet<string> = new Set([
   "PATH",
   "HOME",
@@ -1488,15 +1502,19 @@ const AllowedHostsSchema = z
       ),
   )
   .min(1)
-  .max(32)
   .refine((hosts) => new Set(hosts).size === hosts.length, "allowedHosts lists each host once");
+/** At most the Tenant's Runtime limit `secretValueChars`, checked when it is written. */
 const EnvironmentValueSchema = z
   .string()
   .min(1)
-  .max(8192)
   .refine((value) => !/[\r\n\0]/.test(value), "A value has no CR, LF or NUL");
 
-/** The name of a credential for a tool (`bearer` or `headers`): a label of 1–64 characters. */
+/**
+ * The name of a credential for a tool (`bearer` or `headers`): a label of 1–64 characters.
+ * An identifier's grammar is the protocol's (B15): it crosses the Runtime API, tokens and grants
+ * and means the same in every installation, so its length is a constant of protocol 15, not a
+ * setting.
+ */
 export const TOOL_SECRET_NAME_PATTERN = /^[A-Za-z0-9._-]{1,64}$/;
 /**
  * `PUT /v1/environments/{environmentId}/secrets/{name}` (D56): creates or replaces one credential
@@ -1551,7 +1569,7 @@ export type PutEnvironmentSecretRequest = z.infer<typeof PutEnvironmentSecretReq
 export const PutEnvironmentSecretValueRequestSchema = z
   .object({
     requestId: RequestIdSchema.optional(),
-    value: z.string().min(1).max(8192).optional(),
+    value: z.string().min(1).optional(),
     headers: CredentialHeadersSchema.optional(),
   })
   .strict()
@@ -1580,7 +1598,8 @@ export function environmentSecretNameError(
 const slotBase = {
   /** Whether a session whose agent needs it may open without it. Default false. */
   required: z.boolean().optional(),
-  description: z.string().max(500).optional(),
+  /** At most the Tenant's Runtime limit `secretDescriptionChars`, checked when the manifest is put. */
+  description: z.string().optional(),
 };
 /**
  * One secret an Environment of a kind needs (D64): its type and binding, never its value. The
@@ -1628,7 +1647,8 @@ export const EnvironmentManifestSchema = z
         `manifestSchemaVersion ${JSON.stringify(issue.input)} is not one this Runtime reads: use ${ENVIRONMENT_MANIFEST_SCHEMA_VERSION}`,
     }),
     name: EnvironmentManifestNameSchema,
-    description: z.string().max(1024).optional(),
+    /** At most the Tenant's Runtime limit `manifestDescriptionChars`, checked when it is saved. */
+    description: z.string().optional(),
     kind: environmentFields.kind,
     image: environmentFields.image,
     resources: environmentFields.resources,
@@ -1812,7 +1832,7 @@ export const CUSTOM_MODEL_SETTING_DEFAULTS = Object.freeze({ contextWindow: 32_7
  */
 export const CustomModelSettingsSchema = z
   .object({
-    contextWindow: z.number().int().min(1024).optional(),
+    contextWindow: z.number().int().min(1).optional(),
     maxTokens: z.number().int().min(1).optional(),
     reasoning: z.boolean().optional(),
     inputs: z.array(ModelInputSchema).optional(),
@@ -2069,8 +2089,6 @@ const messageBase = {
   /** Optional turn manifest (Loop patch); validated as a variant of the pinned agent. */
   manifest: AgentManifestSchema.optional(),
 };
-/** The most parts one message may carry (protocol 6). */
-export const MAX_MESSAGE_PARTS = 32;
 /**
  * One part of a user message (protocol 6): text, or a file by artifact id. A file part without
  * `version` means the artifact's latest version when the message is accepted; the Runtime pins
@@ -2107,7 +2125,8 @@ export const MessageEventBodySchema = z.union([
   z
     .object({
       ...messageBase,
-      parts: z.array(MessagePartSchema).min(1).max(MAX_MESSAGE_PARTS),
+      /** At most the Tenant's Runtime limit `messageParts`, checked when the message is accepted. */
+      parts: z.array(MessagePartSchema).min(1),
     })
     .strict(),
 ]);
@@ -3338,7 +3357,12 @@ export type SubjectScope = (typeof SUBJECT_SCOPES)[number];
  */
 const RETIRED_SUBJECT_SCOPES: readonly string[] = ["vaults:own", "tenant:settings"];
 
-/** 1–200 visible ASCII characters; spaces only inside. */
+/**
+ * 1–200 visible ASCII characters; spaces only inside.
+ * An identifier's grammar is the protocol's (B15): it crosses the Runtime API, tokens and grants
+ * and means the same in every installation, so its length is a constant of protocol 15, not a
+ * setting.
+ */
 const SUBJECT_PATTERN = /^[\x21-\x7e](?:[\x20-\x7e]{0,198}[\x21-\x7e])?$/;
 /**
  * The owner of a session opened for no person: an MCP server's or HTTP tool's identity header
@@ -3409,11 +3433,6 @@ export const TOKEN_SCOPES = [
   "environments:write",
 ] as const;
 export type TokenScope = (typeof TOKEN_SCOPES)[number];
-/**
- * The longest a token the Runtime signs itself lives, in seconds (capability links): rotating
- * signing keys revokes the previous key once the longest token it may have signed has expired.
- */
-export const TOKEN_TTL_MAX_SECONDS = 900;
 /**
  * The `iss` of every token a Tenant's Runtime signs itself: capability links, run, host and
  * egress tokens.
@@ -3866,7 +3885,8 @@ export type ModelBudget = z.infer<typeof ModelBudgetSchema>;
 export const PutModelBudgetsRequestSchema = z
   .object({
     requestId: RequestIdSchema.optional(),
-    budgets: z.array(ModelBudgetSchema).max(100),
+    /** At most the Tenant's Runtime limit `modelBudgets`, checked when they are put. */
+    budgets: z.array(ModelBudgetSchema),
   })
   .strict()
   .superRefine((request, ctx) => {
@@ -3894,8 +3914,11 @@ export const ToolInputConditionSchema = z
     gte: z.number().optional(),
     lt: z.number().optional(),
     lte: z.number().optional(),
-    /** A regular expression the field's string value must match. */
-    matches: z.string().min(1).max(500).optional(),
+    /**
+     * A regular expression the field's string value must match: at most the Tenant's Runtime
+     * limit `toolRuleTextChars`, checked when the policy is put.
+     */
+    matches: z.string().min(1).optional(),
   })
   .strict()
   .superRefine((condition, ctx) => {
@@ -3925,13 +3948,15 @@ export type ToolInputCondition = z.infer<typeof ToolInputConditionSchema>;
 export const ToolRuleSchema = z
   .object({
     effect: z.enum(TOOL_POLICY_EFFECTS),
-    tool: z.string().min(1).max(200).optional(),
-    server: z.string().min(1).max(200).optional(),
+    // The selectors, and `when`'s paths, are at most the Tenant's Runtime limit
+    // `toolRuleFieldChars` long; `reason` at most `toolRuleTextChars` (checked when put).
+    tool: z.string().min(1).optional(),
+    server: z.string().min(1).optional(),
     kind: z.enum(["mcp", "http"]).optional(),
-    agent: z.string().min(1).max(200).optional(),
-    when: z.record(z.string().min(1).max(200), ToolInputConditionSchema).optional(),
+    agent: z.string().min(1).optional(),
+    when: z.record(z.string().min(1), ToolInputConditionSchema).optional(),
     /** Why the rule exists: shown with a held or denied call. */
-    reason: z.string().min(1).max(500).optional(),
+    reason: z.string().min(1).optional(),
   })
   .strict()
   .superRefine((rule, ctx) => {
@@ -3945,7 +3970,11 @@ export const ToolRuleSchema = z
 export type ToolRule = z.infer<typeof ToolRuleSchema>;
 /** `PUT /v1/tenant/tool-policy`: replaces every rule. An empty list allows every call. */
 export const PutToolPolicyRequestSchema = z
-  .object({ requestId: RequestIdSchema.optional(), rules: z.array(ToolRuleSchema).max(200) })
+  .object({
+    requestId: RequestIdSchema.optional(),
+    /** At most the Tenant's Runtime limit `toolRules`, checked when they are put. */
+    rules: z.array(ToolRuleSchema),
+  })
   .strict();
 export type PutToolPolicyRequest = z.infer<typeof PutToolPolicyRequestSchema>;
 /** The Tenant's tool policy; `updatedAt` is null until one is set. */
@@ -3979,7 +4008,12 @@ export type AgUiRunErrorCode = z.infer<typeof AgUiRunErrorCodeSchema>;
 
 // --- Studio embedding (Studio design §8) ---------------------------------------------------
 
-/** A Tenant id as Studio's routes accept it. */
+/**
+ * A Tenant id as Studio's routes accept it.
+ * An identifier's grammar is the protocol's (B15): it crosses the Runtime API, tokens and grants
+ * and means the same in every installation, so its length is a constant of protocol 15, not a
+ * setting.
+ */
 const STUDIO_TENANT_ID = /^[A-Za-z0-9_-]{1,128}$/;
 
 /** `POST /_studio/login-tokens` body. No `tenant` mints a Host-wide token (the CLI's `{}`). */
@@ -4035,7 +4069,6 @@ export type StudioTheme = z.infer<typeof StudioThemeSchema>;
 
 const EMBED_ROUTE = z
   .string()
-  .max(2048)
   .regex(/^\/tenants\/[^/?#\s]+(?:\/[^?#\s]*)?$/, "must be a Studio route under /tenants/");
 
 const EXTERNAL_URL = z.string().refine((value) => {
@@ -4127,8 +4160,11 @@ export function parseFrameAncestors(value: string): string[] {
 
 /** The JWT `typ` of a capability link's token (RFC 8725 explicit typing). */
 export const ARTIFACT_LINK_TOKEN_TYPE = "nylorun-artifact+jwt";
-/** A capability link lives no longer than any token the Runtime signs (`TOKEN_TTL_MAX_SECONDS`). */
-export const ARTIFACT_LINK_MAX_TTL_SECONDS = TOKEN_TTL_MAX_SECONDS;
+/**
+ * How long a capability link lives when its request names no `expiresIn`: the request field's
+ * default. A link lives no longer than any token the Runtime signs (the Host tuning's
+ * `keys.tokenTtlMaxSeconds`, 900 s by default); a longer ask gets that.
+ */
 export const ARTIFACT_LINK_DEFAULT_TTL_SECONDS = 300;
 /** A Tenant's limits when it sets none: 100 MiB per file, 10 GiB in all. */
 export const ARTIFACT_FILE_BYTES_DEFAULT = 100 * 1024 * 1024;
@@ -4145,10 +4181,11 @@ export const ARTIFACT_NAME_MAX = FILE_NAME_MAX;
  */
 export const ARTIFACT_PATH_MAX = FILE_PATH_MAX;
 
-/** Labels: up to 32, keys 1–63 characters, values up to 256. */
-export const ArtifactLabelsSchema = z
-  .record(z.string().min(1).max(63), z.string().max(256))
-  .refine((labels) => Object.keys(labels).length <= 32, { message: "At most 32 labels" });
+/**
+ * An artifact's labels. How many, and how long a key and a value may be, are the Tenant's Runtime
+ * limits `artifactLabels`, `labelKeyChars` and `labelValueChars`, checked when they are set.
+ */
+export const ArtifactLabelsSchema = z.record(z.string().min(1), z.string());
 
 /**
  * One version of an artifact: immutable once it exists. A folder version's `size` is the sum of
@@ -4235,8 +4272,8 @@ export const CreateArtifactLinkRequestSchema = z
     requestId: RequestIdSchema.optional(),
     /** The version to open. Default: the latest. */
     version: z.number().int().positive().optional(),
-    /** Seconds until the link stops working. Default 300, at most 900. */
-    expiresIn: z.number().int().min(1).max(ARTIFACT_LINK_MAX_TTL_SECONDS).optional(),
+    /** Seconds until the link stops working. Default 300; a link lives at most the Host's `keys.tokenTtlMaxSeconds` (900 s by default). */
+    expiresIn: z.number().int().min(1).optional(),
     /**
      * A folder's file, by its path in the folder: the link opens that one file. Without it, a
      * folder's link opens its zip.
@@ -4293,7 +4330,7 @@ export const FolderEntrySchema = z
     /** v2: the modification time, ms since the epoch. */
     mtimeMs: z.number().nonnegative().optional(),
     /** v2: a link's target, as stored on the disk. */
-    target: z.string().max(4096).optional(),
+    target: z.string().max(LINK_TARGET_MAX).optional(),
   })
   .strict();
 export type FolderEntry = z.infer<typeof FolderEntrySchema>;

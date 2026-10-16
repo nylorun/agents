@@ -16,6 +16,7 @@ import {
 import { credentialSecrets } from "../vault/headers.js";
 import type { AuthorizeResult } from "../vault/service.js";
 import type { McpDiagnostic, McpToolRecord } from "./snapshot.js";
+import { hostTuning } from "../tuning.js";
 
 
 /** Options of one MCP request. */
@@ -435,7 +436,8 @@ export async function listMcpTools(
 }> {
   const listed: McpToolPage["tools"][number][] = [];
   let cursor: string | undefined;
-  for (let page = 0; page < 100; page += 1) {
+  const pages = hostTuning().harness.mcpListPages;
+  for (let page = 0; page < pages; page += 1) {
     const answer = await client.listTools(
       cursor ? { cursor } : undefined,
       input.signal ? { signal: input.signal } : undefined,
@@ -578,7 +580,7 @@ export function diagnosticFromError(
     message: unauthorized
       ? "MCP server returned 401"
       : error instanceof Error
-        ? error.message.slice(0, 500)
+        ? error.message.slice(0, hostTuning().harness.mcpDiagnosticChars)
         : "MCP server connection failed",
   };
 }

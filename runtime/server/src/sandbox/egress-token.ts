@@ -17,7 +17,7 @@ import type { SessionStore } from "../store/types.js";
 import {
   EGRESS_TOKEN_AUD,
   EGRESS_TOKEN_TYP,
-  HOST_TOKEN_TTL_SECONDS,
+  hostTokenTtlSeconds,
   mintEgressToken,
   verifyHostToken,
   type EgressTokenRequest,
@@ -27,8 +27,8 @@ import {
 } from "../tenant/host-token.js";
 
 export { EGRESS_TOKEN_AUD, EGRESS_TOKEN_TYP, mintEgressToken, type EgressTokenRequest };
-/** The longest lifetime an egress token has: a host token's. */
-export const EGRESS_TOKEN_MAX_TTL_SECONDS = HOST_TOKEN_TTL_SECONDS;
+/** The longest lifetime an egress token has: a host token's (`keys.hostTokenTtlSeconds`). */
+export const egressTokenMaxTtlSeconds = hostTokenTtlSeconds;
 export type EgressClaims = HostClaims;
 export type EgressTokenVerdict = HostTokenVerdict;
 /** Public keys imported by key id; the key row is still read on every verification. */

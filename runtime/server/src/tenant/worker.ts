@@ -61,18 +61,11 @@ import type {
   WorkerHandlers,
 } from "../execution/types.js";
 import type { Logger } from "./types.js";
+import { hostTuning, MAX_TIMER_MS } from "../tuning.js";
 
 /** This process's Worker id: the `owner` it writes on the sessions it advances (§10.6). */
 export const WORKER_ID = `worker-${hostname()}-${process.pid}-${randomBytes(4).toString("hex")}`;
 
-/**
- * Default advance deadline: 50 minutes, below the one-hour inactivity and abort timeouts the
- * Restate adapter sets on the session object, so an advance always ends before Restate gives
- * up on it.
- */
-export const DEFAULT_ADVANCE_DEADLINE_MS = 50 * 60_000;
-/** Default time an aborted advance has to settle before it is abandoned. */
-export const DEFAULT_ADVANCE_GRACE_MS = 30_000;
 
 /** Why an advance's signal aborted (see "Abort reasons" above). */
 export type AdvanceAbortKind = AbortReason;
@@ -129,11 +122,11 @@ export interface TenantWorker {
 export interface TenantWorkersOptions {
   /** Finds or opens a Tenant that is not registered on this process. */
   resolve?: (tenantId: string) => Promise<TenantWorker | undefined>;
-  /** How long one advance may run before its signal aborts. Default `DEFAULT_ADVANCE_DEADLINE_MS`. */
+  /** How long one advance may run before its signal aborts. Default `execution.advanceDeadlineMs` (Host tuning, 50 minutes). */
   advanceDeadlineMs?: number;
   /**
    * How long an advance whose signal aborted has to return before it is abandoned.
-   * Default `DEFAULT_ADVANCE_GRACE_MS`.
+   * Default `execution.advanceGraceMs` (Host tuning, 30 s).
    */
   advanceGraceMs?: number;
   /** Receives a warning for each abandoned advance. */
@@ -155,11 +148,11 @@ export class TenantWorkers {
   constructor(private readonly options: TenantWorkersOptions = {}) {
     this.deadlineMs = positive(
       "advanceDeadlineMs",
-      options.advanceDeadlineMs ?? DEFAULT_ADVANCE_DEADLINE_MS
+      options.advanceDeadlineMs ?? hostTuning().execution.advanceDeadlineMs
     );
     this.graceMs = positive(
       "advanceGraceMs",
-      options.advanceGraceMs ?? DEFAULT_ADVANCE_GRACE_MS
+      options.advanceGraceMs ?? hostTuning().execution.advanceGraceMs
     );
   }
 
@@ -255,11 +248,9 @@ export interface TenantExecution {
   readonly stuckInvocations?: (tenantId: string) => Promise<StuckInvocation[]>;
 }
 
-/** The longest delay `setTimeout` keeps (about 24.8 days). */
-const MAX_TIMEOUT_MS = 2 ** 31 - 1;
 
 function positive(name: string, value: number): number {
-  if (!Number.isFinite(value) || value <= 0 || value > MAX_TIMEOUT_MS)
-    throw new Error(`${name} must be positive and at most ${MAX_TIMEOUT_MS}`);
+  if (!Number.isFinite(value) || value <= 0 || value > MAX_TIMER_MS)
+    throw new Error(`${name} must be positive and at most ${MAX_TIMER_MS}`);
   return value;
 }

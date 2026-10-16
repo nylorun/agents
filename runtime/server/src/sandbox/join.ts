@@ -54,6 +54,7 @@ import {
   type HostGrant,
   type HostTokenKeyCache,
 } from "../tenant/host-token.js";
+import { JOIN_TOKEN_MAX, POD_UID_PATTERN } from "@nylorun/core/harness-api";
 
 export type { HostJoinRequest } from "@nylorun/core/harness-api";
 
@@ -90,7 +91,7 @@ export interface HostAuthority {
   setupFile(hostToken: string, index: number, path: string | undefined): Promise<SetupFile | undefined>;
 }
 
-const POD_UID = /^[A-Za-z0-9-]{1,64}$/;
+const POD_UID = POD_UID_PATTERN;
 const REFUSED = "The join was refused";
 
 export function sha256Hex(value: string): string {
@@ -137,7 +138,7 @@ export function hostAuthority(ctx: TenantContext): HostAuthority {
         !POD_UID.test(podUid) ||
         typeof joinToken !== "string" ||
         joinToken.length === 0 ||
-        joinToken.length > 512 ||
+        joinToken.length > JOIN_TOKEN_MAX ||
         (volumeId !== undefined && (typeof volumeId !== "string" || !POD_UID.test(volumeId)))
       )
         throw new HostAuthError(400, "A join is { sandboxId, podUid, joinToken }");

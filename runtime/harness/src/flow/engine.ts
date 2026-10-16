@@ -88,6 +88,8 @@ export async function runFlowDurable(options: {
   signal?: AbortSignal;
   /** Operator ceilings (`maxMapItems`, `maxLoopIterations`). Host/Runtime supplies these. */
   limits?: Partial<FlowOperatorLimits> | null;
+  /** How much of a value a failure message quotes. Default `DEFAULT_FLOW_VALUE_CHARS`. */
+  valueChars?: number;
 }): Promise<FlowDurableResult> {
   const { manifest, checkpoint, signal } = options;
   WorkflowManifestSchema.parse(manifest);
@@ -217,7 +219,7 @@ async function runTool(
     if (!checked.ok)
       throw new FlowNodeError({
         code: "tool.invalid-input",
-        message: `HTTP stage '${tool.name}' got ${describe(input)}, which does not match its input schema: ${checked.issues.map((issue) => issue.message).join("; ")}`,
+        message: `HTTP stage '${tool.name}' got ${describe(input, ctx.valueChars)}, which does not match its input schema: ${checked.issues.map((issue) => issue.message).join("; ")}`,
         path: site,
       });
   }
@@ -261,10 +263,14 @@ function isRecord(value: JsonValue): value is { readonly [key: string]: JsonValu
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
-/** A short description of a value for a failure message. */
-function describe(value: JsonValue): string {
+const ELLIPSIS = "...";
+
+/** A short description of a value for a failure message: at most `chars` characters. */
+function describe(value: JsonValue, chars: number): string {
   const text = JSON.stringify(value) ?? String(value);
-  return text.length > 80 ? `${text.slice(0, 77)}...` : text;
+  return text.length > chars
+    ? `${text.slice(0, Math.max(0, chars - ELLIPSIS.length))}${ELLIPSIS}`
+    : text;
 }
 
 /** The case the previous output names: itself when a string, else its `route` field. */
@@ -290,7 +296,7 @@ async function runSwitch(
     code: "switch.no-match",
     message:
       name === undefined
-        ? `Switch read ${describe(input)}, which names no case: the previous output must be a case name or an object with a string route field, and there is no default case`
+        ? `Switch read ${describe(input, ctx.valueChars)}, which names no case: the previous output must be a case name or an object with a string route field, and there is no default case`
         : `Switch read the case name ${JSON.stringify(name)}, but no case has that name (cases: ${Object.keys(node.cases).join(", ")}) and there is no default case`,
     path: site,
   });
@@ -374,7 +380,7 @@ async function runMap(
   if (!items)
     throw new FlowNodeError({
       code: "map.not-a-list",
-      message: `A Map runs over an array or { items: [...] }; got ${describe(input)}`,
+      message: `A Map runs over an array or { items: [...] }; got ${describe(input, ctx.valueChars)}`,
       path: site,
     });
   assertMapItemCount(items.length, ctx.limits, site);
@@ -488,7 +494,7 @@ async function runVerify(
   if (!isVerdict(value))
     throw new FlowNodeError({
       code: "loop.verify-failed",
-      message: `The verifier must return { pass: boolean, feedback?: string }, with feedback when pass is false; got ${describe(value)}`,
+      message: `The verifier must return { pass: boolean, feedback?: string }, with feedback when pass is false; got ${describe(value, ctx.valueChars)}`,
       path: site,
     });
   return value;

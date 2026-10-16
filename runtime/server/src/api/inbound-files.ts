@@ -9,7 +9,6 @@
  * Runtime refuses takes the files it stored with it (`discardFiles`).
  */
 import type { MessagePart } from "@nylorun/core/contracts";
-import { MAX_MESSAGE_PARTS } from "@nylorun/core/contracts";
 import { commandKey } from "../core/flow-host.js";
 import { extensionFor, normalizeContentType } from "@nylorun/core/contracts";
 import { deleteArtifact, uploadArtifact, type ArtifactAccess } from "../artifacts/service.js";
@@ -123,8 +122,9 @@ export async function messageParts(
   access: ArtifactAccess,
 ): Promise<{ parts: MessagePart[]; stored: string[] }> {
   const parts = inbound.filter((part) => part.type !== "text" || part.text !== "");
-  if (parts.length > MAX_MESSAGE_PARTS)
-    fail(400, `A message may carry at most ${MAX_MESSAGE_PARTS} parts`, { code: "invalid_request" });
+  const { messageParts: most } = await ctx.store.tx((t) => readRuntimeLimits(t));
+  if (parts.length > most)
+    fail(400, `A message may carry at most ${most} parts (the Runtime limit messageParts)`, { code: "invalid_request" });
   const prior = parts.some((part) => part.type === "inline")
     ? (await priorParts(ctx, sessionId, idempotencyKey))?.filter((part) => part.type === "file")
     : undefined;

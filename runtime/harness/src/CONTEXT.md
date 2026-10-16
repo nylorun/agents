@@ -109,7 +109,7 @@ from `createHarness`): `artifactPageBytes`, `sandboxTools` (**sandbox tool limit
 `toolSearchDefaultLimit` 8, `toolSearchMaxLimit` 20) and `toolResults` (`ToolResultConfig`,
 `DEFAULT_TOOL_RESULT_CONFIG`: `resultInlineBytes` 32 KiB, `previewHeadBytes` 4 KiB,
 `previewTailBytes` 1 KiB, `stepBudgetBytes` 256 KiB, `stubBytes` 512, `smallBytes` 1 KiB,
-`entryEnvelopeBytes` 4 KiB). `createHarness({ mcpTools?, toolResults? })` takes partial ones over
+`minPreviewBytes` 64, the smallest preview a stub keeps, `entryEnvelopeBytes` 4 KiB). `createHarness({ mcpTools?, toolResults? })` takes partial ones over
 the defaults. Not Runtime limits: those the run states (`turn.start.limits`), and these stay under
 them.
 
@@ -118,7 +118,9 @@ the engine tool config, the **loop config** (`LoopConfig`: `compaction`, a `Comp
 `DEFAULT_COMPACTION_CONFIG`, and `partialOutputChars`, how much of a failed agent-as-tool's last
 output its parent sees, 4,000 by default), and `resendDelaysMs` (the waits before each resend of
 a tool call whose gate hop lost its answer, `DEFAULT_RESEND_DELAYS_MS` 1, 2 and 4 s, the last
-repeated). `createHarness` also takes `transcriptCacheMb` (256 MiB) and `leaseRetryMs` (100 ms).
+repeated). `createHarness` also takes `transcriptCacheMb` (256 MiB), `leaseRetryMs` (100 ms) and
+`flowValueChars`, how much of a value a flow's failure message quotes
+(`DEFAULT_FLOW_VALUE_CHARS`, 80).
 The loop config reaches the engine through `runDurable({ loop })` (`ExecuteInternals.loop`), and an
 invocation hands its own to each agent it uses as a tool; a local `run()` uses the defaults. The
 Runtime's harness host passes the Host tuning's `engine` group (`NYLORUN_TUNING`) here.
@@ -265,7 +267,10 @@ and continuing in the next segment of the same turn.
 
 **Flow engine**: Interprets a workflow manifest (`runtime/harness/src/flow/`). It returns
 effects only — no model, provider, sandbox, or storage calls. The Runtime journals
-and dispatches them the same way as the turn loop's effects.
+and dispatches them the same way as the turn loop's effects. It holds a map stage to
+`maxMapItems` and a loop to `maxLoopIterations`, the Tenant's Runtime limits `flowMapItems` and
+`flowLoopIterations` that a flow's `turn.start.options.flowLimits` carries (their defaults when it
+carries none).
 
 **Workflow**: A registered runnable (`kind: "workflow"`, workflow manifest v3): the
 manifest of a flow agent. It uses the same session API as an agent (`createSession`,

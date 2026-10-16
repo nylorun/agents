@@ -354,7 +354,6 @@ describe("nylorun tenant usage errors", () => {
       ["usage", "--scope", "agent"],
       ["usage", "--id", "support"],
       ["calls", "--limit", "0"],
-      ["calls", "--limit", "1001"],
       ["calls", "--limit", "many"],
       ["calls", "extra"],
       ["budgets", "put"],

@@ -24,7 +24,9 @@ it("documents opt-in artifact pages and legacy metadata with the same artifact a
       .map((p: { name: string }) => [p.name, p]),
   );
   expect(Object.keys(parameters).sort()).toEqual(["cursor", "kind", "label", "limit", "sessionId"]);
-  expect(parameters.limit).toMatchObject({ required: false, schema: { minimum: 1, maximum: 200 } });
+  // At most the Tenant's Runtime limit pageItems, checked by the route (B15).
+  expect(parameters.limit).toMatchObject({ required: false, schema: { minimum: 1 } });
+  expect(parameters.limit.schema.maximum).toBeUndefined();
   expect(op.security).toEqual([{ applicationKey: [] }, { issuerToken: [] }]);
   expect(op["x-nylorun-scopes"]).toEqual(["sessions:own"]);
   expect(op.responses["200"].content["application/json"].schema.anyOf).toEqual([
