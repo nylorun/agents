@@ -38,6 +38,25 @@ export async function readText(request: Request, maxBytes: number): Promise<stri
   return Buffer.concat(chunks).toString("utf8");
 }
 
+/** The body's bytes; past `maxBytes`, `413` with code `limit_exceeded`. */
+export async function readBytes(request: Request, maxBytes: number, limit: string): Promise<Buffer> {
+  if (request.body === null) return Buffer.alloc(0);
+  const chunks: Uint8Array[] = [];
+  let bytes = 0;
+  const reader = request.body.getReader();
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    bytes += value.byteLength;
+    if (bytes > maxBytes) {
+      await reader.cancel();
+      fail(413, `The body is over ${maxBytes} bytes, the Runtime limit ${limit}`, { code: "limit_exceeded" });
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks);
+}
+
 /** The body of a Tenant route's request as JSON, before any schema. */
 export async function readJson(
   c: { readonly req: { readonly raw: Request }; readonly env: { readonly tenant: TenantContext } },

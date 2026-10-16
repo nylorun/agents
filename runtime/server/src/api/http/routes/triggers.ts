@@ -1,15 +1,31 @@
 /**
  * An Agent's triggers and their runs (track T4, D74): read them, pause and resume one, run one now
- * (keyed by `Idempotency-Key`), and page the runs. What a trigger is lives in the Agent's manifest
+ * (keyed by `Idempotency-Key`), and page the runs; make a webhook trigger's signing secret, and
+ * take a sender's delivery at its endpoint (D75), an anonymous, unversioned route. What a trigger is lives in the Agent's manifest
  * (`runtime.triggers`); these routes change only what the Agent owns, its status.
  */
 import type { OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 import { isAgentId } from "@nylorun/core/contracts";
-import { RunTriggerResponse, TriggerList, TriggerRunPage } from "../../components.js";
+import {
+  RunTriggerResponse,
+  TriggerList,
+  TriggerRunPage,
+  WebhookAcceptedResponse,
+  WebhookSecretResponse,
+} from "../../components.js";
 import { assertReaches } from "../../../tenant/agents.js";
 import { fail } from "../../../tenant/http.js";
-import { listRuns, listTriggers, runTriggerNow, setTriggerStatus } from "../../../tenant/triggers.js";
+import {
+  listRuns,
+  listTriggers,
+  receiveWebhook,
+  rotateWebhookSecret,
+  runTriggerNow,
+  setTriggerStatus,
+} from "../../../tenant/triggers.js";
+import { readRuntimeLimits } from "../../../tenant/runtime-limits.js";
+import { readBytes } from "../body.js";
 import type { TenantEnv } from "../app.js";
 import { tenantRoute, type RouteAccess } from "../define.js";
 import { pageQuery, pageSize, parseQuery } from "./reads.js";
@@ -58,7 +74,7 @@ export function triggerRoutes(api: OpenAPIHono<TenantEnv>): void {
     async (c) => {
       const id = idOf(c.req.param("agentId"));
       assertReaches(c.get("scope"), id);
-      return jsonResponse(200, await listTriggers(c.env.tenant, id));
+      return jsonResponse(200, await listTriggers(c.env.tenant, id, originOf(c.req.url)));
     },
   );
 
@@ -84,7 +100,7 @@ export function triggerRoutes(api: OpenAPIHono<TenantEnv>): void {
       async (c) => {
         const id = idOf(c.req.param("agentId"));
         assertReaches(c.get("scope"), id);
-        return jsonResponse(200, await setTriggerStatus(c.env.tenant, id, c.req.param("triggerId")!, action));
+        return jsonResponse(200, await setTriggerStatus(c.env.tenant, id, c.req.param("triggerId")!, action, originOf(c.req.url)));
       },
     );
 
@@ -146,4 +162,92 @@ export function triggerRoutes(api: OpenAPIHono<TenantEnv>): void {
       );
     },
   );
+}
+
+/** A delivery: no credential, no protocol header, any body; the endpoint id and the signature are the grant. */
+const DELIVERY: RouteAccess = {
+  credentials: ["application", "subject", "token"],
+  scopes: "any",
+  anonymous: true,
+  unversioned: true,
+  bytes: true,
+};
+
+export function webhookRoutes(api: OpenAPIHono<TenantEnv>): void {
+  tenantRoute(
+    api,
+    WRITE,
+    {
+      method: "post",
+      path: "/v1/agents/{agentId}/triggers/{triggerId}/secret",
+      tags: ["Triggers"],
+      summary: "Make a webhook trigger's signing secret",
+      description:
+        "A new Standard Webhooks secret (`whsec_…`) for a webhook trigger, shown this once; the one before stops working at once. Give it to the sender with the trigger's `webhookUrl`.",
+      request: { params: triggerPath },
+      responses: {
+        200: json(WebhookSecretResponse, "The secret, this once"),
+        400: { description: "Not a webhook trigger" },
+      },
+    },
+    async (c) => {
+      const id = idOf(c.req.param("agentId"));
+      assertReaches(c.get("scope"), id);
+      return jsonResponse(200, await rotateWebhookSecret(c.env.tenant, id, c.req.param("triggerId")!, originOf(c.req.url)));
+    },
+  );
+
+  tenantRoute(
+    api,
+    DELIVERY,
+    {
+      method: "post",
+      path: "/v1/webhooks/{endpointId}",
+      tags: ["Triggers"],
+      summary: "Deliver to a webhook trigger",
+      description:
+        "A sender's delivery, signed with Standard Webhooks (`webhook-id`, `webhook-timestamp` within 5 minutes by default, `webhook-signature`): no credential and no `Nylorun-Protocol`. The body, any media type, at most the Runtime limit `webhookBodyBytes`, is read as bytes and verified before anything else. It runs the trigger once per `webhook-id`: a retry answers the first run. The body reaches the model as data under the trigger's prompt. Other senders (GitHub, Stripe, Slack) are relayed by an app.",
+      request: {
+        params: z.object({ endpointId: z.string().meta({ description: "The trigger's endpoint id, `wh_…`" }) }),
+        headers: z.object({
+          "webhook-id": z.string().optional().meta({ description: "The delivery's id; a retry sends the same" }),
+          "webhook-timestamp": z.string().optional().meta({ description: "Seconds since the epoch" }),
+          "webhook-signature": z.string().optional().meta({ description: "`v1,<base64>`, space-separated" }),
+        }),
+        body: {
+          required: true,
+          description: "The payload, of any media type",
+          content: { "*/*": { schema: z.string().meta({ format: "binary" }) } },
+        },
+      },
+      responses: {
+        202: json(WebhookAcceptedResponse, "The run it made: started, queued, skipped or failed"),
+        401: { description: "Not signed with the endpoint's secret, or a timestamp out of tolerance" },
+        404: { description: "No endpoint has this id" },
+        409: { description: "The trigger is paused (`trigger_paused`)" },
+        413: { description: "Over `webhookBodyBytes`" },
+      },
+    },
+    async (c) => {
+      const tenant = c.env.tenant;
+      const { webhookBodyBytes } = await tenant.store.tx((t) => readRuntimeLimits(t));
+      const body = await readBytes(c.req.raw, webhookBodyBytes, "webhookBodyBytes");
+      const header = (name: string) => c.req.header(name)?.trim() || undefined;
+      return jsonResponse(
+        202,
+        await receiveWebhook(tenant, c.req.param("endpointId")!, {
+          id: header("webhook-id"),
+          timestamp: header("webhook-timestamp"),
+          signature: header("webhook-signature"),
+          contentType: header("content-type"),
+          body,
+        }),
+      );
+    },
+  );
+}
+
+/** The origin a request reached: where its webhook URLs live. */
+function originOf(url: string): string {
+  return new URL(url).origin;
 }

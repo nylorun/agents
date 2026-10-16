@@ -76,6 +76,8 @@ NYLORUN_TOKEN).
   triggers pause|resume <id> <trigger>
   triggers run <id> <trigger> [--idempotency-key <k>]
                                       run it once now, as if it fired
+  triggers new-secret <id> <trigger>  a webhook trigger's new signing secret (whsec_…), shown
+                                      once with its URL; the one before stops working
   runs <id> [--trigger <id>] [--limit <n>] [--cursor <c>]
                                       what each fire came to (started, queued, skipped,
                                       failed), newest first, as JSON
@@ -426,7 +428,15 @@ async function triggers(deps: StackDeps, args: readonly string[]): Promise<numbe
     );
     return 0;
   }
-  throw usageError(`Usage: nylorun agents triggers <list|pause|resume|run> …\n\n${agentsUsage}`);
+  if (verb === "new-secret") {
+    const usage = "nylorun agents triggers new-secret <id> <trigger>";
+    const flags = parseFlags(rest, {}, usage);
+    const [id, trigger] = positional(flags, 2, usage);
+    const { client } = await runtimeClient(deps, flags);
+    printJson(deps, await runtimeCall(() => client.agents.rotateWebhookSecret(id!, trigger!)));
+    return 0;
+  }
+  throw usageError(`Usage: nylorun agents triggers <list|pause|resume|run|new-secret> …\n\n${agentsUsage}`);
 }
 
 /** `nylorun agents runs <id>` (track T4). */

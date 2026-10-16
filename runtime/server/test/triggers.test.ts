@@ -263,12 +263,12 @@ describe("saving triggers", () => {
   const save = (name: string, triggers: Record<string, unknown>) =>
     writeManifest(runtime.url, headers, manifestOf(bot, { name, runtime: { kind: "none", triggers } as never }));
 
-  it("refuses a bad cron or time zone, a past at, a webhook (not yet), and a schedule under triggerMinIntervalMs", async () => {
+  it("refuses a bad cron or time zone, a past at, a scheme other than standard-webhooks, and a schedule under triggerMinIntervalMs", async () => {
     expect((await save("bad-cron", { a: { schedule: "61 * * * *", session: "s", prompt: "x" } })).status).toBe(400);
     expect((await save("bad-zone", { a: { schedule: "0 * * * *", timezone: "Nowhere/X", session: "s", prompt: "x" } })).status).toBe(400);
     expect((await save("past", { a: { at: "2020-01-01T00:00:00Z", session: "s", prompt: "x" } })).status).toBe(400);
     expect((await save("two", { a: { at: inAnHour, schedule: "0 * * * *", session: "s", prompt: "x" } })).status).toBe(400);
-    expect((await save("hook", { a: { webhook: "standard-webhooks", session: "s", prompt: "x" } })).status).toBe(400);
+    expect((await save("hook", { a: { webhook: "github", session: "s", prompt: "x" } })).status).toBe(400);
     await withTestSessionStore(runtime, (store) => setLimits(store, { triggerMinIntervalMs: 120_000 }));
     try {
       const fast = await save("fast", { a: { schedule: "* * * * *", session: "s", prompt: "x" } });

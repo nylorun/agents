@@ -81,6 +81,15 @@ it("P17: the Host serves protocol 16 and 17 clients, and refuses 4 to 15 and 18 
   const { [PROTOCOL_HEADER]: _protocol, ...unversioned } = tenantHeaders();
   const link = await getJson(`${url}/v1/artifact-links/not-a-token`, { headers: unversioned });
   expect(link.status).not.toBe(426);
+  // A webhook delivery (T4) carries neither the header nor a credential, nor JSON.
+  const delivery = await fetch(`${url}/v1/webhooks/wh_${"0".repeat(32)}`, {
+    method: "POST",
+    headers: { "content-type": "text/plain" },
+    body: "hello",
+  });
+  expect(delivery.status).not.toBe(426);
+  expect(delivery.status).not.toBe(415);
+  expect(delivery.status).not.toBe(401);
   const noProtocol = await getJson(`${url}/v1/agents`, { headers: unversioned });
   expect(noProtocol.status).toBe(426);
 });

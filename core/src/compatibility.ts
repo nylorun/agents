@@ -293,6 +293,8 @@ export const ERROR_CODES = [
    * (track T4): `409`. Save a manifest version with a new time.
    */
   "trigger_expired",
+  /** A signed delivery to a paused webhook trigger (D75): `409`; nothing runs. */
+  "trigger_paused",
   /** Disk work (snapshot, restore, stop, reset) while a turn runs, or a turn while a disk copy runs. */
   "agent_busy",
   /** The Agent is gone, or its kind cannot run on this Runtime. */

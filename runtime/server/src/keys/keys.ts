@@ -44,6 +44,9 @@ export interface Signed {
   readonly keyId: string;
 }
 
+import { makeWebhookSecret, verifyWebhook, type SealedWebhookSecret, type WebhookDelivery } from "./webhooks.js";
+import { VaultCryptoError } from "../vault/crypto.js";
+
 export interface Keys {
   /** `PUT /v1/agents/{id}/secrets/{name}` (`VaultService.putEnvironmentSecret`). */
   putEnvironmentSecret(
@@ -83,6 +86,13 @@ export interface Keys {
    * egress CA (R2c). The leaf's private key never reaches keys; the CA's never leaves it.
    */
   signEgressLeaf(host: string, publicKey: string): Promise<string>;
+  /**
+   * A new Standard Webhooks secret for Agent `agentId`'s trigger `triggerId` (track T4, D75), and
+   * the same sealed with the vault key for the trigger's row. The secret leaves keys this once.
+   */
+  makeWebhookSecret(agentId: string, triggerId: string): Promise<{ secret: string; sealed: SealedWebhookSecret }>;
+  /** Whether a delivery to that trigger carries a signature its sealed secret made. */
+  verifyWebhook(agentId: string, triggerId: string, sealed: SealedWebhookSecret, delivery: WebhookDelivery): Promise<boolean>;
 }
 
 /** The operations, by the name the HTTP route carries. */
@@ -97,6 +107,8 @@ export const KEYS_OPERATIONS = [
   "previewMcp",
   "egressCa",
   "signEgressLeaf",
+  "makeWebhookSecret",
+  "verifyWebhook",
 ] as const satisfies readonly (keyof Keys)[];
 
 export type KeysOperation = (typeof KEYS_OPERATIONS)[number];
@@ -149,5 +161,15 @@ export function inProcessKeys(options: InProcessKeysOptions): Keys {
       }),
     egressCa: () => egress.certificate(),
     signEgressLeaf: (host, publicKey) => egress.signLeaf(host, publicKey),
+    makeWebhookSecret: async (agentId, triggerId) => makeWebhookSecret(kek(), agentId, triggerId),
+    verifyWebhook: async (agentId, triggerId, sealed, delivery) => {
+      try {
+        return verifyWebhook(kek(), agentId, triggerId, sealed, delivery);
+      } catch (error) {
+        // A secret sealed with another vault key, or not one: it verifies nothing.
+        if (error instanceof VaultCryptoError) return false;
+        throw error;
+      }
+    },
   };
 }

@@ -18,7 +18,8 @@
  *
  * Triggers (track T4, D74): what its manifest's `runtime.triggers` declares starts its turns with
  * no client connected. `triggers(id)` lists them with their status and next run, `pauseTrigger`,
- * `resumeTrigger` and `runTrigger` change or run one, and `runs(id)` pages what each fire came to.
+ * `resumeTrigger` and `runTrigger` change or run one, `rotateWebhookSecret` makes a webhook
+ * trigger's signing secret (D75), and `runs(id)` pages what each fire came to.
  *
  * Disk versions (Host feature `environment-disk-versions`): `snapshot(id)` keeps a version of
  * the Agent's disk between turns, `restore(id, version)` puts one back, and
@@ -389,6 +390,18 @@ export class AgentInstancesClient {
       ...(options.signal ? { signal: options.signal } : {}),
     });
     return ((await response.json()) as { run: TriggerRun }).run;
+  }
+
+  /**
+   * A new Standard Webhooks signing secret for webhook trigger `triggerId` (`whsec_…`), shown this
+   * once with the trigger's `webhookUrl`; the one before stops working at once.
+   */
+  async rotateWebhookSecret(
+    agentId: string,
+    triggerId: string,
+    options: { signal?: AbortSignal } = {},
+  ): Promise<{ triggerId: string; webhookUrl: string; secret: string }> {
+    return this.transport.json(`${this.path(agentId)}/triggers/${segment(triggerId)}/secret`, "POST", {}, options.signal);
   }
 
   /** The Agent's runs, newest first; `triggerId` keeps one trigger's. */

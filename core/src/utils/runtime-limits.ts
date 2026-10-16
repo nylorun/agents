@@ -172,6 +172,8 @@ const harnessLimits = {
  *   its runs, as a part of its interval and at most.
  * - `triggerPromptChars`: the longest prompt one trigger holds.
  * - `triggerRunRetentionMs`: how long runs are kept; they dedupe repeated fires, so at least a day.
+ * - `webhookBodyBytes`: the largest delivery a webhook endpoint reads, before it verifies it
+ *   (`413` past it); the payload goes into the turn's message, one record entry.
  *
  * Sessions:
  * - `sessionQueuedMessages`: the most messages one session's queue holds while its turn runs or
@@ -237,6 +239,7 @@ export const RuntimeLimitsSchema = z
     triggerJitterMaxMs: z.number().int().nonnegative(),
     triggerPromptChars: z.number().int().positive(),
     triggerRunRetentionMs: z.number().int().positive(),
+    webhookBodyBytes: z.number().int().positive(),
     sessionQueuedMessages: z.number().int().positive(),
     flowConcurrency: z.number().int().positive(),
     flowMapItems: z.number().int().positive(),
@@ -450,6 +453,11 @@ export const RUNTIME_LIMIT_CEILINGS: { readonly [K in RuntimeLimit]: Ceiling } =
   triggerJitterMaxMs: timer("the offset is waited"),
   triggerPromptChars: quoted("the prompt"),
   triggerRunRetentionMs: counted("milliseconds", "the age is reckoned from the clock"),
+  webhookBodyBytes: {
+    value: recordEntryCeiling,
+    unit: "bytes",
+    why: `the payload goes into one record entry, which holds at most ${recordEntryCeiling} bytes`,
+  },
   sessionQueuedMessages: counted("entries", "queued messages are counted"),
   flowConcurrency: counted("effects", "running effects are counted"),
   flowMapItems: counted("entries", "items are counted"),
@@ -522,6 +530,7 @@ export const RUNTIME_LIMIT_DEFAULTS: RuntimeLimits = Object.freeze({
   triggerJitterMaxMs: 300_000,
   triggerPromptChars: 8_000,
   triggerRunRetentionMs: 30 * 24 * 3_600_000,
+  webhookBodyBytes: 256 * 1024,
   sessionQueuedMessages: 100,
   flowConcurrency: 8,
   flowMapItems: 1_000,

@@ -1632,6 +1632,12 @@ class PostgresTx implements Tx {
       .limit(options.limit);
   }
 
+  async agentTriggerByEndpoint(endpointId: string): Promise<AgentTriggerRow | undefined> {
+    this.check();
+    const [row] = await this.db.select().from(agentTriggers).where(eq(agentTriggers.endpointId, endpointId));
+    return row;
+  }
+
   async nextWakeAt(agentId: string): Promise<string | null> {
     this.check();
     const [row] = await this.db

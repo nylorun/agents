@@ -6375,6 +6375,7 @@
               "session_busy",
               "queue_full",
               "trigger_expired",
+              "trigger_paused",
               "agent_busy",
               "agent_unavailable",
               "placement_refused",
@@ -18832,7 +18833,8 @@
                     "agent.egress",
                     "agent.run",
                     "agent.trigger_paused",
-                    "agent.trigger_resumed"
+                    "agent.trigger_resumed",
+                    "agent.trigger_secret_rotated"
                   ]
                 },
                 "payload": {
@@ -20408,6 +20410,12 @@
                     "string",
                     "null"
                   ]
+                },
+                "webhookUrl": {
+                  "type": "string"
+                },
+                "secretSet": {
+                  "type": "boolean"
                 }
               },
               "required": [
@@ -20605,6 +20613,55 @@
         "required": [
           "runs",
           "nextCursor"
+        ],
+        "additionalProperties": false
+      },
+      "WebhookSecretResponse": {
+        "type": "object",
+        "properties": {
+          "triggerId": {
+            "type": "string"
+          },
+          "webhookUrl": {
+            "type": "string"
+          },
+          "secret": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "triggerId",
+          "webhookUrl",
+          "secret"
+        ],
+        "additionalProperties": false
+      },
+      "WebhookAcceptedResponse": {
+        "type": "object",
+        "properties": {
+          "runId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "started",
+              "queued",
+              "skipped",
+              "failed"
+            ]
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "runId",
+          "status",
+          "reason"
         ],
         "additionalProperties": false
       },
@@ -28289,6 +28346,320 @@
         }
       }
     },
+    "/v1/agents/{agentId}/triggers/{triggerId}/secret": {
+      "post": {
+        "tags": [
+          "Triggers"
+        ],
+        "summary": "Make a webhook trigger's signing secret",
+        "description": "A new Standard Webhooks secret (`whsec_…`) for a webhook trigger, shown this once; the one before stops working at once. Give it to the sender with the trigger's `webhookUrl`.",
+        "security": [
+          {
+            "applicationKey": []
+          },
+          {
+            "issuerToken": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "application",
+          "subject",
+          "token"
+        ],
+        "x-nylorun-scopes": [
+          "agents:write"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The Agent id, percent-encoded"
+            },
+            "required": true,
+            "description": "The Agent id, percent-encoded",
+            "name": "agentId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The trigger's id in the manifest's `runtime.triggers`"
+            },
+            "required": true,
+            "description": "The trigger's id in the manifest's `runtime.triggers`",
+            "name": "triggerId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `17`"
+            },
+            "required": true,
+            "description": "The protocol version, `17`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The person an application key acts for"
+            },
+            "required": false,
+            "description": "The person an application key acts for",
+            "name": "Nylorun-Subject",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The subject's space-separated scopes; required with a subject"
+            },
+            "required": false,
+            "description": "The subject's space-separated scopes; required with a subject",
+            "name": "Nylorun-Scopes",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The secret, this once",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookSecretResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Not a webhook trigger"
+          },
+          "401": {
+            "description": "No credential (`credential_required`), one the Tenant does not accept (`credential_invalid`), a token that expired (`token_expired`), or a token whose issuer's keys cannot be fetched now (`issuer_unavailable`). `WWW-Authenticate: Bearer` names the protected resource metadata (`resource_metadata`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/webhooks/{endpointId}": {
+      "post": {
+        "tags": [
+          "Triggers"
+        ],
+        "summary": "Deliver to a webhook trigger",
+        "description": "A sender's delivery, signed with Standard Webhooks (`webhook-id`, `webhook-timestamp` within 5 minutes by default, `webhook-signature`): no credential and no `Nylorun-Protocol`. The body, any media type, at most the Runtime limit `webhookBodyBytes`, is read as bytes and verified before anything else. It runs the trigger once per `webhook-id`: a retry answers the first run. The body reaches the model as data under the trigger's prompt. Other senders (GitHub, Stripe, Slack) are relayed by an app.",
+        "security": [
+          {
+            "applicationKey": []
+          },
+          {
+            "issuerToken": []
+          },
+          {}
+        ],
+        "x-nylorun-credentials": [
+          "application",
+          "subject",
+          "token"
+        ],
+        "x-nylorun-scopes": "any",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The trigger's endpoint id, `wh_…`"
+            },
+            "required": true,
+            "description": "The trigger's endpoint id, `wh_…`",
+            "name": "endpointId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `17`"
+            },
+            "required": false,
+            "description": "The protocol version, `17`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The person an application key acts for"
+            },
+            "required": false,
+            "description": "The person an application key acts for",
+            "name": "Nylorun-Subject",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The subject's space-separated scopes; required with a subject"
+            },
+            "required": false,
+            "description": "The subject's space-separated scopes; required with a subject",
+            "name": "Nylorun-Scopes",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The delivery's id; a retry sends the same"
+            },
+            "required": false,
+            "description": "The delivery's id; a retry sends the same",
+            "name": "webhook-id",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Seconds since the epoch"
+            },
+            "required": false,
+            "description": "Seconds since the epoch",
+            "name": "webhook-timestamp",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "`v1,<base64>`, space-separated"
+            },
+            "required": false,
+            "description": "`v1,<base64>`, space-separated",
+            "name": "webhook-signature",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "The payload, of any media type",
+          "content": {
+            "*/*": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "The run it made: started, queued, skipped or failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookAcceptedResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid headers, path, body or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed with the endpoint's secret, or a timestamp out of tolerance"
+          },
+          "403": {
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No endpoint has this id"
+          },
+          "409": {
+            "description": "The trigger is paused (`trigger_paused`)"
+          },
+          "413": {
+            "description": "Over `webhookBodyBytes`"
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/sessions/{sessionId}": {
       "put": {
         "tags": [
@@ -33494,7 +33865,7 @@
     },
     {
       "name": "Triggers",
-      "description": "What starts an Agent's turns with no client connected (track T4, D74): the schedules and one-shot times its manifest's `runtime.triggers` declare. Each trigger's status is the Agent's: pause and resume it, run it now, and read its runs (`started`, `queued`, `skipped` or `failed`, with a reason). In `@nylorun/agents` and `nylorun agents triggers`."
+      "description": "What starts an Agent's turns with no client connected (track T4, D74): the schedules, one-shot times and webhook endpoints its manifest's `runtime.triggers` declare. Each trigger's status is the Agent's: pause and resume it, run it now, make a webhook trigger's signing secret, and read its runs (`started`, `queued`, `skipped` or `failed`, with a reason). In `@nylorun/agents` and `nylorun agents triggers`."
     },
     {
       "name": "Sessions API",

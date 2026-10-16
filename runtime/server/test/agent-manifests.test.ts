@@ -191,12 +191,13 @@ describe("the checks between the sections", () => {
     expect(agent.body.disk).toBeUndefined();
   });
 
-  it("takes schedule and at triggers, and refuses webhook triggers and selfWake until their steps of T4", async () => {
+  it("takes schedule, at and webhook triggers, and refuses selfWake until its step of T4", async () => {
     const saved = await call("PUT", manifests("woken"), box("woken", { triggers: { daily: { schedule: "0 9 * * *", session: "s", prompt: "Wake." } } }));
     expect(saved.status, JSON.stringify(saved.body)).toBe(200);
     const hook = await call("PUT", manifests("hooked"), box("hooked", { triggers: { h: { webhook: "standard-webhooks", session: "s", prompt: "x" } } }));
-    expect(hook.status).toBe(400);
-    expect(JSON.stringify(hook.body)).toContain("webhook triggers are not available yet");
+    expect(hook.status, JSON.stringify(hook.body)).toBe(200);
+    const other = await call("PUT", manifests("github"), box("github", { triggers: { h: { webhook: "github", session: "s", prompt: "x" } } }));
+    expect(other.status).toBe(400);
     const self = await call("PUT", manifests("self"), box("self", { selfWake: true }));
     expect(self.status).toBe(400);
     expect(JSON.stringify(self.body)).toContain("runtime.selfWake is not available yet");

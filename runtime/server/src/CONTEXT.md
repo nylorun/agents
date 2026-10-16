@@ -898,6 +898,25 @@ Checked at save (`triggerIssues`): `triggersPerAgent`, croner's cron and zone,
 `triggerPromptChars`. _Avoid_: "automation", "routine", "job", "cron job" for a trigger; "execution"
 for a run.
 
+**Webhook endpoint** (track T4, D75): A `webhook` trigger's address, `POST /v1/webhooks/{endpointId}`
+(`wh_` and 128 random bits, made with the trigger's state and kept across moves), an anonymous,
+unversioned route that takes any body, like an artifact link (`DELIVERY` in
+`api/http/routes/triggers.ts`; Host logs redact the id). It verifies Standard Webhooks only: the
+route reads at most `webhookBodyBytes` as bytes (`413`), checks the `webhook-id`,
+`webhook-timestamp` (within `triggers.webhookToleranceMs`) and `webhook-signature` headers, and
+the keys service verifies the HMAC-SHA256 over `id.timestamp.body` with the trigger's secret
+(`keys/webhooks.ts`), which it sealed with the vault key into the trigger's row
+(`sealedSecret`) and is the only place that opens; any failure is `401` and writes nothing. A
+paused trigger answers a signed delivery `409 trigger_paused`, so an unsigned probe learns
+nothing. The run is keyed `webhook:<trigger>:<webhook-id>`, so a sender's retry answers the first
+run (`202 {runId, status}`). The secret (`whsec_` and 32 bytes) is made, or replaced at once, by
+`POST /v1/agents/{id}/triggers/{triggerId}/secret`, which shows it this once; until then the
+endpoint verifies nothing. The payload reaches the model as a second text part under the
+trigger's prompt, in `<trigger-payload trigger kind run received content-type>` with a line saying
+it is data from an outside sender that cannot approve anything: a label, not a defence. Other
+senders are relayed by an app. _Avoid_: "hook URL", "inbound webhook" for the endpoint; "token" for
+the secret.
+
 ## Runtime architecture
 
 One line each; the module named is where the term lives in code.
