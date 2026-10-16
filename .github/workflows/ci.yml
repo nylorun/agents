@@ -403,7 +403,8 @@ jobs:
   # with a joined pod sandbox.
   #
   # pods: F7.2 8b, pod sandboxes end to end (scripts/sandbox/suite.mjs); R4, a custom
-  # harness as a pod's image (scripts/sandbox/harness-pod.mjs).
+  # harness as a pod's image (scripts/sandbox/harness-pod.mjs); T2's exit test
+  # (scripts/sandbox/t2-exit.mjs).
   sandboxes:
     needs: scope
     if: needs.scope.outputs.full == 'true'
@@ -502,6 +503,14 @@ jobs:
           docker build --file examples/harness-minimal/Dockerfile --tag "$NYLORUN_EXAMPLE_HARNESS_IMAGE" .
           kind load docker-image --name nylorun "$NYLORUN_EXAMPLE_HARNESS_IMAGE"
           npm run test:sandboxes:harness -- --context kind-nylorun --host-address 172.17.0.1
+      # T2's exit test as one scenario: nylorun apply on three files, the Agent triage and its
+      # session triage-inbox on a pod, an undeclared secret refused at save, and Studio's list.
+      - name: T2 exit test
+        if: matrix.leg == 'pods'
+        timeout-minutes: 25
+        env:
+          NYLORUN_STUDIO_IMAGE: nylorun-studio:ci
+        run: npm run test:t2-exit -- --context kind-nylorun --host-address 172.17.0.1
       - name: Cluster diagnostics
         if: failure()
         run: |
