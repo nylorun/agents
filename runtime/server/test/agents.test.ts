@@ -1,8 +1,8 @@
 /**
  * Agents (protocol 16; Environments from protocol 11, D55, D56): an Agent is made from a saved
  * agent manifest, has its own id and vault and outlives the sessions on it; sessions on one share
- * its workspace and run their turns at once (protocol 14, D66); it never changes what it runs
- * (only labels and the owner guard change, another manifest is `409 agent_upgrade_unavailable`);
+ * its workspace and run their turns at once (protocol 14, D66); it moves between versions of its
+ * manifest (track T3), and its manifest's name is fixed (`409 agent_fixed_field`);
  * the owner guard admits only its owner's sessions, at open and at every turn start; a token
  * caller reaches only the Agents its issuer grants, at every turn start; `agents:write` guards
  * changes; the Tenant limits how many there are; and `lifecycle.deleteAfter` deletes an unused
@@ -239,7 +239,7 @@ describe("the resource", { timeout: 60_000 }, () => {
     expect((await call("PUT", path("team-a/inline"), { manifest: "ws", kind: "virtual" })).status).toBe(400);
   });
 
-  it("never changes what it runs: labels and the owner guard change, another manifest is refused", async () => {
+  it("moves between versions of its manifest: labels and the owner guard change, another manifest is refused", async () => {
     const id = "recipe/ws";
     await save("cpu1", { kind: "virtual", resources: { cpus: 1 } });
     const created = await make(id, { manifest: "cpu1", labels: { a: "1", b: "2" } });
@@ -250,20 +250,20 @@ describe("the resource", { timeout: 60_000 }, () => {
     const changed = await make(id, { manifest: "ws" });
     expect(changed.status).toBe(409);
     expect(changed.body).toMatchObject({
-      code: "agent_upgrade_unavailable",
-      details: { manifest: "cpu1@1", asked: "ws" },
+      code: "agent_fixed_field",
+      details: { fields: [{ field: "manifest", from: "cpu1", to: "ws" }] },
     });
     expect(changed.body.message).toContain("/fork");
-    // A newer version of its own manifest leaves it on the one it resolved.
+    // A newer version of its own manifest moves it, as it tracks the manifest; name@n pins it back.
     expect(await save("cpu1", { kind: "virtual", resources: { cpus: 1 }, lifecycle: { idle: "5m" } })).toBe(2);
-    expect((await make(id, { manifest: "cpu1@2" })).body.code).toBe("agent_upgrade_unavailable");
-    expect((await make(id, { manifest: "cpu1" })).body).toMatchObject({ resolvedVersion: 1, manifest: "cpu1" });
+    expect((await call("GET", path(id))).body).toMatchObject({ resolvedVersion: 2, runtime: { lifecycle: { idle: "5m" } } });
+    expect((await make(id, { manifest: "cpu1@1" })).body).toMatchObject({ resolvedVersion: 1, manifest: "cpu1@1", tracking: "pinned" });
     expect((await call("GET", path(id))).body.runtime.lifecycle).toEqual({});
     // Labels replace and leave what it runs alone; so does the owner guard.
-    const relabelled = await make(id, { manifest: "cpu1", labels: { c: "3" }, owner: "ada" });
+    const relabelled = await make(id, { manifest: "cpu1@1", labels: { c: "3" }, owner: "ada" });
     expect(relabelled.status, JSON.stringify(relabelled.body)).toBe(200);
     expect(relabelled.body).toMatchObject({ labels: { c: "3" }, owner: "ada", resolvedVersion: 1 });
-    expect((await make(id, { manifest: "cpu1", owner: null })).body.owner).toBeNull();
+    expect((await make(id, { manifest: "cpu1@1", owner: null })).body.owner).toBeNull();
     // A session opened now pins the version the Agent runs.
     const session = await open("recipe-a", id);
     expect(session.status, JSON.stringify(session.body)).toBe(200);

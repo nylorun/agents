@@ -406,6 +406,9 @@ function environmentOf(row: typeof agents.$inferSelect): Environment {
     manifestHash: row.manifestHash,
     desiredState: row.desiredState,
     ...(row.forkedFrom ? { forkedFrom: row.forkedFrom as Environment["forkedFrom"] } : {}),
+    ...(row.targetVersion !== null ? { targetVersion: row.targetVersion } : {}),
+    ...(row.failedVersion !== null ? { failedVersion: row.failedVersion } : {}),
+    ...(row.startCheck ? { startCheck: row.startCheck as Environment["startCheck"] } : {}),
     ...(row.k8sName !== null && row.desired !== null && row.observed !== null
       ? {
           pod: {
@@ -892,13 +895,16 @@ class PostgresTx implements Tx {
     if (found) return "exists";
     const [counted] = await this.db.select({ n: count() }).from(agents);
     if ((counted?.n ?? 0) >= limit) return "limit";
-    const { pod, ownerUserId, diskOp, diskSeed, forkedFrom, ...environment } = row;
+    const { pod, ownerUserId, diskOp, diskSeed, forkedFrom, targetVersion, failedVersion, startCheck, ...environment } = row;
     await this.db.insert(agents).values({
       ...environment,
       ownerUserId: ownerUserId ?? null,
       diskOp: diskOp ?? null,
       diskSeed: diskSeed ?? null,
       forkedFrom: forkedFrom ?? null,
+      targetVersion: targetVersion ?? null,
+      failedVersion: failedVersion ?? null,
+      startCheck: startCheck ?? null,
       ...(pod ? podColumns(pod) : {}),
     });
     return "created";
@@ -915,6 +921,9 @@ class PostgresTx implements Tx {
       manifestVersion?: number;
       manifestHash?: string;
       manifestRef?: Environment["manifestRef"];
+      targetVersion?: number | null;
+      failedVersion?: number | null;
+      startCheck?: Environment["startCheck"] | null;
       ownerUserId?: string | null;
       lastUsedAt?: string;
       diskOp?: Environment["diskOp"] | null;

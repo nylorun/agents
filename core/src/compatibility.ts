@@ -9,8 +9,11 @@ export { hashManifest } from "./utils/hash.js";
  * are agent definitions (`PUT /v1/agents/:id` with a v7 manifest) and environment manifests.
  * Environments are Agents: `/v1/agents/{id}` (with `.../events`, `stop`, `reset`, `snapshot`,
  * `restore`, `versions`, `fork` and `secrets`) is made from a saved manifest only, records it as
- * tracking (`name`) or pinned (`name@n`) and resolves it once into `resolvedVersion`; a
- * different manifest on an existing Agent is `409 agent_upgrade_unavailable`. Reads add `state`
+ * tracking (`name`) or pinned (`name@n`) into `resolvedVersion`, the version it runs. An Agent
+ * evolves (track T3, D73): a `PUT` naming another version of its manifest moves it (`dryRun`
+ * answers the plan), a save moves every Agent that tracks the manifest, and each turn takes the
+ * version its Agent runs when it starts; a runtime change waits for a pod's next start, and its
+ * kind, harness and storage are fixed (`409 agent_fixed_field`). Reads add `state`
  * (`working`, `sleeping`, `input_required`, `failing`, `paused`) and `attention`, and the
  * compute's state moves to `compute.state`. Every session belongs to one Agent:
  * `PUT /v1/sessions/{id}` takes `{ agent, ownerUserId, info }` and pins the manifest version its
@@ -311,14 +314,14 @@ export const ERROR_CODES = [
    */
   "credential_conflict",
   /**
-   * A `PUT /v1/agents/{id}` named another manifest than the one an existing Agent runs
-   * (protocol 16): moving an Agent to another manifest version is track T3. Fork it into a new
-   * Agent (`POST /v1/agents/{id}/fork`) meanwhile. `details.manifest` names what it runs.
+   * A move of an existing Agent (`PUT /v1/agents/{id}`, track T3) would change what is fixed for
+   * its life: its manifest's name, its kind, its harness or its storage (D73). `409`, with each in
+   * `details.fields`. Fork it into a new Agent (`POST /v1/agents/{id}/fork`) instead.
    */
-  "agent_upgrade_unavailable",
+  "agent_fixed_field",
   /**
    * A secret write named a secret the Agent's manifest does not declare (D64): `409`. Add the
-   * slot to the manifest's runtime section and make or fork an Agent from the new version.
+   * slot to the manifest's runtime section and move the Agent to the new version.
    */
   "secret_not_in_manifest",
   /**

@@ -76,6 +76,7 @@ import {
   ForkAgentRequestSchema,
   AgentForkPlanSchema,
   ForkAgentResponseSchema,
+  PutAgentDryRunResponseSchema,
   AgentRestoreSchema,
   AgentDiskVersionsSchema,
   ListAgentsResponseSchema,
@@ -147,6 +148,7 @@ export const AgentRestore = named("AgentRestore", AgentRestoreSchema);
 export const ForkAgentRequest = named("ForkAgentRequest", ForkAgentRequestSchema);
 export const AgentForkPlan = named("AgentForkPlan", AgentForkPlanSchema);
 export const ForkAgentResponse = named("ForkAgentResponse", ForkAgentResponseSchema);
+export const PutAgentDryRunResponse = named("PutAgentDryRunResponse", PutAgentDryRunResponseSchema);
 export const AgentDiskVersions = named("AgentDiskVersions", AgentDiskVersionsSchema);
 export const ListAgentsResponse = named("ListAgentsResponse", ListAgentsResponseSchema);
 export const DeleteAgentResponse = named("DeleteAgentResponse", DeleteAgentResponseSchema);

@@ -261,7 +261,7 @@ export class AgentManifestsClient {
 
   /**
    * Saves the manifest's next version (`PUT /v1/agent-manifests/{name}`), or answers the latest
-   * unchanged; no Agent changes (track T3 moves them). Refused before anything is sent when it
+   * unchanged; every Agent that tracks the manifest moves to it (track T3). Refused before anything is sent when it
    * misses its `requires` or, composed, its sections do not fit (`ManifestGapsError`).
    */
   async save(input: AgentManifestInput, options: AgentManifestSaveOptions = {}): Promise<SaveAgentManifestResponse> {
