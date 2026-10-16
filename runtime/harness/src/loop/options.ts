@@ -46,7 +46,7 @@ export function openExecution(
   readonly definitions: Map<string, BoundToolDefinition>;
   readonly redelivery: boolean;
 } {
-  const state =
+  let state =
     options.state === undefined
       ? initializeExecutionState(agent)
       : validateExecutionState(options.state);
@@ -55,11 +55,17 @@ export function openExecution(
       "execution.incompatible",
       "Saved state requires the original compatible agent and outputSchema",
     );
-  if (canonical(state.outputContract) !== canonical(agent.output?.schema.jsonSchema))
-    throw new HarnessError(
-      "execution.incompatible",
-      "Saved state requires the original compatible agent and outputSchema",
-    );
+  if (canonical(state.outputContract) !== canonical(agent.output?.schema.jsonSchema)) {
+    // Between turns, a new version of the agent (track T3) may change its output schema: the next
+    // turn takes it. A turn in progress keeps the schema it started with.
+    if (state.status === "active" || state.plan !== undefined)
+      throw new HarnessError(
+        "execution.incompatible",
+        "Saved state requires the original compatible agent and outputSchema",
+      );
+    const { outputContract: _previous, ...rest } = state;
+    state = agent.output ? { ...rest, outputContract: agent.output.schema.jsonSchema } : rest;
+  }
   if (state.manifestHash) {
     const compatibility = checkCompatibility(agent.manifest, state);
     if (!compatibility.ok) throw compatibility.error;

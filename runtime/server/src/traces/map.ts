@@ -155,7 +155,7 @@ export function spanOf(row: LiveEvent, turn: TurnTrace, settings: SpanSettings):
     case "turn.cancelled": {
       const status = row.type.slice("turn.".length);
       // The agent the turn ran: its manifest's name (protocol 16), else the Agent's id.
-      const manifest = p.manifest as { name?: unknown } | undefined;
+      const manifest = p.manifest as { name?: unknown; version?: unknown } | undefined;
       const agentName = typeof manifest?.name === "string" ? manifest.name : typeof p.agentId === "string" ? p.agentId : undefined;
       const totals = p.totals as { steps?: number; tokens?: number; costUsd?: number } | undefined;
       const error = row.type === "turn.failed" ? ((p.error ?? {}) as { code?: string; message?: string }) : undefined;
@@ -163,6 +163,8 @@ export function spanOf(row: LiveEvent, turn: TurnTrace, settings: SpanSettings):
         .str("gen_ai.operation.name", "invoke_agent")
         .str("gen_ai.agent.id", p.agentId)
         .str("gen_ai.agent.name", agentName)
+        // The agent manifest version the turn ran (T3): an Agent moves between versions.
+        .int("nylorun.manifest.version", typeof manifest?.version === "number" ? manifest.version : undefined)
         .str("nylorun.turn.status", status)
         .int("nylorun.turn.paused_ms", p.pausedMs)
         .int("nylorun.turn.steps", totals?.steps)

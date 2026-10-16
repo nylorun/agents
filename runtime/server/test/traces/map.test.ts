@@ -138,6 +138,8 @@ describe("spanOf", () => {
       // Named for the agent manifest the session runs; its id is the Agent (protocol 16).
       "gen_ai.agent.id": "users/alice/coder",
       "gen_ai.agent.name": "coder",
+      // The agent manifest version the turn ran (T3).
+      "nylorun.manifest.version": "2",
       "gen_ai.conversation.id": SESSION,
       "nylorun.turn.status": "completed",
       "nylorun.turn.steps": "3",
