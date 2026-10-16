@@ -39,6 +39,10 @@ export type SessionSummary = {
   agentId: string;
   ownerUserId: string;
   status: string;
+  /** When the session opened (ISO); null when the Runtime lists no times (no `session-reads`). */
+  createdAt: string | null;
+  /** When its last event was committed (ISO), else null. */
+  lastEventAt: string | null;
 };
 
 export type Connection = {

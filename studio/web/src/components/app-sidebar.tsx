@@ -8,10 +8,20 @@ import {
   GitBranch,
   LoaderCircle,
   MessagesSquare,
+  Plus,
 } from "lucide-react";
 import type { Connection } from "@/studio-types";
 import { shortTenantId, type StudioTenantInfo } from "@/config";
 import { embedded } from "@/embed/index.ts";
+import { useStartSession } from "@/components/new-session";
+import { AgentName } from "@/components/sessions-table";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { sessionAgents, sessionsPath, type SessionAgent } from "@/session-list";
 import {
   INLINE_MANIFEST,
@@ -74,6 +84,37 @@ function ManifestFilterItem({
         </Link>
       </SidebarMenuSubButton>
     </SidebarMenuSubItem>
+  );
+}
+/** Starts a session of the agent picked from its menu, from any page. */
+function NewSessionItem({ agents }: Readonly<{ agents: readonly SessionAgent[] }>) {
+  const start = useStartSession();
+  const registered = agents.filter((agent) => agent.registered);
+  return (
+    <SidebarMenuItem>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <SidebarMenuButton
+            tooltip="New session"
+            disabled={registered.length === 0}
+            className="bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground active:bg-primary/90 active:text-primary-foreground data-[state=open]:bg-primary/90 data-[state=open]:hover:bg-primary/90 data-[state=open]:hover:text-primary-foreground"
+          >
+            <Plus />
+            <span>New session</span>
+          </SidebarMenuButton>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent side="right" align="start" className="w-56">
+          <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+            Start a session with
+          </DropdownMenuLabel>
+          {registered.map((agent) => (
+            <DropdownMenuItem key={agent.id} onSelect={() => start(agent)}>
+              <AgentName agent={agent} />
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </SidebarMenuItem>
   );
 }
 function statusDotClass(status: Connection["status"]): string {
@@ -194,6 +235,7 @@ export function AppSidebar({
             tenant={tenant}
             active={settingsSection === "overview"}
           />
+          <NewSessionItem agents={agents} />
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>

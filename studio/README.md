@@ -81,12 +81,20 @@ the browser.
 Studio lists the Tenant's sessions, sends text, displays completed
 assistant responses and tool inputs/results, restores history, observes
 canonical SSE events, and cancels a turn. **Sessions** is one table of every
-session (agent, owner, status), filtered to an agent from the table or from the
-agents listed under Sessions in the sidebar, with **New session** for a
-registered agent; `/tenants/<id>/sessions?agent=<agentId>` is the filtered list,
-and `/tenants/<id>/agents/<agentId>` opens it. Each session shows chat beside an
-**Events** inspector, an **Outputs** tab (the session's artifacts), an
-**Environment** tab and an optional Agent Manifest tab. The sidebar holds
+session (agent, owner, last activity, status), newest activity first; its
+**Last activity** header sorts oldest first. Last activity is the session's last
+committed event, else when it opened; a Runtime without `session-reads` lists no
+times. The table is filtered to an agent from the table or from the agents
+listed under Sessions in the sidebar; `/tenants/<id>/sessions?agent=<agentId>`
+is the filtered list, and `/tenants/<id>/agents/<agentId>` opens it. Each
+session shows chat beside an **Events** inspector, an **Outputs** tab (the
+session's artifacts), an **Environment** tab, a **Usage** tab and an optional
+Agent Manifest tab. **Usage** shows the session's recorded model usage (tokens
+in and out, cache reads and writes, reasoning tokens, cost and model calls) and
+each model call, read again when a turn ends. The header's inspector button
+hides the inspector and gives the chat the whole width; the browser remembers
+the choice. A chat message shows its time while it is hovered or focused. The
+sidebar holds **New session** (a menu of the registered agents, on every page),
 **Sessions** and **Environments**; its header shows the Tenant and the Runtime's
 status, and selecting the Tenant opens its Overview. **Models** is the one
 setting, at the bottom of the sidebar. **New session** opens an Environment

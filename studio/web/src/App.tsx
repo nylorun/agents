@@ -10,7 +10,7 @@ import {
   useSearchParams,
 } from "react-router-dom";
 import { Tabs as TabsPrimitive } from "radix-ui";
-import { ArrowDown, RefreshCw } from "lucide-react";
+import { ArrowDown, PanelRight, RefreshCw } from "lucide-react";
 import { Environments } from "@/components/environments";
 import { useEnvironmentCatalog } from "@/resources/environments";
 import { environmentFilter, manifestOf } from "@/environment-list";
@@ -32,6 +32,8 @@ import { EventDetails } from "@/components/event-details";
 import { EventTable } from "@/components/event-table";
 import { IterationTimeline } from "@/components/iteration-timeline";
 import { SessionComposer } from "@/components/session-composer";
+import { SessionUsage } from "@/components/session-usage";
+import { fullTime, shortTime } from "@/time-format";
 import { AttachmentPreview } from "@/components/attachment-preview";
 import { ToolTraceBadges } from "@/components/tool-trace";
 import type { ComposerAttachment } from "@/attachments";
@@ -81,7 +83,7 @@ import {
   tenantHref,
   tenantScope,
 } from "@/proxy-client";
-import { AGENT_FILTER, sessionsPath } from "@/session-list";
+import { AGENT_FILTER, loadSessions, sessionsPath } from "@/session-list";
 import {
   STUDIO_OWNER,
   asStudioDefinition,
@@ -164,7 +166,40 @@ type InspectorTab =
   | "tree"
   | "iterations"
   | "artifacts"
-  | "environment";
+  | "environment"
+  | "usage";
+
+/** Where Studio remembers whether the session inspector is shown. */
+const INSPECTOR_STORAGE_KEY = "nylorun.studio.inspector";
+
+function inspectorShownAtFirst(): boolean {
+  try {
+    return window.localStorage.getItem(INSPECTOR_STORAGE_KEY) !== "hidden";
+  } catch {
+    return true;
+  }
+}
+
+function rememberInspector(shown: boolean): void {
+  try {
+    window.localStorage.setItem(INSPECTOR_STORAGE_KEY, shown ? "shown" : "hidden");
+  } catch {
+    /* Storage is optional: the toggle still works for this page. */
+  }
+}
+
+/** A chat message's time, shown while the message is hovered or focused. */
+function MessageTime({ value }: { value: string }) {
+  return (
+    <time
+      dateTime={value}
+      title={fullTime(value)}
+      className="text-xs tabular-nums text-muted-foreground opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100"
+    >
+      {shortTime(value)}
+    </time>
+  );
+}
 
 const tabTrigger =
   "border-b-2 border-transparent px-0 pb-3 text-sm font-medium text-muted-foreground outline-none transition-colors hover:text-foreground data-[state=active]:border-primary data-[state=active]:text-foreground";
@@ -439,7 +474,7 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
       const client = studioClient(tenant.id);
       const [definitions, sessions] = await Promise.all([
         client.listAgents(),
-        client.listSessions(),
+        loadSessions(client),
       ]);
       setConnection({
         status: "Running",
@@ -454,12 +489,7 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
             manifestHash: hashOf(a),
           }),
         ),
-        sessions: sessions.sessions.map((s) => ({
-          session: s.id,
-          agentId: s.agentId,
-          ownerUserId: s.ownerUserId,
-          status: s.status,
-        })),
+        sessions,
       });
       setError("");
     } catch (e) {
@@ -824,6 +854,13 @@ function SessionView({
   const [activeTab, setActiveTab] = useState<InspectorTab>(isWorkflow ? "tree" : "events");
   const [selectedEvent, setSelectedEvent] = useState<StudioEvent | undefined>();
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [inspectorShown, setInspectorShown] = useState(inspectorShownAtFirst);
+  const toggleInspector = (): void => {
+    setInspectorShown((shown) => {
+      rememberInspector(!shown);
+      return !shown;
+    });
+  };
   const [selectedNode, setSelectedNode] = useState<WorkflowTreeNode | undefined>();
   const [selectedIteration, setSelectedIteration] = useState<
     IterationRecord | undefined
@@ -839,6 +876,7 @@ function SessionView({
         tab === "events" ||
         tab === "environment" ||
         tab === "manifest" ||
+        tab === "usage" ||
         (isWorkflow && (tab === "tree" || tab === "iterations"))
         ? tab
         : isWorkflow
@@ -1027,7 +1065,7 @@ function SessionView({
     if (nextTab !== "events") setDetailsOpen(false);
   };
   const showDetails =
-    activeTab === "events" && detailsOpen && selectedEvent !== undefined;
+    inspectorShown && activeTab === "events" && detailsOpen && selectedEvent !== undefined;
 
   const chronological = [...events].reverse();
   const liveByPath = liveStatusFromEvents(chronological);
@@ -1052,7 +1090,7 @@ function SessionView({
         orientation="horizontal"
         className="min-h-0 flex-1 overflow-hidden"
       >
-      <ResizablePanel defaultSize={showDetails ? 34 : 42} minSize={28}>
+      <ResizablePanel id="chat" defaultSize={!inspectorShown ? 100 : showDetails ? 34 : 42} minSize={28}>
         <section className="flex h-full min-h-0 flex-col overflow-hidden">
           <HeaderSlot side="start">
             <SessionIdCopy id={sessionId} />
@@ -1075,6 +1113,16 @@ function SessionView({
                 Environment: None
               </span>
             ) : null}
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label={inspectorShown ? "Hide inspector" : "Show inspector"}
+              aria-pressed={inspectorShown}
+              title={inspectorShown ? "Hide inspector" : "Show inspector"}
+              onClick={toggleInspector}
+            >
+              <PanelRight />
+            </Button>
           </HeaderSlot>
           <div ref={chatScroller} className="min-h-0 flex-1 overflow-auto">
             <div ref={chatContent} className="space-y-4 p-4">
@@ -1104,9 +1152,12 @@ function SessionView({
                   return (
                     <article
                       key={event.eventId}
-                      className="ml-8 rounded-xl bg-muted p-4"
+                      className="group ml-8 rounded-xl bg-muted p-4"
                     >
-                      <p className="mb-1 text-xs text-muted-foreground">You</p>
+                      <p className="mb-1 flex items-baseline justify-between gap-2 text-xs text-muted-foreground">
+                        You
+                        <MessageTime value={event.time} />
+                      </p>
                       {String(payload.content ?? "")}
                       {Array.isArray(payload.parts)
                         ? payload.parts.map((part, i) =>
@@ -1138,10 +1189,11 @@ function SessionView({
                   return (
                     <article
                       key={event.eventId}
-                      className="mr-8 rounded-xl border p-4"
+                      className="group mr-8 rounded-xl border p-4"
                     >
-                      <p className="mb-1 text-xs text-muted-foreground">
+                      <p className="mb-1 flex items-baseline justify-between gap-2 text-xs text-muted-foreground">
                         Assistant
+                        <MessageTime value={event.time} />
                       </p>
                       {typeof payload.output === "string" ? (
                         <Markdown>{payload.output}</Markdown>
@@ -1274,8 +1326,10 @@ function SessionView({
           />
         </section>
       </ResizablePanel>
+      {inspectorShown ? (
+      <>
       <ResizableHandle withHandle />
-      <ResizablePanel defaultSize={showDetails ? 36 : 58} minSize={28}>
+      <ResizablePanel id="inspector" defaultSize={showDetails ? 36 : 58} minSize={28}>
         <TabsPrimitive.Root
           value={activeTab}
           onValueChange={changeTab}
@@ -1316,6 +1370,9 @@ function SessionView({
               </TabsPrimitive.Trigger>
               <TabsPrimitive.Trigger value="artifacts" className={tabTrigger}>
                 Outputs
+              </TabsPrimitive.Trigger>
+              <TabsPrimitive.Trigger value="usage" className={tabTrigger}>
+                Usage
               </TabsPrimitive.Trigger>
             </TabsPrimitive.List>
           </div>
@@ -1392,8 +1449,23 @@ function SessionView({
           >
             <AgentManifestPanel agent={agent} tenantId={tenantId} sessionId={sessionId} />
           </TabsPrimitive.Content>
+          <TabsPrimitive.Content
+            value="usage"
+            className="flex min-h-0 flex-1 flex-col overflow-hidden outline-none"
+          >
+            <SessionUsage
+              tenantId={tenantId}
+              sessionId={sessionId}
+              revision={events
+                .filter((e) => e.type.startsWith("turn."))
+                .map((e) => e.eventId)
+                .join("|")}
+            />
+          </TabsPrimitive.Content>
         </TabsPrimitive.Root>
       </ResizablePanel>
+      </>
+      ) : null}
       {showDetails ? (
         <>
           <ResizableHandle withHandle />
