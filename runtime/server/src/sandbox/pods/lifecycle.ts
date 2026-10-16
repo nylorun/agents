@@ -29,7 +29,9 @@
  *   reason that starts `setup:`, even while the pod is ready, until a turn start asks it to run.
  * - **Image** (Q14): the first ready pod's workload image is recorded by digest (`imageDigest`),
  *   and every later apply runs that digest, so a stop, relaunch or reset never pulls another
- *   image under the same tag. An image id with no repository (a locally loaded image) pins nothing.
+ *   image under the same tag. Only a digest of the repository the Environment asked for is
+ *   pinned: an image id with no repository, or one a node gave a name of its own (kind names an
+ *   image it loads `import-<date>`), pins nothing, since no registry serves it under that name.
  *
  * An unused Environment is deleted by the Tenant sweep (`lifecycle.deleteAfter`), not here.
  */
@@ -37,16 +39,37 @@ import type { EnvironmentEventPayload, EnvironmentEventType } from "@nylorun/cor
 import type { Environment, SandboxPodPatch, SandboxPodState } from "../../store/types.js";
 import type { PodStatus } from "./client.js";
 import { hostTuning } from "../../tuning.js";
+import { DEFAULT_SANDBOX_IMAGE } from "../policy.js";
 
 /**
- * The pullable reference of the image id a container status names (`repo@sha256:…`), or
- * undefined for one without a repository, such as an image loaded onto the node.
+ * The repository an image reference names, as a container runtime writes it: the tag and digest
+ * dropped, Docker Hub's host and `library/` filled in (`python:3.13-slim` is
+ * `docker.io/library/python`).
  */
-export function imageDigestOf(imageID: string | undefined): string | undefined {
+export function repositoryOf(reference: string): string {
+  let name = reference.replace(/^docker-pullable:\/\//, "");
+  const at = name.indexOf("@");
+  if (at >= 0) name = name.slice(0, at);
+  const colon = name.lastIndexOf(":");
+  if (colon > name.lastIndexOf("/")) name = name.slice(0, colon);
+  const parts = name.split("/");
+  const first = parts[0] ?? "";
+  const hasHost = parts.length > 1 && (first.includes(".") || first.includes(":") || first === "localhost");
+  if (hasHost) return name;
+  return parts.length === 1 ? `docker.io/library/${name}` : `docker.io/${name}`;
+}
+
+/**
+ * The pullable reference of the image id a container status names (`repo@sha256:…`), when it is
+ * a digest of `requested`'s repository; undefined for an id without a repository, or with one
+ * the node made up for an image loaded onto it, which no registry serves.
+ */
+export function imageDigestOf(imageID: string | undefined, requested: string): string | undefined {
   const id = imageID?.replace(/^docker-pullable:\/\//, "");
   if (!id) return undefined;
   const at = id.indexOf("@sha256:");
-  return at > 0 && /^[0-9a-f]{64}$/.test(id.slice(at + 8)) ? id : undefined;
+  if (at <= 0 || !/^[0-9a-f]{64}$/.test(id.slice(at + 8))) return undefined;
+  return repositoryOf(id) === repositoryOf(requested) ? id : undefined;
 }
 
 /** A setup failure's `reason` starts with this (`sandbox/setup.ts`); it is sticky. */
@@ -65,6 +88,11 @@ export type PodRow = Environment & { readonly pod: SandboxPodState };
 
 export interface PodFacts {
   readonly row: PodRow;
+  /**
+   * The workload image the pod is asked to run: its applied recipe's, else the sandboxes
+   * service's default (`DEFAULT_SANDBOX_IMAGE`). Only a digest of its repository is pinned.
+   */
+  readonly image: string;
   readonly config: PodLifecycleConfig;
   /** The Sandbox's status; undefined when the sandboxes service did not answer. */
   readonly status: PodStatus | undefined;
@@ -228,7 +256,7 @@ export function decide(facts: PodFacts): PodDecision {
         patch.reason = null;
       }
       // The image it runs, pinned by digest from now on (Q14).
-      const digest = pod.imageDigest === undefined ? imageDigestOf(status.imageID) : undefined;
+      const digest = pod.imageDigest === undefined ? imageDigestOf(status.imageID, facts.image) : undefined;
       if (digest !== undefined) patch.imageDigest = digest;
       return done();
     }

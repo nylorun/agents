@@ -306,7 +306,7 @@ _Avoid_: "upgrade" or "update" for a fork (the source does not change).
 `SandboxPodState.imageDigest`, `sandbox/pods/lifecycle.ts`): recorded from the sandboxes service's
 `imageID` the first time a pod is ready, and sent instead of the recipe's `image` on every later
 apply (`podSpecOf`), so a stop, relaunch or reset runs the same bits. An image id without a
-repository pins nothing (`imageDigestOf`).
+repository, or a name a node made up for an image loaded onto it (kind's `import-<date>`), pins nothing: only a digest of the requested image's repository is pinned (`imageDigestOf`).
 
 **Disk setup**: A pod Environment's `files` and `setup` (R2d step 2, `sandbox/setup.ts`,
 `harness/setup.ts`), run once per new disk: the join answer carries the plan (`setupPlanOf`), the
