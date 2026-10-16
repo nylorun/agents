@@ -66,12 +66,13 @@ async function collectorUp(): Promise<boolean> {
 }
 const COLLECTOR = STACK_ENABLED && (await collectorUp());
 
-/** Every span the collector's file exporter wrote. */
+/** Every span the collector's file exporter wrote, in its complete lines. */
 function collected(): OtlpSpan[] {
   const file = join(otel.dir, "traces.jsonl");
   if (!existsSync(file)) return [];
   const spans: OtlpSpan[] = [];
-  for (const line of readFileSync(file, "utf8").split("\n"))
+  // The exporter flushes as it writes, so the text after the last newline may be a line it is still writing.
+  for (const line of readFileSync(file, "utf8").split("\n").slice(0, -1))
     if (line.trim())
       for (const resource of JSON.parse(line).resourceSpans ?? [])
         for (const scope of resource.scopeSpans ?? []) spans.push(...(scope.spans ?? []));
