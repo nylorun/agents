@@ -98,7 +98,25 @@ function identity(creation: Creation): string {
  * A Runtime that keeps sessions like the real one: `PUT` on an existing
  * session with other creation parameters answers 409, an unknown session 404.
  */
-async function fakeRuntime(environments = false) {
+/** When each session opened and last changed, as `session-reads` lists them. */
+const SESSION_TIMES: Record<string, { createdAt: string; lastEventAt: string | null }> = {
+  [ALICE_SESSION]: { createdAt: "2026-10-01T09:00:00.000Z", lastEventAt: "2026-10-15T11:00:00.000Z" },
+  [FLOW_SESSION]: { createdAt: "2026-10-02T09:00:00.000Z", lastEventAt: "2026-10-14T11:00:00.000Z" },
+  [CHILD_SESSION]: { createdAt: "2026-10-03T09:00:00.000Z", lastEventAt: "2026-10-13T11:00:00.000Z" },
+  // No events yet: its last activity is when it opened.
+  [FILES_SESSION]: { createdAt: "2026-10-12T09:00:00.000Z", lastEventAt: null },
+};
+const usageNumbers = (input: number, output: number) => ({
+  inputTokens: input,
+  outputTokens: output,
+  totalTokens: input + output,
+  cachedTokens: 200,
+  cacheWriteTokens: 0,
+  reasoningTokens: 50,
+  costUsd: 0.0123,
+});
+
+async function fakeRuntime(environments = false, sessionReads = false) {
   const sessions = new Map<string, { creation: Creation; items: unknown[] }>([
     [
       ALICE_SESSION,
@@ -177,7 +195,11 @@ async function fakeRuntime(environments = false) {
       uncertainEffects: [],
     };
   };
-  const protocol = { min: PROTOCOL_VERSION, max: PROTOCOL_VERSION, features: [...PROTOCOL_FEATURES] };
+  const protocol = {
+    min: PROTOCOL_VERSION,
+    max: PROTOCOL_VERSION,
+    features: [...PROTOCOL_FEATURES, ...(sessionReads ? ["session-reads"] : [])],
+  };
   const server = createServer(async (req, res) => {
     const chunks: Buffer[] = [];
     for await (const chunk of req) chunks.push(chunk as Buffer);
@@ -209,6 +231,66 @@ async function fakeRuntime(environments = false) {
           },
         ],
       });
+    if (path === "/v1/sessions" && sessionReads) {
+      assert.match(query, /(?:^|&)limit=200(?:&|$)/u);
+      return send(200, {
+        sessions: [...sessions].map(([id, s]) => ({
+          id,
+          agentId: s.creation.agentId,
+          ownerUserId: s.creation.ownerUserId,
+          status: "idle",
+          activeTurnId: null,
+          lastTurnId: null,
+          environmentId: typeof s.creation.environment === "string" ? s.creation.environment : null,
+          createdAt: SESSION_TIMES[id]?.createdAt ?? time,
+          lastEventAt: SESSION_TIMES[id]?.lastEventAt ?? null,
+        })),
+        nextCursor: null,
+      });
+    }
+    const usageMatch = /^\/v1\/sessions\/([^/]+)\/(usage|calls\/model|manifest)$/u.exec(path);
+    if (sessionReads && usageMatch) {
+      const id = decodeURIComponent(usageMatch[1]!);
+      const asOf = "2026-10-15T11:00:00.000Z";
+      if (usageMatch[2] === "manifest")
+        return send(200, {
+          sessionId: id,
+          agentId: sessions.get(id)!.creation.agentId,
+          manifestHash: "h",
+          implementationVersion: "1",
+          manifest: { manifestSchemaVersion: 7, id: AGENT, name: "Orders" },
+        });
+      if (usageMatch[2] === "usage")
+        return send(200, {
+          sessionId: id,
+          turnId: null,
+          asOf,
+          ...usageNumbers(1234, 567),
+          calls: 1,
+          duplicates: 0,
+          unpricedCalls: 0,
+          unreportedCalls: 0,
+          unknownQualityCalls: 0,
+        });
+      return send(200, {
+        asOf,
+        nextCursor: null,
+        calls: [
+          {
+            id: "call_1",
+            effectId: "eff_1",
+            sessionId: id,
+            turnId: "t1",
+            agentId: AGENT,
+            provider: "openai",
+            model: "gpt-test",
+            at: "2026-10-15T10:59:58.000Z",
+            outcome: "completed",
+            usage: { ...usageNumbers(1234, 567), duplicate: false, tokensReported: true, costKnown: true },
+          },
+        ],
+      });
+    }
     if (path === "/v1/sessions")
       return send(200, {
         sessions: [...sessions].map(([id, s]) => ({
@@ -325,8 +407,9 @@ async function withStudio(
     commands: Command[];
   }) => Promise<void>,
   environments = false,
+  sessionReads = false,
 ) {
-  const runtime = await fakeRuntime(environments);
+  const runtime = await fakeRuntime(environments, sessionReads);
   const studio = await startStudioServer({
     runtimeUrl: runtime.url,
     adminKey: ADMIN_KEY,
@@ -425,6 +508,93 @@ test("the session list shows every session and filters on an agent, from the tab
     await page.getByRole("link", { name: ALICE_SESSION, exact: true }).click();
     await page.locator("article", { hasText: "Order 42 ships today." }).waitFor();
   });
+});
+
+test("the session list shows each session's last activity, newest first, and sorts oldest first", async () => {
+  await withStudio(
+    async ({ page }) => {
+      const order = () =>
+        page.$$eval("tbody tr", (rows) => rows.map((row) => row.querySelector("td")?.textContent ?? ""));
+      await page.getByRole("link", { name: ALICE_SESSION, exact: true }).waitFor();
+      await page.waitForFunction(() => document.querySelectorAll("tbody tr").length === 4);
+      assert.deepEqual(await order(), [ALICE_SESSION, FLOW_SESSION, CHILD_SESSION, FILES_SESSION]);
+      const header = page.getByRole("columnheader", { name: /Last activity/u });
+      assert.equal(await header.getAttribute("aria-sort"), "descending");
+      // A session with no events counts from when it opened.
+      assert.equal(
+        await page.locator("tbody tr", { hasText: FILES_SESSION }).locator("time").getAttribute("datetime"),
+        SESSION_TIMES[FILES_SESSION]!.createdAt,
+      );
+      await header.getByRole("button").click();
+      assert.equal(await header.getAttribute("aria-sort"), "ascending");
+      assert.deepEqual(await order(), [FILES_SESSION, CHILD_SESSION, FLOW_SESSION, ALICE_SESSION]);
+    },
+    false,
+    true,
+  );
+});
+
+test("a Runtime without session reads lists sessions with no times", async () => {
+  await withStudio(async ({ page }) => {
+    await page.getByRole("link", { name: ALICE_SESSION, exact: true }).waitFor();
+    await page.getByRole("columnheader", { name: /Last activity/u }).waitFor();
+    assert.equal(await page.locator("tbody time").count(), 0);
+  });
+});
+
+test("a session's inspector hides and shows, and stays as it was left", async () => {
+  await withStudio(async ({ page, studioUrl }) => {
+    await page.goto(`${studioUrl}/tenants/${TENANT}/agents/${AGENT}/sessions/${ALICE_SESSION}`);
+    await page.getByRole("tab", { name: "Events", exact: true }).waitFor();
+    await page.getByRole("button", { name: "Hide inspector" }).click();
+    await page.getByRole("button", { name: "Show inspector" }).waitFor();
+    assert.equal(await page.getByRole("tab", { name: "Events", exact: true }).count(), 0);
+    // The chat keeps the whole width, and the choice outlives a reload.
+    await page.reload();
+    await page.locator("article", { hasText: "Order 42 ships today." }).waitFor();
+    assert.equal(await page.getByRole("tab", { name: "Events", exact: true }).count(), 0);
+    await page.getByRole("button", { name: "Show inspector" }).click();
+    await page.getByRole("tab", { name: "Events", exact: true }).waitFor();
+  });
+});
+
+test("a chat message shows its time only while it is hovered", async () => {
+  await withStudio(async ({ page, studioUrl }) => {
+    await page.goto(`${studioUrl}/tenants/${TENANT}/agents/${AGENT}/sessions/${ALICE_SESSION}`);
+    const message = page.locator("article", { hasText: "Where is order 42?" });
+    const stamp = message.locator("time");
+    await stamp.waitFor({ state: "attached" });
+    const opacity = () => stamp.evaluate((element) => getComputedStyle(element).opacity);
+    assert.equal(await opacity(), "0");
+    assert.match((await stamp.getAttribute("title")) ?? "", /^2026-10-05 \d\d:\d\d:\d\d$/u);
+    await message.hover();
+    await page.waitForFunction(
+      (text) =>
+        [...document.querySelectorAll("article")]
+          .filter((article) => article.textContent?.includes(text))
+          .some((article) => getComputedStyle(article.querySelector("time")!).opacity === "1"),
+      "Where is order 42?",
+    );
+  });
+});
+
+test("a session's Usage tab shows its token totals and each model call", async () => {
+  await withStudio(
+    async ({ page, studioUrl }) => {
+      await page.goto(`${studioUrl}/tenants/${TENANT}/agents/${AGENT}/sessions/${ALICE_SESSION}`);
+      await page.getByRole("tab", { name: "Usage", exact: true }).click();
+      await page.waitForURL(/inspector=usage/u);
+      const panel = page.getByRole("tabpanel");
+      await panel.getByText("Total tokens").waitFor();
+      await panel.getByText("1,801", { exact: true }).first().waitFor();
+      await panel.getByText("$0.01", { exact: true }).first().waitFor();
+      const call = panel.locator("tbody tr");
+      assert.equal(await call.count(), 1);
+      assert.match((await call.textContent()) ?? "", /gpt-test.*1,234.*567.*200.*1,801/u);
+    },
+    false,
+    true,
+  );
 });
 
 test("New session creates the session for the local developer, with no Environment when the Tenant has none", async () => {

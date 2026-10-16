@@ -160,7 +160,8 @@ export async function proxyRuntime(
   const read =
     method === "GET" &&
     (/^\/v1\/(agents|sessions)$/.test(path) ||
-      /^\/v1\/sessions\/[^/]+(?:\/(items|events|manifest))?$/.test(path) ||
+      // A session's model usage, for its Usage tab: its totals and its model calls.
+      /^\/v1\/sessions\/[^/]+(?:\/(items|events|manifest|usage|calls\/model))?$/.test(path) ||
       path === "/v1/tenant/model" ||
       path === "/v1/tenant/models" ||
       path === "/v1/tenant/providers" ||

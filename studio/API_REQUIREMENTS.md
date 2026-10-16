@@ -39,6 +39,8 @@ and inspector link it to that Environment.
 | Setup & files tab | the manifest's `setup` and `files` from `GET /v1/environments/{id}`, read only |
 | Session's Environment tab | `session.inspect()` (`environment: { id, version }`), `environments.get()`, Management `coverage({ agentId, environmentId })` |
 | Sessions that name it | `sessions.page({ environmentId })` → `GET /v1/sessions?limit=50&environmentId=…` |
+| Session list with last activity | `sessions.page({ limit: 200, cursor })` → `GET /v1/sessions?limit=200&cursor=…`, every page, for each session's `createdAt` and `lastEventAt` (Host feature `session-reads`); without it `listSessions()` → `GET /v1/sessions`, with no times |
+| Session's Usage tab | `session.usage()` → `GET /v1/sessions/{id}/usage` and `session.modelCalls({ limit: 50, cursor })` → `GET /v1/sessions/{id}/calls/model?limit=50&cursor=…` (Host feature `session-reads`; both allowed by the proxy, read only) |
 | Lifecycle events, manual refresh | `environments.events({ from })` → `GET /v1/environments/{id}/events?from=…` |
 | New session's Environment picker | `environments.list()` → `GET /v1/environments`; Management `coverage({ agentId, environmentId })` → `POST /v1/tenant/credential-coverage` |
 | Preview tools | Management `mcp.preview({ url, environmentId })` → `POST /v1/tenant/mcp/preview` |

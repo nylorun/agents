@@ -1,20 +1,22 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Bot, ChevronDown, GitBranch, LoaderCircle, Plus } from "lucide-react";
+import { ArrowDown, ArrowUp, Bot, ChevronDown, GitBranch, LoaderCircle } from "lucide-react";
 import type { Connection } from "@/studio-types";
-import { useStartSession } from "@/components/new-session";
 import {
+  lastActivity,
   sessionAgents,
   sessionPath,
   sessionsPath,
+  sortSessions,
   type SessionAgent,
+  type SessionOrder,
 } from "@/session-list";
+import { fullTime, shortTime } from "@/time-format";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
-  DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -52,48 +54,13 @@ function SessionStatus({ status }: Readonly<{ status: string }>) {
   );
 }
 
-function AgentName({ agent }: Readonly<{ agent: SessionAgent }>) {
+export function AgentName({ agent }: Readonly<{ agent: SessionAgent }>) {
   const Icon = agent.workflow ? GitBranch : Bot;
   return (
     <span className="inline-flex min-w-0 items-center gap-2">
       <Icon className="size-4 shrink-0 text-muted-foreground" />
       <span className="truncate">{agent.name}</span>
     </span>
-  );
-}
-
-/** Starts a session of the filtered agent, or of the agent picked from a menu. */
-function NewSessionButton({
-  agents,
-  agentFilter,
-}: Readonly<{ agents: readonly SessionAgent[]; agentFilter?: string }>) {
-  const start = useStartSession();
-  const registered = agents.filter((agent) => agent.registered);
-  const filtered = registered.find((agent) => agent.id === agentFilter);
-  if (filtered)
-    return (
-      <Button size="sm" onClick={() => start(filtered)}>
-        <Plus />
-        New session
-      </Button>
-    );
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button size="sm" disabled={registered.length === 0}>
-          <Plus />
-          New session
-          <ChevronDown />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
-        {registered.map((agent) => (
-          <DropdownMenuItem key={agent.id} onSelect={() => start(agent)}>
-            <AgentName agent={agent} />
-          </DropdownMenuItem>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
   );
 }
 
@@ -105,10 +72,17 @@ export function SessionsTable({
   const navigate = useNavigate();
   const agents = sessionAgents(connection);
   const byId = new Map(agents.map((agent) => [agent.id, agent]));
-  const sessions =
-    agentFilter === undefined
-      ? connection.sessions
-      : connection.sessions.filter((session) => session.agentId === agentFilter);
+  const [order, setOrder] = useState<SessionOrder>("newest");
+  const sessions = useMemo(
+    () =>
+      sortSessions(
+        agentFilter === undefined
+          ? connection.sessions
+          : connection.sessions.filter((session) => session.agentId === agentFilter),
+        order,
+      ),
+    [connection.sessions, agentFilter, order],
+  );
   const [filterOpen, setFilterOpen] = useState(false);
   // One agent at a time: picking one closes the menu.
   const filterOn = (agentId?: string): void => {
@@ -162,7 +136,6 @@ export function SessionsTable({
             ))}
           </DropdownMenuContent>
         </DropdownMenu>
-        <NewSessionButton agents={agents} agentFilter={agentFilter} />
       </div>
       <ScrollArea className="min-h-0 flex-1">
         <Table>
@@ -171,6 +144,28 @@ export function SessionsTable({
               <TableHead>Session</TableHead>
               <TableHead className="w-64">Agent</TableHead>
               <TableHead className="w-56">Owner</TableHead>
+              <TableHead
+                className="w-40"
+                aria-sort={order === "newest" ? "descending" : "ascending"}
+              >
+                <button
+                  type="button"
+                  className="-ml-1 inline-flex items-center gap-1 rounded px-1 py-0.5 hover:bg-muted"
+                  title={
+                    order === "newest"
+                      ? "Newest first: show oldest first"
+                      : "Oldest first: show newest first"
+                  }
+                  onClick={() => setOrder(order === "newest" ? "oldest" : "newest")}
+                >
+                  Last activity
+                  {order === "newest" ? (
+                    <ArrowDown className="size-3.5 text-muted-foreground" />
+                  ) : (
+                    <ArrowUp className="size-3.5 text-muted-foreground" />
+                  )}
+                </button>
+              </TableHead>
               <TableHead className="w-32">Status</TableHead>
             </TableRow>
           </TableHeader>
@@ -178,7 +173,7 @@ export function SessionsTable({
             {connection.status === "Connecting" ? (
               <TableRow>
                 <TableCell
-                  colSpan={4}
+                  colSpan={5}
                   className="h-28 text-center text-muted-foreground"
                 >
                   Loading sessions…
@@ -187,7 +182,7 @@ export function SessionsTable({
             ) : sessions.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={4}
+                  colSpan={5}
                   className="h-28 text-center text-muted-foreground"
                 >
                   {agentFilter === undefined
@@ -199,6 +194,7 @@ export function SessionsTable({
               sessions.map((session) => {
                 const href = sessionPath(session.agentId, session.session);
                 const agent = byId.get(session.agentId);
+                const activity = lastActivity(session);
                 return (
                   <TableRow
                     key={session.session}
@@ -219,6 +215,15 @@ export function SessionsTable({
                     </TableCell>
                     <TableCell className="max-w-0 truncate text-xs text-muted-foreground">
                       {session.ownerUserId}
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap text-xs tabular-nums text-muted-foreground">
+                      {activity ? (
+                        <time dateTime={activity} title={fullTime(activity)}>
+                          {shortTime(activity)}
+                        </time>
+                      ) : (
+                        "—"
+                      )}
                     </TableCell>
                     <TableCell>
                       <SessionStatus status={session.status} />
