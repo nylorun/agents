@@ -100,7 +100,8 @@ function NewSessionItem({ agents }: Readonly<{ agents: readonly SessionAgent[] }
             className="h-9 justify-center gap-2 px-3 font-medium bg-primary text-primary-foreground shadow-xs hover:bg-primary/90 hover:text-primary-foreground active:bg-primary/90 active:text-primary-foreground data-[state=open]:bg-primary/90 data-[state=open]:hover:bg-primary/90 data-[state=open]:hover:text-primary-foreground"
           >
             <Plus />
-            <span>New session</span>
+            {/* Centred with the icon when expanded; collapsed, the icon alone. */}
+            <span className="group-data-[collapsible=icon]:hidden">New session</span>
           </SidebarMenuButton>
         </DropdownMenuTrigger>
         <DropdownMenuContent side="right" align="start" className="w-56">
