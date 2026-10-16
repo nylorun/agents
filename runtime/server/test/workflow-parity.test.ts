@@ -511,18 +511,18 @@ describe.each([["agent"], ["workflow"]] as const)(
         const afterView = await sessionF.inspect();
         expect(afterView.manifestHash).toBe(pinF);
 
-        // An Agent keeps the version it was made from (protocol 16): a new session on it still
-        // pins version 1, and an Agent made from version 2 runs the redeployed definition.
+        // The Agent tracks its manifest, so the save moved it (track T3): the paused turn kept
+        // its pin to the end, and a new session on it pins version 2. An Agent pinned to version
+        // 2 runs the redeployed definition too.
         gates.requireApproval = false;
         const sessionOld = await client2.createSession({
           id: `parity-${kind}-f1`,
           agent: "parity",
           ownerUserId: "user-1",
         });
-        expect(await sessionOld.inspect()).toMatchObject({
-          manifest: { name: "parity", version: 1 },
-          manifestHash: pinF,
-        });
+        const viewOld = await sessionOld.inspect();
+        expect(viewOld).toMatchObject({ manifest: { name: "parity", version: 2 } });
+        expect(viewOld.manifestHash).not.toBe(pinF);
         await client2.agents.put("parity-2", { manifest: "parity@2" });
         const sessionF2 = await client2.createSession({
           id: `parity-${kind}-f2`,
