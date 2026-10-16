@@ -21,6 +21,7 @@ import type {
   WorkerHandlers,
 } from "../../src/execution/types.js";
 import { createHostExecution, type HostExecution } from "../../src/host/execution.js";
+import { deploy } from "../support/agents.js";
 import { openTestSessionStore } from "../support/store.js";
 import { MemoryStreams } from "../../src/streams/memory.js";
 import type { TenantRuntime } from "../../src/tenant/runtime.js";
@@ -32,6 +33,7 @@ import {
   controlledModel,
   count,
   openSession,
+  plain,
   sendMessage,
   server,
   stored,
@@ -197,17 +199,12 @@ describe.skipIf(!STACK_ENABLED)("Host execution on Restate", () => {
       },
     });
     await openSession(runtime, "s1", true);
-    // A second session on an Environment with a sandbox, so the model's writes run in the Runtime.
-    const environment = await fetch(`${runtime.url}/v1/environments/long`, {
-      method: "PUT",
-      headers: server,
-      body: JSON.stringify({ kind: "virtual" }),
-    });
-    expect(environment.ok, await environment.clone().text()).toBe(true);
+    // A second session on an Agent with a sandbox, so the model's writes run in the Runtime.
+    await deploy(runtime.url, server, plain, { name: "long", runtime: { kind: "virtual" } });
     const opened = await fetch(`${runtime.url}/v1/sessions/long`, {
       method: "PUT",
       headers: server,
-      body: JSON.stringify({ requestId: "session-long", agentId: "bot", ownerUserId: "u", environment: "long" }),
+      body: JSON.stringify({ requestId: "session-long", agent: "long", ownerUserId: "u" }),
     });
     expect(opened.ok, await opened.clone().text()).toBe(true);
     await sendMessage(runtime, "long");

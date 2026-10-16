@@ -28,6 +28,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { PROTOCOL_VERSION } from "@nylorun/core/compatibility";
+import { HARNESS_API_VERSION } from "@nylorun/core/harness-api";
 import { root, run } from "./lib/repo.mjs";
 import { ensureImages, eventually, runtimeGet, runtimeHeaders, withStack } from "./lib/stack.mjs";
 import { startStubModel } from "./lib/stub-model.mjs";
@@ -145,6 +146,7 @@ try {
             "-e", `SMOKE_POSTGRES_IP=${postgresIp}`,
             "-e", `SMOKE_HOST_PORTS=${valueOf("NYLORUN_RESTATE_PORT")}`,
             "-e", `SMOKE_PROTOCOL=${PROTOCOL_VERSION}`,
+            "-e", `SMOKE_HARNESS_API=${HARNESS_API_VERSION}`,
             "-e", `SMOKE_SECRET_HASHES=${secrets.map(sha256).join(",")}`,
             "--entrypoint", "node",
             "harness", "--input-type=module", "-",
