@@ -1078,6 +1078,8 @@ export const AgentViewSchema = z
     attention: z.array(AgentAttentionSchema),
     /** `on`, or `off` once paused (track T6). */
     desired: z.enum(["on", "off"]),
+    /** When its next trigger fires: the earliest next run of its active triggers (D74), or `null`. */
+    nextWakeAt: z.string().nullable(),
     compute: z
       .object({
         /** See `COMPUTE_STATES`: an open set. */
@@ -1269,6 +1271,10 @@ export const AGENT_EVENT_TYPES = [
   "agent.start_failed",
   // egress-gate: every connection the Agent opens (R7, D67).
   "agent.egress",
+  // Triggers (track T4, D74): each run, and a trigger paused or resumed.
+  "agent.run",
+  "agent.trigger_paused",
+  "agent.trigger_resumed",
 ] as const;
 export type AgentEventType = (typeof AGENT_EVENT_TYPES)[number];
 /** The payload of each Agent lifecycle event. */
@@ -1346,7 +1352,23 @@ export const AGENT_EVENT_PAYLOADS = {
     .passthrough(),
   /** A connection through egress-gate, with the turns running as it opened (D67). */
   "agent.egress": EgressConnectionPayloadSchema,
+  /** A trigger fired, or was run by hand: the run and what came of it (`TriggerRunSchema`). */
+  "agent.run": z
+    .object({
+      runId: z.string(),
+      triggerId: z.string(),
+      dueAt: z.string(),
+      late: z.boolean(),
+      status: z.string(),
+      reason: z.string().optional(),
+      sessionId: z.string().optional(),
+    })
+    .passthrough(),
+  "agent.trigger_paused": z.object({ triggerId: z.string(), reason: z.string() }).passthrough(),
+  "agent.trigger_resumed": z.object({ triggerId: z.string() }).passthrough(),
 } as const satisfies Record<AgentEventType, z.ZodType>;
+
+
 export type AgentEventPayload<T extends AgentEventType> = z.infer<(typeof AGENT_EVENT_PAYLOADS)[T]>;
 /** One lifecycle event on an Agent's stream, numbered from 0. */
 export const AgentEventSchema = z
@@ -1839,9 +1861,121 @@ type _HarnessSkillDrift = AssertNoDrift<ManifestDrift<HarnessSkill, z.output<typ
 type _HarnessMcpServerDrift = AssertNoDrift<ManifestDrift<HarnessMcpServer, z.output<typeof harnessMcpServerSchema>>>;
 
 /**
+ * A trigger's id in `runtime.triggers` (track T4, D74): 1–64 letters, digits, `.`, `_` and `-`,
+ * starting with a letter or digit. The map key; it names the trigger in routes and runs.
+ */
+export const TriggerIdSchema = z
+  .string()
+  .regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/, {
+    message: "A trigger id is 1-64 letters, digits, '.', '_' and '-', starting with a letter or digit",
+  })
+  .meta({ description: "A trigger's id, such as `hourly-check`" });
+
+/** The signature schemes a webhook trigger verifies (D75): Standard Webhooks only in T4. */
+export const WEBHOOK_SCHEMES = ["standard-webhooks"] as const;
+
+/**
+ * One trigger of an agent manifest's `runtime.triggers` (track T4, D74): exactly one of
+ * `schedule` (five-field cron, minute granularity, in `timezone`, an IANA name, default UTC), `at`
+ * (one run at an RFC 3339 time with an offset) or `webhook` (a webhook endpoint verified with the
+ * named scheme), plus the `session` each run goes to and the author's `prompt`.
+ *
+ * `session` is a session id of the Agent, opened on the trigger's first run if it does not
+ * exist, or `"new"` for a new session per run (`run-<runId>`). The Runtime keeps no main session
+ * (D71). The cron's smallest gap, the `at` time, the prompt's length and how many triggers a
+ * manifest holds are checked against the Tenant's Runtime limits when it is saved.
+ */
+export const TriggerSchema = z
+  .strictObject({
+    schedule: z
+      .string()
+      .regex(/^\S+(\s+\S+){4}$/, { message: "schedule is five cron fields: minute hour day-of-month month day-of-week" })
+      .optional(),
+    timezone: z.string().min(1).optional(),
+    at: z.iso.datetime({ offset: true, message: "at is an RFC 3339 time with an offset, such as 2026-11-01T09:00:00+05:30" }).optional(),
+    webhook: z.enum(WEBHOOK_SCHEMES).optional(),
+    session: z.string().min(1).max(200),
+    prompt: z.string().min(1),
+  })
+  .superRefine((trigger, ctx) => {
+    const kinds = [trigger.schedule, trigger.at, trigger.webhook].filter((value) => value !== undefined);
+    if (kinds.length !== 1)
+      ctx.addIssue({ code: "custom", message: "A trigger has exactly one of schedule, at or webhook" });
+    if (trigger.timezone !== undefined && trigger.schedule === undefined)
+      ctx.addIssue({ code: "custom", path: ["timezone"], message: "timezone goes with schedule" });
+  })
+  .meta({ id: "Trigger" });
+export type Trigger = z.infer<typeof TriggerSchema>;
+/** What a trigger is: the field it has, or `wake` for a session's own booking (D77). */
+export const TRIGGER_KINDS = ["schedule", "at", "webhook", "wake"] as const;
+export type TriggerKind = (typeof TRIGGER_KINDS)[number];
+/** A trigger's kind, from its manifest entry. */
+export function triggerKindOf(trigger: Trigger): Exclude<TriggerKind, "wake"> {
+  return trigger.schedule !== undefined ? "schedule" : trigger.at !== undefined ? "at" : "webhook";
+}
+
+/**
+ * A trigger's status on an Agent (D74): `active` fires, `paused` does not (`pausedReason`
+ * `manual`, or `new` for one an upgrade added), `completed` is an `at` that ran.
+ */
+export const TRIGGER_STATUSES = ["active", "paused", "completed"] as const;
+/** `GET /v1/agents/{id}/triggers`: one trigger, from its manifest entry and the Agent's state. */
+export const TriggerViewSchema = z
+  .object({
+    id: z.string(),
+    kind: z.enum(TRIGGER_KINDS),
+    status: z.enum(TRIGGER_STATUSES),
+    pausedReason: z.string().nullable(),
+    schedule: z.string().optional(),
+    timezone: z.string().optional(),
+    at: z.string().optional(),
+    /** The session each run goes to: a session id, or `new`. */
+    session: z.string(),
+    /** When it fires next, or `null` while paused or completed. */
+    nextRunAt: z.string().nullable(),
+    lastRunAt: z.string().nullable(),
+  })
+  .strict();
+export type TriggerView = z.infer<typeof TriggerViewSchema>;
+export const TriggerListSchema = z.object({ triggers: z.array(TriggerViewSchema) }).strict();
+/**
+ * What a run came to (D74): `started` a turn, `queued` a message behind a running turn,
+ * `skipped` (nothing started: `overlap`, `rate_limited`, `paused`) or `failed` (`queue_full`,
+ * `session_conflict`, `agent_unavailable`).
+ */
+export const TRIGGER_RUN_STATUSES = ["started", "queued", "skipped", "failed"] as const;
+/** One run: a trigger fired, or was run by hand. */
+export const TriggerRunSchema = z
+  .object({
+    id: z.string(),
+    triggerId: z.string(),
+    kind: z.enum(TRIGGER_KINDS),
+    /** When it was due; for a run by hand or a webhook, when it arrived. */
+    dueAt: z.string(),
+    firedAt: z.string(),
+    /** Fired more than the Host's `triggers.lateGraceMs` after it was due (after downtime). */
+    late: z.boolean(),
+    status: z.enum(TRIGGER_RUN_STATUSES),
+    reason: z.string().nullable(),
+    sessionId: z.string().nullable(),
+    turnId: z.string().nullable(),
+    queuedMessageId: z.string().nullable(),
+  })
+  .strict();
+export type TriggerRun = z.infer<typeof TriggerRunSchema>;
+/** `GET /v1/agents/{id}/runs`: runs, newest first. */
+export const TriggerRunPageSchema = z
+  .object({ runs: z.array(TriggerRunSchema), nextCursor: z.string().nullable() })
+  .strict();
+export type TriggerRunPage = z.infer<typeof TriggerRunPageSchema>;
+/** `POST /v1/agents/{id}/triggers/{triggerId}/run`: the run it made. */
+export const RunTriggerResponseSchema = z.object({ run: TriggerRunSchema }).strict();
+
+/**
  * What the Runtime provides around the loop: the `runtime` section of agent manifest v8, with
  * environment manifest v1's fields but its identity and its `harness` (now `harness.id`).
- * `triggers` is reserved for track T4 and refused until then.
+ * `triggers` (track T4, D74) start the Agent's turns with no client connected; webhook triggers
+ * and `selfWake` are reserved for T4's next steps and refused until then.
  */
 const runtimeSectionObject = z
   .strictObject(
@@ -1859,10 +1993,19 @@ const runtimeSectionObject = z
       limits: runtimeFields.limits,
       secrets: EnvironmentSecretSlotsSchema.optional(),
       triggers: z
-        .unknown()
-        .refine((value) => value === undefined, { message: "runtime.triggers are not available yet" })
+        .record(TriggerIdSchema, TriggerSchema)
+        .superRefine((triggers, ctx) => {
+          for (const [id, trigger] of Object.entries(triggers))
+            if (trigger.webhook !== undefined)
+              ctx.addIssue({ code: "custom", path: [id, "webhook"], message: "webhook triggers are not available yet" });
+        })
         .optional()
-        .meta({ description: "Reserved for triggers (track T4); refused for now" }),
+        .meta({ description: "What starts the Agent's turns with no client connected, by trigger id (D74)" }),
+      selfWake: z
+        .boolean()
+        .refine((value) => value === undefined, { message: "runtime.selfWake is not available yet" })
+        .optional()
+        .meta({ description: "Reserved for schedule_wake (D77); refused for now" }),
     },
     { error: removedFieldError(REMOVED_RUNTIME_SECTION_FIELDS) },
   )
@@ -2587,7 +2730,8 @@ export type EvidenceClass = z.infer<typeof EvidenceClassSchema>;
 /** A command's sender (R4.9): from the request's credential, never from its body. */
 export const EventPrincipalSchema = z
   .object({
-    kind: z.enum(["application", "subject", "flow-host", "core"]),
+    /** `trigger`: core, for an Agent's trigger (track T4); its id is the trigger's. */
+    kind: z.enum(["application", "subject", "flow-host", "core", "trigger"]),
     id: z.string(),
   })
   .strict();
@@ -3009,6 +3153,14 @@ export const CommandMessagePayloadSchema = z
     delivery: MessageDeliverySchema.optional(),
     /** Set when the message waited in the session's queue (protocol 17): its id there. */
     queuedMessageId: z.string().optional(),
+    /**
+     * What sent it, when not a client (track T4): a trigger's run (`trigger`, with the trigger
+     * and run ids), or the session's own booked wake (`self`).
+     */
+    cause: z
+      .object({ kind: z.enum(["trigger", "self"]), triggerId: z.string(), runId: z.string() })
+      .strict()
+      .optional(),
     /**
      * The W3C trace context the message was sent with (R7.4): the turn's trace is the caller's,
      * and its root span the child of the caller's span.

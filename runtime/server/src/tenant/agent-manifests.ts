@@ -49,6 +49,7 @@ import { resolveRecipe, type RecipeRequest } from "../sandbox/resolve.js";
 import { declaredSandboxes } from "../sandbox/share.js";
 import { httpToolTimeoutIssues } from "../gates/http-tool.js";
 import { limitIssues, limitsInForce, manifestShapeIssues, readTenantLimits } from "./limits.js";
+import { triggerIssues } from "./triggers.js";
 import { readRuntimeLimits } from "./runtime-limits.js";
 import { effectiveSandboxConfig, readSandboxConfig } from "../sandbox/tenant-config.js";
 import type { AuthScope, TenantContext } from "./context.js";
@@ -264,6 +265,7 @@ async function errorsOf(t: Tx, manifest: AgentManifestV8): Promise<{ errors: str
     ...limitIssues(runtime.limits, tenantLimits),
     ...manifestShapeIssues({ ...runtime, ...(manifest.description === undefined ? {} : { description: manifest.description }) }, runtimeLimits),
     ...(await fileErrors(t, runtime.files)),
+    ...triggerIssues(runtime.triggers, runtimeLimits),
   );
   // A skill's files count against the manifest's own skill limit, never above the Tenant's.
   const limitBytes = limitsInForce(tenantLimits, runtime.limits).skills.totalBytes;

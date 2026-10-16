@@ -122,6 +122,8 @@ import type {
   ModelUsageTotals,
   StoredSession,
   QueuedMessageRow,
+  AgentTriggerRow,
+  TriggerRunRow,
   ToolCrossingRow,
   TakeOwnership,
   Tx,
@@ -162,6 +164,8 @@ import {
   sessionLogHeads,
   sessions,
   sessionQueue,
+  agentTriggers,
+  triggerRuns,
   toJson,
   toolCrossings,
   signingKeys,
@@ -1560,6 +1564,144 @@ class PostgresTx implements Tx {
     if (ids.length > 0) await this.db.delete(sessionQueue).where(inArray(sessionQueue.id, [...ids]));
   }
 
+  // --- triggers (track T4) ----------------------------------------------------
+
+  async agentTriggers(agentId: string): Promise<AgentTriggerRow[]> {
+    this.check();
+    return this.db
+      .select()
+      .from(agentTriggers)
+      .where(eq(agentTriggers.agentId, agentId))
+      .orderBy(agentTriggers.triggerId);
+  }
+
+  async agentTrigger(agentId: string, triggerId: string, options: { lock?: boolean } = {}): Promise<AgentTriggerRow | undefined> {
+    this.check();
+    const query = this.db
+      .select()
+      .from(agentTriggers)
+      .where(and(eq(agentTriggers.agentId, agentId), eq(agentTriggers.triggerId, triggerId)));
+    const [row] = options.lock ? await query.for("update") : await query;
+    return row;
+  }
+
+  async putAgentTrigger(row: AgentTriggerRow): Promise<void> {
+    this.check();
+    const { agentId: _a, triggerId: _t, createdAt: _c, ...set } = row;
+    await this.db
+      .insert(agentTriggers)
+      .values(row)
+      .onConflictDoUpdate({ target: [agentTriggers.agentId, agentTriggers.triggerId], set });
+  }
+
+  async deleteAgentTrigger(agentId: string, triggerId: string): Promise<void> {
+    this.check();
+    await this.db
+      .delete(agentTriggers)
+      .where(and(eq(agentTriggers.agentId, agentId), eq(agentTriggers.triggerId, triggerId)));
+  }
+
+  async deleteAgentTriggers(agentId: string): Promise<void> {
+    this.check();
+    await this.db.delete(agentTriggers).where(eq(agentTriggers.agentId, agentId));
+    await this.db.delete(triggerRuns).where(eq(triggerRuns.agentId, agentId));
+  }
+
+  async activeTriggers(options: {
+    dueBefore?: string;
+    changedSince?: string;
+    after?: { agentId: string; triggerId: string };
+    limit: number;
+  }): Promise<AgentTriggerRow[]> {
+    this.check();
+    const conditions = [eq(agentTriggers.status, "active"), isNotNull(agentTriggers.nextFireAt)];
+    if (options.dueBefore !== undefined) conditions.push(lte(agentTriggers.nextFireAt, options.dueBefore));
+    if (options.changedSince !== undefined) conditions.push(gte(agentTriggers.updatedAt, options.changedSince));
+    if (options.after)
+      conditions.push(
+        or(
+          gt(agentTriggers.agentId, options.after.agentId),
+          and(eq(agentTriggers.agentId, options.after.agentId), gt(agentTriggers.triggerId, options.after.triggerId)),
+        )!,
+      );
+    return this.db
+      .select()
+      .from(agentTriggers)
+      .where(and(...conditions))
+      .orderBy(agentTriggers.agentId, agentTriggers.triggerId)
+      .limit(options.limit);
+  }
+
+  async nextWakeAt(agentId: string): Promise<string | null> {
+    this.check();
+    const [row] = await this.db
+      .select({ at: sql<string | null>`min(${agentTriggers.nextFireAt})` })
+      .from(agentTriggers)
+      .where(and(eq(agentTriggers.agentId, agentId), eq(agentTriggers.status, "active")));
+    return row?.at ?? null;
+  }
+
+  async insertTriggerRun(row: TriggerRunRow): Promise<boolean> {
+    this.check();
+    const inserted = await this.db
+      .insert(triggerRuns)
+      .values(row)
+      .onConflictDoNothing()
+      .returning({ id: triggerRuns.id });
+    return inserted.length === 1;
+  }
+
+  async triggerRunByKey(agentId: string, runKey: string): Promise<TriggerRunRow | undefined> {
+    this.check();
+    const [row] = await this.db
+      .select()
+      .from(triggerRuns)
+      .where(and(eq(triggerRuns.agentId, agentId), eq(triggerRuns.runKey, runKey)));
+    return row;
+  }
+
+  async updateTriggerRun(id: string, patch: Partial<Omit<TriggerRunRow, "id">>): Promise<void> {
+    this.check();
+    await this.db.update(triggerRuns).set(patch).where(eq(triggerRuns.id, id));
+  }
+
+  async countTriggerRuns(agentId: string, since: string, statuses: readonly TriggerRunRow["status"][]): Promise<number> {
+    this.check();
+    const [row] = await this.db
+      .select({ n: count() })
+      .from(triggerRuns)
+      .where(
+        and(
+          eq(triggerRuns.agentId, agentId),
+          gte(triggerRuns.firedAt, since),
+          inArray(triggerRuns.status, [...statuses]),
+        ),
+      );
+    return Number(row?.n ?? 0);
+  }
+
+  async listTriggerRuns(agentId: string, options: { triggerId?: string; before?: string; limit: number }): Promise<TriggerRunRow[]> {
+    this.check();
+    const conditions = [eq(triggerRuns.agentId, agentId)];
+    if (options.triggerId !== undefined) conditions.push(eq(triggerRuns.triggerId, options.triggerId));
+    if (options.before !== undefined) conditions.push(lt(triggerRuns.id, options.before));
+    return this.db
+      .select()
+      .from(triggerRuns)
+      .where(and(...conditions))
+      .orderBy(desc(triggerRuns.id))
+      .limit(options.limit);
+  }
+
+  async pruneTriggerRuns(before: string): Promise<number> {
+    this.check();
+    const deleted = await this.db
+      .delete(triggerRuns)
+      .where(lt(triggerRuns.firedAt, before))
+      .returning({ id: triggerRuns.id });
+    return deleted.length;
+  }
+
   // --- tool crossings --------------------------------------------------------
 
   async toolCrossing(key: string): Promise<ToolCrossingRow | undefined> {
@@ -1910,6 +2052,8 @@ class PostgresTx implements Tx {
       // Their vaults and credentials go with them (ON DELETE CASCADE).
       await db.delete(agents);
       await db.delete(agentEvents);
+      await db.delete(agentTriggers);
+      await db.delete(triggerRuns);
       await db.delete(sandboxSignals);
     }
     if (scope === "all") {

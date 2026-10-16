@@ -283,6 +283,12 @@ export interface TenantContext {
    * sent); `true` without sandbox pods, where there is nothing to send.
    */
   sandboxSignal(sandboxId: string, signal: SandboxSignal): Promise<boolean>;
+  /**
+   * Seam: arm a durable timer (`DurableExecution.timer`; track T4's triggers), outside any tx. The
+   * latest time for a key wins. `false` while the Tenant is closing (not armed): what it was for
+   * is in Postgres, and the sweep arms it again.
+   */
+  timer(key: string, at: Date): Promise<boolean>;
   /** This Tenant's execution invocations that need an operator, for Tenant status. */
   readonly stuckInvocations?: () => Promise<StuckInvocation[]>;
   /** Callbacks the Tenant sweep runs after its own steps (`sweep.ts`). */

@@ -100,6 +100,7 @@ import {
 import { hostAuthority, type HostAuthority } from "../sandbox/join.js";
 import { harnessOfToken } from "./harness-tokens.js";
 import { reconcileSandbox } from "../sandbox/pods/reconcile.js";
+import { fireTimer } from "./triggers.js";
 import type { TenantPods } from "./context.js";
 import type { TraceOptions } from "../traces/options.js";
 import { hostTuning } from "../tuning.js";
@@ -422,6 +423,11 @@ export class TenantRuntime implements TenantHandle {
           await execution.sandbox?.(config.tenantId, sandboxId, signal);
           return true;
         },
+        timer: async (key, at) => {
+          if (ctx.closing || ctx.closed) return false;
+          await execution.timer(config.tenantId, key, at);
+          return true;
+        },
         send: (request) =>
           request.kind === "wake"
             ? ctx.wake(request.sessionId, request.wake)
@@ -484,6 +490,7 @@ export class TenantRuntime implements TenantHandle {
         advance: (sessionId, signal) => advance(ctx, sessionId, signal),
         sweep: () => sweep(ctx),
         sandbox: (sandboxId, trigger) => reconcileSandbox(ctx, sandboxId, trigger),
+        fire: (key) => fireTimer(ctx, key),
       };
       const unregister = workers.register(config.tenantId, worker);
       detach = async () => {

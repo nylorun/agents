@@ -12,6 +12,11 @@ Additive: the Runtime serves protocol 16 and 17, and Harness API 5 is unchanged.
 - **The busy refusal has a code.** `409 session_busy`, where it had none.
 - **The queue is bounded.** At most the Runtime limit `sessionQueuedMessages` (default 100) wait;
   one more is `429 queue_full`. Session reads count `queuedMessages`.
+- **Triggers.** An agent manifest's `runtime.triggers` is no longer refused: `schedule` (cron with a
+  `timezone`) and `at` triggers start the Agent's turns on the session each names, with no client
+  connected. They start active when an Agent is made; read and change them at
+  `/v1/agents/{id}/triggers`, and their runs at `/v1/agents/{id}/runs`. Agent reads add
+  `nextWakeAt`. `webhook` triggers and `selfWake` are still refused.
 - **Custom harnesses.** A turn that takes more than one queued message starts from
   `checkpoint.input` `{kind: "messages", messages: [...]}`, each one of the input shapes a single
   message has. Write each as its own `input` transcript entry.

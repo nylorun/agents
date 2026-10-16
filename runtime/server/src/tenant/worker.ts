@@ -117,6 +117,8 @@ export interface TenantWorker {
   sweep(): Promise<void>;
   /** Reconciles one pod sandbox (F7.2). Only infrastructure errors throw. */
   sandbox?(sandboxId: string, trigger: SandboxTrigger, signal: AbortSignal): Promise<SandboxResult>;
+  /** A durable timer it armed fired (track T4's triggers). Only infrastructure errors throw. */
+  fire?(key: string): Promise<void>;
 }
 
 export interface TenantWorkersOptions {
@@ -184,6 +186,11 @@ export class TenantWorkers {
     sandbox: async (tenantId, sandboxId, trigger, signal) => {
       const worker = await this.find(tenantId);
       return worker?.sandbox ? worker.sandbox(sandboxId, trigger, signal) : {};
+    },
+    // A timer of a Tenant that is not open here does nothing: the Tenant's sweep arms what is due
+    // once it opens.
+    fire: async (tenantId, key) => {
+      await (await this.find(tenantId))?.fire?.(key);
     },
   };
 

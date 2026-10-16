@@ -157,7 +157,10 @@ harness writes, a count). The Runtime's own: request bodies and inline files
 `manifestDescriptionChars`, `secretDescriptionChars`), labels (`artifactLabels`,
 `labelKeyChars`, `labelValueChars`), secrets (`secretValueChars`, `secretHosts`),
 the tool policy and budgets (`toolRules`, `toolRuleFieldChars`, `toolRuleTextChars`,
-`modelBudgets`), flows (`flowConcurrency`, `flowMapItems`, `flowLoopIterations`), disk versions (`diskVersionEntries`, `diskVersionBytes`,
+`modelBudgets`), flows (`flowConcurrency`, `flowMapItems`, `flowLoopIterations`), sessions
+(`sessionQueuedMessages`), triggers (`triggersPerAgent`, `triggerMinIntervalMs`,
+`triggerRunsPerHour`, `triggerJitterPercent`, `triggerJitterMaxMs`, `triggerPromptChars`,
+`triggerRunRetentionMs`), disk versions (`diskVersionEntries`, `diskVersionBytes`,
 `diskLeaseMs`, `diskPodWaitMs`), model calls (`modelRequestMs`, `modelIdleMs`,
 `modelAttempts`, `modelRetryDelayMs`, `modelProviderRetries`,
 `modelRetryDelayMaxMs`) and tools (`toolAttempts`, `httpToolTimeoutMs`,

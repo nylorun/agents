@@ -16,6 +16,10 @@
  * Ids may hold `/`; they are sent percent-encoded as one path segment. Secret values are
  * write-only: no call reads one back.
  *
+ * Triggers (track T4, D74): what its manifest's `runtime.triggers` declares starts its turns with
+ * no client connected. `triggers(id)` lists them with their status and next run, `pauseTrigger`,
+ * `resumeTrigger` and `runTrigger` change or run one, and `runs(id)` pages what each fire came to.
+ *
  * Disk versions (Host feature `environment-disk-versions`): `snapshot(id)` keeps a version of
  * the Agent's disk between turns, `restore(id, version)` puts one back, and
  * `put(id, { manifest, from: { agent, version } })` creates a new Agent from another's version.
@@ -36,6 +40,9 @@ import {
   type ForkAgentRequest,
   type PutAgentRequest,
   type PutAgentSecretRequest,
+  type TriggerRun,
+  type TriggerRunPage,
+  type TriggerView,
 } from "@nylorun/core/contracts";
 import { definitionFileHash } from "./files.js";
 import { id, segment, type Transport } from "./http.js";
@@ -337,5 +344,61 @@ export class AgentInstancesClient {
       options.signal,
     );
     return reply.events;
+  }
+
+  /** The Agent's triggers: each one's status (`active`, `paused`, `completed`), next and last run. */
+  async triggers(agentId: string, options: { signal?: AbortSignal } = {}): Promise<TriggerView[]> {
+    const reply = await this.transport.json<{ triggers: TriggerView[] }>(`${this.path(agentId)}/triggers`, "GET", undefined, options.signal);
+    return reply.triggers;
+  }
+
+  /** Pauses trigger `triggerId`: it stops firing until it is resumed. Answers the Agent's triggers. */
+  async pauseTrigger(agentId: string, triggerId: string, options: { signal?: AbortSignal } = {}): Promise<TriggerView[]> {
+    const reply = await this.transport.json<{ triggers: TriggerView[] }>(
+      `${this.path(agentId)}/triggers/${segment(triggerId)}/pause`,
+      "POST",
+      {},
+      options.signal,
+    );
+    return reply.triggers;
+  }
+
+  /** Resumes trigger `triggerId` from its next time after now. Answers the Agent's triggers. */
+  async resumeTrigger(agentId: string, triggerId: string, options: { signal?: AbortSignal } = {}): Promise<TriggerView[]> {
+    const reply = await this.transport.json<{ triggers: TriggerView[] }>(
+      `${this.path(agentId)}/triggers/${segment(triggerId)}/resume`,
+      "POST",
+      {},
+      options.signal,
+    );
+    return reply.triggers;
+  }
+
+  /**
+   * Runs trigger `triggerId` once now, as if it fired: `idempotencyKey` (default a new one) makes a
+   * retried call answer the same run.
+   */
+  async runTrigger(
+    agentId: string,
+    triggerId: string,
+    options: { idempotencyKey?: string; signal?: AbortSignal } = {},
+  ): Promise<TriggerRun> {
+    const response = await this.transport.request(`${this.path(agentId)}/triggers/${segment(triggerId)}/run`, {
+      method: "POST",
+      headers: { "idempotency-key": options.idempotencyKey ?? id() },
+      ...(options.signal ? { signal: options.signal } : {}),
+    });
+    return ((await response.json()) as { run: TriggerRun }).run;
+  }
+
+  /** The Agent's runs, newest first; `triggerId` keeps one trigger's. */
+  async runs(
+    agentId: string,
+    options: { triggerId?: string; limit?: number; cursor?: string; signal?: AbortSignal } = {},
+  ): Promise<TriggerRunPage> {
+    const query = new URLSearchParams({ limit: String(options.limit ?? 50) });
+    if (options.triggerId !== undefined) query.set("triggerId", options.triggerId);
+    if (options.cursor !== undefined) query.set("cursor", options.cursor);
+    return this.transport.json(`${this.path(agentId)}/runs?${query}`, "GET", undefined, options.signal);
   }
 }
