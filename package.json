@@ -43,6 +43,7 @@
     "test:sandboxes:network": "node scripts/sandbox/network-invariant.mjs",
     "test:sandboxes:redteam": "node scripts/sandbox/redteam.mjs",
     "test:sandboxes:harness": "node scripts/sandbox/harness-pod.mjs",
+    "test:t2-exit": "node scripts/sandbox/t2-exit.mjs",
     "examples:sync": "npm run examples:sync --workspace @nylorun/create-agent",
     "examples:check": "npm run examples:check --workspace @nylorun/create-agent",
     "changeset": "changeset",
