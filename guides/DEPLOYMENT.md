@@ -812,6 +812,8 @@ What only the Runtime checks:
 | `wakeMaxAheadMs` | How far ahead `schedule_wake` may book a session's next turn (and at least `triggerMinIntervalMs` ahead) | 30 days | A JavaScript number; a long wait is armed in steps |
 | `wakeNoteChars` | The longest note a booked wake carries to its turn | 2,000 characters | One record entry, escaped |
 | `webhookBodyBytes` | The largest delivery a webhook endpoint reads, before it verifies it (`413` past it) | 256 KiB | 960 KiB: the payload goes into one record entry |
+| `memoryBytes` | The largest memory an Agent keeps (track T5), in UTF-8 bytes | 100 KB | 32 MiB: a memory reaches a harness in one Harness API frame |
+| `memoriesPerAgent` | The most memories one Agent holds | 10,000 | A JavaScript number |
 
 A limit above its ceiling, or under its floor, is `400`, naming the bound and why, and nothing changes.
 Each limit is read where it is checked, so a new value holds for the next request, write, call

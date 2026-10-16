@@ -65,6 +65,7 @@ nylorun agents delete-version <id> <version>
 nylorun agents events <id> [--from <n>] [--types <type,…>] [--since <time>] [--until <time>]
 nylorun agents triggers list <id> | pause|resume <id> <trigger> | run <id> <trigger> [--idempotency-key <k>] | new-secret <id> <trigger>
 nylorun agents runs <id> [--trigger <id>] [--limit <n>] [--cursor <c>]   # what each trigger fire came to
+nylorun agents memories ls|cat|put|rm|versions <id> [<path>] [<file|->]   # its memories (track T5); put seeds one
 nylorun agents secrets list|get|put|rm <id> [<name>] [<secret.json|->]   # put without a file: a slot's value on stdin
 nylorun sessions list [--agent <id>] [--manifest <name>] [--status <s>] [--owner <user>] [--limit <n>] [--cursor <c>] [--json]
 nylorun sessions create --agent <id> --owner <user> [--id <id>] [--info <json>]   # a session on Agent <id>

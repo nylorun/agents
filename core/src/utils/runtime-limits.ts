@@ -178,6 +178,10 @@ const harnessLimits = {
  * - `webhookBodyBytes`: the largest delivery a webhook endpoint reads, before it verifies it
  *   (`413` past it); the payload goes into the turn's message, one record entry.
  *
+ * Memory (track T5, D72; checked on every write):
+ * - `memoryBytes`: the largest memory, in UTF-8 bytes.
+ * - `memoriesPerAgent`: the most memories one Agent holds.
+ *
  * Sessions:
  * - `sessionQueuedMessages`: the most messages one session's queue holds while its turn runs or
  *   waits (protocol 17); one more is `429 queue_full`.
@@ -245,6 +249,8 @@ export const RuntimeLimitsSchema = z
     webhookBodyBytes: z.number().int().positive(),
     wakeMaxAheadMs: z.number().int().positive(),
     wakeNoteChars: z.number().int().positive(),
+    memoryBytes: z.number().int().positive(),
+    memoriesPerAgent: z.number().int().positive(),
     sessionQueuedMessages: z.number().int().positive(),
     flowConcurrency: z.number().int().positive(),
     flowMapItems: z.number().int().positive(),
@@ -460,6 +466,12 @@ export const RUNTIME_LIMIT_CEILINGS: { readonly [K in RuntimeLimit]: Ceiling } =
   triggerRunRetentionMs: counted("milliseconds", "the age is reckoned from the clock"),
   wakeMaxAheadMs: counted("milliseconds", "the time is reckoned from the clock"),
   wakeNoteChars: quoted("the note"),
+  memoryBytes: {
+    value: HARNESS_MAX_PAYLOAD / 2,
+    unit: "bytes",
+    why: `a memory reaches a harness in one Harness API frame (${HARNESS_MAX_PAYLOAD} bytes), as JSON, whose escapes may double it`,
+  },
+  memoriesPerAgent: counted("entries", "memories are counted"),
   webhookBodyBytes: {
     value: recordEntryCeiling,
     unit: "bytes",
@@ -540,6 +552,8 @@ export const RUNTIME_LIMIT_DEFAULTS: RuntimeLimits = Object.freeze({
   webhookBodyBytes: 256 * 1024,
   wakeMaxAheadMs: 30 * 24 * 3_600_000,
   wakeNoteChars: 2_000,
+  memoryBytes: 100 * 1024,
+  memoriesPerAgent: 10_000,
   sessionQueuedMessages: 100,
   flowConcurrency: 8,
   flowMapItems: 1_000,

@@ -8,6 +8,11 @@ import { z } from "zod";
 import {
   QueuedResponseSchema,
   TriggerListSchema,
+  MemoryListSchema,
+  MemorySchema,
+  PutMemoryRequestSchema,
+  MemoryVersionPageSchema,
+  MemoryVersionDetailSchema,
   TriggerRunPageSchema,
   RunTriggerResponseSchema,
   WebhookSecretResponseSchema,
@@ -192,6 +197,11 @@ export const SessionCommand = named("SessionCommand", SessionCommandSchema);
 export const AcceptedResponse = named("AcceptedResponse", AcceptedResponseSchema);
 export const QueuedResponse = named("QueuedResponse", QueuedResponseSchema);
 export const TriggerList = named("TriggerList", TriggerListSchema);
+export const MemoryList = named("MemoryList", MemoryListSchema);
+export const MemoryView = named("Memory", MemorySchema);
+export const PutMemoryRequest = named("PutMemoryRequest", PutMemoryRequestSchema);
+export const MemoryVersionPage = named("MemoryVersionPage", MemoryVersionPageSchema);
+export const MemoryVersionDetail = named("MemoryVersionDetail", MemoryVersionDetailSchema);
 export const TriggerRunPage = named("TriggerRunPage", TriggerRunPageSchema);
 export const RunTriggerResponse = named("RunTriggerResponse", RunTriggerResponseSchema);
 export const WebhookSecretResponse = named("WebhookSecretResponse", WebhookSecretResponseSchema);

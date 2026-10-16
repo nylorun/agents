@@ -295,6 +295,11 @@ export const ERROR_CODES = [
   "trigger_expired",
   /** A signed delivery to a paused webhook trigger (D75): `409`; nothing runs. */
   "trigger_paused",
+  /**
+   * A memory write whose `content_sha256` precondition no longer holds, or a path a folder or
+   * another memory already holds (track T5, D72): `409`. Read the memory again and write on top.
+   */
+  "memory_conflict",
   /** Disk work (snapshot, restore, stop, reset) while a turn runs, or a turn while a disk copy runs. */
   "agent_busy",
   /** The Agent is gone, or its kind cannot run on this Runtime. */

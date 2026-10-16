@@ -16,6 +16,7 @@ import { accessRoutes } from "./routes/access.js";
 import { meRoutes } from "./routes/me.js";
 import { agentRoutes } from "./routes/agents.js";
 import { triggerRoutes, webhookRoutes } from "./routes/triggers.js";
+import { memoryRoutes } from "./routes/memories.js";
 import { agentManifestRoutes } from "./routes/agent-manifests.js";
 import { artifactRoutes } from "./routes/artifacts.js";
 import { readRoutes } from "./routes/reads.js";
@@ -68,6 +69,7 @@ function build(): OpenAPIHono<TenantEnv> {
   fileRoutes(api);
   agentRoutes(api);
   triggerRoutes(api);
+  memoryRoutes(api);
   webhookRoutes(api);
   agentManifestRoutes(api);
   artifactRoutes(api);

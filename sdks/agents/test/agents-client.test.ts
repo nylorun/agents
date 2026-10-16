@@ -92,6 +92,27 @@ describe("client.agents", () => {
     expect(sent[1]!.body).toMatchObject({ type: "bearer", url: "https://mcp.linear.app/mcp" });
   });
 
+  it("lists, reads, writes, deletes memories and pages their versions by a path with slashes", async () => {
+    const { client, sent } = fake(() => Response.json({}));
+    await client.agents.memories.list("users/alice/triage", { pathPrefix: "conventions" });
+    await client.agents.memories.get("users/alice/triage", "/memories/conventions/release.md");
+    await client.agents.memories.put("users/alice/triage", "conventions/release.md", "Cut from release/x.y.", { contentSha256: "" });
+    await client.agents.memories.delete("users/alice/triage", "conventions");
+    await client.agents.memories.versions("users/alice/triage", { path: "conventions/release.md" });
+    await client.agents.memories.version("users/alice/triage", "mv_1");
+    expect(sent.map(({ method, path }) => `${method} ${path}`)).toEqual([
+      "GET /v1/agents/users%2Falice%2Ftriage/memories",
+      "GET /v1/agents/users%2Falice%2Ftriage/memories/conventions%2Frelease.md",
+      "PUT /v1/agents/users%2Falice%2Ftriage/memories/conventions%2Frelease.md",
+      "DELETE /v1/agents/users%2Falice%2Ftriage/memories/conventions",
+      "GET /v1/agents/users%2Falice%2Ftriage/memory_versions",
+      "GET /v1/agents/users%2Falice%2Ftriage/memory_versions/mv_1",
+    ]);
+    expect(new URLSearchParams(sent[0]!.search).get("pathPrefix")).toBe("conventions");
+    expect(sent[2]!.body).toEqual({ content: "Cut from release/x.y.", contentSha256: "" });
+    expect(new URLSearchParams(sent[4]!.search).get("path")).toBe("conventions/release.md");
+  });
+
   it("forks into a new Agent, and plans a fork without making one", async () => {
     const plan = { source: "users/alice/triage", id: "users/alice/triage-2", disk: 3 };
     const { client, sent } = fake((_method, _path, body) =>
