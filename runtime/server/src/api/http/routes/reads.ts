@@ -15,7 +15,6 @@ import { readAccess, readStoreOf } from "../../../reads/access.js";
 import { requireApplication, requirePrincipal } from "../../../tenant/auth.js";
 import { fail } from "../../../tenant/http.js";
 import { readRuntimeLimits } from "../../../tenant/runtime-limits.js";
-import { environmentGrantsOf } from "../../../tenant/environments.js";
 import type { TenantEnv } from "../app.js";
 import { tenantRoute } from "../define.js";
 import { jsonResponse } from "../respond.js";
@@ -57,7 +56,8 @@ export const sessionPageQuery = pageQuery
   .extend({
     agentId: z.string().optional(),
     status: z.enum(SESSION_STATUSES).optional(),
-    environmentId: z.string().optional(),
+    /** Sessions that pinned a version of this agent manifest. */
+    manifest: z.string().optional(),
     ownerUserId: z.string().optional(),
   })
   .strict();
@@ -74,24 +74,6 @@ export async function sessionPage(
   if (limit === undefined) return fail(400, "Pagination requires limit");
   if (filters.ownerUserId !== undefined) requireApplication(scope);
   return readStoreOf(ctx).sessions(filters, { limit: await pageSize(ctx, limit), cursor }, readAccess(scope));
-}
-export async function environmentPage(
-  ctx: TenantEnv["Bindings"]["tenant"],
-  scope: TenantEnv["Variables"]["scope"],
-  query: Record<string, string>,
-  labels: Record<string, string>,
-) {
-  const { limit, cursor } = parseQuery(
-    pageQuery.extend({ label: z.string().optional() }).strict(),
-    query,
-  );
-  if (limit === undefined) return fail(400, "Pagination requires limit");
-  return readStoreOf(ctx).environments(
-    labels,
-    { limit: await pageSize(ctx, limit), cursor },
-    readAccess(scope),
-    environmentGrantsOf(scope),
-  );
 }
 export function readRoutes(api: OpenAPIHono<TenantEnv>): void {
   const sessionId = z.object({ sessionId: z.string() });

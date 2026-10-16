@@ -168,28 +168,31 @@ describe("Wave 0 schemas", () => {
 });
 
 describe("checkCompatibility", () => {
-  it("serves protocol 15 clients only; they require the harness boundary", () => {
-    expect(PROTOCOL_VERSION).toBe(15);
+  it("serves protocol 16 clients only; they require Agents", () => {
+    expect(PROTOCOL_VERSION).toBe(16);
     // Protocol 8 clients require the Management API (key roles); protocol 9 clients the OAuth
-    // resource server's 401 challenges; protocol 11 clients Environments; protocol 12 clients
-    // model inputs; protocol 13 clients the flat manifest (v7); protocol 14 clients environment
-    // manifests and Environments that never change; protocol 15 clients the harness boundary.
+    // resource server's 401 challenges; protocol 12 clients model inputs; protocol 13 clients the
+    // flat manifest (v7); protocol 15 clients the harness boundary; protocol 16 clients agent
+    // manifests and Agents.
     expect(PROTOCOL_FEATURES).toContain("management-api");
     expect(PROTOCOL_FEATURES).toContain("resource-server");
-    expect(PROTOCOL_FEATURES).toContain("environments");
     expect(PROTOCOL_FEATURES).toContain("artifacts");
     expect(PROTOCOL_FEATURES).toContain("model-inputs");
     expect(PROTOCOL_FEATURES).toContain("flat-manifest");
-    expect(PROTOCOL_FEATURES).toContain("environment-manifests");
+    expect(PROTOCOL_FEATURES).toContain("agents");
+    expect(PROTOCOL_FEATURES).not.toContain("environments");
+    expect(PROTOCOL_FEATURES).not.toContain("environment-manifests");
     expect(PROTOCOL_FEATURES).toContain("harness-boundary");
-    expect(HOST_PROTOCOL).toMatchObject({ min: 15, max: 15 });
+    expect(HOST_PROTOCOL).toMatchObject({ min: 16, max: 16 });
     expect(HOST_PROTOCOL.features).toContain("flat-manifest");
-    expect(checkCompatibility({ version: 15, required: ["environment-manifests", "harness-boundary"] }, HOST_PROTOCOL)).toMatchObject({ ok: true });
+    expect(checkCompatibility({ version: 16, required: ["agents", "harness-boundary"] }, HOST_PROTOCOL)).toMatchObject({ ok: true });
     // Protocol 15: a message may name any file; the harness decides how the model sees it.
     expect(ERROR_CODES).not.toContain("attachment_unsupported");
     expect(MODEL_FAILURE_CODES).toContain("unsupported_input");
-    for (const code of ["environment_immutable", "secret_not_in_manifest", "environment_unsuitable", "manifest_changed"])
+    for (const code of ["agent_upgrade_unavailable", "secret_not_in_manifest", "manifest_inconsistent", "manifest_changed"])
       expect(ERROR_CODES).toContain(code);
+    for (const code of ["environment_immutable", "environment_unsuitable", "environment_busy"])
+      expect(ERROR_CODES).not.toContain(code);
     // Protocol 11 removed sandbox resources (R2d): no `sandboxes` Host feature.
     expect(HOST_PROTOCOL.features).not.toContain("sandboxes");
     // The compatibility window for protocol 4 to 10 clients is closed (R2d Q3).
@@ -233,7 +236,7 @@ describe("checkCompatibility", () => {
   it("rejects missing required features", () => {
     expect(
       checkCompatibility(
-        { version: PROTOCOL_VERSION, required: ["environments", "missing-feature"] },
+        { version: PROTOCOL_VERSION, required: ["agents", "missing-feature"] },
         HOST_PROTOCOL,
       ),
     ).toEqual({

@@ -102,10 +102,10 @@ try {
       assert.equal(format, 3, "link format 3");
       assert.equal(linked, stack.env.NYLORUN_TENANT, "examples/ is linked to the test Tenant");
       assert.equal(tenantId, (await stack.tenant()).id, "the link names the Tenant's id");
-      // The examples' `npm run dev` saves the registry's agents.
+      // The examples' `npm run dev` saves the registry's agents' manifests and makes their Agents.
       const saves = () => lines.filter((l) => l.includes("Saved agent assistant")).length;
       const savedIds = async () =>
-        (await runtimeGet(hostUrl, applicationKey, "/v1/agents")).agents.map((a) => a.manifest.id);
+        (await runtimeGet(hostUrl, applicationKey, "/v1/agents")).agents.map((a) => a.id);
       await until(
         async () => {
           const ids = await savedIds();
@@ -125,7 +125,7 @@ try {
       });
       assert.ok(seeded.ok, `seeding the fixture model: ${seeded.status} ${await seeded.text()}`);
       const client = createClient({ url: hostUrl, key: applicationKey });
-      const session = await client.createSession({ agentId: "assistant", ownerUserId: "dev-smoke" });
+      const session = await client.createSession({ agent: "assistant", ownerUserId: "dev-smoke" });
       await session.input("Where is demo-123?", { idempotencyKey: randomUUID() });
       await until(
         async () => {

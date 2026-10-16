@@ -85,17 +85,17 @@ async function running(answer: (body: Record<string, unknown>) => Response) {
 describe("nylorun tenant mcp inspect", () => {
   it("previews a server with the management key and prints its tools and renames", async () => {
     const { deps, fetch, keys } = await running(() => json(PREVIEW));
-    expect(await mcpCommand(deps, ["inspect", LINEAR, "--environment", "users/alice/web"])).toBe(0);
+    expect(await mcpCommand(deps, ["inspect", LINEAR, "--agent", "users/alice/triage"])).toBe(0);
     const request = fetch.requests.find((item) => item.url.endsWith("/v1/tenant/mcp/preview"))!;
     const headers = new Headers(request.init?.headers);
     expect(headers.get("authorization")).toBe(`Bearer ${keys.get("cli-management")!.key}`);
     expect(headers.get("nylorun-protocol")).toBe(String(PROTOCOL_VERSION));
     expect(JSON.parse(String(request.init?.body))).toEqual({
       url: LINEAR,
-      environmentId: "users/alice/web",
+      agentId: "users/alice/triage",
     });
     expect(deps.lines).toEqual([
-      `MCP server linear-mcp 2.0.0 at ${LINEAR}, with Environment users/alice/web's credential: 2 tools, named for the model as linear__<tool>.`,
+      `MCP server linear-mcp 2.0.0 at ${LINEAR}, with Agent users/alice/triage's credential: 2 tools, named for the model as linear__<tool>.`,
       "",
       "TOOL           MODEL NAME             SCHEMA  HINTS      DESCRIPTION",
       "search         linear__search         120 B   read-only  Searches issues.",
@@ -135,14 +135,18 @@ describe("nylorun tenant mcp inspect", () => {
       "It signs people in with https://mcp.linear.app (https://mcp.linear.app/.well-known/oauth-protected-resource).",
     );
     expect(deps.lines.join("\n")).toMatch(/gateway/);
-    expect(deps.lines.join("\n")).toMatch(/environments\.secrets\.put/);
+    expect(deps.lines.join("\n")).toMatch(/agents\.secrets\.put/);
   });
 
-  it("says --vault was removed, and names --environment", async () => {
+  it("says --vault and --environment were removed, and names --agent", async () => {
     const { deps, fetch } = await running(() => json(PREVIEW));
     await expect(mcpCommand(deps, ["inspect", LINEAR, "--vault", "v1"])).rejects.toMatchObject({
       exitCode: 2,
-      message: expect.stringMatching(/--vault was removed.*--environment <id>/),
+      message: expect.stringMatching(/--vault was removed.*--agent <id>/),
+    });
+    await expect(mcpCommand(deps, ["inspect", LINEAR, "--environment", "users/alice/web"])).rejects.toMatchObject({
+      exitCode: 2,
+      message: expect.stringMatching(/--environment was removed in protocol 16.*--agent <id>/),
     });
     expect(fetch.requests.some((item) => item.url.endsWith("/v1/tenant/mcp/preview"))).toBe(false);
   });

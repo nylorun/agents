@@ -18,16 +18,16 @@
  *   until the engine has run that setup on the written disk; turns wait for both.
  *
  * Nothing here runs inside a transaction but the lease and the commit. No event type is new:
- * a restore or recovery is `environment.reset` with `reason` and `from`.
+ * a restore or recovery is `agent.reset` with `reason` and `from`.
  */
 import { createHash, randomUUID } from "node:crypto";
 import { newArtifactId } from "@nylorun/core/compatibility";
 import {
   FOLDER_CONTENT_TYPE,
   FOLDER_MANIFEST_FORMAT_V2,
-  type EnvironmentRestore,
-  type EnvironmentSnapshot,
-  type EnvironmentVersions,
+  type AgentRestore,
+  type AgentSnapshot,
+  type AgentDiskVersions,
   type FolderEntry,
 } from "@nylorun/core/contracts";
 import type { SandboxManifest } from "@nylorun/core/define";
@@ -43,7 +43,7 @@ import {
   liveEnvironment,
   newVolume,
   wakePod,
-} from "../tenant/environments.js";
+} from "../tenant/agents.js";
 import { fail, failRetryLater } from "../tenant/http.js";
 import { hostTuning } from "../tuning.js";
 import { artifactQuota, totalSubject } from "./quota.js";
@@ -102,7 +102,7 @@ async function diskTarget(
   };
 }
 
-/** One disk operation through the workspace, or a `409 environment_unavailable`. */
+/** One disk operation through the workspace, or a `409 agent_unavailable`. */
 async function diskOp(
   ctx: TenantContext,
   target: { ref: SandboxSessionRef; spec: SandboxManifest },
@@ -110,12 +110,12 @@ async function diskOp(
 ): Promise<DiskAnswer> {
   const answer = await ctx.sandbox.disk(target.ref, target.spec, op, new AbortController().signal);
   if ("code" in answer)
-    return fail(409, `The disk could not be reached: ${answer.message}`, { code: "environment_unavailable" });
+    return fail(409, `The disk could not be reached: ${answer.message}`, { code: "agent_unavailable" });
   return answer;
 }
 
 /**
- * Takes the disk lease of Environment `id` for `kind`: refused (`409 environment_busy`) while a
+ * Takes the disk lease of Environment `id` for `kind`: refused (`409 agent_busy`) while a
  * turn runs or another copy holds it; `400` for kind `none`, which has no disk.
  */
 async function lease(
@@ -126,11 +126,11 @@ async function lease(
   version?: number,
 ): Promise<Environment> {
   return ctx.store.tx(async (t) => {
-    const environment = (await liveEnvironment(t, id, { lock: true })) ?? fail(404, "Environment not found");
-    if (environment.kind === "none") fail(400, `Environment ${id} is of kind none: it has no disk.`);
+    const environment = (await liveEnvironment(t, id, { lock: true })) ?? fail(404, "Agent not found");
+    if (environment.kind === "none") fail(400, `Agent ${id} is of kind none: it has no disk.`);
     const busy = (await t.sessionsOnEnvironment(id)).some((session) => (session as { activeTurnId?: string | null }).activeTurnId);
     if (busy || diskHeld(environment))
-      failRetryLater(`Environment ${id} has a turn running or its disk is being copied. Try again shortly.`, "environment_busy");
+      failRetryLater(`Agent ${id} has a turn running or its disk is being copied. Try again shortly.`, "agent_busy");
     const now = new Date();
     const operation = {
       kind,
@@ -188,7 +188,7 @@ async function awaitEngine(ctx: TenantContext, id: string, waitMs: number): Prom
   const deadline = Date.now() + waitMs;
   while (!ctx.harness.hosting(id)) {
     if (Date.now() > deadline)
-      failRetryLater(`Environment ${id}'s pod did not start within ${waitMs / 1000} s (the Runtime limit diskPodWaitMs).`, "environment_unavailable");
+      failRetryLater(`Agent ${id}'s pod did not start within ${waitMs / 1000} s (the Runtime limit diskPodWaitMs).`, "agent_unavailable");
     await new Promise((resolve) => setTimeout(resolve, hostTuning().pods.enginePollMs));
   }
 }
@@ -216,10 +216,10 @@ async function readFile(
 }
 
 /**
- * `POST /v1/environments/{id}/snapshot`: a new version of the Environment's disk, between turns.
+ * `POST /v1/agents/{id}/snapshot`: a new version of the Environment's disk, between turns.
  * A pod that is stopped is started first. An unchanged disk makes no version.
  */
-export async function snapshotEnvironment(ctx: TenantContext, id: string, scope: Parameters<typeof assertReaches>[0]): Promise<EnvironmentSnapshot> {
+export async function snapshotEnvironment(ctx: TenantContext, id: string, scope: Parameters<typeof assertReaches>[0]): Promise<AgentSnapshot> {
   assertReaches(scope, id);
   const started = Date.now();
   const limits = await copyLimits(ctx, await ctx.store.tx((t) => liveEnvironment(t, id)));
@@ -281,7 +281,7 @@ export async function snapshotEnvironment(ctx: TenantContext, id: string, scope:
       durationMs: Date.now() - started,
     });
     return {
-      environmentId: id,
+      agentId: id,
       artifactId: committed.artifact.id,
       version: committed.version.version,
       format: FOLDER_MANIFEST_FORMAT_V2,
@@ -322,7 +322,7 @@ async function commitDiskVersion(
   const key = `artifacts/${artifactId}/${randomUUID()}`;
   await ctx.blobs.put(key, manifest, { contentType: FOLDER_CONTENT_TYPE });
   return ctx.store.tx(async (t) => {
-    (await liveEnvironment(t, id, { lock: true })) ?? fail(404, "Environment not found");
+    (await liveEnvironment(t, id, { lock: true })) ?? fail(404, "Agent not found");
     const quota = await artifactQuota(t, id);
     await t.lockArtifactQuota();
     const shas = [...files.keys()];
@@ -331,7 +331,7 @@ async function commitDiskVersion(
     if ((await contentEpoch(t)) !== epoch)
       for (const sha of fresh)
         if (!(await ctx.blobs.head(contentKey(sha))))
-          fail(409, "A file's bytes were removed while the snapshot ran; try again.", { code: "environment_busy" });
+          fail(409, "A file's bytes were removed while the snapshot ran; try again.", { code: "agent_busy" });
     for (const total of quota.totals) {
       // A file adds bytes to a total unless an artifact it counts already holds the file.
       const scope = total.environmentId === undefined ? undefined : { environmentId: total.environmentId };
@@ -460,12 +460,12 @@ async function versionOf(t: Tx, id: string, version: number | "latest"): Promise
   const artifact = await t.diskArtifact(id);
   const number = version === "latest" ? artifact?.latestVersion : version;
   if (!artifact || !number || !(await t.artifactVersion(artifact.id, number)))
-    return fail(404, `Environment ${id} has no disk version ${version}`);
+    return fail(404, `Agent ${id} has no disk version ${version}`);
   return { artifactId: artifact.id, version: number };
 }
 
 /**
- * `POST /v1/environments/{id}/restore`: puts disk version `version` back. A virtual
+ * `POST /v1/agents/{id}/restore`: puts disk version `version` back. A virtual
  * Environment's workspace is rewritten at once; a pod gets a new volume, seeded from the version
  * before any turn (`status: pending` until then).
  */
@@ -474,20 +474,20 @@ export async function restoreEnvironment(
   id: string,
   scope: Parameters<typeof assertReaches>[0],
   version: number | "latest",
-): Promise<EnvironmentRestore> {
+): Promise<AgentRestore> {
   assertReaches(scope, id);
   const seed = await ctx.store.tx((t) => versionOf(t, id, version));
   const found = await ctx.store.tx((t) => liveEnvironment(t, id));
-  if (!found) return fail(404, "Environment not found");
+  if (!found) return fail(404, "Agent not found");
   if (found.kind === "pod") {
     const volumeGeneration = await ctx.store.tx(async (t) => {
-      const environment = (await liveEnvironment(t, id, { lock: true })) ?? fail(404, "Environment not found");
+      const environment = (await liveEnvironment(t, id, { lock: true })) ?? fail(404, "Agent not found");
       const busy = (await t.sessionsOnEnvironment(id)).some((session) => (session as { activeTurnId?: string | null }).activeTurnId);
       if (busy || diskHeld(environment) || environment.pod!.retiring !== undefined)
-        failRetryLater(`Environment ${id} has a turn running, its disk is being copied or its last volume is still being deleted.`, "environment_busy");
+        failRetryLater(`Agent ${id} has a turn running, its disk is being copied or its last volume is still being deleted.`, "agent_busy");
       return newVolume(ctx, t, environment, { seed, reason: "restore" });
     });
-    return { environmentId: id, restored: seed.version, status: "pending", volumeGeneration };
+    return { agentId: id, restored: seed.version, status: "pending", volumeGeneration };
   }
   const limits = await copyLimits(ctx, found);
   const environment = await lease(ctx, id, "restore", limits.leaseMs, seed.version);
@@ -497,7 +497,7 @@ export async function restoreEnvironment(
   } finally {
     await beat.stop();
   }
-  return { environmentId: id, restored: seed.version, status: "done" };
+  return { agentId: id, restored: seed.version, status: "done" };
 }
 
 /** Seeds that run in this process, so the sweep starts no second copy. */
@@ -587,19 +587,19 @@ export async function forkSeedOf(
   return versionOf(t, from.environment, from.version);
 }
 
-/** `GET /v1/environments/{id}/versions`: its disk versions, newest first. */
+/** `GET /v1/agents/{id}/versions`: its disk versions, newest first. */
 export async function environmentVersions(
   ctx: TenantContext,
   id: string,
   scope: Parameters<typeof assertReaches>[0],
-): Promise<EnvironmentVersions> {
+): Promise<AgentDiskVersions> {
   assertReaches(scope, id);
   return ctx.store.tx(async (t) => {
-    (await liveEnvironment(t, id)) ?? fail(404, "Environment not found");
+    (await liveEnvironment(t, id)) ?? fail(404, "Agent not found");
     const artifact = await t.diskArtifact(id);
     const versions = artifact ? await t.artifactVersions(artifact.id) : [];
     return {
-      environmentId: id,
+      agentId: id,
       artifactId: artifact?.id ?? null,
       latest: artifact && artifact.latestVersion > 0 ? artifact.latestVersion : null,
       versions: versions
@@ -610,7 +610,7 @@ export async function environmentVersions(
 }
 
 /**
- * `DELETE /v1/environments/{id}/versions/{n}`: deletes one disk version, and the stored files no
+ * `DELETE /v1/agents/{id}/versions/{n}`: deletes one disk version, and the stored files no
  * other version names. Refused while a seed reads it.
  */
 export async function deleteEnvironmentVersion(
@@ -618,14 +618,14 @@ export async function deleteEnvironmentVersion(
   id: string,
   scope: Parameters<typeof assertReaches>[0],
   version: number,
-): Promise<{ environmentId: string; version: number; deleted: boolean }> {
+): Promise<{ agentId: string; version: number; deleted: boolean }> {
   assertReaches(scope, id);
   const blobKey = await ctx.store.tx(async (t) => {
-    const environment = (await liveEnvironment(t, id, { lock: true })) ?? fail(404, "Environment not found");
+    const environment = (await liveEnvironment(t, id, { lock: true })) ?? fail(404, "Agent not found");
     const artifact = await t.diskArtifact(id, { lock: true });
     if (!artifact) return undefined;
     if (environment.diskSeed?.artifactId === artifact.id && environment.diskSeed.version === version)
-      failRetryLater(`A new volume of Environment ${id} is being seeded from version ${version}.`, "environment_busy");
+      failRetryLater(`A new volume of Agent ${id} is being seeded from version ${version}.`, "agent_busy");
     await t.lockArtifactQuota();
     const content = await t.artifactContentShas({ artifactId: artifact.id });
     const key = await t.deleteArtifactVersion(artifact.id, version);
@@ -633,7 +633,7 @@ export async function deleteEnvironmentVersion(
     return key;
   });
   if (blobKey !== undefined) await ctx.blobs.delete(blobKey).catch(() => undefined);
-  return { environmentId: id, version, deleted: blobKey !== undefined };
+  return { agentId: id, version, deleted: blobKey !== undefined };
 }
 
 /**

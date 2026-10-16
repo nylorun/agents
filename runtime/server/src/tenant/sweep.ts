@@ -33,7 +33,7 @@
  *    workspaces). Idle MCP connections of the in-process harness are closed. As often as the
  *    orphan scan, pod Environments whose change stalled get a reconcile (`reconcileStalePods`).
  *    Environments unused for their `lifecycle.deleteAfter` are deleted
- *    (`sweepUnusedEnvironments`).
+ *    (`sweepUnusedAgents`).
  * 5. **Control signals.** Signals on the control bus older than `sweep.signalRetentionMs` are
  *    deleted: followers read back only the last two minutes (`store/postgres/control.ts`).
  * 6. **Hooks.** Callbacks registered with `ctx.onSweep`.
@@ -43,7 +43,7 @@
  * step does not stop the others; the first error is rethrown at the end so the execution
  * reports it.
  */
-import { sweepUnusedEnvironments } from "./environments.js";
+import { sweepUnusedAgents } from "./agents.js";
 import { sweepPendingSeeds } from "../artifacts/disk.js";
 import {
   pendingAgentEffects,
@@ -128,7 +128,7 @@ export async function sweep(ctx: TenantContext): Promise<void> {
         ]
       : []),
     // Environments unused for their `lifecycle.deleteAfter`: one query when none is due.
-    ["environments", () => sweepUnusedEnvironments(ctx, now.getTime())],
+    ["agents", () => sweepUnusedAgents(ctx, now.getTime())],
     // Seeds of new volumes whose engine is connected and no process copies (R2d step 3).
     ["seeds", () => sweepPendingSeeds(ctx)],
     // A harness elsewhere closes its own idle MCP connections.

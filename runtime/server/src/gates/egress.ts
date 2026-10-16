@@ -25,7 +25,7 @@
  * never is. Tunnels close after `idleMs` without traffic in either direction.
  *
  * Every connection to a named host on a live token is recorded once (R7.3, D67), when it closes
- * or at once when the gate refuses it, as `environment.egress` on the Environment's own stream:
+ * or at once when the gate refuses it, as `agent.egress` on the Environment's own stream:
  * the connection is the Environment's, since its token names the pod and turns run in parallel
  * (D66). `runningTurns` lists the turns active on the Environment as it opened, as context and
  * never as an owner: one read, started as the name resolves and never waited for, so a turn that
@@ -39,7 +39,7 @@ import { lookup as dnsLookup } from "node:dns/promises";
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import { BlockList, connect, isIP, type AddressInfo, type Socket } from "node:net";
 import type { Duplex } from "node:stream";
-import type { EgressRunningTurn, EnvironmentEventPayload } from "@nylorun/core/contracts";
+import type { EgressRunningTurn, AgentEventPayload } from "@nylorun/core/contracts";
 import { isSandboxHostPattern } from "@nylorun/core/define";
 import type { EgressTokenVerdict } from "../sandbox/egress-token.js";
 import type { SessionStore } from "../store/types.js";
@@ -65,11 +65,11 @@ export interface EgressSandboxes {
   >;
 }
 
-/** One connection's record (R7.3, D67): `environment.egress`'s payload. */
-export type EgressConnection = EnvironmentEventPayload<"environment.egress">;
+/** One connection's record (R7.3, D67): `agent.egress`'s payload. */
+export type EgressConnection = AgentEventPayload<"agent.egress">;
 
 /**
- * How many running turns one connection names, at most: fixed by the `environment.egress` event
+ * How many running turns one connection names, at most: fixed by the `agent.egress` event
  * contract (`runningTurns` holds at most 16 in `/core/contracts`), which every reader
  * validates against, so not a setting here.
  */
@@ -248,7 +248,7 @@ function connectionRecord(
     const allowed = fields.outcome === "allowed";
     const durationMs = Math.max(0, Date.now() - at.startedAt.getTime());
     const connection = (turns: readonly EgressRunningTurn[]): EgressConnection => ({
-      environmentId: at.environmentId,
+      agentId: at.environmentId,
       host: at.host,
       port: at.port,
       ...fields,
@@ -503,7 +503,7 @@ export function storeEgressSandboxes(store: SessionStore): EgressSandboxes {
 /**
  * `EgressRecord` over the Tenant's record (R7.3, D67). The running turns are the sessions on the
  * Environment whose body has an `activeTurnId`, in id order, at most `EGRESS_RUNNING_TURNS_MAX`.
- * The write is `environment.egress` on the Environment's stream, under its row's lock; a deleted
+ * The write is `agent.egress` on the Environment's stream, under its row's lock; a deleted
  * Environment gets nothing.
  */
 export function storeEgressRecord(store: SessionStore): EgressRecord {
@@ -518,8 +518,8 @@ export function storeEgressRecord(store: SessionStore): EgressRecord {
     },
     async write(connection) {
       await store.tx(async (t) => {
-        if (!(await t.environment(connection.environmentId, { lock: true }))) return;
-        await t.environmentEvent(connection.environmentId, "environment.egress", connection);
+        if (!(await t.environment(connection.agentId, { lock: true }))) return;
+        await t.agentEvent(connection.agentId, "agent.egress", connection);
       });
     },
   };

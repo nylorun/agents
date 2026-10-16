@@ -4,6 +4,7 @@
  * controls.
  */
 import { expect } from "vitest";
+import { deploy } from "../support/agents.js";
 import { Agent } from "@nylorun/core/define";
 import type { ModelProvider } from "../../src/core/provider.js";
 import { openTestSessionStore } from "../support/store.js";
@@ -26,24 +27,13 @@ export async function boot(options: StartTestTenantOptions): Promise<Started> {
   });
 }
 
-/** Registers the agent (once) and creates session `id`. */
+/** Saves the agent and makes its Agent `bot` (once), and opens session `id` on it. */
 export async function openSession(runtime: Started, id = "s1", register = true) {
-  if (register) {
-    const put = await fetch(`${runtime.url}/v1/agents/bot`, {
-      method: "PUT",
-      headers: server,
-      body: JSON.stringify({
-        requestId: "put-1",
-        manifest: plain.manifest,
-        implementationVersion: "dev",
-      }),
-    });
-    expect(put.ok).toBe(true);
-  }
+  if (register) await deploy(runtime.url, server, plain);
   const session = await fetch(`${runtime.url}/v1/sessions/${id}`, {
     method: "PUT",
     headers: server,
-    body: JSON.stringify({ requestId: `session-${id}`, agentId: "bot", ownerUserId: "u" }),
+    body: JSON.stringify({ requestId: `session-${id}`, agent: "bot", ownerUserId: "u" }),
   });
   expect(session.ok).toBe(true);
 }

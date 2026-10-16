@@ -18,6 +18,8 @@ import { HttpError } from "../../src/tenant/http.js";
 import { tenantPaths } from "../../src/tenant/paths.js";
 import { startGates } from "../../src/host/gates.js";
 import { startTestTenant } from "../support/tenant.js";
+import { deploy } from "../support/agents.js";
+import { Agent } from "@nylorun/core/define";
 
 const APP = "keys-app-token-aaaaaaaaaaaaaaaaa";
 const headers = {
@@ -56,12 +58,12 @@ async function call(runtime: Started, method: string, path: string, body?: unkno
 }
 
 describe("the Tenant API through the keys service", () => {
-  it("writes and replaces an Environment's secret, and keeps a vault error's status, code and details", async () => {
+  it("writes and replaces an Agent's secret, and keeps a vault error's status, code and details", async () => {
     const runtime = await boot();
-    const environment = await call(runtime, "PUT", "/v1/environments/ada", { kind: "none" });
-    expect(environment.status).toBe(200);
+    // Agent ada, of kind none.
+    expect((await deploy(runtime.url, headers, Agent({ id: "bot", name: "bot" }).build(), { id: "ada" })).kind).toBe("none");
     const url = "https://mcp.example.invalid/mcp";
-    const created = await call(runtime, "PUT", "/v1/environments/ada/secrets/token", {
+    const created = await call(runtime, "PUT", "/v1/agents/ada/secrets/token", {
       type: "bearer",
       url,
       value: "first-secret-value",
@@ -69,7 +71,7 @@ describe("the Tenant API through the keys service", () => {
     expect(created.status).toBe(200);
     expect(created.body).toMatchObject({ name: "token", type: "bearer", binding: { url } });
     expect(JSON.stringify(created.body)).not.toContain("first-secret-value");
-    const rotated = await call(runtime, "PUT", "/v1/environments/ada/secrets/token", {
+    const rotated = await call(runtime, "PUT", "/v1/agents/ada/secrets/token", {
       type: "bearer",
       url,
       value: "second-secret-value",
@@ -78,13 +80,13 @@ describe("the Tenant API through the keys service", () => {
     expect(rotated.body.rotatedAt).toEqual(expect.any(String));
     expect(JSON.stringify(rotated.body)).not.toContain("second-secret-value");
     // A vault error raised in the gateway keeps its status, code and details across the hop.
-    const missing = await call(runtime, "PUT", "/v1/environments/missing/secrets/token", {
+    const missing = await call(runtime, "PUT", "/v1/agents/missing/secrets/token", {
       type: "bearer",
       url,
       value: "x-secret-value",
     });
     expect(missing.status).toBe(404);
-    const conflict = await call(runtime, "PUT", "/v1/environments/ada/secrets/other", {
+    const conflict = await call(runtime, "PUT", "/v1/agents/ada/secrets/other", {
       type: "bearer",
       url,
       value: "x-secret-value",
@@ -94,7 +96,7 @@ describe("the Tenant API through the keys service", () => {
       code: "credential_conflict",
       details: { url, existing: "token" },
     });
-    const invalid = await call(runtime, "PUT", "/v1/environments/ada/secrets/PATH", {
+    const invalid = await call(runtime, "PUT", "/v1/agents/ada/secrets/PATH", {
       type: "environment_variable",
       value: "x",
     });

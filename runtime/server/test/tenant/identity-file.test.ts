@@ -15,7 +15,7 @@ const BASE = {
   jwks: "https://sso.acme.dev/realms/eng/protocol/openid-connect/certs",
   subject: '"u:{sub}"',
   scopes: "{ claim: nylorun_scopes }",
-  allowedScopes: "[agents:read, sessions:own, environments:write, studio]",
+  allowedScopes: "[agents:read, sessions:own, agents:write, studio]",
 };
 
 function file(overrides: Record<string, string | undefined> = {}, extra = ""): string {
@@ -52,7 +52,7 @@ function keysBlock(pems: string[]): string {
 describe("parseIdentityFile", () => {
   it("reads the issuers of the plan's example", () => {
     const [issuer] = parseIdentityFile(
-      file({ agents: "[support]", environments: '["{org_id}/*"]' }),
+      file({ agents: '[support, "{org_id}/*"]' }),
       "identity.yaml",
     );
     expect(issuer).toEqual({
@@ -62,9 +62,8 @@ describe("parseIdentityFile", () => {
       jwks: BASE.jwks,
       subject: "u:{sub}",
       scopes: { claim: "nylorun_scopes" },
-      allowedScopes: ["agents:read", "sessions:own", "environments:write", "studio"],
-      agents: ["support"],
-      environments: ["{org_id}/*"],
+      allowedScopes: ["agents:read", "sessions:own", "agents:write", "studio"],
+      agents: ["support", "{org_id}/*"],
     });
   });
 
@@ -73,11 +72,11 @@ describe("parseIdentityFile", () => {
       file({
         jwksFetch: "{ timeoutMs: 1000, maxKeys: 2 }",
         // The file's author writes every grant: no count of them is a limit (B15).
-        environments: `[${Array.from({ length: 40 }, (_, i) => `"s${i}"`).join(", ")}]`,
+        agents: `[${Array.from({ length: 40 }, (_, i) => `"s${i}"`).join(", ")}]`,
       }),
     );
     expect(issuer!.jwksFetch).toEqual({ timeoutMs: 1000, maxKeys: 2 });
-    expect(issuer!.environments).toHaveLength(40);
+    expect(issuer!.agents).toHaveLength(40);
     expect(JWKS_FETCH_DEFAULTS).toEqual({
       timeoutMs: 5_000,
       maxBytes: 256 * 1024,
@@ -95,7 +94,7 @@ describe("parseIdentityFile", () => {
     expect(issuer).toMatchObject({
       subject: "{sub}",
       scopes: { claim: "scope" },
-      allowedScopes: ["agents:read", "sessions:own", "environments:write"],
+      allowedScopes: ["agents:read", "sessions:own", "agents:write"],
     });
   });
 
@@ -114,7 +113,27 @@ describe("parseIdentityFile", () => {
       const message = refusal(file(scopes));
       expect(message, JSON.stringify(scopes)).toContain("issuer keycloak");
       expect(message, JSON.stringify(scopes)).toContain("sandboxes:write");
-      expect(message, JSON.stringify(scopes)).toContain("renamed environments:write");
+      expect(message, JSON.stringify(scopes)).toContain("renamed agents:write");
+    }
+  });
+
+  it("refuses the protocol 15 names at load, naming the new ones (protocol 16)", () => {
+    const grants = refusal(file({ environments: '["{org_id}/*"]' }));
+    expect(grants).toContain("identity.yaml: issuer keycloak");
+    expect(grants).toContain("environments");
+    expect(grants).toContain("move the grants to agents");
+    // Even an empty list, and beside `agents`: it is never read as no grants.
+    expect(refusal(file({ environments: "[]" }))).toContain("move the grants to agents");
+    expect(refusal(file({ agents: "[support]", environments: "[]" }))).toContain("move the grants to agents");
+    for (const scopes of [
+      { allowedScopes: "[agents:read, environments:write]" },
+      { allowedScopes: "[sessions:own, environments:write]", scopes: "{ fixed: [environments:write] }" },
+      { scopes: "{ fixed: [environments:write] }" },
+    ]) {
+      const message = refusal(file(scopes));
+      expect(message, JSON.stringify(scopes)).toContain("issuer keycloak");
+      expect(message, JSON.stringify(scopes)).toContain("environments:write");
+      expect(message, JSON.stringify(scopes)).toContain("renamed agents:write");
     }
   });
 
@@ -162,7 +181,7 @@ describe("parseIdentityFile", () => {
 
   it("names the issuer and the field of each mistake", () => {
     const cases: [Record<string, string | undefined>, string][] = [
-      [{ allowedScopes: "[agents:write]" }, "allowedScopes"],
+      [{ allowedScopes: "[agent-manifests:write]" }, "allowedScopes"],
       [{ allowedScopes: "[tenant:settings]" }, "allowedScopes"],
       [{ allowedScopes: "[vaults:own]" }, "allowedScopes"],
       [{ allowedScopes: "[sessions:own]", scopes: "{ fixed: [agents:read] }" }, "scopes.fixed"],
@@ -173,7 +192,7 @@ describe("parseIdentityFile", () => {
       [{ keys: keysBlock([pem("rsa", { modulusLength: 1024 })]), jwks: undefined }, "keys[0]"],
       [{ keys: keysBlock([pem("ec", { namedCurve: "P-384" })]), jwks: undefined }, "keys[0]"],
       [{ subject: '"u:{sub"' }, "subject"],
-      [{ environments: '["{org}/../x"]' }, "environments"],
+      [{ agents: '["{org}/../x"]' }, "agents"],
       [{ jwksFetch: "{ timeoutMs: 0 }" }, "jwksFetch"],
       [{ jwksFetch: "{ maxKeys: 2, every: 1 }" }, "jwksFetch"],
       [{ issuer: "urn:nylorun:tenant:tn_x" }, "issuer"],

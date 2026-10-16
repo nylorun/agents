@@ -90,8 +90,7 @@ export async function runTurn(ctx: RunContext, run: HarnessRun): Promise<void> {
     }
     // The session's MCP tools as our engine offers them (protocol 15): named, and laid out as our
     // state pinned them while the facts stay the same.
-    const engineTools = (agent: AgentManifest) =>
-      engineToolsFor(agent, start.environment, ctx.engine);
+    const engineTools = (agent: AgentManifest) => engineToolsFor(agent, start.agent, ctx.engine);
     const mcp =
       start.engine === "agent" && start.mcp
         ? mcpToolSet(start.mcp, start.manifest as AgentManifest, {
@@ -129,7 +128,7 @@ export async function runTurn(ctx: RunContext, run: HarnessRun): Promise<void> {
     if (
       start.engine === "agent" &&
       result.status === "completed" &&
-      start.environment?.sandbox !== undefined &&
+      start.agent?.sandbox !== undefined &&
       ctx.executors.files
     )
       await saveOutputs({

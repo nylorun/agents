@@ -14,11 +14,13 @@
  *   images and, under a temporary NYLORUN_HOME, runs `nylorun start` in the
  *   project with NYLORUN_TENANT naming the test Tenant (its containers and
  *   the Project link), then the project's `npm run dev`: the
- *   starter saves `assistant` (it serves nothing), and `nylorun studio` lands
- *   on that Tenant (303 + cookie, /_studio/hello, the Tenant proxy).
- * - A source edit saves the agent again; stopping dev keeps the Tenant running
- *   and the agent saved; a second dev reuses the link; the compiled `npm start`
- *   saves once with the two Project variables and exits.
+ *   starter saves the agent manifest `assistant` and makes the Agent
+ *   `assistant` (it serves nothing), and `nylorun studio` lands on that Tenant
+ *   (303 + cookie, /_studio/hello, the Tenant proxy).
+ * - A source edit saves a new version, and the Agent keeps the one it was made
+ *   from; stopping dev keeps the Tenant running and the manifest saved; a
+ *   second dev reuses the link; the compiled `npm start` saves once with the
+ *   two Project variables and exits.
  * - The Tenant, reset and seeded with the fixture model
  *   (scripts/lib/stack-tenant.mjs), runs one turn through Studio's proxy; the
  *   starter's assistant has no tools, so the fixture model answers in text.
@@ -119,7 +121,7 @@ try {
     await writeFile(join(project, path), content);
   }
   const manifest = JSON.parse(files["package.json"]);
-  assert.equal(manifest.scripts.dev, "tsx watch --env-file-if-exists=.env src/main.ts");
+  assert.equal(manifest.scripts.dev, "tsx watch --env-file-if-exists=.env src/main.ts --dev");
   assert.equal(manifest.scripts.start, "node dist/src/main.js");
   assert.ok(!JSON.stringify(manifest.scripts).includes("serve"));
   assert.ok(!JSON.stringify(manifest.scripts).includes("nylorun"), "no script runs nylorun");
@@ -221,13 +223,25 @@ try {
 
       const key = credentials.applicationKey;
       const tenantId = link.tenantId;
-      const saved = (name) =>
+      // The latest version of the manifest `assistant` says `text`, and the Agent `assistant`
+      // (made from it, tracking it) exists. Answers both.
+      // With `current`, only once the Agent runs the latest version.
+      const saved = (text, current = false) =>
         eventually(
-          async () =>
-            (await runtimeGet(runtimeUrl, key, "/v1/agents")).agents?.some(
-              (agent) => agent.manifest?.id === "assistant" && agent.manifest?.name === name,
-            ),
-          { timeout: 120_000, message: `agent "assistant" named ${name}` },
+          async () => {
+            const latest = (await runtimeGet(runtimeUrl, key, "/v1/agent-manifests")).manifests?.find(
+              (manifest) => manifest.name === "assistant",
+            );
+            const agent = (await runtimeGet(runtimeUrl, key, "/v1/agents")).agents?.find(
+              (item) => item.id === "assistant" && item.manifest === "assistant",
+            );
+            return latest?.manifest.harness.instructions?.some((line) => line.includes(text)) &&
+              agent &&
+              (!current || agent.resolvedVersion === latest.version)
+              ? { latest, agent }
+              : undefined;
+          },
+          { timeout: 120_000, message: `agent manifest "assistant" saying ${text}, and its Agent` },
         );
       // What src/main.ts prints for each agent it saved.
       const SAVED = "Saved agent assistant";
@@ -239,7 +253,9 @@ try {
         env,
       });
       await dev.line((line) => line.includes(SAVED), 120_000);
-      await saved("Assistant");
+      const first = await saved("a helpful assistant");
+      assert.equal(first.agent.kind, "virtual", "the Agent runs the starter's runtime section");
+      assert.equal(first.agent.resolvedVersion, first.latest.version);
 
       // No model: the starter's .env names none (step 9 seeds the fixture model). The
       // Management API takes the project's management key, which `nylorun start` wrote too.
@@ -260,8 +276,8 @@ try {
       const proxied = await studio.get(`/_studio/tenants/${tenantId}/runtime/v1/agents`);
       assert.equal(proxied.status, 200, await proxied.clone().text());
       assert.ok(
-        (await proxied.json()).agents.some((agent) => agent.manifest?.id === "assistant"),
-        "Studio's Tenant proxy serves the agent",
+        (await proxied.json()).agents.some((agent) => agent.id === "assistant"),
+        "Studio's Tenant proxy serves the Agent",
       );
       const home = await studio.get("/", { redirect: "manual" });
       assert.equal(home.status, 302);
@@ -286,17 +302,20 @@ try {
         "a login link is single-use",
       );
 
-      // 5. A source edit re-runs main.ts, which saves the agent again.
+      // 5. A source edit re-runs main.ts, which saves a new version; under `npm run dev` the Agent
+      // is made again from it, so new sessions run the edit.
       const source = join(project, "agents/assistant/agent.ts");
       const before = await readFile(source, "utf8");
-      assert.ok(before.includes('name: "Assistant"'), "the starter names its agent Assistant");
-      await writeFile(source, before.replace('name: "Assistant"', 'name: "Updated assistant"'));
-      await saved("Updated assistant");
+      assert.ok(before.includes("You are a helpful assistant."), "the starter's instructions");
+      await writeFile(source, before.replace("You are a helpful assistant.", "You are an updated assistant."));
+      const edited = await saved("an updated assistant", true);
+      assert.equal(edited.latest.version, first.latest.version + 1);
+      assert.equal(edited.agent.resolvedVersion, edited.latest.version, "npm run dev moves the Agent to the new version");
 
-      // 6. Ctrl-C stops the Project only; the Runtime keeps the saved agent.
+      // 6. Ctrl-C stops the Project only; the Runtime keeps the saved manifest and the Agent.
       await dev.stop();
       assert.equal((await fetch(`${runtimeUrl}/ready`)).status, 200, "the Tenant keeps running");
-      await saved("Updated assistant");
+      await saved("an updated assistant");
 
       // 7. A second dev reuses the running Tenant and the Project link.
       const again = group.start("dev-again", process.execPath, [npmCli(), "run", "dev"], {
@@ -309,7 +328,7 @@ try {
       await again.stop();
 
       // 8. The compiled application (built before the edit) connects with the
-      // two Project variables, saves its own manifest once and exits.
+      // two Project variables, saves its own instructions once and exits.
       const started = group.start("start", process.execPath, [npmCli(), "start"], {
         cwd: project,
         env: {
@@ -320,7 +339,7 @@ try {
       });
       await started.line((line) => line.includes(SAVED), 120_000);
       assert.equal(await started.exit, 0, "npm start saves the agents and exits");
-      await saved("Assistant");
+      await saved("a helpful assistant");
 
       // 9. The Tenant, reset and seeded with the fixture model, runs a turn with the
       // starter's assistant.
@@ -344,15 +363,16 @@ try {
         await eventually(
           async () =>
             (await (await tenantApi("/v1/agents")).json()).agents?.some(
-              (agent) => agent.manifest?.id === "assistant",
+              (agent) => agent.id === "assistant",
             ),
-          { timeout: 120_000, message: "the assistant on the reset Tenant" },
+          { timeout: 120_000, message: "the Agent assistant on the reset Tenant" },
         );
         assert.equal((await readProject(project)).link.tenantId, tenantId, "the link is untouched");
+        // A session on the Agent; Studio's proxy names the owner.
         const sessionId = `smoke-${Date.now()}`;
         const session = await tenantApi(`/v1/sessions/${sessionId}`, {
           method: "PUT",
-          body: JSON.stringify({ requestId: `${sessionId}-create`, agentId: "assistant" }),
+          body: JSON.stringify({ requestId: `${sessionId}-create`, agent: "assistant" }),
         });
         assert.ok(session.ok, `create session: ${session.status} ${await session.clone().text()}`);
         const sent = await tenantApi(`/v1/sessions/${sessionId}/commands`, {
@@ -395,7 +415,7 @@ try {
     },
   );
   console.log(
-    "PASS: packed starter (agents + core only) on a local Tenant: nylorun start in the project creates the Tenant and the link, npm run dev saves the agent, nylorun studio lands on the Tenant, a source edit saves again, Tenant and agent outlive dev, link reuse, compiled npm start saves once, a fixture-model turn on the reset Tenant, Docker missing.",
+    "PASS: packed starter (agents + core only) on a local Tenant: nylorun start in the project creates the Tenant and the link, npm run dev saves the agent manifest and makes its Agent, nylorun studio lands on the Tenant, a source edit saves a new version and the Agent keeps its own, Tenant, manifest and Agent outlive dev, link reuse, compiled npm start saves once, a fixture-model turn on the reset Tenant, Docker missing.",
   );
 } catch (error) {
   console.error(error);

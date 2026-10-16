@@ -1,9 +1,9 @@
 /**
- * Pod Environments in the Runtime (F7.2, S3–S8, protocol 11) against an in-memory sandboxes
- * service (`fake-sandboxes.ts`): create at once, join → host token, a turn whose harness runs in
- * the pod (its own engine, the `local` backend, over the Harness API listener with a host token),
- * relaunch, stop, idle, a pod that never changes what it runs, PVC loss →
- * `environment.lost`, reset, delete.
+ * Pod Agents in the Runtime (F7.2, S3–S8, protocol 16; pod Environments from protocol 11) against
+ * an in-memory sandboxes service (`fake-sandboxes.ts`): create at once, join → host token, a turn
+ * whose harness runs in the pod (its own engine, the `local` backend, over the Harness API
+ * listener with a host token), relaunch, stop, idle, a pod that never changes what it runs, PVC
+ * loss → `agent.lost`, reset, delete.
  */
 import { providerModelGate } from "../../src/gates/provider-gate.js";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Agent } from "@nylorun/core/define";
+import type { RuntimeSection } from "@nylorun/core/contracts";
 import type { ModelProvider } from "../../src/core/provider.js";
 import { localBackend } from "../../src/adapters/sandbox/local.js";
 import { startHarnessListener, type HarnessListener } from "../../src/harness-api/ws-server.js";
@@ -20,6 +21,7 @@ import { HostAuthError, type HostAuthority } from "../../src/sandbox/join.js";
 import { podName } from "../../src/sandbox/pods/name.js";
 import { fakeSandboxes, type FakeSandboxes } from "../support/fake-sandboxes.js";
 import { startTestTenant } from "../support/tenant.js";
+import { deploy, manifestOf, saveManifest, writeManifest } from "../support/agents.js";
 
 const APP = "sandbox-pods-app-key-aaaaaaaaaaaaa";
 const KEK = Buffer.alloc(32, 7).toString("base64");
@@ -59,7 +61,14 @@ async function call(method: string, path: string, body?: unknown): Promise<{ sta
     return { status: response.status, body: text };
   }
 }
-const path = (id: string) => `/v1/environments/${encodeURIComponent(id)}`;
+const path = (id: string) => `/v1/agents/${encodeURIComponent(id)}`;
+const headers = { authorization: `Bearer ${APP}`, "content-type": "application/json" };
+const bot = Agent({ id: "bot", name: "Bot" }).instructions("Work in the sandbox.").build();
+/** The agent manifest an Agent id names here: the id with `-` for `/`. */
+const manifestName = (id: string) => id.replaceAll("/", "-");
+/** Saves agent manifest `name`: bot's loop on `section`. */
+const save = (name: string, section: RuntimeSection) =>
+  writeManifest(runtime.url, headers, manifestOf(bot, { name, runtime: section }));
 
 async function until<T>(what: string, read: () => Promise<T>, ok: (value: T) => boolean, ms = 20_000): Promise<T> {
   const deadline = Date.now() + ms;
@@ -85,19 +94,25 @@ async function message(sessionId: string) {
     content: "go",
   });
 }
-async function open(id: string, environmentId: string) {
-  return call("PUT", `/v1/sessions/${id}`, { requestId: `open-${id}`, agentId: "bot", ownerUserId: "app:ada", environment: environmentId });
+async function open(id: string, agent: string) {
+  return call("PUT", `/v1/sessions/${id}`, { requestId: `open-${id}`, agent, ownerUserId: "app:ada" });
 }
 async function settled(sessionId: string): Promise<any> {
   return until("session settles", async () => (await call("GET", `/v1/sessions/${sessionId}`)).body, (body) =>
     ["completed", "failed", "cancelled"].includes(body.status), 60_000);
 }
 
-/** Creates a pod Environment and waits until the fake runs its pod. */
-async function createPod(id: string, body: Record<string, unknown> = {}) {
-  const created = await until("created", () => call("PUT", path(id), { kind: "pod", ...body }), (reply) => reply.status !== 409);
+/** Saves a pod manifest for `id`, makes the pod Agent and waits until the fake runs its pod. */
+async function createPod(id: string, section: Omit<RuntimeSection, "kind"> = {}) {
+  const saved = await save(manifestName(id), { kind: "pod", ...section });
+  expect(saved.status, JSON.stringify(saved.body)).toBe(200);
+  const created = await until(
+    "created",
+    () => call("PUT", path(id), { manifest: manifestName(id) }),
+    (reply) => reply.status !== 409,
+  );
   expect(created.status, JSON.stringify(created.body)).toBe(200);
-  const name = podName(tenantId, id, created.body.pod.volumeGeneration);
+  const name = podName(tenantId, id, created.body.compute.pod.volumeGeneration);
   await until("the pod runs", async () => fake.podUid(name), (uid) => uid !== undefined);
   return { name, view: created.body };
 }
@@ -125,8 +140,8 @@ beforeAll(async () => {
     hosts: async () => runtime.handle.hostAuthority?.(),
     logger: { info: () => undefined, warn: () => undefined },
   });
-  const agent = Agent({ id: "bot", name: "Bot" }).instructions("Work in the sandbox.").build();
-  expect((await call("PUT", "/v1/agents/bot", { requestId: "bot", manifest: agent.manifest, implementationVersion: "dev" })).status).toBe(200);
+  // Agent `bot`, of kind none.
+  await deploy(runtime.url, headers, bot);
   expect(
     (await call("PUT", "/v1/tenant/sandbox", { requestId: "cfg", limits: { idle: "2s" } })).status,
   ).toBe(200);
@@ -137,7 +152,7 @@ afterAll(async () => {
   await runtime?.close();
 });
 
-describe("pod Environments", { timeout: 90_000 }, () => {
+describe("pod Agents", { timeout: 90_000 }, () => {
   it("reports the cluster", async () => {
     const tenant = (await call("GET", "/v1/tenant/sandbox")).body;
     expect(tenant.cluster).toEqual({
@@ -154,10 +169,10 @@ describe("pod Environments", { timeout: 90_000 }, () => {
     const { name, view: created } = await createPod("join/one", { image: "node:24-slim", network: { allowedHosts: ["pypi.org"] } });
     expect(created).toMatchObject({
       kind: "pod",
-      manifest: { image: "node:24-slim", network: { allowedHosts: ["pypi.org"] } },
-      version: 1,
-      appliedVersion: 1,
-      pod: { desired: "running", volumeGeneration: 0 },
+      manifest: "join-one",
+      resolvedVersion: 1,
+      runtime: { image: "node:24-slim", network: { allowedHosts: ["pypi.org"] } },
+      compute: { state: "creating", pod: { desired: "running", volumeGeneration: 0 } },
     });
     const put = fake.calls.find((item) => item.method === "PUT" && item.name === name)!;
     expect(put.spec).toMatchObject({ mode: "Running", image: "node:24-slim", harnessImage: "nylorun-runtime:test", env: { NYLORUN_SANDBOX_ID: "join/one" } });
@@ -169,8 +184,8 @@ describe("pod Environments", { timeout: 90_000 }, () => {
     const first = await joinAs("join/one", name);
     expect(first.epoch).toBe(1);
     expect((await hosts.renew(first.hostToken)).epoch).toBe(1);
-    await until("observed running", () => view("join/one"), (body) => body.pod.observed === "running");
-    expect(await events("join/one")).toEqual(["environment.created", "environment.running"]);
+    await until("observed running", () => view("join/one"), (body) => body.compute.pod.observed === "running");
+    expect(await events("join/one")).toEqual(["agent.created", "agent.running"]);
 
     // Relaunch: a new pod on the same volume joins; the old pod's tokens stop working.
     const uid = fake.relaunch(name);
@@ -178,7 +193,7 @@ describe("pod Environments", { timeout: 90_000 }, () => {
     expect(second.epoch).toBe(2);
     await expect(hosts.renew(first.hostToken)).rejects.toMatchObject({ status: 401 });
     await expect(hosts.verify(first.hostToken)).rejects.toBeInstanceOf(HostAuthError);
-    expect((await events("join/one")).at(-1)).toBe("environment.relaunched");
+    expect((await events("join/one")).at(-1)).toBe("agent.relaunched");
   });
 
   it("runs a turn in the pod's engine, never in the Runtime's harness", async () => {
@@ -224,7 +239,7 @@ describe("pod Environments", { timeout: 90_000 }, () => {
     // With the pod gone, its workspace is unavailable rather than served elsewhere.
     const refused = await call("POST", "/v1/sessions/pod-s1/sandbox/read", { path: "from-pod.txt" });
     expect(refused.status).toBe(409);
-    expect(refused.body.code).toBe("environment_unavailable");
+    expect(refused.body.code).toBe("agent_unavailable");
   });
 
   it("runs two sessions' turns at once in one pod's engine, their commands side by side (D66)", async () => {
@@ -283,10 +298,11 @@ describe("pod Environments", { timeout: 90_000 }, () => {
     await joinAs("idle/one", name);
     const stopped = await call("POST", `${path("idle/one")}/stop`);
     expect(stopped.status).toBe(200);
-    expect(stopped.body.pod.desired).toBe("suspended");
-    await until("suspended", () => view("idle/one"), (body) => body.pod.observed === "suspended");
+    expect(stopped.body.compute.pod.desired).toBe("suspended");
+    await until("suspended", () => view("idle/one"), (body) => body.compute.pod.observed === "suspended");
+    expect((await view("idle/one")).compute.state).toBe("stopped");
     expect(fake.calls.filter((item) => item.name === name).at(-1)?.spec?.mode).toBe("Suspended");
-    expect(await events("idle/one")).toContain("environment.suspended");
+    expect(await events("idle/one")).toContain("agent.suspended");
     // The next turn start asks for Running again.
     expect((await open("idle-s1", "idle/one")).status).toBe(200);
     expect((await message("idle-s1")).status).toBe(200);
@@ -296,35 +312,42 @@ describe("pod Environments", { timeout: 90_000 }, () => {
 
     // Idle (the Tenant's limits.idle is 2 s): suspended with reason idle.
     const { name: other } = await createPod("idle/two");
-    await until("idle suspended", () => view("idle/two"), (body) => body.pod.desired === "suspended", 30_000);
+    await until("idle suspended", () => view("idle/two"), (body) => body.compute.pod.desired === "suspended", 30_000);
     const types = await events("idle/two");
-    expect(types).toContain("environment.suspended");
+    expect(types).toContain("agent.suspended");
     await until("pod gone", async () => fake.podUid(other), (uid) => uid === undefined);
   });
 
   it("never changes what a pod runs: a stop and the next start keep it", async () => {
     const { name } = await createPod("recipe/one", { storage: "5GiB" });
     await joinAs("recipe/one", name);
-    expect((await call("PUT", path("recipe/one"), { kind: "virtual" })).status).toBe(409);
-    const storage = await call("PUT", path("recipe/one"), { storage: "10GiB" });
-    expect(storage.status).toBe(409);
-    expect(storage.body).toMatchObject({ code: "environment_immutable", details: { fields: ["storage"] } });
-    expect((await call("PUT", path("recipe/one"), { storage: "5GiB" })).body.version).toBe(1);
-    // The Tenant's limits.idle (2s) is the most an Environment may ask for.
-    expect((await call("PUT", path("recipe/one"), { lifecycle: { idle: "1h" } })).status).toBe(400);
-    // Network and image are what it runs: refused, naming the fork.
-    for (const [field, change] of [
-      ["network", { network: { allowedHosts: ["pypi.org"] } }],
-      ["image", { image: "node:24-slim" }],
-    ] as const) {
-      const refused = await call("PUT", path("recipe/one"), change);
-      expect(refused.status, field).toBe(409);
-      expect(refused.body).toMatchObject({ code: "environment_immutable", details: { fields: [field] } });
-    }
+    // Another manifest is refused, naming the fork.
+    await saveManifest(runtime.url, headers, manifestOf(bot, { name: "recipe-virtual", runtime: { kind: "virtual" } }));
+    const other = await call("PUT", path("recipe/one"), { manifest: "recipe-virtual" });
+    expect(other.status).toBe(409);
+    expect(other.body).toMatchObject({ code: "agent_upgrade_unavailable", details: { manifest: "recipe-one@1" } });
+    expect(other.body.message).toContain("/fork");
+    // The Tenant's limits.idle (2s) is the most a manifest may ask for: refused at save.
+    expect((await save("recipe-one", { kind: "pod", storage: "5GiB", lifecycle: { idle: "1h" } })).status).toBe(400);
+    // A newer version (storage, network and image are what it runs) leaves the Agent on its own.
+    const newer = await save("recipe-one", {
+      kind: "pod",
+      storage: "10GiB",
+      image: "node:24-slim",
+      network: { allowedHosts: ["pypi.org"] },
+    });
+    expect(newer.status, JSON.stringify(newer.body)).toBe(200);
+    const pinned = await call("PUT", path("recipe/one"), { manifest: "recipe-one@2" });
+    expect(pinned.status).toBe(409);
+    expect(pinned.body).toMatchObject({ code: "agent_upgrade_unavailable", details: { manifest: "recipe-one@1", asked: "recipe-one@2" } });
+    expect((await call("PUT", path("recipe/one"), { manifest: "recipe-one" })).body).toMatchObject({
+      resolvedVersion: 1,
+      runtime: { storage: "5GiB" },
+    });
     const before = fake.calls.filter((item) => item.method === "PUT" && item.name === name).length;
     const image = fake.calls.filter((item) => item.method === "PUT" && item.name === name).at(-1)?.spec?.image;
     expect((await call("POST", `${path("recipe/one")}/stop`)).status).toBe(200);
-    await until("suspended", () => view("recipe/one"), (body) => body.pod.observed === "suspended");
+    await until("suspended", () => view("recipe/one"), (body) => body.compute.pod.observed === "suspended");
     // The next turn start runs it again, as it was.
     expect((await open("recipe-s1", "recipe/one")).status).toBe(200);
     expect((await message("recipe-s1")).status).toBe(200);
@@ -335,19 +358,20 @@ describe("pod Environments", { timeout: 90_000 }, () => {
     );
     const running = fake.calls.filter((item) => item.method === "PUT" && item.name === name).slice(before);
     expect(running.filter((item) => item.spec?.mode === "Running").every((item) => item.spec?.image === image)).toBe(true);
-    expect((await view("recipe/one")).version).toBe(1);
+    expect(await view("recipe/one")).toMatchObject({ resolvedVersion: 1, runtime: { storage: "5GiB" } });
     await call("POST", "/v1/sessions/recipe-s1/commands", { type: "cancel", requestId: "c-recipe", idempotencyKey: "c-recipe" });
     await settled("recipe-s1");
   });
 
   it("stops and resets only a pod: kinds virtual and none are a 400", async () => {
-    for (const kind of ["virtual", "none"]) {
+    for (const kind of ["virtual", "none"] as const) {
       const id = `kinds/${kind}`;
-      expect((await call("PUT", path(id), { kind })).status).toBe(200);
+      expect((await save(manifestName(id), { kind })).status).toBe(200);
+      expect((await call("PUT", path(id), { manifest: manifestName(id) })).status).toBe(200);
       for (const action of ["stop", "reset"]) {
         const refused = await call("POST", `${path(id)}/${action}`);
         expect(refused.status, `${kind} ${action}`).toBe(400);
-        expect(refused.body.message).toContain("only a pod Environment stops and resets");
+        expect(refused.body.message).toContain("only a pod Agent stops and resets");
       }
     }
   });
@@ -358,23 +382,24 @@ describe("pod Environments", { timeout: 90_000 }, () => {
     fake.losePvc(name);
     await reconcile("lost/one");
     const lost = await view("lost/one");
-    expect(lost.pod).toMatchObject({ observed: "lost", reason: "The Environment's volume is gone" });
-    expect(lost.pod.hostEpoch).toBeGreaterThan(joined.epoch);
-    expect(await events("lost/one")).toContain("environment.lost");
+    expect(lost.compute.pod).toMatchObject({ observed: "lost", reason: "The Agent's volume is gone" });
+    expect(lost.state).toBe("failing");
+    expect(lost.compute.pod.hostEpoch).toBeGreaterThan(joined.epoch);
+    expect(await events("lost/one")).toContain("agent.lost");
     await expect(hosts.renew(joined.hostToken)).rejects.toBeInstanceOf(HostAuthError);
     expect((await open("lost-s1", "lost/one")).status).toBe(200);
     const refused = await message("lost-s1");
-    expect(refused.body.code).toBe("environment_lost");
+    expect(refused.body.code).toBe("agent_lost");
 
     const reset = await call("POST", `${path("lost/one")}/reset`);
     expect(reset.status, JSON.stringify(reset.body)).toBe(200);
-    expect(reset.body.pod).toMatchObject({ volumeGeneration: 1, observed: "creating" });
+    expect(reset.body.compute.pod).toMatchObject({ volumeGeneration: 1, observed: "creating" });
     const next = podName(tenantId, "lost/one", 1);
     await until("new pod", async () => fake.podUid(next), (uid) => uid !== undefined);
     await until("old Sandbox deleted", async () => fake.sandboxes.has(name), (has) => !has);
     expect(fake.joinToken(next)).not.toBe(fake.joinToken(name));
-    expect((await events("lost/one")).at(-1)).toBe("environment.reset");
-    expect((await joinAs("lost/one", next)).epoch).toBeGreaterThan(lost.pod.hostEpoch);
+    expect((await events("lost/one")).at(-1)).toBe("agent.reset");
+    expect((await joinAs("lost/one", next)).epoch).toBeGreaterThan(lost.compute.pod.hostEpoch);
   });
 
   it("is lost when a pod joins from a replaced volume (a deleted claim recreated empty)", async () => {
@@ -388,8 +413,8 @@ describe("pod Environments", { timeout: 90_000 }, () => {
     // A pod on a new, empty volume does not.
     await expect(join(fake.relaunch(name), "vol-bbbb")).rejects.toMatchObject({ status: 401 });
     const lost = await view("lost/volume");
-    expect(lost.pod).toMatchObject({ observed: "lost", reason: "The sandbox's volume was replaced: its files are gone" });
-    expect(await events("lost/volume")).toContain("environment.lost");
+    expect(lost.compute.pod).toMatchObject({ observed: "lost", reason: "The sandbox's volume was replaced: its files are gone" });
+    expect(await events("lost/volume")).toContain("agent.lost");
     await expect(hosts.renew(same.hostToken)).rejects.toBeInstanceOf(HostAuthError);
     await until("the Sandbox is deleted", async () => fake.sandboxes.has(name), (has) => !has);
   });
@@ -399,7 +424,7 @@ describe("pod Environments", { timeout: 90_000 }, () => {
     expect((await call("DELETE", path("gone/one"))).body).toEqual({ id: "gone/one", deleted: true });
     expect((await call("GET", path("gone/one"))).status).toBe(404);
     await until("Sandbox deleted", async () => fake.sandboxes.has(name), (has) => !has);
-    await until("created again", () => call("PUT", path("gone/one"), { kind: "pod" }), (reply) => reply.status === 200);
+    await until("created again", () => call("PUT", path("gone/one"), { manifest: "gone-one" }), (reply) => reply.status === 200);
   });
 
   it("places sessions as the Tenant allows, and needs the sandboxes service up", async () => {
@@ -413,7 +438,7 @@ describe("pod Environments", { timeout: 90_000 }, () => {
     expect(
       (await call("PUT", "/v1/tenant/sandbox", { requestId: "p2", limits: { idle: "2s" }, placement: { "*": { hosts: ["sandbox"] } } })).status,
     ).toBe(200);
-    const plain = await call("PUT", "/v1/sessions/place-s2", { requestId: "open-place-s2", agentId: "bot", ownerUserId: "app:ada" });
+    const plain = await open("place-s2", "bot");
     expect(plain.body.code).toBe("placement_refused");
     expect((await open("place-s3", "place/one")).status).toBe(200);
     expect((await call("PUT", "/v1/tenant/sandbox", { requestId: "p3", limits: { idle: "2s" } })).status).toBe(200);
@@ -422,7 +447,7 @@ describe("pod Environments", { timeout: 90_000 }, () => {
       await new Promise((resolve) => setTimeout(resolve, 5_100)); // the readiness cache
       const down = await open("place-s4", "place/one");
       expect(down.status).toBe(409);
-      expect(down.body.code).toBe("environment_unavailable");
+      expect(down.body.code).toBe("agent_unavailable");
     } finally {
       fake.down = false;
     }

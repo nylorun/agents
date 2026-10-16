@@ -17,6 +17,7 @@ import {
   tenantHeaders,
 } from "./support.js";
 import { testPool } from "../support/store.js";
+import { manifestOf } from "../support/agents.js";
 
 it("close() ends open event streams instead of waiting for their clients", async () => {
   const root = await mkdtemp(join(tmpdir(), "nylorun-stream-shutdown-"));
@@ -33,12 +34,9 @@ it("close() ends open event streams instead of waiting for their clients", async
         (await fetch(`${rt.url}${path}`, { method: "PUT", headers, body: JSON.stringify(body) }))
           .status,
       ).toBe(200);
-    await put("/v1/agents/bot", {
-      requestId: "bot",
-      manifest: Agent({ id: "bot", name: "Bot" }).build().manifest,
-      implementationVersion: "dev",
-    });
-    await put("/v1/sessions/s1", { requestId: "s1", agentId: "bot", ownerUserId: "app:ann" });
+    await put("/v1/agent-manifests/bot", manifestOf(Agent({ id: "bot", name: "Bot" }).build()));
+    await put("/v1/agents/bot", { requestId: "bot", manifest: "bot" });
+    await put("/v1/sessions/s1", { requestId: "s1", agent: "bot", ownerUserId: "app:ann" });
     const stream = await fetch(`${rt.url}/v1/sessions/s1/events`, { headers });
     expect(stream.headers.get("content-type")).toBe("text/event-stream");
     const reader = stream.body!.getReader();

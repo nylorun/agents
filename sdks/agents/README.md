@@ -7,7 +7,7 @@ packages. A developer application's production tree should contain only this
 package and `@nylorun/core` from Nylorun. Vocabulary:
 [runtime/server/src/CONTEXT.md](../../runtime/server/src/CONTEXT.md).
 
-## Application entry: save your agents
+## Application entry: save your agents' manifests
 
 ```ts
 // src/main.ts
@@ -15,16 +15,24 @@ import { createClient } from "@nylorun/agents";
 import { agents } from "../agents/index.js";
 
 const client = await createClient();
-for (const agent of agents) await client.saveAgent(agent);
+for (const agent of agents) await client.agentManifests.save({ agent, runtime: { kind: "virtual" } });
+// An Agent per person, made from the manifest's latest version; sessions run on it.
+await client.agents.put(`users/${user.id}/support`, { manifest: "support", owner: user.id });
+const session = await client.createSession({
+  id: `support-${user.id}`, // ids are the app's: no session is special
+  agent: `users/${user.id}/support`,
+  ownerUserId: user.id,
+});
 ```
 
-The Runtime runs each agent entirely from its manifest and the files saved with it
-(skills), so a session needs nothing from your process. Your services are reached as tools: [HTTP
-tools](#http-tools) and remote MCP servers. `saveAgent` refuses, before sending anything, an
-agent with a tool that would run your code (`tool({ run })`) or a flow agent with a tool
-stage: make it an `http()` tool or serve it from a remote MCP server. `tool({ run })` still
-runs in the local engine (`@nylorun/harness/run`). `implementationVersion` defaults to
-`NYLORUN_IMPLEMENTATION_VERSION`, else `dev`.
+The Runtime runs each agent entirely from its saved **agent manifest** and the files saved with
+it (skills), so a session needs nothing from your process. Your services are reached as tools:
+[HTTP tools](#http-tools) and remote MCP servers. `agentManifests.save({ agent, runtime })` makes
+the manifest's harness section from the built agent, names it after the agent's id (or `name`)
+and puts the runtime section beside it ([Agent manifests and Agents](#agent-manifests-and-agents)).
+It refuses, before sending anything, an agent with a tool that would run your code
+(`tool({ run })`) or a flow agent with a tool stage: make it an `http()` tool or serve it from a
+remote MCP server. `tool({ run })` still runs in the local engine (`@nylorun/harness/run`).
 
 `createClient()` finds the Runtime through the two `NYLORUN_*` variables or the Project link
 that `npx nylorun start` writes; with neither, it fails with `connection_missing` and names
@@ -47,7 +55,7 @@ const refundOrder = http({
   output: z.object({ refundId: z.string() }), // optional
   url: "https://billing.example.com/refunds",
   method: "POST", // default; or GET, PUT, PATCH, DELETE
-  credential: "billing", // optional: the session's Environment holds a credential for this URL
+  credential: "billing", // optional: a runtime.secrets slot (bearer or headers) bound to this URL
   timeoutMs: 20_000, // default 60000, at most 300000
 });
 
@@ -122,10 +130,11 @@ rest) is never run twice by the Runtime: a crash fails it to the model as
 turn say, that is a new call with a new key: put a business key (an order or
 charge id) in the tool's input schema to refuse it too.
 
-`credential` works as for a remote MCP server: the vault of the session's
-Environment must hold a credential bound to the tool's exact URL (as written,
-`{field}` parameters included), else the call fails before it is sent
-(`http.credential`). A credential with `via` sends the call there instead, such
+`credential` works as for a remote MCP server: it names a `bearer` or `headers`
+slot of the manifest's runtime section bound to the tool's exact URL (as written,
+`{field}` parameters included; the Runtime checks it when the manifest is saved),
+and the vault of the session's Agent must hold a value for it, else the call fails
+before it is sent (`http.credential`). A credential with `via` sends the call there instead, such
 as a gateway, with the session owner in its identity header (a gateway has one
 URL, so a tool with `{field}` parameters fails with `http.credential`), and a `401` is `credential_rejected` to the model, not retried.
 Whether a call waits for a person is not the tool's to say: it is the Tenant's
@@ -171,7 +180,7 @@ decides, and a call no rule matches runs:
 - `allow`: it runs.
 
 Sandbox tools never cross the gate: their network side is egress policy. A
-manifest no longer sets `approval` (the Runtime and `saveAgent` refuse it); a
+manifest no longer sets `approval` (the Runtime and `agentManifests.save` refuse it); a
 session pinned to a manifest saved with `approval: "always"` keeps it, as an
 ask, until it ends.
 
@@ -215,16 +224,17 @@ const client = createClient({
   url: process.env.NYLORUN_RUNTIME_URL,
   key: process.env.NYLORUN_SERVER_KEY,
 });
-await client.saveAgent(assistant, { implementationVersion: "app-1" });
+await client.agentManifests.save({ agent: assistant });
+await client.agents.put("assistant", { manifest: "assistant" });
 const session = await client.createSession({
-  agentId: assistant.id,
+  agent: "assistant",
   ownerUserId: authenticatedUser.id,
 });
 await session.input("Look up item 123", { idempotencyKey: requestId });
 const history = await session.history();
 ```
 
-Every request sets `Nylorun-Protocol` (14) and no `Nylorun-Tenant`: the Runtime
+Every request sets `Nylorun-Protocol` (16) and no `Nylorun-Tenant`: the Runtime
 serves one Tenant. Before the first authenticated
 request, `Transport` fetches `/health` once, checks protocol compatibility, and
 throws `IncompatibleRuntimeError` / `incompatible_host` when the Host range or
@@ -242,7 +252,7 @@ const assistant = Agent({ id: "assistant", name: "Order assistant" })
   .skills("./assistant-skills");
 ```
 
-Each subdirectory under the catalog must contain a `SKILL.md` with YAML frontmatter (`name`, `description`) per [Agent Skills](https://agentskills.io/home). Every file of a skill's folder, binary included (not `.git/`, `node_modules/`, OS files like `.DS_Store`, or `.env` and `.env.*` files, which hold secrets), is part of the definition: the manifest names each one by path and SHA-256 (`skills.<name>.files`). A skill's files may hold together at most the Tenant's skill limit (`PUT /v1/tenant/skills`, default 2 GiB); no file and no count of files has a limit of its own, and an Environment's manifest may set a lower limit for its sessions (`limits.skills.totalBytes`; a session whose agent's skills do not fit is `409 environment_unsuitable`). `saveAgent` uploads the files the Runtime does not hold (`client.files`, `PUT /v1/files/sha256:<hex>`) before it puts the definition, which the Runtime refuses while it names a file it lacks (`400 definition_files_missing`) or a skill past the Tenant's limit (`413 limit_exceeded`). `read_skill_resource` reads files of up to 10 MiB into the model's context; a larger one is used in the sandbox.
+Each subdirectory under the catalog must contain a `SKILL.md` with YAML frontmatter (`name`, `description`) per [Agent Skills](https://agentskills.io/home). Every file of a skill's folder, binary included (not `.git/`, `node_modules/`, OS files like `.DS_Store`, or `.env` and `.env.*` files, which hold secrets), is part of the definition: the manifest names each one by path and SHA-256 (`skills.<name>.files`). A skill's files may hold together at most the Tenant's skill limit (`PUT /v1/tenant/skills`, default 2 GiB); no file and no count of files has a limit of its own, and a manifest's runtime section may set a lower limit for its Agents' sessions (`runtime.limits.skills.totalBytes`). Skills need a sandbox: the runtime section's kind is `virtual` or `pod`, which the Runtime checks when the manifest is saved. `agentManifests.save` uploads the files the Runtime does not hold (`client.files`, `PUT /v1/files/sha256:<hex>`) before it saves the manifest, which the Runtime refuses while it names a file it lacks (`400 definition_files_missing`) or a skill past the Tenant's limit (`413 limit_exceeded`). `read_skill_resource` reads files of up to 10 MiB into the model's context; a larger one is used in the sandbox.
 
 The Runtime serves the skills itself, with no call to your process. When our harness runs a turn, it adds the skill catalog to the instructions and two tools: `load_skill` returns a skill's `SKILL.md` body and the paths of its other files, and `read_skill_resource` returns a text file. A session with a sandbox also has each skill's files read-only under `/skills/<name>@<hash>/`, so the model can run a skill's scripts with `bash`.
 
@@ -262,71 +272,94 @@ Each key names a server; its `name` defaults to the key and, when given, must eq
 
 Set a server's tools one by one with `tools`, keyed by the server's own tool names, `"*"` for the rest: `{ "*": { enabled: false }, search_issues: { enabled: true }, create_issue: { enabled: true } }` is an allowlist (whether a call waits for a person is the [tool policy](#tool-policy)). When an agent's MCP tools would fill more than a tenth of the model's context window, the Runtime defers them: the model finds them with `tool_search` and runs them with `tool_call`. `deferred: true` or `false`, on a tool or on the server, decides instead.
 
-A manifest never carries a server's credential, and its `headers` hold no secret. You write a credential for the server's URL into an Environment (a token or a header map, or a gateway's key with `via` and an identity header for servers that need each person's sign-in, with `client.environments.secrets.put`), and sessions that name the Environment use it: [DEPLOYMENT.md](../../guides/DEPLOYMENT.md#mcp-servers-and-http-tools), which also shows `nylorun tenant mcp inspect` for listing a server's tools first. After `saveAgent`, `admin.coverage({ agentId, environmentId })` in `@nylorun/admin` says which credential each server and HTTP tool would get in that Environment ([Checking an agent's credentials](../../guides/DEPLOYMENT.md#checking-an-agents-credentials)). The model knows each tool as `server__tool`, with characters outside `[A-Za-z0-9_-]` replaced by `_`; a failed call reaches it with a code (`credential_rejected` on a `401`, `mcp.unreachable`, …), and a result past 32 KiB, or an image, becomes an artifact of the session that it reads with `read_artifact`.
+A manifest never carries a server's credential, and its `headers` hold no secret. A server may name the runtime section's secret slot it authenticates with (`credential`: a `bearer` or `headers` slot bound to its URL, checked when the manifest is saved), and you write the credential into each Agent's vault (a token or a header map, or a gateway's key with `via` and an identity header for servers that need each person's sign-in, with `client.agents.secrets.put`); the sessions on that Agent use it: [DEPLOYMENT.md](../../guides/DEPLOYMENT.md#mcp-servers-and-http-tools), which also shows `nylorun tenant mcp inspect` for listing a server's tools first. `admin.coverage({ agentId })` in `@nylorun/admin` says which credential each server and HTTP tool of an Agent's manifest version would get from its vault ([Checking an agent's credentials](../../guides/DEPLOYMENT.md#checking-an-agents-credentials)). The model knows each tool as `server__tool`, with characters outside `[A-Za-z0-9_-]` replaced by `_`; a failed call reaches it with a code (`credential_rejected` on a `401`, `mcp.unreachable`, …), and a result past 32 KiB, or an image, becomes an artifact of the session that it reads with `read_artifact`.
 
-A session runs in an **Environment**: one sandbox and one vault, with an id you choose, which outlives the sessions that name it (protocol 11). It is made from one version of an **environment manifest** or from inline fields, and never changes what it runs after that (protocol 14). The agent names no Environment, so the same agent runs in any Tenant; it may state what it needs (`.requires()`). Whether an Environment serves one session, one person or a project is your app's choice:
+## Agent manifests and Agents
 
-```ts
-import { environmentManifest } from "@nylorun/agents";
+An **agent manifest** (v8, protocol 16) is one named, versioned document with two sections: `harness`, what runs inside the agent loop (the harness's `id`, `instructions`, `tools`, `skills`, `mcpServers`, `plugins`, `outputSchema` and the harness's own `loop` settings; or a flow, `kind: "workflow"`), and `runtime`, what the Runtime provides around it (`kind`, `image`, `network`, `setup`, `files`, `limits`, `lifecycle` and its secret slots, `secrets`). The Runtime checks the two against each other when the manifest is saved and refuses every gap at once (`422 manifest_inconsistent`, `details.gaps`): a custom harness off a pod, a `credential` or a skill's `secrets` that is no declared slot of the right type, skills on a runtime without a sandbox. A manifest without `runtime` makes Agents of kind `none`.
 
-// A kind of Environment, saved like an agent: a named, versioned definition (or a JSON file with $schema).
-const analystBox = environmentManifest({
-  name: "analyst-box",
-  kind: "pod",
-  image: "python:3.13-slim",
-  network: { allowedHosts: ["pypi.org", "files.pythonhosted.org", "api.github.com"] },
-  setup: [{ command: "pip install pandas" }],
-  secrets: { GH_TOKEN: { type: "environment_secret", allowedHosts: ["api.github.com"], required: true } },
-});
-const plan = await client.environments.manifests.plan(analystBox); // changes, errors, warnings, Environments behind
-await client.environments.manifests.save(analystBox, { ifMatch: plan.from ?? 0 });
-
-// One per person or project, made from the manifest's latest version and pinned to it.
-await client.environments.put("users/alice/analyst", { manifest: "analyst-box", ownerUserId: "alice" });
-await client.environments.secrets.put("users/alice/analyst", "GH_TOKEN", { value: process.env.ALICE_GITHUB_TOKEN! });
-
-// Or from inline fields: get-or-create by id, write its secrets, open sessions on it.
-await client.environments.put("users/alice/web", {
-  kind: "virtual", // the default; "pod" for a container with its own volume, "none" for a vault without compute
-  network: { allowedHosts: ["pypi.org", "files.pythonhosted.org"] }, // no egress unless you list hosts
-  ownerUserId: "alice", // the owner guard: only alice's sessions may name it
-  labels: { team: "data" },
-  lifecycle: { deleteAfter: "30d" }, // deleted once unused this long
-});
-await client.environments.secrets.put("users/alice/web", "GH_TOKEN", {
-  type: "environment_secret",
-  value: process.env.ALICE_GITHUB_TOKEN!,
-  allowedHosts: ["api.github.com"],
-});
-const session = await client.createSession({ agentId: "analyst", ownerUserId: "alice", environment: "users/alice/web" });
-
-// One per session: created with the session (id `sessions/<session id>`), deleted by release().
-const { session: scratch, release } = await client.environments.forSession({
-  session: { agentId: "analyst", ownerUserId: "alice" },
-  recipe: { network: { allowedHosts: ["pypi.org"] } },
-});
-await release();
-```
-
-With a sandbox (kind `virtual` or `pod`), the model gets `bash`, `read`, `write`, `edit`, `grep` and `glob` on a persistent `/workspace`. These tools run in the Runtime, not in your process. A `virtual` Environment is an emulated shell in the Runtime's harness, which is not a VM boundary and takes no `image`; a `pod` runs `image` with its own volume (`storage`) once the Tenant has sandbox pods (`nylorun local sandbox enable`). Kind `none` has a vault and no sandbox, for agents that use only remote MCP servers and HTTP tools. A session that names no Environment has no sandbox and no credentials.
-
-An Environment never changes what it runs (protocol 14, its view's `manifest`): a `put` on an existing one may change its `labels` and owner guard, fields that match are accepted (so get-or-create stays one call), and anything else is `409 environment_immutable`. A save of a new manifest version changes no Environment: make a new one, which can start from the old one's disk (`from`). The Runtime checks what an Environment runs against the Tenant's limits (`GET`/`PUT /v1/tenant/sandbox`: a network ceiling, a resource maximum, the idle timeout; `/v1/tenant/artifacts` and `/v1/tenant/skills` for its `limits`) and answers `400` with every problem it finds. `lifecycle.idle` stops a pod after that long without a turn (at most the Tenant's); `lifecycle.deleteAfter` deletes the Environment, its vault and its files once nothing has used it that long. Private networks, loopback, the host and cloud metadata endpoints are always blocked.
-
-Secrets are write-only: `client.environments.secrets.put(id, name, secret)` creates or replaces one, and `list`, `get` and `delete` never return a value. An `environment_secret` (`{ value, allowedHosts, inject? }`) shows its name to commands as the sentinel `nylorun_managed`, and egress-gate sets its header on HTTPS requests to `allowedHosts` (pods only); an `environment_variable` (`{ value }`) is a plain variable; `bearer` (`{ url, value, via?, identity? }`) and `headers` (`{ url, headers, via?, identity? }`) are credentials for the MCP servers and HTTP tools at `url`. A second secret for one host, or a second credential for one URL, is `409 credential_conflict` at the write ([DEPLOYMENT.md](../../guides/DEPLOYMENT.md#credentials)). When what an Environment runs declares a secret's slot (a manifest's `secrets`), send only `{ value }` (or `{ headers }`): the type and binding come from the slot, and a name it does not declare is `409 secret_not_in_manifest`. An agent built with `.requires({ sandbox: "pod", secrets: ["GH_TOKEN"] })` opens a session only on an Environment that has them (`409 environment_unsuitable`). `saveAgent(agent, { dryRun: true })` checks a definition and saves nothing.
-
-Sessions on one Environment share its `/workspace` and run their turns at the same time (one turn per session); which sessions work on one disk, and when, is your app's call. Stop, reset, snapshot and restore wait until no turn runs (`409 environment_busy`). Deleting a session only detaches it. With `ownerUserId` set, a session of another owner is `403 environment_owner_mismatch` (a caller acting for a person gets the `404` of a missing Environment), checked when it opens and at every turn start. `client.environments.list({ labels })`, `page`, `get(id)`, `events(id, { types, since, until })` (its lifecycle, and `environment.egress` for every connection its sandbox opens, naming the turns that were running), `stop(id)`, `reset(id)` and `delete(id)` manage them, and `npx nylorun environments list | delete` does the same from the command line. Acting for a person (`app.as(...)`), changing an Environment or its secrets needs `environments:write`. A trusted issuer's token reaches only the Environments its issuer grants (the identity file's `environments` templates, exact ids or prefixes ending in `/*`), checked at every turn start. The Tenant holds at most `limits.environments` of them (`PUT /v1/tenant/sandbox`, default 100).
-
-A pod's disk can start prepared: `files` copies versions of Tenant-wide artifacts in, then `setup` runs its commands, once per new disk and before its first turn (a failed command fails the pod, and the next turn start runs the setup again). Between turns, `client.environments.snapshot(id)` keeps a version of the disk, `restore(id, version)` puts one back (a pod on a new volume seeded before its next turn), `put(newId, { from: { environment: id, version: "latest" } })` starts a new Environment from it, and `versions(id)` and `deleteVersion(id, n)` manage them ([DEPLOYMENT.md](../../guides/DEPLOYMENT.md#environments)):
+An **Agent** is the live instance of one version of a manifest: one environment of its runtime's kind, one vault, and the sessions that run on it, with an id you choose (`users/alice/triage`), which outlives them. It is made only from a saved manifest: `manifest: "triage"` tracks the manifest (its latest version when the Agent is made), `"triage@3"` pins version 3; either way it resolves the version once and keeps it. Every session runs on one Agent (`createSession({ agent })`), and no session is special: creating an Agent opens none, and the app picks session ids (D71). Whether an Agent serves one person or a project is your app's choice:
 
 ```ts
-await client.environments.put("projects/acme", {
-  kind: "pod",
-  files: [{ artifactId: repoTarball.artifactId, version: 1, path: "/workspace/app" }],
-  setup: [{ command: "npm ci", cwd: "/workspace/app", timeout: "15m" }],
-});
-const { version } = await client.environments.snapshot("projects/acme");
-await client.environments.put("projects/acme-try", { kind: "pod", from: { environment: "projects/acme", version } });
+// The manifest, from a built agent and the runtime section to run it in.
+const manifest = {
+  agent: analyst, // named after its id, "analyst"
+  runtime: {
+    kind: "pod" as const,
+    image: "python:3.13-slim",
+    network: { allowedHosts: ["pypi.org", "files.pythonhosted.org", "api.github.com"] },
+    setup: [{ command: "pip install pandas" }],
+    secrets: { GH_TOKEN: { type: "environment_secret" as const, allowedHosts: ["api.github.com"], required: true } },
+  },
+};
+const plan = await client.agentManifests.plan(manifest); // from → to, changes, warnings, errors, Agents behind
+await client.agentManifests.save(manifest, { ifMatch: plan.from ?? 0 }); // 412 manifest_changed if it moved
+
+// One per person: get-or-create by id, write its secrets, open sessions on it.
+await client.agents.put("users/alice/analyst", { manifest: "analyst", owner: "alice", labels: { team: "data" } });
+await client.agents.secrets.put("users/alice/analyst", "GH_TOKEN", { value: process.env.ALICE_GITHUB_TOKEN! });
+const session = await client.createSession({ id: "alice-q3", agent: "users/alice/analyst", ownerUserId: "alice" });
 ```
+
+`agentManifests.save(input, { ifMatch, requestId })` and `plan(input, { ifMatch })` (a dry run that saves nothing) take a v8 document, what `composeManifest` read, or `{ agent, runtime?, harness?, loop?, name?, description?, metadata? }`: the SDK makes the harness section from the built agent or flow (`harnessSectionOf`; `harness` is the harness's id) and names the manifest after the agent's id. First it uploads every file the manifest names by hash that the Runtime does not hold: the agent's skills, a flow's agents' skills, and the runtime's files (`runtimeFiles(path, contents)` hashes a `files` entry; pass its `bytes` as `files`). `If-Match` is the version you read (`0` for a new manifest). A save that changes nothing answers the latest version, `unchanged`. `get(name, version?)`, `list()`, `versions(name)` (with the Agents made from each) and `delete(name)` (refused while an Agent was made from it: `409 manifest_in_use`) read and remove them.
+
+### Three files: `composeManifest`
+
+A manifest can also be authored as files, so a runtime is shared by many agents and skills stay folders. `composeManifest(dir)` (Node only) reads `<dir>/agent.manifest.json` and the files it names, each path relative to the file that names it, and returns `{ manifest, files, gaps, warnings }`; `agentManifests.save` takes it as it is and uploads `files`. `npx nylorun apply <dir>` does the same from the command line.
+
+```jsonc
+// agents/triage/agent.manifest.json
+{ "manifestSchemaVersion": 8, "name": "triage", "harness": "./harness.manifest.json", "runtime": "../../shared/runtime.manifest.json" }
+
+// agents/triage/harness.manifest.json
+{
+  "instructions": ["Triage each new issue."],
+  "skills": "./skills",                      // each subfolder with a SKILL.md is a skill
+  "mcpServers": "./mcp.json",                // the Agent Plugins format
+  "plugins": ["../../plugins/github"],       // folded in as .plugin() folds it
+  "credentials": { "linear": "linear" },     // MCP server or HTTP tool → runtime.secrets slot
+  "requires": { "sandbox": "any", "secrets": ["GH_TOKEN"] } // checked here only
+}
+
+// shared/runtime.manifest.json
+{
+  "kind": "pod",
+  "files": [{ "path": "/workspace/kit", "from": "./kit" }], // a folder, uploaded by hash
+  "secrets": {
+    "GH_TOKEN": { "type": "environment_secret", "allowedHosts": ["api.github.com"] },
+    "linear": { "type": "bearer", "url": "https://mcp.linear.app/mcp" }
+  }
+}
+```
+
+```ts
+import { composeManifest, createClient } from "@nylorun/agents";
+
+const composed = await composeManifest("agents/triage");
+if (composed.gaps.length > 0) throw new Error(composed.gaps.join("\n"));
+await client.agentManifests.save(composed);
+```
+
+`gaps` names where the runtime misses the harness file's `requires` (`sandbox: "any"` needs kind `virtual` or `pod`, `"pod"` a pod; each of `secrets` a declared slot) and the gaps the Runtime would refuse it for (`sectionGaps`). `requires`, `credentials` and every `$schema` stay out of the document; a `credentials` name that is no server or HTTP tool, or a file that does not validate, throws `ComposeError`. JSON Schemas for editors: `@nylorun/core/schemas/agent-manifest.json`, `harness-manifest.json` and `runtime-manifest.json`.
+
+### Agents
+
+With a sandbox (kind `virtual` or `pod`), the model gets `bash`, `read`, `write`, `edit`, `grep` and `glob` on a persistent `/workspace`. These tools run in the Runtime, not in your process. A `virtual` Agent's environment is an emulated shell in the Runtime's harness, which is not a VM boundary and takes no `image`; a `pod` runs `image` with its own volume (`storage`) once the Tenant has sandbox pods (`nylorun local sandbox enable`). Kind `none` has a vault and no sandbox, for agents that use only remote MCP servers and HTTP tools.
+
+An Agent keeps the version it was made from: a `put` on an existing one may change its `labels` and `owner` guard, a manifest that names what it runs is accepted (so get-or-create stays one call), and any other manifest is `409 agent_upgrade_unavailable`. A save of a new version changes no Agent; `fork(id, { id: next, manifest? })` makes a new Agent from it (default the source's manifest, tracking), with the source's disk (`disk`: `latest`, a version, or `empty`) and the secrets the new manifest declares (`secrets: "none"` copies none), and `planFork` answers what a fork would do. The Runtime checks the runtime section against the Tenant's limits (`GET`/`PUT /v1/tenant/sandbox`: a network ceiling, a resource maximum, the idle timeout; `/v1/tenant/artifacts` and `/v1/tenant/skills` for its `limits`). `lifecycle.idle` stops a pod after that long without a turn (at most the Tenant's); `lifecycle.deleteAfter` deletes the Agent, its vault and its files once nothing has used it that long. Private networks, loopback, the host and cloud metadata endpoints are always blocked.
+
+Secrets are write-only: `client.agents.secrets.put(id, name, secret)` creates or replaces one, and `list`, `get` and `delete` never return a value. When the manifest declares the secret's slot (`runtime.secrets`), send only `{ value }` (or `{ headers }`): the type and binding come from the slot, and a name it does not declare is `409 secret_not_in_manifest`. Typed, an `environment_secret` (`{ value, allowedHosts, inject? }`) shows its name to commands as the sentinel `nylorun_managed`, and egress-gate sets its header on HTTPS requests to `allowedHosts` (pods only); an `environment_variable` (`{ value }`) is a plain variable; `bearer` (`{ url, value, via?, identity? }`) and `headers` (`{ url, headers, via?, identity? }`) are credentials for the MCP servers and HTTP tools at `url`. A second secret for one host, or a second credential for one URL, is `409 credential_conflict` at the write ([DEPLOYMENT.md](../../guides/DEPLOYMENT.md#credentials)).
+
+Sessions on one Agent share its `/workspace` and run their turns at the same time (one turn per session); which sessions work on one disk, and when, is your app's call. Stop, reset, snapshot and restore wait until no turn runs (`409 agent_busy`). Deleting a session only detaches it. With `owner` set, a session of another owner is `403 agent_owner_mismatch` (a caller acting for a person gets the `404` of a missing Agent), checked when it opens and at every turn start. An Agent's view says what it runs (`manifest`, `resolvedVersion`, `tracking`), its `state` (`working`, `sleeping`, `input_required`, `failing` or `paused`, `AGENT_STATES`) with the sessions behind it (`attention`), its compute (`compute.state`) and its slots. `client.agents.list({ labels, state, manifest })`, `page`, `get(id)`, `events(id, { types, since, until })` (its lifecycle, and `agent.egress` for every connection its sandbox opens, naming the turns that were running), `stop(id)`, `reset(id)` and `delete(id)` manage them, and `npx nylorun agents list | put | rm` does the same from the command line. Acting for a person (`app.as(...)`), changing an Agent or its secrets needs `agents:write`, and saving a manifest `agent-manifests:write`. A trusted issuer's token reaches only the Agents its issuer grants (the identity file's `agents` templates, exact ids or prefixes ending in `/*`), checked at every turn start. The Tenant holds at most `limits.environments` of them (`PUT /v1/tenant/sandbox`, default 100).
+
+A pod's disk can start prepared: the runtime's `files` are copied in (artifact versions, or files by hash), then `setup` runs its commands, once per new disk and before its first turn (a failed command fails the pod, and the next turn start runs the setup again). Between turns, `client.agents.snapshot(id)` keeps a version of the disk, `restore(id, version)` puts one back (a pod on a new volume seeded before its next turn), `put(newId, { manifest, from: { agent: id, version: "latest" } })` starts a new Agent from it, and `versions(id)` and `deleteVersion(id, n)` manage them ([DEPLOYMENT.md](../../guides/DEPLOYMENT.md#agents)):
+
+```ts
+const { version } = await client.agents.snapshot("projects/acme");
+await client.agents.put("projects/acme-try", { manifest: "acme", from: { agent: "projects/acme", version } });
+```
+
+## Subagents
 
 Add an agent with `.subagents()` to let the model delegate to it:
 
@@ -360,12 +393,13 @@ Delegate when the parent should keep the answer. When a specialist should own th
 ## Flow agents
 
 An agent's body is either a ReAct loop (the model decides) or a flow (its manifest
-decides). A flow agent is built from stages and is registered, saved and opened as a
-session like any agent: put it in `export const agents`, `saveAgent(flowAgent)`, then
-`createSession({ agentId })` and `session.input(value)`. `input` sends string values as
+decides). A flow agent is built from stages and is saved and run like any agent: put it in
+`export const agents`, `agentManifests.save({ agent: flowAgent, runtime })`, make an Agent from
+the manifest, then `createSession({ agent })` and `session.input(value)`. `input` sends string values as
 `content` and other JSON as `data`. On the wire a flow agent is a workflow manifest v3
 (`kind: "workflow"`, `workflowSchemaVersion: 3`) that embeds the agents it runs, so one
 document and one manifest hash cover the whole flow; its agents are not listed on their own.
+In an agent manifest it is the harness section, `harness.kind: "workflow"`.
 
 A flow passes data between its stages itself: the first stage gets the flow's input, and
 every later stage gets the previous stage's output. So each agent returns, through its
@@ -435,7 +469,7 @@ object); a mismatch the build can see, such as an agent with no `.output()` befo
 is refused (`flow.input-mismatch`), and any other fails the stage when it runs
 (`tool.invalid-input`). The Runtime makes the request as for an agent's HTTP tool, with
 `Nylorun-Agent-Id` set to the flow agent's id and `credential` taken from the
-vault of the flow session's Environment; its answer is the next stage's input. A failure status, a timeout or
+vault of the flow session's Agent; its answer is the next stage's input. A failure status, a timeout or
 an answer that does not match `output` fails the stage with its code (`http.status`,
 `http.timeout`, `tool.invalid-output`, …). A Loop body that starts with an HTTP stage
 is retried with the Loop's input, not the feedback.
@@ -479,13 +513,12 @@ nested flow agent's id in front of its own agents'. Control stages add nothing, 
 wrapping a step in `.loop()` or moving it between cases keeps its session. An agent
 may appear once per flow; use it again under a new id with `writer.withId("final-writer")`
 (`flow.duplicate-leaf`). A code tool stage (`.pipe(tool({ run }))`) runs only in the local
-engine: the Runtime runs flows from their manifests alone, so `saveAgent` refuses a flow
-agent with one. Use an HTTP stage instead.
+engine: the Runtime runs flows from their manifests alone, so `agentManifests.save` refuses a
+flow agent with one. Use an HTTP stage instead.
 
-The agents in a flow share one Environment: open the flow's session on it,
-`createSession({ …, environment: id })`, and every linked session in the flow
-inherits it; turns within one flow do not block each other. Other sessions share
-it by naming the same id (see `client.environments`). Call the sandbox
+A flow runs on its Agent: every linked session in the flow runs on the Agent the flow's
+session runs on, with its sandbox and vault; turns within one flow do not block each other.
+Other sessions on the same Agent share its sandbox. Call the sandbox
 built-ins via `session.sandbox` (application).
 Observe with `session.observe({ follow: true })` to merge linked agent streams;
 `pending()` lists waits across the tree. Studio renders the manifest tree and
@@ -498,9 +531,8 @@ workflow Loop): [runtime/harness/src/CONTEXT.md](../../runtime/harness/src/CONTE
 Use `session.observe({ cursor, signal })` for resumable canonical events, `session.inspect()` for waiting/uncertain state, and `approve`, `respond`, or `cancel` with an explicit stable idempotency key. Retry the same semantic command with the same key. `ownerUserId` must come from trusted server authentication. Application credentials are not browser credentials; browser applications need an authorized backend. Definition authoring is browser-bundleable.
 
 Connection defaults follow `resolveConnection` (options → environment → Project
-link). Implementation version defaults from `NYLORUN_IMPLEMENTATION_VERSION`,
-then `dev`. Agents do not hash the manifest; the Runtime pins the digest of the
-definition a session opens with. Model selection and model credentials belong to
+link). Agents do not hash the manifest; a session pins the manifest version its Agent runs
+when it opens, and the digest of the loop manifest made from it. Model selection and model credentials belong to
 the Tenant.
 
 The Runtime sends a lost MCP or HTTP tool call again with the same key, then fails it to the
@@ -514,8 +546,9 @@ local execution is available through `@nylorun/harness/run`.
 
 The Runtime serves the Tenant's agents to any [AG-UI](https://docs.ag-ui.com)
 client (`@ag-ui/client`'s `HttpAgent`, CopilotKit, a desktop renderer) at
-`/v1/ag-ui/agents/{agentId}` (optional feature `ag-ui-endpoint`). Each AG-UI
-thread is one session per person, agent and thread. There are two ways in:
+`/v1/ag-ui/agents/{agentId}` (optional feature `ag-ui-endpoint`), where `agentId` is an
+Agent's id (`client.agents`). Each AG-UI thread is one session per person, Agent and thread,
+on that Agent. There are two ways in:
 
 - **From your own server**, with `@nylorun/agents/ag-ui` (below): your server
   signs people in and the handler forwards each request to the Runtime acting
@@ -535,7 +568,7 @@ import support from "./agents/support.js";
 
 const agui = createAgUiHandler({
   basePath: "/api/agui",
-  agents: [support], // nothing else is reachable
+  agents: ["support"], // Agent ids: nothing else is reachable
   subject: async (request) => (await getSignedInUser(request))?.id, // undefined → 401
 });
 
@@ -552,9 +585,10 @@ createServer(toNodeListener(agui)).listen(3000);
 
 `run`, `history`, `reattach` and `cancel` are also on the handler for your own
 routing. The default `client` is `createClient()`; pass `client` to use another
-one, and `session(subject, agentId)` to add the person's `environment` (their
-Environment's id: its sandbox and its vault's credentials) or `info`. They apply when the thread's session is
-created, on its first run; later runs keep them. Whatever the browser sends in
+one, and `session(subject, agentId)` to add the session's `info`. It applies when the thread's
+session is created, on its first run; later runs keep it. The session runs on the Agent the path
+names, with its sandbox and its vault's credentials: to give each person their own keys, serve
+each person's Agent (`users/<id>/support`) and route to it. Whatever the browser sends in
 `forwardedProps.nylorun` is replaced.
 
 - Each AG-UI message id is the command's idempotency key: a retried run replays
@@ -588,7 +622,7 @@ never with a key.
 
 ## A2A
 
-`@nylorun/agents/a2a` serves the Tenant's agents to other agents over
+`@nylorun/agents/a2a` serves the Tenant's Agents to other agents over
 [A2A](https://a2a-protocol.org) 1.0 (JSON-RPC) from your own server: the
 gateway. Your server authenticates each partner and names the subject its tasks
 belong to. The handler forwards each request to the Runtime, which speaks A2A,
@@ -597,11 +631,9 @@ so the handler loads no A2A package and parses no message.
 ```ts
 import { createServer } from "node:http";
 import { createA2aHandler, toNodeListener } from "@nylorun/agents/a2a";
-import support from "./agents/support.js";
-
 const a2a = createA2aHandler({
   basePath: "/a2a",
-  agents: [support], // nothing else is reachable
+  agents: ["support"], // Agent ids: nothing else is reachable
   // undefined → 401; return { subject, agents } to give a partner fewer agents
   subject: (request) => partnerFor(request.headers.get("x-partner-key"))?.subject,
   publicUrl: "https://api.example.com/a2a", // for the card; default: the request's origin
@@ -628,7 +660,7 @@ What the Runtime answers (Host feature `a2a-endpoint`):
   for input, for at most 5 minutes (then it returns `WORKING`); with
   `configuration.returnImmediately` it returns at once and the partner polls
   `GetTask`. `CancelTask` works on a running task.
-- A `contextId` is one session per partner, agent and context; a task is one
+- A `contextId` is one session per partner, Agent and context, on that Agent; a task is one
   turn. A message without `taskId` starts a task (one at a time per context).
   A question from the agent pauses the task as `TASK_STATE_INPUT_REQUIRED`
   with the question as the status message; the partner answers with a message
@@ -675,7 +707,7 @@ A session with a sandbox gives the agent `save_artifact`, which saves a file it
 made as an artifact of the session; each new artifact or version appears in the
 session's events as `artifact.created` or `artifact.version.created`. The Tenant's
 limits (`PUT /v1/tenant/artifacts`: 100 MiB per file and 10 GiB in all by default),
-and those an Environment's manifest sets for its sessions' artifacts (`limits.artifacts`,
+and those a manifest's runtime section sets for its Agents' artifacts (`runtime.limits.artifacts`,
 at most the Tenant's), refuse a larger upload with `413 limit_exceeded`, and nothing
 is stored. Acting for
 a person (`as()`, or a trusted issuer's token), a client reaches only the artifacts of that
@@ -739,7 +771,7 @@ const app = await createClient(); // the application key, on the server only
 
 // Per request, after your own sign-in:
 const person = app.as(`app:${user.id}`, { scopes: ["sessions:own"] });
-await person.createSession({ agentId: "support", ownerUserId: `app:${user.id}` });
+await person.createSession({ agent: `users/${user.id}/support`, ownerUserId: `app:${user.id}` });
 await person.listSessions(); // only this person's sessions
 ```
 
@@ -753,16 +785,15 @@ compatibility check, so calling `as()` per request is cheap.
 | Scope | Allows |
 | --- | --- |
 | `sessions:own` | The person's own sessions: create, list, read, stream, message, approve, respond, cancel; and their artifacts |
-| `agents:read` | Listing the Tenant's agents |
-| `agents:write` | Saving agents; listing agents |
-| `environments:write` | Creating, changing, stopping, resetting and deleting Environments, and writing their secrets (reading them takes `sessions:own` or this) |
+| `agents:read` | Reading the Tenant's agent manifests and Agents |
+| `agents:write` | Creating, changing, stopping, resetting and deleting Agents, and writing their secrets (reading them takes `sessions:own` or this) |
+| `agent-manifests:write` | Saving and deleting agent manifests |
 
 No scope reaches the sandbox tool routes; call them without `as()`. `tenant:settings` is retired (protocol 8): it grants
 nothing, and no subject reaches the Management API (`/v1/tenant/*`).
-`sandboxes:write` (protocol 10) is refused with a message naming
-`environments:write`. Credentials live in Environments: the server writes a
-person's own keys into their Environment (with `ownerUserId` set to them) and
-names it when it opens their sessions
+`environments:write` is refused with a message naming `agents:write` (protocol 16).
+Credentials live in Agents' vaults: the server writes a person's own keys into
+their Agent (made with `owner` set to them) and opens their sessions on it
 ([DEPLOYMENT.md](../../guides/DEPLOYMENT.md#credentials)). A subject is 1–200 visible ASCII
 characters (spaces only inside) and `host` is reserved. Your server must drop
 any `Nylorun-*` header its own clients send, and only an application key can act
@@ -780,7 +811,7 @@ and revoking them is management: `admin.signingKeys.list()`, `.rotate()`
 A web page or an app calls the Runtime directly with the JWT your identity
 provider gave the person: list the provider in the Runtime's identity file
 ([Trusted issuers](../../guides/DEPLOYMENT.md#trusted-issuers)), and the Runtime takes the
-token's subject, scopes, agents and Environment grants from it. Nylorun mints no
+token's subject, scopes and Agent grants from it. Nylorun mints no
 token and ships no browser client: use your provider's SDK for sign-in and send
 the token as `Authorization: Bearer <token>` with `Nylorun-Protocol`, through a
 reverse proxy that answers CORS (the Runtime sends no CORS headers). An expired

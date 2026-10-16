@@ -363,8 +363,8 @@ describe("egress-gate", () => {
   });
 });
 
-/** A pod Environment `id` the gate's sandbox reads allow `allow` for, as its record holds it. */
-async function podEnvironment(id: string, allow: string[]): Promise<void> {
+/** A pod Agent `id` the gate's sandbox reads allow `allow` for, as its record holds it. */
+async function podAgent(id: string, allow: string[]): Promise<void> {
   const now = new Date().toISOString();
   const recipe = { harness: "nylorun", lifecycle: {}, network: { allowedHosts: allow } };
   await runs.store.tx((t) =>
@@ -380,6 +380,11 @@ async function podEnvironment(id: string, allow: string[]): Promise<void> {
         lastUsedAt: now,
         createdAt: now,
         updatedAt: now,
+        manifestName: "bot",
+        manifestVersion: 1,
+        manifestRef: "tracking",
+        manifestHash: "sha256:test",
+        desiredState: "on",
         pod: { k8sName: `${id}-g0`, volumeGen: 0, desired: "running", observed: "running", podUid: "pod-1", hostEpoch: 1, rev: 1 },
       },
       100,
@@ -388,16 +393,16 @@ async function podEnvironment(id: string, allow: string[]): Promise<void> {
   sandboxes.set(id, { epoch: 1, allow });
 }
 
-/** Session `id` on Environment `environmentId`, its turn `turnId` holding it (or none). */
-async function sessionOn(id: string, environmentId: string, turnId: string | null): Promise<void> {
+/** Session `id` on Agent `agentId`, its turn `turnId` holding it (or none). */
+async function sessionOn(id: string, agentId: string, turnId: string | null): Promise<void> {
   await runs.store.tx((t) =>
     t.put("sessions", id, {
       id,
-      agentId: "bot",
+      agentId,
       ownerUserId: "user-1",
       status: turnId ? "running" : "idle",
       activeTurnId: turnId,
-      environmentId,
+      environmentId: agentId,
     }),
   );
 }
@@ -439,13 +444,13 @@ async function sessionRows(): Promise<{ sessionId: string; body: Record<string, 
   return [...rows.values()].flat().map((row) => ({ sessionId: row.sessionId, body: row.body as Record<string, any> }));
 }
 
-/** The `environment.egress` events on Environment `id`'s stream. */
+/** The `agent.egress` events on Agent `id`'s stream. */
 const egressOf = async (id: string) =>
-  (await runs.store.tx((t) => t.environmentEvents(id, { types: ["environment.egress"] }))) as Record<string, any>[];
+  (await runs.store.tx((t) => t.agentEvents(id, { types: ["agent.egress"] }))) as Record<string, any>[];
 
 describe("egress-gate events (R7.3, D67)", () => {
-  it("records one environment.egress per tunnel, naming the turns that ran when it opened", async () => {
-    await podEnvironment("egress-held", ["allowed.test"]);
+  it("records one agent.egress per tunnel, naming the turns that ran when it opened", async () => {
+    await podAgent("egress-held", ["allowed.test"]);
     await sessionOn("egress-held-s", "egress-held", "turn-1");
     await sessionOn("egress-held-t", "egress-held", "turn-9");
     await sessionOn("egress-held-u", "egress-held", null);
@@ -469,10 +474,10 @@ describe("egress-gate events (R7.3, D67)", () => {
     expect(events).toHaveLength(1);
     const [event] = events;
     expect(event).toMatchObject({
-      type: "environment.egress",
-      environmentId: "egress-held",
+      type: "agent.egress",
+      agentId: "egress-held",
       payload: {
-        environmentId: "egress-held",
+        agentId: "egress-held",
         host: "allowed.test",
         port: 443,
         outcome: "allowed",
@@ -495,7 +500,7 @@ describe("egress-gate events (R7.3, D67)", () => {
   });
 
   it("records a refusal at once with its reason and status, and a bad token not at all", async () => {
-    await podEnvironment("egress-refused", ["allowed.test", "private.test"]);
+    await podAgent("egress-refused", ["allowed.test", "private.test"]);
     await sessionOn("egress-refused-s", "egress-refused", "turn-1");
     const proxy = await gate({ record: record() });
     writes = 0;
@@ -503,7 +508,7 @@ describe("egress-gate events (R7.3, D67)", () => {
     expect((await tunnel(proxy, "other.test:443", basic(raw))).status).toBe(403);
     expect((await tunnel(proxy, "allowed.test:22", basic(raw))).status).toBe(403);
     expect((await tunnel(proxy, "private.test:443", basic(raw))).status).toBe(403);
-    // Before the Environment is known: a log line only.
+    // Before the Agent is known: a log line only.
     expect((await tunnel(proxy, "allowed.test:443", basic("not-a-token"))).status).toBe(407);
     await until(() => writes === 3);
     await new Promise((resolve) => setTimeout(resolve, 100));
@@ -529,7 +534,7 @@ describe("egress-gate events (R7.3, D67)", () => {
   });
 
   it("records traffic while no turn runs with no running turns", async () => {
-    await podEnvironment("egress-idle", ["allowed.test"]);
+    await podAgent("egress-idle", ["allowed.test"]);
     await sessionOn("egress-idle-s", "egress-idle", null);
     const proxy = await gate({ record: record() });
     writes = 0;
@@ -540,14 +545,14 @@ describe("egress-gate events (R7.3, D67)", () => {
     const events = await egressOf("egress-idle");
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({
-      type: "environment.egress",
-      environmentId: "egress-idle",
-      payload: { environmentId: "egress-idle", host: "allowed.test", port: 80, outcome: "allowed", bytesUp: 1, bytesDown: 1, runningTurns: [] },
+      type: "agent.egress",
+      agentId: "egress-idle",
+      payload: { agentId: "egress-idle", host: "allowed.test", port: 80, outcome: "allowed", bytesUp: 1, bytesDown: 1, runningTurns: [] },
     });
   });
 
   it("names at most 16 running turns", async () => {
-    await podEnvironment("egress-many", ["allowed.test"]);
+    await podAgent("egress-many", ["allowed.test"]);
     for (let i = 0; i < 20; i += 1) await sessionOn(`egress-many-${String(i).padStart(2, "0")}`, "egress-many", `turn-${i}`);
     const turns = await storeEgressRecord(runs.store).runningTurns("egress-many");
     expect(turns).toHaveLength(16);
@@ -555,7 +560,7 @@ describe("egress-gate events (R7.3, D67)", () => {
   });
 
   it("never records a header value, a path or a body", async () => {
-    await podEnvironment("egress-scan", ["allowed.test"]);
+    await podAgent("egress-scan", ["allowed.test"]);
     await sessionOn("egress-scan-s", "egress-scan", "turn-1");
     const proxy = await gate({ record: record() });
     writes = 0;
@@ -568,15 +573,15 @@ describe("egress-gate events (R7.3, D67)", () => {
     await until(() => writes === 2);
     const rows = JSON.stringify([
       ...(await sessionRows()).map((row) => row.body),
-      ...(await runs.store.tx((t) => t.environmentEvents("egress-scan"))),
+      ...(await runs.store.tx((t) => t.agentEvents("egress-scan"))),
     ]);
-    expect(rows).toContain("environment.egress");
+    expect(rows).toContain("agent.egress");
     for (const secret of [raw, basic(raw), "header-value-1", "/secret/path", "body-bytes", "Authorization", "nylo:"])
       expect(rows).not.toContain(secret);
   });
 
   it("logs a failed write and keeps the tunnel", async () => {
-    await podEnvironment("egress-failing", ["allowed.test"]);
+    await podAgent("egress-failing", ["allowed.test"]);
     const proxy = await gate({
       record: {
         runningTurns: async () => [],
@@ -597,7 +602,7 @@ describe("egress-gate events (R7.3, D67)", () => {
 });
 
 describe("egress-gate helpers", () => {
-  it("reads a pod Environment's host epoch, pod and applied allowlist; nothing once deleted or lost", async () => {
+  it("reads a pod Agent's host epoch, pod and applied allowlist; nothing once deleted or lost", async () => {
     const now = new Date().toISOString();
     const pod = (patch: Partial<SandboxPodState> = {}): SandboxPodState => ({
       k8sName: "sbx-x-g0",
@@ -631,6 +636,11 @@ describe("egress-gate helpers", () => {
       lastUsedAt: now,
       createdAt: now,
       updatedAt: now,
+      manifestName: "bot",
+      manifestVersion: 1,
+      manifestRef: "tracking",
+      manifestHash: "sha256:test",
+      desiredState: "on",
       ...(state ? { pod: state } : {}),
     });
     await runs.store.tx(async (t) => {

@@ -129,7 +129,7 @@ export function fileRoutes(api: OpenAPIHono<TenantEnv>): void {
       tags: ["Tenant"],
       summary: "Set the Tenant's skill limit",
       description:
-        "The most bytes one skill's files may hold together, for every agent the Tenant stores and every Environment, whose manifest may set a lower one (`limits.skills`). Unset, the limit takes the default (2 GiB). Agents already stored keep their skills; a session opens only while its agent's skills fit.",
+        "The most bytes one skill's files may hold together, for every agent manifest the Tenant stores, whose runtime section may set a lower one (`limits.skills`). Unset, the limit takes the default (2 GiB). Manifests already saved keep their skills; a session opens only while its Agent's skills fit.",
       request: {
         body: { required: true, content: { "application/json": { schema: PutTenantSkillsRequest } } },
       },

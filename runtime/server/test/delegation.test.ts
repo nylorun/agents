@@ -9,6 +9,8 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { Agent } from "@nylorun/core/define";
 import type { HostEffect } from "@nylorun/harness/run";
 import { startTestTenant } from "./support/tenant.js";
+import { deploy, openSession, type AgentSource } from "./support/agents.js";
+import type { RuntimeSection } from "@nylorun/core/contracts";
 import { startToolServer, type ToolHandler, type ToolServer } from "./support/tool-server.js";
 
 const APP = "server-token-value-aaaaaaaa";
@@ -127,37 +129,14 @@ async function boot(
 async function start(
   runtime: { url: string },
   manifest: unknown,
-  /** The recipe of an Environment the session names, created first; none without one. */
-  environment?: Record<string, unknown>
+  /** The runtime section of the Agent the session runs on; none (kind `none`) without one. */
+  runtimeSection?: RuntimeSection
 ) {
-  const put = await fetch(`${runtime.url}/v1/agents/bot`, {
-    method: "PUT",
-    headers: serverHeaders,
-    body: JSON.stringify({
-      requestId: "put-agent",
-      manifest,
-      implementationVersion: "dev",
-    }),
+  await deploy(runtime.url, serverHeaders, manifest as AgentSource, {
+    id: "env-s1",
+    ...(runtimeSection ? { runtime: runtimeSection } : {}),
   });
-  expect(put.ok, await put.clone().text()).toBe(true);
-  if (environment) {
-    const created = await fetch(`${runtime.url}/v1/environments/env-s1`, {
-      method: "PUT",
-      headers: serverHeaders,
-      body: JSON.stringify({ requestId: "environment", ...environment }),
-    });
-    expect(created.ok, await created.clone().text()).toBe(true);
-  }
-  const session = await fetch(`${runtime.url}/v1/sessions/s1`, {
-    method: "PUT",
-    headers: serverHeaders,
-    body: JSON.stringify({
-      requestId: "session",
-      agentId: "bot",
-      ownerUserId: "ada",
-      ...(environment ? { environment: "env-s1" } : {}),
-    }),
-  });
+  const session = await openSession(runtime.url, serverHeaders, "s1", { agent: "env-s1", ownerUserId: "ada" });
   expect(session.ok, await session.clone().text()).toBe(true);
   const message = await fetch(`${runtime.url}/v1/sessions/s1/commands`, {
     method: "POST",
@@ -290,7 +269,7 @@ it("gives an agent used as a tool its own MCP servers and the session's sandbox"
         local: { name: "local", type: "streamable-http", url: server.url },
       });
     const bot = Agent({ id: "bot", tools: [coder] }).build();
-    // The session names an Environment with a sandbox; the agent it uses as a tool shares it.
+    // The session runs on an Agent with a sandbox; the agent it uses as a tool shares it.
     await start(runtime, bot.manifest, { kind: "virtual" });
     const done = await until(runtime, ["completed", "failed", "uncertain"]);
     expect(done.status).toBe("completed");

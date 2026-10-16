@@ -76,7 +76,7 @@ import type { TenantEnv } from "../app.js";
 import { readJson } from "../body.js";
 import { pathSegments, tenantRoute, type RouteAccess } from "../define.js";
 import { jsonResponse } from "../respond.js";
-import { rearmPodTimers } from "../../../tenant/environments.js";
+import { rearmPodTimers } from "../../../tenant/agents.js";
 import { hostTuning } from "../../../tuning.js";
 import { budgetIssues, toolPolicyIssues } from "../../../tenant/limits.js";
 
@@ -102,7 +102,7 @@ const body = (schema: z.ZodType) => ({
 
 const budgetRow = (budget: ModelBudget, updatedAt: string): ModelBudgetRow => ({
   scope: budget.scope,
-  scopeId: budget.scope === "agent" ? budget.id! : "*",
+  scopeId: budget.scope === "manifest" ? budget.id! : "*",
   period: budget.period ?? null,
   limitUsd: budget.limitUsd ?? null,
   limitTokens: budget.limitTokens ?? null,
@@ -111,7 +111,7 @@ const budgetRow = (budget: ModelBudget, updatedAt: string): ModelBudgetRow => ({
 
 const budgetView = (row: ModelBudgetRow): ModelBudget => ({
   scope: row.scope,
-  ...(row.scope === "agent" ? { id: row.scopeId } : {}),
+  ...(row.scope === "manifest" ? { id: row.scopeId } : {}),
   ...(row.period ? { period: row.period } : {}),
   ...(row.limitUsd !== null ? { limitUsd: row.limitUsd } : {}),
   ...(row.limitTokens !== null ? { limitTokens: row.limitTokens } : {}),
@@ -195,7 +195,7 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
       tags: ["Tenant"],
       summary: "Reset the Tenant",
       description:
-        "Deletes its sessions, its Environments (with their vaults), or both, after draining or cancelling the turns in progress. The Tenant stays open.",
+        "Deletes its sessions, its Agents (with their vaults), or both, after draining or cancelling the turns in progress. The Tenant stays open.",
       request: { body: body(ResetTenantRequest) },
       responses: { 200: json(ResetTenantResponse, "Reset") },
     },
@@ -205,7 +205,7 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
       await drain(ctx, request.activeWork, hostTuning().tenant.drainTimeoutMs);
       // A sessions reset moves the Tenant to a new basin generation, so a session created
       // again with the same id, during or after the reset, starts in an empty basin at 0.
-      const sessionsReset = request.scope !== "environments";
+      const sessionsReset = request.scope !== "agents";
       await resetTenant(
         {
           store: ctx.store,
@@ -339,7 +339,7 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
       method: "get",
       path: "/v1/tenant/sandbox",
       tags: ["Tenant"],
-      summary: "Get the Tenant's sandbox backend and Environment settings",
+      summary: "Get the Tenant's sandbox backend and Agent compute settings",
       responses: { 200: json(TenantSandboxView, "The backend in use and the configuration in force") },
     },
     async (c) => jsonResponse(200, await sandboxView(c.env.tenant)),
@@ -352,9 +352,9 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
       method: "put",
       path: "/v1/tenant/sandbox",
       tags: ["Tenant"],
-      summary: "Set the Tenant's Environment settings",
+      summary: "Set the Tenant's Agent compute settings",
       description:
-        "The limits every Environment's recipe must fit, the pods' stop grace and where harnesses may run (Tenant setting `environments.config`).",
+        "The limits every Agent's runtime must fit, the pods' stop grace and where harnesses may run (Tenant setting `environments.config`).",
       request: { body: body(PutTenantEnvironmentsRequest) },
       responses: { 200: json(TenantSandboxView, "The configuration now in force") },
     },

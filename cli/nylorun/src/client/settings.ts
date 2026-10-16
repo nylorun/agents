@@ -19,21 +19,22 @@ import { printJson, printTable, readBody, type BodySchema } from "./io.js";
 import { connect, managementClient } from "./target.js";
 
 export const settingsUsage = `  budgets [get | put <file|->] [--tenant <name>]
-                                      the model spend caps; put replaces them all
+                                      the model spend caps (scope tenant, manifest with id an
+                                      agent manifest's name, or turn); put replaces them all
   tool-policy [get | put <file|->] [--tenant <name>]
                                       the Tool Gate's rules; put replaces them all
   settings sandbox [get | put <file|->] [--tenant <name>]
-                                      the Environment settings: limits, stop grace, placement
+                                      the Agents' environments: limits, stop grace, placement
   settings artifacts [get | put <file|->] [--tenant <name>]
                                       the artifact store's limits
   settings skills [get | put <file|->] [--tenant <name>]
                                       the most bytes one skill may hold
   settings limits [get | put <file|->] [--tenant <name>]
                                       the Runtime limits: sizes, counts and deadlines (record
-                                      entries, request bodies, Environments, model calls, tools)
-  coverage --agent <id> [--environment <id>] [--tenant <name>] [--json]
-                                      which secret of the Environment each of the agent's MCP
-                                      servers and HTTP tools would get`;
+                                      entries, request bodies, Agents, model calls, tools)
+  coverage --agent <id> [--tenant <name>] [--json]
+                                      which secret of Agent <id>'s vault each MCP server and
+                                      HTTP tool of its manifest would get`;
 
 const usageError = (message = `Usage:\n${settingsUsage}`) => new CliError(message, 2);
 
@@ -122,35 +123,28 @@ export async function settingsCommand(deps: StackDeps, args: readonly string[]):
   throw usageError();
 }
 
-const COVERAGE_USAGE =
-  "nylorun tenant coverage --agent <id> [--environment <id>] [--tenant <name>] [--json]";
+const COVERAGE_USAGE = "nylorun tenant coverage --agent <id> [--tenant <name>] [--json]";
 
 /**
- * `nylorun tenant coverage`: which secret of `--environment` each remote MCP server and HTTP tool
- * of saved agent `--agent` would get in a session (none without an Environment). It reads no
- * secret and calls no server.
+ * `nylorun tenant coverage`: which secret of Agent `--agent`'s vault each remote MCP server and
+ * HTTP tool of the manifest version it runs would get in its sessions. It reads no secret and
+ * calls no server.
  */
 export async function coverageCommand(deps: StackDeps, args: readonly string[]): Promise<number> {
-  const flags = parseStackFlags(
-    args,
-    { booleans: ["--json"], values: ["--tenant", "--agent", "--environment"] },
-    COVERAGE_USAGE,
-  );
+  if (args.includes("--environment"))
+    throw usageError("--environment was removed in protocol 16: pass the Agent, --agent <id>, whose vault its sessions use.");
+  const flags = parseStackFlags(args, { booleans: ["--json"], values: ["--tenant", "--agent"] }, COVERAGE_USAGE);
   const agentId = flags.values.get("--agent");
-  const environmentId = flags.values.get("--environment");
   if (flags.rest.length || agentId === undefined) throw usageError(`Usage: ${COVERAGE_USAGE}`);
   const admin = managementClient(deps, await connect(deps, "management", flags.values.get("--tenant")));
-  const coverage = await admin.coverage({
-    agentId,
-    ...(environmentId === undefined ? {} : { environmentId }),
-  });
+  const coverage = await admin.coverage({ agentId });
   if (flags.booleans.has("--json")) {
     printJson(deps, coverage);
     return 0;
   }
   const missing = coverage.entries.filter((entry) => entry.status === "missing").length;
   deps.out(
-    `${coverage.agentId} in ${coverage.environmentId ?? "no Environment"}: ${
+    `Agent ${coverage.agentId}: ${
       coverage.complete ? "every credential is covered" : `${missing} of ${coverage.entries.length} missing`
     }`,
   );

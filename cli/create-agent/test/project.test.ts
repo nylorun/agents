@@ -24,7 +24,7 @@ describe("starter template", () => {
     expect(
       Object.keys(manifest.devDependencies).filter((name) => name.includes("nylorun")),
     ).toEqual([]);
-    expect(manifest.scripts.dev).toBe("tsx watch --env-file-if-exists=.env src/main.ts");
+    expect(manifest.scripts.dev).toBe("tsx watch --env-file-if-exists=.env src/main.ts --dev");
     expect(manifest.scripts.studio).toBeUndefined();
     expect(manifest.scripts.start).toBe("node dist/src/main.js");
     expect(manifest.scripts["dev:app"]).toBeUndefined();
@@ -49,7 +49,9 @@ describe("starter template", () => {
     ]);
     expect(files[".env/auth.json"]).toBeUndefined();
     expect(files["src/index.ts"]).toBeUndefined();
-    expect(files["src/main.ts"]).toContain("client.saveAgent(agent)");
+    expect(files["src/main.ts"]).toContain("client.agentManifests.save({ agent, runtime })");
+    expect(files["src/main.ts"]).toContain("client.agents.put(agent.id, { manifest: agent.id })");
+    expect(files["src/main.ts"]).not.toMatch(/saveAgent|environments/);
     expect(files["src/main.ts"]).not.toMatch(/createActionHandler|createServer|NYLORUN_ACTIONS_URL/);
     // No tools: a code tool would be refused on save, and an HTTP tool needs a service.
     expect(files["agents/assistant/agent.ts"]).not.toMatch(/^[^/\n]*\.tools\(/m);

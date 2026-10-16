@@ -137,7 +137,12 @@ beforeAll(async () => {
     },
   });
   const built = agents(service);
-  for (const agent of built) await client.saveAgent(agent, { implementationVersion: "dev" });
+  // Each agent's manifest, with a sandbox that holds the files it writes, and an Agent of the
+  // same id made from it: the handler's paths name the Agents (protocol 16).
+  for (const agent of built) {
+    await client.agentManifests.save({ agent, runtime: { kind: "virtual" } });
+    await client.agents.put(agent.id, { manifest: agent.id });
+  }
   // The guarded agent's save waits for a person (R5 step 2).
   await setToolPolicy(runtime, [{ effect: "ask", tool: "save", agent: "guarded" }]);
   const handler = createAgUiHandler({
@@ -145,13 +150,6 @@ beforeAll(async () => {
     agents: built,
     client,
     subject: (request) => request.headers.get("x-user") ?? undefined,
-    // Each person's sessions run in their own Environment, guarded for them: its sandbox
-    // holds the files the agents write.
-    session: async (subject) => {
-      const environment = `people-${subject}`;
-      await client.environments.put(environment, { kind: "virtual", ownerUserId: subject });
-      return { environment };
-    },
   });
   const listener = toNodeListener(handler);
   server = createServer((req, res) => {

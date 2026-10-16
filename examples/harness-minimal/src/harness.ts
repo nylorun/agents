@@ -13,7 +13,7 @@
  * version and size with a preview: the output's head and tail.
  *
  * What the model reads is the harness's to decide (protocol 15). The instructions are the agent's
- * own, then a one-line note on the sandbox when the session has one (`turn.start.environment`),
+ * own, then a one-line note on the sandbox when the session has one (`turn.start.agent`),
  * with its `bash` tool. Each file the turn's model reads (`turn.start.model`) goes as its media
  * part, and a line saying it is not shown for the rest. The Model Gate refuses a part the model
  * cannot take.
@@ -299,7 +299,7 @@ async function segment(
   const recorded = new Map(run.start.outcomes.map((outcome) => [outcome.effectId, outcome]));
   // With a sandbox, bash is the one tool offered, with a note of ours. The instructions are the
   // agent's own, then ours.
-  const sandbox = run.start.environment?.sandbox;
+  const sandbox = run.start.agent?.sandbox;
   const bash = sandbox === undefined ? undefined : BASH;
   const tools: ModelCallTool[] = bash ? [bash] : [];
   const instructions = [

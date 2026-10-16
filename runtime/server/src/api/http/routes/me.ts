@@ -1,7 +1,7 @@
 /**
  * `GET /v1/me` (Host feature `trusted-issuers`): who the Runtime takes the caller to be, for any
  * credential that acts on the Tenant. It shows what a trusted issuer's token renders to (its
- * subject, scopes, agents and sandbox grants), so an operator can check an identity file, and
+ * subject, scopes and Agent grants), so an operator can check an identity file, and
  * Studio can check a forwarded token for the `studio` scope.
  */
 import type { OpenAPIHono } from "@hono/zod-openapi";
@@ -35,7 +35,6 @@ export function describeCaller(scope: AuthScope): MeBody {
         subject: scope.subject,
         scopes: ordered(scope.scopes),
         agents: scope.agents === "*" ? "*" : [...scope.agents].sort(),
-        environments: [...(scope.environments ?? [])],
         via: `issuer:${scope.issuer}`,
       };
     case "management":
@@ -55,7 +54,7 @@ export function meRoutes(api: OpenAPIHono<TenantEnv>): void {
       tags: ["Access"],
       summary: "Get who the caller is",
       description:
-        "The subject, scopes, agents and sandbox grants of the credential that sends it: an " +
+        "The subject, scopes and Agent grants of the credential that sends it: an " +
         "application key (alone or acting for a subject), a management key " +
         "(`via: management:<principalId>`, no scopes, no agents), or a trusted issuer's token " +
         "(`via: issuer:<name>`).",

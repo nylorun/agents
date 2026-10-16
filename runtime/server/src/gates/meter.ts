@@ -67,7 +67,7 @@ export function createMeter(options: MeterOptions): Meter {
               session: request.sessionId,
               effect: request.effectId,
               scope: budget.scope,
-              ...(budget.scope === "agent" ? { agent: budget.scopeId } : {}),
+              ...(budget.scope === "manifest" ? { manifest: budget.scopeId } : {}),
             });
             return { keys, refusal: failure("budget_exhausted", reached, false) };
           }
@@ -166,7 +166,8 @@ export function usageRow(
         : null,
     sessionId: request.sessionId,
     turnId: request.turnId,
-    agentId: request.agentId,
+    // The calling agent's loop manifest id: a manifest version's name (protocol 16).
+    manifestName: request.agentId,
     provider: producer.provider ?? null,
     model: producer.model ?? outcome.evidence?.resolvedModel ?? request.call.model?.id ?? null,
     inputTokens,
@@ -190,8 +191,8 @@ export function usageRow(
 function scopeOf(budget: ModelBudgetRow, request: ModelGateRequest, at: Date): ModelUsageQuery | undefined {
   const since = budget.period ? { since: periodStart(budget.period, at) } : {};
   if (budget.scope === "turn") return { scope: "turn", id: request.turnId };
-  if (budget.scope === "agent")
-    return budget.scopeId === request.agentId ? { scope: "agent", id: request.agentId, ...since } : undefined;
+  if (budget.scope === "manifest")
+    return budget.scopeId === request.agentId ? { scope: "manifest", id: request.agentId, ...since } : undefined;
   return { scope: "tenant", ...since };
 }
 
@@ -208,7 +209,7 @@ export function capReached(
   const name =
     budget.scope === "turn"
       ? "The turn's cap"
-      : `${budget.scope === "agent" ? `Agent ${budget.scopeId}'s` : "The Tenant's"} ${budget.period === "day" ? "daily" : "monthly"} cap`;
+      : `${budget.scope === "manifest" ? `Agent manifest ${budget.scopeId}'s` : "The Tenant's"} ${budget.period === "day" ? "daily" : "monthly"} cap`;
   const raise = "raise it with PUT /v1/tenant/budgets";
   if (budget.limitTokens !== null && projected(spent.tokens) >= budget.limitTokens)
     return `${name} of ${budget.limitTokens} tokens is reached (${spent.tokens} used); ${raise}`;

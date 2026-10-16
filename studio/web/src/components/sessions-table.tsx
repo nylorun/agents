@@ -1,7 +1,9 @@
 import { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { ArrowDown, ArrowUp, Bot, ChevronDown, GitBranch, LoaderCircle } from "lucide-react";
+import type { AgentManifestView, AgentView } from "@nylorun/agents";
 import type { Connection } from "@/studio-types";
+import { agentPath } from "@/agent-path";
 import {
   lastActivity,
   sessionAgents,
@@ -59,18 +61,25 @@ export function AgentName({ agent }: Readonly<{ agent: SessionAgent }>) {
   return (
     <span className="inline-flex min-w-0 items-center gap-2">
       <Icon className="size-4 shrink-0 text-muted-foreground" />
-      <span className="truncate">{agent.name}</span>
+      <span className="truncate font-mono text-xs">{agent.name}</span>
     </span>
   );
 }
 
-/** Every session of the Tenant in one table, optionally filtered to one agent. */
+/** Every session of the Tenant in one table, optionally filtered to one Agent. */
 export function SessionsTable({
   connection,
+  agents: listed,
+  manifests,
   agentFilter,
-}: Readonly<{ connection: Connection; agentFilter?: string }>) {
+}: Readonly<{
+  connection: Connection;
+  agents: readonly AgentView[];
+  manifests: readonly AgentManifestView[];
+  agentFilter?: string;
+}>) {
   const navigate = useNavigate();
-  const agents = sessionAgents(connection);
+  const agents = sessionAgents(listed, connection.sessions, manifests);
   const byId = new Map(agents.map((agent) => [agent.id, agent]));
   const [order, setOrder] = useState<SessionOrder>("newest");
   const sessions = useMemo(
@@ -84,14 +93,14 @@ export function SessionsTable({
     [connection.sessions, agentFilter, order],
   );
   const [filterOpen, setFilterOpen] = useState(false);
-  // One agent at a time: picking one closes the menu.
+  // One Agent at a time: picking one closes the menu.
   const filterOn = (agentId?: string): void => {
     setFilterOpen(false);
     void navigate(sessionsPath(agentId));
   };
   const filterLabel =
     agentFilter === undefined
-      ? "All agents"
+      ? "All Agents"
       : (byId.get(agentFilter)?.name ?? agentFilter);
   return (
     <section className="flex min-h-0 w-full flex-1 flex-col overflow-hidden">
@@ -106,7 +115,7 @@ export function SessionsTable({
               variant="outline"
               size="sm"
               className="ml-auto w-44 justify-between font-normal"
-              aria-label="Filter by agent"
+              aria-label="Filter by Agent"
             >
               <span className="truncate">{filterLabel}</span>
               <ChevronDown className="size-4 opacity-50" />
@@ -117,7 +126,7 @@ export function SessionsTable({
               checked={agentFilter === undefined}
               onCheckedChange={() => filterOn()}
             >
-              All agents
+              All Agents
               <span className="ml-auto text-xs tabular-nums text-muted-foreground">
                 {connection.sessions.length}
               </span>
@@ -128,7 +137,7 @@ export function SessionsTable({
                 checked={agent.id === agentFilter}
                 onCheckedChange={() => filterOn(agent.id)}
               >
-                <span className="truncate">{agent.name}</span>
+                <span className="truncate font-mono text-xs">{agent.name}</span>
                 <span className="ml-auto text-xs tabular-nums text-muted-foreground">
                   {agent.count}
                 </span>
@@ -210,8 +219,15 @@ export function SessionsTable({
                         {session.session}
                       </Link>
                     </TableCell>
-                    <TableCell>
-                      {agent ? <AgentName agent={agent} /> : session.agentId}
+                    <TableCell className="max-w-0">
+                      <Link
+                        to={agentPath(session.agentId)}
+                        title={session.agentId}
+                        className="block max-w-full truncate underline-offset-4 hover:underline"
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        {agent ? <AgentName agent={agent} /> : session.agentId}
+                      </Link>
                     </TableCell>
                     <TableCell className="max-w-0 truncate text-xs text-muted-foreground">
                       {session.ownerUserId}

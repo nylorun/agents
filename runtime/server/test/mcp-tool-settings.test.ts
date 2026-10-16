@@ -6,7 +6,7 @@
  * never discovered (`tool.unknown`). Deferred tools, through our engine (protocol 15): an agent
  * whose MCP tools pass a tenth of the model's context window gets `tool_search` and `tool_call`
  * in their place, and `tool_call` runs a tool as a direct call would (arguments checked,
- * approval asked, the tool named by its identity). Manifests before 7 are refused.
+ * approval asked, the tool named by its identity). Manifests before 8 are refused.
  * With `NYLORUN_TEST_MODEL_GATE=http` the gates service makes every call; otherwise the Tenant
  * does, in process.
  */
@@ -22,6 +22,7 @@ import type { ModelProvider } from "../src/core/provider.js";
 import { hostModelCatalog } from "../src/model/catalog.js";
 import { hostModelDescriptor } from "../src/model/descriptor.js";
 import { mcpFactsOf, type McpSnapshot } from "../src/mcp/snapshot.js";
+import { deploy, writeManifest } from "./support/agents.js";
 import { startTestTenant } from "./support/tenant.js";
 import { setToolPolicy } from "./support/tool-policy.js";
 
@@ -121,24 +122,19 @@ let github: Awaited<ReturnType<typeof mcpServer>>;
 let ledger: Awaited<ReturnType<typeof mcpServer>>;
 let funds: Awaited<ReturnType<typeof mcpServer>>;
 
-async function put(manifest: unknown) {
-  const id = (manifest as { id: string }).id;
-  const response = await fetch(`${runtime.url}/v1/agents/${id}`, {
-    method: "PUT",
-    headers: { authorization: `Bearer ${APP}`, "content-type": "application/json" },
-    body: JSON.stringify({ requestId: `put-${id}`, manifest, implementationVersion: "dev" }),
-  });
-  expect(response.status).toBeLessThan(300);
+/** Saves `manifest` as an agent manifest and makes Agent `manifest.id` from it. */
+async function put(manifest: AgentManifest) {
+  await deploy(runtime.url, runtime.headers(), manifest);
 }
 
 let sessions = 0;
 type Session = ReturnType<AgentsClient["session"]>;
-/** Opens a session of `agentId` and starts a turn; `offered` and `prompts` start empty. */
-async function open(agentId: string): Promise<Session> {
+/** Opens a session on Agent `agent` and starts a turn; `offered` and `prompts` start empty. */
+async function open(agent: string): Promise<Session> {
   sessions += 1;
   offered = [];
   prompts = [];
-  const session = await client.createSession({ id: `settings-${sessions}`, agentId, ownerUserId: "u:ada" });
+  const session = await client.createSession({ id: `settings-${sessions}`, agent, ownerUserId: "u:ada" });
   await session.input("go", { idempotencyKey: `m${sessions}` });
   return session;
 }
@@ -415,19 +411,16 @@ describe("deferred tools (C10)", () => {
   });
 });
 
-it("refuses a manifest of an earlier version: it is rebuilt (manifest 7)", async () => {
+it("refuses a manifest of an earlier version: it is rebuilt (agent manifest 8)", async () => {
   const json = {
     manifestSchemaVersion: 6,
     id: "legacy",
+    name: "legacy",
     mcpServers: { small: { name: "small", type: "streamable-http", url: github.url } },
   };
-  const response = await fetch(`${runtime.url}/v1/agents/legacy`, {
-    method: "PUT",
-    headers: { authorization: `Bearer ${APP}`, "content-type": "application/json" },
-    body: JSON.stringify({ requestId: "put-legacy", manifest: json, implementationVersion: "dev" }),
-  });
+  const response = await writeManifest(runtime.url, runtime.headers(), json as never);
   expect(response.status).toBe(400);
-  expect((await client.listAgents()).agents.find((agent) => agent.agentId === "legacy")).toBeUndefined();
+  expect((await fetch(`${runtime.url}/v1/agent-manifests/legacy`, { headers: runtime.headers() })).status).toBe(404);
 });
 
 describe("the turn's MCP facts (C9)", () => {

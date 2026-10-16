@@ -17,12 +17,13 @@ watching works.
 Agent definitions live in `agents/`. The **Runtime** runs your agents and
 holds their sessions in its **Tenant**, one per installation; this project
 attaches to its own local Tenant through a **Project link**. `src/main.ts`
-saves each agent in `agents/index.ts` to the Runtime (`client.saveAgent`), and
-each environment manifest in `environments/` (`environments/scratch.json`, a
-virtual workspace with no network), and exits; from then on the Runtime runs
-them from what was saved. Make an Environment from a manifest with
-`npx nylorun@beta environments put <id> --manifest scratch`; it keeps that
-version for life, and `environments fork` moves it to a newer one. The project
+saves each agent in `agents/index.ts` to the Runtime as an agent manifest
+(`client.agentManifests.save`), with the runtime section in
+`runtime/scratch.runtime.json` (a virtual workspace with no network), makes the
+**Agent** its sessions run on (`client.agents.put`, named after the agent), and
+exits; from then on the Runtime runs them from what was saved. An Agent keeps
+the manifest version it was made from for life; `npx nylorun@beta agents fork`
+makes a new Agent from a newer one. The project
 depends only on `@nylorun/agents`; `nylorun` runs with `npx`. It sets up and
 runs this project's local Tenant (Runtime and Studio), links the project to it,
 and manages the Tenant: its status, reset and model provider
@@ -49,7 +50,7 @@ Without them, set the provider in Studio's Model provider screen, or with
 incur its usual charges.
 
 `npm run dev` runs `src/main.ts` with `tsx watch`: it saves the agents to the
-Runtime, which it finds through the Project link, and saves them again on
+Runtime, which it finds through the Project link, and saves a new version on
 every source edit. `npx nylorun studio` opens Studio on this project's Tenant,
 and signs in a browser that is not signed in yet; chat with the assistant
 there. The Runtime listens on
@@ -64,8 +65,13 @@ npm start
 `npm start` runs `node dist/src/main.js`, the same entry as development: it
 saves the agents once, a deploy step. Set `NYLORUN_RUNTIME_URL` and
 `NYLORUN_SERVER_KEY` before starting, or keep the Project link beside this
-directory. `agents/index.ts` exports the registry. Start a new session after
-changing definitions; active-session upgrades are not supported.
+directory. `agents/index.ts` exports the registry. Under `npm run dev`
+(`--dev`), an Agent made from an older version is made again from the new one
+on each save, so new sessions run your edit (its disk starts empty; sessions
+already open keep the version they pinned). Elsewhere a changed agent reaches
+sessions on an Agent made from its new version: `npx nylorun@beta agents fork
+assistant assistant-2`, or `npx nylorun@beta agents rm assistant` and save
+again. Active-session upgrades are not supported.
 
 The assistant has no tools yet. A tool is an `http()` tool, a request the
 Runtime makes to a service of yours (see the comment in
@@ -86,8 +92,6 @@ Keep `.nylorun/` private. The application key is derived from the Tenant's
 admin key when the project is linked. Ordinary
 shutdown/restart preserves completed session history; `npx -p nylorun nylo
 reset --all` empties the Tenant, and `npx nylorun local reset` deletes all its data.
-`NYLORUN_IMPLEMENTATION_VERSION` (default `dev`) labels each saved
-definition.
 
 This beta supports local text, HTTP tools, remote MCP servers and agents used
 as tools; the starter itself wires none of them. Advanced waits, media,

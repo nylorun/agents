@@ -3,52 +3,52 @@ import { Readable } from "node:stream";
 import { PROTOCOL_HEADER, PROTOCOL_VERSION, RUNTIME_LIMIT_DEFAULTS } from "@nylorun/agents";
 
 const LOCAL_OWNER = "local-developer";
-/** What an agent's tools would get from the Environment a new session names. */
+/** What an Agent's tools would get from its vault. */
 const COVERAGE = "/v1/tenant/credential-coverage";
-/** One Environment (protocol 11): its id is one percent-encoded path segment. */
-const ENVIRONMENT = String.raw`/v1/environments/[^/]+`;
-/** The environment manifests (protocol 14, D63), and one by its name. */
-const MANIFESTS = "/v1/environment-manifests";
-const MANIFEST = String.raw`/v1/environment-manifests/[^/]+`;
+/** One Agent (protocol 16): its id is one percent-encoded path segment. */
+const AGENT = String.raw`/v1/agents/[^/]+`;
+/** The agent manifests (protocol 16, track T2), and one by its name. */
+const MANIFESTS = "/v1/agent-manifests";
+const MANIFEST = String.raw`/v1/agent-manifests/[^/]+`;
 const matches = (pattern: string, path: string) =>
   new RegExp(`^${pattern}$`).test(path);
 
 /**
- * Environment reads on the Runtime API: the list (with label filters and pages), one
- * Environment, its lifecycle events, its disk versions, and its secrets' names, types and
- * bindings (never a value); and the environment manifests, one manifest and its versions.
+ * Agent reads on the Runtime API: the list (with state, manifest and label filters, and pages),
+ * one Agent, its lifecycle events, its disk versions, and its secrets' names, types and bindings
+ * (never a value); and the agent manifests, one manifest, its versions and one version.
  */
-function isEnvironmentRead(method: string, path: string): boolean {
+function isAgentRead(method: string, path: string): boolean {
   return (
     method === "GET" &&
-    (path === "/v1/environments" ||
-      matches(`${ENVIRONMENT}(?:/events|/versions|/secrets(?:/[^/]+)?)?`, path) ||
+    (path === "/v1/agents" ||
+      matches(`${AGENT}(?:/events|/versions|/secrets(?:/[^/]+)?)?`, path) ||
       path === MANIFESTS ||
       matches(`${MANIFEST}(?:/versions(?:/[1-9]\\d*)?)?`, path))
   );
 }
 
+/** Saving an agent manifest's next version (`PUT`, or its plan with `?dryRun=true`). */
+const isManifestSave = (method: string, path: string) => method === "PUT" && matches(MANIFEST, path);
+
 /**
- * Environment writes on the Runtime API: create or change one (`PUT`), stop or reset it, fork
- * it, keep or restore a version of its disk, delete it or one of its disk versions, and write
- * or delete one of its secrets; and save an environment manifest's next version (`PUT`, or its
- * plan with `?dryRun=true`).
+ * Agent writes on the Runtime API: make one from a manifest version or change its labels and
+ * owner (`PUT`), stop or reset it, fork it, keep or restore a version of its disk, delete it or
+ * one of its disk versions, and write or delete one of its secrets; and save an agent manifest.
  */
-function isEnvironmentWrite(method: string, path: string): boolean {
+function isAgentWrite(method: string, path: string): boolean {
   return (
-    (method === "PUT" && matches(`${ENVIRONMENT}(?:/secrets/[^/]+)?`, path)) ||
-    (method === "PUT" && matches(MANIFEST, path)) ||
-    (method === "POST" && matches(`${ENVIRONMENT}/(?:stop|reset|fork|snapshot|restore)`, path)) ||
-    (method === "DELETE" &&
-      matches(`${ENVIRONMENT}(?:/secrets/[^/]+|/versions/[1-9]\\d*)?`, path))
+    (method === "PUT" && matches(`${AGENT}(?:/secrets/[^/]+)?`, path)) ||
+    isManifestSave(method, path) ||
+    (method === "POST" && matches(`${AGENT}/(?:stop|reset|fork|snapshot|restore)`, path)) ||
+    (method === "DELETE" && matches(`${AGENT}(?:/secrets/[^/]+|/versions/[1-9]\\d*)?`, path))
   );
 }
 
 /**
  * Management API checks Studio's key makes as itself: a preview of the tools behind a URL
- * (`POST /v1/tenant/mcp/preview`, R2b C12), which may send an Environment's credential, and
- * an agent's credential coverage against an Environment (`POST
- * /v1/tenant/credential-coverage`), which reads no secret.
+ * (`POST /v1/tenant/mcp/preview`, R2b C12), which may send an Agent's credential, and an Agent's
+ * credential coverage (`POST /v1/tenant/credential-coverage`), which reads no secret.
  */
 function isManagementCheck(method: string, path: string): boolean {
   return (
@@ -147,7 +147,7 @@ export async function proxyRuntime(
     method === "POST" && /^\/v1\/artifacts\/[^/]+\/links$/.test(path);
   const resourceRead =
     method === "GET" &&
-    (isEnvironmentRead(method, path) ||
+    (isAgentRead(method, path) ||
       /^\/v1\/artifacts(?:\/[^/]+(?:\/versions\/(?:latest|[1-9]\d*)\/(?:content|tree|diff|zip|files\/[^/]+))?)?$/.test(
         path,
       ));
@@ -159,7 +159,7 @@ export async function proxyRuntime(
       ));
   const read =
     method === "GET" &&
-    (/^\/v1\/(agents|sessions)$/.test(path) ||
+    (path === "/v1/sessions" ||
       // A session's model usage, for its Usage tab: its totals and its model calls.
       /^\/v1\/sessions\/[^/]+(?:\/(items|events|manifest|usage|calls\/model))?$/.test(path) ||
       path === "/v1/tenant/model" ||
@@ -178,14 +178,14 @@ export async function proxyRuntime(
   // A message attachment: one file into one session, streamed to the Runtime.
   const upload = method === "POST" && path === "/v1/artifacts";
   const managementCheck = isManagementCheck(method, path);
-  const environmentWrite = isEnvironmentWrite(method, path);
+  const agentWrite = isAgentWrite(method, path);
   if (
     !health &&
     !read &&
     !write &&
     !tenantWrite &&
     !managementCheck &&
-    !environmentWrite &&
+    !agentWrite &&
     !artifactLink &&
     !upload
   )
@@ -195,7 +195,7 @@ export async function proxyRuntime(
     (write ||
       tenantWrite ||
       managementCheck ||
-      environmentWrite ||
+      agentWrite ||
       artifactLink ||
       upload) &&
     (requestOrigin === undefined || !allowed.has(requestOrigin))
@@ -259,7 +259,7 @@ export async function proxyRuntime(
     tenantWrite ||
     artifactLink ||
     managementCheck ||
-    (environmentWrite && method !== "DELETE")
+    (agentWrite && method !== "DELETE")
   ) {
     if (!request.headers["content-type"]?.startsWith("application/json"))
       return fail(415, "JSON required");
@@ -303,8 +303,8 @@ export async function proxyRuntime(
         ...(value.file === undefined ? {} : { file: value.file }),
       };
     } else if (write && method === "PUT")
-      // Studio's sessions are its local developer's; an Environment's owner guard is the
-      // operator's to set, so Environment writes pass as they are.
+      // Studio's sessions are its local developer's; an Agent's owner guard is the operator's to
+      // set, so Agent writes pass as they are.
       value.ownerUserId = LOCAL_OWNER;
     else if (write && !["message", "cancel"].includes(value.type))
       return fail(
@@ -329,7 +329,7 @@ export async function proxyRuntime(
         ...(typeof body === "string" ? { "content-type": "application/json" } : {}),
         ...uploadHeaders,
         // A manifest save names the version it was made over (`412 manifest_changed`).
-        ...(environmentWrite && request.headers["if-match"]
+        ...(isManifestSave(method, path) && request.headers["if-match"]
           ? { "if-match": String(request.headers["if-match"]) }
           : {}),
         ...(request.headers["last-event-id"]

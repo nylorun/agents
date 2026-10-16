@@ -109,7 +109,7 @@ describe("protected resource metadata", () => {
     expect(reply.body).toEqual({
       resource: runtime.url,
       authorization_servers: [ISS],
-      scopes_supported: ["agents:read", "sessions:own", "environments:write"],
+      scopes_supported: ["agents:read", "sessions:own", "agents:write"],
       bearer_methods_supported: ["header"],
       resource_name: "Nylorun Runtime API",
     });
@@ -225,7 +225,7 @@ issuers:
       jwks: "https://idp.test/certs",
       subject: "{sub}",
       scopes: { claim: "scope" },
-      allowedScopes: ["agents:read", "sessions:own", "environments:write"],
+      allowedScopes: ["agents:read", "sessions:own", "agents:write"],
     });
     expect(warnings).toEqual([
       "identity.yaml: the file: ignored `version`, which the identity file does not define",

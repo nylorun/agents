@@ -38,7 +38,6 @@ import {
   type PluginLabel,
   type ToolView,
 } from "@/manifest/model";
-import { useSessionManifest } from "@/manifest/use-session-manifest";
 import type { AgentManifest } from "@/studio-types";
 
 /** A segmented control: the active view is raised on the muted track. */
@@ -66,21 +65,24 @@ function ViewToggle({
   );
 }
 
+/**
+ * A session's Manifest tab: the loop manifest it pinned (`pinned`), named by its agent manifest
+ * and version, laid out or as JSON, and whether its Agent has a sandbox.
+ */
 export function AgentManifestPanel({
   agent,
-  tenantId,
-  sessionId,
-}: Readonly<{ agent: AgentManifest; tenantId?: string; sessionId: string }>) {
-  const { pinned, hasSandbox } = useSessionManifest(tenantId, sessionId, agent.manifestHash);
+  pinned,
+  hasSandbox,
+}: Readonly<{ agent: AgentManifest; pinned: PinnedManifestState; hasSandbox: boolean }>) {
   const [mode, setMode] = useState<"layout" | "json">("layout");
-  // Show the manifest the session runs; fall back to the registered one until it is known.
+  // Show the manifest the session runs; until it is known, what the definition holds.
   const manifest =
-    pinned.kind === "pinned" ? pinned.manifest : (agent.rawManifest ?? agent.manifest);
+    pinned.kind === "pinned" || pinned.kind === "agent" ? pinned.manifest : (agent.rawManifest ?? agent.manifest);
   const isWorkflow =
     agent.kind === "workflow" || (manifest as { kind?: unknown }).kind === "workflow";
   const view = manifestView(manifest);
   const stats = manifestStats(view);
-  // The session's Environment says whether it has a sandbox: its manifest holds none (protocol 15).
+  // The session's Agent says whether it has a sandbox: its loop manifest holds none (protocol 15).
   const sandboxOn = hasSandbox;
   return (
     // Radix sizes the viewport's child as a table, which grows to the longest line.
@@ -97,7 +99,6 @@ export function AgentManifestPanel({
                 <Badge variant="secondary">{isWorkflow ? "Flow agent" : "Agent"}</Badge>
               </div>
               <div className="mt-1 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
-                <span className="font-mono">{agent.id}</span>
                 <VersionTag pinned={pinned} />
               </div>
             </div>
@@ -188,23 +189,24 @@ function Stat({
 }
 
 function VersionTag({ pinned }: Readonly<{ pinned: PinnedManifestState }>) {
-  const hash =
-    pinned.kind === "pinned"
-      ? pinned.manifestHash
-      : pinned.kind === "registered-only"
-        ? pinned.registeredHash
-        : undefined;
-  if (!hash) return null;
+  const version = pinned.kind === "pinned" || pinned.kind === "agent" ? pinned.version : undefined;
+  const hash = pinned.kind === "pinned" ? pinned.manifestHash : undefined;
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <span className="cursor-default font-mono">manifest {shortHash(hash)}</span>
-      </TooltipTrigger>
-      <TooltipContent className="max-w-xs font-mono break-all">
-        {pinned.kind === "pinned" ? "Session manifest " : "Registered manifest "}
-        {hash}
-      </TooltipContent>
-    </Tooltip>
+    <>
+      {version ? (
+        <span className="font-mono">
+          {version.name}@{version.version}
+        </span>
+      ) : null}
+      {hash ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="cursor-default font-mono">manifest {shortHash(hash)}</span>
+          </TooltipTrigger>
+          <TooltipContent className="max-w-xs font-mono break-all">Session manifest {hash}</TooltipContent>
+        </Tooltip>
+      ) : null}
+    </>
   );
 }
 
@@ -214,17 +216,17 @@ function VersionAlert({ pinned }: Readonly<{ pinned: PinnedManifestState }>) {
       <Alert variant="destructive" className="py-2">
         <Info />
         <AlertDescription className="text-xs">
-          Could not read the session's manifest: {pinned.message}. Showing the registered one.
+          Could not read the session's manifest: {pinned.message}.
         </AlertDescription>
       </Alert>
     );
-  if (pinned.kind === "registered-only")
+  if (pinned.kind === "agent")
     return (
       <Alert className="py-2">
         <Info />
         <AlertDescription className="text-xs">
-          Showing the registered manifest. This Runtime does not report which manifest the session
-          is pinned to.
+          Showing the manifest version the session's Agent runs. This Runtime does not report the
+          manifest the session pinned.
         </AlertDescription>
       </Alert>
     );
@@ -233,9 +235,9 @@ function VersionAlert({ pinned }: Readonly<{ pinned: PinnedManifestState }>) {
       <Alert className="py-2">
         <Info />
         <AlertDescription className="text-xs">
-          This session runs an older manifest. A newer one (
-          <span className="font-mono">{shortHash(pinned.registeredHash)}</span>) is registered;
-          new sessions use it.
+          This session runs {pinned.version.name} v{pinned.version.version}; v{pinned.latest} is
+          the latest. Its Agent keeps the version it was made from: fork the Agent to run the
+          newer one.
         </AlertDescription>
       </Alert>
     );
@@ -537,10 +539,10 @@ function ToolKindBadge({ tool }: Readonly<{ tool: ToolView }>) {
   return null;
 }
 
-/** The session's Environment has a sandbox: the harness offers its tools with the agent's. */
+/** The session's Agent has a sandbox: the harness offers its tools with the agent's. */
 function SandboxSection() {
   return (
-    <Section title="Sandbox" hint="The session's Environment has a sandbox; the harness offers these tools.">
+    <Section title="Sandbox" hint="The session's Agent has a sandbox; the harness offers these tools.">
       <Group icon={Terminal} title="Sandbox tools" note={`on the session's persistent /workspace`}>
         <div className="flex flex-wrap gap-1">
           {SANDBOX_TOOLS.map((name) => (

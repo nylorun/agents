@@ -43,7 +43,6 @@ import {
   type Migration,
 } from "./migrate.js";
 import {
-  definitions,
   principals,
   sessions,
   signingKeys,
@@ -237,7 +236,6 @@ async function ensureTenant(
     const [data] = await tx.execute<{ held: boolean }>(sql`
       SELECT EXISTS (SELECT 1 FROM ${principals})
         OR EXISTS (SELECT 1 FROM ${sessions})
-        OR EXISTS (SELECT 1 FROM ${definitions})
         OR EXISTS (SELECT 1 FROM ${vaults})
         OR EXISTS (SELECT 1 FROM ${signingKeys}) AS held`);
     if (data?.held)

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import type { PutEnvironmentSecretRequest } from "@nylorun/core/contracts";
+import type { PutAgentSecretRequest } from "@nylorun/core/contracts";
 import type { Environment, SessionStore, Tx } from "../src/store/types.js";
 import { VaultError } from "../src/vault/error.js";
 import { HostModelVault } from "../src/vault/host-model.js";
@@ -35,7 +35,7 @@ function tracked(inner: SessionStore) {
   return { store, inTx: () => open > 0 };
 }
 
-/** An Environment row of kind `none`, as `putEnvironment` writes one. */
+/** An Agent's row of kind `none` (its environment, in the store), as `putAgent` writes one. */
 function environmentRow(id: string): Environment {
   const now = new Date().toISOString();
   const recipe = { harness: "nylorun", lifecycle: {} };
@@ -50,6 +50,11 @@ function environmentRow(id: string): Environment {
     lastUsedAt: now,
     createdAt: now,
     updatedAt: now,
+    manifestName: "bot",
+    manifestVersion: 1,
+    manifestRef: "tracking",
+    manifestHash: "0".repeat(64),
+    desiredState: "on",
   };
 }
 
@@ -83,7 +88,7 @@ async function setup() {
       return KEK;
     },
   });
-  /** Creates Environment `id` and its vault, as `PUT /v1/environments/{id}` does. */
+  /** Creates Agent `id` and its vault, as `PUT /v1/agents/{id}` does. */
   const environment = async (id: string) => {
     await store.tx(async (t) => {
       expect(await t.createEnvironment(environmentRow(id), 100)).toBe("created");
@@ -134,7 +139,7 @@ async function credentialId(read: <T>(fn: (t: Tx) => Promise<T>) => Promise<T>, 
 }
 
 describe("VaultService administration", () => {
-  it("creates an Environment's vault in the caller's transaction, audits it, and rolls back with it", async () => {
+  it("creates an Agent's vault in the caller's transaction, audits it, and rolls back with it", async () => {
     const { vault, store, read, environment } = await setup();
     await expect(
       store.tx(async (t) => {
@@ -315,7 +320,7 @@ describe("VaultService administration", () => {
       vault.putEnvironmentSecret(
         "ada",
         "GITHUB_TOKEN",
-        { type: "environment_secret", value: "another-value", allowedHosts: ["UPLOADS.github.com"] } as PutEnvironmentSecretRequest,
+        { type: "environment_secret", value: "another-value", allowedHosts: ["UPLOADS.github.com"] } as PutAgentSecretRequest,
         "application",
       ),
     );
@@ -331,7 +336,7 @@ describe("VaultService administration", () => {
       { type: "environment_secret", value: "gh-secret-rotated", allowedHosts: ["uploads.github.com"] },
       "application",
     );
-    // Another Environment's vault is another vault.
+    // Another Agent's vault is another vault.
     await bearer(vault, environment, "bao", BAO_TOKEN);
     expect((await vault.listEnvironmentSecrets("ada")).map((secret) => secret.name)).toEqual([
       "GH_TOKEN",
@@ -343,7 +348,7 @@ describe("VaultService administration", () => {
     ).toEqual(["create:created", "create:created", "create:created", "create:created", "rotate:rotated"]);
   });
 
-  it("deletes an Environment's vault with its credentials and audits each", async () => {
+  it("deletes an Agent's vault with its credentials and audits each", async () => {
     const { vault, store, read, environment } = await setup();
     const { vaultId } = await bearer(vault, environment, "ada", ADA_TOKEN);
     const id = await credentialId(read, vaultId, "token");
@@ -502,7 +507,7 @@ describe("VaultService header and gateway credentials (R2b C2)", () => {
       vault.putEnvironmentSecret(
         "shared",
         "datadog",
-        { type: "headers", url: URL, ...body } as PutEnvironmentSecretRequest,
+        { type: "headers", url: URL, ...body } as PutAgentSecretRequest,
         "application",
       );
     await put({ headers: { "x-api-key": DD_API }, via: GATEWAY, identity: { header: "x-user-id" } });
@@ -555,7 +560,7 @@ describe("VaultService header and gateway credentials (R2b C2)", () => {
         vault.putEnvironmentSecret(
           "shared",
           key,
-          { type: "headers", url: URL, headers: { "x-api-key": "k" }, ...auth } as PutEnvironmentSecretRequest,
+          { type: "headers", url: URL, headers: { "x-api-key": "k" }, ...auth } as PutAgentSecretRequest,
           "application",
         ),
       );
@@ -609,7 +614,7 @@ describe("sessionCredentials identity header (R2b C2)", () => {
 });
 
 describe("VaultService host model", () => {
-  it("keeps the host model credential out of Environment vaults and responses", async () => {
+  it("keeps the host model credential out of Agent vaults and responses", async () => {
     const { vault, hostModel, read } = await setup();
     const secret = "host-model-plaintext-key-77ab";
     expect(await vault.getHostModel()).toEqual({ configured: false });
@@ -640,7 +645,7 @@ describe("VaultService host model", () => {
       authType: "api_key",
       credential: { type: "api_key", key: secret },
     });
-    // The host vault is no Environment's: no secret route and no session reaches it.
+    // The host vault is no Agent's: no secret route and no session reaches it.
     expect(await status(vault.listEnvironmentSecrets("host"))).toBe(404);
     expect(await status(vault.getEnvironmentSecret("host", "custom"))).toBe(404);
     expect(await vault.authorize({ sessionId: "s1", environmentId: "host", url: "https://models.example.test/v1" })).toMatchObject({

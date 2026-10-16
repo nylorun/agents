@@ -14,7 +14,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { Agent, createClient, http, type AgentsClient } from "@nylorun/agents";
 import type { ModelProvider } from "../src/core/provider.js";
 import { startTestTenant } from "./support/tenant.js";
-import { putEnvironment, putSecret } from "./support/environment-secrets.js";
+import { deploy, manifestOf, writeManifest, type AgentSource, type DeployOptions } from "./support/agents.js";
 
 const APP = "mcp-errors-app-key-aaaaaaaaaaaaaa";
 const TOKEN = "mcp-bearer-plaintext-0a1b2c3d4e5f";
@@ -157,24 +157,18 @@ let client: AgentsClient;
 let faulty: Awaited<ReturnType<typeof faultyServer>>;
 let vanishing: Awaited<ReturnType<typeof vanishingServer>>;
 let service: Awaited<ReturnType<typeof echoService>>;
-/** The Environment whose secrets hold every credential. */
-const SHARED = "shared";
-
-async function register(id: string, manifest: unknown) {
-  return fetch(`${runtime.url}/v1/agents/${id}`, {
-    method: "PUT",
-    headers: { authorization: `Bearer ${APP}`, "content-type": "application/json" },
-    body: JSON.stringify({ requestId: `put-${id}`, manifest, implementationVersion: "dev" }),
-  });
+/** Saves `agent` as an agent manifest and makes an Agent of it, with `options`' secrets. */
+async function register(agent: AgentSource, options: DeployOptions = {}) {
+  await deploy(runtime.url, runtime.headers(), agent, options);
 }
 
 let sessions = 0;
-/** Opens a session of `agentId`, has the model call `tool`, and waits for the turn. */
-async function run(agentId: string, tool: string) {
+/** Opens a session on Agent `agent`, has the model call `tool`, and waits for the turn. */
+async function run(agent: string, tool: string) {
   next = tool;
   seenByModel = undefined;
   sessions += 1;
-  const session = await client.createSession({ id: `err-${sessions}`, agentId, ownerUserId: "u:ada", environment: SHARED });
+  const session = await client.createSession({ id: `err-${sessions}`, agent, ownerUserId: "u:ada" });
   await session.input("go", { idempotencyKey: `m${sessions}` });
   const deadline = Date.now() + 15_000;
   while (Date.now() < deadline) {
@@ -199,28 +193,30 @@ beforeAll(async () => {
   runtime = await startTestTenant({ applicationKey: APP, modelProvider: model });
   client = createClient({ url: runtime.url, key: runtime.applicationKey, tenant: runtime.tenantId });
   const input = z.object({ orderId: z.string() });
-  const put = async (agent: { manifest: unknown }) => {
-    const response = await register((agent.manifest as { id: string }).id, agent.manifest);
-    expect(response.ok).toBe(true);
-  };
-  await put(Agent({ id: "faulty" }).mcp({ faulty: { type: "streamable-http", url: faulty.url } }).build());
-  await put(Agent({ id: "vanishing" }).mcp({ vanishing: { type: "streamable-http", url: vanishing.url } }).build());
-  await put(
+  // The MCP server names no credential: the vault's secret for its URL is its own.
+  await register(Agent({ id: "faulty" }).mcp({ faulty: { type: "streamable-http", url: faulty.url } }).build(), {
+    secrets: { faulty: { type: "bearer", url: faulty.url, value: TOKEN } },
+  });
+  await register(Agent({ id: "vanishing" }).mcp({ vanishing: { type: "streamable-http", url: vanishing.url } }).build());
+  // The HTTP tools name their credentials: slots of the runtime section (protocol 16).
+  await register(
     Agent({ id: "echoing" })
       .tools(
         http({ name: "lookup", input, url: `${service.url}/ok`, credential: "echo" }),
         http({ name: "failing", input, url: `${service.url}/fail`, credential: "echo-fail" }),
       )
       .build(),
+    {
+      runtime: {
+        kind: "none",
+        secrets: {
+          echo: { type: "headers", url: `${service.url}/ok` },
+          "echo-fail": { type: "headers", url: `${service.url}/fail` },
+        },
+      },
+      secrets: { echo: { headers: { "x-api-key": HTTP_KEY } }, "echo-fail": { headers: { "x-api-key": HTTP_KEY } } },
+    },
   );
-  await putEnvironment(runtime.url, runtime.headers(), SHARED);
-  for (const [name, body] of [
-    ["faulty", { type: "bearer", url: faulty.url, value: TOKEN }],
-    ["echo", { type: "headers", url: `${service.url}/ok`, headers: { "x-api-key": HTTP_KEY } }],
-    ["echo-fail", { type: "headers", url: `${service.url}/fail`, headers: { "x-api-key": HTTP_KEY } }],
-  ] as const) {
-    await putSecret(runtime.url, runtime.headers(), SHARED, name, body);
-  }
 });
 
 afterAll(async () => {
@@ -245,15 +241,15 @@ describe("tool names every model accepts (R2b C6)", () => {
 
   it("refuses to save a tool or an MCP server whose name a model would refuse", async () => {
     const dotted = Agent({ id: "dotted" }).mcp({ "files.v2": { type: "streamable-http", url: faulty.url } }).build();
-    const refused = await register("dotted", dotted.manifest);
+    const refused = await writeManifest(runtime.url, runtime.headers(), manifestOf(dotted));
     expect(refused.status).toBe(400);
-    expect(JSON.stringify(await refused.json())).toContain("MCP server name 'files.v2'");
+    expect(JSON.stringify(refused.body)).toContain("MCP server name 'files.v2'");
     const tool = Agent({ id: "dotted-tool" })
       .tools(http({ name: "refunds.create", input: z.object({ id: z.string() }), url: `${service.url}/ok` }))
       .build();
-    const toolRefused = await register("dotted-tool", tool.manifest);
+    const toolRefused = await writeManifest(runtime.url, runtime.headers(), manifestOf(tool));
     expect(toolRefused.status).toBe(400);
-    expect(JSON.stringify(await toolRefused.json())).toContain("Tool name 'refunds.create'");
+    expect(JSON.stringify(toolRefused.body)).toContain("Tool name 'refunds.create'");
   });
 });
 

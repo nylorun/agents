@@ -1,36 +1,29 @@
 /**
- * Session and definition resources: `PUT/GET /v1/agents`, `PUT /v1/sessions/:id` (create, or
- * find an identical one), the session list and the session view. Reads use the store's typed
- * queries; `PUT /v1/sessions/:id` runs in one transaction with the Environment's checks.
+ * Session resources: `PUT /v1/sessions/:id` (create, or find an identical one), the session list
+ * and the session view. A session runs on one Agent (protocol 16) and pins the manifest version
+ * the Agent runs when it opens. Reads use the store's typed queries; `PUT /v1/sessions/:id` runs in
+ * one transaction with the Agent's checks.
  */
-import {
-  DefinitionDocumentSchema,
-  definitionFilesOf,
-  type PutAgentRequest,
-  type PutSessionRequest,
-} from "@nylorun/core/contracts";
+import { type PutSessionRequest } from "@nylorun/core/contracts";
 import { hashManifest } from "@nylorun/core/compatibility";
-import { approvalRefusal, codeToolRefusal, type AgentManifest, type SandboxManifest } from "@nylorun/core/define";
+import { loopManifestOf } from "@nylorun/core/define";
 import { aggregateWaits, isWorkflowManifest } from "../core/flow-host.js";
 import { canonical } from "../store/canonical.js";
-import type { Environment, Tx } from "../store/types.js";
+import type { AgentManifestRow, Environment, Tx } from "../store/types.js";
 import { sandboxSpecOf } from "../sandbox/resolve.js";
-import { declaredSandboxes } from "../sandbox/share.js";
 import { effectiveSandboxConfig, readSandboxConfig } from "../sandbox/tenant-config.js";
 import { HARNESS_ID, checkPlacement, requirePods } from "../sandbox/placement.js";
-import { openEnvironment, recordAttachment } from "./environments.js";
+import { openAgent, recordAttachment } from "./agents.js";
 import {
   harnessOf,
+  reachesAgent,
   type Session,
   type SessionAccess,
   type TenantContext,
 } from "./context.js";
 import { fail } from "./http.js";
 import { definitionFileIssues } from "./definition-files.js";
-import { limitsInForce, readSkillLimits, readTenantLimits } from "./limits.js";
-import { readRuntimeLimits } from "./runtime-limits.js";
-import { httpToolTimeoutIssues } from "../gates/http-tool.js";
-import { requiresIssues } from "./limits.js";
+import { limitsInForce, readTenantLimits } from "./limits.js";
 
 /** A session's creation identity: everything but the request id. */
 const sessionIdentity = (value: any): string => {
@@ -38,114 +31,9 @@ const sessionIdentity = (value: any): string => {
   return canonical(body);
 };
 
-interface Definition {
-  manifest: any;
-  manifestHash: string;
-  implementationVersion: string;
-}
-
-export async function listDefinitions(ctx: TenantContext) {
-  const definitions = await ctx.store.tx((t) =>
-    t.listDefinitions<Definition>()
-  );
-  return {
-    agents: definitions.map((d) => ({
-      agentId: d.manifest.id,
-      manifest: d.manifest,
-      manifestHash: d.manifestHash,
-      implementationVersion: d.implementationVersion,
-    })),
-  };
-}
-
 /**
- * The agents a token caller may see: id, name and description only, never
- * instructions, tools or MCP servers, and only the agents allowed.
- */
-export async function listAgentsPublic(
-  ctx: TenantContext,
-  agents: ReadonlySet<string> | "*"
-) {
-  const definitions = await ctx.store.tx((t) =>
-    t.listDefinitions<Definition>()
-  );
-  return {
-    agents: definitions
-      .filter((d) => agents === "*" || agents.has(d.manifest.id))
-      .map((d) => ({
-        agentId: d.manifest.id as string,
-        ...(typeof d.manifest.name === "string" ? { name: d.manifest.name } : {}),
-        ...(typeof d.manifest.description === "string"
-          ? { description: d.manifest.description }
-          : {}),
-      })),
-  };
-}
-
-export async function putDefinition(
-  ctx: TenantContext,
-  agentId: string,
-  body: PutAgentRequest,
-  options: {
-    /** Run every check and save nothing (`?dryRun=true`, protocol 14). */
-    dryRun?: boolean;
-  } = {}
-) {
-  if (body.manifest.id !== agentId) fail(400, "Agent id mismatch");
-  DefinitionDocumentSchema.parse(body.manifest);
-  // The Runtime runs agents from their manifests alone (track R2): no tool may need it.
-  const code = codeToolRefusal(body.manifest);
-  if (code) fail(400, code);
-  // Tool approvals are the Tenant's tool policy, decided at the Tool Gate (R5 step 2).
-  const approval = approvalRefusal(body.manifest);
-  if (approval) fail(400, approval);
-  const declared = declaredSandboxes(body.manifest);
-  if (declared.length > 0)
-    fail(
-      400,
-      `${declared.join(", ")} declares a sandbox. Agents no longer declare one: remove .sandbox(), create an Environment with the sandbox (PUT /v1/environments/{id}) and open the session on it, createSession({ environment }). See MIGRATION.md.`
-    );
-  const definition = {
-    ...body,
-    manifestHash: hashManifest(body.manifest as any),
-  };
-  const files = [...definitionFilesOf(body.manifest)];
-  await ctx.store.tx(async (t) => {
-    const limits = await readRuntimeLimits(t);
-    const issues = [
-      ...httpToolTimeoutIssues(body.manifest, limits.httpToolTimeoutMs),
-      ...requiresIssues((body.manifest as { requires?: { secrets?: string[] } }).requires, limits),
-    ];
-    if (issues.length > 0) fail(400, issues.join(" "));
-    const { totalBytes } = await readSkillLimits(t);
-    const { missing, oversized } = await definitionFileIssues(t, body.manifest, totalBytes);
-    if (missing.length > 0)
-      fail(
-        400,
-        `The definition names ${missing.length} file(s) the Runtime does not hold; upload each with PUT /v1/files/<sha256> first: ${missing.join(", ")}`,
-        { code: "definition_files_missing", details: { missing } }
-      );
-    if (oversized.length > 0)
-      fail(
-        413,
-        `This Tenant allows a skill's files at most ${totalBytes} bytes together: ${oversized.map((skill) => `'${skill.name}' holds ${skill.bytes}`).join(", ")}`,
-        { code: "limit_exceeded", details: { limitBytes: totalBytes, skills: oversized } }
-      );
-    if (options.dryRun) return;
-    await t.put("definitions", agentId, definition);
-    await t.insertDefinitionFileUses(agentId, definition.manifestHash, files);
-  });
-  return {
-    agentId,
-    manifestHash: definition.manifestHash,
-    implementationVersion: body.implementationVersion,
-    ...(options.dryRun ? { dryRun: true } : {}),
-  };
-}
-
-/**
- * `access`, when the request acts for a person, limits the list to that person's sessions of
- * the agents they may use.
+ * `access`, when the request acts for a person, limits the list to that person's sessions on
+ * the Agents they may use.
  */
 export async function listSessions(
   ctx: TenantContext,
@@ -158,10 +46,9 @@ export async function listSessions(
       ...(access === undefined ? {} : { ownerUserId: access.owner }),
     })
   );
-  const allowed = access?.agents;
   return {
     sessions: sessions
-      .filter((s) => allowed === undefined || allowed.has(s.agentId))
+      .filter((s) => reachesAgent(access, s.agentId))
       .map((s) => ({
       id: s.id,
       agentId: s.agentId,
@@ -173,14 +60,14 @@ export async function listSessions(
 }
 
 /**
- * Create a session from its definition, or find an identical one. `access`, when the request
- * acts for a subject, must be the session's owner: another owner's session id is the 404 of a
- * missing one (not the 409 of a mismatch), and so is an Environment whose owner guard names
- * another owner.
+ * Create a session on an Agent, or find an identical one. `access`, when the request acts for a
+ * subject, must be the session's owner: another owner's session id is the 404 of a missing one
+ * (not the 409 of a mismatch), and so is an Agent whose owner guard names another owner.
  *
- * The session's Environment is fixed for its life: its sandbox (kinds `virtual` and `pod`) is
- * the session's, with the spec of the Environment's applied recipe pinned now, and its vault
- * holds the session's credentials. Without one the session has no sandbox and no credentials.
+ * The session runs on its Agent for its life: the Agent's sandbox (kinds `virtual` and `pod`) is
+ * the session's, with the spec of what the Agent runs pinned now, and the Agent's vault holds the
+ * session's credentials. It pins the manifest version the Agent runs (`definition`), as the loop
+ * manifest that version's harness section makes, and the harness that section names.
  */
 export async function putSession(
   ctx: TenantContext,
@@ -190,36 +77,27 @@ export async function putSession(
   options: {
     /**
      * Create the session if it is missing and otherwise leave it as it is (an AG-UI thread's
-     * session): an existing one must have the same owner and agent, or it is a 404.
+     * session): an existing one must have the same owner and Agent, or it is a 404.
      */
     createOnly?: boolean;
     /**
-     * The Environments the caller reaches (a token caller's grants, `environmentGrantsOf`);
-     * undefined reaches every one. `environment` must name one of them.
+     * The Agents the caller reaches (a token caller's grants, `agentGrantsOf`); undefined
+     * reaches every one. `agent` must name one of them.
      */
-    environmentGrants?: readonly string[];
+    agentGrants?: readonly string[];
   } = {}
 ): Promise<Session> {
   const opaque = access !== undefined;
   if (opaque && body.ownerUserId !== access.owner)
     fail(403, "ownerUserId must be the subject");
-  // An agent the subject may not use is the 404 of a missing definition.
-  if (access?.agents !== undefined && !access.agents.has(body.agentId))
-    fail(404, "Definition not found");
+  // An Agent the subject may not use is the 404 of a missing one.
+  if (!reachesAgent(access, body.agent)) fail(404, "Agent not found");
   return ctx.store.tx(async (t) => {
     const prior = await t.lockSession<Session>(id);
-    if (
-      opaque &&
-      prior &&
-      (prior.ownerUserId !== access.owner ||
-        (access.agents !== undefined && !access.agents.has(prior.agentId)))
-    )
+    if (opaque && prior && (prior.ownerUserId !== access.owner || !reachesAgent(access, prior.agentId)))
       fail(404, "Session not found");
     if (prior && options.createOnly) {
-      if (
-        prior.ownerUserId !== body.ownerUserId ||
-        prior.agentId !== body.agentId
-      )
+      if (prior.ownerUserId !== body.ownerUserId || prior.agentId !== body.agent)
         fail(404, "Session not found");
       return prior;
     }
@@ -228,103 +106,72 @@ export async function putSession(
         fail(409, "Session already exists with different creation parameters");
       return prior;
     }
-    const definition =
-      (await t.get<Definition>("definitions", body.agentId)) ??
-      fail(404, "Definition not found");
-    const environment =
-      body.environment === undefined
-        ? undefined
-        : await openEnvironment(t, body.environment, {
-            ...(options.environmentGrants === undefined ? {} : { grants: options.environmentGrants }),
-            ownerUserId: body.ownerUserId,
-            opaque,
-          });
-    if (!isWorkflowManifest(definition.manifest))
-      await checkRequirements(t, definition.manifest as AgentManifest, environment);
-    if (environment !== undefined) await checkSkillLimit(t, definition.manifest, environment);
+    const agent = await openAgent(t, body.agent, {
+      ...(options.agentGrants === undefined ? {} : { grants: options.agentGrants }),
+      ownerUserId: body.ownerUserId,
+      opaque,
+    });
+    // The version the Agent runs: saved once and never changed, so it is here.
+    const version =
+      (await t.agentManifest(agent.manifestName, agent.manifestVersion)) ??
+      fail(409, `Agent ${agent.id}'s manifest ${agent.manifestName}@${agent.manifestVersion} is gone.`, {
+        code: "agent_unavailable",
+      });
+    const manifest = loopManifestOf(version.body);
+    await checkSkillLimit(t, manifest, agent);
     const config = await readSandboxConfig(t);
-    // The harness the session runs for its life (R4.1): its Environment's, else ours. A flow
-    // runs in core and our engine, whatever its Environment names.
-    const harness =
-      isWorkflowManifest(definition.manifest) || environment === undefined
-        ? HARNESS_ID
-        : environment.applied.harness;
+    // The harness the session runs for its life (R4.1): its manifest's. A flow runs in core and
+    // our engine.
+    const harness = isWorkflowManifest(manifest) ? HARNESS_ID : agent.applied.harness;
     // Placement (D38, D52): where this session's harness may run, decided now and kept.
-    checkPlacement(config, environment?.kind, harness);
-    if (environment?.kind === "pod") await requirePods(ctx.pods, `Environment ${environment.id}`);
+    checkPlacement(config, agent.kind, harness);
+    if (agent.kind === "pod") await requirePods(ctx.pods, `Agent ${agent.id}`);
     const spec =
-      environment === undefined || environment.kind === "none"
-        ? undefined
-        : sandboxSpecOf(environment.applied, effectiveSandboxConfig(config).limits.idle);
-    // The session pins its definition as registered (protocol 15): the sandbox's spec stays on
-    // the session, and the harness words the facts and defines the tools.
+      agent.kind === "none" ? undefined : sandboxSpecOf(agent.applied, effectiveSandboxConfig(config).limits.idle);
+    const loop = loopOf(version);
+    const manifestHash = hashManifest(manifest as never);
     const created: Session = {
       id,
-      agentId: body.agentId,
+      agentId: agent.id,
       ownerUserId: body.ownerUserId,
-      manifest: definition.manifest,
-      manifestHash: definition.manifestHash,
-      definitionHash: definition.manifestHash,
-      implementationVersion: definition.implementationVersion,
+      manifest,
+      manifestHash,
+      definition: { name: version.name, version: version.version },
+      ...(loop === undefined ? {} : { loop }),
       info: body.info,
       status: "idle",
       activeTurnId: null,
       creation: body,
       harness,
-      ...(environment === undefined
-        ? {}
-        : { environmentId: environment.id, environmentVersion: environment.version }),
+      environmentId: agent.id,
+      environmentVersion: agent.version,
       ...(spec === undefined ? {} : { sandbox: spec }),
     };
     await t.put("sessions", id, created);
-    if (environment !== undefined) await recordAttachment(t, id, environment.id);
+    await recordAttachment(t, id, agent.id);
     return created;
   });
 }
 
-/**
- * Refuses a session whose agent requires what its Environment lacks (protocol 14, D65): a
- * sandbox (`any`: kind `virtual` or `pod`), a pod, or a secret its vault does not hold. Every
- * gap is named in one `409 environment_unsuitable`.
- */
-async function checkRequirements(
-  t: Tx,
-  manifest: AgentManifest,
-  environment: Environment | undefined,
-): Promise<void> {
-  const requires = manifest.requires;
-  if (requires === undefined) return;
-  const missing: string[] = [];
-  const kind = environment?.kind;
-  if (requires.sandbox === "any" && kind !== "virtual" && kind !== "pod") missing.push("sandbox");
-  if (requires.sandbox === "pod" && kind !== "pod") missing.push("pod");
-  if (requires.secrets?.length) {
-    const vault = environment === undefined ? undefined : await t.vaultOfEnvironment(environment.id);
-    const held = new Set(vault ? (await t.credentialsForVault(vault.id)).map((row) => row.name) : []);
-    for (const name of requires.secrets) if (!held.has(name)) missing.push(`secret:${name}`);
-  }
-  if (missing.length === 0) return;
-  const where = environment === undefined ? "the session names no Environment" : `Environment ${environment.id} lacks it`;
-  fail(
-    409,
-    `Agent ${manifest.id} requires ${missing.map((gap) => (gap.startsWith("secret:") ? `the secret ${gap.slice(7)}` : gap === "pod" ? "a pod Environment" : "a sandbox")).join(", ")}, and ${where}.`,
-    { code: "environment_unsuitable", details: { missing } },
-  );
+/** A manifest version's `harness.loop`, when it sets one. */
+function loopOf(version: AgentManifestRow): Record<string, unknown> | undefined {
+  return version.body.harness.loop as Record<string, unknown> | undefined;
 }
 
 /**
- * Refuses a session whose agent carries a skill larger than its Environment allows: its
- * manifest's `limits.skills.totalBytes`, else the Tenant's, never above the Tenant's.
- * `409 environment_unsuitable`, with each skill and its size in `details.skills`.
+ * Refuses a session whose Agent's manifest carries a skill larger than the Agent allows now: its
+ * manifest's `limits.skills.totalBytes`, else the Tenant's, never above the Tenant's, which may
+ * have been lowered since the manifest was saved. `413 limit_exceeded`, with each skill and its
+ * size in `details.skills`.
  */
-async function checkSkillLimit(t: Tx, manifest: unknown, environment: Environment): Promise<void> {
-  const limitBytes = limitsInForce(await readTenantLimits(t), environment.applied.limits).skills.totalBytes;
+async function checkSkillLimit(t: Tx, manifest: unknown, agent: Environment): Promise<void> {
+  const limitBytes = limitsInForce(await readTenantLimits(t), agent.applied.limits).skills.totalBytes;
   const { oversized } = await definitionFileIssues(t, manifest, limitBytes);
   if (oversized.length === 0) return;
   fail(
-    409,
-    `Environment ${environment.id} allows a skill's files at most ${limitBytes} bytes together, and agent ${(manifest as { id?: string }).id} carries ${oversized.map((skill) => `'${skill.name}' (${skill.bytes})`).join(", ")}.`,
-    { code: "environment_unsuitable", details: { limitBytes, skills: oversized } },
+    413,
+    `Agent ${agent.id} allows a skill's files at most ${limitBytes} bytes together, and its manifest carries ${oversized.map((skill) => `'${skill.name}' (${skill.bytes})`).join(", ")}.`,
+    { code: "limit_exceeded", details: { limitBytes, skills: oversized } },
   );
 }
 
@@ -349,15 +196,10 @@ export async function sessionView(t: Tx, s: Session): Promise<unknown> {
     id: s.id,
     agentId: s.agentId,
     ownerUserId: s.ownerUserId,
+    manifest: s.definition ?? null,
     manifestHash: s.manifestHash,
-    ...(s.definitionHash === undefined ? {} : { definitionHash: s.definitionHash }),
-    implementationVersion: s.implementationVersion,
     status: s.status,
     activeTurnId: s.activeTurnId,
-    environment:
-      s.environmentId === undefined
-        ? null
-        : { id: s.environmentId, version: s.environmentVersion ?? 1 },
     harness: harnessOf(s),
     ...(s.closedReason === undefined ? {} : { closedReason: s.closedReason }),
     mcpSnapshot: s.mcpSnapshot ?? null,

@@ -7,6 +7,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { Agent, createClient, type AgentsClient } from "@nylorun/agents";
+import { deploy } from "./support/agents.js";
 import { startTestTenant } from "./support/tenant.js";
 import { startToolServer } from "./support/tool-server.js";
 
@@ -99,9 +100,9 @@ describe.each([["in-process"], ["http"]] as const)("over the %s Model Gate", (tr
       .instructions("Keep going.")
       .tools(service.tool("again", { input: z.object({}), output: z.object({ ok: z.literal(true) }) }))
       .build();
-    await client.saveAgent(agent, { implementationVersion: "dev" });
+    await deploy(runtime.url, runtime.headers(), agent);
 
-    const session = await client.createSession({ id: "s1", agentId: "looper", ownerUserId: "ada" });
+    const session = await client.createSession({ id: "s1", agent: "looper", ownerUserId: "ada" });
     await session.input("go", { idempotencyKey: "m1" });
     const view = await settle(session);
     expect(view.status).toBe("failed");
@@ -118,7 +119,7 @@ describe.each([["in-process"], ["http"]] as const)("over the %s Model Gate", (tr
     expect(provider.calls()).toBe(5);
     expect(service.calls).toHaveLength(5);
     const usage = (await (
-      await realFetch(`${runtime.url}/v1/tenant/usage?scope=agent&id=looper`, { headers: runtime.managementHeaders() })
+      await realFetch(`${runtime.url}/v1/tenant/usage?scope=manifest&id=looper`, { headers: runtime.managementHeaders() })
     ).json()) as { tokens: number; calls: number };
     expect(usage).toMatchObject({ calls: 5, tokens: 5 * PER_CALL });
     expect(usage.tokens - 500).toBeLessThan(PER_CALL);

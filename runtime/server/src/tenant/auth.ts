@@ -14,7 +14,7 @@ import {
   SCOPES_HEADER,
   SUBJECT_HEADER,
 } from "@nylorun/core/compatibility";
-import { parseSubjectHeaders, TOKEN_SCOPES, type SubjectScope } from "@nylorun/core/contracts";
+import { agentGranted, parseSubjectHeaders, TOKEN_SCOPES, type SubjectScope } from "@nylorun/core/contracts";
 import { hashToken } from "../core/bearer.js";
 import type { AuthScope, SessionAccess, TenantContext } from "./context.js";
 import { fail } from "./http.js";
@@ -227,9 +227,9 @@ export function requirePrincipal(scope: AuthScope): string {
   return fail(403, "Application credential required");
 }
 
-/** True when a token caller may reach `agentId` (its issuer's allowlist). Other callers always may. */
+/** True when a token caller may reach Agent `agentId` (its grants). Other callers always may. */
 export function mayUseAgent(scope: AuthScope, agentId: string): boolean {
-  return scope.kind !== "token" || scope.agents === "*" || scope.agents.has(agentId);
+  return scope.kind !== "token" || scope.agents === "*" || agentGranted(scope.agents, agentId);
 }
 
 export function requireApplication(scope: AuthScope): string {

@@ -13,14 +13,24 @@ ${stackUsage}
   doctor sandbox [--tenant <name>] [--json]
                                       the sandbox backend the Tenant's Host offers
 
+Agent manifests:
+  apply [<dir>...] [--dry-run] [--if-match <n>]
+                                      save the agent manifest each folder's agent.manifest.json
+                                      describes, with the files it names (Runtime API)
+  migrate v8 <agent.json> [--runtime <environment-manifest.json>] [--out <dir>]
+                                      write the three manifest files from an agent manifest v7
+                                      and an environment manifest v1 (reads no Runtime)
+
 Groups, each with its own --help:
-  agents        list | get | save     the Tenant's agents (Runtime API, an application key)
+  agent-manifests  list | get | versions | rm
+                                      the Tenant's agent manifests (Runtime API)
+  agents        list | get | put | fork | stop | reset | rm | snapshot | restore
+                versions | delete-version | events | secrets
+                                      the Tenant's Agents, made from saved manifests; sessions
+                                      run on them (Runtime API)
   sessions      list | create | get | send | approve | respond | cancel | watch | history
                 usage | calls | trace | exec
                                       the Tenant's sessions (Runtime API)
-  environments  list | get | put | fork | stop | reset | delete | snapshot | restore
-                versions | delete-version | events | secrets | manifests
-                                      the Tenant's Environments (Runtime API)
   artifacts     list | get | upload | download | tree | diff | zip | link | rm
                                       the Tenant's file artifacts (Runtime API)
   tenant        reset | keys | signing-keys | models | usage | calls | budgets | tool-policy |
@@ -33,7 +43,8 @@ A command acts on the local Tenant --tenant names, else the linked project's, el
 project) the default Tenant; NYLORUN_HOME sets its Host root (default
 ~/.nylorun/tenants/<name>). Without --tenant, NYLORUN_RUNTIME_URL names a remote installation:
 with NYLORUN_MANAGEMENT_KEY for status, doctor sandbox and tenant; with NYLORUN_SERVER_KEY, or an
-identity provider's token in NYLORUN_TOKEN, for agents, sessions, environments and artifacts.
+identity provider's token in NYLORUN_TOKEN, for apply, agent-manifests, agents, sessions and
+artifacts.
 The Runtime API groups act for a person with --as <subject> [--scope <scope>]...`;
 
 const localUsage = `nylorun local <command>
@@ -58,7 +69,9 @@ const MOVED: Record<string, string> = {
   delete: "nylorun delete moved: nylorun local delete",
   telemetry: "nylorun telemetry moved: nylorun local telemetry",
   reset:
-    "nylorun reset moved: nylorun local reset deletes a local Tenant's volumes; nylorun tenant reset clears its sessions or Environments through the Management API",
+    "nylorun reset moved: nylorun local reset deletes a local Tenant's volumes; nylorun tenant reset clears its sessions or Agents through the Management API",
+  environments:
+    "nylorun environments is nylorun agents in protocol 16: Environments are Agents, made from saved agent manifests (nylorun apply). Environment manifests are the runtime section of an agent manifest (nylorun migrate v8).",
   key: "nylorun key moved: nylorun tenant keys put|list|rm",
   keys: "nylorun keys is nylorun tenant keys put|list|rm",
   mcp: "nylorun mcp moved: nylorun tenant mcp inspect <url>",
@@ -71,10 +84,10 @@ const MOVED: Record<string, string> = {
 };
 
 const SANDBOX_MOVED: Record<string, string> = {
-  ls: "nylorun sandbox ls moved: nylorun environments list",
-  list: "nylorun sandbox ls moved: nylorun environments list",
-  rm: "nylorun sandbox rm moved: nylorun environments delete <id>",
-  delete: "nylorun sandbox rm moved: nylorun environments delete <id>",
+  ls: "nylorun sandbox ls moved: nylorun agents list",
+  list: "nylorun sandbox ls moved: nylorun agents list",
+  rm: "nylorun sandbox rm moved: nylorun agents rm <id>",
+  delete: "nylorun sandbox rm moved: nylorun agents rm <id>",
 };
 
 const LOCAL_UI_REMOVED =
@@ -160,11 +173,20 @@ async function main() {
     process.exitCode = await tenantCommand(defaultStackDeps(env), args);
     return;
   }
-  if (command === "agents" || command === "sessions" || command === "environments" || command === "artifacts") {
+  if (
+    command === "apply" ||
+    command === "migrate" ||
+    command === "agent-manifests" ||
+    command === "agents" ||
+    command === "sessions" ||
+    command === "artifacts"
+  ) {
     const group = {
+      apply: async () => (await import("./client/apply.js")).applyCommand,
+      migrate: async () => (await import("./client/migrate.js")).migrateCommand,
+      "agent-manifests": async () => (await import("./client/agent-manifests.js")).agentManifestsCommand,
       agents: async () => (await import("./client/agents.js")).agentsCommand,
       sessions: async () => (await import("./client/sessions.js")).sessionsCommand,
-      environments: async () => (await import("./client/environments.js")).environmentsCommand,
       artifacts: async () => (await import("./client/artifacts.js")).artifactsCommand,
     }[command];
     process.exitCode = await (await group())(defaultStackDeps(env), args);

@@ -3,11 +3,12 @@
 Studio uses only the public Runtime and Management APIs through its authenticated
 same-origin proxy. This change adds no database connection, storage client,
 Runtime route or SDK method. Artifacts are read-only except a message's attachments,
-uploaded into its session (protocol 12); Environments
-(protocol 11) are created, relabelled, forked, stopped, reset and deleted, their manifests
-saved (protocol 14), and their disk versions kept, restored, forked and deleted, through their
-public routes. An Environment never changes what it runs: a new manifest version reaches it
-through a fork.
+uploaded into its session (protocol 12). Agents (protocol 16) are made from a saved
+agent manifest, relabelled, forked, stopped, reset and deleted, and their disk
+versions kept, restored and deleted, through their public routes. An Agent never
+changes what it runs: a newer manifest version reaches it through a fork. Agent
+manifests are read only in Studio; they are saved from their repository
+(`nylorun apply`).
 
 ## Artifact pages
 
@@ -16,34 +17,35 @@ The Tenant-wide Artifacts table uses the opt-in pages of `GET /v1/artifacts`
 `nextCursor`, and the `sessionId`, `kind` and `label` filters. Studio checks the
 feature on `/health` first; without it, the page offers a session lookup and
 opening by ID, and never fetches the unbounded legacy list. An artifact view's
-`environmentId` names the Environment whose disk versions it holds, so the table
-and inspector link it to that Environment.
+`agentId` names the Agent whose disk versions it holds, so the table and inspector
+link it to that Agent.
 
 ## Existing APIs used now
 
 | Studio view | Public API / SDK |
 | --- | --- |
-| Environment table, sidebar groups, manifest and label filters | `environments.list()` → `GET /v1/environments` and `environments.manifests.list()` → `GET /v1/environment-manifests`, grouped and filtered in the browser as sessions are |
-| Environment metadata and manifest | `environments.get()` → `GET /v1/environments/{id}` |
-| New Environment, from inline fields or a manifest version | `environments.put(id, fields)` or `environments.put(id, { manifest: "name@n" })` → `PUT /v1/environments/{id}` |
-| Edit labels and owner | `environments.put(id, …)` → `PUT /v1/environments/{id}` (what it runs is unchanged) |
-| Fork: a new Environment from a manifest version, with this one's disk and secrets | `environments.planFork()`, `.fork()` → `POST /v1/environments/{id}/fork` (`dryRun: true` for the plan) |
-| Environment manifests | `environments.manifests.list()`, `.get()`, `.plan()`, `.save()` → `GET /v1/environment-manifests`, `GET` and `PUT /v1/environment-manifests/{name}` (`?dryRun=true` for the plan, `If-Match` the version read) |
-| Stop, Reset (pods), Delete | `environments.stop()`, `.reset()`, `.delete()` → `POST /v1/environments/{id}/stop`, `POST …/reset`, `DELETE /v1/environments/{id}` |
-| Secrets tab (names, types, bindings) | `environments.secrets.list()` → `GET /v1/environments/{id}/secrets` |
-| Secrets tab forms | `environments.secrets.put()`, `.delete()` → `PUT`, `DELETE /v1/environments/{id}/secrets/{name}` |
-| Disk tab: versions | `environments.versions()` → `GET /v1/environments/{id}/versions` |
-| Disk tab: Snapshot disk, Restore, Delete | `environments.snapshot()`, `.restore(id, version)`, `.deleteVersion()` → `POST …/snapshot`, `POST …/restore`, `DELETE …/versions/{n}` |
-| Disk tab: New Environment from a version | `environments.put(id, { …fields, from: { environment, version } })` → `PUT /v1/environments/{id}` |
+| Agents table, sidebar groups, state, manifest, owner and label filters | `agents.list()` → `GET /v1/agents` and `agentManifests.list()` → `GET /v1/agent-manifests`, filtered, sorted and grouped in the browser as sessions are |
+| Agent page and its Overview | `agents.get()` → `GET /v1/agents/{id}`; `agentManifests.get(name)` → `GET /v1/agent-manifests/{name}` for the latest version (**Fork to v<n>**) |
+| New Agent, from a manifest it tracks or a version it pins | `agentManifests.versions(name)` → `GET /v1/agent-manifests/{name}/versions`; `agents.put(id, { manifest: "name" \| "name@n", owner?, labels? })` → `PUT /v1/agents/{id}` |
+| Edit labels and owner | `agents.put(id, { manifest, labels, owner })` → `PUT /v1/agents/{id}` (its manifest as it was made: what it runs is unchanged) |
+| Fork: a new Agent from a manifest version, with this one's disk and secrets | `agents.planFork()`, `.fork()` → `POST /v1/agents/{id}/fork` (`dryRun: true` for the plan) |
+| Stop, Reset (pods), Delete | `agents.stop()`, `.reset()`, `.delete()` → `POST /v1/agents/{id}/stop`, `POST …/reset`, `DELETE /v1/agents/{id}` |
+| Sessions tab | the Agent view's `sessions`, with each one's times from the session list below |
+| Secrets tab (names, types, bindings) | `agents.secrets.list()` → `GET /v1/agents/{id}/secrets`; the view's `slots`; Management `coverage({ agentId })` → `POST /v1/tenant/credential-coverage` |
+| Secrets tab forms | `agents.secrets.put()`, `.delete()` → `PUT`, `DELETE /v1/agents/{id}/secrets/{name}` |
+| Preview tools | Management `mcp.preview({ url, agentId })` → `POST /v1/tenant/mcp/preview` |
+| Disk tab: versions | `agents.versions()` → `GET /v1/agents/{id}/versions` |
+| Disk tab: Snapshot disk, Restore, Delete | `agents.snapshot()`, `.restore(id, version)`, `.deleteVersion()` → `POST …/snapshot`, `POST …/restore`, `DELETE …/versions/{n}` |
+| Disk tab: Fork from a version | `agents.fork(id, { id, disk: n })` → `POST /v1/agents/{id}/fork` |
 | Disk tab: Browse a version | the artifact reads below, on the `artifactId` the versions read names |
-| Setup & files tab | the manifest's `setup` and `files` from `GET /v1/environments/{id}`, read only |
-| Session's Environment tab | `session.inspect()` (`environment: { id, version }`), `environments.get()`, Management `coverage({ agentId, environmentId })` |
-| Sessions that name it | `sessions.page({ environmentId })` → `GET /v1/sessions?limit=50&environmentId=…` |
+| Setup & files tab | the runtime's `setup` and `files` from `GET /v1/agents/{id}`, read only |
+| Events tab, manual refresh | `agents.events({ from, types? })` → `GET /v1/agents/{id}/events?from=…` (`agent.*`; `types=agent.egress` for connections) |
+| Agent manifests, a manifest's versions and one version's sections | `agentManifests.list()`, `.versions(name)`, `.get(name, version)` → `GET /v1/agent-manifests`, `GET …/{name}/versions`, `GET …/{name}/versions/{n}` |
+| New session | `createSession({ id, agent, ownerUserId })` → `PUT /v1/sessions/{id}` (the proxy sets `ownerUserId: local-developer`) |
+| Session's Manifest tab | `session.manifest()` → `GET /v1/sessions/{id}/manifest` (Host feature `session-reads`; without it, `agents.get()` and `agentManifests.get(name, version)`); `agentManifests.get(name)` for the latest version |
+| Session's Agent tab | `session.inspect()` (`agentId`, `manifest: { name, version }`), `agents.get()`, Management `coverage({ agentId })`, `agents.events({ types: ["agent.egress"] })` |
 | Session list with last activity | `sessions.page({ limit: 200, cursor })` → `GET /v1/sessions?limit=200&cursor=…`, every page, for each session's `createdAt` and `lastEventAt` (Host feature `session-reads`); without it `listSessions()` → `GET /v1/sessions`, with no times |
 | Session's Usage tab | `session.usage()` → `GET /v1/sessions/{id}/usage` and `session.modelCalls({ limit: 50, cursor })` → `GET /v1/sessions/{id}/calls/model?limit=50&cursor=…` (Host feature `session-reads`; both allowed by the proxy, read only) |
-| Lifecycle events, manual refresh | `environments.events({ from })` → `GET /v1/environments/{id}/events?from=…` |
-| New session's Environment picker | `environments.list()` → `GET /v1/environments`; Management `coverage({ agentId, environmentId })` → `POST /v1/tenant/credential-coverage` |
-| Preview tools | Management `mcp.preview({ url, environmentId })` → `POST /v1/tenant/mcp/preview` |
 | Tenant artifacts table | `artifacts.page({ kind, sessionId, labels, cursor })` → `GET /v1/artifacts?limit=50&…` |
 | Session artifact list | `artifacts.list({ sessionId })` → `GET /v1/artifacts?sessionId=…` |
 | Artifact metadata and versions | `artifacts.get()` → `GET /v1/artifacts/{id}` |
@@ -53,7 +55,16 @@ and inspector link it to that Environment.
 | Message attachments | `artifacts.upload(file, { name, sessionId, contentType })` → `POST /v1/artifacts?name=…&sessionId=…` (the proxy keeps only those two, checks `GET /v1/sessions/{id}`, needs `Content-Length`, refuses over `maxUploadBytes`, 32 MiB, and streams the body); then `session.inputParts([text?, …{ type: "file", artifactId, version }])` → `POST /v1/sessions/{id}/commands`; any file is accepted (protocol 15) |
 | Model inputs (Model settings) | Management `models.catalog()` → `GET /v1/tenant/models` (each model's `inputs` and `addableInputs`); `models.setInputs({ provider, model, inputs })` → `PUT /v1/tenant/models/inputs` (allowed by the proxy); a custom endpoint's `models.put({ settings: { inputs } })` |
 
-All version reads and download links name an explicit numbered version. Environment
+The proxy allows these Agent routes and nothing else under them: `GET /v1/agents`
+(with its filters and pages), `GET`, `PUT` and `DELETE /v1/agents/{id}`, `GET …/events`,
+`GET …/versions`, `DELETE …/versions/{n}`, `GET …/secrets`, `GET`, `PUT` and
+`DELETE …/secrets/{name}`, and `POST …/stop`, `…/reset`, `…/fork`, `…/snapshot` and
+`…/restore`; `GET /v1/agent-manifests`, `GET /v1/agent-manifests/{name}`,
+`GET …/versions` and `GET …/versions/{n}`, and `PUT /v1/agent-manifests/{name}`
+(`?dryRun=true` for the plan), whose `If-Match` it passes on. It no longer allows
+`/v1/environments/**` or `/v1/environment-manifests/**`.
+
+All version reads and download links name an explicit numbered version. Agent
 IDs (which may hold `/`), secret names and folder file paths remain single encoded
 path segments. Studio holds the
 installation key on the server. The Runtime capability is the credential for a
@@ -63,10 +74,14 @@ Studio or put in application navigation state.
 
 ## Later work
 
-Environment event reads currently return all events from a sequence. Studio reads
+Agent event reads currently return all events from a sequence. Studio reads
 on opening Events and on explicit Refresh, accumulates by sequence, and never
-polls or attaches an Environment SSE stream. Bounded event pages would improve large
+polls or attaches an Agent SSE stream. Bounded event pages would improve large
 histories, but are not a blocker for this increment.
+
+Editing an agent manifest in Studio (a v8 document with its harness and runtime
+sections, saved with `If-Match`) is deferred: the proxy allows the save, and the
+SDK's `agentManifests.plan()` and `.save()` cover it.
 
 Artifact version histories and folder trees are also ordinary existing reads.
 Their pagination, lifecycle controls, uploads, deletion, share UI and live

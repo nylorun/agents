@@ -3,11 +3,31 @@
     "status": 204,
     "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
-  "GET /v1/agents": {
+  "GET /v1/agent-manifests": {
     "status": 204,
     "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
-  "PUT /v1/agents/bot": {
+  "PUT /v1/agent-manifests/bot": {
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
+  },
+  "GET /v1/agent-manifests/bot": {
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
+  },
+  "GET /v1/agent-manifests/bot/versions": {
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
+  },
+  "GET /v1/agent-manifests/bot/versions/1": {
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
+  },
+  "GET /v1/agent-manifests/missing": {
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
+  },
+  "DELETE /v1/agent-manifests/missing": {
     "status": 204,
     "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
@@ -47,67 +67,99 @@
     "status": 204,
     "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
-  "GET /v1/environments": {
+  "GET /v1/agents": {
     "status": 204,
     "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
-  "GET /v1/environments?label=project=acme": {
+  "GET /v1/agents?label=project=acme": {
     "status": 204,
     "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
-  "GET /v1/environments?limit=1": {
+  "GET /v1/agents?limit=1": {
     "status": 204,
     "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
-  "PUT /v1/environments/team%2Fenv-missing": {
+  "PUT /v1/agents/bot": {
     "status": 204,
     "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
-  "GET /v1/environments/team%2Fenv-missing": {
+  "PUT /v1/agents/team%2Fagent-missing": {
     "status": 204,
     "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
-  "GET /v1/environments/team%2Fenv-missing/events": {
+  "GET /v1/agents/team%2Fagent-missing": {
     "status": 204,
     "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
-  "POST /v1/environments/team%2Fenv-missing/stop": {
+  "GET /v1/agents/team%2Fagent-missing/events": {
     "status": 204,
     "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
-  "POST /v1/environments/team%2Fenv-missing/reset": {
+  "POST /v1/agents/team%2Fagent-missing/stop": {
     "status": 204,
     "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
-  "DELETE /v1/environments/team%2Fenv-missing": {
+  "POST /v1/agents/team%2Fagent-missing/reset": {
     "status": 204,
     "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
-  "GET /v1/environments/env-1": {
+  "POST /v1/agents/team%2Fagent-missing/snapshot": {
     "status": 204,
     "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
-  "GET /v1/environments/env-1/events": {
+  "POST /v1/agents/team%2Fagent-missing/restore": {
     "status": 204,
     "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
-  "POST /v1/environments/env-1/stop": {
+  "POST /v1/agents/team%2Fagent-missing/fork": {
     "status": 204,
     "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
-  "GET /v1/environments/env-1/secrets": {
+  "GET /v1/agents/team%2Fagent-missing/versions": {
     "status": 204,
     "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
-  "GET /v1/environments/env-1/secrets/missing": {
+  "DELETE /v1/agents/team%2Fagent-missing/versions/1": {
     "status": 204,
     "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
-  "PUT /v1/environments/env-1/secrets/token": {
+  "DELETE /v1/agents/team%2Fagent-missing": {
     "status": 204,
     "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
-  "DELETE /v1/environments/env-1/secrets/missing": {
+  "GET /v1/agents/agent-1": {
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
+  },
+  "GET /v1/agents/agent-1/events": {
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
+  },
+  "POST /v1/agents/agent-1/stop": {
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
+  },
+  "POST /v1/agents/agent-1/fork": {
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
+  },
+  "GET /v1/agents/agent-1/versions": {
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
+  },
+  "GET /v1/agents/agent-1/secrets": {
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
+  },
+  "GET /v1/agents/agent-1/secrets/missing": {
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
+  },
+  "PUT /v1/agents/agent-1/secrets/token": {
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
+  },
+  "DELETE /v1/agents/agent-1/secrets/missing": {
     "status": 204,
     "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
@@ -215,7 +267,7 @@
     "status": 204,
     "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
-  "GET /v1/tenant/usage?scope=agent&id=bot&period=month": {
+  "GET /v1/tenant/usage?scope=manifest&id=bot&period=month": {
     "status": 204,
     "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },

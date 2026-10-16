@@ -242,7 +242,7 @@ export function apiHost(
         run,
         agent: agentOf(run.start.manifest as AgentManifest, effect),
         readBytes: engine.skillReadBytes,
-        sandboxed: run.start.environment?.sandbox !== undefined,
+        sandboxed: run.start.agent?.sandbox !== undefined,
         signal,
       });
     return Promise.resolve({

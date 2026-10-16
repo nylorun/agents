@@ -6,16 +6,16 @@
  */
 import { z } from "zod";
 import {
-  EnvironmentManifestSchema,
+  AgentManifestV8Schema,
   EnvironmentSecretSlotsSchema,
-  DeleteEnvironmentManifestResponseSchema,
-  EnvironmentManifestPlanSchema,
-  EnvironmentManifestVersionsSchema,
-  EnvironmentManifestViewSchema,
-  ListEnvironmentManifestsResponseSchema,
-  PutEnvironmentManifestRequestSchema,
-  PutEnvironmentSecretValueRequestSchema,
-  SaveEnvironmentManifestResponseSchema,
+  DeleteAgentManifestResponseSchema,
+  AgentManifestPlanSchema,
+  AgentManifestVersionsSchema,
+  AgentManifestViewSchema,
+  ListAgentManifestsResponseSchema,
+  PutAgentManifestRequestSchema,
+  PutAgentSecretValueRequestSchema,
+  SaveAgentManifestResponseSchema,
   SessionListItemSchema,
   ModelCallSchema,
   SessionPageSchema,
@@ -24,7 +24,7 @@ import {
   SessionUsageTotalsSchema,
   ModelCallsPageSchema,
   ModelCallExportPageSchema,
-  EnvironmentPageSchema,
+  AgentPageSchema,
   ToolCallSchema,
   ToolCallsPageSchema,
   TurnTraceSchema,
@@ -53,38 +53,34 @@ import {
   HostModelViewSchema,
   PutHostModelRequestSchema,
   SelectHostModelRequestSchema,
-  PutEnvironmentSecretRequestSchema,
-  EnvironmentSecretViewSchema,
-  ListEnvironmentSecretsResponseSchema,
+  PutAgentSecretRequestSchema,
+  AgentSecretViewSchema,
+  ListAgentSecretsResponseSchema,
   McpPreviewRequestSchema,
   McpPreviewSchema,
   CredentialCoverageRequestSchema,
   CredentialCoverageSchema,
   DeletedResponseSchema,
-  ListAgentsResponseSchema,
-  ListPublicAgentsResponseSchema,
   ListSessionsResponseSchema,
   LiveEventSchema,
   PutAgentRequestSchema,
-  PutAgentResponseSchema,
   PutSessionRequestSchema,
   SessionItemsResponseSchema,
   SessionViewSchema,
   StreamClosedFrameSchema,
   AcceptedResponseSchema,
   SandboxToolOutcomeSchema,
-  PutEnvironmentRequestSchema,
-  EnvironmentViewSchema,
-  EnvironmentSnapshotSchema,
-  RestoreEnvironmentRequestSchema,
-  ForkEnvironmentRequestSchema,
-  EnvironmentForkPlanSchema,
-  ForkEnvironmentResponseSchema,
-  EnvironmentRestoreSchema,
-  EnvironmentVersionsSchema,
-  ListEnvironmentsResponseSchema,
-  DeleteEnvironmentResponseSchema,
-  ListEnvironmentEventsResponseSchema,
+  AgentViewSchema,
+  AgentSnapshotSchema,
+  RestoreAgentRequestSchema,
+  ForkAgentRequestSchema,
+  AgentForkPlanSchema,
+  ForkAgentResponseSchema,
+  AgentRestoreSchema,
+  AgentDiskVersionsSchema,
+  ListAgentsResponseSchema,
+  DeleteAgentResponseSchema,
+  ListAgentEventsResponseSchema,
   ArtifactViewSchema,
   ArtifactListItemSchema,
   ArtifactPageSchema,
@@ -133,31 +129,28 @@ export const DeleteOperatorKeyResponse = named(
 );
 
 export const SandboxToolOutcome = named("SandboxToolOutcome", SandboxToolOutcomeSchema);
-export const PutEnvironmentRequest = named("PutEnvironmentRequest", PutEnvironmentRequestSchema);
-export const EnvironmentView = named("EnvironmentView", EnvironmentViewSchema);
+export const PutAgentRequest = named("PutAgentRequest", PutAgentRequestSchema);
+export const AgentView = named("AgentView", AgentViewSchema);
 export const EnvironmentSecretSlots = named("EnvironmentSecretSlots", EnvironmentSecretSlotsSchema);
-export const EnvironmentManifest = named("EnvironmentManifest", EnvironmentManifestSchema);
-export const PutEnvironmentManifestRequest = named("PutEnvironmentManifestRequest", PutEnvironmentManifestRequestSchema);
-export const EnvironmentManifestView = named("EnvironmentManifestView", EnvironmentManifestViewSchema);
-export const EnvironmentManifestPlan = named("EnvironmentManifestPlan", EnvironmentManifestPlanSchema);
-export const SaveEnvironmentManifestResponse = named("SaveEnvironmentManifestResponse", SaveEnvironmentManifestResponseSchema);
-export const ListEnvironmentManifestsResponse = named("ListEnvironmentManifestsResponse", ListEnvironmentManifestsResponseSchema);
-export const EnvironmentManifestVersions = named("EnvironmentManifestVersions", EnvironmentManifestVersionsSchema);
-export const DeleteEnvironmentManifestResponse = named("DeleteEnvironmentManifestResponse", DeleteEnvironmentManifestResponseSchema);
-export const PutEnvironmentSecretValueRequest = named("PutEnvironmentSecretValueRequest", PutEnvironmentSecretValueRequestSchema);
-export const EnvironmentSnapshot = named("EnvironmentSnapshot", EnvironmentSnapshotSchema);
-export const RestoreEnvironmentRequest = named("RestoreEnvironmentRequest", RestoreEnvironmentRequestSchema);
-export const EnvironmentRestore = named("EnvironmentRestore", EnvironmentRestoreSchema);
-export const ForkEnvironmentRequest = named("ForkEnvironmentRequest", ForkEnvironmentRequestSchema);
-export const EnvironmentForkPlan = named("EnvironmentForkPlan", EnvironmentForkPlanSchema);
-export const ForkEnvironmentResponse = named("ForkEnvironmentResponse", ForkEnvironmentResponseSchema);
-export const EnvironmentVersions = named("EnvironmentVersions", EnvironmentVersionsSchema);
-export const ListEnvironmentsResponse = named("ListEnvironmentsResponse", ListEnvironmentsResponseSchema);
-export const DeleteEnvironmentResponse = named("DeleteEnvironmentResponse", DeleteEnvironmentResponseSchema);
-export const ListEnvironmentEventsResponse = named(
-  "ListEnvironmentEventsResponse",
-  ListEnvironmentEventsResponseSchema,
-);
+export const AgentManifest = named("AgentManifest", AgentManifestV8Schema);
+export const PutAgentManifestRequest = named("PutAgentManifestRequest", PutAgentManifestRequestSchema);
+export const AgentManifestView = named("AgentManifestView", AgentManifestViewSchema);
+export const AgentManifestPlan = named("AgentManifestPlan", AgentManifestPlanSchema);
+export const SaveAgentManifestResponse = named("SaveAgentManifestResponse", SaveAgentManifestResponseSchema);
+export const ListAgentManifestsResponse = named("ListAgentManifestsResponse", ListAgentManifestsResponseSchema);
+export const AgentManifestVersions = named("AgentManifestVersions", AgentManifestVersionsSchema);
+export const DeleteAgentManifestResponse = named("DeleteAgentManifestResponse", DeleteAgentManifestResponseSchema);
+export const PutAgentSecretValueRequest = named("PutAgentSecretValueRequest", PutAgentSecretValueRequestSchema);
+export const AgentSnapshot = named("AgentSnapshot", AgentSnapshotSchema);
+export const RestoreAgentRequest = named("RestoreAgentRequest", RestoreAgentRequestSchema);
+export const AgentRestore = named("AgentRestore", AgentRestoreSchema);
+export const ForkAgentRequest = named("ForkAgentRequest", ForkAgentRequestSchema);
+export const AgentForkPlan = named("AgentForkPlan", AgentForkPlanSchema);
+export const ForkAgentResponse = named("ForkAgentResponse", ForkAgentResponseSchema);
+export const AgentDiskVersions = named("AgentDiskVersions", AgentDiskVersionsSchema);
+export const ListAgentsResponse = named("ListAgentsResponse", ListAgentsResponseSchema);
+export const DeleteAgentResponse = named("DeleteAgentResponse", DeleteAgentResponseSchema);
+export const ListAgentEventsResponse = named("ListAgentEventsResponse", ListAgentEventsResponseSchema);
 export const ArtifactVersionView = named("ArtifactVersionView", ArtifactVersionViewSchema);
 export const ArtifactView = named("ArtifactView", ArtifactViewSchema);
 export const ArtifactListItem = named("ArtifactListItem", ArtifactListItemSchema);
@@ -188,13 +181,6 @@ export const ArtifactDiff = named("ArtifactDiff", ArtifactDiffSchema);
 export const SessionCommand = named("SessionCommand", SessionCommandSchema);
 export const AcceptedResponse = named("AcceptedResponse", AcceptedResponseSchema);
 
-export const ListAgentsResponse = named("ListAgentsResponse", ListAgentsResponseSchema);
-export const ListPublicAgentsResponse = named(
-  "ListPublicAgentsResponse",
-  ListPublicAgentsResponseSchema,
-);
-export const PutAgentRequest = named("PutAgentRequest", PutAgentRequestSchema);
-export const PutAgentResponse = named("PutAgentResponse", PutAgentResponseSchema);
 export const ListSessionsResponse = named("ListSessionsResponse", ListSessionsResponseSchema);
 export const PutSessionRequest = named("PutSessionRequest", PutSessionRequestSchema);
 export const SessionView = named("SessionView", SessionViewSchema);
@@ -243,11 +229,11 @@ export const ListProvidersResponse = named("ListProvidersResponse", ListProvider
 export const HostModelView = named("HostModelView", HostModelViewSchema);
 export const PutHostModelRequest = named("PutHostModelRequest", PutHostModelRequestSchema);
 export const SelectHostModelRequest = named("SelectHostModelRequest", SelectHostModelRequestSchema);
-export const PutEnvironmentSecretRequest = named("PutEnvironmentSecretRequest", PutEnvironmentSecretRequestSchema);
-export const EnvironmentSecretView = named("EnvironmentSecretView", EnvironmentSecretViewSchema);
-export const ListEnvironmentSecretsResponse = named(
-  "ListEnvironmentSecretsResponse",
-  ListEnvironmentSecretsResponseSchema,
+export const PutAgentSecretRequest = named("PutAgentSecretRequest", PutAgentSecretRequestSchema);
+export const AgentSecretView = named("AgentSecretView", AgentSecretViewSchema);
+export const ListAgentSecretsResponse = named(
+  "ListAgentSecretsResponse",
+  ListAgentSecretsResponseSchema,
 );
 export const DeletedResponse = named("DeletedResponse", DeletedResponseSchema);
 export const McpPreviewRequest = named("McpPreviewRequest", McpPreviewRequestSchema);
@@ -271,9 +257,9 @@ export const HistoryPage = named("HistoryPage", HistoryPageSchema.extend({ items
 export const SessionUsageTotals = named("SessionUsageTotals", SessionUsageTotalsSchema);
 export const ModelCallsPage = named("ModelCallsPage", ModelCallsPageSchema.extend({ calls: z.array(ModelCall) }));
 export const ModelCallExportPage = named("ModelCallExportPage", ModelCallExportPageSchema.extend({ calls: z.array(ModelCall) }));
-export const EnvironmentPage = named(
-  "EnvironmentPage",
-  EnvironmentPageSchema.extend({ environments: z.array(EnvironmentView) }),
+export const AgentPage = named(
+  "AgentPage",
+  AgentPageSchema.extend({ environments: z.array(AgentView) }),
 );
 export const ToolCall = named("ToolCall", ToolCallSchema);
 export const ToolCallsPage = named("ToolCallsPage", ToolCallsPageSchema.extend({ calls: z.array(ToolCall) }));

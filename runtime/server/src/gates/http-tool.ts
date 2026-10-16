@@ -353,7 +353,7 @@ export async function runHttpTool(
       return outcome;
     return {
       ...outcome,
-      message: `The service answered HTTP 401: it rejected the credential '${http.credential}' from the session's Environment`,
+      message: `The service answered HTTP 401: it rejected the credential '${http.credential}' from the session's Agent`,
       server: http.credential,
     };
   }

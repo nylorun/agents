@@ -224,10 +224,13 @@ export async function publicCreatorSmoke(versions, pins) {
           });
           await eventually(
             async () =>
+              (await runtimeGet(runtimeUrl, key, "/v1/agent-manifests")).manifests?.some(
+                (manifest) => manifest.name === "assistant",
+              ) &&
               (await runtimeGet(runtimeUrl, key, "/v1/agents")).agents?.some(
-                (agent) => agent.manifest?.id === "assistant",
+                (agent) => agent.id === "assistant" && agent.manifest === "assistant",
               ),
-            { timeout: 120_000, message: 'the saved agent "assistant"' },
+            { timeout: 120_000, message: 'the saved agent manifest "assistant" and its Agent' },
           );
 
           const studioUrl = bannerField(
@@ -244,7 +247,7 @@ export async function publicCreatorSmoke(versions, pins) {
           );
           assert.equal(proxied.status, 200, await proxied.clone().text());
           console.log(
-            `PASS: @nylorun/create-agent@${versions.creator}, nylorun@${versions.nylorun} and @nylorun/cli@${versions.cli} on ghcr.io/nylorun/runtime:${pins.runtime} and studio:${pins.studio}: project linked to its Tenant, agent saved, Studio login works.`,
+            `PASS: @nylorun/create-agent@${versions.creator}, nylorun@${versions.nylorun} and @nylorun/cli@${versions.cli} on ghcr.io/nylorun/runtime:${pins.runtime} and studio:${pins.studio}: project linked to its Tenant, agent manifest saved and its Agent made, Studio login works.`,
           );
         } finally {
           // Stop the Project before the Tenant is reset.

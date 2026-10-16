@@ -76,10 +76,16 @@ it("describes and groups the tags, every operation in one of them, in the order 
   expect(runtime["x-tagGroups"].map((group) => group.name)).toEqual([
     "Agents",
     "Sessions",
-    "Environments",
     "Artifacts",
     "Service",
   ]);
+  // Environments are Agents, made from agent manifests (protocol 16).
+  expect(runtime["x-tagGroups"].find((group) => group.name === "Agents")?.tags).toEqual([
+    "Agent manifests",
+    "Definition files",
+    "Agents",
+  ]);
+  for (const path of Object.keys(runtime.paths)) expect(path).not.toMatch(/^\/v1\/environment/);
   expect(runtime["x-tagGroups"].find((group) => group.name === "Sessions")?.tags).toEqual([
     "Sessions API",
     "AG-UI",

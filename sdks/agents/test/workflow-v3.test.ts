@@ -9,7 +9,7 @@ import { AgentsClient } from "../src/client.js";
 
 /**
  * Flow agents in the SDK: a flow agent is saved as one workflow manifest v3 document. Its
- * stages are agents: a tool stage would run your code, so `saveAgent` refuses it.
+ * stages are agents: a tool stage would run your code, so `agentManifests.save` refuses it.
  */
 
 const KEY = "a".repeat(64);
@@ -34,7 +34,7 @@ function recording() {
   return { client, puts };
 }
 
-/** The Runtime holds every skill file already: `saveAgent` asks (HEAD) and uploads nothing. */
+/** The Runtime holds every skill file already: `agentManifests.save` asks (HEAD) and uploads nothing. */
 function heldFile(init: RequestInit | undefined) {
   if (init?.method !== "HEAD") throw new Error(`unexpected ${init?.method} of a file`);
   return new Response(null, { status: 200 });
@@ -87,20 +87,23 @@ function deskWith(pluginDir: string) {
   return Agent({ id: "desk" }).pipe(writer, Agent({ id: "editor" }).instructions("Edit.")).build();
 }
 
-describe("saveAgent with a flow agent", () => {
-  it("PUTs one document", async () => {
+describe("agentManifests.save with a flow agent", () => {
+  it("PUTs one document, its harness section a flow", async () => {
     const desk = deskWith(pluginFolder());
     const { client, puts } = recording();
-    await client.saveAgent(desk, { implementationVersion: "test" });
+    await client.agentManifests.save({ agent: desk, runtime: { kind: "virtual" } });
     expect(puts.map((p) => p.path)).toEqual(["desk"]);
-    expect(puts[0]!.body.manifest.workflowSchemaVersion).toBe(3);
-    expect(Object.keys(puts[0]!.body).sort()).toEqual(["implementationVersion", "manifest", "requestId"]);
+    expect(Object.keys(puts[0]!.body).sort()).toEqual(["harness", "manifestSchemaVersion", "name", "requestId", "runtime"]);
+    const { harness } = puts[0]!.body;
+    expect(harness.kind).toBe("workflow");
+    expect(Object.keys(harness.agents).sort()).toEqual(["editor", "writer"]);
+    expect(harness.agents.writer.skills["open-pr"].plugin).toEqual({ name: "github", version: "1.0.0" });
   });
 
   it("refuses a tool stage before sending anything", async () => {
     const desk = Agent({ id: "desk" }).pipe(Agent({ id: "writer" }).instructions("Write."), shout).build();
     const { client, puts } = recording();
-    await expect(client.saveAgent(desk)).rejects.toThrow(
+    await expect(client.agentManifests.save({ agent: desk })).rejects.toThrow(
       "The tool stage 'shout' of flow agent 'desk' runs your code, but the Runtime runs agents from their manifests alone.",
     );
     expect(puts).toEqual([]);
@@ -116,8 +119,8 @@ describe("a flow agent used as a tool (Phase 3)", () => {
 
   it("is saved inside its parent", async () => {
     const { client, puts } = recording();
-    await client.saveAgent(lead, { implementationVersion: "test" });
+    await client.agentManifests.save({ agent: lead, runtime: { kind: "virtual" } });
     expect(puts.map((p) => p.path)).toEqual(["lead"]);
-    expect(Object.keys(puts[0]!.body).sort()).toEqual(["implementationVersion", "manifest", "requestId"]);
+    expect(puts[0]!.body.harness.tools[0].agent.kind).toBe("workflow");
   });
 });

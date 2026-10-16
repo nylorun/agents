@@ -150,7 +150,7 @@ test("proxy allows /health for SDK compatibility checks", async () => {
   );
 });
 
-test("proxy forwards Environment reads and same-origin writes on the Runtime API, as they are", async () => {
+test("proxy forwards Agent and agent manifest reads and same-origin writes on the Runtime API, as they are", async () => {
   const seen: { path: string; body: string; headers: Record<string, string | string[] | undefined> }[] = [];
   await withUpstream(
     async (req, res) => {
@@ -177,66 +177,69 @@ test("proxy forwards Environment reads and same-origin writes on the Runtime API
           ...(body === undefined ? {} : { body: JSON.stringify(body) }),
         });
       try {
-        const recipe = { requestId: "r", kind: "pod", ownerUserId: "alice", network: { allowedHosts: ["pypi.org"] } };
-        assert.equal((await send("PUT", "/v1/environments/team%2Fbuild", recipe)).status, 200);
+        const agent = { requestId: "r", manifest: "triage@2", owner: "alice", labels: { team: "a" } };
+        assert.equal((await send("PUT", "/v1/agents/team%2Fbuild", agent)).status, 200);
         const secret = { requestId: "r", type: "bearer", url: "https://mcp.example.com/mcp", value: "tok" };
-        assert.equal((await send("PUT", "/v1/environments/team%2Fbuild/secrets/github", secret)).status, 200);
-        assert.equal((await send("POST", "/v1/environments/team%2Fbuild/stop", {})).status, 200);
-        assert.equal((await send("POST", "/v1/environments/team%2Fbuild/reset", {})).status, 200);
-        assert.equal((await send("POST", "/v1/environments/team%2Fbuild/snapshot", {})).status, 200);
-        assert.equal((await send("POST", "/v1/environments/team%2Fbuild/restore", { requestId: "r", version: 2 })).status, 200);
-        assert.equal((await send("DELETE", "/v1/environments/team%2Fbuild/versions/2")).status, 200);
-        assert.equal((await send("DELETE", "/v1/environments/team%2Fbuild/secrets/github")).status, 200);
-        assert.equal((await send("DELETE", "/v1/environments/team%2Fbuild")).status, 200);
-        assert.equal((await send("POST", "/v1/environments/team%2Fbuild/fork", { requestId: "r", id: "team/next" })).status, 200);
-        const manifest = { requestId: "r", name: "analyst-box", kind: "virtual" };
-        assert.equal((await send("PUT", "/v1/environment-manifests/analyst-box?dryRun=true", manifest, origin, { "if-match": "2" })).status, 200);
-        assert.equal((await send("PUT", "/v1/environment-manifests/analyst-box", manifest, origin, { "if-match": "2" })).status, 200);
+        assert.equal((await send("PUT", "/v1/agents/team%2Fbuild/secrets/github", secret)).status, 200);
+        assert.equal((await send("POST", "/v1/agents/team%2Fbuild/stop", {})).status, 200);
+        assert.equal((await send("POST", "/v1/agents/team%2Fbuild/reset", {})).status, 200);
+        assert.equal((await send("POST", "/v1/agents/team%2Fbuild/snapshot", {})).status, 200);
+        assert.equal((await send("POST", "/v1/agents/team%2Fbuild/restore", { requestId: "r", version: 2 })).status, 200);
+        assert.equal((await send("DELETE", "/v1/agents/team%2Fbuild/versions/2")).status, 200);
+        assert.equal((await send("DELETE", "/v1/agents/team%2Fbuild/secrets/github")).status, 200);
+        assert.equal((await send("DELETE", "/v1/agents/team%2Fbuild")).status, 200);
+        assert.equal((await send("POST", "/v1/agents/team%2Fbuild/fork", { requestId: "r", id: "team/next" }, origin, { "if-match": "9" })).status, 200);
+        const manifest = { requestId: "r", manifestSchemaVersion: 8, name: "triage", harness: {} };
+        assert.equal((await send("PUT", "/v1/agent-manifests/triage?dryRun=true", manifest, origin, { "if-match": "2" })).status, 200);
+        assert.equal((await send("PUT", "/v1/agent-manifests/triage", manifest, origin, { "if-match": "2" })).status, 200);
         for (const path of [
-          "/v1/environments?limit=50&label=project%3Dbuild",
-          "/v1/environments/team%2Fbuild",
-          "/v1/environments/team%2Fbuild/events?from=2",
-          "/v1/environments/team%2Fbuild/versions",
-          "/v1/environments/team%2Fbuild/secrets",
-          "/v1/environments/team%2Fbuild/secrets/github",
-          "/v1/environment-manifests",
-          "/v1/environment-manifests/analyst-box",
-          "/v1/environment-manifests/analyst-box/versions",
-          "/v1/environment-manifests/analyst-box/versions/2",
+          "/v1/agents",
+          "/v1/agents?limit=50&state=failing&manifest=triage&label=team%3Da",
+          "/v1/agents/team%2Fbuild",
+          "/v1/agents/team%2Fbuild/events?from=2",
+          "/v1/agents/team%2Fbuild/versions",
+          "/v1/agents/team%2Fbuild/secrets",
+          "/v1/agents/team%2Fbuild/secrets/github",
+          "/v1/agent-manifests",
+          "/v1/agent-manifests/triage",
+          "/v1/agent-manifests/triage/versions",
+          "/v1/agent-manifests/triage/versions/2",
         ])
           assert.equal((await fetch(base + path)).status, 200, path);
         assert.deepEqual(
           seen.map((entry) => entry.path),
           [
-            "PUT /v1/environments/team%2Fbuild",
-            "PUT /v1/environments/team%2Fbuild/secrets/github",
-            "POST /v1/environments/team%2Fbuild/stop",
-            "POST /v1/environments/team%2Fbuild/reset",
-            "POST /v1/environments/team%2Fbuild/snapshot",
-            "POST /v1/environments/team%2Fbuild/restore",
-            "DELETE /v1/environments/team%2Fbuild/versions/2",
-            "DELETE /v1/environments/team%2Fbuild/secrets/github",
-            "DELETE /v1/environments/team%2Fbuild",
-            "POST /v1/environments/team%2Fbuild/fork",
-            "PUT /v1/environment-manifests/analyst-box?dryRun=true",
-            "PUT /v1/environment-manifests/analyst-box",
-            "GET /v1/environments?limit=50&label=project%3Dbuild",
-            "GET /v1/environments/team%2Fbuild",
-            "GET /v1/environments/team%2Fbuild/events?from=2",
-            "GET /v1/environments/team%2Fbuild/versions",
-            "GET /v1/environments/team%2Fbuild/secrets",
-            "GET /v1/environments/team%2Fbuild/secrets/github",
-            "GET /v1/environment-manifests",
-            "GET /v1/environment-manifests/analyst-box",
-            "GET /v1/environment-manifests/analyst-box/versions",
-            "GET /v1/environment-manifests/analyst-box/versions/2",
+            "PUT /v1/agents/team%2Fbuild",
+            "PUT /v1/agents/team%2Fbuild/secrets/github",
+            "POST /v1/agents/team%2Fbuild/stop",
+            "POST /v1/agents/team%2Fbuild/reset",
+            "POST /v1/agents/team%2Fbuild/snapshot",
+            "POST /v1/agents/team%2Fbuild/restore",
+            "DELETE /v1/agents/team%2Fbuild/versions/2",
+            "DELETE /v1/agents/team%2Fbuild/secrets/github",
+            "DELETE /v1/agents/team%2Fbuild",
+            "POST /v1/agents/team%2Fbuild/fork",
+            "PUT /v1/agent-manifests/triage?dryRun=true",
+            "PUT /v1/agent-manifests/triage",
+            "GET /v1/agents",
+            "GET /v1/agents?limit=50&state=failing&manifest=triage&label=team%3Da",
+            "GET /v1/agents/team%2Fbuild",
+            "GET /v1/agents/team%2Fbuild/events?from=2",
+            "GET /v1/agents/team%2Fbuild/versions",
+            "GET /v1/agents/team%2Fbuild/secrets",
+            "GET /v1/agents/team%2Fbuild/secrets/github",
+            "GET /v1/agent-manifests",
+            "GET /v1/agent-manifests/triage",
+            "GET /v1/agent-manifests/triage/versions",
+            "GET /v1/agent-manifests/triage/versions/2",
           ],
         );
-        // A manifest save names the version it was made over.
+        // A manifest save names the version it was made over; nothing else carries If-Match.
+        assert.equal(seen[9]!.headers["if-match"], undefined);
         assert.equal(seen[10]!.headers["if-match"], "2");
         assert.equal(seen[11]!.headers["if-match"], "2");
-        // The owner guard is the operator's: an Environment write is not a session's owner.
-        assert.deepEqual(JSON.parse(seen[0]!.body), recipe);
+        // The owner guard is the operator's: an Agent write is not a session's owner.
+        assert.deepEqual(JSON.parse(seen[0]!.body), agent);
         assert.deepEqual(JSON.parse(seen[1]!.body), secret);
         for (const { headers } of seen) {
           assert.equal(headers.authorization, "Bearer server-secret");
@@ -244,26 +247,31 @@ test("proxy forwards Environment reads and same-origin writes on the Runtime API
           assert.equal(headers["nylorun-scopes"], undefined);
         }
         const count = seen.length;
-        // Another origin may not change an Environment.
-        assert.equal((await send("PUT", "/v1/environments/a", { kind: "virtual" }, "https://evil.example")).status, 403);
-        assert.equal((await send("DELETE", "/v1/environments/a", undefined, "https://evil.example")).status, 403);
-        assert.equal((await send("POST", "/v1/environments/a/restore", { version: 1 }, "https://evil.example")).status, 403);
-        assert.equal((await send("POST", "/v1/environments/a/fork", { id: "b" }, "https://evil.example")).status, 403);
-        assert.equal((await send("PUT", "/v1/environment-manifests/m", { name: "m" }, "https://evil.example")).status, 403);
-        // Nothing else under an Environment, and no protocol-10 sandbox or vault route.
+        // Another origin may not change an Agent.
+        assert.equal((await send("PUT", "/v1/agents/a", { manifest: "m" }, "https://evil.example")).status, 403);
+        assert.equal((await send("DELETE", "/v1/agents/a", undefined, "https://evil.example")).status, 403);
+        assert.equal((await send("POST", "/v1/agents/a/restore", { version: 1 }, "https://evil.example")).status, 403);
+        assert.equal((await send("POST", "/v1/agents/a/fork", { id: "b" }, "https://evil.example")).status, 403);
+        assert.equal((await send("PUT", "/v1/agent-manifests/m", { name: "m" }, "https://evil.example")).status, 403);
+        // Nothing else under an Agent, no protocol-15 Environment route, no protocol-10 sandbox or vault.
         for (const [method, path] of [
-          ["POST", "/v1/environments/a"],
-          ["POST", "/v1/environments/a/secrets/x"],
-          ["POST", "/v1/environments/a/files"],
-          ["GET", "/v1/environments/a/files"],
-          ["GET", "/v1/environments/a/versions/1"],
-          ["DELETE", "/v1/environments/a/versions"],
-          ["DELETE", "/v1/environments/a/versions/latest"],
-          ["POST", "/v1/environments/a/versions"],
+          ["POST", "/v1/agents/a"],
+          ["POST", "/v1/agents/a/secrets/x"],
+          ["POST", "/v1/agents/a/files"],
+          ["GET", "/v1/agents/a/files"],
+          ["GET", "/v1/agents/a/versions/1"],
+          ["DELETE", "/v1/agents/a/versions"],
+          ["DELETE", "/v1/agents/a/versions/latest"],
+          ["POST", "/v1/agents/a/versions"],
           // A manifest is saved, never deleted, from Studio.
-          ["DELETE", "/v1/environment-manifests/m"],
-          ["POST", "/v1/environment-manifests/m"],
-          ["GET", "/v1/environment-manifests/m/versions/latest"],
+          ["DELETE", "/v1/agent-manifests/m"],
+          ["POST", "/v1/agent-manifests/m"],
+          ["GET", "/v1/agent-manifests/m/versions/latest"],
+          ["GET", "/v1/environments"],
+          ["GET", "/v1/environments/a"],
+          ["PUT", "/v1/environments/a"],
+          ["GET", "/v1/environment-manifests"],
+          ["PUT", "/v1/environment-manifests/m"],
           ["GET", "/v1/sandboxes"],
           ["GET", "/v1/sandboxes/a"],
           ["GET", "/v1/tenant/vaults"],
@@ -280,7 +288,7 @@ test("proxy forwards Environment reads and same-origin writes on the Runtime API
   );
 });
 
-test("proxy opens a session as Studio's owner, on the Environment the request names", async () => {
+test("proxy opens a session as Studio's owner, on the Agent the request names", async () => {
   const bodies: unknown[] = [];
   await withUpstream(
     async (req, res) => {
@@ -303,11 +311,11 @@ test("proxy opens a session as Studio's owner, on the Environment the request na
         const opened = await fetch(`http://127.0.0.1:${address.port}/_studio/runtime/v1/sessions/s1`, {
           method: "PUT",
           headers: { origin, "content-type": "application/json" },
-          body: JSON.stringify({ requestId: "r", agentId: "a", ownerUserId: "alice", environment: "team/build" }),
+          body: JSON.stringify({ requestId: "r", agent: "team/build", ownerUserId: "alice" }),
         });
         assert.equal(opened.status, 200);
         assert.deepEqual(bodies, [
-          { requestId: "r", agentId: "a", ownerUserId: "local-developer", environment: "team/build" },
+          { requestId: "r", agent: "team/build", ownerUserId: "local-developer" },
         ]);
       } finally {
         studio.close();
@@ -337,12 +345,12 @@ test("proxy forwards a same-origin MCP tool preview and refuses one from another
       const address = studio.address();
       assert.ok(address && typeof address === "object");
       const url = `http://127.0.0.1:${address.port}/_studio/runtime/v1/tenant/mcp/preview`;
-      const body = JSON.stringify({ url: "https://mcp.example.com/mcp", environmentId: "team/build" });
+      const body = JSON.stringify({ url: "https://mcp.example.com/mcp", agentId: "team/build" });
       try {
         const previewed = await fetch(url, { method: "POST", headers: { origin, "content-type": "application/json" }, body });
         assert.equal(previewed.status, 200);
         assert.equal(seen[0]!.path, "POST /v1/tenant/mcp/preview");
-        assert.deepEqual(JSON.parse(seen[0]!.body), { url: "https://mcp.example.com/mcp", environmentId: "team/build" });
+        assert.deepEqual(JSON.parse(seen[0]!.body), { url: "https://mcp.example.com/mcp", agentId: "team/build" });
         assert.equal(seen[0]!.headers.authorization, "Bearer server-secret");
         const foreign = await fetch(url, {
           method: "POST",
@@ -361,7 +369,7 @@ test("proxy forwards a same-origin MCP tool preview and refuses one from another
   );
 });
 
-test("proxy forwards a credential coverage check against an Environment", async () => {
+test("proxy forwards an Agent's credential coverage check", async () => {
   const seen: { path: string; body: string; headers: Record<string, string | string[] | undefined> }[] = [];
   await withUpstream(
     async (req, res) => {
@@ -369,7 +377,7 @@ test("proxy forwards a credential coverage check against an Environment", async 
       for await (const chunk of req) body += chunk;
       seen.push({ path: `${req.method} ${req.url}`, body, headers: { ...req.headers } });
       res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({ agentId: "triage", environmentId: "team/build", complete: true, entries: [] }));
+      res.end(JSON.stringify({ agentId: "team/build", complete: true, entries: [] }));
     },
     async (upstreamUrl) => {
       const origin = "http://127.0.0.1:4161";
@@ -384,10 +392,10 @@ test("proxy forwards a credential coverage check against an Environment", async 
       const post = (body: unknown, from = origin) =>
         fetch(url, { method: "POST", headers: { origin: from, "content-type": "application/json" }, body: JSON.stringify(body) });
       try {
-        const checked = await post({ agentId: "triage", environmentId: "team/build" });
+        const checked = await post({ agentId: "team/build" });
         assert.equal(checked.status, 200);
         assert.equal(seen[0]!.path, "POST /v1/tenant/credential-coverage");
-        assert.deepEqual(JSON.parse(seen[0]!.body), { agentId: "triage", environmentId: "team/build" });
+        assert.deepEqual(JSON.parse(seen[0]!.body), { agentId: "team/build" });
         assert.equal(seen[0]!.headers.authorization, "Bearer server-secret");
         assert.equal(seen[0]!.headers["nylorun-subject"], undefined);
         assert.equal((await post({ agentId: "triage" }, "https://evil.example")).status, 403);
@@ -581,7 +589,7 @@ test("a JSON write past the default request body is read up to the Tenant's requ
       const address = studio.address();
       assert.ok(address && typeof address === "object");
       const put = (labels: Record<string, string>) =>
-        fetch(`http://127.0.0.1:${address.port}/_studio/runtime/v1/environments/big`, {
+        fetch(`http://127.0.0.1:${address.port}/_studio/runtime/v1/agents/big`, {
           method: "PUT",
           headers: { origin, "content-type": "application/json" },
           body: JSON.stringify({ requestId: "r", labels }),
@@ -589,11 +597,11 @@ test("a JSON write past the default request body is read up to the Tenant's requ
       try {
         // Within the default: no question to the Runtime.
         assert.equal((await put({ a: "small" })).status, 200);
-        assert.deepEqual(seen, ["PUT /v1/environments/big"]);
+        assert.deepEqual(seen, ["PUT /v1/agents/big"]);
         // Past it: the Tenant's limit decides.
         const big = { a: "x".repeat(1536 * 1024) };
         assert.equal((await put(big)).status, 200);
-        assert.deepEqual(seen.slice(1), ["GET /v1/tenant/limits", "PUT /v1/environments/big"]);
+        assert.deepEqual(seen.slice(1), ["GET /v1/tenant/limits", "PUT /v1/agents/big"]);
         limit = 1024 * 1024;
         assert.equal((await put(big)).status, 413);
       } finally {

@@ -1,10 +1,11 @@
 /**
- * What Studio's new-session picker makes of a credential coverage (`POST
- * /v1/tenant/credential-coverage { agentId, environmentId }`): how each entry reads, and which
- * Environments a Studio session may name. No React here, so `node --test` covers it.
+ * What Studio makes of a credential coverage (`POST /v1/tenant/credential-coverage { agentId }`,
+ * protocol 16): what each MCP server and HTTP tool of an Agent's manifest version would get from
+ * its vault, how each entry reads, and which Agents a Studio session may run on. No React here,
+ * so `node --test` covers it.
  */
 import type { ManagementClient } from "@nylorun/admin/client";
-import type { EnvironmentView } from "@nylorun/agents";
+import type { AgentView } from "@nylorun/agents";
 
 export type Coverage = Awaited<ReturnType<ManagementClient["coverage"]>>;
 export type CoverageEntry = Coverage["entries"][number];
@@ -46,15 +47,12 @@ export function coverageCredentialLabel(entry: CoverageEntry): string | undefine
 }
 
 /**
- * Why a Studio session may not name this Environment, or undefined when it may: its owner guard
+ * Why a Studio session may not run on this Agent, or undefined when it may: its owner guard
  * names another owner than Studio's (the Runtime would refuse the session with
- * `environment_owner_mismatch`).
+ * `agent_owner_mismatch`).
  */
-export function environmentUnavailable(
-  environment: Pick<EnvironmentView, "ownerUserId">,
-  owner: string,
-): string | undefined {
-  return environment.ownerUserId !== null && environment.ownerUserId !== owner
-    ? `Only ${environment.ownerUserId}'s sessions may use it`
+export function agentUnavailable(agent: Pick<AgentView, "owner">, owner: string): string | undefined {
+  return agent.owner !== null && agent.owner !== owner
+    ? `Only ${agent.owner}'s sessions may run on it`
     : undefined;
 }

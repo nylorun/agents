@@ -263,7 +263,7 @@ describe("egress-gate credentials (R2c)", () => {
     await new Promise((resolve) => setTimeout(resolve, 100));
     expect(written).toHaveLength(1);
     expect(written[0]).toMatchObject({
-      environmentId: "sbx_1",
+      agentId: "sbx_1",
       host: "api.bound.test",
       port: 443,
       outcome: "allowed",

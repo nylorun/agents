@@ -18,7 +18,7 @@ export interface TestIssuer {
   readonly configs: readonly TrustedIssuerConfig[];
   /** The identity file's text, for a Host that reads one. */
   readonly file: string;
-  /** A token for `subject` with `scopes`; `claims` fill the Environment grant templates. */
+  /** A token for `subject` with `scopes`; `claims` fill the Agent grant templates. */
   sign(
     subject: string,
     scopes: readonly IssuerScope[] | string,
@@ -31,19 +31,18 @@ export async function testIssuer(
     name?: string;
     /** The `iss` its tokens carry. Default `https://issuer.test`. */
     iss?: string;
-    /** The agents its tokens reach; absent reaches all. */
+    /**
+     * Agent grant templates over signed claims (protocol 16), such as `{team}/*` or `bot`: what
+     * its tokens reach. Default `["*"]`, every Agent; `[]` reaches none.
+     */
     agents?: readonly string[];
-    /** Environment grant templates over signed claims, such as `{team}/*`. */
-    environments?: readonly string[];
-    /** @deprecated The old name of `environments` (protocol 10); written as `environments:`. */
-    sandboxes?: readonly string[];
     /** `maxLifetime`, e.g. `15m`. */
     maxLifetime?: string;
   } = {},
 ): Promise<TestIssuer> {
   const name = options.name ?? "test";
   const iss = options.iss ?? TEST_ISSUER;
-  const environments = options.environments ?? options.sandboxes;
+  const agents = options.agents ?? ["*"];
   const pair = await generateKeyPair("ES256", { extractable: true });
   const pem = createPublicKey({ key: (await exportJWK(pair.publicKey)) as never, format: "jwk" })
     .export({ type: "spki", format: "pem" })
@@ -63,11 +62,8 @@ ${pem
     subject: "{sub}"
     scopes: { claim: scp }
     allowedScopes: [${ISSUER_SCOPES.join(", ")}]
-${options.agents ? `    agents: [${options.agents.map((agent) => JSON.stringify(agent)).join(", ")}]\n` : ""}${
-    environments
-      ? `    environments: [${environments.map((grant) => JSON.stringify(grant)).join(", ")}]\n`
-      : ""
-  }    maxLifetime: ${options.maxLifetime ?? "15m"}
+    agents: [${agents.map((agent) => JSON.stringify(agent)).join(", ")}]
+    maxLifetime: ${options.maxLifetime ?? "15m"}
 `;
   const configs = parseIdentityFile(file, "test identity file");
   const privateKey: CryptoKey = pair.privateKey;

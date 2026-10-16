@@ -17,7 +17,7 @@ export function settingsSection(pathname: string): SettingsSection | undefined {
 
 /**
  * One Tenant settings section; the sidebar navigates between them. Secrets are not here: each
- * Environment holds its own vault, on its page.
+ * Agent holds its own vault, on its page.
  */
 export function TenantSettings({
   tenant,

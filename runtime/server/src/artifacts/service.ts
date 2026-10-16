@@ -151,7 +151,7 @@ export function artifactView(row: ArtifactRow, versions?: ArtifactVersionRow[]):
     name: row.name,
     contentType: row.contentType,
     ...(row.sessionId === null ? {} : { sessionId: row.sessionId }),
-    ...(row.environmentId === null ? {} : { environmentId: row.environmentId }),
+    ...(row.environmentId === null ? {} : { agentId: row.environmentId }),
     latestVersion: row.latestVersion,
     ...(row.labelsJson === null ? {} : { labels: JSON.parse(row.labelsJson) as Record<string, string> }),
     createdAt: row.createdAt,
@@ -447,7 +447,7 @@ export async function deleteArtifact(
   const keys = await ctx.store.tx(async (t) => {
     const found = await readableArtifact(t, id, access);
     if (found.environmentId !== null)
-      fail(409, `Artifact ${id} holds Environment ${found.environmentId}'s disk versions: delete them with DELETE /v1/environments/{id}/versions/{version}, or delete the Environment.`);
+      fail(409, `Artifact ${id} holds Agent ${found.environmentId}'s disk versions: delete them with DELETE /v1/agents/{id}/versions/{version}, or delete the Agent.`);
     if (found.sessionId !== null) await lockedSession(t, found.sessionId, access);
     if (found.kind === "folder") await t.lockArtifactQuota();
     const row = await readableArtifact(t, id, access, { lock: true });

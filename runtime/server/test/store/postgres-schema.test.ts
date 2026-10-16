@@ -20,7 +20,7 @@ import {
 import {
   STREAMS_SCHEMA,
   TENANT_SCHEMA,
-  definitions,
+  commands,
   sessions,
   signingKeys,
 } from "../../src/store/postgres/schema.js";
@@ -99,12 +99,12 @@ describe("Postgres column types", () => {
       emoji: String.fromCodePoint(0x1f600),
       empty: [],
     };
-    await db.insert(definitions).values({ id: "d1", body });
+    await db.insert(commands).values({ id: "d1", body });
     const [raw] = await db.execute<{ text: string }>(
-      fragment`SELECT body::text AS text FROM ${definitions} WHERE ${definitions.id} = 'd1'`,
+      fragment`SELECT body::text AS text FROM ${commands} WHERE ${commands.id} = 'd1'`,
     );
     expect(raw!.text).toBe(JSON.stringify(body));
-    const [row] = await db.select().from(definitions).where(eq(definitions.id, "d1"));
+    const [row] = await db.select().from(commands).where(eq(commands.id, "d1"));
     expect(JSON.stringify(row!.body)).toBe(JSON.stringify(body));
     expect(row!.body).toEqual(body);
   });
@@ -157,12 +157,12 @@ describe("Postgres column types", () => {
   it('orders ids by code point (COLLATE "C"), whatever the database collation', async () => {
     const db = database(testPool());
     for (const id of ["b", "B", "a", "_", "A"])
-      await db.insert(definitions).values({ id: `order-${id}`, body: {} });
+      await db.insert(commands).values({ id: `order-${id}`, body: {} });
     const rows = await db
-      .select({ id: definitions.id })
-      .from(definitions)
-      .where(fragment`${definitions.id} LIKE 'order-%'`)
-      .orderBy(definitions.id);
+      .select({ id: commands.id })
+      .from(commands)
+      .where(fragment`${commands.id} LIKE 'order-%'`)
+      .orderBy(commands.id);
     expect(rows.map((row) => row.id)).toEqual([
       "order-A",
       "order-B",

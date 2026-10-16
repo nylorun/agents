@@ -87,16 +87,12 @@ it.each([
         key: runtime.applicationKey,
         tenant: runtime.tenantId,
       });
-      await client.saveAgent(Agent({ id: "writer", name: "Writer" }).instructions("Write files.").build(), {
-        implementationVersion: "dev",
+      await client.agentManifests.save({
+        agent: Agent({ id: "writer", name: "Writer" }).instructions("Write files.").build(),
+        runtime: { kind: "virtual" },
       });
-      await client.environments.put("env-long", { kind: "virtual" });
-      const session = await client.createSession({
-        id: "long",
-        agentId: "writer",
-        ownerUserId: "ada",
-        environment: "env-long",
-      });
+      await client.agents.put("env-long", { manifest: "writer" });
+      const session = await client.createSession({ id: "long", agent: "env-long", ownerUserId: "ada" });
       for (let turn = 0; turn < TURNS; turn++) {
         await session.input(`Write batch ${turn}.`, { idempotencyKey: `m${turn}` });
         expect((await settle(session)).status).toBe("completed");

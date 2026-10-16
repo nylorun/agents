@@ -3,13 +3,14 @@
 How a team runs Nylorun on its own machines with its own identity provider and secret store,
 and no Nylorun account. Open source verifies and enforces; it never signs anyone in, never
 manages people, and holds a person's secrets only where your app writes them: in an
-Environment's vault. Your identity provider and your secret store plug in.
+Agent's vault. Your identity provider and your secret store plug in.
 
 Read [DEPLOYMENT.md](./DEPLOYMENT.md) first: it covers the Tenant's containers, the reverse proxy
 in front of the Runtime, Postgres, the gateway and the harness. This guide covers who gets in
 and where credentials come from. [`examples/self-host`](../examples/self-host/README.md) runs
 all of it on one machine with Keycloak and oauth2-proxy, and checks
-it end to end. Upgrading from protocol 10:
+it end to end. Upgrading from protocol 15:
+[MIGRATION.md](./MIGRATION.md#agents-from-one-manifest-protocol-16-harness-api-5); from protocol 10:
 [MIGRATION.md](./MIGRATION.md#environments-replace-sandboxes-and-vaults-protocol-11-a-fresh-start);
 from protocol 7: [MIGRATION.md](./MIGRATION.md#runtime-and-management-apis-protocol-8); from an
 earlier release: [MIGRATION.md](./MIGRATION.md#open-source-auth-protocol-7).
@@ -17,19 +18,19 @@ earlier release: [MIGRATION.md](./MIGRATION.md#open-source-auth-protocol-7).
 ## Scope
 
 **One installation per trust domain.** A Runtime serves exactly one Tenant, the one its own
-Postgres database holds. Everyone the installation serves shares its agents, its operators
-and its application keys, which reach every Environment. People or teams that must not share
+Postgres database holds. Everyone the installation serves shares its agent manifests, its
+operators and its application keys, which reach every Agent. People or teams that must not share
 those get separate installations.
 
 Open source includes:
 
 - verifying JWTs from your identity provider ([trusted issuers](#the-identity-file)), with
-  scopes, an agent allowlist and Environment grants per issuer;
+  scopes and Agent grants per issuer;
 - application keys for your servers, which act for the whole Tenant or for one person, and
   management keys for your operators' tools;
 - each person's sessions kept to that person (another person's session is a `404`);
-- Environments, each with its own vault: one per person for their own keys (kept to them by
-  the owner guard), or one per project or team for shared ones;
+- Agents, each with its own vault: one per person for their own keys (kept to them by the owner
+  guard), or one per project or team for shared ones;
 - Studio behind a sign-in proxy, for the people you give the `studio` scope.
 
 It leaves out, on purpose:
@@ -48,14 +49,14 @@ nothing depends on it (`nylorun local telemetry disable`, or `NYLORUN_TELEMETRY_
 
 ## Front doors
 
-Every Tenant serves two APIs on one URL: the **Runtime API** (agents,
-sessions, Environments and artifacts) for apps and people, and the **Management API**
+Every Tenant serves two APIs on one URL: the **Runtime API** (agent manifests,
+Agents, sessions and artifacts) for apps and people, and the **Management API**
 (`/v1/tenant/*`) for operators. There are four ways in, and an installation can use all of them:
 
 | Front door | Credential | Who it acts for |
 | --- | --- | --- |
 | **An app server** | An [application key](#keys), with `Nylorun-Subject` and `Nylorun-Scopes` | On the Runtime API: any person your server names, with the scopes it names; the whole Tenant without them |
-| **Browsers and apps** | A JWT from your identity provider, as `Authorization: Bearer` | On the Runtime API: the token's subject, with the scopes, agents and Environments the [identity file](#the-identity-file) allows |
+| **Browsers and apps** | A JWT from your identity provider, as `Authorization: Bearer` | On the Runtime API: the token's subject, with the scopes and Agents the [identity file](#the-identity-file) allows |
 | **A sign-in proxy** | The person's JWT, forwarded by the proxy | The same as a browser's; Studio admits it with the `studio` scope ([Studio](#studio-behind-a-sign-in-proxy)) |
 | **An operator's tool** (the CLI, CI, your scripts) | A [management key](#keys), from a server | Itself only, on the Management API: models, credential coverage, MCP previews, signing keys, settings, application keys, seed and reset. Never a person |
 
@@ -67,8 +68,8 @@ sessions, Environments and artifacts) for apps and people, and the **Management 
 application key sent with one (`403 origin_rejected`).
 
 **Browsers and apps** present the token your identity provider gave the person, with
-`Nylorun-Protocol: 14` (the Runtime serves 14 only). The Runtime verifies it against the identity file and takes the subject,
-scopes, agents and Environment grants from it. Nylorun mints no token and ships no browser client:
+`Nylorun-Protocol: 16` (the Runtime serves 16 only). The Runtime verifies it against the identity file and takes the subject,
+scopes and Agent grants from it. Nylorun mints no token and ships no browser client:
 use your provider's SDK to sign in, and put the Runtime behind a reverse proxy that answers
 [CORS](#cors-at-your-proxy). An issuer's token cannot act for anyone else: with
 `Nylorun-Subject` it is a `403`.
@@ -80,7 +81,7 @@ their token on. In front of Studio, oauth2-proxy's `--pass-access-token` sends i
 so set the issuer's `audience` to the proxy's client id and put the scope claim in ID tokens.
 
 `GET /v1/me` answers, for any of these credentials, who the Runtime takes the caller to be: the
-subject, scopes, agents, Environment grants and `via` (`application:<id>`, `subject`,
+subject, scopes, Agent grants (`agents`) and `via` (`application:<id>`, `subject`,
 `issuer:<name>` or `management:<id>`).
 
 ## Keys
@@ -176,9 +177,8 @@ issuers:
     jwks: https://sso.acme.dev/realms/eng/protocol/openid-connect/certs
     subject: "u:{sub}"
     scopes: { claim: nylorun_scopes }
-    allowedScopes: [agents:read, sessions:own, environments:write, studio]
-    agents: [support]
-    environments: ["{org_id}/*"]
+    allowedScopes: [agents:read, sessions:own, agents:write, studio]
+    agents: ["{org_id}/*", support]
 ```
 
 | Field | Required | Meaning |
@@ -190,15 +190,14 @@ issuers:
 | `keys` | one of `jwks`, `keys` | 1 to 16 PEM public keys: RSA of at least 2048 bits (RS256), P-256 (ES256) or Ed25519 (EdDSA) |
 | `subject` | no, `{sub}` | The person, rendered from scalar claims (strings or numbers): `{sub}`, `u:{sub}`, `{oid}`, `{org_id}:{sub}`. It must reference a claim, may use braces only around claim names, and must render to 1–200 visible ASCII characters other than `host` and `installation`. A token missing the claim is refused. Use a stable id claim, never `email` or a username. An app server acting for the same people with `Nylorun-Subject` sends the same subject |
 | `scopes` | no, `{ claim: scope }` | Where the token's scopes come from: `{ claim: <name> }` (an array, or a space-separated string) or `{ fixed: [<scope>, …] }` (within `allowedScopes`). The default is OAuth's `scope` claim; Entra ID and Okta use `scp` |
-| `allowedScopes` | no, all but `studio` | The scopes this issuer may grant: any of `agents:read`, `sessions:own`, `environments:write` and `studio`. Others in the claim are dropped. The default is the first three: list `studio` explicitly to let this provider sign people in to Studio. `sandboxes:write` (protocol 10) stops the runtime, naming `environments:write` |
-| `agents` | no | The agent ids its tokens reach; absent reaches every agent |
-| `environments` | no | Up to 16 Environment grant templates, each rendering to an Environment id or a prefix ending in `/*` (`users/{sub}/*` reaches `users/alice/web`, not `users/alice`). A claim used here must be one id segment (`acme`, not `acme/x`), or that grant reaches nothing. Absent reaches no Environment. A `sandboxes` key (protocol 10) stops the runtime |
+| `allowedScopes` | no, all but `studio` | The scopes this issuer may grant: any of `agents:read`, `sessions:own`, `agents:write` and `studio`. Others in the claim are dropped. The default is the first three: list `studio` explicitly to let this provider sign people in to Studio. `environments:write` (protocol 15) and `sandboxes:write` (protocol 10) stop the runtime, naming `agents:write` |
+| `agents` | no | Agent grant templates, each rendering to `*`, an Agent id or a prefix ending in `/*` (`users/{sub}/*` reaches `users/alice/web`, not `users/alice`). A claim used here must be one id segment (`acme`, not `acme/x`), or that grant reaches nothing. Absent reaches no Agent. An `environments` key (protocol 15) or a `sandboxes` key (protocol 10) stops the runtime |
 
 | Scope | Allows |
 | --- | --- |
 | `sessions:own` | The person's own sessions: create, list, read, stream, message, approve, respond, cancel; and their artifacts |
-| `agents:read` | Listing the agents the token reaches |
-| `environments:write` | Creating, changing, stopping, resetting and deleting the Environments its grants reach, and writing their secrets |
+| `agents:read` | Reading and listing the Agents its grants reach |
+| `agents:write` | Making, changing, stopping, resetting and deleting the Agents its grants reach, and writing their secrets |
 | `studio` | Signing in to Studio through a proxy (an operator scope: Studio shows the whole Tenant) |
 
 Tokens are checked like this:
@@ -223,8 +222,9 @@ Tokens are checked like this:
 - Only its expiry ends a token, and an event stream opened with it ends then too
   (`token_expired`). Keep tokens short-lived and revoke people at your identity provider.
 
-To check a file, call `GET /v1/me` with a real token: it shows the subject, scopes, agents and
-Environment grants (`environments`) the token renders to.
+A token never reads or saves agent manifests: `agent-manifests:write` is for app servers and
+operators, with an application key. To check a file, call `GET /v1/me` with a real token: it
+shows the subject, scopes and Agent grants (`agents`) the token renders to.
 
 ### Discovery
 
@@ -236,7 +236,7 @@ With an identity file, the Runtime publishes its OAuth 2.0 protected resource me
 {
   "resource": "https://agents.acme.dev",
   "authorization_servers": ["https://sso.acme.dev/realms/eng"],
-  "scopes_supported": ["agents:read", "sessions:own", "environments:write"],
+  "scopes_supported": ["agents:read", "sessions:own", "agents:write"],
   "bearer_methods_supported": ["header"],
   "resource_name": "Nylorun Runtime API"
 }
@@ -265,7 +265,7 @@ In the realm (the example's is
 2. On your client (or a client scope it uses), add two mappers: an **Audience** mapper that
    adds the Runtime's audience (`nylorun` here) to the access token, and a **User Realm Role**
    mapper, multivalued, with the claim name `nylorun_scopes`.
-3. For Environment grants, map an attribute (or a hardcoded value) to a claim such as `org_id`.
+3. For Agent grants, map an attribute (or a hardcoded value) to a claim such as `org_id`.
 
 Then:
 
@@ -277,8 +277,8 @@ issuers:
     jwks: https://sso.acme.dev/realms/eng/protocol/openid-connect/certs
     subject: "u:{sub}"                           # sub is the Keycloak user id
     scopes: { claim: nylorun_scopes }            # the realm roles; roles that are not scopes are dropped
-    allowedScopes: [agents:read, sessions:own, environments:write, studio]
-    environments: ["{org_id}/*"]
+    allowedScopes: [agents:read, sessions:own, agents:write, studio]
+    agents: ["{org_id}/*"]
 ```
 
 Set Keycloak's hostname (`KC_HOSTNAME`) so the `iss` is the same however Keycloak is reached,
@@ -286,49 +286,45 @@ and point `jwks` at an address the runtime container can reach.
 
 ## Credentials
 
-A session's MCP and HTTP tool credentials come from the vault of the Environment the session
-names, matched by the URL the agent names ([DEPLOYMENT.md](./DEPLOYMENT.md#mcp-servers-and-http-tools)
-has the operator's whole flow: credential types, previews, tool settings and errors). A session
-that names no Environment sends none. The model credential is the Tenant's own, set by
-`nylorun start` from the project's `.env` or in Studio.
+A session's MCP and HTTP tool credentials come from the vault of the Agent the session runs on:
+the slot a server names in its manifest, else the credential bound to the URL the agent names
+([DEPLOYMENT.md](./DEPLOYMENT.md#mcp-servers-and-http-tools) has the operator's whole flow:
+credential types, previews, tool settings and errors). The model credential is the Tenant's own,
+set by `nylorun start` from the project's `.env` or in Studio.
 
-### Environments and their secrets
+### Agents and their secrets
 
-Each Environment has one vault, created and deleted with it. Your app server decides who uses
-which Environment: one per person for their own keys, one per project or team for shared tool keys
-and MCP gateway keys. A key many Environments use is written into each. Write them on Studio's
-**Credentials** page (in the sidebar), or on the Runtime API with an application key:
+Each Agent has one vault, created and deleted with it. Your app server decides who uses which
+Agent: one per person for their own keys, one per project or team for shared tool keys and MCP
+gateway keys. A key many Agents use is written into each. Write them in Studio, or on the
+Runtime API with an application key:
 
 ```ts
 import { createClient } from "@nylorun/agents";
 
 const client = await createClient(); // NYLORUN_RUNTIME_URL + NYLORUN_SERVER_KEY, or the Project link
-await client.environments.put("teams/support", { kind: "none" });
-await client.environments.secrets.put("teams/support", "linear", {
-  type: "bearer",
-  url: "https://mcp.linear.app/mcp",
-  value: process.env.LINEAR_TOKEN!,
-});
-await client.createSession({ agentId: "triage", ownerUserId: "u_7c41", environment: "teams/support" });
+// The manifest triage declares the slot: "linear": { "type": "bearer", "url": "https://mcp.linear.app/mcp" }
+await client.agents.put("teams/support", { manifest: "triage" });
+await client.agents.secrets.put("teams/support", "linear", { value: process.env.LINEAR_TOKEN! });
+await client.createSession({ agent: "teams/support", ownerUserId: "u_7c41" });
 ```
 
-Over HTTP that is `PUT /v1/environments/{id}` with `{ kind: "none" }`, then
-`PUT /v1/environments/{id}/secrets/{name}` (an id holding `/` is sent percent-encoded as one
-path segment). An application key reaches every Environment; acting for a person, writing one
-needs `environments:write`, and a trusted issuer's token reaches only the ids its issuer grants.
-No call reads a secret back. Set `ownerUserId` on a person's Environment, so that only their
-sessions may name it.
+Over HTTP that is `PUT /v1/agents/{id}` with `{ "manifest": "triage" }`, then
+`PUT /v1/agents/{id}/secrets/{name}` (an id holding `/` is sent percent-encoded as one path
+segment). An application key reaches every Agent; acting for a person, writing one needs
+`agents:write`, and a trusted issuer's token reaches only the ids its issuer grants. No call
+reads a secret back. Set `owner` on a person's Agent, so that only their sessions may run on it.
 
 ### Reaching a person's accounts
 
 Nylorun holds no OAuth client, refreshes no token and asks no credential resolver (protocol 10).
 A session reaches a person's tools in one of two ways, both set by the operator per server URL:
 
-- **The person's own key** (a personal access token, say) goes in their own Environment, whose
-  `ownerUserId` is them, as a `bearer` or `headers` credential bound to the server's URL. Only
-  their sessions may name it.
+- **The person's own key** (a personal access token, say) goes in their own Agent, whose
+  `owner` is them, as a `bearer` or `headers` credential bound to the server's URL. Only
+  their sessions may run on it.
 - **An MCP gateway** holds each person's sign-ins and refreshes them, for the servers that take
-  only a person's OAuth sign-in. Put one credential for the server's URL in each Environment
+  only a person's OAuth sign-in. Put one credential for the server's URL in each Agent
   whose sessions use it: the gateway's key, `via` (the gateway's endpoint for that server) and an
   identity header.
   The Runtime fills that header with the session owner's subject, and leaves it out for a session
@@ -341,9 +337,9 @@ Before you put an MCP gateway in front of your people:
   MCP gateway know your people by that same id, and keep it stable: a renamed subject is a new
   person to it.
 - The MCP gateway trusts whoever holds its key to name any person. No call reads it back from an
-  Environment, replacing it takes a new value, and the Runtime takes the identity from the session
+  Agent, replacing it takes a new value, and the Runtime takes the identity from the session
   record, never from the model or a manifest. Keep the key scoped to what your agents need, and
-  give `environments:write` only to callers you trust to write the Environments that hold it.
+  give `agents:write` only to callers you trust to write the Agents that hold it.
 - Check what your MCP gateway does with a request that names no one: an installation session sends
   none.
 - Every tool argument and result passes through the MCP gateway, so it is part of your installation's
@@ -459,8 +455,8 @@ their ceilings are in [Host tuning](./DEPLOYMENT.md#host-tuning).
 
 Back up two things together, and keep them apart from each other:
 
-- **Postgres**: agents, sessions and their event record, Environments, settings, key hashes,
-  and the encrypted secrets of every vault (each Environment's and the model's).
+- **Postgres**: agent manifests, Agents, sessions and their event record, settings, key hashes,
+  and the encrypted secrets of every vault (each Agent's and the model's).
 - **`<Host root>/keys/`**: the vault key (`vault-kek`). Without it the stored secrets
   cannot be read; with it and the database, anyone can read them. Store its copy apart from the
   database dumps.

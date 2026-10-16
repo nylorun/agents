@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
-import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { stdioMcpRefusal, type McpServerManifest } from "@nylorun/core/define";
 import {
   HEADER_NAME_PATTERN,
@@ -188,12 +188,28 @@ function loadMcp(
 ): Readonly<Record<string, McpServerManifest>> {
   const location = join(root, "mcp.json");
   if (!existsSync(location)) return {};
-  const real = realInside(root, location);
+  return loadMcpServers(location, diagnostics, { boundary: root });
+}
+
+/**
+ * The remote MCP servers of an `mcp.json` in the Agent Plugins format (`$schema` and
+ * `mcpServers`), as a manifest declares them: a plugin's, or the one a `harness.manifest.json`
+ * names. A file that cannot be read is a `<prefix>.mcp-invalid` diagnostic and no servers; an
+ * invalid server is skipped with a diagnostic; a stdio server throws.
+ */
+export function loadMcpServers(
+  location: string,
+  diagnostics: PluginDiagnostic[],
+  options: { readonly boundary?: string; readonly codePrefix?: string } = {}
+): Readonly<Record<string, McpServerManifest>> {
+  const prefix = options.codePrefix ?? "plugin";
+  const boundary = options.boundary ?? dirname(resolve(location));
+  const real = realInside(boundary, location);
   if (!real || !statSync(real).isFile()) {
     diagnostics.push({
       severity: "warning",
-      code: "plugin.mcp-invalid",
-      message: "mcp.json is not a file inside the package",
+      code: `${prefix}.mcp-invalid`,
+      message: `${basename(location)} is not a file inside the package`,
       path: location,
     });
     return {};
@@ -204,8 +220,8 @@ function loadMcp(
   } catch {
     diagnostics.push({
       severity: "warning",
-      code: "plugin.mcp-invalid",
-      message: "mcp.json is not valid JSON",
+      code: `${prefix}.mcp-invalid`,
+      message: `${basename(location)} is not valid JSON`,
       path: location,
     });
     return {};
@@ -213,8 +229,8 @@ function loadMcp(
   if (!isRecord(parsed) || Object.keys(parsed).some((key) => key !== "$schema" && key !== "mcpServers")) {
     diagnostics.push({
       severity: "warning",
-      code: "plugin.mcp-invalid",
-      message: "mcp.json must contain only $schema and mcpServers",
+      code: `${prefix}.mcp-invalid`,
+      message: `${basename(location)} must contain only $schema and mcpServers`,
       path: location,
     });
     return {};
@@ -222,8 +238,8 @@ function loadMcp(
   if (parsed.$schema !== MCP_SCHEMA) {
     diagnostics.push({
       severity: "warning",
-      code: "plugin.mcp-invalid",
-      message: "mcp.json $schema does not match the plugin schema version",
+      code: `${prefix}.mcp-invalid`,
+      message: `${basename(location)} $schema does not match the plugin schema version`,
       path: location,
     });
     return {};
@@ -231,8 +247,8 @@ function loadMcp(
   if (!isRecord(parsed.mcpServers)) {
     diagnostics.push({
       severity: "warning",
-      code: "plugin.mcp-invalid",
-      message: "mcp.json mcpServers must be an object",
+      code: `${prefix}.mcp-invalid`,
+      message: `${basename(location)} mcpServers must be an object`,
       path: location,
     });
     return {};
@@ -240,12 +256,12 @@ function loadMcp(
   const servers: Record<string, McpServerManifest> = {};
   for (const [name, value] of Object.entries(parsed.mcpServers)) {
     if (isRecord(value) && value.type === "stdio")
-      throw new PluginError("plugin.mcp-stdio", stdioMcpRefusal(name), diagnostics);
+      throw new PluginError(`${prefix}.mcp-stdio`, stdioMcpRefusal(name), diagnostics);
     const server = validateServer(name, value);
     if (typeof server === "string") {
       diagnostics.push({
         severity: "warning",
-        code: "plugin.mcp-server-skipped",
+        code: `${prefix}.mcp-server-skipped`,
         message: `Skipped invalid MCP server '${name}': ${server}`,
         path: location,
       });

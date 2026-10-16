@@ -59,12 +59,12 @@ test("createTenantClient strips the SDK bearer and targets the Tenant proxy", as
   const { calls, fetcher } = recorder((url) =>
     url.endsWith("/health")
       ? Response.json({
-          protocol: { min: 1, max: 99, features: ["admin-status", "studio-principal", "artifacts", "management-api", "resource-server", "environments", "model-inputs", "flat-manifest", "environment-manifests", "harness-boundary"] },
+          protocol: { min: 1, max: 99, features: ["admin-status", "studio-principal", "artifacts", "management-api", "resource-server", "model-inputs", "flat-manifest", "harness-boundary", "agents"] },
         })
       : Response.json({ agents: [] }),
   );
   const client = createTenantClient("tn_1", { origin: "http://localhost:4170", fetcher });
-  await client.listAgents();
+  await client.agents.list();
   const agents = calls.find((call) => call.url.endsWith("/v1/agents"));
   assert.ok(agents, JSON.stringify(calls.map((call) => call.url)));
   assert.equal(agents.url, "http://localhost:4170/_studio/tenants/tn_1/runtime/v1/agents");

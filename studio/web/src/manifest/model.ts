@@ -1,8 +1,8 @@
 /**
- * The Agent Manifest tab's view of an agent manifest (v7, flat): the agent's instructions, tools,
- * skills and MCP servers, each skill and server with the plugin that brought it. A session pins
- * its definition as registered (protocol 15): the harness adds the sandbox and skill tools and
- * their text when it runs a turn. Pure, so `scripts/manifest-model.test.mjs` runs it without a
+ * The Manifest tab's view of what a session runs: the loop manifest it pinned (its Agent's agent
+ * manifest version's harness section, flat), with the agent's instructions, tools, skills and MCP
+ * servers, each skill and server with the plugin that brought it. The harness adds the sandbox
+ * and skill tools and their text when it runs a turn. Pure, so `scripts/manifest-model.test.mjs` runs it without a
  * browser.
  */
 
@@ -198,34 +198,45 @@ export function shortHash(hash: string): string {
   return hash.slice(0, 12);
 }
 
+/** An agent manifest's version: `triage` v3. */
+export type ManifestVersion = { name: string; version: number };
+
 export type PinnedManifestState =
   /**
-   * The Runtime returned the session's own manifest. `definitionHash` is the definition it was
-   * opened from (a newer Runtime's session view); since protocol 15 the two are the same.
+   * The Runtime returned the session's own loop manifest, with the agent manifest version it
+   * pinned (absent for a session opened from a definition before protocol 16) and that
+   * manifest's latest version, when known.
    */
   | {
       kind: "pinned";
       manifest: unknown;
       manifestHash: string;
-      definitionHash?: string;
-      registeredHash?: string;
+      version?: ManifestVersion;
+      latest?: number;
     }
-  /** The Runtime has no `session-reads`: only the registered manifest is known. */
-  | { kind: "registered-only"; registeredHash?: string }
+  /**
+   * The Runtime has no `session-reads`: the harness section of the version the session's Agent
+   * runs, which the session pinned when it opened.
+   */
+  | { kind: "agent"; manifest: unknown; version: ManifestVersion; latest?: number }
   | { kind: "loading" }
   | { kind: "failed"; message: string };
 
 /**
- * True when the session runs an older manifest than the one now registered for its agent: the
- * definition it was opened from is not the registered one.
+ * True when the session runs an older version of its agent manifest than the latest: an Agent
+ * keeps the version it was made from, and moves to a newer one through a fork.
  */
 export function isOutdated(
   state: PinnedManifestState,
-): state is Extract<PinnedManifestState, { kind: "pinned" }> & { registeredHash: string } {
+): state is Extract<PinnedManifestState, { version?: ManifestVersion }> & {
+  version: ManifestVersion;
+  latest: number;
+} {
   return (
-    state.kind === "pinned" &&
-    state.registeredHash !== undefined &&
-    state.registeredHash !== (state.definitionHash ?? state.manifestHash)
+    (state.kind === "pinned" || state.kind === "agent") &&
+    state.version !== undefined &&
+    state.latest !== undefined &&
+    state.latest > state.version.version
   );
 }
 

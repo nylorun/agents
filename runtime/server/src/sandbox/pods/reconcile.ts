@@ -153,7 +153,7 @@ export async function reconcileSandbox(
     };
     if (Object.keys(finalPatch).length > 0)
       await t.updateEnvironmentPod(sandboxId, finalPatch, new Date().toISOString());
-    for (const item of decision.events) await t.environmentEvent(sandboxId, item.type, item.payload as never);
+    for (const item of decision.events) await t.agentEvent(sandboxId, item.type, item.payload as never);
     if (epochMoved) await t.signal({ type: "host.revoked", sandboxId, epoch: finalPatch.hostEpoch! });
     return { kind: "written" as const };
   });

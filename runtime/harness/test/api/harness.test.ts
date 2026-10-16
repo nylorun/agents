@@ -132,7 +132,7 @@ async function harnessFor(core: ReturnType<typeof fakeCore>, run: HarnessExecuto
 }
 
 describe("a harness", () => {
-  it("says hello with Harness API 4 and its features, declaring no tools", async () => {
+  it("says hello with Harness API 5 and its features, declaring no tools", async () => {
     const plain = fakeCore({});
     await harnessFor(
       plain,
@@ -141,7 +141,7 @@ describe("a harness", () => {
     const [method, hello] = plain.calls[0]!;
     expect(method).toBe("hello");
     expect(hello).toMatchObject({ api: HARNESS_API_VERSION });
-    expect(HARNESS_API_VERSION).toBe(4);
+    expect(HARNESS_API_VERSION).toBe(5);
     expect(hello).not.toHaveProperty("capabilities");
     // A tool call names what runs it (protocol 15): our engine declares no tools by name.
     expect(hello.features).toEqual({});
@@ -431,7 +431,7 @@ describe("a harness", () => {
       }),
     );
     await core.offer(
-      start({ environment: { id: "env", kind: "virtual", sandbox: { workspace: "/workspace" } } }),
+      start({ agent: { id: "env", kind: "virtual", sandbox: { workspace: "/workspace" } } }),
     );
     expect(listed).toEqual(["/workspace/outputs"]);
     const methods = core.calls.map(([method, params]) =>

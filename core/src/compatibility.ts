@@ -1,6 +1,24 @@
 export { hashManifest } from "./utils/hash.js";
 
 /**
+ * Protocol 16: Agents from one manifest (track T2), a fresh start. An agent manifest (v8) is one
+ * versioned document at `/v1/agent-manifests/{name}` with a `harness` section (what runs inside
+ * the loop, including the harness's id) and a `runtime` section (what an environment manifest
+ * said); the Runtime checks the two against each other when it is saved
+ * (`422 manifest_inconsistent`), so `requires` and `409 environment_unsuitable` are gone, and so
+ * are agent definitions (`PUT /v1/agents/:id` with a v7 manifest) and environment manifests.
+ * Environments are Agents: `/v1/agents/{id}` (with `.../events`, `stop`, `reset`, `snapshot`,
+ * `restore`, `versions`, `fork` and `secrets`) is made from a saved manifest only, records it as
+ * tracking (`name`) or pinned (`name@n`) and resolves it once into `resolvedVersion`; a
+ * different manifest on an existing Agent is `409 agent_upgrade_unavailable`. Reads add `state`
+ * (`working`, `sleeping`, `input_required`, `failing`, `paused`) and `attention`, and the
+ * compute's state moves to `compute.state`. Every session belongs to one Agent:
+ * `PUT /v1/sessions/{id}` takes `{ agent, ownerUserId, info }` and pins the manifest version its
+ * Agent runs; no session is special (D71). Error codes, event types (`agent.*`), the scopes
+ * (`agents:write`, `agent-manifests:write`) and identity-file grants (`agents`) say Agent. Model
+ * budget scope `agent` is `manifest`. Harness API 5: `turn.start.agent` replaces
+ * `turn.start.environment`. Sessions opened before protocol 16 are closed (`protocol_16`) and
+ * stay readable; Environments, their disks and vaults are gone. The Host serves protocol 16 only.
  * Protocol 15: the harness boundary, a fresh start. Model-facing work belongs to the harness. Our
  * engine's `read_artifact` and `save_artifact` run in our harness, over the Harness API's new
  * artifact seam (`artifact.read`, `artifact.write`; Harness API 4), so a session's pinned
@@ -72,7 +90,7 @@ export { hashManifest } from "./utils/hash.js";
  * it. The Host still accepts protocol 4 (and `Nylorun-Tenant`), 5 and 6 clients on every route
  * that remains; a client that requires `action-endpoints` is refused by the feature check.
  */
-export const PROTOCOL_VERSION = 15;
+export const PROTOCOL_VERSION = 16;
 /** What a client of this protocol requires of a Host. */
 export const PROTOCOL_FEATURES = [
   "studio-principal",
@@ -89,13 +107,7 @@ export const PROTOCOL_FEATURES = [
    * metadata at `/.well-known/oauth-protected-resource` when it has trusted issuers.
    */
   "resource-server",
-  /**
-   * Protocol 11: Environments (`/v1/environments/{id}`, kinds `virtual`, `pod` and `none`), each
-   * with one vault written on the Runtime API; sessions name an `environment`; token callers
-   * carry Environment grants checked at every turn start, and `environments:write` lets a
-   * subject create, change and delete the Environments it is granted.
-   */
-  "environments",
+
   /** Protocol 12: the model catalog and provider list say which inputs each model reads. */
   "model-inputs",
   /**
@@ -104,12 +116,7 @@ export const PROTOCOL_FEATURES = [
    * block, and tool calls, MCP servers and HTTP calls are named without capability ids.
    */
   "flat-manifest",
-  /**
-   * Protocol 14: environment manifests (`/v1/environment-manifests/{name}`), Environments made
-   * from one version and never changed after creation, secret slots, and an agent manifest's
-   * `requires`, checked when a session opens.
-   */
-  "environment-manifests",
+
   /**
    * Protocol 15: the harness boundary. `read_artifact` and `save_artifact` are our harness's
    * tools, not the Runtime's: a session's pinned `runtime` block no longer carries them, and an
@@ -117,6 +124,15 @@ export const PROTOCOL_FEATURES = [
    * `{server, tool}`: tool policy rules and approvals name them so.
    */
   "harness-boundary",
+  /**
+   * Protocol 16: agent manifests (`/v1/agent-manifests/{name}`, v8, with a harness and a runtime
+   * section checked against each other at save) and Agents (`/v1/agents/{id}`, kinds `virtual`,
+   * `pod` and `none`, each with one vault), made from one manifest version, with a derived
+   * `state`; every session runs on an Agent; token callers carry Agent grants checked at every
+   * turn start, and `agents:write` lets a subject create, change and delete the Agents it is
+   * granted.
+   */
+  "agents",
 ] as const;
 export type ProtocolFeature = (typeof PROTOCOL_FEATURES)[number];
 /**
@@ -183,13 +199,13 @@ export interface ProtocolRange {
   features: readonly string[];
 }
 /**
- * What this Host serves: protocol 15. Protocol 15 changed what a session's pinned manifest
- * carries and which tool names are reserved, so an older client is answered `426` naming the
- * protocol it needs rather than a turn it cannot read.
+ * What this Host serves: protocol 16. Protocol 16 replaced agent definitions and Environments
+ * with agent manifests and Agents, so an older client is answered `426` naming the protocol it
+ * needs rather than routes it cannot use.
  */
 export const HOST_PROTOCOL: ProtocolRange = {
-  min: 15,
-  max: 15,
+  min: 16,
+  max: 16,
   features: [...PROTOCOL_FEATURES, ...OPTIONAL_HOST_FEATURES],
 };
 export const DEFINITION_SCHEMA_VERSION = 2;
@@ -240,21 +256,21 @@ export const ERROR_CODES = [
   "invalid_request",
   /** A route that acts for a person was called without one (`Nylorun-Subject`). */
   "subject_required",
-  /** A token caller's Environment grants do not reach the Environment. */
-  "environment_not_granted",
+  /** A token caller's Agent grants do not reach the Agent. */
+  "agent_not_granted",
   /** Disk work (snapshot, restore, stop, reset) while a turn runs, or a turn while a disk copy runs. */
-  "environment_busy",
-  /** The Environment is gone, or its kind cannot run on this Runtime. */
-  "environment_unavailable",
-  /** The Tenant's placement keeps this session's harness off the host its Environment needs. */
+  "agent_busy",
+  /** The Agent is gone, or its kind cannot run on this Runtime. */
+  "agent_unavailable",
+  /** The Tenant's placement keeps this session's harness off the host its Agent needs. */
   "placement_refused",
-  /** A pod Environment's volume or node is gone: only `POST /v1/environments/{id}/reset` brings it back. */
-  "environment_lost",
+  /** A pod Agent's volume or node is gone: only `POST /v1/agents/{id}/reset` brings it back. */
+  "agent_lost",
   /**
-   * The Environment names an owner (`ownerUserId`) other than the session's owner: `403` to an
+   * The Agent names an owner (`owner`) other than the session's owner: `403` to an
    * application key; a caller acting for a person gets the opaque `404`.
    */
-  "environment_owner_mismatch",
+  "agent_owner_mismatch",
   /**
    * The session's Environment runs another harness than the one the session pinned when it
    * opened (track R4): its id was deleted and made again with another harness, or an
@@ -295,24 +311,25 @@ export const ERROR_CODES = [
    */
   "credential_conflict",
   /**
-   * A `PUT /v1/environments/{id}` asked an existing Environment to run something else
-   * (protocol 14, D63): only its labels and owner guard may change. Fork it into a new
-   * Environment (`POST /v1/environments/{id}/fork`). `details.fields` names what differed.
+   * A `PUT /v1/agents/{id}` named another manifest than the one an existing Agent runs
+   * (protocol 16): moving an Agent to another manifest version is track T3. Fork it into a new
+   * Agent (`POST /v1/agents/{id}/fork`) meanwhile. `details.manifest` names what it runs.
    */
-  "environment_immutable",
+  "agent_upgrade_unavailable",
   /**
-   * A secret write named a secret the Environment's manifest does not declare (D64): `409`.
-   * Add the slot to the manifest and make or fork an Environment from the new version.
+   * A secret write named a secret the Agent's manifest does not declare (D64): `409`. Add the
+   * slot to the manifest's runtime section and make or fork an Agent from the new version.
    */
   "secret_not_in_manifest",
   /**
-   * A session's agent requires what its Environment lacks (D65): `409` when the session opens.
-   * `details.missing` lists each gap (`sandbox`, `pod`, or `secret:<name>`).
+   * An agent manifest whose harness and runtime sections do not fit each other (protocol 16):
+   * `422` when it is saved. `details.gaps` names each gap: a custom harness off a pod, a
+   * credential that is no declared slot of the right type, a sandbox the runtime does not give.
    */
-  "environment_unsuitable",
-  /** No environment manifest has this name, or no version with this number. */
+  "manifest_inconsistent",
+  /** No agent manifest has this name, or no version with this number. */
   "manifest_not_found",
-  /** An environment manifest some Environment was made from cannot be deleted: `409`. */
+  /** An agent manifest some Agent was made from cannot be deleted: `409`. */
   "manifest_in_use",
   /**
    * `If-Match` named a version that is no longer the latest (D63): `412`. Read the manifest

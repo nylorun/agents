@@ -15,7 +15,7 @@ and S2, serving exactly that Tenant, and its name is the Tenant's name.
 `nylorun start` in a project creates the project's Tenant (the Runtime creates
 it on its first start) and links the project to it; anywhere else, it starts
 the Tenant `default`. Projects that must not share agents, credentials or
-history run separate Tenants. The `tenant` and `environments` groups act on a
+history run separate Tenants. The `tenant`, `agents` and `apply` commands act on a
 Tenant over its APIs, so they work on a remote installation too
 ([below](#remote-installations)). Depends on `@nylorun/core`,
 `@nylorun/admin` and `@nylorun/agents` among Nylorun packages and never imports
@@ -50,13 +50,22 @@ nylorun studio [--tenant <name>] [--no-open]   # sign a browser in to Studio on 
 nylorun doctor [--json]            # prerequisites and the Tenant's health
 nylorun doctor sandbox [--tenant <name>] [--json]   # the sandbox backend the Tenant's Host offers
 
-# agents, sessions, environments, artifacts: the Runtime API (an application key, or NYLORUN_TOKEN)
+# apply, agent-manifests, agents, sessions, artifacts: the Runtime API (an application key, or NYLORUN_TOKEN)
 # every one takes --tenant <name>, and --as <subject> [--scope <scope>]... to act for a person
-nylorun agents list [--json]
-nylorun agents get <id>                     # its manifest
-nylorun agents save <manifest.json|-> [--files <dir>]... [--implementation-version <v>] [--dry-run]
-nylorun sessions list [--agent <id>] [--status <s>] [--environment <id>] [--owner <user>] [--limit <n>] [--cursor <c>] [--json]
-nylorun sessions create --agent <id> --owner <user> [--environment <id>] [--id <id>] [--info <json>]
+nylorun apply [<dir>...] [--dry-run] [--if-match <n>]   # plan, then save each folder's agent.manifest.json, its files uploaded
+nylorun migrate v8 <agent.json> [--runtime <environment-manifest.json>] [--name <name>] [--out <dir>]   # the three files from a v7 manifest; reads no Runtime
+nylorun agent-manifests list [--json]       # name, latest version, runtime kind, harness, Agents
+nylorun agent-manifests get <name>[@<n>] | versions <name> | rm <name>
+nylorun agents list [--state <s>] [--manifest <name>] [--label <key=value>]... [--behind] [--limit <n>] [--cursor <c>] [--json]   # --behind: on an older manifest version
+nylorun agents get|stop|reset|rm|snapshot|versions <id>
+nylorun agents put <id> --manifest <name[@n]> [--owner <user>] [--label <key=value>]...   # name tracks its latest version, name@n pins one
+nylorun agents fork <id> <new-id> [--manifest <name[@n]>] [--disk <latest|n|empty>] [--secrets <copy|none>] [--dry-run]   # onto a new manifest version
+nylorun agents restore <id> <version|latest>
+nylorun agents delete-version <id> <version>
+nylorun agents events <id> [--from <n>] [--types <type,…>] [--since <time>] [--until <time>]
+nylorun agents secrets list|get|put|rm <id> [<name>] [<secret.json|->]   # put without a file: a slot's value on stdin
+nylorun sessions list [--agent <id>] [--manifest <name>] [--status <s>] [--owner <user>] [--limit <n>] [--cursor <c>] [--json]
+nylorun sessions create --agent <id> --owner <user> [--id <id>] [--info <json>]   # a session on Agent <id>
 nylorun sessions get <id>
 nylorun sessions send <id> [<text>] [--data <json>] [--file <artifact>[@<version>]]... [--idempotency-key <k>]
 nylorun sessions approve <id> <interaction> [--deny]
@@ -65,17 +74,6 @@ nylorun sessions cancel <id> [--reason <text>]
 nylorun sessions watch <id> [--follow] [--cursor <c>]   # events as JSON lines until interrupted
 nylorun sessions history|usage|calls [--tool]|trace <id> …
 nylorun sessions exec <id> [--timeout <s>] -- <command>...   # bash in the session's sandbox
-nylorun environments list [--label <key=value>]... [--behind] [--limit <n>] [--cursor <c>] [--json]   # --behind: made from an older manifest version
-nylorun environments get|stop|reset|delete|snapshot|versions <id>
-nylorun environments put <id> --manifest <name[@n]> [--label <key=value>]...   # made from a manifest version; what it runs never changes
-nylorun environments put <id> [<inline.json|->] [--kind <virtual|pod|none>] [--label <key=value>]...
-nylorun environments fork <id> <new-id> [--manifest <name[@n]>] [--disk <latest|n|empty>] [--secrets <copy|none>] [--dry-run]   # onto a new manifest version
-nylorun environments restore <id> <version|latest>
-nylorun environments delete-version <id> <version>
-nylorun environments events <id> [--from <n>] [--types <type,…>] [--since <time>] [--until <time>]
-nylorun environments secrets list|get|put|rm <id> [<name>] [<secret.json|->]   # put without a file: a slot's value on stdin
-nylorun environments manifests list [--json] | get <name> [--version <n>] | versions <name> | rm <name>
-nylorun environments manifests save <manifest.json>... [--if-match <n>] [--dry-run]   # files with "from": a folder, uploaded by hash
 nylorun artifacts list [--session <id>] [--label <key=value>]... [--limit <n>] [--cursor <c>] [--json]
 nylorun artifacts get|tree|diff|link|rm <id> …
 nylorun artifacts upload <file|-> [--name <name>] [--content-type <type>] [--session <id>] [--label <key=value>]... [--to <id>]
@@ -83,7 +81,7 @@ nylorun artifacts download <id> [--version <n>] [--output <file>]
 nylorun artifacts zip <id> [--version <n>] --output <file>
 
 # tenant: the Tenant's settings (Management API, a management key)
-nylorun tenant reset [--sessions|--environments|--all] [--yes] [--tenant <name>]
+nylorun tenant reset [--sessions|--agents|--all] [--yes] [--tenant <name>]
 nylorun tenant keys put <id> [--management] [--tenant <name>]   # create or rotate key <id>; prints it once
 nylorun tenant keys list [--tenant <name>] [--json]   # id, role, when issued
 nylorun tenant keys rm <id> [--tenant <name>]         # it stops working at once
@@ -92,13 +90,13 @@ nylorun tenant models catalog|providers|get [--tenant <name>] [--json]   # the m
 nylorun tenant models set [--tenant <name>]           # sign in to a model provider and set the Tenant's model
 nylorun tenant models set --provider <id> --model <id> [--base-url <url>] [--tenant <name>]   # the same, with an API key piped in on stdin (CI)
 nylorun tenant models select <provider> [--model <id>] [--tenant <name>]   # use another provider that has a credential
-nylorun tenant usage [--scope tenant|agent|turn] [--id <id>] [--period day|month|total] [--tenant <name>]   # calls, tokens and cost (JSON)
+nylorun tenant usage [--scope tenant|manifest|turn] [--id <id>] [--period day|month|total] [--tenant <name>]   # calls, tokens and cost (JSON); manifest: the Agents made from agent manifest <id>
 nylorun tenant calls [--after <cursor>] [--limit <n>] [--tenant <name>]   # every recorded model call as NDJSON, until caught up
-nylorun tenant budgets [get | put <file|->] [--tenant <name>]       # the model spend caps
+nylorun tenant budgets [get | put <file|->] [--tenant <name>]       # the model spend caps: tenant, manifest (id: its name) or turn
 nylorun tenant tool-policy [get | put <file|->] [--tenant <name>]   # the Tool Gate's rules
-nylorun tenant settings sandbox|artifacts|skills|limits [get | put <file|->] [--tenant <name>]   # Environment, artifact store and skill settings, Runtime limits
-nylorun tenant coverage --agent <id> [--environment <id>] [--tenant <name>] [--json]   # which secret each MCP server and HTTP tool would get
-nylorun tenant mcp inspect <url> [--server <name>] [--environment <id>] [--sse] [--tenant <name>] [--json]
+nylorun tenant settings sandbox|artifacts|skills|limits [get | put <file|->] [--tenant <name>]   # Agents' environments, artifact store and skill settings, Runtime limits
+nylorun tenant coverage --agent <id> [--tenant <name>] [--json]   # which secret of Agent <id>'s vault each MCP server and HTTP tool would get
+nylorun tenant mcp inspect <url> [--server <name>] [--agent <id>] [--sse] [--tenant <name>] [--json]
 
 # local: the Tenants on this machine (Docker and kubectl)
 nylorun local ls [--json]          # the Tenants on this machine, with their state, memory and URLs
@@ -116,10 +114,13 @@ stops the containers and keeps the volumes, so no Tenant data is lost. A command
 that moved into a group, or was removed, exits 2 naming its replacement:
 `nylorun logs`, `ls`, `delete`, `reset` and `telemetry` are under `local` (and
 `sandbox enable|disable|status`); `nylorun key` and `mcp` are under `tenant`;
-`nylorun sandbox ls|rm` is `nylorun environments list|delete`; `nylorun
-configure` is `nylorun tenant models set`. `nylorun dev`, `nylorun env` and the
-MCP OAuth `connect` subcommand of `nylorun tenant mcp` (protocol 10: write a key
-or a gateway credential as an Environment's secret instead) are gone.
+`nylorun sandbox ls|rm` is `nylorun agents list|rm`; `nylorun environments` is
+`nylorun agents` (protocol 16: Environments are Agents, and environment manifests
+are the runtime section of an agent manifest); `nylorun agents save` is `nylorun
+apply`; `nylorun configure` is `nylorun tenant models set`. `nylorun dev`,
+`nylorun env` and the MCP OAuth `connect` subcommand of `nylorun tenant mcp`
+(protocol 10: write a key or a gateway credential as an Agent's secret instead)
+are gone.
 
 The package's second command, `nylo`, was the Runtime client until nylorun took
 its commands. For one release it names the `nylorun` command that replaced each
@@ -260,19 +261,21 @@ shows each key's id, role and when it was issued, never the keys; `nylorun
 tenant keys rm <id>` deletes one. Ids match `^[a-z][a-z0-9-]{0,31}$`; `studio`
 belongs to Studio and `bootstrap` to `NYLORUN_MANAGEMENT_KEY_FILE`, and both are
 refused. Putting an id that holds the other role is refused. Give each app server
-its own application key. On a local Tenant, the `tenant` and `environments`
+its own application key. On a local Tenant, the `tenant` and Runtime API
 commands use the linked project's keys, or the keys `cli` and `cli-management`
 they put once and keep in `<Host root>/cli-credentials.json` (mode 0600).
 
 ## MCP servers
 
-An agent names its MCP servers by URL; a session gets a credential for a URL from
-the Environment it is opened on (`createSession({ environment })`): a secret of that
-Environment, a `bearer` token or a `headers` map, with `via` and an identity
-header when an MCP gateway holds each person's sign-in. Write it with
-`nylorun environments secrets put <id> <name> <secret.json|->` (the secret's JSON
+An agent manifest names its MCP servers by URL, and may name the runtime
+section's secret slot each one authenticates with (`credential`); a session gets
+a credential for a URL from the Agent it runs on (`createSession({ agent })`): a
+secret of that Agent's vault, a `bearer` token or a `headers` map, with `via` and
+an identity header when an MCP gateway holds each person's sign-in. Write it with
+`nylorun agents secrets put <id> <name>` (a slot's value on standard input) or
+`nylorun agents secrets put <id> <name> <secret.json|->` (the secret's JSON
 comes from a file or standard input, never the command line),
-`client.environments.secrets.put(id, name, secret)` of `@nylorun/agents` (the
+`client.agents.secrets.put(id, name, secret)` of `@nylorun/agents` (the
 Runtime API, an application key) or in Studio.
 The whole flow, with gateway recipes, is in
 [DEPLOYMENT.md](../../guides/DEPLOYMENT.md#mcp-servers-and-http-tools).
@@ -280,7 +283,7 @@ The whole flow, with gateway recipes, is in
 `nylorun tenant mcp inspect <url>` shows what a remote MCP server offers before an
 agent names it, through the Tenant's Management API
 (`POST /v1/tenant/mcp/preview`, with the management key). The Runtime connects
-with Environment `<id>`'s credential for `<url>` when `--environment <id>` names one
+with Agent `<id>`'s credential for `<url>` when `--agent <id>` names one
 (without it, no credential is sent), lists the tools within 15 s and calls none. It
 prints a table of each tool's model name, input schema size, hints
 (`read-only`, `destructive`, `idempotent`) and description, then the tools
@@ -288,7 +291,7 @@ renamed for the model. `--server` is the server name your manifest uses (default
 the host's name, `linear` for `mcp.linear.app`); `--sse` speaks the older SSE
 transport; `--json` prints the Runtime's answer. A server that answers `401`
 needs a credential: it says so, and names the server's sign-in from its
-protected-resource metadata, since such a server needs a key in an Environment's
+protected-resource metadata, since such a server needs a key in an Agent's
 secrets or an MCP gateway that holds each person's sign-in. A server it cannot list exits 1 with
 the reason (`mcp.unreachable` for an address the Runtime refuses).
 
@@ -382,20 +385,22 @@ on every start and writes the result to `NYLORUN_STUDIO_ANALYTICS_ID` in
 
 ## Sandboxes
 
-A session gets a sandbox from the Environment it is opened on
-(`createSession({ environment: id })`; protocol 11): an Environment has its own id
-(`PUT /v1/environments/{id}`, `client.environments` in `@nylorun/agents`), one
-sandbox and one vault of secrets, and outlives the sessions that name it. A session
-opened on none has no sandbox. Kind `virtual` (the default) runs on the Runtime's
-**virtual** backend: an emulated shell in the Runtime process, with no extra
-containers. It is not a VM or container boundary. Kind `pod` runs in a pod on a
-cluster (below).
+A session gets a sandbox from the Agent it runs on (`createSession({ agent: id })`;
+protocol 16): an Agent has its own id (`PUT /v1/agents/{id}`, `client.agents` in
+`@nylorun/agents`), is made from a saved agent manifest, has the sandbox its
+manifest's `runtime.kind` gives and one vault of secrets, and outlives its
+sessions. Kind `virtual` runs on the Runtime's **virtual** backend: an emulated
+shell in the Runtime process, with no extra containers. It is not a VM or
+container boundary. Kind `pod` runs in a pod on a cluster (below); kind `none`
+has no sandbox, and a manifest with no runtime section makes Agents of kind
+`none`.
 
-`nylorun environments list` lists the Tenant's Environments with their kind,
-state, sessions and labels; `nylorun environments delete <id>` deletes one, with its files
-and vault (refused while a turn runs in it). Neither starts a stopped Tenant
-(exit 3). The Tenant's limits for Environments (`limits.environments`, `idle`,
-resources, network) are `PUT /v1/tenant/sandbox` on the Management API.
+`nylorun agents list` lists the Tenant's Agents with the manifest version each
+runs, its kind, state, sessions, owner and labels; `nylorun agents rm <id>`
+deletes one, with its files and vault (refused while a turn runs on it). Neither
+starts a stopped Tenant (exit 3). The Tenant's limits for Agents
+(`limits.environments`, `idle`, resources, network) are `PUT /v1/tenant/sandbox`
+on the Management API.
 
 ### Pods on a cluster (preview)
 
@@ -411,7 +416,7 @@ service to the Tenant: the one container holding the cluster credentials
 (`<Host root>/sandboxes/`). On kind under Linux, pass `--host-address 172.17.0.1`.
 `nylorun local sandbox disable` removes the service (`--delete-namespace` also deletes
 the namespace and every sandbox in it). Sessions run in a pod when their
-Environment has kind `pod` (`client.environments.put(id, { kind: "pod" })`).
+Agent's manifest has `runtime.kind` `pod`.
 
 ## Host root
 
@@ -431,14 +436,14 @@ containers, volumes and Host root: the vault key (KEK) and all its data go with 
 
 ## Remote installations
 
-The `agents`, `sessions`, `environments`, `artifacts` and `tenant` groups,
+The `apply`, `agent-manifests`, `agents`, `sessions`, `artifacts` and `tenant` commands,
 `status` and `doctor sandbox` act on a Tenant over its APIs. Without `--tenant`, they act on the installation the
 environment names, when it names one for their API:
 
 | Variables | Acts on |
 | --- | --- |
 | `NYLORUN_RUNTIME_URL` and `NYLORUN_MANAGEMENT_KEY` | `status`, `doctor sandbox` and `tenant` (the Management API) |
-| `NYLORUN_RUNTIME_URL` and `NYLORUN_SERVER_KEY` | `agents`, `sessions`, `environments` and `artifacts` (the Runtime API) |
+| `NYLORUN_RUNTIME_URL` and `NYLORUN_SERVER_KEY` | `apply`, `agent-manifests`, `agents`, `sessions` and `artifacts` (the Runtime API) |
 | `NYLORUN_RUNTIME_URL` and `NYLORUN_TOKEN` | the same, with an identity provider's token in place of the key: the person it names, with the scopes it grants |
 
 `NYLORUN_RUNTIME_URL` alone is an app's and names nothing, as for
@@ -459,16 +464,52 @@ sessions and to the scopes given (`--scope`, repeatable; default
 `sessions:own`). Use it to see what one person sees, or to act on their sessions
 from a terminal.
 
-### Saving an agent from its manifest
+### Agent manifests: `apply`
 
-`nylorun agents save agent.json --files skills/` saves the agent a manifest
-describes, as `saveAgent` does from code. A manifest names each definition file
-(a skill folder's files) by the SHA-256 of its bytes, so the files under the
-`--files` folders are matched by content, whatever their paths; the ones the
-Runtime does not hold are uploaded first (`PUT /v1/files/sha256:…`). A file the
-manifest names but no folder holds stops the save before any request, naming
-where the manifest names it. `nylorun agents get <id>` prints a saved agent's
-manifest; the Runtime does not hand files back, so keep them with the manifest.
+An agent runs from a saved **agent manifest** (protocol 16): one named, versioned
+document with a harness section (instructions, tools, skills, MCP servers,
+plugins) and a runtime section (kind, image, network, setup, files, secret
+slots). Author it as files, one folder per agent:
+
+```
+agents/triage/agent.manifest.json     # { "manifestSchemaVersion": 8, "name": "triage",
+                                      #   "harness": "./harness.manifest.json",
+                                      #   "runtime": "../../shared/runtime.manifest.json" }
+agents/triage/harness.manifest.json   # instructions, tools, "skills": "./skills",
+                                      # "mcpServers": "./mcp.json", "plugins": ["../../plugins/github"],
+                                      # "credentials": { "linear": "linear" }, "requires": { "sandbox": "any" }
+agents/triage/skills/<skill>/SKILL.md
+shared/runtime.manifest.json          # kind, image, "files": [{ "path": "/workspace/kit", "from": "./kit" }], secrets
+```
+
+`nylorun apply agents/triage` composes the folder as `composeManifest` of
+`@nylorun/agents` does (each path relative to the file that names it; skills,
+plugins and `from` folders hashed; `credentials` set on the servers and HTTP
+tools it names; `requires` checked against the runtime and left out), prints the
+plan (`triage: version 2 → 3`, then each change as `section path op`, warnings
+and errors) and saves it under `If-Match` set to the version it planned
+against, uploading the files the Runtime does not hold (`PUT /v1/files/sha256:…`).
+A manifest whose sections do not fit, or whose runtime misses what its harness
+`requires`, is an error: nothing is saved and the command exits 1. `--dry-run`
+prints the plans only; `--if-match <n>` saves only over version `n`.
+`nylorun apply agents/` applies every subfolder with an `agent.manifest.json`;
+every folder composes before anything is sent.
+
+`nylorun agent-manifests list` shows each manifest's latest version, runtime
+kind, harness and the Agents made from it; `get <name>[@<n>]` prints a version,
+`versions <name>` its history and `rm <name>` deletes it (refused while an Agent
+was made from it). Make an Agent from it with `nylorun agents put <id> --manifest
+<name>` (tracking its latest version) or `--manifest <name>@<n>` (pinned), and
+open sessions on it with `nylorun sessions create --agent <id> --owner <user>`.
+
+`nylorun migrate v8 agent.json [--runtime box.json] [--out agents/triage]`
+writes the three files from an agent manifest v7 (as `nylorun agents save` took
+it) and the environment manifest v1 its sessions ran in: the environment
+manifest's fields become the runtime file, its `harness` the harness file's `id`,
+and v7's `requires` stays in the harness file for `apply` to check. With no
+environment manifest the kind is `pod` when the agent requires one, `virtual`
+when it has skills or requires a sandbox, else `none`. It overwrites no file and
+prints the gaps to fix before `apply`.
 
 ### `local reset` or `tenant reset`
 
@@ -477,7 +518,7 @@ Both reset a Tenant, in different ways:
 | | `nylorun local reset` | `nylorun tenant reset` |
 | --- | --- | --- |
 | Acts on | the local Tenant on this machine, through Docker | the Tenant, local or remote, through the Management API with a management key |
-| Deletes | all the Tenant's data: volumes, `tenant/` and the vault key; the next `start` creates it anew, with a new id, and relinks the project | the sessions (the default), the Environments (`--environments`) or all the data (`--all`) after draining work in flight; the Tenant, its keys and the Project link are kept |
+| Deletes | all the Tenant's data: volumes, `tenant/` and the vault key; the next `start` creates it anew, with a new id, and relinks the project | the sessions (the default), the Agents with their vaults, disks and sessions (`--agents`) or all the data (`--all`) after draining work in flight; the Tenant, its keys and the Project link are kept |
 
 `nylorun tenant reset --all` asks first; pass `--yes` when not in a terminal.
 `nylorun local reset` asks too, or takes `--yes`.
@@ -558,7 +599,7 @@ them. The Runtime's own are `NYLORUN_TUNING`, which `nylorun start` passes on.
 | 0 | Success |
 | 1 | Generic failure, including a missing Docker or Compose v2 |
 | 2 | Usage error (including no Tenant selected, or `local delete` without `--yes`), or a removed or moved command |
-| 3 | `status`: the Runtime is not answering; `tenant`, `environments`, `local sandbox`: the local Tenant is not running; `stop`/`local logs`: no Tenant yet; `local delete`: no such Tenant; `start`: a Tenant created by nylorun 0.5 (reset it) |
+| 3 | `status`: the Runtime is not answering; `tenant`, `agents`, `apply`, `local sandbox`: the local Tenant is not running; `stop`/`local logs`: no Tenant yet; `local delete`: no such Tenant; `start`: a Tenant created by nylorun 0.5 (reset it) |
 | 4 | The Runtime port is held by another Host |
 | 5 | `up`/`start`/`studio`: this nylorun pins a Runtime older than the one that last ran the Tenant; update nylorun, or `start --allow-downgrade` |
 | 7 | The containers, the Tenant or Studio did not become ready (an unavailable Tenant's cause is printed) |
@@ -577,7 +618,7 @@ them. The Runtime's own are `NYLORUN_TUNING`, which `nylorun start` passes on.
 | Studio login expired | `nylorun studio` |
 | Which Studio is which | `nylorun local ls` lists each Tenant's Studio URL; `nylorun studio --tenant <name>` opens one signed in |
 | `Tenant … was created by nylorun 0.5` (exit 3) | `nylorun local reset --tenant <name>` (its data starts fresh) |
-| `tenant` or `environments`: the Tenant is not running or not open | `npx nylorun start`, then `npx nylorun status`, which shows the cause and its `repair` |
+| `tenant`, `agents` or `apply`: the Tenant is not running or not open | `npx nylorun start`, then `npx nylorun status`, which shows the cause and its `repair` |
 | No management key for a remote installation | Set `NYLORUN_MANAGEMENT_KEY`; on the Runtime's machine `nylorun tenant keys put <id> --management` issues one |
 | `403 key_role_mismatch` | The key belongs to the other API: a management key for the Management API, an application key for the Runtime API |
 | Old Project link refused | `npx nylorun start` in the project |

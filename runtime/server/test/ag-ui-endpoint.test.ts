@@ -20,7 +20,7 @@ let tenant: SubjectTenant;
 let issuer: TestIssuer;
 /** Reaches only the agent `other`. */
 let elsewhere: TestIssuer;
-/** Reaches the Environments `people/{person}` and `shared/*`. */
+/** Reaches the Agents `people/{person}` and `shared/*`. */
 let granted: TestIssuer;
 
 const mint = (subject: string, ttlSeconds?: number) =>
@@ -42,7 +42,7 @@ async function run(
   body: unknown,
   headers: Record<string, string>
 ): Promise<{ status: number; events: any[]; text: string }> {
-  const response = await fetch(`${url}/v1/ag-ui/agents/${agent}`, {
+  const response = await fetch(`${url}/v1/ag-ui/agents/${encodeURIComponent(agent)}`, {
     method: "POST",
     headers: { "content-type": "application/json", ...headers },
     body: JSON.stringify(body),
@@ -69,7 +69,7 @@ beforeAll(async () => {
   granted = await testIssuer({
     name: "granted",
     iss: "https://granted.test",
-    environments: ["people/{person}", "shared/*"],
+    agents: ["people/{person}", "shared/*"],
   });
   tenant = await startSubjectTenant({
     issuers: createTrustedIssuers([...issuer.configs, ...elsewhere.configs, ...granted.configs]),
@@ -116,70 +116,58 @@ describe("with a trusted issuer's token", () => {
     expect(result.status).toBe(404);
   });
 
-  it("opens the session on the person's Environment on the first run, refuses info, and never changes the session", async () => {
+  it("runs on the Agents its grants name, refuses info and the removed session options", async () => {
     const token = await granted.sign("app:xia", "sessions:own", { claims: { person: "xia" } });
     const xia = { subject: "app:xia", scopes: ["sessions:own"] } as const;
-    const { environmentId } = await createEnvironment(tenant, xia, { id: "people/xia" });
+    const { environmentId: agentId } = await createEnvironment(tenant, xia, { id: "people/xia" });
     const info = await run(
       tenant.runtime.url,
-      "bot",
+      agentId,
       input("x0", "m0", { forwardedProps: { nylorun: { session: { info: { plan: "pro" } } } } }),
       bearer(token)
     );
     expect(info.status).toBe(403);
-    // The removed session options are refused, not ignored (protocol 11).
-    const vaults = await run(
-      tenant.runtime.url,
-      "bot",
-      input("x0", "m0", { forwardedProps: { nylorun: { session: { vaultIds: ["vlt_x"] } } } }),
-      bearer(token)
-    );
-    expect(vaults.status).toBe(400);
-    const first = await run(
-      tenant.runtime.url,
-      "bot",
-      input("x1", "m1", { forwardedProps: { nylorun: { session: { environment: environmentId } } } }),
-      bearer(token)
-    );
+    // The removed session options are refused, not ignored: vaults (protocol 11), and an
+    // Environment (protocol 16: the URL names the Agent the session runs on).
+    for (const session of [{ vaultIds: ["vlt_x"] }, { environment: agentId }]) {
+      const removed = await run(
+        tenant.runtime.url,
+        agentId,
+        input("x0", "m0", { forwardedProps: { nylorun: { session } } }),
+        bearer(token)
+      );
+      expect(removed.status, JSON.stringify(session)).toBe(400);
+    }
+    const first = await run(tenant.runtime.url, agentId, input("x1", "m1"), bearer(token));
     expect(first.status).toBe(200);
-    const id = sessionIdFor("app:xia", "bot", "x1");
-    expect((await tenant.call("GET", `/v1/sessions/${id}`)).body.environment).toEqual({
-      id: environmentId,
-      version: 1,
+    const id = sessionIdFor("app:xia", agentId, "x1");
+    expect((await tenant.call("GET", `/v1/sessions/${id}`)).body).toMatchObject({
+      agentId,
+      ownerUserId: "app:xia",
     });
-    // A later run without options keeps the Environment.
-    await run(tenant.runtime.url, "bot", input("x1", "m2"), bearer(token));
-    expect((await tenant.call("GET", `/v1/sessions/${id}`)).body.environment).toEqual({
-      id: environmentId,
-      version: 1,
-    });
-    // An Environment the token's grants miss is refused.
+    // A later run continues the same session.
+    expect((await run(tenant.runtime.url, agentId, input("x1", "m2"), bearer(token))).status).toBe(200);
+    // The Agent `bot` is not among its grants.
+    expect((await run(tenant.runtime.url, "bot", input("x1", "m3"), bearer(token))).status).toBe(404);
+    // An Agent the token's grants miss is refused.
     const { environmentId: ungranted } = await createEnvironment(
       tenant,
       { subject: "app:yan", scopes: ["sessions:own"] },
       { id: "people/yan" }
     );
-    const missed = await run(
-      tenant.runtime.url,
-      "bot",
-      input("x2", "m1", { forwardedProps: { nylorun: { session: { environment: ungranted } } } }),
-      bearer(token)
-    );
+    const missed = await run(tenant.runtime.url, ungranted, input("x2", "m1"), bearer(token));
     expect(missed.status).toBe(404);
-    // So is one the grants reach but guarded for another owner: the same 404.
+    // So is one the grants reach but guarded for another owner: the 404 of one that does not exist.
     const { environmentId: foreign } = await createEnvironment(
       tenant,
       { subject: "app:yan", scopes: ["sessions:own"] },
       { id: "shared/yan" }
     );
-    const guarded = await run(
-      tenant.runtime.url,
-      "bot",
-      input("x3", "m1", { forwardedProps: { nylorun: { session: { environment: foreign } } } }),
-      bearer(token)
-    );
+    const guarded = await run(tenant.runtime.url, foreign, input("x3", "m1"), bearer(token));
     expect(guarded.status).toBe(404);
-    expect(guarded.text).toBe(missed.text);
+    const nobody = await run(tenant.runtime.url, "shared/nobody", input("x3", "m1"), bearer(token));
+    expect(nobody.status).toBe(404);
+    expect(guarded.text).toBe(nobody.text);
   });
 });
 
@@ -349,11 +337,9 @@ describe("a token that expires during a run", () => {
           ...(body === undefined ? {} : { body: JSON.stringify(body) }),
         });
       const { Agent } = await import("@nylorun/core/define");
-      await call("PUT", "/v1/agents/bot", {
-        requestId: "bot",
-        manifest: Agent({ id: "bot", name: "Bot" }).build().manifest,
-        implementationVersion: "dev",
-      });
+      const { manifestOf } = await import("./support/agents.js");
+      expect((await call("PUT", "/v1/agent-manifests/bot", manifestOf(Agent({ id: "bot", name: "Bot" }).build()))).status).toBe(200);
+      expect((await call("PUT", "/v1/agents/bot", { requestId: "bot", manifest: "bot" })).status).toBe(200);
       const token = await mint("app:sam", 60);
       vi.useFakeTimers({ toFake: ["Date"] });
       vi.setSystemTime(Date.now() + 59_500);

@@ -68,7 +68,7 @@
       "message": "A management key reaches only the Management API (/v1/tenant/*)"
     }
   },
-  "GET /v1/agents": {
+  "GET /v1/agent-manifests": {
     "none": {
       "status": 401,
       "contentType": "application/json",
@@ -102,12 +102,16 @@
       "contentType": "application/json"
     },
     "token": {
-      "status": 200,
-      "contentType": "application/json"
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Application credential required"
     },
     "token-browser": {
-      "status": 200,
-      "contentType": "application/json"
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Application credential required"
     },
     "management": {
       "status": 403,
@@ -122,7 +126,7 @@
       "message": "A management key reaches only the Management API (/v1/tenant/*)"
     }
   },
-  "PUT /v1/agents/bot": {
+  "PUT /v1/agent-manifests/bot": {
     "none": {
       "status": 401,
       "contentType": "application/json",
@@ -159,10 +163,10 @@
       "status": 403,
       "contentType": "application/json",
       "code": "scope_required",
-      "message": "Scope agents:write required",
+      "message": "Scope agent-manifests:write required",
       "details": {
         "scopes": [
-          "agents:write"
+          "agent-manifests:write"
         ]
       }
     },
@@ -170,10 +174,10 @@
       "status": 403,
       "contentType": "application/json",
       "code": "scope_required",
-      "message": "Scope agents:write required",
+      "message": "Scope agent-manifests:write required",
       "details": {
         "scopes": [
-          "agents:write"
+          "agent-manifests:write"
         ]
       }
     },
@@ -181,10 +185,323 @@
       "status": 403,
       "contentType": "application/json",
       "code": "scope_required",
-      "message": "Scope agents:write required",
+      "message": "Scope agent-manifests:write required",
       "details": {
         "scopes": [
-          "agents:write"
+          "agent-manifests:write"
+        ]
+      }
+    },
+    "management": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    }
+  },
+  "GET /v1/agent-manifests/bot": {
+    "none": {
+      "status": 401,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_required",
+      "message": "A bearer credential is required"
+    },
+    "wrong": {
+      "status": 401,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_invalid",
+      "message": "The credential is not valid here"
+    },
+    "application": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "application-browser": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "origin_rejected",
+      "message": "Application keys are not accepted from browsers"
+    },
+    "subject": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "subject-read": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "token": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Application credential required"
+    },
+    "token-browser": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Application credential required"
+    },
+    "management": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    }
+  },
+  "GET /v1/agent-manifests/bot/versions": {
+    "none": {
+      "status": 401,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_required",
+      "message": "A bearer credential is required"
+    },
+    "wrong": {
+      "status": 401,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_invalid",
+      "message": "The credential is not valid here"
+    },
+    "application": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "application-browser": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "origin_rejected",
+      "message": "Application keys are not accepted from browsers"
+    },
+    "subject": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "subject-read": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "token": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Application credential required"
+    },
+    "token-browser": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Application credential required"
+    },
+    "management": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    }
+  },
+  "GET /v1/agent-manifests/bot/versions/1": {
+    "none": {
+      "status": 401,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_required",
+      "message": "A bearer credential is required"
+    },
+    "wrong": {
+      "status": 401,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_invalid",
+      "message": "The credential is not valid here"
+    },
+    "application": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "application-browser": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "origin_rejected",
+      "message": "Application keys are not accepted from browsers"
+    },
+    "subject": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "subject-read": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "token": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Application credential required"
+    },
+    "token-browser": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Application credential required"
+    },
+    "management": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    }
+  },
+  "GET /v1/agent-manifests/missing": {
+    "none": {
+      "status": 401,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_required",
+      "message": "A bearer credential is required"
+    },
+    "wrong": {
+      "status": 401,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_invalid",
+      "message": "The credential is not valid here"
+    },
+    "application": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "manifest_not_found",
+      "message": "No agent manifest is named missing."
+    },
+    "application-browser": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "origin_rejected",
+      "message": "Application keys are not accepted from browsers"
+    },
+    "subject": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "manifest_not_found",
+      "message": "No agent manifest is named missing."
+    },
+    "subject-read": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "manifest_not_found",
+      "message": "No agent manifest is named missing."
+    },
+    "token": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Application credential required"
+    },
+    "token-browser": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Application credential required"
+    },
+    "management": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    }
+  },
+  "DELETE /v1/agent-manifests/missing": {
+    "none": {
+      "status": 401,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_required",
+      "message": "A bearer credential is required"
+    },
+    "wrong": {
+      "status": 401,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_invalid",
+      "message": "The credential is not valid here"
+    },
+    "application": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "application-browser": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "origin_rejected",
+      "message": "Application keys are not accepted from browsers"
+    },
+    "subject": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "Scope agent-manifests:write required",
+      "details": {
+        "scopes": [
+          "agent-manifests:write"
+        ]
+      }
+    },
+    "token": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "Scope agent-manifests:write required",
+      "details": {
+        "scopes": [
+          "agent-manifests:write"
+        ]
+      }
+    },
+    "token-browser": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "Scope agent-manifests:write required",
+      "details": {
+        "scopes": [
+          "agent-manifests:write"
         ]
       }
     },
@@ -783,7 +1100,7 @@
       "message": "A management key reaches only the Management API (/v1/tenant/*)"
     }
   },
-  "GET /v1/environments": {
+  "GET /v1/agents": {
     "none": {
       "status": 401,
       "contentType": "application/json",
@@ -813,16 +1130,8 @@
       "contentType": "application/json"
     },
     "subject-read": {
-      "status": 403,
-      "contentType": "application/json",
-      "code": "scope_required",
-      "message": "Scope sessions:own or environments:write required",
-      "details": {
-        "scopes": [
-          "sessions:own",
-          "environments:write"
-        ]
-      }
+      "status": 200,
+      "contentType": "application/json"
     },
     "token": {
       "status": 200,
@@ -845,7 +1154,7 @@
       "message": "A management key reaches only the Management API (/v1/tenant/*)"
     }
   },
-  "GET /v1/environments?label=project=acme": {
+  "GET /v1/agents?label=project=acme": {
     "none": {
       "status": 401,
       "contentType": "application/json",
@@ -875,16 +1184,8 @@
       "contentType": "application/json"
     },
     "subject-read": {
-      "status": 403,
-      "contentType": "application/json",
-      "code": "scope_required",
-      "message": "Scope sessions:own or environments:write required",
-      "details": {
-        "scopes": [
-          "sessions:own",
-          "environments:write"
-        ]
-      }
+      "status": 200,
+      "contentType": "application/json"
     },
     "token": {
       "status": 200,
@@ -907,7 +1208,7 @@
       "message": "A management key reaches only the Management API (/v1/tenant/*)"
     }
   },
-  "GET /v1/environments?limit=1": {
+  "GET /v1/agents?limit=1": {
     "none": {
       "status": 401,
       "contentType": "application/json",
@@ -937,16 +1238,8 @@
       "contentType": "application/json"
     },
     "subject-read": {
-      "status": 403,
-      "contentType": "application/json",
-      "code": "scope_required",
-      "message": "Scope sessions:own or environments:write required",
-      "details": {
-        "scopes": [
-          "sessions:own",
-          "environments:write"
-        ]
-      }
+      "status": 200,
+      "contentType": "application/json"
     },
     "token": {
       "status": 200,
@@ -969,7 +1262,7 @@
       "message": "A management key reaches only the Management API (/v1/tenant/*)"
     }
   },
-  "PUT /v1/environments/team%2Fenv-missing": {
+  "PUT /v1/agents/bot": {
     "none": {
       "status": 401,
       "contentType": "application/json",
@@ -1006,34 +1299,34 @@
       "status": 403,
       "contentType": "application/json",
       "code": "scope_required",
-      "message": "Scope environments:write required",
+      "message": "Scope agents:write required",
       "details": {
         "scopes": [
-          "environments:write"
+          "agents:write"
         ]
       }
     },
     "token": {
       "status": 403,
       "contentType": "application/json",
-      "wwwAuthenticate": "Bearer error=\"insufficient_scope\", scope=\"environments:write\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "wwwAuthenticate": "Bearer error=\"insufficient_scope\", scope=\"agents:write\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
       "code": "scope_required",
-      "message": "Scope environments:write required",
+      "message": "Scope agents:write required",
       "details": {
         "scopes": [
-          "environments:write"
+          "agents:write"
         ]
       }
     },
     "token-browser": {
       "status": 403,
       "contentType": "application/json",
-      "wwwAuthenticate": "Bearer error=\"insufficient_scope\", scope=\"environments:write\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "wwwAuthenticate": "Bearer error=\"insufficient_scope\", scope=\"agents:write\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
       "code": "scope_required",
-      "message": "Scope environments:write required",
+      "message": "Scope agents:write required",
       "details": {
         "scopes": [
-          "environments:write"
+          "agents:write"
         ]
       }
     },
@@ -1050,514 +1343,7 @@
       "message": "A management key reaches only the Management API (/v1/tenant/*)"
     }
   },
-  "GET /v1/environments/team%2Fenv-missing": {
-    "none": {
-      "status": 401,
-      "contentType": "application/json",
-      "wwwAuthenticate": "Bearer resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
-      "code": "credential_required",
-      "message": "A bearer credential is required"
-    },
-    "wrong": {
-      "status": 401,
-      "contentType": "application/json",
-      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
-      "code": "credential_invalid",
-      "message": "The credential is not valid here"
-    },
-    "application": {
-      "status": 404,
-      "contentType": "application/json",
-      "code": "request_rejected",
-      "message": "Environment not found"
-    },
-    "application-browser": {
-      "status": 403,
-      "contentType": "application/json",
-      "code": "origin_rejected",
-      "message": "Application keys are not accepted from browsers"
-    },
-    "subject": {
-      "status": 404,
-      "contentType": "application/json",
-      "code": "request_rejected",
-      "message": "Environment not found"
-    },
-    "subject-read": {
-      "status": 403,
-      "contentType": "application/json",
-      "code": "scope_required",
-      "message": "Scope sessions:own or environments:write required",
-      "details": {
-        "scopes": [
-          "sessions:own",
-          "environments:write"
-        ]
-      }
-    },
-    "token": {
-      "status": 404,
-      "contentType": "application/json",
-      "code": "request_rejected",
-      "message": "Environment not found"
-    },
-    "token-browser": {
-      "status": 404,
-      "contentType": "application/json",
-      "code": "request_rejected",
-      "message": "Environment not found"
-    },
-    "management": {
-      "status": 403,
-      "contentType": "application/json",
-      "code": "key_role_mismatch",
-      "message": "A management key reaches only the Management API (/v1/tenant/*)"
-    },
-    "management-subject": {
-      "status": 403,
-      "contentType": "application/json",
-      "code": "key_role_mismatch",
-      "message": "A management key reaches only the Management API (/v1/tenant/*)"
-    }
-  },
-  "GET /v1/environments/team%2Fenv-missing/events": {
-    "none": {
-      "status": 401,
-      "contentType": "application/json",
-      "wwwAuthenticate": "Bearer resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
-      "code": "credential_required",
-      "message": "A bearer credential is required"
-    },
-    "wrong": {
-      "status": 401,
-      "contentType": "application/json",
-      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
-      "code": "credential_invalid",
-      "message": "The credential is not valid here"
-    },
-    "application": {
-      "status": 200,
-      "contentType": "application/json"
-    },
-    "application-browser": {
-      "status": 403,
-      "contentType": "application/json",
-      "code": "origin_rejected",
-      "message": "Application keys are not accepted from browsers"
-    },
-    "subject": {
-      "status": 200,
-      "contentType": "application/json"
-    },
-    "subject-read": {
-      "status": 403,
-      "contentType": "application/json",
-      "code": "scope_required",
-      "message": "Scope sessions:own or environments:write required",
-      "details": {
-        "scopes": [
-          "sessions:own",
-          "environments:write"
-        ]
-      }
-    },
-    "token": {
-      "status": 404,
-      "contentType": "application/json",
-      "code": "request_rejected",
-      "message": "Environment not found"
-    },
-    "token-browser": {
-      "status": 404,
-      "contentType": "application/json",
-      "code": "request_rejected",
-      "message": "Environment not found"
-    },
-    "management": {
-      "status": 403,
-      "contentType": "application/json",
-      "code": "key_role_mismatch",
-      "message": "A management key reaches only the Management API (/v1/tenant/*)"
-    },
-    "management-subject": {
-      "status": 403,
-      "contentType": "application/json",
-      "code": "key_role_mismatch",
-      "message": "A management key reaches only the Management API (/v1/tenant/*)"
-    }
-  },
-  "POST /v1/environments/team%2Fenv-missing/stop": {
-    "none": {
-      "status": 401,
-      "contentType": "application/json",
-      "wwwAuthenticate": "Bearer resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
-      "code": "credential_required",
-      "message": "A bearer credential is required"
-    },
-    "wrong": {
-      "status": 401,
-      "contentType": "application/json",
-      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
-      "code": "credential_invalid",
-      "message": "The credential is not valid here"
-    },
-    "application": {
-      "status": 404,
-      "contentType": "application/json",
-      "code": "request_rejected",
-      "message": "Environment not found"
-    },
-    "application-browser": {
-      "status": 403,
-      "contentType": "application/json",
-      "code": "origin_rejected",
-      "message": "Application keys are not accepted from browsers"
-    },
-    "subject": {
-      "status": 404,
-      "contentType": "application/json",
-      "code": "request_rejected",
-      "message": "Environment not found"
-    },
-    "subject-read": {
-      "status": 403,
-      "contentType": "application/json",
-      "code": "scope_required",
-      "message": "Scope environments:write required",
-      "details": {
-        "scopes": [
-          "environments:write"
-        ]
-      }
-    },
-    "token": {
-      "status": 403,
-      "contentType": "application/json",
-      "wwwAuthenticate": "Bearer error=\"insufficient_scope\", scope=\"environments:write\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
-      "code": "scope_required",
-      "message": "Scope environments:write required",
-      "details": {
-        "scopes": [
-          "environments:write"
-        ]
-      }
-    },
-    "token-browser": {
-      "status": 403,
-      "contentType": "application/json",
-      "wwwAuthenticate": "Bearer error=\"insufficient_scope\", scope=\"environments:write\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
-      "code": "scope_required",
-      "message": "Scope environments:write required",
-      "details": {
-        "scopes": [
-          "environments:write"
-        ]
-      }
-    },
-    "management": {
-      "status": 403,
-      "contentType": "application/json",
-      "code": "key_role_mismatch",
-      "message": "A management key reaches only the Management API (/v1/tenant/*)"
-    },
-    "management-subject": {
-      "status": 403,
-      "contentType": "application/json",
-      "code": "key_role_mismatch",
-      "message": "A management key reaches only the Management API (/v1/tenant/*)"
-    }
-  },
-  "POST /v1/environments/team%2Fenv-missing/reset": {
-    "none": {
-      "status": 401,
-      "contentType": "application/json",
-      "wwwAuthenticate": "Bearer resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
-      "code": "credential_required",
-      "message": "A bearer credential is required"
-    },
-    "wrong": {
-      "status": 401,
-      "contentType": "application/json",
-      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
-      "code": "credential_invalid",
-      "message": "The credential is not valid here"
-    },
-    "application": {
-      "status": 404,
-      "contentType": "application/json",
-      "code": "request_rejected",
-      "message": "Environment not found"
-    },
-    "application-browser": {
-      "status": 403,
-      "contentType": "application/json",
-      "code": "origin_rejected",
-      "message": "Application keys are not accepted from browsers"
-    },
-    "subject": {
-      "status": 404,
-      "contentType": "application/json",
-      "code": "request_rejected",
-      "message": "Environment not found"
-    },
-    "subject-read": {
-      "status": 403,
-      "contentType": "application/json",
-      "code": "scope_required",
-      "message": "Scope environments:write required",
-      "details": {
-        "scopes": [
-          "environments:write"
-        ]
-      }
-    },
-    "token": {
-      "status": 403,
-      "contentType": "application/json",
-      "wwwAuthenticate": "Bearer error=\"insufficient_scope\", scope=\"environments:write\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
-      "code": "scope_required",
-      "message": "Scope environments:write required",
-      "details": {
-        "scopes": [
-          "environments:write"
-        ]
-      }
-    },
-    "token-browser": {
-      "status": 403,
-      "contentType": "application/json",
-      "wwwAuthenticate": "Bearer error=\"insufficient_scope\", scope=\"environments:write\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
-      "code": "scope_required",
-      "message": "Scope environments:write required",
-      "details": {
-        "scopes": [
-          "environments:write"
-        ]
-      }
-    },
-    "management": {
-      "status": 403,
-      "contentType": "application/json",
-      "code": "key_role_mismatch",
-      "message": "A management key reaches only the Management API (/v1/tenant/*)"
-    },
-    "management-subject": {
-      "status": 403,
-      "contentType": "application/json",
-      "code": "key_role_mismatch",
-      "message": "A management key reaches only the Management API (/v1/tenant/*)"
-    }
-  },
-  "DELETE /v1/environments/team%2Fenv-missing": {
-    "none": {
-      "status": 401,
-      "contentType": "application/json",
-      "wwwAuthenticate": "Bearer resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
-      "code": "credential_required",
-      "message": "A bearer credential is required"
-    },
-    "wrong": {
-      "status": 401,
-      "contentType": "application/json",
-      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
-      "code": "credential_invalid",
-      "message": "The credential is not valid here"
-    },
-    "application": {
-      "status": 200,
-      "contentType": "application/json"
-    },
-    "application-browser": {
-      "status": 403,
-      "contentType": "application/json",
-      "code": "origin_rejected",
-      "message": "Application keys are not accepted from browsers"
-    },
-    "subject": {
-      "status": 200,
-      "contentType": "application/json"
-    },
-    "subject-read": {
-      "status": 403,
-      "contentType": "application/json",
-      "code": "scope_required",
-      "message": "Scope environments:write required",
-      "details": {
-        "scopes": [
-          "environments:write"
-        ]
-      }
-    },
-    "token": {
-      "status": 403,
-      "contentType": "application/json",
-      "wwwAuthenticate": "Bearer error=\"insufficient_scope\", scope=\"environments:write\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
-      "code": "scope_required",
-      "message": "Scope environments:write required",
-      "details": {
-        "scopes": [
-          "environments:write"
-        ]
-      }
-    },
-    "token-browser": {
-      "status": 403,
-      "contentType": "application/json",
-      "wwwAuthenticate": "Bearer error=\"insufficient_scope\", scope=\"environments:write\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
-      "code": "scope_required",
-      "message": "Scope environments:write required",
-      "details": {
-        "scopes": [
-          "environments:write"
-        ]
-      }
-    },
-    "management": {
-      "status": 403,
-      "contentType": "application/json",
-      "code": "key_role_mismatch",
-      "message": "A management key reaches only the Management API (/v1/tenant/*)"
-    },
-    "management-subject": {
-      "status": 403,
-      "contentType": "application/json",
-      "code": "key_role_mismatch",
-      "message": "A management key reaches only the Management API (/v1/tenant/*)"
-    }
-  },
-  "GET /v1/environments/env-1": {
-    "none": {
-      "status": 401,
-      "contentType": "application/json",
-      "wwwAuthenticate": "Bearer resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
-      "code": "credential_required",
-      "message": "A bearer credential is required"
-    },
-    "wrong": {
-      "status": 401,
-      "contentType": "application/json",
-      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
-      "code": "credential_invalid",
-      "message": "The credential is not valid here"
-    },
-    "application": {
-      "status": 200,
-      "contentType": "application/json"
-    },
-    "application-browser": {
-      "status": 403,
-      "contentType": "application/json",
-      "code": "origin_rejected",
-      "message": "Application keys are not accepted from browsers"
-    },
-    "subject": {
-      "status": 200,
-      "contentType": "application/json"
-    },
-    "subject-read": {
-      "status": 403,
-      "contentType": "application/json",
-      "code": "scope_required",
-      "message": "Scope sessions:own or environments:write required",
-      "details": {
-        "scopes": [
-          "sessions:own",
-          "environments:write"
-        ]
-      }
-    },
-    "token": {
-      "status": 404,
-      "contentType": "application/json",
-      "code": "request_rejected",
-      "message": "Environment not found"
-    },
-    "token-browser": {
-      "status": 404,
-      "contentType": "application/json",
-      "code": "request_rejected",
-      "message": "Environment not found"
-    },
-    "management": {
-      "status": 403,
-      "contentType": "application/json",
-      "code": "key_role_mismatch",
-      "message": "A management key reaches only the Management API (/v1/tenant/*)"
-    },
-    "management-subject": {
-      "status": 403,
-      "contentType": "application/json",
-      "code": "key_role_mismatch",
-      "message": "A management key reaches only the Management API (/v1/tenant/*)"
-    }
-  },
-  "GET /v1/environments/env-1/events": {
-    "none": {
-      "status": 401,
-      "contentType": "application/json",
-      "wwwAuthenticate": "Bearer resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
-      "code": "credential_required",
-      "message": "A bearer credential is required"
-    },
-    "wrong": {
-      "status": 401,
-      "contentType": "application/json",
-      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
-      "code": "credential_invalid",
-      "message": "The credential is not valid here"
-    },
-    "application": {
-      "status": 200,
-      "contentType": "application/json"
-    },
-    "application-browser": {
-      "status": 403,
-      "contentType": "application/json",
-      "code": "origin_rejected",
-      "message": "Application keys are not accepted from browsers"
-    },
-    "subject": {
-      "status": 200,
-      "contentType": "application/json"
-    },
-    "subject-read": {
-      "status": 403,
-      "contentType": "application/json",
-      "code": "scope_required",
-      "message": "Scope sessions:own or environments:write required",
-      "details": {
-        "scopes": [
-          "sessions:own",
-          "environments:write"
-        ]
-      }
-    },
-    "token": {
-      "status": 404,
-      "contentType": "application/json",
-      "code": "request_rejected",
-      "message": "Environment not found"
-    },
-    "token-browser": {
-      "status": 404,
-      "contentType": "application/json",
-      "code": "request_rejected",
-      "message": "Environment not found"
-    },
-    "management": {
-      "status": 403,
-      "contentType": "application/json",
-      "code": "key_role_mismatch",
-      "message": "A management key reaches only the Management API (/v1/tenant/*)"
-    },
-    "management-subject": {
-      "status": 403,
-      "contentType": "application/json",
-      "code": "key_role_mismatch",
-      "message": "A management key reaches only the Management API (/v1/tenant/*)"
-    }
-  },
-  "POST /v1/environments/env-1/stop": {
+  "PUT /v1/agents/team%2Fagent-missing": {
     "none": {
       "status": 401,
       "contentType": "application/json",
@@ -1576,7 +1362,7 @@
       "status": 400,
       "contentType": "application/json",
       "code": "request_rejected",
-      "message": "Environment env-1 is of kind none: only a pod Environment stops and resets"
+      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
     },
     "application-browser": {
       "status": 403,
@@ -1588,40 +1374,40 @@
       "status": 400,
       "contentType": "application/json",
       "code": "request_rejected",
-      "message": "Environment env-1 is of kind none: only a pod Environment stops and resets"
+      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
     },
     "subject-read": {
       "status": 403,
       "contentType": "application/json",
       "code": "scope_required",
-      "message": "Scope environments:write required",
+      "message": "Scope agents:write required",
       "details": {
         "scopes": [
-          "environments:write"
+          "agents:write"
         ]
       }
     },
     "token": {
       "status": 403,
       "contentType": "application/json",
-      "wwwAuthenticate": "Bearer error=\"insufficient_scope\", scope=\"environments:write\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "wwwAuthenticate": "Bearer error=\"insufficient_scope\", scope=\"agents:write\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
       "code": "scope_required",
-      "message": "Scope environments:write required",
+      "message": "Scope agents:write required",
       "details": {
         "scopes": [
-          "environments:write"
+          "agents:write"
         ]
       }
     },
     "token-browser": {
       "status": 403,
       "contentType": "application/json",
-      "wwwAuthenticate": "Bearer error=\"insufficient_scope\", scope=\"environments:write\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "wwwAuthenticate": "Bearer error=\"insufficient_scope\", scope=\"agents:write\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
       "code": "scope_required",
-      "message": "Scope environments:write required",
+      "message": "Scope agents:write required",
       "details": {
         "scopes": [
-          "environments:write"
+          "agents:write"
         ]
       }
     },
@@ -1638,7 +1424,675 @@
       "message": "A management key reaches only the Management API (/v1/tenant/*)"
     }
   },
-  "GET /v1/environments/env-1/secrets": {
+  "GET /v1/agents/team%2Fagent-missing": {
+    "none": {
+      "status": 401,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_required",
+      "message": "A bearer credential is required"
+    },
+    "wrong": {
+      "status": 401,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_invalid",
+      "message": "The credential is not valid here"
+    },
+    "application": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Agent not found"
+    },
+    "application-browser": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "origin_rejected",
+      "message": "Application keys are not accepted from browsers"
+    },
+    "subject": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Agent not found"
+    },
+    "subject-read": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Agent not found"
+    },
+    "token": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Agent not found"
+    },
+    "token-browser": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Agent not found"
+    },
+    "management": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    }
+  },
+  "GET /v1/agents/team%2Fagent-missing/events": {
+    "none": {
+      "status": 401,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_required",
+      "message": "A bearer credential is required"
+    },
+    "wrong": {
+      "status": 401,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_invalid",
+      "message": "The credential is not valid here"
+    },
+    "application": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "application-browser": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "origin_rejected",
+      "message": "Application keys are not accepted from browsers"
+    },
+    "subject": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "subject-read": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "token": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "token-browser": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "management": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    }
+  },
+  "POST /v1/agents/team%2Fagent-missing/stop": {
+    "none": {
+      "status": 401,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_required",
+      "message": "A bearer credential is required"
+    },
+    "wrong": {
+      "status": 401,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_invalid",
+      "message": "The credential is not valid here"
+    },
+    "application": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Agent not found"
+    },
+    "application-browser": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "origin_rejected",
+      "message": "Application keys are not accepted from browsers"
+    },
+    "subject": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Agent not found"
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "Scope agents:write required",
+      "details": {
+        "scopes": [
+          "agents:write"
+        ]
+      }
+    },
+    "token": {
+      "status": 403,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer error=\"insufficient_scope\", scope=\"agents:write\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "scope_required",
+      "message": "Scope agents:write required",
+      "details": {
+        "scopes": [
+          "agents:write"
+        ]
+      }
+    },
+    "token-browser": {
+      "status": 403,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer error=\"insufficient_scope\", scope=\"agents:write\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "scope_required",
+      "message": "Scope agents:write required",
+      "details": {
+        "scopes": [
+          "agents:write"
+        ]
+      }
+    },
+    "management": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    }
+  },
+  "POST /v1/agents/team%2Fagent-missing/reset": {
+    "none": {
+      "status": 401,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_required",
+      "message": "A bearer credential is required"
+    },
+    "wrong": {
+      "status": 401,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_invalid",
+      "message": "The credential is not valid here"
+    },
+    "application": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Agent not found"
+    },
+    "application-browser": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "origin_rejected",
+      "message": "Application keys are not accepted from browsers"
+    },
+    "subject": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Agent not found"
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "Scope agents:write required",
+      "details": {
+        "scopes": [
+          "agents:write"
+        ]
+      }
+    },
+    "token": {
+      "status": 403,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer error=\"insufficient_scope\", scope=\"agents:write\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "scope_required",
+      "message": "Scope agents:write required",
+      "details": {
+        "scopes": [
+          "agents:write"
+        ]
+      }
+    },
+    "token-browser": {
+      "status": 403,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer error=\"insufficient_scope\", scope=\"agents:write\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "scope_required",
+      "message": "Scope agents:write required",
+      "details": {
+        "scopes": [
+          "agents:write"
+        ]
+      }
+    },
+    "management": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    }
+  },
+  "POST /v1/agents/team%2Fagent-missing/snapshot": {
+    "none": {
+      "status": 401,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_required",
+      "message": "A bearer credential is required"
+    },
+    "wrong": {
+      "status": 401,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_invalid",
+      "message": "The credential is not valid here"
+    },
+    "application": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Agent not found"
+    },
+    "application-browser": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "origin_rejected",
+      "message": "Application keys are not accepted from browsers"
+    },
+    "subject": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Agent not found"
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "Scope agents:write required",
+      "details": {
+        "scopes": [
+          "agents:write"
+        ]
+      }
+    },
+    "token": {
+      "status": 403,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer error=\"insufficient_scope\", scope=\"agents:write\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "scope_required",
+      "message": "Scope agents:write required",
+      "details": {
+        "scopes": [
+          "agents:write"
+        ]
+      }
+    },
+    "token-browser": {
+      "status": 403,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer error=\"insufficient_scope\", scope=\"agents:write\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "scope_required",
+      "message": "Scope agents:write required",
+      "details": {
+        "scopes": [
+          "agents:write"
+        ]
+      }
+    },
+    "management": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    }
+  },
+  "POST /v1/agents/team%2Fagent-missing/restore": {
+    "none": {
+      "status": 401,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_required",
+      "message": "A bearer credential is required"
+    },
+    "wrong": {
+      "status": 401,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_invalid",
+      "message": "The credential is not valid here"
+    },
+    "application": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
+    },
+    "application-browser": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "origin_rejected",
+      "message": "Application keys are not accepted from browsers"
+    },
+    "subject": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "Scope agents:write required",
+      "details": {
+        "scopes": [
+          "agents:write"
+        ]
+      }
+    },
+    "token": {
+      "status": 403,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer error=\"insufficient_scope\", scope=\"agents:write\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "scope_required",
+      "message": "Scope agents:write required",
+      "details": {
+        "scopes": [
+          "agents:write"
+        ]
+      }
+    },
+    "token-browser": {
+      "status": 403,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer error=\"insufficient_scope\", scope=\"agents:write\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "scope_required",
+      "message": "Scope agents:write required",
+      "details": {
+        "scopes": [
+          "agents:write"
+        ]
+      }
+    },
+    "management": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    }
+  },
+  "POST /v1/agents/team%2Fagent-missing/fork": {
+    "none": {
+      "status": 401,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_required",
+      "message": "A bearer credential is required"
+    },
+    "wrong": {
+      "status": 401,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_invalid",
+      "message": "The credential is not valid here"
+    },
+    "application": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
+    },
+    "application-browser": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "origin_rejected",
+      "message": "Application keys are not accepted from browsers"
+    },
+    "subject": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "Scope agents:write required",
+      "details": {
+        "scopes": [
+          "agents:write"
+        ]
+      }
+    },
+    "token": {
+      "status": 403,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer error=\"insufficient_scope\", scope=\"agents:write\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "scope_required",
+      "message": "Scope agents:write required",
+      "details": {
+        "scopes": [
+          "agents:write"
+        ]
+      }
+    },
+    "token-browser": {
+      "status": 403,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer error=\"insufficient_scope\", scope=\"agents:write\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "scope_required",
+      "message": "Scope agents:write required",
+      "details": {
+        "scopes": [
+          "agents:write"
+        ]
+      }
+    },
+    "management": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    }
+  },
+  "GET /v1/agents/team%2Fagent-missing/versions": {
+    "none": {
+      "status": 401,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_required",
+      "message": "A bearer credential is required"
+    },
+    "wrong": {
+      "status": 401,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_invalid",
+      "message": "The credential is not valid here"
+    },
+    "application": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Agent not found"
+    },
+    "application-browser": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "origin_rejected",
+      "message": "Application keys are not accepted from browsers"
+    },
+    "subject": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Agent not found"
+    },
+    "subject-read": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Agent not found"
+    },
+    "token": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Agent not found"
+    },
+    "token-browser": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Agent not found"
+    },
+    "management": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    }
+  },
+  "DELETE /v1/agents/team%2Fagent-missing/versions/1": {
+    "none": {
+      "status": 401,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_required",
+      "message": "A bearer credential is required"
+    },
+    "wrong": {
+      "status": 401,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_invalid",
+      "message": "The credential is not valid here"
+    },
+    "application": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Agent not found"
+    },
+    "application-browser": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "origin_rejected",
+      "message": "Application keys are not accepted from browsers"
+    },
+    "subject": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Agent not found"
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "Scope agents:write required",
+      "details": {
+        "scopes": [
+          "agents:write"
+        ]
+      }
+    },
+    "token": {
+      "status": 403,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer error=\"insufficient_scope\", scope=\"agents:write\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "scope_required",
+      "message": "Scope agents:write required",
+      "details": {
+        "scopes": [
+          "agents:write"
+        ]
+      }
+    },
+    "token-browser": {
+      "status": 403,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer error=\"insufficient_scope\", scope=\"agents:write\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "scope_required",
+      "message": "Scope agents:write required",
+      "details": {
+        "scopes": [
+          "agents:write"
+        ]
+      }
+    },
+    "management": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    }
+  },
+  "DELETE /v1/agents/team%2Fagent-missing": {
     "none": {
       "status": 401,
       "contentType": "application/json",
@@ -1671,25 +2125,36 @@
       "status": 403,
       "contentType": "application/json",
       "code": "scope_required",
-      "message": "Scope sessions:own or environments:write required",
+      "message": "Scope agents:write required",
       "details": {
         "scopes": [
-          "sessions:own",
-          "environments:write"
+          "agents:write"
         ]
       }
     },
     "token": {
-      "status": 404,
+      "status": 403,
       "contentType": "application/json",
-      "code": "request_rejected",
-      "message": "Environment not found"
+      "wwwAuthenticate": "Bearer error=\"insufficient_scope\", scope=\"agents:write\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "scope_required",
+      "message": "Scope agents:write required",
+      "details": {
+        "scopes": [
+          "agents:write"
+        ]
+      }
     },
     "token-browser": {
-      "status": 404,
+      "status": 403,
       "contentType": "application/json",
-      "code": "request_rejected",
-      "message": "Environment not found"
+      "wwwAuthenticate": "Bearer error=\"insufficient_scope\", scope=\"agents:write\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "scope_required",
+      "message": "Scope agents:write required",
+      "details": {
+        "scopes": [
+          "agents:write"
+        ]
+      }
     },
     "management": {
       "status": 403,
@@ -1704,7 +2169,385 @@
       "message": "A management key reaches only the Management API (/v1/tenant/*)"
     }
   },
-  "GET /v1/environments/env-1/secrets/missing": {
+  "GET /v1/agents/agent-1": {
+    "none": {
+      "status": 401,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_required",
+      "message": "A bearer credential is required"
+    },
+    "wrong": {
+      "status": 401,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_invalid",
+      "message": "The credential is not valid here"
+    },
+    "application": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "application-browser": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "origin_rejected",
+      "message": "Application keys are not accepted from browsers"
+    },
+    "subject": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "subject-read": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "token": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "token-browser": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "management": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    }
+  },
+  "GET /v1/agents/agent-1/events": {
+    "none": {
+      "status": 401,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_required",
+      "message": "A bearer credential is required"
+    },
+    "wrong": {
+      "status": 401,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_invalid",
+      "message": "The credential is not valid here"
+    },
+    "application": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "application-browser": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "origin_rejected",
+      "message": "Application keys are not accepted from browsers"
+    },
+    "subject": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "subject-read": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "token": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "token-browser": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "management": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    }
+  },
+  "POST /v1/agents/agent-1/stop": {
+    "none": {
+      "status": 401,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_required",
+      "message": "A bearer credential is required"
+    },
+    "wrong": {
+      "status": 401,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_invalid",
+      "message": "The credential is not valid here"
+    },
+    "application": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Agent agent-1 is of kind none: only a pod Agent stops and resets"
+    },
+    "application-browser": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "origin_rejected",
+      "message": "Application keys are not accepted from browsers"
+    },
+    "subject": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Agent agent-1 is of kind none: only a pod Agent stops and resets"
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "Scope agents:write required",
+      "details": {
+        "scopes": [
+          "agents:write"
+        ]
+      }
+    },
+    "token": {
+      "status": 403,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer error=\"insufficient_scope\", scope=\"agents:write\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "scope_required",
+      "message": "Scope agents:write required",
+      "details": {
+        "scopes": [
+          "agents:write"
+        ]
+      }
+    },
+    "token-browser": {
+      "status": 403,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer error=\"insufficient_scope\", scope=\"agents:write\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "scope_required",
+      "message": "Scope agents:write required",
+      "details": {
+        "scopes": [
+          "agents:write"
+        ]
+      }
+    },
+    "management": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    }
+  },
+  "POST /v1/agents/agent-1/fork": {
+    "none": {
+      "status": 401,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_required",
+      "message": "A bearer credential is required"
+    },
+    "wrong": {
+      "status": 401,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_invalid",
+      "message": "The credential is not valid here"
+    },
+    "application": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
+    },
+    "application-browser": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "origin_rejected",
+      "message": "Application keys are not accepted from browsers"
+    },
+    "subject": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "Scope agents:write required",
+      "details": {
+        "scopes": [
+          "agents:write"
+        ]
+      }
+    },
+    "token": {
+      "status": 403,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer error=\"insufficient_scope\", scope=\"agents:write\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "scope_required",
+      "message": "Scope agents:write required",
+      "details": {
+        "scopes": [
+          "agents:write"
+        ]
+      }
+    },
+    "token-browser": {
+      "status": 403,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer error=\"insufficient_scope\", scope=\"agents:write\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "scope_required",
+      "message": "Scope agents:write required",
+      "details": {
+        "scopes": [
+          "agents:write"
+        ]
+      }
+    },
+    "management": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    }
+  },
+  "GET /v1/agents/agent-1/versions": {
+    "none": {
+      "status": 401,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_required",
+      "message": "A bearer credential is required"
+    },
+    "wrong": {
+      "status": 401,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_invalid",
+      "message": "The credential is not valid here"
+    },
+    "application": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "application-browser": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "origin_rejected",
+      "message": "Application keys are not accepted from browsers"
+    },
+    "subject": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "subject-read": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "token": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "token-browser": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "management": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    }
+  },
+  "GET /v1/agents/agent-1/secrets": {
+    "none": {
+      "status": 401,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_required",
+      "message": "A bearer credential is required"
+    },
+    "wrong": {
+      "status": 401,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_invalid",
+      "message": "The credential is not valid here"
+    },
+    "application": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "application-browser": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "origin_rejected",
+      "message": "Application keys are not accepted from browsers"
+    },
+    "subject": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "subject-read": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "token": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "token-browser": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "management": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    }
+  },
+  "GET /v1/agents/agent-1/secrets/missing": {
     "none": {
       "status": 401,
       "contentType": "application/json",
@@ -1738,28 +2581,22 @@
       "message": "Secret not found"
     },
     "subject-read": {
-      "status": 403,
+      "status": 404,
       "contentType": "application/json",
-      "code": "scope_required",
-      "message": "Scope sessions:own or environments:write required",
-      "details": {
-        "scopes": [
-          "sessions:own",
-          "environments:write"
-        ]
-      }
+      "code": "request_rejected",
+      "message": "Secret not found"
     },
     "token": {
       "status": 404,
       "contentType": "application/json",
       "code": "request_rejected",
-      "message": "Environment not found"
+      "message": "Secret not found"
     },
     "token-browser": {
       "status": 404,
       "contentType": "application/json",
       "code": "request_rejected",
-      "message": "Environment not found"
+      "message": "Secret not found"
     },
     "management": {
       "status": 403,
@@ -1774,7 +2611,7 @@
       "message": "A management key reaches only the Management API (/v1/tenant/*)"
     }
   },
-  "PUT /v1/environments/env-1/secrets/token": {
+  "PUT /v1/agents/agent-1/secrets/token": {
     "none": {
       "status": 401,
       "contentType": "application/json",
@@ -1811,34 +2648,34 @@
       "status": 403,
       "contentType": "application/json",
       "code": "scope_required",
-      "message": "Scope environments:write required",
+      "message": "Scope agents:write required",
       "details": {
         "scopes": [
-          "environments:write"
+          "agents:write"
         ]
       }
     },
     "token": {
       "status": 403,
       "contentType": "application/json",
-      "wwwAuthenticate": "Bearer error=\"insufficient_scope\", scope=\"environments:write\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "wwwAuthenticate": "Bearer error=\"insufficient_scope\", scope=\"agents:write\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
       "code": "scope_required",
-      "message": "Scope environments:write required",
+      "message": "Scope agents:write required",
       "details": {
         "scopes": [
-          "environments:write"
+          "agents:write"
         ]
       }
     },
     "token-browser": {
       "status": 403,
       "contentType": "application/json",
-      "wwwAuthenticate": "Bearer error=\"insufficient_scope\", scope=\"environments:write\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "wwwAuthenticate": "Bearer error=\"insufficient_scope\", scope=\"agents:write\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
       "code": "scope_required",
-      "message": "Scope environments:write required",
+      "message": "Scope agents:write required",
       "details": {
         "scopes": [
-          "environments:write"
+          "agents:write"
         ]
       }
     },
@@ -1855,7 +2692,7 @@
       "message": "A management key reaches only the Management API (/v1/tenant/*)"
     }
   },
-  "DELETE /v1/environments/env-1/secrets/missing": {
+  "DELETE /v1/agents/agent-1/secrets/missing": {
     "none": {
       "status": 401,
       "contentType": "application/json",
@@ -1892,34 +2729,34 @@
       "status": 403,
       "contentType": "application/json",
       "code": "scope_required",
-      "message": "Scope environments:write required",
+      "message": "Scope agents:write required",
       "details": {
         "scopes": [
-          "environments:write"
+          "agents:write"
         ]
       }
     },
     "token": {
       "status": 403,
       "contentType": "application/json",
-      "wwwAuthenticate": "Bearer error=\"insufficient_scope\", scope=\"environments:write\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "wwwAuthenticate": "Bearer error=\"insufficient_scope\", scope=\"agents:write\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
       "code": "scope_required",
-      "message": "Scope environments:write required",
+      "message": "Scope agents:write required",
       "details": {
         "scopes": [
-          "environments:write"
+          "agents:write"
         ]
       }
     },
     "token-browser": {
       "status": 403,
       "contentType": "application/json",
-      "wwwAuthenticate": "Bearer error=\"insufficient_scope\", scope=\"environments:write\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "wwwAuthenticate": "Bearer error=\"insufficient_scope\", scope=\"agents:write\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
       "code": "scope_required",
-      "message": "Scope environments:write required",
+      "message": "Scope agents:write required",
       "details": {
         "scopes": [
-          "environments:write"
+          "agents:write"
         ]
       }
     },
@@ -3707,7 +4544,7 @@
       "message": "A management key acts as itself, never for a subject"
     }
   },
-  "GET /v1/tenant/usage?scope=agent&id=bot&period=month": {
+  "GET /v1/tenant/usage?scope=manifest&id=bot&period=month": {
     "none": {
       "status": 401,
       "contentType": "application/json",
@@ -7711,6 +8548,588 @@
       "contentType": "application/json",
       "code": "request_rejected",
       "message": "Route not found"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "subject_invalid",
+      "message": "A management key acts as itself, never for a subject"
+    }
+  },
+  "GET /v1/environments": {
+    "none": {
+      "status": 401,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_required",
+      "message": "A bearer credential is required"
+    },
+    "wrong": {
+      "status": 401,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_invalid",
+      "message": "The credential is not valid here"
+    },
+    "application": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "application-browser": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "origin_rejected",
+      "message": "Application keys are not accepted from browsers"
+    },
+    "subject": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "subject-read": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "token": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "token-browser": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "management": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "subject_invalid",
+      "message": "A management key acts as itself, never for a subject"
+    }
+  },
+  "PUT /v1/environments/env-1": {
+    "none": {
+      "status": 401,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_required",
+      "message": "A bearer credential is required"
+    },
+    "wrong": {
+      "status": 401,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_invalid",
+      "message": "The credential is not valid here"
+    },
+    "application": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "application-browser": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "origin_rejected",
+      "message": "Application keys are not accepted from browsers"
+    },
+    "subject": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "subject-read": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "token": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "token-browser": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "management": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "subject_invalid",
+      "message": "A management key acts as itself, never for a subject"
+    }
+  },
+  "GET /v1/environments/env-1": {
+    "none": {
+      "status": 401,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_required",
+      "message": "A bearer credential is required"
+    },
+    "wrong": {
+      "status": 401,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_invalid",
+      "message": "The credential is not valid here"
+    },
+    "application": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "application-browser": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "origin_rejected",
+      "message": "Application keys are not accepted from browsers"
+    },
+    "subject": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "subject-read": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "token": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "token-browser": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "management": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "subject_invalid",
+      "message": "A management key acts as itself, never for a subject"
+    }
+  },
+  "GET /v1/environments/env-1/secrets": {
+    "none": {
+      "status": 401,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_required",
+      "message": "A bearer credential is required"
+    },
+    "wrong": {
+      "status": 401,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_invalid",
+      "message": "The credential is not valid here"
+    },
+    "application": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "application-browser": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "origin_rejected",
+      "message": "Application keys are not accepted from browsers"
+    },
+    "subject": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "subject-read": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "token": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "token-browser": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "management": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "subject_invalid",
+      "message": "A management key acts as itself, never for a subject"
+    }
+  },
+  "DELETE /v1/environments/env-1": {
+    "none": {
+      "status": 401,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_required",
+      "message": "A bearer credential is required"
+    },
+    "wrong": {
+      "status": 401,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_invalid",
+      "message": "The credential is not valid here"
+    },
+    "application": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "application-browser": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "origin_rejected",
+      "message": "Application keys are not accepted from browsers"
+    },
+    "subject": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "subject-read": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "token": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "token-browser": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "management": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "subject_invalid",
+      "message": "A management key acts as itself, never for a subject"
+    }
+  },
+  "GET /v1/environment-manifests": {
+    "none": {
+      "status": 401,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_required",
+      "message": "A bearer credential is required"
+    },
+    "wrong": {
+      "status": 401,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_invalid",
+      "message": "The credential is not valid here"
+    },
+    "application": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "application-browser": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "origin_rejected",
+      "message": "Application keys are not accepted from browsers"
+    },
+    "subject": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "subject-read": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "token": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "token-browser": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "management": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "subject_invalid",
+      "message": "A management key acts as itself, never for a subject"
+    }
+  },
+  "PUT /v1/environment-manifests/box": {
+    "none": {
+      "status": 401,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_required",
+      "message": "A bearer credential is required"
+    },
+    "wrong": {
+      "status": 401,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_invalid",
+      "message": "The credential is not valid here"
+    },
+    "application": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "application-browser": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "origin_rejected",
+      "message": "Application keys are not accepted from browsers"
+    },
+    "subject": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "subject-read": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "token": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "token-browser": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "management": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "subject_invalid",
+      "message": "A management key acts as itself, never for a subject"
+    }
+  },
+  "GET /v1/environment-manifests/box": {
+    "none": {
+      "status": 401,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_required",
+      "message": "A bearer credential is required"
+    },
+    "wrong": {
+      "status": 401,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_invalid",
+      "message": "The credential is not valid here"
+    },
+    "application": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "application-browser": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "origin_rejected",
+      "message": "Application keys are not accepted from browsers"
+    },
+    "subject": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "subject-read": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "token": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "token-browser": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "management": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Route not found"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "subject_invalid",
+      "message": "A management key acts as itself, never for a subject"
+    }
+  },
+  "GET /v1/tenant/usage?scope=agent&id=bot&period=month": {
+    "none": {
+      "status": 401,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer",
+      "code": "credential_required",
+      "message": "A bearer credential is required"
+    },
+    "wrong": {
+      "status": 401,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer error=\"invalid_token\"",
+      "code": "credential_invalid",
+      "message": "The credential is not valid here"
+    },
+    "application": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
+    },
+    "application-browser": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "origin_rejected",
+      "message": "Application keys are not accepted from browsers"
+    },
+    "subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "This is the Management API: it takes a management key, not an application key"
+    },
+    "token": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "token-browser": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "This route is not available when acting for a subject",
+      "details": {
+        "scopes": []
+      }
+    },
+    "management": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Invalid option: expected one of \"tenant\"|\"manifest\"|\"turn\""
     },
     "management-subject": {
       "status": 403,

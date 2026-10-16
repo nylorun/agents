@@ -1,9 +1,10 @@
 /**
- * Disk versions of a pod Environment (R2d step 3) against an in-memory sandboxes service: a
+ * Disk versions of a pod Agent (R2d step 3) against an in-memory sandboxes service: a
  * snapshot copies the volume through the pod's engine (`/workspace` and `/harness`, not the
  * engine's own files); a restore gives the pod a new volume, seeded from the version once its
  * engine connects, and turns wait for it; a lost volume with a version is recovered from the
- * latest one instead of refusing turns.
+ * latest one instead of refusing turns. A fork onto a newer manifest version with other setup runs
+ * it on the copied disk before the first turn.
  */
 import { providerModelGate } from "../../src/gates/provider-gate.js";
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
@@ -11,6 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Agent } from "@nylorun/core/define";
+import type { RuntimeSection } from "@nylorun/core/contracts";
 import type { ModelProvider } from "../../src/core/provider.js";
 import { localBackend } from "../../src/adapters/sandbox/local.js";
 import { startHarnessListener, type HarnessListener } from "../../src/harness-api/ws-server.js";
@@ -20,6 +22,7 @@ import { HostAuthError, type HostAuthority } from "../../src/sandbox/join.js";
 import { podName } from "../../src/sandbox/pods/name.js";
 import { fakeSandboxes, type FakeSandboxes } from "../support/fake-sandboxes.js";
 import { startTestTenant } from "../support/tenant.js";
+import { manifestOf, saveManifest } from "../support/agents.js";
 
 const APP = "disk-pods-app-key-aaaaaaaaaaaaaaa";
 const KEK = Buffer.alloc(32, 7).toString("base64");
@@ -59,7 +62,12 @@ async function call(method: string, path: string, body?: unknown): Promise<{ sta
     return { status: response.status, body: text };
   }
 }
-const path = (id: string) => `/v1/environments/${encodeURIComponent(id)}`;
+const path = (id: string) => `/v1/agents/${encodeURIComponent(id)}`;
+const headers = { authorization: `Bearer ${APP}`, "content-type": "application/json" };
+const bot = Agent({ id: "bot", name: "Bot" }).instructions("Work in the sandbox.").build();
+/** Saves agent manifest `name`, bot's loop on `section`: its version. */
+const save = (name: string, section: RuntimeSection) =>
+  saveManifest(runtime.url, headers, manifestOf(bot, { name, runtime: section }));
 
 async function until<T>(what: string, read: () => Promise<T>, ok: (value: T) => boolean, ms = 20_000): Promise<T> {
   const deadline = Date.now() + ms;
@@ -85,19 +93,19 @@ async function message(sessionId: string) {
     content: "go",
   });
 }
-async function open(id: string, environmentId: string) {
-  return call("PUT", `/v1/sessions/${id}`, { requestId: `open-${id}`, agentId: "bot", ownerUserId: "app:ada", environment: environmentId });
+async function open(id: string, agent: string) {
+  return call("PUT", `/v1/sessions/${id}`, { requestId: `open-${id}`, agent, ownerUserId: "app:ada" });
 }
 async function settled(sessionId: string): Promise<any> {
   return until("session settles", async () => (await call("GET", `/v1/sessions/${sessionId}`)).body, (body) =>
     ["completed", "failed", "cancelled"].includes(body.status), 60_000);
 }
 
-/** Creates a pod Environment and waits until the fake runs its pod. */
-async function createPod(id: string, body: Record<string, unknown> = {}) {
-  const created = await until("created", () => call("PUT", path(id), { kind: "pod", ...body }), (reply) => reply.status !== 409);
+/** Makes pod Agent `id` from manifest `manifest` and waits until the fake runs its pod. */
+async function createPod(id: string, manifest: string) {
+  const created = await until("created", () => call("PUT", path(id), { manifest }), (reply) => reply.status !== 409);
   expect(created.status, JSON.stringify(created.body)).toBe(200);
-  const name = podName(tenantId, id, created.body.pod.volumeGeneration);
+  const name = podName(tenantId, id, created.body.compute.pod.volumeGeneration);
   await until("the pod runs", async () => fake.podUid(name), (uid) => uid !== undefined);
   return { name, view: created.body };
 }
@@ -125,8 +133,6 @@ beforeAll(async () => {
     hosts: async () => runtime.handle.hostAuthority?.(),
     logger: { info: () => undefined, warn: () => undefined },
   });
-  const agent = Agent({ id: "bot", name: "Bot" }).instructions("Work in the sandbox.").build();
-  expect((await call("PUT", "/v1/agents/bot", { requestId: "bot", manifest: agent.manifest, implementationVersion: "dev" })).status).toBe(200);
   expect(
     (await call("PUT", "/v1/tenant/sandbox", { requestId: "cfg", limits: { idle: "2s" } })).status,
   ).toBe(200);
@@ -176,9 +182,10 @@ async function engine(id: string, name: string) {
   };
 }
 
-describe("disk versions of a pod Environment", { timeout: 90_000 }, () => {
+describe("disk versions of a pod Agent", { timeout: 90_000 }, () => {
   it("snapshots through the engine, restores on a new seeded volume, and recovers a lost volume", async () => {
-    const { name } = await createPod("disk/pod");
+    await save("disk-pod", { kind: "pod" });
+    const { name } = await createPod("disk/pod", "disk-pod");
     const first = await engine("disk/pod", name);
     let second: Awaited<ReturnType<typeof engine>> | undefined;
     let third: Awaited<ReturnType<typeof engine>> | undefined;
@@ -213,7 +220,7 @@ describe("disk versions of a pod Environment", { timeout: 90_000 }, () => {
       await until("the new pod runs", async () => fake.podUid(next), (uid) => uid !== undefined);
       second = await engine("disk/pod", next);
       expect(second.host.seeded).toBe(true);
-      await until("seeded", () => view("disk/pod"), (body) => body.disk.operation === undefined);
+      await until("seeded", () => view("disk/pod"), (body) => body.disk.operation === null);
       expect(await readFile(join(second.workspace, "notes.txt"), "utf8")).toBe("v1\n");
       expect(await readFile(join(second.workspace, "from-pod.txt"), "utf8")).toBe("pod\n");
       expect(await readFile(join(second.harnessRoot, "codex", "state.json"), "utf8")).toBe("{}\n");
@@ -223,15 +230,15 @@ describe("disk versions of a pod Environment", { timeout: 90_000 }, () => {
       // A lost volume with a version: a new volume seeded from the latest, no reset needed.
       fake.losePvc(next);
       await reconcile("disk/pod");
-      const recovered = await until("recovered", () => view("disk/pod"), (body) => body.pod.volumeGeneration === 2);
+      const recovered = await until("recovered", () => view("disk/pod"), (body) => body.compute.pod.volumeGeneration === 2);
       expect(recovered.disk.operation).toMatchObject({ kind: "seed", version: 1 });
-      expect(recovered.pod.observed).not.toBe("lost");
+      expect(recovered.compute.pod.observed).not.toBe("lost");
       await second.stop();
       second = undefined;
       const last = podName(tenantId, "disk/pod", 2);
       await until("the third pod runs", async () => fake.podUid(last), (uid) => uid !== undefined);
       third = await engine("disk/pod", last);
-      await until("seeded again", () => view("disk/pod"), (body) => body.disk.operation === undefined);
+      await until("seeded again", () => view("disk/pod"), (body) => body.disk.operation === null);
       expect(await readFile(join(third.workspace, "notes.txt"), "utf8")).toBe("v1\n");
       await expect(stat(join(third.workspace, "missing"))).rejects.toThrow();
     } finally {
@@ -243,22 +250,27 @@ describe("disk versions of a pod Environment", { timeout: 90_000 }, () => {
 
 describe("a pod fork onto other setup (Q17)", { timeout: 90_000 }, () => {
   it("copies the disk through the source's engine, then holds turns until the new setup has run on it", async () => {
-    const manifest = (setup: string) => ({ manifestSchemaVersion: 1, name: "podbox", kind: "pod", setup: [{ command: setup }] });
-    expect((await call("PUT", "/v1/environment-manifests/podbox", manifest("echo v1"))).status).toBe(200);
-    const created = await until("created", () => call("PUT", path("forkpod/v1"), { manifest: "podbox" }), (reply) => reply.status !== 409);
-    expect(created.status, JSON.stringify(created.body)).toBe(200);
-    const sourceName = podName(tenantId, "forkpod/v1", 0);
-    await until("the source pod runs", async () => fake.podUid(sourceName), (uid) => uid !== undefined);
+    const podbox = (setup: string): RuntimeSection => ({ kind: "pod", setup: [{ command: setup }] });
+    expect(await save("podbox", podbox("echo v1"))).toBe(1);
+    const { name: sourceName } = await createPod("forkpod/v1", "podbox");
     const source = await engine("forkpod/v1", sourceName);
     let fork: Awaited<ReturnType<typeof engine>> | undefined;
     try {
       await writeFile(join(source.workspace, "notes.txt"), "carried\n");
-      expect((await call("PUT", "/v1/environment-manifests/podbox", manifest("echo v2"))).body.manifest.version).toBe(2);
+      expect(await save("podbox", podbox("echo v2"))).toBe(2);
 
       const forked = await call("POST", `${path("forkpod/v1")}/fork`, { id: "forkpod/v2" });
       expect(forked.status, JSON.stringify(forked.body)).toBe(201);
-      expect(forked.body.plan).toMatchObject({ kind: "pod", manifest: { name: "podbox", version: 2 }, disk: 1, setup: true });
-      expect(forked.body.environment).toMatchObject({ forkedFrom: { environment: "forkpod/v1", disk: 1 } });
+      expect(forked.body.plan).toMatchObject({
+        source: "forkpod/v1",
+        id: "forkpod/v2",
+        kind: "pod",
+        manifest: { name: "podbox", version: 2 },
+        disk: 1,
+        setup: true,
+      });
+      expect(forked.body.agent).toMatchObject({ resolvedVersion: 2, forkedFrom: { agent: "forkpod/v1", disk: 1 } });
+      expect((await events("forkpod/v1")).at(-1)).toBe("agent.forked");
 
       const name = podName(tenantId, "forkpod/v2", 0);
       await until("the fork's pod runs", async () => fake.podUid(name), (uid) => uid !== undefined);
@@ -266,7 +278,7 @@ describe("a pod fork onto other setup (Q17)", { timeout: 90_000 }, () => {
       expect(fork.host.seeded).toBe(true);
       expect(fork.host.afterSeed).toBe(true);
       // Core writes the version through the fork's engine, then hands over the setup to run on it.
-      await until("seeded", () => view("forkpod/v2"), (body) => body.disk.operation === undefined);
+      await until("seeded", () => view("forkpod/v2"), (body) => body.disk.operation === null);
       expect(await readFile(join(fork.workspace, "notes.txt"), "utf8")).toBe("carried\n");
       const state = await fork.host.setupState();
       expect(state.retry).toBe(true);
@@ -280,7 +292,7 @@ describe("a pod fork onto other setup (Q17)", { timeout: 90_000 }, () => {
       await fork.host.reportSetup({ status: "ok" });
       expect((await settled("forkpod-s1")).status).toBe("completed");
       // The source runs v1 still, on its own disk.
-      expect((await view("forkpod/v1")).manifestVersion).toBe(1);
+      expect((await view("forkpod/v1")).resolvedVersion).toBe(1);
       expect(await readFile(join(source.workspace, "notes.txt"), "utf8")).toBe("carried\n");
     } finally {
       await fork?.stop();

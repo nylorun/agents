@@ -1,6 +1,6 @@
 # Harness examples
 
-The default registry exports three agents from `agents/release/`: an order-lookup assistant, a data analyst with a sandbox, and the [Repo brief](#repo-brief-every-piece-in-one-flow), which puts every piece the Runtime runs from a manifest into one flow agent. `src/main.ts` saves them to the Runtime (`client.saveAgent`), which runs them; Studio uses the session HTTP/SSE API.
+The default registry exports three agents from `agents/release/`: an order-lookup assistant, a data analyst with a sandbox, and the [Repo brief](#repo-brief-every-piece-in-one-flow), which puts every piece the Runtime runs from a manifest into one flow agent. `src/main.ts` saves each as an agent manifest (`client.agentManifests.save`, with the virtual runtime in [`runtime/scratch.runtime.json`](./runtime/scratch.runtime.json)) and makes an Agent of it (`client.agents.put`, named after the agent), which the Runtime runs; Studio uses the session HTTP/SSE API. [Triage](#triage-an-agent-in-three-files) is an agent written as three JSON files instead of TypeScript.
 
 The Runtime runs no code of this project during a session. The assistant's `lookup_order` is an HTTP tool (`http()` in [`agents/shared/orders.ts`](./agents/shared/orders.ts)): the Runtime POSTs the tool's input to the examples' tools service, [`src/tools/server.ts`](./src/tools/server.ts), and gives the model its JSON answer. The service also answers the Repo brief's `publish_brief` and the [tools catalog](./agents/shared/tools/catalog) (`calculate`, `convert`, `now`). It listens on `TOOLS_PORT` (default 3001); the agents call it at `TOOLS_URL` (default `http://localhost:3001`, which a local Tenant's Runtime reaches on this machine).
 
@@ -23,22 +23,19 @@ Optional integration variables are loaded from `.env`. Interior Design uses `OPE
 
 ## Data analyst (sandbox)
 
-[`agents/release/analyst.ts`](./agents/release/analyst.ts) is a plain agent. The sandbox comes from the session's Environment, not the agent: create an Environment (one sandbox and one vault, with its own id) and open the session on it. A session opened on none has no sandbox.
+[`agents/release/analyst.ts`](./agents/release/analyst.ts) is a plain agent. The sandbox comes from the runtime section its manifest is saved with, not the agent: `src/main.ts` saves it with a virtual one and makes the Agent `analyst` (one sandbox and one vault, with its own id). Sessions run on an Agent; another Agent of the same manifest has a sandbox of its own:
 
 ```ts
 const client = await createClient();
-await client.environments.put("users/alice/analyst", { kind: "virtual" });
-await client.createSession({ agentId: "analyst", ownerUserId: "alice", environment: "users/alice/analyst" });
-// Or one Environment for one session, deleted with release():
-const { session, release } = await client.environments.forSession({
-  session: { agentId: "analyst", ownerUserId: "alice" },
-});
+await client.agentManifests.save({ agent: analyst, runtime: { kind: "virtual" } });
+await client.agents.put("users/alice/analyst", { manifest: "analyst", owner: "alice" });
+await client.createSession({ id: "alice-sales", agent: "users/alice/analyst", ownerUserId: "alice" });
 ```
 
-In Studio, pick the Environment when you start the session. The model gets `bash`, `read`, `write`, `edit`, `grep` and `glob` in a sandboxed shell with a persistent `/workspace`, kept with the Environment across its sessions. Kind `virtual` runs those tools in an emulated shell in the Runtime; it is not a VM boundary (kind `pod` runs them in a pod: `npx nylorun local sandbox enable`). `npx nylorun doctor sandbox` reports the backend and the Tenant's limits. Try in Studio:
+In Studio, pick the Agent when you start the session. The model gets `bash`, `read`, `write`, `edit`, `grep` and `glob` in a sandboxed shell with a persistent `/workspace`, kept with the Agent across its sessions. Kind `virtual` runs those tools in an emulated shell in the Runtime; it is not a VM boundary (kind `pod` runs them in a pod: `npx nylorun local sandbox enable`). `npx nylorun doctor sandbox` reports the backend and the Tenant's limits. Try in Studio:
 
 - `Create sales.csv with three regions and numbers, then total them with awk.`
-- `Download https://example.com with curl.` The request is blocked: a sandbox reaches only the hosts its Environment allows (`network.allowedHosts`), within the Tenant's ceiling.
+- `Download https://example.com with curl.` The request is blocked: a sandbox reaches only the hosts its runtime allows (`network.allowedHosts`), within the Tenant's ceiling.
 
 ## Repo brief: every piece in one flow
 
@@ -55,7 +52,22 @@ triage → switch ┬ repo:    map(researcher) → parallel(overview, risks) →
 - The **loop** runs the writer until the editor passes the brief, at most twice. The writer follows the `repo-brief` **skill** ([`skills/repo-brief`](./agents/repo-brief/skills/repo-brief/SKILL.md)): it writes `/workspace/brief.md` and runs the skill's `scripts/check.sh` in the session's sandbox, and it dates the brief with the `now` **HTTP tool**.
 - The last stage, `publish_brief`, is an **HTTP tool used as a flow stage**: the Runtime POSTs the brief to the tools service ([`publish.ts`](./agents/repo-brief/publish.ts)), which stands in for your CMS, and its answer is the flow's output.
 
-The writer's shell needs a sandbox, chosen when the session opens, as for the [data analyst](#data-analyst-sandbox): open the session on an Environment (`environment: <id>`; in Studio, pick one). Then try `Brief me on modelcontextprotocol/typescript-sdk.` in Studio. [`test/repo-brief.test.ts`](./test/repo-brief.test.ts) runs the same turn against an in-process Runtime, with a stub model, a fake DeepWiki and the tools service.
+The writer's shell needs a sandbox, which its runtime section gives it, as for the [data analyst](#data-analyst-sandbox): open the session on the Agent `repo-brief` (in Studio, pick it); the flow's child sessions run on the same Agent. Then try `Brief me on modelcontextprotocol/typescript-sdk.` in Studio. [`test/repo-brief.test.ts`](./test/repo-brief.test.ts) runs the same turn against an in-process Runtime, with a stub model, a fake DeepWiki and the tools service.
+
+## Triage: an agent in three files
+
+[`agents/triage/`](./agents/triage/) is an agent authored as files, so a runtime is shared and nothing is TypeScript:
+
+- [`agent.manifest.json`](./agents/triage/agent.manifest.json) names the manifest, `triage`, and its two sections by path.
+- [`harness.manifest.json`](./agents/triage/harness.manifest.json) is what runs in the loop: the instructions, and GitHub's remote MCP server, whose `credentials` entry names the slot it authenticates with, `GITHUB_TOKEN`.
+- [`platform/virtual.runtime.json`](./platform/virtual.runtime.json) is the runtime any agent here may name: a virtual workspace, and `GITHUB_TOKEN`, a `bearer` slot bound to that server's exact URL.
+
+```sh
+npm run triage                 # composeManifest + agentManifests.save, then the Agent triage
+npx nylorun apply agents/triage --dry-run   # the same manifest's plan, from the command line
+```
+
+`npm run triage` ([`src/triage.ts`](./src/triage.ts), [`apply.ts`](./agents/triage/apply.ts)) composes the three files into one agent manifest, saves it and makes the Agent `triage`; with `GITHUB_TOKEN` in `.env` it writes the token into the Agent's slot (else `npx nylorun agents secrets put triage GITHUB_TOKEN` with the token on standard input). Then try `Triage modelcontextprotocol/typescript-sdk#1` on the Agent `triage` in Studio. A harness file that names a slot the runtime does not declare is refused before anything is sent, with the gap named: `harness.mcpServers.github.credential "GITHUB_TOKEN" is not a secret slot in runtime.secrets`. [`test/triage.test.ts`](./test/triage.test.ts) checks both.
 
 ## An agent in your web app (AG-UI)
 
@@ -77,7 +89,8 @@ const agui = createAgUiHandler({
 const fetch = (request: Request) =>
   new URL(request.url).pathname === "/lookup_order" ? tools(request) : agui.fetch(request);
 createServer(toNodeListener({ fetch })).listen(3000);
-await client.saveAgent(supportAgent("http://localhost:3000")); // the tool's URL is this app's
+await client.agentManifests.save({ agent: supportAgent("http://localhost:3000") }); // the tool's URL is this app's
+await client.agents.put("support", { manifest: "support" }); // kind none: no sandbox, one Agent for everyone
 ```
 
 Run it with the examples Tenant from `npm run dev` running:
@@ -107,7 +120,8 @@ app.all("/api/agui/*", (c) => agui.fetch(c.req.raw));
 
 Both handlers hold no state between requests, so they run on a serverless
 platform too; save the agent with the deployed URL once from a deploy step
-(`NYLORUN_APP_URL` for `npm run ag-ui`).
+(`NYLORUN_APP_URL` for `npm run ag-ui`). The Agent keeps the version it was made
+from: a new URL reaches callers through an Agent made from the new version.
 
 ## Pages that call the Runtime directly
 
@@ -129,12 +143,12 @@ Rules for a web backend:
   AG-UI events and nothing else; the handler calls the Runtime as each person
   (`client.as`), so people only reach their own threads, and any `Nylorun-*`
   header a browser sends is ignored.
-- Per-user keys (a user's GitHub token) go in that person's Environment
-  (`client.environments.secrets.put`), with `ownerUserId` set so only their
-  sessions may name it ([Credentials](../guides/DEPLOYMENT.md#credentials)).
+- Per-user keys (a user's GitHub token) go in that person's Agent
+  (`client.agents.secrets.put`), with `owner` set so only their
+  sessions may run on it ([Credentials](../guides/DEPLOYMENT.md#credentials)).
   Accounts that need the person's sign-in (their Drive) go through an MCP gateway
   ([Reaching a person's accounts](../guides/DEPLOYMENT.md#reaching-a-persons-accounts)).
-  A shared tool key is a secret of each Environment that needs it.
+  A shared tool key is a secret of each Agent that needs it.
 - The Runtime stays off the network: see
   [Serving people through an app server](../guides/DEPLOYMENT.md#serving-people-through-an-app-server).
 
@@ -168,7 +182,7 @@ The creator owns the shell files listed in `.scaffold-manifest.json`, including 
 | **Tool Use**        | `Calculate 100 / 4, then convert that many celsius to fahrenheit.`                              | `calculate` returns 25, then `convert` returns 77, with no approval prompt.                                                                                         |
 | **Interactions**    | `Ask me what to name the note, then save it.`                                                   | Studio asks a question, then asks for approval before `write_note`.                                                                                                 |
 | **Remote MCP**      | `What does the README of modelcontextprotocol/typescript-sdk say about transports?`             | The Runtime connects to DeepWiki's public MCP server by URL and calls its tools; no process of yours serves them.                                                  |
-| **Repo brief**      | `Brief me on modelcontextprotocol/typescript-sdk.` (on an Environment)                          | The flow tree shows triage, the repo case, one researcher per question, both reviews, the writer and editor, and `publish_brief`; the writer's `bash` call prints `ok`. |
+| **Repo brief**      | `Brief me on modelcontextprotocol/typescript-sdk.` (on the Agent `repo-brief`)                 | The flow tree shows triage, the repo case, one researcher per question, both reviews, the writer and editor, and `publish_brief`; the writer's `bash` call prints `ok`. |
 | **Code Mode**       | `Calculate 100 / 4, convert that many celsius to fahrenheit, and include the current UTC time.` | One `run_code` call. The program uses `await tools.*` and returns one object (25 °C → 77 °F plus `iso`).                                                            |
 | **Subagents**       | `Ask the tool-use specialist to calculate 19 * 7.`                                              | A `tool-use` call runs that agent with a fresh context; the parent reports its answer. Studio shows the delegation and the child's own tool calls. The other agents are `instructions` (format-only) and `skills` (SKILL.md). |
 | **Coding Agent**    | `Add a goodbye function next to hello and show the file.`                                       | After Codex preflight and approval, `codex exec` runs in a temporary workspace.                                                                                     |
@@ -230,7 +244,7 @@ Each piece is a plain list of tools, and sometimes instructions, that an agent a
 - [ask-user](./agents/interactions/ask-user.ts) pauses for a human reply.
 - [notes](./agents/interactions/notes.ts) uses an ordinary JSONL service; `write_note` has an `approval`, so each write waits for a person.
 - [skills](./agents/skills/agent.ts) is one `.skills(folder)` call: a SKILL.md catalog the Runtime serves with `load_skill`.
-- [codex](./agents/coding-agent/tools.ts) wraps a host runtime. For an isolated machine, open the session on an Environment, as for [analyst](./agents/release/analyst.ts).
+- [codex](./agents/coding-agent/tools.ts) wraps a host runtime. For an isolated machine, save it with a `pod` runtime and open the session on its Agent, as for [analyst](./agents/release/analyst.ts).
 - [subagents](./agents/subagents/agent.ts) puts three example agents in `.subagents()`; each runs with a fresh context and returns only its answer.
 - [mcp](./agents/mcp/agent.ts) is one `.mcp({ deepwiki: { type: "streamable-http", url } })` call: a remote MCP server the Runtime reaches by URL.
 
@@ -274,4 +288,4 @@ The generated starter defaults to memory sessions. This examples recipe explicit
 
 ## Current release storage
 
-Sessions of the supported registry live in the examples' local Tenant: its Postgres database, with their history in S2. The Project link and derived application credentials are in `.nylorun/`; `npx nylorun tenant reset --all` empties the Tenant, and `npx nylorun local reset` deletes the Tenant's data (containers and volumes). Historical `.data/` files are not automatically migrated. Start new sessions after definition changes. The starter README documents the supported text/tool workflow.
+Sessions of the supported registry live in the examples' local Tenant: its Postgres database, with their history in S2. The Project link and derived application credentials are in `.nylorun/`; `npx nylorun tenant reset --all` empties the Tenant, and `npx nylorun local reset` deletes the Tenant's data (containers and volumes). Historical `.data/` files are not automatically migrated. An Agent keeps the manifest version it was made from: after a definition change, open sessions on an Agent made from the new version (`npx nylorun agents fork <id> <new-id>`). The starter README documents the supported text/tool workflow.

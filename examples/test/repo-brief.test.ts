@@ -226,14 +226,10 @@ it("declares no code the Runtime would have to call", () => {
 
 it("researches, writes, checks and publishes a brief in one turn", { timeout: 60_000 }, async () => {
   const client = createClient({ url: runtime.url, key: runtime.applicationKey });
-  await client.saveAgent(createRepoBrief({ toolsUrl, mcpUrl }));
-  // The writer's shell is a virtual Environment's (protocol 11); the flow's linked sessions inherit it.
-  await client.environments.put("users/ada/repo-brief", { kind: "virtual" });
-  const session = await client.createSession({
-    agentId: "repo-brief",
-    ownerUserId: "ada",
-    environment: "users/ada/repo-brief",
-  });
+  // The writer's shell is the virtual runtime's; the flow's child sessions run on the same Agent.
+  await client.agentManifests.save({ agent: createRepoBrief({ toolsUrl, mcpUrl }), runtime: { kind: "virtual" } });
+  await client.agents.put("users/ada/repo-brief", { manifest: "repo-brief", owner: "ada" });
+  const session = await client.createSession({ agent: "users/ada/repo-brief", ownerUserId: "ada" });
   const events: { type: string; sessionId: string; payload: any }[] = [];
   const done = (async () => {
     for await (const event of session.observe()) {

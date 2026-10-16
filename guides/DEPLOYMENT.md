@@ -16,8 +16,8 @@ npm start
 `nylorun start` in the project starts its Tenant (creating it and the Project
 link the first time), or leaves it running when it already is, and
 prints the Runtime and Studio URLs. `npm start` runs
-`node dist/src/main.js`, which saves the application's agents to the Runtime
-using two variables: `NYLORUN_RUNTIME_URL` and `NYLORUN_SERVER_KEY`, or through
+`node dist/src/main.js`, which saves the application's agent manifests to the
+Runtime and makes their Agents, using two variables: `NYLORUN_RUNTIME_URL` and `NYLORUN_SERVER_KEY`, or through
 the Project link. The Runtime runs no code of the application's during a session:
 an agent's tools are HTTP tools and remote MCP servers, whose URLs must be
 reachable from the Runtime (the local Tenant's containers map `localhost` to
@@ -63,10 +63,10 @@ application key, and calls the Runtime API for each person with
 complete web backend is in
 [examples](../examples/README.md#an-agent-in-your-web-app-ag-ui)). The Runtime
 enforces the scopes and each subject's ownership of sessions itself. Sessions
-run in **Environments**: the app server creates them (one per person, per
-project or per session, by an id it chooses), writes each one's secrets on the
-Runtime API, and names one when it opens a session (`environment`)
-([Environments](#environments), [Credentials](#credentials)).
+run on **Agents**: the app server saves agent manifests, makes Agents from them
+(one per person, per project or per audience, by an id it chooses), writes each
+one's secrets on the Runtime API, and names one when it opens a session
+(`agent`) ([Agents](#agents), [Credentials](#credentials)).
 
 - Keep the Runtime off the network. An app server on the same machine calls
   `http://localhost:<port>` (the URL `nylorun start` prints). An app server
@@ -90,8 +90,8 @@ Runtime API, and names one when it opens a session (`environment`)
   rotate or delete one without touching the others; the Runtime keeps only its
   hash. An app server needs no management key and never the admin key: an
   application key reaches only the Runtime API, so a leaked one cannot reset the
-  Tenant, change its settings or rotate signing keys. It can write and delete
-  Environments and their secrets, but no key reads a secret back. No key is derived from the admin
+  Tenant, change its settings or rotate signing keys. It can save agent manifests
+  and write and delete Agents and their secrets, but no key reads a secret back. No key is derived from the admin
   key but Studio's: an earlier Host's derived keys are no longer registered, and
   those already in a database keep working as ordinary application keys until
   you replace them.
@@ -134,19 +134,20 @@ issuers:
     # Optional, with their defaults: {sub}, { claim: scope }, every scope but studio.
     subject: "u:{sub}"                           # the owner of the person's sessions; scalar claims only
     scopes: { claim: nylorun_scopes }            # or { fixed: [sessions:own, agents:read] }
-    allowedScopes: [agents:read, sessions:own, environments:write, studio]
-    agents: [support]                            # absent reaches every agent
-    environments: ["users/{sub}/*"]              # grant templates; absent reaches none
+    allowedScopes: [agents:read, sessions:own, agents:write, studio]
+    agents: ["users/{sub}/*", support]           # Agent grant templates; absent reaches none
 ```
 
 - Tokens must be RS256, ES256 or EdDSA, no longer than a request's headers may be (Node's `http.maxHeaderSize`, 16 KiB), with `exp`; how long they live is
   the identity provider's setting.
   Their scopes are the claim's, limited to `allowedScopes` (`agents:read`,
-  `sessions:own`, `environments:write`, and `studio`, an operator scope for
-  Studio). An Environment grant whose
+  `sessions:own`, `agents:write`, and `studio`, an operator scope for
+  Studio); a token never saves agent manifests (`agent-manifests:write` is an
+  app server's scope). `agents` lists the Agents its tokens reach: exact ids,
+  prefixes ending in `/*`, templates such as `{org_id}/*`, or `*`; a grant whose
   claim is missing, or is not one id segment, reaches nothing. A file that still
-  says `sandboxes:` or `sandboxes:write` (protocol 10) stops the runtime, naming
-  the new spelling.
+  says `environments:` or `environments:write` (protocol 15), or `sandboxes:` or
+  `sandboxes:write` (protocol 10), stops the runtime, naming the new spelling.
 - A malformed file stops the runtime, naming the issuer and the field; a
   subject template must reference a claim, or everyone would be one person. A
   key the file does not define (such as `maxLifetime`, removed in protocol 9)
@@ -296,68 +297,67 @@ On the app server's machine:
 This is one Runtime on one server, operated by hand: no replicas, managed
 backups, Helm charts or upgrade automation.
 
-## Environments
+## Agents
 
-A session runs in an **Environment** (protocol 11): one sandbox and one vault,
-under an id the app chooses (`users/alice/web`, `projects/acme`), created with
-`PUT /v1/environments/{id}` (`client.environments.put` in `@nylorun/agents`) and
-named when a session opens (`environment: "<id>"`). A session that names none
-has no sandbox and no credentials. An Environment is made from one version of an
-[environment manifest](#environment-manifests) (`manifest: "analyst-box"`) or
-from the same fields sent inline, and **never changes what it runs** after that
-(protocol 14): a new version reaches an agent through a new Environment.
-Upgrading from protocol 10, which had sandbox resources and vaults:
-[MIGRATION.md](./MIGRATION.md#environments-replace-sandboxes-and-vaults-protocol-11-a-fresh-start).
+A session runs on an **Agent** (protocol 16): the live instance of one version of an
+[agent manifest](#agent-manifests), with one environment of its runtime's kind (a sandbox, or
+none), one vault, and the sessions that run on it, under an id the app chooses
+(`users/alice/web`, `projects/acme`). It is made only from a saved manifest, with
+`PUT /v1/agents/{id}` (`client.agents.put` in `@nylorun/agents`): `{ "manifest": "analyst" }`
+tracks the manifest and resolves its latest version now, `"analyst@3"` pins version 3. Either
+way it resolves the version once and **never changes what it runs** after that: a new version
+reaches people through a fork. Every session names its Agent when it opens (`agent: "<id>"`),
+and pins the version the Agent runs. No session is special: making an Agent opens none, and the
+app picks session ids (to keep one conversation going, reuse one). Upgrading from protocol 15,
+which had agent definitions, environment manifests and Environments:
+[MIGRATION.md](./MIGRATION.md#agents-from-one-manifest-protocol-16-harness-api-5).
 
-- **Kind**, fixed when it is created: `virtual` (the default), an emulated bash
-  with a virtual filesystem in the harness container (in the `runtime` container
-  with `NYLORUN_HARNESS=in-process`), whose `/workspace` is kept under the
-  Tenant's directory and which is not a VM or container boundary; `pod`, a
-  container with its own volume on the Tenant's cluster, once sandbox pods are
-  enabled (`nylorun local sandbox enable`), where its sessions' turns run; or `none`,
-  a vault and no compute, for agents that use only remote MCP servers and HTTP
-  tools.
-- **What it runs** (`manifest` in its view, the fields 0.24 called its recipe):
-  `image`, `resources` and `storage` (pods only), `network.allowedHosts`,
-  `harness`, `lifecycle`, `setup`, `files`, `limits` and `secrets` (slots), resolved
-  against the Tenant's limits when it is made, with `manifestName`,
-  `manifestVersion` and `manifestHash` saying where it came from. A `PUT` on an
-  existing one may change only its labels and owner guard; fields that match
-  what it runs are accepted, so get-or-create stays one call, and anything else
-  is `409 environment_immutable` naming the fields. A restart, a reset or a
-  lost pod rebuilds the same thing. Egress is limited to the hosts the
-  Environment allows, within the Tenant's `limits.network`; private networks, loopback, the host and cloud
-  metadata endpoints are always blocked. Each connection a pod opens, allowed or
-  refused, is one `environment.egress` event on
-  `GET /v1/environments/{id}/events?types=environment.egress` (host, port,
-  outcome, bytes, duration and the turns running when it opened; never headers,
-  paths or bodies). Session logs and turn traces hold no egress.
-- **Limits**: `limits.artifacts.fileBytes` and `limits.artifacts.totalBytes`
-  cap the artifacts of the Environment's sessions and its disk versions, and
-  `limits.skills.totalBytes` the files one skill of a session's agent may hold
-  (a session whose agent's skills do not fit is `409 environment_unsuitable`).
-  Each is at most the Tenant's (`PUT /v1/tenant/artifacts`, `PUT
-  /v1/tenant/skills`; a higher one is `400`), and one left out is the Tenant's
-  as it is when checked. The Tenant's own totals still apply to everything; the
-  view's `limits` says what is in force.
-- **Lifecycle**: `lifecycle.idle` stops a pod after that long without a turn
-  (at most the Tenant's `limits.idle`); `lifecycle.deleteAfter` deletes the
-  Environment, its vault and its disk once it has gone that long unused (no
-  turn, change, secret write, stop or reset). The default is never.
-- **Owner guard**: with `ownerUserId` set, only that owner's sessions may name
-  the Environment, checked when a session opens and at every turn start
-  (`403 environment_owner_mismatch`; a caller acting for a person gets the
-  `404` of a missing one).
-- **Turns**: sessions on one Environment share its `/workspace` and run their
-  turns at the same time; one turn per session. Which sessions work on one disk,
-  and when, is your app's call: give work that must not share files its own
-  Environment (or a fork). Stop, reset, snapshot and restore wait until no turn
-  runs (`409 environment_busy`).
-- **Who reaches it**: an application key reaches every Environment; acting for
-  a person, changing one needs `environments:write`. A trusted issuer's token
-  reaches only the ids its issuer grants (the identity file's `environments`
-  templates). The Tenant holds at most `limits.environments` (default 100),
-  set with `PUT /v1/tenant/sandbox` (Tenant setting `environments.config`).
+- **Kind**, the manifest's `runtime.kind`: `virtual`, an emulated bash with a virtual filesystem
+  in the harness container (in the `runtime` container with `NYLORUN_HARNESS=in-process`), whose
+  `/workspace` is kept under the Tenant's directory and which is not a VM or container boundary;
+  `pod`, a container with its own volume on the Tenant's cluster, once sandbox pods are enabled
+  (`nylorun local sandbox enable`), where its sessions' turns run; or `none` (also a manifest
+  with no `runtime` section), a vault and no compute, for agents that use only remote MCP
+  servers and HTTP tools.
+- **What it runs** (`runtime` in its view): the manifest's runtime section, `image`,
+  `resources` and `storage` (pods only), `network.allowedHosts`, `lifecycle`, `setup`, `files`,
+  `limits` and `secrets` (slots), resolved against the Tenant's limits when it is made, with
+  `manifest`, `resolvedVersion`, `manifestHash` and `tracking` saying where it came from and
+  `harness` the harness that runs its loop (the manifest's `harness.id`, else `nylorun`). A
+  `PUT` on an existing one may change only its labels and owner guard; a manifest that names
+  what it runs is accepted, so get-or-create stays one call, and any other is
+  `409 agent_upgrade_unavailable`, naming the fork. A restart, a reset or a lost pod rebuilds
+  the same thing. Egress is limited to the hosts the runtime allows, within the Tenant's
+  `limits.network`; private networks, loopback, the host and cloud metadata endpoints are always
+  blocked. Each connection a pod opens, allowed or refused, is one `agent.egress` event on
+  `GET /v1/agents/{id}/events?types=agent.egress` (host, port, outcome, bytes, duration and the
+  turns running when it opened; never headers, paths or bodies). Session logs and turn traces
+  hold no egress.
+- **Limits**: `limits.artifacts.fileBytes` and `limits.artifacts.totalBytes` cap the artifacts
+  of the Agent's sessions and its disk versions, and `limits.skills.totalBytes` the files one
+  skill of its manifest may hold (checked when the manifest is saved). Each is at most the
+  Tenant's (`PUT /v1/tenant/artifacts`, `PUT /v1/tenant/skills`; a higher one is `400`), and one
+  left out is the Tenant's as it is when checked. The Tenant's own totals still apply to
+  everything; the view's `limits` says what is in force.
+- **Lifecycle**: `lifecycle.idle` stops a pod after that long without a turn (at most the
+  Tenant's `limits.idle`); `lifecycle.deleteAfter` deletes the Agent, its vault and its disk
+  once it has gone that long unused (no turn, change, secret write, stop or reset). The default
+  is never.
+- **Owner guard**: with `owner` set, only that owner's sessions may run on the Agent, checked
+  when a session opens and at every turn start (`403 agent_owner_mismatch`; a caller acting for
+  a person gets the `404` of a missing one).
+- **Turns**: sessions on one Agent share its `/workspace` and run their turns at the same time;
+  one turn per session. Which sessions work on one disk, and when, is your app's call: give work
+  that must not share files its own Agent (or a fork). A flow's child sessions run on its Agent.
+  Stop, reset, snapshot and restore wait until no turn runs (`409 agent_busy`).
+- **State**: the view's `state` is `working`, `sleeping`, `input_required`, `failing` or
+  `paused`, with `attention` naming the sessions behind it, and `compute.state` its sandbox's
+  (`ready`, `creating`, `running`, `stopped`); `GET /v1/agents?state=input_required` filters on
+  it.
+- **Who reaches it**: an application key reaches every Agent; acting for a person, changing one
+  needs `agents:write`. A trusted issuer's token reaches only the ids its issuer grants (the
+  identity file's `agents` templates). The Tenant holds at most `limits.environments` Agents
+  (default 100), set with `PUT /v1/tenant/sandbox` (Tenant setting `environments.config`).
 
 - **Setup and input files** (pods): `files` copies versions of Tenant-wide
   artifacts in (a file artifact at its `path`, a folder artifact under it), then
@@ -365,125 +365,131 @@ Upgrading from protocol 10, which had sandbox resources and vaults:
   `/workspace`; `timeout` default 10m, at most the Tenant's `setupCommandMs`, 30m by
   default; at most `environmentSetupCommands` and `environmentFiles` of them, 16 each by
   default: [Runtime limits](#runtime-limits)), with the
-  Environment's variables and secrets (as the sentinel) and its egress. They run
+  Agent's variables and secrets (as the sentinel) and its egress. They run
   once per disk: when the pod's volume is new (created or reset), before its
   first turn; a resume keeps what they made. A failed command fails the pod (`observed: failed`, reason
   `setup: command N …`, with its exit code and the end of its output in the
-  `environment.failed` event) and the turn waiting for it; the next turn start
+  `agent.failed` event) and the turn waiting for it; the next turn start
   runs the setup again.
 - **Disk versions** (Host feature `environment-disk-versions`): between turns,
-  `POST /v1/environments/{id}/snapshot` keeps a version of the disk
+  `POST /v1/agents/{id}/snapshot` keeps a version of the disk
   (`/workspace`, and a pod's `/harness` but the engine's own files) as a version
-  of a folder artifact the Environment owns: files with their modes and times,
+  of a folder artifact the Agent owns: files with their modes and times,
   links and empty directories, each file's bytes stored once across versions.
   An unchanged disk makes no version (`unchanged: true`). `POST .../restore`
-  with `{ version }` (or `"latest"`) puts one back: a virtual Environment at
+  with `{ version }` (or `"latest"`) puts one back: a virtual Agent at
   once, a pod on a new volume seeded from the version before its next turn
   (`disk.operation` in the view until then). `PUT` with
-  `from: { environment, version }` creates an Environment whose disk starts as
+  `from: { agent, version }` creates an Agent whose disk starts as
   another's version (its vault starts empty). `GET .../versions` lists them,
   `DELETE .../versions/{n}` deletes one, and their trees, files, diffs and zips
   read through `/v1/artifacts/{artifactId}/versions/{n}/…`. A pod whose volume is
   lost and that has a version gets a new volume seeded from the latest one,
   instead of refusing turns until a reset. A snapshot or restore during a turn
-  is `409 environment_busy`; a version holds at most 200,000 entries and 10 GiB,
-  within the Tenant's artifact total. Deleting the Environment deletes its
+  is `409 agent_busy`; a version holds at most 200,000 entries and 10 GiB,
+  within the Tenant's artifact total. Deleting the Agent deletes its
   versions.
+- **The image, by digest.** The first time a pod of an Agent is ready, the Runtime records the
+  workload image it pulled by digest (the view's `compute.pod.imageDigest`), and every later pod
+  of that Agent, after a stop, a relaunch or a reset, runs that digest: a tag that moves never
+  changes what an Agent runs. A fork pulls the tag afresh. An image loaded onto the node without
+  a registry pins nothing.
+- **Forking onto a new version.** An Agent never changes what it runs, so it moves to a new
+  version by a fork: `POST /v1/agents/{id}/fork` with `{ "id": "users/alice/analyst-2" }`
+  (`client.agents.fork()`) makes a new Agent from the source's manifest at its latest version
+  (or `manifest: "name@n"`). Its disk starts from a version of the source's (`disk: "latest"`,
+  the default, snapshots first between turns; a version number; or `"empty"`), and the secrets
+  the new manifest declares are copied inside the Runtime (`secrets: "none"` copies none);
+  values never leave it. On a pod, the new version's setup runs on the copied disk before the
+  first turn. The source keeps what it runs, its disk and its sessions: move them when you are
+  ready. `dryRun: true` (`planFork()`) answers the plan: the disk, the secrets copied and left
+  behind, required slots still missing, and the changes.
 
-`GET /v1/environments?label=k=v` lists them, `POST .../stop` and `.../reset`
-stop a pod or give it a new, empty volume, and `DELETE` removes the Environment
-with its vault and files. `npx nylorun environments list | delete` does the same
-from the command line (Runtime API, an application key), and
-`npx nylorun doctor sandbox` reports the sandbox backend in use. Each Environment's lifecycle events (`environment.created`, `.attached`,
-`.deleted`, a pod's `.running`, `.suspended`, `.lost`, …) are at
-`GET /v1/environments/{id}/events`; a session's own log records
-`environment.attached`, `environment.state` and `environment.exec`.
+`GET /v1/agents?label=k=v` (and `state`, `manifest`) lists them, `POST .../stop` and
+`.../reset` stop a pod or give it a new, empty volume, and `DELETE` removes the Agent with its
+vault and files (refused while a turn runs on it); its sessions keep their history, and their
+next turn is refused (`agent_unavailable`). `npx nylorun agents list |
+put | fork | rm` does the same from the command line (Runtime API, an application key), and
+`npx nylorun doctor sandbox` reports the sandbox backend in use. Each Agent's lifecycle events
+(`agent.created`, `.attached`, `.deleted`, `.forked`, a pod's `.running`, `.suspended`, `.lost`,
+…) are at `GET /v1/agents/{id}/events`; a session's own log records `agent.attached`,
+`environment.state` and `environment.exec`.
 
-### Environment manifests
+### Agent manifests
 
-An **environment manifest** (protocol 14, Host feature `environment-manifests`)
-is a named, versioned definition of a kind of Environment, saved like an agent
-and written as a JSON file whose `$schema` is
-`https://docs.nylorun.com/schemas/environment-manifest/v1.json`
-(`@nylorun/core/schemas/environment-manifest.json`; clients drop `$schema`
-before they save):
+An **agent manifest** (v8, protocol 16) is one named, versioned document with what runs inside
+the agent loop and what the Runtime provides around it: `harness`, the harness's `id` (`nylorun`,
+ours, by default), `instructions`, `tools`, `skills`, `mcpServers`, `plugins`, `outputSchema`
+and the harness's own `loop` settings, or a flow (`kind: "workflow"`); and `runtime`, the
+Agent's kind and what it gets (`image`, `network`, `setup`, `files`, `limits`, `lifecycle` and
+the secret slots, `secrets`). Its JSON Schema is
+`https://docs.nylorun.com/schemas/agent-manifest/v8.json`
+(`@nylorun/core/schemas/agent-manifest.json`; clients drop `$schema` before they save):
 
 ```json
 {
-  "$schema": "https://docs.nylorun.com/schemas/environment-manifest/v1.json",
-  "manifestSchemaVersion": 1,
-  "name": "analyst-box",
-  "kind": "pod",
-  "image": "python:3.13-slim",
-  "network": { "allowedHosts": ["pypi.org", "files.pythonhosted.org", "api.github.com"] },
-  "setup": [{ "command": "pip install pandas", "timeout": "10m" }],
-  "secrets": {
-    "GH_TOKEN": { "type": "environment_secret", "allowedHosts": ["api.github.com"], "required": true }
+  "$schema": "https://docs.nylorun.com/schemas/agent-manifest/v8.json",
+  "manifestSchemaVersion": 8,
+  "name": "analyst",
+  "harness": {
+    "instructions": ["Analyse the data you are given with pandas, and show your numbers."]
+  },
+  "runtime": {
+    "kind": "pod",
+    "image": "python:3.13-slim",
+    "network": { "allowedHosts": ["pypi.org", "files.pythonhosted.org", "api.github.com"] },
+    "setup": [{ "command": "pip install pandas", "timeout": "10m" }],
+    "secrets": {
+      "GH_TOKEN": { "type": "environment_secret", "allowedHosts": ["api.github.com"], "required": true }
+    }
   }
 }
 ```
 
-- **Saving.** `PUT /v1/environment-manifests/{name}`
-  (`client.environments.manifests.save()`) writes its next version, or answers
-  the latest `unchanged` when nothing differs. `If-Match: <version>` refuses the
-  save (`412 manifest_changed`) when someone saved since you read it (`0` for a
-  manifest that does not exist yet), and every version records who saved it
-  (`savedBy`), from Studio, the CLI or the SDK alike. `?dryRun=true`
-  (`manifests.plan()`) saves nothing and answers the plan: the changes, every
-  reason the save would be refused (the Tenant's limits, files it cannot use),
-  warnings (an image tag rather than a digest, kind `pod` with no sandbox pods)
-  and how many Environments stay on older versions.
-- **Making Environments.** `PUT /v1/environments/{id}` with
-  `{ "manifest": "analyst-box" }` makes one from the latest version and pins
-  it; `"analyst-box@3"` names a version. `labels`, `ownerUserId` and `from` may
-  come with it, and no other field. **A save changes no Environment.**
-- **Secret slots.** `secrets` declares what an Environment of the kind needs:
-  each name, its type, its binding (`allowedHosts` and `inject`, or `url`,
-  `via` and `identity`), whether it is required, and a description; never a
-  value. The Environment's view lists each slot as set or missing. Write a value
-  with `PUT /v1/environments/{id}/secrets/{name}` and `{ "value": "…" }` (or
-  `{ "headers": { … } }`): the binding comes from the slot, so app code cannot
-  widen where a key goes, and a name the manifest does not declare is
-  `409 secret_not_in_manifest`. Inline fields may declare slots too.
-- **What an agent needs.** An agent manifest's `requires`
-  (`.requires({ sandbox: "pod", secrets: ["GH_TOKEN"] })`) is checked when a
-  session opens: an Environment of the wrong kind, none at all, or a vault
-  without one of the secrets is `409 environment_unsuitable` with
-  `details.missing`. The agent still names no Environment.
+- **Saving.** `PUT /v1/agent-manifests/{name}` (`client.agentManifests.save()`, which takes a
+  built agent and a runtime section too) writes its next version, or answers the latest
+  `unchanged` when nothing differs. It needs `agent-manifests:write` acting for a person.
+  `If-Match: <version>` refuses the save (`412 manifest_changed`) when someone saved since you
+  read it (`0` for a manifest that does not exist yet), and every version records who saved it
+  (`savedBy`), from Studio, the CLI or the SDK alike. `?dryRun=true` (`agentManifests.plan()`,
+  `nylorun apply --dry-run`) saves nothing and answers the plan: each change by section and
+  path, every reason the save would be refused, warnings (an image tag rather than a digest,
+  kind `pod` with no sandbox pods) and how many Agents stay on older versions. **A save changes
+  no Agent.**
+- **Its sections must fit.** The Runtime checks the two against each other and refuses every
+  gap at once (`422 manifest_inconsistent`, `details.gaps`): a custom harness needs
+  `runtime.kind` `pod` with an `image`; an MCP server's or HTTP tool's `credential` must name a
+  `bearer` or `headers` slot of `runtime.secrets` bound to its exact URL; a skill's `secrets`
+  must name `environment_secret` or `environment_variable` slots; skills need a sandbox
+  (`virtual` or `pod`). It also refuses what the Tenant's limits do not allow, files it does not
+  hold, a tool that runs your code and a tool's `approval` (the Tenant's
+  [tool policy](#tool-policy) decides).
+- **Three files.** A manifest may be authored as `agent.manifest.json`, naming a
+  `harness.manifest.json` (whose `credentials` maps a server or HTTP tool to its slot, and whose
+  `requires` the composer checks) and a `runtime.manifest.json` that many agents may share, by
+  path. `nylorun apply <dir>` and `composeManifest(dir)` in `@nylorun/agents` compose them into
+  one document and upload the files they name; their JSON Schemas are
+  `@nylorun/core/schemas/harness-manifest.json` and `runtime-manifest.json`, and `nylorun
+  migrate v8` writes them from a v7 agent manifest and an environment manifest.
+- **Secret slots.** `runtime.secrets` declares what an Agent made from it needs: each name, its
+  type, its binding (`allowedHosts` and `inject`, or `url`, `via` and `identity`), whether it is
+  required, and a description; never a value. The Agent's view lists each slot as set or
+  missing. Write a value with `PUT /v1/agents/{id}/secrets/{name}` and `{ "value": "…" }` (or
+  `{ "headers": { … } }`): the binding comes from the slot, so app code cannot widen where a key
+  goes, and a name the manifest does not declare is `409 secret_not_in_manifest`.
 - **Files by hash.** A `files` entry may name files by content hash instead
   of an artifact version: `{ "path": "/workspace/kit", "files": { "bin/run.sh":
   "sha256:…" } }` copies each file under `path` before `setup` runs. Upload
   each one first with `PUT /v1/files/sha256:<hex>` (at most the Tenant's skill
   limit, `PUT /v1/tenant/skills`, default 2 GiB);
-  `environmentFiles(path, contents)` in `@nylorun/agents` hashes them and
-  `manifests.save(manifest, { files: kit.bytes })` uploads what the Runtime
-  lacks. A manifest by hash moves to another installation with its files.
-- **The image, by digest.** The first time a pod of an Environment is ready,
-  the Runtime records the workload image it pulled by digest (the view's
-  `pod.imageDigest`), and every later pod of that Environment, after a stop, a
-  relaunch or a reset, runs that digest: a tag that moves never changes what
-  an Environment runs. A fork pulls the tag afresh. An image loaded onto the
-  node without a registry pins nothing.
-- **Forking onto a new version.** An Environment never changes what it runs,
-  so it moves to a new version by a fork: `POST /v1/environments/{id}/fork`
-  with `{ "id": "users/alice/analyst-2" }` (`client.environments.fork()`) makes
-  a new Environment from the source's manifest at its latest version (or
-  `manifest: "name@n"`). Its disk starts from a version of the source's
-  (`disk: "latest"`, the default, snapshots first between turns; a version
-  number; or `"empty"`), and the secrets the new manifest declares are copied
-  inside the Runtime (`secrets: "none"` copies none); values never leave it.
-  On a pod, the new version's setup runs on the copied disk before the first
-  turn. The source keeps what it runs, its disk and its sessions: move them
-  when you are ready. `dryRun: true` (`planFork()`) answers the plan: the disk,
-  the secrets copied and left behind, required slots still missing, and the
-  changes.
-- **Versions and deleting.** `GET /v1/environment-manifests` lists each
-  manifest's latest, `GET .../{name}/versions` every version with the
-  Environments made from it, and `DELETE` removes all of them, refused while an
-  Environment was made from one (`409 manifest_in_use`).
-
-`PUT /v1/agents/{id}?dryRun=true` (`saveAgent(agent, { dryRun: true })`) checks
-an agent's definition the same way and saves nothing.
+  `runtimeFiles(path, contents)` in `@nylorun/agents` hashes them and
+  `agentManifests.save(manifest, { files: kit.bytes })` uploads what the Runtime
+  lacks, as it does a skill's files. A manifest by hash moves to another installation with its
+  files.
+- **Versions and deleting.** `GET /v1/agent-manifests` lists each manifest's latest,
+  `GET .../{name}/versions` every version with the Agents made from it, and `DELETE` removes all
+  of them, refused while an Agent was made from one (`409 manifest_in_use`). Model budgets of
+  scope `manifest` (`PUT /v1/tenant/budgets`) cap a manifest's calls by its name.
 
 ## Postgres for session events
 
@@ -515,8 +521,8 @@ a cancel then reaches another process only through the 5-second poll.
 Each turn is one OpenTelemetry trace, derived from the session log (track R7): a root span
 `invoke_agent <agent>` for the turn, and a child span for every model call (`chat <model>`)
 and tool call (`execute_tool <tool>`, a flow's HTTP stage too), plus a marker for each pause
-and answer. Egress connections are not in a turn's trace: each is an `environment.egress` event
-on its Environment's stream (`GET /v1/environments/{id}/events`), naming the turns running. Attribute names follow the OTel
+and answer. Egress connections are not in a turn's trace: each is an `agent.egress` event
+on its Agent's stream (`GET /v1/agents/{id}/events`), naming the turns running. Attribute names follow the OTel
 GenAI semantic conventions at one pinned commit (`nylorun.semconv.genai` on the resource); the
 rest are `nylorun.*`. Span ids are derived from the log under a key the Tenant keeps (its
 setting `trace.key`), so exporting the same turn twice, or reading it from the route, gives the
@@ -640,7 +646,7 @@ The gateway is also the Tool Gate. Tool calls that leave the loop cross it, so
 the runtime container never holds an MCP credential or calls a tool's server:
 
 - **Remote MCP servers** (`streamable-http` and `sse`): the gateway opens the
-  connection, authorizes it from the vault of the session's Environment and runs
+  connection, authorizes it from the vault of the session's Agent and runs
   `tools/list` and `tools/call`. `nylorun local logs gateway`
   shows one `mcp_request` line per request, never arguments, results or
   credentials. Nylorun accepts remote MCP servers only: there are no stdio
@@ -657,7 +663,7 @@ the runtime container never holds an MCP credential or calls a tool's server:
   to make a side effect safe to repeat.
 
 The gateway also runs `keys`, the only process that reads the vault key: it
-runs every vault write that touches a secret (writing an Environment's
+runs every vault write that touches a secret (writing an Agent's
 secret, setting and selecting the host model), signs every token
 (capability links, run and host tokens, signing-key rotation) and runs MCP tool
 previews, which send a vault credential. The runtime reaches
@@ -698,20 +704,20 @@ What only the Runtime checks:
 | `messageParts` | Parts (text and files) of one user message | 32 | One request body |
 | `pageItems` | Items one page of a listing holds (`limit`); a larger `limit` gets this many, and a page with none the route's default (50, or this when lower) | 200 | About 179 million: one response body |
 | `exportPageItems` | Calls one page of `GET /v1/tenant/calls/model` holds (default page 200, or this when lower) | 1,000 | One response body |
-| `environmentEventItems` | Events one read of an Environment's events returns; `from` reads on | 1,000 | One response body |
+| `environmentEventItems` | Events one read of an Agent's events returns; `from` reads on | 1,000 | One response body |
 | `inlineFileBytes` | One file a message carries inline (AG-UI, A2A); such an endpoint reads one file's base64 and `requestBodyBytes` more | 20 MiB | About 384 MiB: its base64 in one string |
 | `a2aWaitMs` | How long a blocking A2A `SendMessage` waits before it answers `WORKING` | 5 min | About 24.8 days: a JavaScript timer |
 | `errorExcerptChars` | How much of a failed MCP server's or HTTP tool's answer an error quotes | 2,000 characters | About 160,000: one record entry, escaped |
 | `traceContentBytes` | One content attribute of an exported span | 8 KiB | 960 KiB: one record entry |
-| `environmentLabels` | Labels on one Environment, checked whenever they are set | 32 | One request body |
+| `environmentLabels` | Labels on one Agent, checked whenever they are set | 32 | One request body |
 | `artifactLabels` | Labels on one artifact, checked when it is uploaded | 32 | One request body |
-| `labelKeyChars` | The longest label key (an Environment's or an artifact's) | 63 characters | One request body |
+| `labelKeyChars` | The longest label key (an Agent's or an artifact's) | 63 characters | One request body |
 | `labelValueChars` | The longest label value | 256 characters | One request body |
-| `environmentSetupCommands` | Setup commands in one manifest | 16 | One request body |
-| `environmentFiles` | Input file entries in one manifest | 16 | One request body |
+| `environmentSetupCommands` | Setup commands in one manifest's runtime section | 16 | One request body |
+| `environmentFiles` | Input file entries in one manifest's runtime section | 16 | One request body |
 | `environmentFilesPerEntry` | Files one input file entry by hash names | 1,000 | One request body |
-| `environmentSecretSlots` | Secret slots one manifest declares, and secrets one agent `requires` (checked at deploy) | 64 | One request body |
-| `manifestDescriptionChars` | An environment manifest's `description` | 1,024 characters | One request body |
+| `environmentSecretSlots` | Secret slots one manifest's runtime section declares | 64 | One request body |
+| `manifestDescriptionChars` | An agent manifest's `description` | 1,024 characters | One request body |
 | `secretDescriptionChars` | A secret slot's `description` | 500 characters | One request body |
 | `secretValueChars` | The value of an `environment_secret` or `environment_variable`, checked when it is written | 8,192 characters | One request body |
 | `secretHosts` | Hosts one `environment_secret` may be sent to (`allowedHosts`), in a write or a slot | 32 | One request body |
@@ -720,7 +726,7 @@ What only the Runtime checks:
 | `setupOutputChars` | The end of a failed setup command's output its event keeps | 4,096 characters | One record entry, escaped |
 | `setupReasonChars` | The end of that output a failed pod's reason quotes | 500 characters | One record entry, escaped |
 | `setupCommandExcerptChars` | The start of the command the reason quotes | 80 characters | One record entry, escaped |
-| `diskVersionEntries` | Entries in one version of an Environment's disk (a manifest may set less: `limits.disk.versionEntries`) | 200,000 | About 1.9 million: one disk listing in a Harness API frame |
+| `diskVersionEntries` | Entries in one version of an Agent's disk (a manifest may set less: `limits.disk.versionEntries`) | 200,000 | About 1.9 million: one disk listing in a Harness API frame |
 | `diskVersionBytes` | Bytes of files in one disk version (`limits.disk.versionBytes`) | 10 GiB | A JavaScript number |
 | `diskLeaseMs` | How long a disk copy's lease lasts unrenewed (renewed every quarter of it) | 2 min | A JavaScript timer |
 | `diskPodWaitMs` | How long a disk copy waits for a pod's engine to connect | 60 s | A JavaScript number |
@@ -747,10 +753,9 @@ A limit above its ceiling is `400`, naming the ceiling and its dependency, and n
 Each limit is read where it is checked, so a new value holds for the next request, write, call
 or turn. Past one, a write into the record is `413 limit_exceeded`
 (`details.limit: "recordEntryBytes"`) to an API client, and `limit_exceeded` to a harness; a
-turn whose harness reports more fails. An Environment's labels, setup and input files are
-checked when it is made (or its manifest saved), its labels whenever they are set, and a
-secret's value and hosts when it is written; an
-Environment made before a limit was lowered keeps running, within the lower limit where one
+turn whose harness reports more fails. A manifest's setup and input files are checked when it
+is saved, an Agent's labels whenever they are set, and a secret's value and hosts when it is
+written; an Agent made before a limit was lowered keeps running, within the lower limit where one
 applies at run time (a setup command's timeout, a disk version).
 
 Model calls and HTTP tools cross the gates, whose hop has its own timeout (host
@@ -764,7 +769,7 @@ page cursor's, which arrives in a URL; an artifact name's 255 characters and a f
 target's 4,096 (Linux's `PATH_MAX`), and a skill file's path within that under its mount
 folder; W3C `tracestate`'s 512 characters; a model-facing tool name's 64 characters (what every
 provider takes); a `Content-Type`'s 255 (RFC 6838's two 127-character names). An identifier's
-grammar is the protocol's, so its length is too: an Environment's id (200), a subject (200), a
+grammar is the protocol's, so its length is too: an Agent's id (200), a subject (200), a
 manifest's name (64), a credential's name (64), a harness id (63), an application key's id and
 an issuer's name (32), an idempotency key (256), the Harness API's ids (512). A custom endpoint's `contextWindow` and `maxTokens`
 default to 32,768 and 8,192 (`settings` of `PUT /v1/tenant/model`), and a trusted issuer's
@@ -800,7 +805,7 @@ These are fixed by a standard or a dependency, so they are ceilings the tuning i
 against, not settings: Node's longest timer (2^31 - 1 ms); S3's part sizes (5 MiB to 5 GiB) and
 its 1024-byte object key; S2's batch of 1000 records and 1 MiB; the sandboxes service's longest
 `?wait=` (30 s) and its 4096-byte pod variables; the
-`environment.egress` event's 16 running turns (its contract); W3C Trace Context's 512-character
+`agent.egress` event's 16 running turns (its contract); W3C Trace Context's 512-character
 `tracestate`; the 24-hour floor of a wake's dedupe key (Durable Session Execution §12.3); and
 Postgres's 65,535 bind parameters a statement, which bound `postgres.contentBatchRows`. Token
 lifetimes are checked against each other: `keys.runTokenTtlSeconds` and
@@ -858,8 +863,8 @@ below the run token's, the host token's longer than `harness.podRenewMs`, and
 | `tenant.drainTimeoutMs` | 30 s | How long a reset or a drain waits for running turns |
 | `tenant.statusTimeoutMs` | 5 s | How long status waits for the execution's stuck invocations |
 | `tenant.signingKeyRotationGraceMs` | 60 s | Added to the longest token lifetime before a previous signing key may go (0 allowed) |
-| `tenant.retryAfterSeconds` | 5 | The `Retry-After` of a request refused while its Environment is busy or pods are not ready |
-| `tenant.seedLeaseMs` | 10 min | How long a pending Environment seed holds the disk before another process may take it over |
+| `tenant.retryAfterSeconds` | 5 | The `Retry-After` of a request refused while its Agent is busy or pods are not ready |
+| `tenant.seedLeaseMs` | 10 min | How long a pending disk seed of an Agent holds the disk before another process may take it over |
 | `sweep.intervalMs` | 5 s | The delay between sweep passes of the Tenant |
 | `sweep.batchSize` | 100 | Rows one sweep query reads at a time |
 | `sweep.signalRetentionMs` | 1 h | How long a control signal is kept |
@@ -912,7 +917,7 @@ below the run token's, the host token's longer than `harness.podRenewMs`, and
 | `postgres.controlRetry` | 100 ms to 5 s | How the control bus listens again after its connection ends |
 | `postgres.replicationRetryMs` | 5 s | How soon the stream relay and trace projector try again to take their slot |
 | `postgres.replicationPoolSize` | 2 | The replication service's connections (the stream relay, the trace projector) |
-| `postgres.contentBatchRows` | 1000 | Rows one statement writes or looks up when a folder version or a definition names many files; at most 16,383 (Postgres's 65,535 parameters, four a row) |
+| `postgres.contentBatchRows` | 1000 | Rows one statement writes or looks up when a folder version or a manifest names many files; at most 16,383 (Postgres's 65,535 parameters, four a row) |
 | `streams.retry` | 100 ms to 2 s | Session stream reads, basin deletions and repairs |
 | `streams.basinRetryMaxMs` | 5 s | The longest wait between two basin repairs |
 | `streams.basinRepairCooldownMs` | 1 s | A repair this soon after the last waits for the next failure (0 allowed) |
@@ -1001,7 +1006,7 @@ below the run token's, the host token's longer than `harness.podRenewMs`, and
 | `harness.networkProbeMs` | 1 s | One probe of an address the policy blocks |
 | `harness.networkPauseMs` | 250 ms | The pause after a probe that connected (0 allowed) |
 | `harness.networkConfirmations` | 3 | Failed probes in a row that prove an address blocked |
-| `harness.setupRetryPollMs` | 5 s | How often a failed Environment setup asks whether to run again |
+| `harness.setupRetryPollMs` | 5 s | How often a failed setup of an Agent's pod asks whether to run again |
 | `harness.setupAfterSeedPollMs` | 1 s | How often a fork's setup asks whether its disk version is written |
 | `harness.setupReportTailChars` | 4096 | The characters of a failed setup command's output its report keeps |
 | `traces.timeoutMs` | 10 s | How long one OTLP request may take |
@@ -1054,39 +1059,43 @@ NYLORUN_CLI_TUNING='{"stack":{"healthWaitMs":120000},"compose":{"healthchecks":{
 ## MCP servers and HTTP tools
 
 An agent names its remote MCP servers and HTTP tools by URL, and its manifest never holds a
-secret. Whoever sets up an Environment decides, per URL, how its sessions reach each one, with a
-credential in the Environment's vault. The same agent can then use a key on a laptop and an MCP
-gateway in production, with no change to its manifest. For each server:
+secret: at most a slot, its runtime section's `secrets` entry bound to that URL, which a server's
+or HTTP tool's `credential` names. Whoever makes an Agent decides, per URL, how its sessions
+reach each one, with a credential in the Agent's vault. The same manifest can then use a key on
+a laptop and an MCP gateway in production. For each server:
 
-1. **Write a credential** for its URL into the Environment ([Credentials](#credentials)), or none
+1. **Write a credential** for its URL into the Agent ([Credentials](#credentials)), or none
    for a public server.
 2. **Preview its tools** with that credential ([Previewing a server](#previewing-a-server)).
 3. **Set its tools** in the agent's manifest: which are enabled and which are deferred
    ([Tools, results and errors](#tools-results-and-errors)). Which calls wait for a person is the
    Tenant's tool policy ([Tool policy](#tool-policy)).
-4. **Name the Environment** on the sessions that need it: `environment` when your app server
-   opens one. Check first that it covers the agent
-   ([Checking an agent's credentials](#checking-an-agents-credentials)).
+4. **Open sessions on the Agent**: `agent` when your app server opens one. Check first that it
+   covers its manifest ([Checking an agent's credentials](#checking-an-agents-credentials)).
 
-An agent with only remote MCP servers and HTTP tools needs no sandbox: give it an Environment of
-kind `none`, a vault and no compute. Upgrading from protocol 10, which had user and installation
-vaults: [MIGRATION.md](./MIGRATION.md#environments-replace-sandboxes-and-vaults-protocol-11-a-fresh-start);
+An agent with only remote MCP servers and HTTP tools needs no sandbox: save its manifest with no
+runtime section (or kind `none`), and its Agents have a vault and no compute. Upgrading from
+protocol 15, which had Environments: [MIGRATION.md](./MIGRATION.md#agents-from-one-manifest-protocol-16-harness-api-5);
+from protocol 10, which had user and installation vaults:
+[MIGRATION.md](./MIGRATION.md#environments-replace-sandboxes-and-vaults-protocol-11-a-fresh-start);
 from protocol 9, which had an MCP OAuth connect and a credential resolver:
 [MIGRATION.md](./MIGRATION.md#mcp-credentials-from-vaults-only-protocol-10).
 
 ### Credentials
 
-A session's MCP and HTTP tool credentials come from the vault of the session's Environment,
-matched by the URL the agent names. A session without an Environment sends none. Each
-Environment has exactly one vault, created and deleted with it; there is no vault shared between
-Environments, so a key many Environments use is written into each.
+A session's MCP and HTTP tool credentials come from the vault of the session's Agent: the slot
+a server or HTTP tool names (`credential`), else the credential bound to the URL the agent names.
+Each Agent has exactly one vault, created and deleted with it; there is no vault shared between
+Agents, so a key many Agents use is written into each (a fork copies the ones its manifest
+declares).
 
-Secrets are written on the Runtime API, by name: `PUT /v1/environments/{id}/secrets/{name}`
-(`client.environments.secrets.put` in `@nylorun/agents`), with an application key, or acting for
-a person with `environments:write`. `GET .../secrets` lists names, types and bindings, and
-`DELETE .../secrets/{name}` removes one. A credential for a tool is bound to one URL, the one the
-manifest names, and its name is a label (1–64 letters, digits, `.`, `_` and `-`). It is one of
-two types:
+Secrets are written on the Runtime API, by name: `PUT /v1/agents/{id}/secrets/{name}`
+(`client.agents.secrets.put` in `@nylorun/agents`), with an application key, or acting for a
+person with `agents:write`. `GET .../secrets` lists names, types and bindings, and
+`DELETE .../secrets/{name}` removes one. When the manifest declares the slot, send only
+`{ value }` (or `{ headers }`): the type and binding below come from the slot. A credential for a
+tool is bound to one URL, the one the manifest names, and its name is a label (1–64 letters,
+digits, `.`, `_` and `-`). It is one of two types:
 
 | `type` | Body | Sends |
 | --- | --- | --- |
@@ -1102,11 +1111,11 @@ Either kind may add:
 - **`identity: { header }`**: a header that carries the session owner's subject, for a gateway
   that keeps each person's accounts ([Reaching a person's accounts](#reaching-a-persons-accounts)).
 
-Write one on the Environment's Secrets tab in Studio (Environments, then the Environment), with `@nylorun/agents`, or with
-`PUT /v1/environments/{id}/secrets/{name}`:
+Write one in Studio, with `@nylorun/agents`, with `npx nylorun agents secrets put`, or with
+`PUT /v1/agents/{id}/secrets/{name}`:
 
 ```ts
-await client.environments.secrets.put("projects/acme", "tickets", {
+await client.agents.secrets.put("projects/acme", "tickets", {
   type: "headers",
   url: "https://mcp.tickets.example/mcp",
   headers: { "x-api-key": process.env.TICKETS_KEY!, "x-account-id": process.env.TICKETS_ACCOUNT! },
@@ -1117,11 +1126,11 @@ await client.environments.secrets.put("projects/acme", "tickets", {
   credential is listed with its header names, `via` and identity header only.
 - A `PUT` to an existing name replaces the credential: its value, URL, `via` and identity header
   together. The next request uses the new value.
-- One URL has at most one credential per Environment: a second `bearer` or `headers` credential
+- One URL has at most one credential per Agent: a second `bearer` or `headers` credential
   for the same URL is `409 credential_conflict` at the write.
 - The transport's own headers (`Content-Type`, `Accept`, `Mcp-Session-Id`, …), `Idempotency-Key`
   and `Nylorun-*` are refused. A credential header replaces a manifest header of the same name.
-- An MCP server with no credential in the Environment's vault is called without one: a server that
+- An MCP server with no credential in the Agent's vault is called without one: a server that
   needs one answers `401`, and `mcp.discovered` reports it for that session. An HTTP tool that
   names a `credential` the vault lacks fails with `http.credential`, and is not sent.
 
@@ -1133,32 +1142,28 @@ server takes:
 
 | The server takes | The credential | In |
 | --- | --- | --- |
-| A key the person made, such as a personal access token (GitHub, Linear, Supabase) | `bearer` or `headers` | The person's own Environment |
-| Only the person's sign-in, with OAuth (Notion, Slack, Gmail) | A gateway credential: the MCP gateway's key, `via` and an identity header | Each Environment whose sessions use the server |
-| A client id and secret, exchanged for a short-lived token (MongoDB Atlas, Google service accounts) | A gateway credential | Each Environment whose sessions use the server |
+| A key the person made, such as a personal access token (GitHub, Linear, Supabase) | `bearer` or `headers` | The person's own Agent |
+| Only the person's sign-in, with OAuth (Notion, Slack, Gmail) | A gateway credential: the MCP gateway's key, `via` and an identity header | Each Agent whose sessions use the server |
+| A client id and secret, exchanged for a short-lived token (MongoDB Atlas, Google service accounts) | A gateway credential | Each Agent whose sessions use the server |
 
 In a survey of the 50 most used remote MCP servers (2026-10-07), half, and 7 of the top 10, took
 only a person's sign-in, so an MCP gateway is how most installations reach a person's tools.
 
 #### A person's own key
 
-Give the person an Environment of their own, with the owner guard set to them, write their key
-into it as a `bearer` or `headers` credential bound to the server's URL, and name it when your app
-server opens their sessions:
+Give the person an Agent of their own, with the owner guard set to them, write their key into it
+(the slot its manifest declares for the server's URL, here `linear`), and open their sessions on
+it:
 
 ```ts
-await client.environments.put("users/alice/tools", { kind: "none", ownerUserId: "alice" });
-await client.environments.secrets.put("users/alice/tools", "linear", {
-  type: "bearer",
-  url: "https://mcp.linear.app/mcp",
-  value: process.env.ALICE_LINEAR_KEY!,
-});
-await client.createSession({ agentId: "triage", ownerUserId: "alice", environment: "users/alice/tools" });
+await client.agents.put("users/alice/triage", { manifest: "triage", owner: "alice" });
+await client.agents.secrets.put("users/alice/triage", "linear", { value: process.env.ALICE_LINEAR_KEY! });
+await client.createSession({ id: "alice-inbox", agent: "users/alice/triage", ownerUserId: "alice" });
 ```
 
-A key acts as whoever made it: put a person's own token only in an Environment that only their
-sessions may name (`ownerUserId`), and a key that acts for the organization in the Environments
-your app gives everyone.
+A key acts as whoever made it: put a person's own token only in an Agent that only their
+sessions may run on (`owner`), and a key that acts for the organization in the Agents your app
+gives everyone.
 
 #### A gateway credential
 
@@ -1168,7 +1173,7 @@ MCP's URL elicitation, and the model passes it on). The installation reaches the
 with one key, and the Runtime names the person in a header:
 
 ```ts
-await client.environments.secrets.put("users/u_7c41/web", "notion", {
+await client.agents.secrets.put("users/u_7c41/web", "notion", {
   type: "bearer",
   url: "https://mcp.notion.com/mcp", // what the manifest names
   value: process.env.GATEWAY_KEY!, // the gateway's key
@@ -1193,9 +1198,9 @@ X-User-Id: u_7c41
 - The value comes from the session record. Nothing the model or a manifest says changes it: the
   run token names no owner, and a manifest header of the same name is replaced.
 - The MCP gateway's key can name any person. No call reads it back from a vault, and a `PUT`
-  that changes its `via` must send a value too, so whoever can write an Environment cannot
+  that changes its `via` must send a value too, so whoever can write an Agent cannot
   redirect a key they do not hold. Give it only the scopes your agents need, and rotate it like
-  any other key (write it again into each Environment that holds it).
+  any other key (write it again into each Agent that holds it).
 - Every tool argument and result passes through the MCP gateway.
 - A `401` from the MCP gateway is `credential_rejected` to the model, and is not retried.
 
@@ -1258,45 +1263,43 @@ query string). These were described from vendor docs on 2026-10-07 and have not 
 #### Servers that exchange a client id and secret
 
 Some servers take a client id and secret that must be exchanged for a short-lived token (MongoDB
-Atlas and Google service accounts, PayPal). An Environment's credential is a static header and the Runtime
+Atlas and Google service accounts, PayPal). An Agent's credential is a static header and the Runtime
 refreshes nothing, so reach these through a gateway or a proxy that does the exchange, with a
 `via` credential as above.
 
 ### Checking an agent's credentials
 
-Before you open sessions, ask what a session of a saved agent would send in the Environment it
-will name, with a management key:
+Before you open sessions, ask what a session on an Agent would send, with a management key:
 
 ```ts
-const coverage = await admin.coverage({ agentId: "triage", environmentId: "projects/acme" });
+const coverage = await admin.coverage({ agentId: "projects/acme" });
 for (const entry of coverage.entries) console.log(entry.status, entry.name, entry.message);
 ```
 
-`POST /v1/tenant/credential-coverage` with `{ agentId, environmentId }` (Host feature
-`credential-coverage`) lists every remote MCP server and every HTTP tool `credential` the agent
-declares: its own, its subagents' and a flow's stages and agents. For each one, the Environment's
-vault decides as a call would (the same URL comparison):
+`POST /v1/tenant/credential-coverage` with `{ agentId }` (Host feature `credential-coverage`)
+lists every remote MCP server and every HTTP tool `credential` the version of the manifest the
+Agent runs declares: its own, its subagents' and a flow's stages and agents. For each one, the
+Agent's vault decides as a call would (the slot it names, else the same URL comparison):
 
 | `status` | A session would |
 | --- | --- |
-| `covered` | Send `credential` (its Environment, its name and its `via`) |
+| `covered` | Send `credential` (its Agent, its name and its `via`) |
 | `missing` | Call an MCP server without a credential, which only a public server accepts, or fail an HTTP tool with `http.credential` |
 
-`complete` is true when every entry is `covered`. Without `environmentId` every entry is
-`missing`, as for a session that names no Environment. Nothing reads a secret or calls a server.
-Studio's **New session** runs this check for the Environment it picks.
+`complete` is true when every entry is `covered`. Nothing reads a secret or calls a server.
+Studio's **New session** runs this check for the Agent it picks.
 
 ### Previewing a server
 
 ```sh
-nylorun tenant mcp inspect https://mcp.linear.app/mcp --server linear --environment projects/acme
+nylorun tenant mcp inspect https://mcp.linear.app/mcp --server linear --agent projects/acme
 ```
 
-`nylorun tenant mcp inspect <url> --environment <id>` connects with that Environment's credential for
+`nylorun tenant mcp inspect <url> --agent <id>` connects with that Agent's credential for
 the URL (its headers and `via`, never an identity header), or with none when you name no
-Environment, lists the server's tools within 15 s, and calls none. So do
-`admin.mcp.preview({ url, environmentId })`, `POST /v1/tenant/mcp/preview` with
-`{ url, environmentId }` and **Preview tools** on an Environment's Secrets tab in Studio. It shows each tool's model name (as our harness names it for a manifest
+Agent, lists the server's tools within 15 s, and calls none. So do
+`admin.mcp.preview({ url, agentId })`, `POST /v1/tenant/mcp/preview` with
+`{ url, agentId }` and **Preview tools** in Studio. It shows each tool's model name (as our harness names it for a manifest
 naming the server `--server`; a custom harness names its own), its hints and the size of its
 input schema, the tools renamed for the model, and the server's instructions. A server that answers `401` needs a credential: the preview says so and shows the
 server's sign-in metadata (RFC 9728), so you know to add a key or reach it through a gateway. Use
@@ -1383,7 +1386,7 @@ curl -X PUT "$NYLORUN_RUNTIME_URL/v1/tenant/tool-policy" \
 a call when every selector it sets matches: `tool` (the tool's own name: an MCP tool's name on
 its server, such as `create_issue`, or an HTTP tool's declared name; `*` matches any run of
 characters), `server` (an MCP server's name), `kind` (`mcp` or `http`), `agent` (the agent that
-calls it), and `when` (fields of the input by dotted path, each tested with `equals`, `in`, `gt`,
+calls it: its manifest's name, or a subagent's or a flow agent's id), and `when` (fields of the input by dotted path, each tested with `equals`, `in`, `gt`,
 `gte`, `lt`, `lte` or `matches`). The strictest rule that matches decides, whatever their order;
 a call no rule matches runs.
 
@@ -1406,15 +1409,16 @@ with `{"server": "github", "tool": "create_issue"}` in place of `{"tool": "githu
 The Runtime decides as it journals the call, before anything is sent, and the gateway runs only
 a call the journal holds running, so no harness can skip the policy. A policy that cannot be read
 refuses every call. Sandbox tools never cross the gateway: control their network side with the
-Environment's egress rules. A manifest no longer sets `approval`; a session pinned to one saved
+runtime section's egress rules. A manifest no longer sets `approval`; a session pinned to one saved
 with `approval: "always"` keeps it as an ask.
 
 ## Credentials for skills
 
-A skill that runs a CLI (`gh`, `glab`, `aws`, `curl`) in a pod Environment authenticates with
+A skill that runs a CLI (`gh`, `glab`, `aws`, `curl`) on a pod Agent authenticates with
 a credential whose value never enters the sandbox. Two more secret types live in the same
-Environment vault as MCP credentials; for both, the secret's name is the variable's name
-(`PUT /v1/environments/{id}/secrets/GH_TOKEN`):
+Agent vault as MCP credentials; for both, the secret's name is the variable's name
+(`PUT /v1/agents/{id}/secrets/GH_TOKEN`), and a skill names the ones it reads in its `secrets`,
+which must be slots of these types in the manifest's runtime section:
 
 - **`environment_secret`** `{ type, value, allowedHosts, inject? }`: every command sees
   `$<name>` set to `nylorun_managed`, a fixed sentinel. When a command sends HTTPS to one of
@@ -1428,10 +1432,11 @@ Environment vault as MCP credentials; for both, the secret's name is the variabl
   read it.
 
 ```bash
-curl -X PUT "$RUNTIME/v1/environments/users%2Falice%2Fweb/secrets/GH_TOKEN" \
-  -H "Authorization: Bearer $NYLORUN_SERVER_KEY" -H "Nylorun-Protocol: 14" \
+# The slot GH_TOKEN of the Agent's manifest: { "type": "environment_secret", "allowedHosts": ["api.github.com", "github.com"] }
+curl -X PUT "$RUNTIME/v1/agents/users%2Falice%2Fweb/secrets/GH_TOKEN" \
+  -H "Authorization: Bearer $NYLORUN_SERVER_KEY" -H "Nylorun-Protocol: 16" \
   -H "Content-Type: application/json" \
-  -d '{"type":"environment_secret","value":"ghp_…","allowedHosts":["api.github.com","github.com"]}'
+  -d '{"value":"ghp_…"}'
 ```
 
 How it works: pods trust one installation egress CA (keys holds its key; the join answer
@@ -1443,12 +1448,12 @@ checked. Every other host stays an opaque tunnel. A CLI that pins certificates o
 variables cannot use this path; HTTP/2-only and WebSocket endpoints are not served on it.
 
 A second `environment_secret` bound to a host another one already has is refused at the write
-with `409 credential_conflict`. Every session on the Environment gets its secrets, so set the
-owner guard (`ownerUserId`) on an Environment that holds a person's own token. Pod Environments
+with `409 credential_conflict`. Every session on the Agent gets its secrets, so set the
+owner guard (`owner`) on an Agent that holds a person's own token. Pod Agents
 only: a virtual one gets the variables but no header. A refused release is a `502` to the CLI and
 an `egress_credential_refused` line in the gateway's log, never a session event. Write, replace
-and delete them on an Environment's Secrets tab in Studio (type **Secret** or **Variable**), with
-`client.environments.secrets` in `@nylorun/agents`, or on the Runtime API.
+and delete them in Studio (type **Secret** or **Variable**), with
+`client.agents.secrets` in `@nylorun/agents`, or on the Runtime API.
 
 ## The harness: agent turns, MCP servers and workspaces
 
@@ -1478,17 +1483,14 @@ The runtime container runs no turn, no MCP server and no workspace command.
   `nylorun start`: the runtime container runs turns, MCP servers and workspaces
   itself again, and the harness container is removed. `NYLORUN_HARNESS=remote`
   (the default) brings it back; the setting is kept across starts.
-- **Your own harness.** An Environment's `harness` names the harness that runs its
-  sessions' turns (`nylorun` when unset). A harness of your own runs beside the
-  Runtime with its own token (`nylorun-operate harness token put <id>` in the
-  runtime container) or as a pod Environment's `image`. An Environment's
-  harness is fixed for its life: to run another harness, save a manifest
-  version that names it, fork the Environment onto that version, and open new
-  sessions on the fork. A session pins its harness when it opens. If its
-  Environment's id is deleted and made again with another harness, or an
-  Environment changed in place before protocol 14 applies that change, the
-  session's next turn is `409 harness_mismatch`: open a new session. See
-  [HARNESS_API.md](./HARNESS_API.md).
+- **Your own harness.** An agent manifest's `harness.id` names the harness that runs its
+  sessions' turns (`nylorun` when unset). A harness of your own runs as a pod's `image`: a
+  manifest that names one needs `runtime.kind` `pod` with an `image`, or its save is
+  `422 manifest_inconsistent`. An Agent's harness is fixed for its life: to run another
+  harness, save a manifest version that names it, fork the Agent onto that version, and open
+  new sessions on the fork. A session pins its harness when it opens. If its Agent's id is
+  deleted and made again with another harness, the session's next turn is
+  `409 harness_mismatch`: open a new session. See [HARNESS_API.md](./HARNESS_API.md).
 
 ## Networks and Restate's UI
 

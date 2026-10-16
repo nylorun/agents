@@ -67,10 +67,9 @@ dashboard shows the same, and Studio asks the Runtime again on the next request.
 and the `tenant` claim of embed login tokens stay (the embed contract); they
 must name that Tenant, and any other id is an unknown Tenant (`404`).
 
-A Tenant with no agents shows its name, full Tenant id and Runtime connection
-status, with a short link to the documentation. Developers can use the SDK, CLI
-or any Runtime API client; the agent list appears when the first agent registers.
-Existing sessions open with their original owner and Environment.
+A Tenant with no Agents and no sessions shows its name, full Tenant id and Runtime
+connection status, with a short link to the documentation; the Agents appear when the
+first is made. Existing sessions open with their original owner and Agent.
 The dashboard calls the Runtime through
 `/_studio/tenants/<id>/runtime/…`, which the server forwards with Studio's key
 (`deriveStudioToken(adminKey)`, derived from the admin key in memory; role
@@ -80,41 +79,43 @@ the browser.
 
 Studio lists the Tenant's sessions, sends text, displays completed
 assistant responses and tool inputs/results, restores history, observes
-canonical SSE events, and cancels a turn. **Sessions** is one table of every
-session (agent, owner, last activity, status), newest activity first; its
+canonical SSE events, and cancels a turn. Every session runs on an Agent
+(protocol 16), and none is special (D71). **Sessions** is one table of every
+session (Agent, owner, last activity, status), newest activity first; its
 **Last activity** header sorts oldest first. Last activity is the session's last
 committed event, else when it opened; a Runtime without `session-reads` lists no
-times. The table is filtered to an agent from the table or from the agents
-listed under Sessions in the sidebar; `/tenants/<id>/sessions?agent=<agentId>`
-is the filtered list, and `/tenants/<id>/agents/<agentId>` opens it. Each
-session shows chat beside an **Events** inspector, an **Outputs** tab (the
-session's artifacts), an **Environment** tab, a **Usage** tab and an optional
-Agent Manifest tab. **Usage** shows the session's recorded model usage (tokens
-in and out, cache reads and writes, reasoning tokens, cost and model calls) and
-each model call, read again when a turn ends. The header's inspector button
-hides the inspector and gives the chat the whole width; the browser remembers
-the choice. A chat message shows its time while it is hovered or focused. The
-sidebar holds **New session** (a menu of the registered agents, on every page),
-**Sessions** and **Environments**; its header shows the Tenant and the Runtime's
-status, and selecting the Tenant opens its Overview. **Models** is the one
-setting, at the bottom of the sidebar. **New session** opens an Environment
-picker first when the Tenant has Environments or the agent's MCP servers or HTTP
-tools take a credential: **None** (no sandbox, no credentials) or one
-Environment, with what each server and tool would get from its secrets
-(`POST /v1/tenant/credential-coverage { agentId, environmentId }`): covered, no
-credential (an MCP server is called without one) or a call that would fail. An
-Environment whose owner guard names another owner than Studio's
-(`local-developer`) cannot be picked. The session opens with `environment: <id>`.
-Otherwise the session starts at once, without an Environment.
+times. The table is filtered to an Agent from its **All Agents** menu;
+`/tenants/<id>/sessions?agent=<agentId>` is the filtered list. A session's page is
+`/agents/<agentId>/sessions/<sessionId>` (each id one percent-encoded segment);
+`/sessions/<sessionId>` finds its Agent and opens it. Each session shows chat beside
+an **Events** inspector, an **Outputs** tab (the session's artifacts), a
+**Manifest** tab (**Workflow** for a flow), an **Agent** tab and a **Usage** tab.
+**Manifest** shows the loop manifest the session pinned when it opened
+(`GET /v1/sessions/{id}/manifest`, Host feature `session-reads`; without it, the
+harness section of the version its Agent runs), named `name@version`, and says when
+the manifest has a newer version: an Agent keeps its version, and moves by a fork.
+**Usage** shows the session's recorded model usage (tokens in and out, cache reads
+and writes, reasoning tokens, cost and model calls) and each model call, read again
+when a turn ends. The header's inspector button hides the inspector and gives the
+chat the whole width; the browser remembers the choice. A chat message shows its
+time while it is hovered or focused. The sidebar holds **New session** (a menu of
+the Agents, grouped by manifest, on every page), **Sessions**, **Agents** (the
+Agents grouped by the manifest each was made from, each with its state and number
+of sessions) and **Agent manifests**; its header shows the Tenant and the Runtime's
+status, and selecting the Tenant opens its Overview. **Models** is the one setting,
+at the bottom of the sidebar. **New session** opens a session on the Agent picked
+(`PUT /v1/sessions/{id} { agent }`, owner `local-developer`); an Agent whose owner
+guard names another owner cannot be picked. An Agent's page has **New session** too.
 
-A session's **Environment** tab shows where it runs: the Environment it names
-(linked to its page), its kind and state, the recipe version the session opened
-on beside the current one, the harness, sandbox and allowed hosts, what this
-agent's MCP servers and HTTP tools get from the Environment's secrets (the same
-coverage check), its latest disk version, and the other sessions that name it.
-It only reads: a reset, a restore or a secret change applies to every session
-that names the Environment, so those stay on the Environment's page. A session
-without an Environment says it has no sandbox and no secrets.
+A session's **Agent** tab shows where it runs: its Agent (linked to its page), its
+kind, state and compute, the manifest version the session opened on beside the one
+the Agent runs, the harness, sandbox and allowed hosts, what its MCP servers and
+HTTP tools get from the Agent's secrets
+(`POST /v1/tenant/credential-coverage { agentId }`: covered, no credential, or a
+call that would fail), its latest disk version, the connections its sandbox opened
+while this session's turns ran, and the other sessions on it. It only reads: a
+reset, a restore or a secret change applies to every session on the Agent, so
+those stay on the Agent's page. `?inspector=environment` opens it too.
 
 Settings links use `/tenants/<id>/settings/overview` and `/settings/models`
 under the same Tenant prefix; a legacy `/settings` link redirects to Models.
@@ -146,72 +147,94 @@ as the model's API carries them) as checkboxes that call `models.setInputs()`. A
 the model neither reads nor may add is not shown. The custom endpoint's form sets
 Images, PDF, Audio and Video in `settings.inputs` (text only when none).
 
-## Environments
+## Agents
 
-An Environment is where sessions run: one sandbox (kind `virtual`, `pod` or
-`none`), one vault of secrets and versions of its disk. Studio shows them on one
-page per Environment instead of separate Sandboxes and Credentials pages. The sidebar includes Environments even before agents register.
+An Agent (protocol 16) is the live instance of one version of an agent manifest:
+its compute (kind `virtual`, `pod` or `none`), one vault of secrets, versions of
+its disk, and the sessions that run on it. It is made only from a saved manifest,
+tracking it (`name`: its latest version when it is made) or pinned (`name@n`), and
+keeps that version: a newer one reaches it through a fork.
 
-The Environments table (`/environments`) is laid out like **Sessions**: one
-table of every Environment (`GET /v1/environments`), with the environment
-manifest and version each was made from (or **Inline fields**), kind, state,
-owner guard, labels, sessions and last use. It is filtered to one manifest from
-the table, from the **All manifests** menu or from the manifests listed under
-Environments in the sidebar, each with its number of Environments;
-`/environments?manifest=<name>` is the filtered list and `?manifest=-` those made
-from inline fields. A label in the table filters on it too (`?label=key=value`,
-repeatable). Filtered to a manifest, a bar shows its latest version and who saved
-it, with **View manifest** (its JSON in a side panel, to copy) and **New version** (`PUT /v1/environment-manifests/{name}`,
-checked first with `?dryRun=true`); **New manifest** is in the menu.
-**New Environment** makes one from the filtered manifest's latest version
-(`PUT /v1/environments/{id} { manifest: "name@n" }`), or asks which manifest,
-or opens a form for inline fields: id, kind, image and storage
-for a pod, CPUs and memory, allowed hosts, harness, a pod's setup commands
-(command, directory, timeout) and input files (a Tenant-wide artifact's version
-and the path it is copied to), labels, owner guard, and `lifecycle.idle` and
-`lifecycle.deleteAfter`.
+The Agents table (`/agents`, `GET /v1/agents`) lists every Agent: its id (with its
+labels), the manifest version it runs (`triage@3`, **tracks** or **pinned**), its
+owner guard, its state (`working`, `sleeping`, `input_required`, `failing`,
+`paused`; the reasons behind it in a tooltip), its sessions and its last activity.
+Agents that need input, then those failing, come first; the rest by last activity.
+It filters by state, manifest, owner and label (`?state=`, `?manifest=<name>`,
+`?owner=<owner>` or `?owner=-` for none, repeated `?label=key=value`); a manifest
+in the sidebar or the table filters on it, and so does a label. **New Agent**
+makes one from a saved manifest: the manifest, **Track the latest** or a version to
+pin, its id, owner guard (`local-developer` by default) and labels
+(`PUT /v1/agents/{id} { manifest, owner?, labels? }`). Creating it opens no session.
 
-Each Environment's page is `/environments/<id>` (the id percent-encoded as one
-segment), with **Edit recipe** (the same form; kind and storage are fixed),
-**Stop** and **Reset** for a pod, and **Delete**; confirmations name how many
-sessions still name it. Its tabs (`?tab=`):
+Each Agent's page is `/agents/<id>` (the id percent-encoded as one segment), with
+**New session**, **Edit labels and owner** (`PUT` with its manifest as it was made),
+**Fork** (**Fork to v<n>** when its manifest has a newer version), **Stop** and
+**Reset** for a pod, and **Delete**; confirmations name how many sessions run on it.
+Its tabs (`?tab=`):
 
-- **Overview**: its sandbox, recipe and use, as fields, with the recipe as JSON.
+- **Overview**: its state and what made it (each linked to its session), its
+  compute, the manifest version it runs, and its use, as fields, with its runtime
+  as JSON.
+- **Sessions**: the sessions on it, by last activity, each linked to its page and
+  Outputs; none is marked special.
 - **Secrets**: its vault, through the Runtime API
-  (`PUT|DELETE /v1/environments/{id}/secrets/{name}`): a Bearer token or a
-  Headers map (name and value rows) bound to a URL, with an optional gateway URL
-  (`via`) and identity header, or a shell secret or variable for skills' CLIs in
-  its sandbox (not offered for kind `none`). A `PUT` replaces the secret, so
-  rotating sends the whole credential again. **Preview tools** on a URL-bound one
-  lists the MCP server's tools behind it with that Environment's credential
-  (`POST /v1/tenant/mcp/preview`, Management API); secret reads return names,
-  types and bindings, never values. There are no user or installation vaults.
+  (`PUT|DELETE /v1/agents/{id}/secrets/{name}`): a Bearer token or a Headers map
+  (name and value rows) bound to a URL, with an optional gateway URL (`via`) and
+  identity header, or a shell secret or variable for skills' CLIs in its sandbox
+  (not offered for kind `none`). A `PUT` replaces the secret, so rotating sends the
+  whole credential again. **Preview tools** on a URL-bound one lists the MCP
+  server's tools behind it with the Agent's credential
+  (`POST /v1/tenant/mcp/preview { url, agentId }`, Management API). Below, the slots
+  its manifest declares (set, missing or not set) and what its tools get
+  (`credential-coverage`). Secret reads return names, types and bindings, never
+  values.
 - **Disk** (not for kind `none`): its disk versions, newest first. **Snapshot
   disk** keeps one; **Restore** puts one back (a pod gets a new volume seeded
-  before the next turn); **New Environment** creates one whose disk starts from
-  that version (`PUT … { from }`; its vault starts empty); **Delete** removes one;
-  **Browse** opens the version in the artifact inspector (files and changes),
-  since the versions are versions of a folder artifact the Environment owns.
+  before the next turn); **Fork** makes a new Agent whose disk starts from that
+  version; **Delete** removes one; **Browse** opens the version in the artifact
+  inspector (files and changes), since the versions are versions of a folder
+  artifact the Agent owns.
 - **Setup & files**: a pod's input files (linked to the artifact) and setup
-  commands, run on a new disk; a change applies at the next reset.
-- **Sessions**: paged sessions that name it, each linked to its page and Outputs.
-- **Events**: manually refreshed lifecycle events.
+  commands, run on a new disk; they never change.
+- **Events**: manually refreshed events: all, its lifecycle (`agent.*`), or the
+  connections its sandbox opened (`agent.egress`).
 
-Old links redirect, including in embeds: `/environments?selected=<id>&tab=…` to
-the page, `/settings/credentials?environment=<id>` and `/vault?environment=<id>`
-to its Secrets tab (without an Environment, to `/environments`), and
-`/sandboxes` to `/environments`. Pages keep their selection and tabs in the URL.
+**Fork** (`POST /v1/agents/{id}/fork`) names the new Agent's id, the manifest
+(`name` for its latest, or `name@n`), where its disk starts (a snapshot now, a disk
+version, or empty) and whether the secrets the new version declares are copied;
+**Check** shows the plan first (`dryRun`). The source keeps what it runs, its disk
+and its sessions.
+
+## Agent manifests
+
+`/agent-manifests` lists the Tenant's agent manifests (`GET /v1/agent-manifests`):
+each name with its latest version, the kind of Agent it makes, who saved it and
+how many Agents were made from it. A manifest's page (`/agent-manifests/<name>`,
+`?version=<n>`) lists its versions (with the Agents made from each), shows the
+version's **Harness** section (what runs inside the loop: harness, instructions,
+tools, skills, MCP servers or a flow's agents) beside its **Runtime** section (kind,
+image, resources, allowed hosts, lifecycle, setup, files and secret slots), each
+also as JSON, and the Agents made from the manifest. **New Agent from v<n>** makes
+an Agent pinned to that version. Manifests are read only in Studio: edit one in its
+repository and save its next version with `nylorun apply`.
+
+Old links redirect, including in embeds: `/environments/<id>` and
+`/environments?selected=<id>&tab=…` to the Agent's page, `/environments` to
+`/agents` (its filters kept), `/settings/credentials?environment=<id>` and
+`/vault?environment=<id>` to its Secrets tab (without one, to `/agents`), and
+`/sandboxes` to `/agents`. Pages keep their selection and tabs in the URL.
 
 ## Artifacts
 
 Artifacts open from where they belong: a session's Outputs tab, an
-Environment's Disk tab, or its Setup & files tab; the sidebar has no entry for
+Agent's Disk tab, or its Setup & files tab; the sidebar has no entry for
 them. `/artifacts` is every artifact the Tenant holds, newest first, 50 at a
 time with **Load more** (`GET /v1/artifacts?limit=50`, Host feature
 `artifact-reads`), filtered by kind, session and labels (`?kind=`,
 `?sessionId=`, repeated `?label=key=value`). Each row names its owner: a session
-(linked to it), an Environment's disk (linked to its Disk tab), or the Tenant
-itself, such as an input file an application uploaded for a pod's recipe. A Host
+(linked to it), an Agent's disk (`artifact.agentId`, linked to its Disk tab), or
+the Tenant itself, such as an input file an application uploaded for a pod. A Host
 without `artifact-reads` gets a session lookup instead, and Studio never reads the
 unbounded list. Any artifact also opens by id
 (`/artifacts?selected=<id>&version=<n>`), which keeps existing and embedded

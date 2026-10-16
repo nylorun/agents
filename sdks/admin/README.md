@@ -63,8 +63,8 @@ Management keys are issued on the Tenant's machine only:
 | `admin.tenant` | `status()`, `seed(request)`, `reset(request)` | `GET /v1/tenant`, `PUT /v1/tenant/config/seed`, `POST /v1/tenant/reset` |
 | `admin.keys` | `list()`, `put(id)`, `delete(id)` | `/v1/tenant/keys…` |
 | `admin.models` | `catalog()`, `providers()`, `get()`, `put(request)`, `select(request)`, `setInputs(request)`, `usage(query)`, `budgets.get()`, `budgets.put(request)` | `/v1/tenant/models`, `/providers`, `/model`, `/model/selection`, `/models/inputs`, `/usage`, `/budgets` |
-| `admin.coverage` | called directly: `admin.coverage({ agentId, environmentId? })` | `POST /v1/tenant/credential-coverage` |
-| `admin.mcp` | `preview({ url, type?, name?, environmentId? })` | `POST /v1/tenant/mcp/preview` |
+| `admin.coverage` | called directly: `admin.coverage({ agentId })`, an Agent's id | `POST /v1/tenant/credential-coverage` |
+| `admin.mcp` | `preview({ url, type?, name?, agentId? })` | `POST /v1/tenant/mcp/preview` |
 | `admin.toolPolicy` | `get()`, `put({ rules })`: which MCP and HTTP tool calls run, wait for a person (`ask`) or are refused (`deny`) | `/v1/tenant/tool-policy` |
 | `admin.signingKeys` | `list()`, `rotate({ force? })`, `revoke(kid)` | `/v1/tenant/signing-keys…` |
 | `admin.settings` | `sandbox.get()`, `sandbox.put(request)`, `artifacts.get()`, `artifacts.put(request)`, `skills.get()`, `skills.put(request)`, `limits.get()`, `limits.put(request)` | `/v1/tenant/sandbox`, `/v1/tenant/artifacts`, `/v1/tenant/skills`, `/v1/tenant/limits` |
@@ -85,27 +85,27 @@ await admin.keys.delete("backend"); // true when it existed
 ```
 
 Credentials for MCP servers, HTTP tools and skills are not the Management
-API's: each Environment has one vault, whose secrets the app writes on the
-Runtime API (`client.environments.secrets.put` in
-[`@nylorun/agents`](../agents/README.md), `PUT /v1/environments/{id}/secrets/{name}`)
+API's: each Agent has one vault, whose secrets the app writes on the
+Runtime API (`client.agents.secrets.put` in
+[`@nylorun/agents`](../agents/README.md), `PUT /v1/agents/{id}/secrets/{name}`)
 and never reads back. See "MCP servers and HTTP tools" in
 [DEPLOYMENT.md](../../guides/DEPLOYMENT.md#mcp-servers-and-http-tools), with
 gateway recipes.
 
-`admin.coverage` says what a session of a saved agent would send for each of
-its MCP servers and HTTP tool credentials in the Environment it will name,
-before any session starts: `covered` (with the secret's Environment, name and
-`via`) or `missing`. Without `environmentId` every entry is `missing`. It reads
-no secret and calls no server (Host feature `credential-coverage`).
+`admin.coverage` says what a session on an Agent would send for each MCP server
+and HTTP tool credential of the manifest version the Agent runs, from the
+Agent's vault, before any session starts: `covered` (with the secret's name and
+`via`) or `missing`. It reads no secret and calls no server (Host feature
+`credential-coverage`).
 
 ```ts
-const coverage = await admin.coverage({ agentId: "triage", environmentId: "projects/acme" });
+const coverage = await admin.coverage({ agentId: "projects/acme" });
 if (!coverage.complete)
   for (const entry of coverage.entries) if (entry.status !== "covered") console.log(entry.name, entry.message);
 ```
 
-`admin.mcp.preview` shows what a server offers with an Environment's credential
-for its URL (none without `environmentId`), before an agent names it: the
+`admin.mcp.preview` shows what a server offers with an Agent's credential
+for its URL (none without `agentId`), before a manifest names it: the
 Runtime connects, lists the tools within 15 s and calls none. Each tool has the
 name the model would call it (made with `name`, default from the URL's host),
 its annotations and its input schema's size. A server that answers `401` comes
@@ -113,16 +113,33 @@ back with `authRequired` and its RFC 9728 protected-resource metadata; one that
 cannot be listed rejects with `mcp_preview_failed` (`details.failure`).
 
 ```ts
-const preview = await admin.mcp.preview({ url: "https://mcp.linear.app/mcp", name: "linear", environmentId: "projects/acme" });
+const preview = await admin.mcp.preview({ url: "https://mcp.linear.app/mcp", name: "linear", agentId: "projects/acme" });
 for (const tool of preview.tools) console.log(tool.modelName, tool.schemaBytes);
 if (preview.authRequired) console.log("needs a sign-in:", preview.authRequired.resourceMetadata);
 ```
 
-`admin.settings.sandbox` reads and replaces the Tenant's Environment settings
-(Tenant setting `environments.config`): `limits` (`network`, `resources`,
-`defaultResources`, `idle`, `environments`), the pods' `lifecycle.stopGrace` and
-`placement`. `admin.tenant.reset({ scope })` takes `sessions`, `environments`
-or `all`.
+`admin.settings.sandbox` reads and replaces the Tenant's settings for its
+Agents' environments (Tenant setting `environments.config`): `limits`
+(`network`, `resources`, `defaultResources`, `idle`, `environments`, the most
+Agents), the pods' `lifecycle.stopGrace` and `placement`.
+`admin.tenant.reset({ scope })` takes `sessions`, `agents` (the Agents, their
+vaults and disks, and their sessions) or `all`.
+
+`admin.models.usage({ scope, id?, period? })` totals the Tenant's model calls
+for the Tenant, the Agents made from one agent manifest (`scope: "manifest"`,
+`id` its name) or one turn (`scope: "turn"`), and `admin.models.budgets.put`
+caps them: a `manifest` budget caps the sessions of every Agent made from that
+manifest, over a day or a month.
+
+```ts
+await admin.models.budgets.put({
+  budgets: [
+    { scope: "manifest", id: "triage", period: "month", limitUsd: 50 },
+    { scope: "turn", limitTokens: 200_000 },
+  ],
+});
+const spent = await admin.models.usage({ scope: "manifest", id: "triage", period: "month" });
+```
 
 `admin.settings.limits` reads and replaces the Tenant's Runtime limits (Tenant
 setting `limits.config`): the sizes, counts and deadlines the Runtime holds what
@@ -133,7 +150,7 @@ or effect outcome in the record), `modelCallBytes`, `modelFileBytes`,
 harness writes, a count). The Runtime's own: request bodies and inline files
 (`requestBodyBytes`, `inlineFileBytes`), `messageParts`, page sizes (`pageItems`,
 `exportPageItems`, `environmentEventItems`), `a2aWaitMs`, `errorExcerptChars`,
-`traceContentBytes`, an Environment's labels, setup and input files
+`traceContentBytes`, an Agent's labels, setup and input files
 (`environmentLabels`, `environmentSetupCommands`, `environmentFiles`,
 `environmentFilesPerEntry`, `environmentSecretSlots`, `setupCommandChars`,
 `setupCommandMs`, `setupOutputChars`, `setupReasonChars`, `setupCommandExcerptChars`,

@@ -17,7 +17,7 @@ import { startStudioServer } from "../dist/server.js";
 
 const ADMIN_KEY = "e".repeat(64);
 const TENANT = "tn_00000000000000000000000001";
-const AGENT = "a1";
+const AGENT = "agent-one";
 const SESSION = "s1";
 const WEB_ROOT = fileURLToPath(new URL("../dist/web", import.meta.url));
 
@@ -30,22 +30,59 @@ async function listen(server: Server, port = 0): Promise<number> {
 }
 
 /**
- * Just enough Runtime for the dashboard to open one session. `listsMissing`
- * answers `{}` where the dashboard expects provider and Environment lists.
+ * Just enough Runtime for the dashboard to open one session on one Agent. `listsMissing`
+ * answers `{}` where the dashboard expects provider and Agent lists.
  */
 async function fakeRuntime({ listsMissing = false } = {}) {
+  const time = "2026-10-10T00:00:00.000Z";
   const session = {
     id: SESSION,
     agentId: AGENT,
     ownerUserId: "local-developer",
+    manifest: { name: "one", version: 1 },
     manifestHash: "h",
-    implementationVersion: "1",
+    harness: "nylorun",
     status: "idle",
     activeTurnId: null,
-    environment: null,
     mcpSnapshot: null,
     mcpDiagnostics: [],
     uncertainEffects: [],
+  };
+  const manifest = {
+    name: "one",
+    version: 1,
+    hash: "h",
+    manifest: { manifestSchemaVersion: 8, name: "one", harness: { instructions: ["Be one."] } },
+    savedBy: { actor: "application" },
+    createdAt: time,
+    agents: 1,
+  };
+  const agent = {
+    id: AGENT,
+    manifest: "one",
+    resolvedVersion: 1,
+    manifestHash: "h",
+    tracking: "tracking",
+    kind: "none",
+    harness: "nylorun",
+    owner: null,
+    labels: {},
+    state: "sleeping",
+    attention: [],
+    desired: "on",
+    compute: { state: "ready" },
+    runtime: { harness: "nylorun", lifecycle: {} },
+    limits: {
+      artifacts: { fileBytes: 1, totalBytes: 1 },
+      skills: { totalBytes: 1 },
+      disk: { versionBytes: 1, versionEntries: 1 },
+    },
+    sessions: [{ id: SESSION, ownerUserId: "local-developer", status: "idle", activeTurnId: null }],
+    slots: [],
+    forkedFrom: null,
+    lastUsedAt: time,
+    createdAt: time,
+    updatedAt: time,
   };
   const server = createServer(async (req, res) => {
     for await (const _ of req) void _;
@@ -58,18 +95,27 @@ async function fakeRuntime({ listsMissing = false } = {}) {
           protocol: {
             min: PROTOCOL_VERSION,
             max: PROTOCOL_VERSION,
-            // The Environments page reads its list in pages (`session-reads`).
+            // With `session-reads`, a session's manifest is its own; without, its Agent's version's.
             features: [...PROTOCOL_FEATURES, ...(listsMissing ? ["session-reads"] : [])],
           },
         }),
       );
     if (path === "/v1/tenant") return res.end(JSON.stringify({ tenant: { id: TENANT, name: "orders" } }));
-    if (path === "/v1/agents")
+    if (listsMissing && ["/v1/tenant/providers", "/v1/tenant/models", "/v1/agents"].includes(path ?? ""))
+      return res.end(JSON.stringify({}));
+    if (path === "/v1/agents") return res.end(JSON.stringify({ agents: [agent] }));
+    if (path === `/v1/agents/${AGENT}`) return res.end(JSON.stringify(agent));
+    if (path === "/v1/agent-manifests") return res.end(JSON.stringify({ manifests: [manifest] }));
+    if (path === "/v1/agent-manifests/one" || path === "/v1/agent-manifests/one/versions/1")
+      return res.end(JSON.stringify(manifest));
+    if (path === `/v1/sessions/${SESSION}/manifest`)
       return res.end(
         JSON.stringify({
-          agents: [
-            { agentId: AGENT, manifest: { manifestSchemaVersion: 7, id: AGENT, name: "Agent One" }, manifestHash: "h", implementationVersion: "1" },
-          ],
+          sessionId: SESSION,
+          agentId: AGENT,
+          definition: { name: "one", version: 1 },
+          manifestHash: "h",
+          manifest: { manifestSchemaVersion: 7, id: "one", instructions: ["Be one."] },
         }),
       );
     if (path === "/v1/sessions")
@@ -80,11 +126,8 @@ async function fakeRuntime({ listsMissing = false } = {}) {
       return; // held open, like a live stream
     }
     if (path.endsWith("/items")) return res.end(JSON.stringify({ items: [], cursor: null }));
-    if (listsMissing && ["/v1/tenant/providers", "/v1/tenant/models", "/v1/environments"].includes(path))
-      return res.end(JSON.stringify({}));
     if (path === "/v1/tenant/providers" || path === "/v1/tenant/models")
       return res.end(JSON.stringify({ providers: [] }));
-    if (path === "/v1/environments") return res.end(JSON.stringify({ environments: [] }));
     if (path === "/v1/tenant/model") return res.end(JSON.stringify({ configured: false }));
     res.end(JSON.stringify({}));
   });
@@ -197,7 +240,7 @@ for (const [name, browserType] of [
         });
         await page.goto(embedderOrigin);
 
-        // Handshake, then the session route replaces itself with the agent's.
+        // Handshake, then the session route replaces itself with the one under its Agent.
         await waitForMessage(page, (m) => m.kind === "ready", "ready");
         await waitForMessage(page, (m) => m.kind === "session", "session");
         const fullRoute = `/tenants/${TENANT}/agents/${AGENT}/sessions/${SESSION}`;
@@ -227,10 +270,10 @@ for (const [name, browserType] of [
         assert.equal(await frame.evaluate(() => document.documentElement.style.getPropertyValue("--primary")), "#3366ff");
 
         // The app navigates; Studio reports the route back.
-        await page.evaluate((route) => (window as any).__post("navigate", { route }), `/tenants/${TENANT}/environments`);
-        await waitForMessage(page, (m) => m.kind === "route.changed" && m.route === `/tenants/${TENANT}/environments`, "environments route");
+        await page.evaluate((route) => (window as any).__post("navigate", { route }), `/tenants/${TENANT}/agents`);
+        await waitForMessage(page, (m) => m.kind === "route.changed" && m.route === `/tenants/${TENANT}/agents`, "agents route");
         // A route outside the installation's one Tenant is refused.
-        await page.evaluate(() => (window as any).__post("navigate", { route: "/tenants/tn_other/environments" }));
+        await page.evaluate(() => (window as any).__post("navigate", { route: "/tenants/tn_other/agents" }));
         await waitForMessage(page, (m) => m.kind === "error" && m.code === "route_other_tenant", "route_other_tenant");
 
         // No token in storage or cookies.
@@ -300,11 +343,11 @@ test("a normal browser tab on loopback opens the one Tenant with no sign-in, and
       const local = await browser.newPage();
       await local.goto(studioUrl);
       await local.waitForURL(`${studioUrl}/tenants/${TENANT}`);
-      await local.getByText("Agent One").first().waitFor();
+      await local.getByText(AGENT).first().waitFor();
       // `/login` sends the browser to `/`, which redirects to the Tenant.
       await page.goto(url);
       await page.waitForURL(`${studioUrl}/tenants/${TENANT}`);
-      await page.getByText("Agent One").first().waitFor();
+      await page.getByText(AGENT).first().waitFor();
       await page.getByText("orders").first().waitFor();
       assert.equal(await page.evaluate(() => document.documentElement.dataset.embed), undefined);
     });
@@ -313,7 +356,7 @@ test("a normal browser tab on loopback opens the one Tenant with no sign-in, and
   }
 });
 
-test("a Runtime answering {} for provider and Environment lists leaves the dashboard rendered", async () => {
+test("a Runtime answering {} for provider and Agent lists leaves the dashboard rendered", async () => {
   const browser = await chromium.launch();
   try {
     await withStack(
@@ -332,11 +375,11 @@ test("a Runtime answering {} for provider and Environment lists leaves the dashb
         // The session's model picker reports the missing lists instead of crashing.
         await page.goto(`${studioUrl}/tenants/${TENANT}/agents/${AGENT}/sessions/${SESSION}`);
         await page.getByText("The Runtime did not return connected model providers.").waitFor();
-        await page.getByText("Agent One").first().waitFor();
+        await page.getByText(AGENT).first().waitFor();
 
-        // The Environments page reports the missing list instead of crashing.
-        await page.goto(`${studioUrl}/tenants/${TENANT}/environments`);
-        await page.getByText("The Runtime did not return the Tenant's Environments.").waitFor();
+        // The Agents page reports the missing list instead of crashing.
+        await page.goto(`${studioUrl}/tenants/${TENANT}/agents`);
+        await page.getByText("The Runtime did not return the Tenant's Agents.").waitFor();
         assert.equal(await page.getByText("Something went wrong in this view").count(), 0);
         assert.deepEqual(pageErrors, []);
       },

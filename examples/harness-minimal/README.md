@@ -1,6 +1,6 @@
 # A minimal harness
 
-A harness of about 400 lines of TypeScript that runs agent turns for the Nylorun Runtime. It is written only against the published contract (Harness API 4), [`@nylorun/core/harness-api`](../../core/src/harness-api/index.ts) with core's media types, and the `ws` package; it does not use our engine (`@nylorun/harness`). Read it as a worked example of the Harness API, or copy it as the start of your own harness.
+A harness of about 400 lines of TypeScript that runs agent turns for the Nylorun Runtime. It is written only against the published contract (Harness API 5), [`@nylorun/core/harness-api`](../../core/src/harness-api/index.ts) with core's media types, and the `ws` package; it does not use our engine (`@nylorun/harness`). Read it as a worked example of the Harness API, or copy it as the start of your own harness.
 
 - [`src/harness.ts`](./src/harness.ts): the connection and the loop.
 - [`src/pod.ts`](./src/pod.ts): the join and token renewal of a sandbox pod.
@@ -8,11 +8,11 @@ A harness of about 400 lines of TypeScript that runs agent turns for the Nylorun
 
 ## What a turn does
 
-The harness says `hello` with its harness id, `minimal` (or `HARNESS_ID`), and no `features` (no workspace, no tools of its own), and takes the runs of the sessions pinned to that id: those opened on an Environment whose `harness` is `minimal`. Our harness keeps the rest. It leases one run at a time:
+The harness says `hello` with its harness id, `minimal` (or `HARNESS_ID`), and no `features` (no workspace, no tools of its own), and takes the runs of the sessions pinned to that id: those opened on an Agent whose agent manifest names it (`harness.id: "minimal"`). Our harness keeps the rest. It leases one run at a time:
 
 1. `lease` hands it a run: the run token (`RunGrant.token`) and the turn (`TurnStart`). It renews the lease every `renewEveryMs` from the `hello` answer, and takes a new run token when a renewal brings one.
 2. `transcript.read`, once: the session's transcript so far.
-3. It builds the prompt from the agent's `instructions`, then a one-line note of its own on the sandbox when the session has one (`turn.start.environment.sandbox`, with its `workspace`), the transcript and the turn's message, and calls the Model Gate (`POST $NYLORUN_GATES_URL/nylorun/v1/model-calls`) with `Authorization: Bearer <run token>` and `Idempotency-Key: <effect id>`. The model is offered one tool, its own `bash`, only then. How a message's files reach the model is the harness's to decide: it sends each file the turn's model reads natively (`turn.start.model.inputs`; text and images without a descriptor) as its media part, which the gate fetches, and a line `[File "name" (type) not shown]` for the rest, text files included, since it reads none in. The gate refuses a part the model cannot take (`unsupported_input`).
+3. It builds the prompt from the agent's `instructions`, then a one-line note of its own on the sandbox when the session has one (`turn.start.agent.sandbox`, with its `workspace`), the transcript and the turn's message, and calls the Model Gate (`POST $NYLORUN_GATES_URL/nylorun/v1/model-calls`) with `Authorization: Bearer <run token>` and `Idempotency-Key: <effect id>`. The model is offered one tool, its own `bash`, only then. How a message's files reach the model is the harness's to decide: it sends each file the turn's model reads natively (`turn.start.model.inputs`; text and images without a descriptor) as its media part, which the gate fetches, and a line `[File "name" (type) not shown]` for the rest, text files included, since it reads none in. The gate refuses a part the model cannot take (`unsupported_input`).
 4. When the model calls `bash`, the harness runs the command itself with `bash -c`, in `/workspace` when it exists, journaled as a `harness` call (`target: {kind: "harness"}`): it runs in the harness's own process, so the record keeps it as the harness's. (A tool effect's `target` is one of `{kind: "mcp", server, tool}`, `{kind: "http", tool}`, `{kind: "sandbox"}` or `{kind: "harness"}`: what runs it, beside the name the model used.) The outcome it reports is one record entry, which the record refuses past `turn.start.limits.recordEntryBytes` (`limit_exceeded`): a step's results get a quarter of that limit, shared by its calls, and an output that does not fit is stored whole as an artifact of the session (`artifact.write`, keyed `bash:<effect id>` and linked to the call by `effectId`). The outcome then says it was cut and carries `{exitCode, truncated: true, note, artifactId, version, size, preview}`, the preview being the output's head and tail.
 5. It repeats until the model answers with text, then settles with `turn.completed`: the text as `output`, the transcript entries it added (`input`, `candidate`, `tool-results`, `final`) as edits, and `state: {steps}`, which core keeps and hands back with the next turn without reading it.
 
@@ -20,7 +20,7 @@ Every model and tool call is an effect, journaled with `effect.intent` before it
 
 ## Two modes
 
-**Harness container.** The harness runs beside the Runtime on its `harness` network and connects with its own token, bound to the id it says in `hello`.
+**Harness container.** The harness runs beside the Runtime on its `harness` network and connects with its own token, bound to the id it says in `hello`. Since protocol 16 the Runtime runs a custom harness's sessions only in their Agent's pod, whose host is the harness in its pod mode, so a container takes none of their runs.
 
 | Variable                | Value                                                                                   |
 | ----------------------- | --------------------------------------------------------------------------------------- |
@@ -29,7 +29,7 @@ Every model and tool call is an effect, journaled with `effect.intent` before it
 | `NYLORUN_GATES_URL`     | The gateway, `http://gateway:4100` in Compose                                           |
 | `HARNESS_ID`            | The harness id it says in `hello`. Default `minimal`; the token must be for the same id |
 
-**Sandbox pod.** The harness is the pod's entrypoint: a pod Environment whose `harness` is not ours runs its `image` as the harness (R4.4). It holds no harness token: it reads the join token mounted in the pod, exchanges it for a host token (`POST /nylorun/harness/v1/host/join`), renews it every 5 minutes, and connects with the host token. Core takes its `hello` only when it names the Environment's harness, so `HARNESS_ID` (default `minimal`) must be the Environment's `harness`. Every command it runs gets the egress proxy (with the egress token as password) and a trust bundle with the egress CA. It starts in this mode when `NYLORUN_SANDBOX_ID` is set or the join file exists. The pod sets these variables:
+**Sandbox pod.** The harness is the pod's entrypoint: a pod Agent whose agent manifest names another harness than ours (`harness.id`) runs its `runtime.image` as the harness (R4.4). It holds no harness token: it reads the join token mounted in the pod, exchanges it for a host token (`POST /nylorun/harness/v1/host/join`), renews it every 5 minutes, and connects with the host token. Core takes its `hello` only when it names the Agent's harness, so `HARNESS_ID` (default `minimal`) must be the manifest's `harness.id`. Every command it runs gets the egress proxy (with the egress token as password) and a trust bundle with the egress CA. It starts in this mode when `NYLORUN_SANDBOX_ID` is set or the join file exists. The pod sets these variables:
 
 | Variable                                | Value                                                                 |
 | --------------------------------------- | --------------------------------------------------------------------- |
@@ -59,31 +59,41 @@ docker run --rm --name harness-minimal --network nylorun-examples-harness \
   harness-minimal:dev
 ```
 
-Our harness keeps running: the Runtime routes each session by the harness it is pinned to. Send sessions to this one with an Environment whose `harness` is `minimal`, `none` for text only or `virtual` for `bash`:
+Our harness keeps running: the Runtime routes each session by the harness it is pinned to. Send sessions to this one with an Agent made from an agent manifest whose harness section names it, `harness.id: "minimal"`. The Runtime saves a custom harness only on a pod with its image (`runtime.kind: "pod"` and `runtime.image`, else `422 manifest_inconsistent`), and runs that Agent's sessions in its pod: load the image where the cluster can pull it, and save the manifest:
 
 ```sh
-curl -X PUT "$NYLORUN_RUNTIME_URL/v1/environments/minimal-box" \
-  -H "authorization: Bearer $NYLORUN_API_KEY" -H "nylorun-protocol: 14" -H "content-type: application/json" \
-  -d '{"kind": "virtual", "harness": "minimal"}'
+curl -X PUT "$NYLORUN_RUNTIME_URL/v1/agent-manifests/minimal-box" \
+  -H "authorization: Bearer $NYLORUN_API_KEY" -H "nylorun-protocol: 16" -H "content-type: application/json" \
+  -d '{
+    "manifestSchemaVersion": 8,
+    "name": "minimal-box",
+    "harness": { "id": "minimal", "instructions": ["Answer briefly."] },
+    "runtime": { "kind": "pod", "image": "harness-minimal:dev" }
+  }'
 ```
 
-and open a session with `"environment": "minimal-box"`. `GET /v1/sessions/{id}` says `"harness": "minimal"`, and the session's events say `source: {kind: "harness", id: "minimal"}`. A session without an Environment still runs on ours. `nylorun-operate harness token rm minimal` revokes the token.
+then make the Agent from it, and open a session on the Agent:
 
-To run it as a sandbox pod instead, load the image where the cluster can pull it and create a pod Environment whose image it is:
-
-```json
-{ "kind": "pod", "image": "harness-minimal:dev", "harness": "minimal" }
+```sh
+curl -X PUT "$NYLORUN_RUNTIME_URL/v1/agents/minimal-box" \
+  -H "authorization: Bearer $NYLORUN_API_KEY" -H "nylorun-protocol: 16" -H "content-type: application/json" \
+  -d '{"manifest": "minimal-box"}'
+curl -X PUT "$NYLORUN_RUNTIME_URL/v1/sessions/s1" \
+  -H "authorization: Bearer $NYLORUN_API_KEY" -H "nylorun-protocol: 16" -H "content-type: application/json" \
+  -d '{"requestId": "s1", "agent": "minimal-box", "ownerUserId": "ada"}'
 ```
+
+The pod runs the image, which starts in its pod mode and takes the Agent's sessions' runs as the pod's host; a harness container connected with its token takes none of them. `GET /v1/sessions/{id}` says `"harness": "minimal"`, and the session's events say `source: {kind: "harness", id: "minimal"}`. A session on an Agent whose manifest names no harness still runs on ours. `nylorun-operate harness token rm minimal` revokes the container's token.
 
 To try it without a model provider, turn on the Tenant's fixture model, which the Model Gate answers itself and meters like any model:
 
 ```sh
 curl -X PUT "$NYLORUN_RUNTIME_URL/v1/tenant/config/seed" \
-  -H "authorization: Bearer $NYLORUN_MANAGEMENT_KEY" -H "nylorun-protocol: 14" -H "content-type: application/json" \
+  -H "authorization: Bearer $NYLORUN_MANAGEMENT_KEY" -H "nylorun-protocol: 16" -H "content-type: application/json" \
   -d '{"requestId": "fixture-1", "fixtureModel": true}'
 ```
 
-Then send `fixture:text` to a session, or `fixture:tool bash {"command":"uname -a"}` to a session on the `virtual` Environment. Each model call is a row of `GET /v1/sessions/{id}/calls/model`, with provider `fixture`. The fixture model stays on once seeded, so use a Tenant for testing.
+Then send `fixture:text` to a session, or `fixture:tool bash {"command":"uname -a"}` to a session on the `minimal-box` Agent. Each model call is a row of `GET /v1/sessions/{id}/calls/model`, with provider `fixture`. The fixture model stays on once seeded, so use a Tenant for testing.
 
 ## Artifacts
 
@@ -166,7 +176,7 @@ npm install
 npm test
 ```
 
-The unit tests run the loop against a fake core and a fake Model Gate: a text turn, a `bash` turn journaled intent first, a replay that runs nothing twice, a `bash` output too large to report stored as an artifact with a preview reported instead, and a cancel. In the Runtime's tests, [`example-harness.test.ts`](../../runtime/server/test/harness-api/example-harness.test.ts) runs it against a real Runtime over the WebSocket with its own token, beside our harness, on the fixture model: routing, metering, journaling, one run per turn, cancels, a restart mid-command, a tool the turn does not offer, a budget refusal and token redaction.
+The unit tests run the loop against a fake core and a fake Model Gate: a text turn, a `bash` turn journaled intent first, a replay that runs nothing twice, a `bash` output too large to report stored as an artifact with a preview reported instead, and a cancel. In the Runtime's tests, [`example-harness.test.ts`](../../runtime/server/test/harness-api/example-harness.test.ts) runs it in its pod mode against a real Runtime, as the host of pod Agents on an in-memory sandboxes service, over the WebSocket with its host token, beside our harness, on the fixture model: routing, metering, journaling, one run per turn, cancels, a restart mid-command, a tool the turn does not offer, a budget refusal and token redaction.
 
 ## What it leaves out
 

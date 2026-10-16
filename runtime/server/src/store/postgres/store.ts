@@ -75,26 +75,25 @@ import type {
   EventType,
   EventWriter,
   LiveEvent,
-  EnvironmentEvent,
-  EnvironmentEventPayload,
-  EnvironmentEventType,
+  AgentEvent,
+  AgentEventPayload,
+  AgentEventType,
   SessionEventOf,
 } from "@nylorun/core/contracts";
 import type { RecordReader } from "../../streams/relay/types.js";
 import type { SandboxSignal, SandboxTimer, Wake, WakeReason } from "../../execution/types.js";
-import { appendEnvironmentEvent, appendEvent } from "../../record/index.js";
+import { appendAgentEvent, appendEvent } from "../../record/index.js";
 import { readRuntimeLimits } from "../../tenant/runtime-limits.js";
 import { OwnershipLostError, PrincipalRoleConflict } from "../ownership.js";
 import type {
   ArtifactRow,
   ArtifactVersionRow,
   DefinitionFileRow,
-  EnvironmentManifestRow,
+  AgentManifestRow,
   CommitListener,
   ControlSignal,
   FollowSignalsOptions,
   SignalFollower,
-  DefinitionDoc,
   DocTable,
   EffectDoc,
   EffectKind,
@@ -105,7 +104,7 @@ import type {
   ResetScope,
   SandboxDoc,
   Environment,
-  EnvironmentEventsQuery,
+  AgentEventsQuery,
   SandboxPodPatch,
   SessionDoc,
   SessionEffectFilter,
@@ -141,7 +140,7 @@ import { database, driverError, type Database, type Transaction } from "./db.js"
 import { expectedSchemaVersion, readSchemaVersion } from "./migrate.js";
 import { hostTuning } from "../../tuning.js";
 import { createPostgresRecordReader } from "./record.js";
-import { postgresEnvironmentRecordWriter, postgresRecordWriter } from "./record-writer.js";
+import { postgresAgentRecordWriter, postgresRecordWriter } from "./record-writer.js";
 import {
   artifacts,
   artifactVersions,
@@ -149,16 +148,15 @@ import {
   definitionFiles,
   definitionFileUses,
   commands,
-  definitions,
   effects,
   links,
   modelBudgets,
   modelUsage,
   principals,
   sandboxes,
-  environmentEvents,
-  environments,
-  environmentManifests,
+  agentEvents,
+  agents,
+  agentManifests,
   sessionEvents,
   sessionLogHeads,
   sessions,
@@ -193,9 +191,8 @@ const OPEN_SESSION = ["running", "runnable"];
 const contentBatch = () => hostTuning().postgres.contentBatchRows;
 
 /** Every document table has `id` and `body`; `sessions` has more. */
-type DocumentTable = typeof definitions;
+type DocumentTable = typeof commands;
 const DOCUMENTS: Record<DocTable, DocumentTable> = {
-  definitions,
   sessions: sessions as unknown as DocumentTable,
   commands,
   effects: effects as unknown as DocumentTable,
@@ -388,7 +385,7 @@ function ownership(row: SessionOwnershipRow): SessionOwnership {
   };
 }
 
-function environmentOf(row: typeof environments.$inferSelect): Environment {
+function environmentOf(row: typeof agents.$inferSelect): Environment {
   return {
     id: row.id,
     kind: row.kind,
@@ -403,9 +400,11 @@ function environmentOf(row: typeof environments.$inferSelect): Environment {
     updatedAt: row.updatedAt,
     ...(row.diskOp ? { diskOp: row.diskOp as Environment["diskOp"] } : {}),
     ...(row.diskSeed ? { diskSeed: row.diskSeed as Environment["diskSeed"] } : {}),
-    ...(row.manifestName !== null ? { manifestName: row.manifestName } : {}),
-    ...(row.manifestVersion !== null ? { manifestVersion: row.manifestVersion } : {}),
-    ...(row.manifestHash !== null ? { manifestHash: row.manifestHash } : {}),
+    manifestName: row.manifestName,
+    manifestVersion: row.manifestVersion,
+    manifestRef: row.manifestRef,
+    manifestHash: row.manifestHash,
+    desiredState: row.desiredState,
     ...(row.forkedFrom ? { forkedFrom: row.forkedFrom as Environment["forkedFrom"] } : {}),
     ...(row.k8sName !== null && row.desired !== null && row.observed !== null
       ? {
@@ -430,22 +429,22 @@ function environmentOf(row: typeof environments.$inferSelect): Environment {
   };
 }
 
-function environmentManifestOf(row: typeof environmentManifests.$inferSelect): EnvironmentManifestRow {
+function agentManifestOf(row: typeof agentManifests.$inferSelect): AgentManifestRow {
   return {
     name: row.name,
     version: row.version,
-    body: row.body as EnvironmentManifestRow["body"],
+    body: row.body as AgentManifestRow["body"],
     hash: row.hash,
-    savedBy: row.savedBy as EnvironmentManifestRow["savedBy"],
+    savedBy: row.savedBy as AgentManifestRow["savedBy"],
     createdAt: row.createdAt,
   };
 }
 
 /** A pod patch as column values: ISO times become dates, `null` clears. */
-function podColumns(patch: SandboxPodPatch): Partial<typeof environments.$inferInsert> {
+function podColumns(patch: SandboxPodPatch): Partial<typeof agents.$inferInsert> {
   const date = (value: string | null | undefined) =>
     value === undefined ? undefined : value === null ? null : new Date(value);
-  const columns: Partial<typeof environments.$inferInsert> = {
+  const columns: Partial<typeof agents.$inferInsert> = {
     k8sName: patch.k8sName,
     volumeGen: patch.volumeGen,
     desired: patch.desired,
@@ -862,24 +861,19 @@ class PostgresTx implements Tx {
     return rows.map((row) => row.body as T);
   }
 
-  async listDefinitions<T extends DefinitionDoc = DefinitionDoc>(): Promise<T[]> {
-    this.check();
-    return this.bodies<T>(definitions);
-  }
-
   async listSandboxes<T extends SandboxDoc = SandboxDoc>(): Promise<T[]> {
     this.check();
     return this.bodies<T>(sandboxes);
   }
 
-  // --- Environments ----------------------------------------------------------
+  // --- Agents ----------------------------------------------------------------
 
   async environment(
     id: string,
     options: { lock?: boolean } = {},
   ): Promise<Environment | undefined> {
     this.check();
-    const query = this.db.select().from(environments).where(eq(environments.id, id));
+    const query = this.db.select().from(agents).where(eq(agents.id, id));
     const [row] = options.lock ? await query.for("update") : await query;
     return row && environmentOf(row);
   }
@@ -890,23 +884,20 @@ class PostgresTx implements Tx {
   ): Promise<"created" | "exists" | "limit"> {
     this.check();
     // Every create takes this lock, so two never both see room for one more.
-    await this.db.execute(sql`SELECT pg_advisory_xact_lock(hashtext('nylorun.environments'))`);
+    await this.db.execute(sql`SELECT pg_advisory_xact_lock(hashtext('nylorun.agents'))`);
     const [found] = await this.db
-      .select({ id: environments.id })
-      .from(environments)
-      .where(eq(environments.id, row.id));
+      .select({ id: agents.id })
+      .from(agents)
+      .where(eq(agents.id, row.id));
     if (found) return "exists";
-    const [counted] = await this.db.select({ n: count() }).from(environments);
+    const [counted] = await this.db.select({ n: count() }).from(agents);
     if ((counted?.n ?? 0) >= limit) return "limit";
-    const { pod, ownerUserId, diskOp, diskSeed, manifestName, manifestVersion, manifestHash, forkedFrom, ...environment } = row;
-    await this.db.insert(environments).values({
+    const { pod, ownerUserId, diskOp, diskSeed, forkedFrom, ...environment } = row;
+    await this.db.insert(agents).values({
       ...environment,
       ownerUserId: ownerUserId ?? null,
       diskOp: diskOp ?? null,
       diskSeed: diskSeed ?? null,
-      manifestName: manifestName ?? null,
-      manifestVersion: manifestVersion ?? null,
-      manifestHash: manifestHash ?? null,
       forkedFrom: forkedFrom ?? null,
       ...(pod ? podColumns(pod) : {}),
     });
@@ -933,23 +924,23 @@ class PostgresTx implements Tx {
       Object.entries(patch).filter(([, value]) => value !== undefined),
     );
     await this.db
-      .update(environments)
+      .update(agents)
       .set({ ...columns, updatedAt })
-      .where(eq(environments.id, id));
+      .where(eq(agents.id, id));
   }
 
   async updateEnvironmentPod(id: string, patch: SandboxPodPatch, updatedAt: string): Promise<void> {
     this.check();
     await this.db
-      .update(environments)
+      .update(agents)
       .set({ ...podColumns(patch), updatedAt })
-      .where(eq(environments.id, id));
+      .where(eq(agents.id, id));
   }
 
   async deleteEnvironment(id: string): Promise<void> {
     this.check();
     // Its vault and credentials go with it (ON DELETE CASCADE).
-    await this.db.delete(environments).where(eq(environments.id, id));
+    await this.db.delete(agents).where(eq(agents.id, id));
   }
 
   async listEnvironments(
@@ -959,79 +950,79 @@ class PostgresTx implements Tx {
     const labels = filter.labels;
     const rows = await this.db
       .select()
-      .from(environments)
+      .from(agents)
       .where(
         labels === undefined || Object.keys(labels).length === 0
           ? undefined
-          : sql`nylorun.doc(${environments.labels}) @> ${toJson(labels)}::jsonb`,
+          : sql`nylorun.doc(${agents.labels}) @> ${toJson(labels)}::jsonb`,
       )
-      .orderBy(environments.id);
+      .orderBy(agents.id);
     return rows.map(environmentOf);
   }
 
-  // --- Environment manifests (D63) -----------------------------------------------
+  // --- Agent manifests (protocol 16) ---------------------------------------------
 
-  async lockEnvironmentManifest(name: string): Promise<void> {
+  async lockAgentManifest(name: string): Promise<void> {
     this.check();
-    await this.db.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`nylorun.environment_manifests:${name}`}))`);
+    await this.db.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`nylorun.agent_manifests:${name}`}))`);
   }
 
-  async environmentManifest(name: string, version?: number): Promise<EnvironmentManifestRow | undefined> {
+  async agentManifest(name: string, version?: number): Promise<AgentManifestRow | undefined> {
     this.check();
     const [row] = await this.db
       .select()
-      .from(environmentManifests)
+      .from(agentManifests)
       .where(
         version === undefined
-          ? eq(environmentManifests.name, name)
-          : and(eq(environmentManifests.name, name), eq(environmentManifests.version, version)),
+          ? eq(agentManifests.name, name)
+          : and(eq(agentManifests.name, name), eq(agentManifests.version, version)),
       )
-      .orderBy(desc(environmentManifests.version))
+      .orderBy(desc(agentManifests.version))
       .limit(1);
-    return row && environmentManifestOf(row);
+    return row && agentManifestOf(row);
   }
 
-  async insertEnvironmentManifest(row: EnvironmentManifestRow): Promise<void> {
+  async insertAgentManifest(row: AgentManifestRow): Promise<void> {
     this.check();
-    await this.db.insert(environmentManifests).values(row);
+    await this.db.insert(agentManifests).values(row);
   }
 
-  async listEnvironmentManifests(): Promise<EnvironmentManifestRow[]> {
+  async listAgentManifests(): Promise<AgentManifestRow[]> {
     this.check();
     const rows = await this.db
-      .selectDistinctOn([environmentManifests.name])
-      .from(environmentManifests)
-      .orderBy(environmentManifests.name, desc(environmentManifests.version));
-    return rows.map(environmentManifestOf);
+      .selectDistinctOn([agentManifests.name])
+      .from(agentManifests)
+      .orderBy(agentManifests.name, desc(agentManifests.version));
+    return rows.map(agentManifestOf);
   }
 
-  async environmentManifestVersions(name: string): Promise<EnvironmentManifestRow[]> {
+  async agentManifestVersions(name: string): Promise<AgentManifestRow[]> {
     this.check();
     const rows = await this.db
       .select()
-      .from(environmentManifests)
-      .where(eq(environmentManifests.name, name))
-      .orderBy(desc(environmentManifests.version));
-    return rows.map(environmentManifestOf);
+      .from(agentManifests)
+      .where(eq(agentManifests.name, name))
+      .orderBy(desc(agentManifests.version));
+    return rows.map(agentManifestOf);
   }
 
-  async deleteEnvironmentManifest(name: string): Promise<number> {
+  async deleteAgentManifest(name: string): Promise<number> {
     this.check();
     const deleted = await this.db
-      .delete(environmentManifests)
-      .where(eq(environmentManifests.name, name))
-      .returning({ version: environmentManifests.version });
+      .delete(agentManifests)
+      .where(eq(agentManifests.name, name))
+      .returning({ version: agentManifests.version });
     return deleted.length;
   }
 
-  async environmentsOfManifest(name: string): Promise<Map<number, number>> {
+  async agentsOfManifest(name: string): Promise<Map<number, number>> {
     this.check();
     const rows = await this.db
-      .select({ version: environments.manifestVersion, n: count() })
-      .from(environments)
-      .where(eq(environments.manifestName, name))
-      .groupBy(environments.manifestVersion);
-    return new Map(rows.filter((row) => row.version !== null).map((row) => [row.version!, row.n]));
+      .select({ version: agents.manifestVersion, n: count() })
+      .from(agents)
+      .where(eq(agents.manifestName, name))
+      .groupBy(agents.manifestVersion);
+    return new Map(rows.map((row) => [row.version, row.n]));
   }
 
   async sessionsOnEnvironment<T extends SessionDoc = SessionDoc>(
@@ -1044,15 +1035,15 @@ class PostgresTx implements Tx {
     return rows.map((row) => storedSession<T>(row));
   }
 
-  async environmentEvent<T extends EnvironmentEventType>(
-    environmentId: string,
+  async agentEvent<T extends AgentEventType>(
+    agentId: string,
     type: T,
-    payload: EnvironmentEventPayload<T>,
-  ): Promise<EnvironmentEvent> {
+    payload: AgentEventPayload<T>,
+  ): Promise<AgentEvent> {
     this.check();
-    return appendEnvironmentEvent(postgresEnvironmentRecordWriter(this.db), {
+    return appendAgentEvent(postgresAgentRecordWriter(this.db), {
       tenantId: this.tenantId,
-      environmentId,
+      agentId,
       time: this.now(),
       type,
       payload,
@@ -1065,27 +1056,24 @@ class PostgresTx implements Tx {
     return (await readRuntimeLimits(this)).recordEntryBytes;
   }
 
-  async environmentEvents(
-    environmentId: string,
-    options: EnvironmentEventsQuery = {},
-  ): Promise<EnvironmentEvent[]> {
+  async agentEvents(agentId: string, options: AgentEventsQuery = {}): Promise<AgentEvent[]> {
     this.check();
     const query = this.db
-      .select({ body: environmentEvents.body })
-      .from(environmentEvents)
+      .select({ body: agentEvents.body })
+      .from(agentEvents)
       .where(
         and(
-          eq(environmentEvents.environmentId, environmentId),
-          options.fromSeq === undefined ? undefined : gte(environmentEvents.seq, options.fromSeq),
-          options.types === undefined ? undefined : inArray(environmentEvents.type, [...options.types]),
-          options.since === undefined ? undefined : gte(environmentEvents.committedAt, options.since),
-          options.until === undefined ? undefined : lt(environmentEvents.committedAt, options.until),
+          eq(agentEvents.agentId, agentId),
+          options.fromSeq === undefined ? undefined : gte(agentEvents.seq, options.fromSeq),
+          options.types === undefined ? undefined : inArray(agentEvents.type, [...options.types]),
+          options.since === undefined ? undefined : gte(agentEvents.committedAt, options.since),
+          options.until === undefined ? undefined : lt(agentEvents.committedAt, options.until),
         ),
       )
-      .orderBy(environmentEvents.seq)
+      .orderBy(agentEvents.seq)
       .$dynamic();
     const rows = await (options.limit === undefined ? query : query.limit(options.limit));
-    return rows.map((row) => row.body as EnvironmentEvent);
+    return rows.map((row) => row.body as AgentEvent);
   }
 
   private async effectBodies<T>(where: SQL | undefined): Promise<T[]> {
@@ -1162,7 +1150,7 @@ class PostgresTx implements Tx {
       running: number;
       uncertain: number;
       sandboxes: number;
-      definitions: number;
+      manifests: number;
     }>(sql`
       SELECT
         (SELECT count(*) FROM ${sessions})::int AS sessions,
@@ -1170,13 +1158,13 @@ class PostgresTx implements Tx {
           WHERE ${sessions.status} IN ('running', 'runnable'))::int AS running,
         (SELECT count(*) FROM ${effects} WHERE ${effects.status} = 'uncertain')::int AS uncertain,
         (SELECT count(*) FROM ${sandboxes})::int AS sandboxes,
-        (SELECT count(*) FROM ${definitions})::int AS definitions`);
+        (SELECT count(*) FROM ${agentManifests})::int AS manifests`);
     return {
       sessions: row!.sessions,
       runningSessions: row!.running,
       uncertainEffects: row!.uncertain,
       sandboxes: row!.sandboxes,
-      definitions: row!.definitions,
+      agentManifests: row!.manifests,
     };
   }
 
@@ -1500,7 +1488,7 @@ class PostgresTx implements Tx {
       .from(modelUsage)
       .where(
         and(
-          query.scope === "agent" ? eq(modelUsage.agentId, query.id ?? "") : undefined,
+          query.scope === "manifest" ? eq(modelUsage.manifestName, query.id ?? "") : undefined,
           query.scope === "turn" ? eq(modelUsage.turnId, query.id ?? "") : undefined,
           query.since !== undefined ? gte(modelUsage.createdAt, query.since) : undefined,
         ),
@@ -1867,15 +1855,15 @@ class PostgresTx implements Tx {
         basinGeneration: sql`${tenant.basinGeneration} + 1`,
       });
     }
-    if (scope === "environments" || scope === "all") {
+    if (scope === "agents" || scope === "all") {
       await db.delete(sandboxes);
       // Their vaults and credentials go with them (ON DELETE CASCADE).
-      await db.delete(environments);
-      await db.delete(environmentEvents);
+      await db.delete(agents);
+      await db.delete(agentEvents);
       await db.delete(sandboxSignals);
     }
     if (scope === "all") {
-      await db.delete(definitions);
+      await db.delete(agentManifests);
       // The files stay, as their bytes do; only what used them goes.
       await db.delete(definitionFileUses);
       await db.delete(modelUsage);

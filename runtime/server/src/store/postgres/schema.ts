@@ -7,8 +7,8 @@
  * - `nylorun` holds the Tenant's state: the one `tenant` row, the document tables,
  *   principals, vaults and credentials, signing keys, settings, the model usage
  *   ledger, the model budgets, the Tool Gate's crossings, file artifacts with their versions,
- *   the definition files agent definitions name, the control bus's signals and the wake
- *   outbox.
+ *   the agents and their manifests, the definition files those manifests name, the control
+ *   bus's signals and the wake outbox.
  * - `nylorun_streams` holds the record (Durable Streams §6): `session_events`,
  *   `session_log_heads` and the relay's `relay_slots`. The relay's publication is custom SQL
  *   (`drizzle/0002_stream_relay.sql`).
@@ -123,8 +123,6 @@ export const tenant = nylorun.table(
   () => [check("tenant_singleton_check", sql`singleton`)],
 );
 
-export const definitions = documents("definitions");
-
 const xid8 = customType<{ data: string }>({ dataType: () => "xid8" });
 
 export const sessions = nylorun.table(
@@ -142,8 +140,10 @@ export const sessions = nylorun.table(
     ownerExpiresAt: timestamp({ withTimezone: true, mode: "date" }),
     /** The session owner (`ownerUserId`), not the lease column `owner`. */
     ownerUserId: field("->>'ownerUserId'"),
-    /** The Environment the session names (`environment`, protocol 11). */
+    /** The Agent's environment the session runs on: its Agent's id (protocol 16). */
     environmentId: field("->>'environmentId'"),
+    /** The agent manifest the session pinned a version of (protocol 16). */
+    manifestName: field("->'definition'->>'name'"),
   },
   (t) => [
     index("sessions_created").on(t.createdAt.desc().nullsLast(), t.id.desc().nullsFirst()),
@@ -151,6 +151,7 @@ export const sessions = nylorun.table(
     index("sessions_agent").on(t.agentId),
     index("sessions_owner_user").on(t.ownerUserId),
     index("sessions_environment").on(t.environmentId),
+    index("sessions_manifest").on(t.manifestName),
   ],
 );
 
@@ -197,14 +198,16 @@ export const principals = nylorun.table("principals", {
 });
 
 /**
- * An Environment (D55, protocol 11): its id, kind, labels, the recipe the app asked for and the
- * recipe its compute runs (`applied`, copied from `recipe` when a stopped pod is asked to run),
+ * An Agent (protocol 16; an Environment from protocol 11): the live instance of one version of an
+ * agent manifest, with its id, kind, labels, the recipe its environment runs (its manifest
+ * version's runtime section resolved, `recipe`, and what the current compute runs, `applied`),
  * the owner guard, and when it was last used. Kind `pod` adds the pod's lifecycle columns.
- * Sessions name it by id (the session body's `environmentId`). Not the `sandboxes` document
- * table, which holds the virtual backend's compute records, keyed by workspace key.
+ * Sessions name it by id (the session body's `agentId`, and `environmentId` for its environment).
+ * Not the `sandboxes` document table, which holds the virtual backend's compute records, keyed by
+ * workspace key.
  */
-export const environments = nylorun.table(
-  "environments",
+export const agents = nylorun.table(
+  "agents",
   {
     id: textC().primaryKey(),
     kind: text({ enum: ["virtual", "pod", "none"] }).notNull(),
@@ -270,40 +273,44 @@ export const environments = nylorun.table(
      */
     diskSeed: jsonText(),
     /**
-     * The environment manifest it was made from and its version (D63): null for an Environment
-     * made from an inline manifest. Never changed after creation.
+     * The agent manifest it was made from and the version it resolved when it was made, which it
+     * runs: never changed after creation in protocol 16 (track T3 moves a tracking Agent on).
      */
-    manifestName: textC(),
-    manifestVersion: integer(),
-    /** The hash of what it runs (`recipe`), from creation on. */
-    manifestHash: textC(),
-    /** The Environment it was forked from: `{ environment, disk }` (Q15). Never changed. */
+    manifestName: textC().notNull(),
+    manifestVersion: integer().notNull(),
+    /** How it names the manifest: `tracking` (`name`) or `pinned` (`name@n`). */
+    manifestRef: text({ enum: ["tracking", "pinned"] }).notNull(),
+    /** The hash of the manifest version it runs. */
+    manifestHash: textC().notNull(),
+    /** `on`, or `off` once paused (track T6); nothing sets `off` yet. */
+    desiredState: text({ enum: ["on", "off"] }).notNull().default("on"),
+    /** The Agent it was forked from: `{ agent, disk }` (Q15). Never changed. */
     forkedFrom: jsonText(),
   },
   (t) => [
-    check("environments_kind_check", sql`${t.kind} IN ('virtual', 'pod', 'none')`),
-    index("environments_manifest").on(t.manifestName, t.manifestVersion),
+    check("agents_kind_check", sql`${t.kind} IN ('virtual', 'pod', 'none')`),
+    index("agents_manifest").on(t.manifestName, t.manifestVersion),
   ],
 );
 
 /**
- * An environment manifest's versions (D63): a named, versioned definition of a kind of
- * Environment, saved like an agent. A version is written once and never changed; a save whose
- * body hashes the same as the latest writes nothing.
+ * An agent manifest's versions (protocol 16): a named, versioned document with a harness and a
+ * runtime section. A version is written once and never changed; a save whose body hashes the
+ * same as the latest writes nothing.
  */
-export const environmentManifests = nylorun.table(
-  "environment_manifests",
+export const agentManifests = nylorun.table(
+  "agent_manifests",
   {
     name: textC().notNull(),
     version: integer().notNull(),
-    /** The manifest (`EnvironmentManifest`) as saved. */
+    /** The manifest (`AgentManifestV8`) as saved. */
     body: jsonText().notNull(),
     hash: textC().notNull(),
     /** `{ actor }`: the subject the save acted for, else `application`. */
     savedBy: jsonText().notNull(),
     createdAt: textC().notNull(),
   },
-  (t) => [primaryKey({ name: "environment_manifests_pkey", columns: [t.name, t.version] })],
+  (t) => [primaryKey({ name: "agent_manifests_pkey", columns: [t.name, t.version] })],
 );
 
 /**
@@ -318,7 +325,7 @@ export const vaults = nylorun.table(
     /** JSON text, or null. */
     metadataJson: text(),
     createdAt: textC().notNull(),
-    /** The Environment the vault belongs to; null only for the host vault. */
+    /** The Agent the vault belongs to; null only for the host vault. */
     environmentId: textC(),
   },
   (t) => [
@@ -326,7 +333,7 @@ export const vaults = nylorun.table(
     foreignKey({
       name: "vaults_environment_id_fkey",
       columns: [t.environmentId],
-      foreignColumns: [environments.id],
+      foreignColumns: [agents.id],
     }).onDelete("cascade"),
     check("vaults_owner_check", sql`(${t.id} = 'host') = (${t.environmentId} IS NULL)`),
   ],
@@ -442,7 +449,11 @@ export const modelUsage = nylorun.table(
     txid: xid8().notNull().default(sql`pg_current_xact_id()`),
     sessionId: textC().notNull(),
     turnId: textC().notNull(),
-    agentId: textC().notNull(),
+    /**
+     * The agent manifest the call's agent came from: the loop manifest's id, a version's name
+     * (protocol 16; the definition id before, under `agent_id`).
+     */
+    manifestName: textC().notNull(),
     provider: text(),
     model: text(),
     inputTokens: integer().notNull(),
@@ -466,7 +477,7 @@ export const modelUsage = nylorun.table(
     index("model_usage_session").on(t.sessionId, t.createdAt, t.id),
     index("model_usage_export").on(t.txid, t.id),
     index("model_usage_effect").on(t.effectKey),
-    index("model_usage_agent").on(t.agentId, t.createdAt),
+    index("model_usage_manifest").on(t.manifestName, t.createdAt),
     index("model_usage_turn").on(t.turnId),
     index("model_usage_created").on(t.createdAt),
   ],
@@ -474,13 +485,13 @@ export const modelUsage = nylorun.table(
 
 /**
  * Model budgets (P1.3): hard caps the model gate checks before each call, at least one limit
- * set. One row per scope: `turn` and `tenant` use `*`, `agent` the agent id. `period` is the
+ * set. One row per scope: `turn` and `tenant` use `*`, `manifest` the agent manifest's name. `period` is the
  * UTC `day` or `month` the spend is counted over, or null for `turn`.
  */
 export const modelBudgets = nylorun.table(
   "model_budgets",
   {
-    scope: text({ enum: ["tenant", "agent", "turn"] }).notNull(),
+    scope: text({ enum: ["tenant", "manifest", "turn"] }).notNull(),
     scopeId: textC().notNull(),
     period: text({ enum: ["day", "month"] }),
     limitUsd: doublePrecision(),
@@ -531,7 +542,7 @@ export const artifacts = nylorun.table(
     labelsJson: text(),
     createdAt: textC().notNull(),
     updatedAt: text().notNull(),
-    /** The Environment whose disk versions this folder holds (R2d step 3); one per Environment. */
+    /** The Agent whose disk versions this folder holds (R2d step 3); one per Agent. */
     environmentId: textC(),
   },
   (t) => [
@@ -614,9 +625,9 @@ export const definitionFiles = nylorun.table("definition_files", {
 });
 
 /**
- * Which definition version names which definition file: one row per agent id, manifest hash
- * and file, written when the definition is stored. A later sweep deletes the files no
- * definition uses.
+ * Which agent manifest version names which definition file: one row per owner
+ * (`agent-manifest:<name>`), manifest hash and file, written when the version is saved. A later
+ * sweep deletes the files no version uses.
  */
 export const definitionFileUses = nylorun.table(
   "definition_file_uses",
@@ -720,19 +731,19 @@ export const sandboxSignals = nylorun.table(
 // nylorun_streams: the record
 
 /**
- * Each Environment's lifecycle stream (`nylorun.environment-event/1`), numbered from 0 per
- * Environment id. Written only by the record module; not published to the stream relay.
+ * Each Agent's lifecycle stream (`nylorun.agent-event/1`), numbered from 0 per Agent id. Written
+ * only by the record module; not published to the stream relay.
  */
-export const environmentEvents = nylorunStreams.table(
-  "environment_events",
+export const agentEvents = nylorunStreams.table(
+  "agent_events",
   {
-    environmentId: textC().notNull(),
+    agentId: textC().notNull(),
     seq: bigint({ mode: "number" }).notNull(),
     type: text().notNull(),
     body: jsonText().notNull(),
     committedAt: timestamp({ withTimezone: true, mode: "string" }).notNull().defaultNow(),
   },
-  (t) => [primaryKey({ name: "environment_events_pkey", columns: [t.environmentId, t.seq] })],
+  (t) => [primaryKey({ name: "agent_events_pkey", columns: [t.agentId, t.seq] })],
 );
 
 /** Each session's log head: the next seq and the basin generation its events go to. */
@@ -778,7 +789,7 @@ export type SigningKeyRow = typeof signingKeys.$inferSelect;
 export type ModelUsageRow = typeof modelUsage.$inferSelect;
 export type ModelBudgetRow = typeof modelBudgets.$inferSelect;
 export type ToolCrossingRow = typeof toolCrossings.$inferSelect;
-export type EnvironmentRowColumns = typeof environments.$inferSelect;
+export type EnvironmentRowColumns = typeof agents.$inferSelect;
 export type ArtifactRow = typeof artifacts.$inferSelect;
 export type ArtifactVersionRow = typeof artifactVersions.$inferSelect;
 export type DefinitionFileRow = typeof definitionFiles.$inferSelect;

@@ -22,6 +22,7 @@ import { MemoryExecution } from "../src/execution/memory.js";
 import type { SandboxBackend } from "../src/sandbox/types.js";
 import type { TenantRuntime } from "../src/tenant/runtime.js";
 import { TenantWorkers } from "../src/tenant/worker.js";
+import { deploy } from "./support/agents.js";
 import { openTestSessionStore } from "./support/store.js";
 import { startTestTenant } from "./support/tenant.js";
 
@@ -149,24 +150,17 @@ async function boot(options: {
     ...(options.sandbox ? { sandbox: { backend: "virtual" as const, backends: [options.sandbox] } } : {}),
   });
   open.push(() => runtime.close());
-  if (options.sandbox) {
-    const environment = await fetch(`${runtime.url}/v1/environments/ws%2Fs1`, {
-      method: "PUT",
-      headers,
-      body: JSON.stringify({ kind: "virtual" }),
-    });
-    expect(environment.ok, await environment.clone().text()).toBe(true);
-  }
-  for (const [path, body] of [
-    ["/v1/agents/bot", { requestId: "put-1", manifest: options.agent.manifest, implementationVersion: "dev" }],
-    [
-      "/v1/sessions/s1",
-      { requestId: "session-s1", agentId: "bot", ownerUserId: "u", ...(options.sandbox ? { environment: "ws/s1" } : {}) },
-    ],
-  ] as const) {
-    const response = await fetch(`${runtime.url}${path}`, { method: "PUT", headers, body: JSON.stringify(body) });
-    expect(response.ok, await response.clone().text()).toBe(true);
-  }
+  const agent = options.sandbox ? "ws/s1" : "bot";
+  await deploy(runtime.url, headers, options.agent, {
+    id: agent,
+    ...(options.sandbox ? { runtime: { kind: "virtual" as const } } : {}),
+  });
+  const response = await fetch(`${runtime.url}/v1/sessions/s1`, {
+    method: "PUT",
+    headers,
+    body: JSON.stringify({ requestId: "session-s1", agent, ownerUserId: "u" }),
+  });
+  expect(response.ok, await response.clone().text()).toBe(true);
   return runtime;
 }
 

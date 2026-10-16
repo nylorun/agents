@@ -3,8 +3,8 @@
  * tool's name: `mcp` (a discovered MCP tool), `http` (a declared HTTP tool), `sandbox` (one of the
  * sandbox operations, in a session with a sandbox), `harness` (the harness's own) and `platform`
  * (`tool_search`). A call with no target, or one the session lacks, fails to the model as
- * `tool.unavailable`. `turn.start` states the Environment's facts: its id and kind, and its
- * sandbox's workspace with the spec in the routing.
+ * `tool.unavailable`. `turn.start` states the Agent's facts (`turn.start.agent`, Harness API 5):
+ * its id and kind, and its sandbox's workspace with the spec in the routing.
  */
 import { afterEach, expect, it } from "vitest";
 import {
@@ -15,7 +15,8 @@ import {
   type HarnessChannel,
   type TurnStart,
 } from "@nylorun/core/harness-api";
-import { boot, openSession, server, until, type Started } from "../host/execution-support.js";
+import { boot, plain, server, until, type Started } from "../host/execution-support.js";
+import { deploy } from "../support/agents.js";
 
 const cleanups: (() => Promise<unknown> | void)[] = [];
 afterEach(async () => {
@@ -41,21 +42,18 @@ async function call(runtime: Started, method: string, path: string, body?: unkno
   return { status: response.status, body: (await response.json().catch(() => undefined)) as any };
 }
 
-/** A Runtime with a custom harness, `acme-mini`, and session `id` on an Environment of `kind`. */
+/**
+ * A Runtime whose harness the test drives (it says our id, `nylorun`, in `hello`), and session
+ * s1 on an Agent of `kind`.
+ */
 async function start(kind: "none" | "virtual") {
   const runtime = await boot({ harness: "remote", sandbox: { backend: "virtual" } });
   cleanups.push(() => runtime.close());
   const acme = attach(runtime);
-  await acme.request("hello", { api: HARNESS_API_VERSION, name: "acme-mini", version: "0", features: {} });
+  await acme.request("hello", { api: HARNESS_API_VERSION, name: "nylorun", version: "0", features: {} });
   const env = `env-${kind}`;
-  expect((await call(runtime, "PUT", `/v1/environments/${env}`, { kind, harness: "acme-mini" })).status).toBe(200);
-  await openSession(runtime, "seed");
-  const opened = await call(runtime, "PUT", "/v1/sessions/s1", {
-    requestId: "s1",
-    agentId: "bot",
-    ownerUserId: "u",
-    environment: env,
-  });
+  await deploy(runtime.url, server, plain, { id: env, ...(kind === "none" ? {} : { runtime: { kind } }) });
+  const opened = await call(runtime, "PUT", "/v1/sessions/s1", { requestId: "s1", agent: env, ownerUserId: "u" });
   expect(opened.status, JSON.stringify(opened.body)).toBe(200);
   const leased = acme.request("lease", {});
   const sent = await call(runtime, "POST", "/v1/sessions/s1/commands", {
@@ -112,8 +110,9 @@ const unavailable = { status: "completed", outcome: { value: { code: "tool.unava
 
 it("routes by kind in a session without a sandbox: only the harness's own runs", async () => {
   const { input, intent, finish } = await start("none");
-  // The Environment's facts, and no sandbox.
-  expect(input.environment).toEqual({ id: "env-none", kind: "none" });
+  // The Agent's facts, and no sandbox.
+  expect(input.agent).toEqual({ id: "env-none", kind: "none" });
+  expect(input).not.toHaveProperty("environment");
   expect(input.routing.sandbox?.spec).toBeUndefined();
   expect(input.manifest).not.toHaveProperty("runtime");
 
@@ -143,7 +142,7 @@ it("routes by kind in a session without a sandbox: only the harness's own runs",
 
 it("runs a sandbox operation in a session with a sandbox, and states its workspace and spec", async () => {
   const { input, intent, finish } = await start("virtual");
-  expect(input.environment).toEqual({ id: "env-virtual", kind: "virtual", sandbox: { workspace: "/workspace" } });
+  expect(input.agent).toEqual({ id: "env-virtual", kind: "virtual", sandbox: { workspace: "/workspace" } });
   expect(input.routing.sandbox?.spec).toMatchObject({ idle: "15m", network: { preset: "none" } });
   expect(await intent("bash", { kind: "sandbox" })).toMatchObject({ status: "execute" });
   // A sandbox call names one of the operations; any other name runs nothing.

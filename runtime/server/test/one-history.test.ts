@@ -68,16 +68,12 @@ async function open(provider: ModelProvider, rollover?: { steps: number }) {
   });
   restore.push(() => runtime.close());
   const client = createClient({ url: runtime.url, key: runtime.applicationKey, tenant: runtime.tenantId });
-  await client.saveAgent(Agent({ id: "bot", name: "Bot" }).instructions("Help.").build(), {
-    implementationVersion: "dev",
+  await client.agentManifests.save({
+    agent: Agent({ id: "bot", name: "Bot" }).instructions("Help.").build(),
+    runtime: { kind: "virtual" },
   });
-  await client.environments.put("env-s1", { kind: "virtual" });
-  const session = await client.createSession({
-    id: "s1",
-    agentId: "bot",
-    ownerUserId: "ada",
-    environment: "env-s1",
-  });
+  await client.agents.put("env-s1", { manifest: "bot" });
+  const session = await client.createSession({ id: "s1", agent: "env-s1", ownerUserId: "ada" });
   const ref = { root: runtime.root, tenantId: runtime.tenantId };
   const row = () => withTestSessionStore(ref, (store) => store.tx((t) => t.get<any>("sessions", "s1")));
   const events = () =>

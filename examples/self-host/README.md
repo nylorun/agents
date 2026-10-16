@@ -20,13 +20,13 @@ shape, then replace each piece with your own.
 
 The realm's scopes are realm roles, put in the `nylorun_scopes` claim by a role mapper; an
 audience mapper adds `nylorun` to `aud`, and a hardcoded `org_id: acme` claim gives every token
-the Environment grant `acme/*`. Every service joins the Tenant's Compose network (`nylorun-selfhost`),
+the Agent grant `acme/*`. Every service joins the Tenant's Compose network (`nylorun-selfhost`),
 so the runtime fetches Keycloak's keys at `http://keycloak:8080` and oauth2-proxy reaches Studio
 at `http://studio:3000`.
 
 ## Run it
 
-Needs Docker with Compose v2, Node.js 24, `curl`, and a `nylorun` release that speaks protocol 13.
+Needs Docker with Compose v2, Node.js 24, `curl`, and a `nylorun` release that speaks protocol 16.
 Run the commands from this directory. `--no-link` keeps the Tenant from linking a project here.
 
 ```sh
@@ -60,15 +60,16 @@ and naming the `studio` scope.
 `ada` with the password grant, then:
 
 1. `GET /v1/me` with ben's token renders `issuer:keycloak`, the subject `u:<Keycloak user id>`,
-   `agents:read` and `sessions:own` but not `studio`, and the Environment grant `acme/*`; ada's has
+   `agents:read` and `sessions:own` but not `studio`, and the Agent grant `acme/*`; ada's has
    `studio`. A request with an `Origin` and ben's token is served.
 2. An application key (`nylorun tenant keys put smoke`, which rotates that key on each run) acts for any
-   person: it creates an agent, then a session for ben and one for another person with
-   `Nylorun-Subject`, and the Environments `acme/smoke-<run>` and `other/smoke-<run>` (kind `none`).
+   person: it saves an agent manifest with no runtime section and makes the Agents
+   `acme/smoke-<run>` and `other/smoke-<run>` (kind `none`) from it, then opens a session on
+   `acme/smoke-<run>` for ben and one for another person with `Nylorun-Subject`.
    The same key sent with an `Origin` is `403 origin_rejected`.
 3. ben's token lists his session and not the other one, gets `404` for the other one, `403` for a
    session owned by someone else, `200` for `acme/smoke-<run>` and `404` for `other/smoke-<run>`
-   (his grant is `acme/*`), `403` changing an Environment (no `environments:write`), and `403` on
+   (his grant is `acme/*`), `403` changing an Agent (no `agents:write`), and `403` on
    `GET /v1/tenant` (the Management API).
 4. Through oauth2-proxy, Studio refuses a request without a credential, answers ben with `403`,
    and signs ada in (`/_studio/hello` answers `200`). oauth2-proxy passes requests that carry a
@@ -77,14 +78,15 @@ and naming the `studio` scope.
 Settings: `NYLORUN_TENANT`, `NYLORUN_CLI` (default `npx --yes nylorun`), `RUNTIME_URL`,
 `NYLORUN_KEY` (use this key instead of rotating `smoke`), `KEYCLOAK_URL` and `PROXY_URL`.
 
-The smoke runs by hand, not in CI. It leaves its agent and sessions in the Tenant.
+The smoke runs by hand, not in CI. It leaves its manifest, Agents and sessions in the Tenant.
 
 ## A person's MCP credential
 
-A person's own key for an MCP server goes in their Environment (`ownerUserId` set to their
-subject: `u:<their Keycloak sub>` with this example's identity file, and an id in their grant,
-such as `acme/<them>`), as a `bearer` or `headers` secret bound to the server's URL
-(`PUT /v1/environments/{id}/secrets/{name}`); only their sessions may name it. A server that
+A person's own key for an MCP server goes in their Agent (`owner` set to their subject:
+`u:<their Keycloak sub>` with this example's identity file, and an id in their grant, such as
+`acme/<them>`), as a `bearer` or `headers` secret bound to the server's URL
+(`PUT /v1/agents/{id}/secrets/{name}`, only `{ value }` when the manifest declares the slot);
+only their sessions may run on it. A server that
 needs each person's sign-in goes through an MCP gateway: one secret with the gateway's key, `via`
 and an identity header, which the Runtime fills with the session owner's subject. See "Reaching a person's accounts" in
 [DEPLOYMENT.md](../../guides/DEPLOYMENT.md#reaching-a-persons-accounts). This example adds neither.

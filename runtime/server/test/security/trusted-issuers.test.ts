@@ -2,8 +2,8 @@
  * Trusted issuers (Host feature `trusted-issuers`, F9 I2): JWTs from the operator's identity
  * provider, configured in the identity file, verified against an in-test JWKS server or static
  * keys. Covers what verification refuses, the JWKS cache and outage, what an issuer token
- * reaches (its own sessions, its agents, its Environment grants), browsers, and `GET /v1/me` for
- * every credential.
+ * reaches (its own sessions, the Agents its grants name), browsers, and `GET /v1/me` for every
+ * credential.
  */
 import { createPublicKey } from "node:crypto";
 import { createServer, type Server } from "node:http";
@@ -19,6 +19,7 @@ import { startEphemeralRuntime, type EphemeralRuntime } from "../../src/tenant/e
 import { parseIdentityFile } from "../../src/tenant/identity-file.js";
 import { createTrustedIssuers } from "../../src/tenant/issuers.js";
 import { testPool } from "../support/store.js";
+import { deploy } from "../support/agents.js";
 
 const ISS = "https://idp.test/realms/eng";
 const STATIC_ISS = "https://static.test";
@@ -128,9 +129,8 @@ issuers:
     jwks: http://127.0.0.1:${port}/certs
     subject: "u:{sub}"
     scopes: { claim: nylorun_scopes }
-    allowedScopes: [agents:read, sessions:own, environments:write, studio]
-    agents: [bot]
-    environments: ["{org}/*", "shared"]
+    allowedScopes: [agents:read, sessions:own, studio]
+    agents: [bot, "{org}/*", "shared"]
   - name: fixed
     issuer: ${STATIC_ISS}
     audience: api
@@ -153,15 +153,15 @@ ${edPem
       now: () => Date.now() + skew,
     }),
   });
-  for (const id of ["bot", "other"]) {
-    const agent = Agent({ id, name: id }).build();
-    const saved = await app("PUT", `/v1/agents/${id}`, {
-      requestId: `save-${id}`,
-      manifest: agent.manifest,
-      implementationVersion: "dev",
-    });
-    expect(saved.status).toBe(200);
-  }
+  const headers = {
+    [PROTOCOL_HEADER]: String(PROTOCOL_VERSION),
+    authorization: `Bearer ${runtime.applicationKey}`,
+    "content-type": "application/json",
+  };
+  const bot = Agent({ id: "bot", name: "bot" }).build();
+  await deploy(runtime.url, headers, bot);
+  await deploy(runtime.url, headers, Agent({ id: "other", name: "other" }).build());
+  for (const id of ["acme/box", "globex/box", "shared"]) await deploy(runtime.url, headers, bot, { id });
 }, 60_000);
 
 afterAll(async () => {
@@ -182,8 +182,7 @@ describe("verification", () => {
     expect(reply.body).toEqual({
       subject: "u:alice",
       scopes: ["agents:read", "sessions:own", "studio"],
-      agents: ["bot"],
-      environments: ["acme/*", "shared"],
+      agents: ["acme/*", "bot", "shared"],
       via: "issuer:idp",
     });
   });
@@ -204,8 +203,8 @@ describe("verification", () => {
     expect(fixed.body).toEqual({
       subject: "s:pat@acme.dev",
       scopes: ["sessions:own"],
-      agents: "*",
-      environments: [],
+      // No `agents` in its entry: it reaches no Agent.
+      agents: [],
       via: "issuer:fixed",
     });
   });
@@ -214,7 +213,9 @@ describe("verification", () => {
     const reply = await call(
       "GET",
       "/v1/me",
-      await token(rsa, { nylorun_scopes: ["sessions:own", "agents:write", "tenant:settings", "bogus"] }),
+      await token(rsa, {
+        nylorun_scopes: ["sessions:own", "agents:write", "environments:write", "tenant:settings", "bogus"],
+      }),
     );
     expect(reply.body.scopes).toEqual(["sessions:own"]);
   });
@@ -310,7 +311,7 @@ describe("what an issuer token reaches", () => {
   it("sees only its own sessions", async () => {
     const alice = await as("alice");
     const created = await call("PUT", "/v1/sessions/alice-1", alice, {
-      body: { requestId: "alice-1", agentId: "bot", ownerUserId: "u:alice" },
+      body: { requestId: "alice-1", agent: "bot", ownerUserId: "u:alice" },
     });
     expect(created.status, JSON.stringify(created.body)).toBe(200);
     expect((await app("GET", "/v1/sessions/alice-1")).body.ownerUserId).toBe("u:alice");
@@ -322,28 +323,29 @@ describe("what an issuer token reaches", () => {
     expect((await call("GET", "/v1/sessions/alice-1", alice)).status).toBe(200);
   });
 
-  it("reaches only the issuer's agents", async () => {
+  it("opens sessions only on the Agents its grants name", async () => {
     const alice = await as("alice");
-    const agents = await call("GET", "/v1/agents", alice);
-    expect(agents.status).toBe(200);
-    expect(agents.body.agents.map((agent: { agentId: string }) => agent.agentId)).toEqual(["bot"]);
     const refused = await call("PUT", "/v1/sessions/alice-other", alice, {
-      body: { requestId: "alice-other", agentId: "other", ownerUserId: "u:alice" },
+      body: { requestId: "alice-other", agent: "other", ownerUserId: "u:alice" },
     });
     expect([403, 404]).toContain(refused.status);
+    const granted = await call("PUT", "/v1/sessions/alice-box", alice, {
+      body: { requestId: "alice-box", agent: "acme/box", ownerUserId: "u:alice" },
+    });
+    expect(granted.status, JSON.stringify(granted.body)).toBe(200);
   });
 
-  it("reaches only the Environments its rendered grants name", async () => {
-    for (const id of ["acme/box", "globex/box", "shared"])
-      expect((await app("PUT", `/v1/environments/${encodeURIComponent(id)}`, {})).status).toBe(200);
+  it("reaches only the Agents its rendered grants name", async () => {
     const alice = await as("alice");
-    expect((await call("GET", `/v1/environments/${encodeURIComponent("acme/box")}`, alice)).status).toBe(200);
-    expect((await call("GET", `/v1/environments/${encodeURIComponent("globex/box")}`, alice)).status).toBe(404);
-    const listed = await call("GET", "/v1/environments", alice);
-    expect(listed.body.environments.map((item: { id: string }) => item.id).sort()).toEqual(["acme/box", "shared"]);
+    expect((await call("GET", `/v1/agents/${encodeURIComponent("acme/box")}`, alice)).status).toBe(200);
+    expect((await call("GET", `/v1/agents/${encodeURIComponent("globex/box")}`, alice)).status).toBe(404);
+    expect((await call("GET", "/v1/agents/other", alice)).status).toBe(404);
+    const listed = await call("GET", "/v1/agents", alice);
+    expect(listed.status).toBe(200);
+    expect(listed.body.agents.map((item: { id: string }) => item.id).sort()).toEqual(["acme/box", "bot", "shared"]);
     // A claim that is not one id segment renders no grant: it never widens the template.
     const sneaky = await as("mallory", { org: "globex/box/.." });
-    expect((await call("GET", "/v1/me", sneaky)).body.environments).toEqual(["shared"]);
+    expect((await call("GET", "/v1/me", sneaky)).body.agents).toEqual(["bot", "shared"]);
   });
 
   it("is accepted from a browser, with no toggle (protocol 7)", async () => {

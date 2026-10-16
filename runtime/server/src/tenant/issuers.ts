@@ -339,7 +339,7 @@ export async function verifyIssuerToken(
   const subject = renderTemplate(config.subject, (claim) => scalarClaim(payload, claim));
   if (subject === undefined || !isSubject(subject) || RESERVED.has(subject))
     return rejected("issuer_token_subject");
-  const environments = config.environments?.flatMap((grant) => {
+  const agents = (config.agents ?? []).flatMap((grant) => {
     const rendered = renderTemplate(grant, (claim) => {
       const value = scalarClaim(payload, claim);
       return value !== undefined && GRANT_SEGMENT.test(value) ? value : undefined;
@@ -356,8 +356,8 @@ export async function verifyIssuerToken(
     issuer: config.name,
     subject,
     scopes: scopesOf(config, payload),
-    agents: config.agents ? new Set(config.agents) : "*",
-    environments: [...new Set(environments ?? [])],
+    // `*` reaches every Agent; no grant reaches none.
+    agents: agents.includes("*") ? "*" : [...new Set(agents)],
     expiresAt: payload.exp! * 1000,
     tokenId: jti,
     ...(verdict.kid !== undefined ? { keyId: verdict.kid } : {}),

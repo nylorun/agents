@@ -14,6 +14,7 @@ import type { ModelProvider } from "../../src/core/provider.js";
 import type { SandboxBackend } from "../../src/sandbox/types.js";
 import { effectSpanOf, traceIdOf, traceparentOf, turnSpanOf } from "../../src/traces/ids.js";
 import { traceKey } from "../../src/traces/key.js";
+import { deploy, type Loop } from "../support/agents.js";
 import { openTestSessionStore } from "../support/store.js";
 import { startTestTenant, testHarnessMode } from "../support/tenant.js";
 
@@ -49,7 +50,7 @@ function oneCall(name: string, args: Record<string, unknown>): ModelProvider {
   };
 }
 
-async function boot(options: { model: ModelProvider; manifest: unknown; sandbox?: SandboxBackend }) {
+async function boot(options: { model: ModelProvider; manifest: Loop; sandbox?: SandboxBackend }) {
   const frames: { frame: any }[] = [];
   const runtime = await startTestTenant({
     applicationKey: APP,
@@ -62,14 +63,12 @@ async function boot(options: { model: ModelProvider; manifest: unknown; sandbox?
     const response = await fetch(`${runtime.url}${path}`, { method: "PUT", headers, body: JSON.stringify(body) });
     expect(response.ok, await response.clone().text()).toBe(true);
   };
-  if (options.sandbox) await put("/v1/environments/ws%2Fs1", { kind: "virtual" });
-  await put("/v1/agents/bot", { requestId: "put-1", manifest: options.manifest, implementationVersion: "dev" });
-  await put("/v1/sessions/s1", {
-    requestId: "s1",
-    agentId: "bot",
-    ownerUserId: "u",
-    ...(options.sandbox ? { environment: "ws/s1" } : {}),
+  const agent = options.sandbox ? "ws/s1" : "bot";
+  await deploy(runtime.url, headers, options.manifest, {
+    id: agent,
+    ...(options.sandbox ? { runtime: { kind: "virtual" as const } } : {}),
   });
+  await put("/v1/sessions/s1", { requestId: "s1", agent, ownerUserId: "u" });
   const store = await openTestSessionStore({ root: runtime.root, tenantId: runtime.tenantId });
   const key = await traceKey(store).finally(() => store.close());
   return { runtime, frames, key };

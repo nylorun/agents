@@ -37,30 +37,40 @@ it("starter source imports only @nylorun/agents among Nylorun packages", async (
   ]);
   expect(files["src/main.ts"]).toBe(
     [
-      "import { readdir, readFile } from \"node:fs/promises\";",
+      "import { readFile } from \"node:fs/promises\";",
       "import { createClient } from \"@nylorun/agents\";",
       "import { agents } from \"../agents/index.js\";",
       "",
-      "// Saves each agent's definition and each environment manifest to the Runtime, which runs them;",
-      "// nothing here keeps running. The client finds the Runtime through the Project link, or",
-      "// NYLORUN_RUNTIME_URL and NYLORUN_SERVER_KEY.",
+      "// Saves each agent as an agent manifest, with the runtime it runs in, and makes the Agent its",
+      "// sessions run on (named after it); nothing here keeps running. The client finds the Runtime",
+      "// through the Project link, or NYLORUN_RUNTIME_URL and NYLORUN_SERVER_KEY.",
       "const client = await createClient();",
+      "// The runtime section the agents share: a virtual workspace with no network.",
+      "const { $schema: _, ...runtime } = JSON.parse(",
+      "  await readFile(new URL(\"../runtime/scratch.runtime.json\", import.meta.url), \"utf8\"),",
+      ");",
+      "// `npm run dev` passes --dev: an Agent made from an older version is made again from the new one,",
+      "// so new sessions run your edit (sessions already open keep the version they pinned). Elsewhere an",
+      "// Agent keeps the version it was made from, and a newer one reaches it through a fork.",
+      "const dev = process.argv.includes(\"--dev\");",
       "for (const agent of agents) {",
-      "  await client.saveAgent(agent);",
-      "  console.log(`Saved agent ${agent.id}`);",
-      "}",
-      "// An Environment is made from one version of a manifest and never changes; a new version",
-      "// reaches it through a fork.",
-      "const environments = new URL(\"../environments/\", import.meta.url);",
-      "for (const file of (await readdir(environments)).filter((name) => name.endsWith(\".json\"))) {",
-      "  const manifest = JSON.parse(await readFile(new URL(file, environments), \"utf8\"));",
-      "  const { manifest: saved, unchanged } = await client.environments.manifests.save(manifest);",
-      "  console.log(`${unchanged ? \"Unchanged\" : \"Saved\"} environment manifest ${saved.name} v${saved.version}`);",
+      "  const { manifest } = await client.agentManifests.save({ agent, runtime });",
+      "  let made = await client.agents.put(agent.id, { manifest: agent.id });",
+      "  if (dev && made.resolvedVersion < manifest.version) {",
+      "    await client.agents.delete(agent.id);",
+      "    made = await client.agents.put(agent.id, { manifest: agent.id });",
+      "  }",
+      "  console.log(`Saved agent ${agent.id} v${manifest.version} (Agent ${made.id} runs v${made.resolvedVersion})`);",
       "}",
       "",
     ].join("\n")
   );
-  expect(JSON.parse(files["environments/scratch.json"]!)).toMatchObject({ manifestSchemaVersion: 1, name: "scratch", kind: "virtual" });
+  expect(files["environments/scratch.json"]).toBeUndefined();
+  expect(JSON.parse(files["runtime/scratch.runtime.json"]!)).toEqual({
+    $schema: "https://docs.nylorun.com/schemas/runtime-manifest/v1.json",
+    kind: "virtual",
+    network: { allowedHosts: [] },
+  });
   for (const [path, content] of sources) {
     const imports = [
       ...content.matchAll(/from\s+["'](@nylorun\/[^"']+)["']/g),

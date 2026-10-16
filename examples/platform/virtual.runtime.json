@@ -1,0 +1,12 @@
+{
+  "$schema": "https://docs.nylorun.com/schemas/runtime-manifest/v1.json",
+  "kind": "virtual",
+  "network": { "allowedHosts": [] },
+  "secrets": {
+    "GITHUB_TOKEN": {
+      "type": "bearer",
+      "url": "https://api.githubcopilot.com/mcp/",
+      "description": "A GitHub token that may read issues, for GitHub's MCP server"
+    }
+  }
+}

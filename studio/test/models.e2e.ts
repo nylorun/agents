@@ -53,7 +53,7 @@ async function fakeRuntime() {
     if (path === "/v1/tenant") return send(200, { tenant: { id: TENANT, name: "orders" } });
     if (path === "/v1/agents") return send(200, { agents: [] });
     if (path === "/v1/sessions") return send(200, { sessions: [] });
-    if (path === "/v1/environments") return send(200, { environments: [] });
+    if (path === "/v1/agent-manifests") return send(200, { manifests: [] });
     if (path === "/v1/tenant/models/inputs" && req.method === "PUT") {
       const body = JSON.parse(raw);
       puts.push({ path, body });

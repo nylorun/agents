@@ -88,9 +88,9 @@ export async function buildTenantStatus(
   ctx: TenantStatusContext,
 ): Promise<TenantStatus> {
   const health = await ctx.store.health();
-  const { counts, definitions } = await ctx.store.tx(async (t) => ({
+  const { counts, rows } = await ctx.store.tx(async (t) => ({
     counts: await t.counts(),
-    definitions: await t.listDefinitions(),
+    rows: await t.listEnvironments(),
   }));
   const [modelView, sandboxReport, execution, streams] = await Promise.all([
     ctx.vault.getHostModel(),
@@ -99,13 +99,10 @@ export async function buildTenantStatus(
     ctx.streamsStatus?.(),
   ]);
 
-  const agents = [
-    ...new Set(
-      definitions
-        .map((d) => (d.manifest as { id?: unknown } | undefined)?.id)
-        .filter((id): id is string => typeof id === "string"),
-    ),
-  ]
+  // The Tenant's Agents; a pod Agent being deleted is none.
+  const agents = rows
+    .filter((row) => row.pod?.desired !== "deleted")
+    .map((row) => row.id)
     .sort()
     .map((agentId) => ({ agentId }));
 

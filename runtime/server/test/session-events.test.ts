@@ -2,6 +2,7 @@ import { expect, it } from "vitest";
 import { Agent } from "@nylorun/core/define";
 import { decodeCursor, encodeCursor } from "../src/record/index.js";
 import { startTestTenant } from "./support/tenant.js";
+import { deploy, openSession } from "./support/agents.js";
 
 const APP = "server-token-value-aaaaaaaa";
 const headers = {
@@ -75,27 +76,11 @@ async function readStream(
 it("numbers events per session and replays SSE after a cursor, then follows live", async () => {
   const runtime = await startTestTenant({ applicationKey: APP });
   try {
-    const agent = Agent({ id: "bot", name: "Bot" }).build();
-    await fetch(`${runtime.url}/v1/agents/bot`, {
-      method: "PUT",
-      headers,
-      body: JSON.stringify({
-        requestId: "agent",
-        manifest: agent.manifest,
-        implementationVersion: "dev",
-      }),
-    });
-    await fetch(`${runtime.url}/v1/sessions/s1`, {
-      method: "PUT",
-      headers,
-      body: JSON.stringify({
-        requestId: "session",
-        agentId: "bot",
-        ownerUserId: "ada",
-      }),
-    });
+    await deploy(runtime.url, headers, Agent({ id: "bot", name: "Bot" }).build());
+    expect((await openSession(runtime.url, headers, "s1", { agent: "bot", ownerUserId: "ada" })).ok).toBe(true);
+    // The session's first event, at seq 0, is `agent.attached` (protocol 16); the message follows.
     const accepted = await say(runtime.url, "first");
-    expect(accepted.cursor).toBe(encodeCursor("s1", 0));
+    expect(accepted.cursor).toBe(encodeCursor("s1", 1));
     const first = await settled(runtime.url, 1);
     // Served events skip the seqs of internal events (transcript.updated): they only increase.
     const firstSeqs = first.map((e) => decodeCursor("s1", e.cursor));

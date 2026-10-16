@@ -6,7 +6,8 @@ import { expect, it } from "vitest";
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { Agent, hashManifest } from "@nylorun/core/define";
+import { Agent, hashManifest, loopManifestOf } from "@nylorun/core/define";
+import { manifestOf, putAgent, putSecret, saveManifest, writeManifest, writeSecret, type Loop } from "./support/agents.js";
 import { startTestTenant } from "./support/tenant.js";
 
 const APP = "server-token-value-aaaaaaaa";
@@ -150,67 +151,30 @@ async function boot(_directory: string, model?: ModelProvider) {
   });
 }
 
-/** Creates Environment `environmentId` (no sandbox), if it is not there yet. */
-async function createEnvironment(runtime: { url: string }, environmentId: string) {
-  const response = await fetch(`${runtime.url}/v1/environments/${environmentId}`, {
-    method: "PUT",
-    headers: serverHeaders,
-    body: JSON.stringify({ requestId: `env-${environmentId}`, kind: "none" }),
-  });
-  expect(response.ok, await response.clone().text()).toBe(true);
+/** Writes a bearer credential for `url` to Agent `agentId`'s vault, as secret `name`. */
+function putBearer(runtime: { url: string }, agentId: string, name: string, url: string, token: string) {
+  return writeSecret(runtime.url, serverHeaders, agentId, name, { type: "bearer", url, value: token } as never);
 }
 
-/** Writes a bearer credential for `url` to the Environment's vault, as secret `name`. */
-async function putBearer(
-  runtime: { url: string },
-  environmentId: string,
-  name: string,
-  url: string,
-  token: string,
-) {
-  return fetch(`${runtime.url}/v1/environments/${environmentId}/secrets/${name}`, {
-    method: "PUT",
-    headers: serverHeaders,
-    body: JSON.stringify({ requestId: `secret-${name}`, type: "bearer", url, value: token }),
-  });
+/** Agent `agentId` (kind none) of manifest `bot`, with one bearer credential for `url`. */
+async function createBearer(runtime: { url: string }, agentId: string, url: string, token: string) {
+  await putAgent(runtime.url, serverHeaders, agentId, { manifest: "bot" });
+  await putSecret(runtime.url, serverHeaders, agentId, "github", { type: "bearer", url, value: token } as never);
+  return { agentId };
 }
 
-/** An Environment with one bearer credential for `url`. */
-async function createBearer(runtime: { url: string }, environmentId: string, url: string, token: string) {
-  await createEnvironment(runtime, environmentId);
-  const response = await putBearer(runtime, environmentId, "github", url, token);
-  expect(response.status, await response.clone().text()).toBe(200);
-  return { environmentId };
+/** Saves `manifest` as agent manifest `bot` and makes Agent `bot` (kind none) from it. */
+async function register(runtime: { url: string }, manifest: Loop) {
+  await saveManifest(runtime.url, serverHeaders, manifestOf(manifest));
+  return putAgent(runtime.url, serverHeaders, "bot", { manifest: "bot" });
 }
 
-async function register(runtime: { url: string }, manifest: unknown) {
-  const response = await fetch(`${runtime.url}/v1/agents/bot`, {
-    method: "PUT",
-    headers: serverHeaders,
-    body: JSON.stringify({
-      requestId: "put-agent",
-      manifest,
-      implementationVersion: "dev",
-    }),
-  });
-  expect(response.ok).toBe(true);
-  return response.json() as Promise<{ manifestHash: string }>;
-}
-
-async function openSession(
-  runtime: { url: string },
-  id: string,
-  body: Record<string, unknown> = {},
-) {
+/** Opens session `id` on Agent `agent` (default `bot`). */
+async function openSession(runtime: { url: string }, id: string, agent = "bot") {
   const response = await fetch(`${runtime.url}/v1/sessions/${id}`, {
     method: "PUT",
     headers: serverHeaders,
-    body: JSON.stringify({
-      requestId: `session-${id}`,
-      agentId: "bot",
-      ownerUserId: "ada",
-      ...body,
-    }),
+    body: JSON.stringify({ requestId: `session-${id}`, agent, ownerUserId: "ada" }),
   });
   expect(response.ok, await response.clone().text()).toBe(true);
 }
@@ -265,13 +229,15 @@ it("discovers a remote MCP server with a bearer and calls it from the Runtime", 
         },
       })
       .build();
-    const registered = await register(runtime, agent.manifest);
-    expect(registered.manifestHash).toBe(hashManifest(agent.manifest));
-    const { environmentId } = await createBearer(runtime, "ada-env", remote.url, TOKEN);
-    await openSession(runtime, "s1", { environment: environmentId });
+    await register(runtime, agent.manifest);
+    const { agentId } = await createBearer(runtime, "ada-env", remote.url, TOKEN);
+    await openSession(runtime, "s1", agentId);
     await say(runtime, "s1", "read the issue");
     const session = await until(runtime, "s1", ["completed", "failed", "uncertain"]);
     expect(session.status).toBe("completed");
+    // The session pins the loop manifest of the manifest version its Agent resolved.
+    expect(session).toMatchObject({ agentId: "ada-env", manifest: { name: "bot", version: 1 } });
+    expect(session.manifestHash).toBe(hashManifest(loopManifestOf(manifestOf(agent.manifest)) as never));
     expect(session.mcpSnapshot.servers).toEqual([
       expect.objectContaining({ name: "github", tools: [expect.objectContaining({ name: "get_issue" })] }),
     ]);
@@ -392,16 +358,16 @@ it("refuses a second credential for one server at the write, and connects with t
       })
       .build();
     await register(runtime, agent.manifest);
-    const { environmentId } = await createBearer(runtime, "ada-env", github.url, TOKEN);
+    const { agentId } = await createBearer(runtime, "ada-env", github.url, TOKEN);
     // Ambiguity is refused where it would start (protocol 11): one credential per URL.
-    const second = await putBearer(runtime, environmentId, "other", github.url, `${TOKEN}-other`);
+    const second = await putBearer(runtime, agentId, "other", github.url, `${TOKEN}-other`);
     expect(second.status).toBe(409);
-    expect(await second.json()).toMatchObject({ code: "credential_conflict" });
+    expect(second.body).toMatchObject({ code: "credential_conflict" });
     const secrets = await (
-      await fetch(`${runtime.url}/v1/environments/${environmentId}/secrets`, { headers: serverHeaders })
+      await fetch(`${runtime.url}/v1/agents/${agentId}/secrets`, { headers: serverHeaders })
     ).json();
     expect(secrets.secrets.map((secret: { name: string }) => secret.name)).toEqual(["github"]);
-    await openSession(runtime, "s1", { environment: environmentId });
+    await openSession(runtime, "s1", agentId);
     await say(runtime, "s1", "hello");
     const session = await until(runtime, "s1", ["completed", "failed", "uncertain"]);
     expect(session.status).toBe("completed");
@@ -589,25 +555,20 @@ it("gives a lost MCP answer to the model as mcp.lost, and never sends the call a
   }
 });
 
-it("refuses to store an agent that declares a stdio MCP server", async () => {
+it("refuses to save an agent manifest that declares a stdio MCP server", async () => {
   const directory = await mkdtemp(join(tmpdir(), "mcp-stdio-"));
   const runtime = await boot(directory);
   try {
-    const manifest = Agent({ id: "bot", name: "Bot" }).build().manifest;
-    const response = await fetch(`${runtime.url}/v1/agents/bot`, {
-      method: "PUT",
-      headers: serverHeaders,
-      body: JSON.stringify({
-        requestId: "put-agent",
-        manifest: {
-          ...manifest,
-          mcpServers: { local: { name: "local", type: "stdio", command: "./server.mjs" } },
-        },
-        implementationVersion: "dev",
-      }),
-    });
+    const manifest = manifestOf(Agent({ id: "bot", name: "Bot" }).build());
+    const response = await writeManifest(runtime.url, serverHeaders, {
+      ...manifest,
+      harness: {
+        ...manifest.harness,
+        mcpServers: { local: { name: "local", type: "stdio", command: "./server.mjs" } },
+      },
+    } as never);
     expect(response.status).toBe(400);
-    expect((await response.json()).message).toContain(
+    expect((response.body as { message: string }).message).toContain(
       "MCP server 'local' uses stdio; Nylorun accepts remote MCP servers only (streamable-http or sse).",
     );
   } finally {

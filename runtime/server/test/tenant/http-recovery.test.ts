@@ -12,6 +12,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { Agent, http } from "@nylorun/agents";
 import { openTestSessionStore } from "../support/store.js";
+import { deploy, openSession } from "../support/agents.js";
 import type { TenantRuntime } from "../../src/tenant/runtime.js";
 import { MemoryExecution } from "../../src/execution/memory.js";
 import { TenantWorkers } from "../../src/tenant/worker.js";
@@ -78,13 +79,8 @@ async function boot(url: string, kind: Kind): Promise<Started> {
   const slow = http({ name: "slow", input: z.object({ value: z.number() }), url });
   const agent =
     kind === "tool" ? Agent({ id: "bot", name: "Bot" }).tools(slow).build() : Agent({ id: "bot" }).pipe(slow).build();
-  for (const [path, body] of [
-    ["/v1/agents/bot", { requestId: "put-1", manifest: agent.manifest, implementationVersion: "dev" }],
-    ["/v1/sessions/s1", { requestId: "session-s1", agentId: "bot", ownerUserId: "u" }],
-  ] as const) {
-    const response = await fetch(`${runtime.url}${path}`, { method: "PUT", headers, body: JSON.stringify(body) });
-    expect(response.ok).toBe(true);
-  }
+  await deploy(runtime.url, headers, agent);
+  expect((await openSession(runtime.url, headers, "s1", { agent: "bot", ownerUserId: "u" })).ok).toBe(true);
   const message = await fetch(`${runtime.url}/v1/sessions/s1/commands`, {
     method: "POST",
     headers,

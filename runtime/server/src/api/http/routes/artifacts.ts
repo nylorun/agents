@@ -683,11 +683,11 @@ export function artifactRoutes(api: OpenAPIHono<TenantEnv>): void {
       tags: ["Artifacts"],
       summary: "Delete an artifact",
       description:
-        "Deletes every version and its bytes; its links stop working. A session's artifact gets `artifact.deleted` in its history. An Environment's disk versions are deleted through `/v1/environments/{environmentId}/versions/{version}` (`409` here).",
+        "Deletes every version and its bytes; its links stop working. A session's artifact gets `artifact.deleted` in its history. An Agent's disk versions are deleted through `/v1/agents/{agentId}/versions/{version}` (`409` here).",
       request: { params: artifactId },
       responses: {
         200: json(DeleteArtifactResponse, "Deleted"),
-        409: { description: "The artifact holds an Environment's disk versions" },
+        409: { description: "The artifact holds an Agent's disk versions" },
       },
     },
     async (c) =>

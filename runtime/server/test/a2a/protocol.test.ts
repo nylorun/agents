@@ -375,13 +375,13 @@ describe("agentCard", () => {
         description: "Answers questions.",
         instructions: "secret",
       } as never,
-      implementationVersion: "1.2.0",
+      version: "support@3",
     });
     expect(card).toEqual({
       name: "Support",
       description: "Answers questions.",
       supportedInterfaces: [],
-      version: "1.2.0",
+      version: "support@3",
       capabilities: { streaming: false, pushNotifications: false, extendedAgentCard: false },
       defaultInputModes: ["text/plain", "application/json"],
       defaultOutputModes: ["text/plain", "application/json"],
@@ -392,7 +392,7 @@ describe("agentCard", () => {
   it("advertises the input modes it is given; output stays text and JSON", () => {
     const card = agentCard(
       "support",
-      { manifest: { id: "support" }, implementationVersion: "1" },
+      { manifest: { id: "support" }, version: "support@1" },
       ["text/plain", "application/json", "image/png", "application/pdf"]
     );
     expect(card.defaultInputModes).toEqual(["text/plain", "application/json", "image/png", "application/pdf"]);

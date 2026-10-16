@@ -96,7 +96,7 @@ function credential(
   };
 }
 
-/** An Environment's row (`Tx.createEnvironment`) of kind virtual. */
+/** An Agent's row (`Tx.createEnvironment`) of kind virtual, made from version 1 of manifest `bot`. */
 function environmentRow(id: string, fields: Record<string, unknown> = {}) {
   const at = "2030-01-01T00:00:00.000Z";
   const recipe = { harness: "nylorun", lifecycle: {} };
@@ -111,7 +111,24 @@ function environmentRow(id: string, fields: Record<string, unknown> = {}) {
     lastUsedAt: at,
     createdAt: at,
     updatedAt: at,
+    manifestName: "bot",
+    manifestVersion: 1,
+    manifestRef: "tracking" as const,
+    manifestHash: "sha256:bot-1",
+    desiredState: "on" as const,
     ...fields,
+  };
+}
+
+/** Version `version` of agent manifest `name` (`Tx.insertAgentManifest`). */
+function manifestRow(name: string, version = 1) {
+  return {
+    name,
+    version,
+    body: { manifestSchemaVersion: 8, name, harness: { instructions: [`${name} ${version}`] } } as never,
+    hash: `sha256:${name}-${version}`,
+    savedBy: { actor: "application" },
+    createdAt: "2030-01-01T00:00:00.000Z",
   };
 }
 
@@ -172,13 +189,14 @@ export function storeContract(name: string, factory: StoreFactory): void {
       it("replaces a document on put and returns copies", async () => {
         const store = await fresh();
         await store.tx(async (t) => {
-          await t.put("definitions", "d", { manifest: { id: "a" }, v: 1 });
-          await t.put("definitions", "d", { manifest: { id: "a" }, v: 2 });
+          await t.put("sandboxes", "d", { key: "d", state: { id: "a" }, v: 1 });
+          await t.put("sandboxes", "d", { key: "d", state: { id: "a" }, v: 2 });
         });
-        const first = await store.tx((t) => t.get("definitions", "d"));
+        const first = await store.tx((t) => t.get("sandboxes", "d"));
         first.v = 99;
-        expect(await store.tx((t) => t.get("definitions", "d"))).toEqual({
-          manifest: { id: "a" },
+        expect(await store.tx((t) => t.get("sandboxes", "d"))).toEqual({
+          key: "d",
+          state: { id: "a" },
           v: 2,
         });
       });
@@ -506,7 +524,7 @@ export function storeContract(name: string, factory: StoreFactory): void {
         expect((await recorded(store)).map((r) => [r.sessionId, r.seq, r.generation])).toEqual([
           ["s1", 0, 1],
         ]);
-        await store.tx((t) => t.reset("environments"));
+        await store.tx((t) => t.reset("agents"));
         expect((await store.tx((t) => t.basinGenerations())).current).toBe(1);
         await store.tx((t) => t.forgetRetiredGeneration(0));
         expect(await store.tx((t) => t.basinGenerations())).toEqual({ current: 1, retired: [] });
@@ -716,8 +734,9 @@ export function storeContract(name: string, factory: StoreFactory): void {
           await t.put("links", "ghost", { workflowSessionId: "wf", path: "g", effectId: "e9", turnId: "wt" });
           await t.put("links", "other", { workflowSessionId: "wf-2", path: "x", effectId: "e0", turnId: "wt" });
 
-          await t.put("definitions", "agent-a", { manifest: { id: "agent-a" } });
-          await t.put("definitions", "agent-b", { manifest: { id: "agent-b" } });
+          await t.insertAgentManifest(manifestRow("agent-a"));
+          await t.insertAgentManifest(manifestRow("agent-b"));
+          await t.insertAgentManifest(manifestRow("agent-b", 2));
           await t.put("sandboxes", "sb1", { key: "sb1", state: "running" });
         });
       }
@@ -778,27 +797,39 @@ export function storeContract(name: string, factory: StoreFactory): void {
         expect(await store.tx((t) => t.linkedSessions("nope"))).toEqual([]);
       });
 
-      it("lists definitions and sandboxes and counts", async () => {
+      it("lists agent manifests and sandboxes and counts", async () => {
         const store = await fresh();
         expect(await store.tx((t) => t.counts())).toEqual({
           sessions: 0,
           runningSessions: 0,
           uncertainEffects: 0,
           sandboxes: 0,
-          definitions: 0,
+          agentManifests: 0,
         });
         await seed(store);
         await store.tx(async (t) => {
-          expect((await t.listDefinitions()).map((d) => d.manifest.id)).toEqual(["agent-a", "agent-b"]);
+          expect((await t.listAgentManifests()).map((m) => [m.name, m.version])).toEqual([
+            ["agent-a", 1],
+            ["agent-b", 2],
+          ]);
+          expect((await t.agentManifestVersions("agent-b")).map((m) => m.version)).toEqual([2, 1]);
+          expect(await t.agentManifest("agent-b", 1)).toEqual(manifestRow("agent-b"));
+          expect((await t.agentManifest("agent-b"))!.version).toBe(2);
+          expect(await t.agentManifest("nobody")).toBeUndefined();
           expect(await t.listSandboxes()).toEqual([{ key: "sb1", state: "running" }]);
+          // Every version counts.
           expect(await t.counts()).toEqual({
             sessions: 7,
             runningSessions: 3,
             uncertainEffects: 1,
             sandboxes: 1,
-            definitions: 2,
+            agentManifests: 3,
           });
         });
+        // A version is written once.
+        await expect(store.tx((t) => t.insertAgentManifest(manifestRow("agent-a")))).rejects.toThrow();
+        expect(await store.tx((t) => t.deleteAgentManifest("agent-b"))).toBe(2);
+        expect((await store.tx((t) => t.listAgentManifests())).map((m) => m.name)).toEqual(["agent-a"]);
       });
 
       it("sees its own uncommitted writes", async () => {
@@ -816,7 +847,7 @@ export function storeContract(name: string, factory: StoreFactory): void {
         effectKey: `turn-1:0:model:${id}`,
         sessionId: "s1",
         turnId: "turn-1",
-        agentId: "bot",
+        manifestName: "bot",
         provider: "openai",
         model: "gpt-test",
         inputTokens: 10,
@@ -871,16 +902,16 @@ export function storeContract(name: string, factory: StoreFactory): void {
           await t.recordModelUsage(usage("u1"));
           await t.recordModelUsage(usage("u2", { turnId: "turn-2", createdAt: "2030-01-02T00:00:00.000Z" }));
           await t.recordModelUsage(
-            usage("u3", { agentId: "other", turnId: "turn-3", totalTokens: 100, costUsd: 1 }),
+            usage("u3", { manifestName: "other", turnId: "turn-3", totalTokens: 100, costUsd: 1 }),
           );
         });
         await store.tx(async (t) => {
           expect(await t.modelUsageTotals({ scope: "tenant" })).toEqual({ calls: 3, tokens: 130, costUsd: 1.5 });
-          expect(await t.modelUsageTotals({ scope: "agent", id: "bot" })).toEqual({ calls: 2, tokens: 30, costUsd: 0.5 });
+          expect(await t.modelUsageTotals({ scope: "manifest", id: "bot" })).toEqual({ calls: 2, tokens: 30, costUsd: 0.5 });
           expect(await t.modelUsageTotals({ scope: "turn", id: "turn-3" })).toEqual({ calls: 1, tokens: 100, costUsd: 1 });
-          expect(await t.modelUsageTotals({ scope: "agent", id: "nobody" })).toEqual({ calls: 0, tokens: 0, costUsd: 0 });
+          expect(await t.modelUsageTotals({ scope: "manifest", id: "nobody" })).toEqual({ calls: 0, tokens: 0, costUsd: 0 });
           expect(
-            await t.modelUsageTotals({ scope: "agent", id: "bot", since: "2030-01-02T00:00:00.000Z" }),
+            await t.modelUsageTotals({ scope: "manifest", id: "bot", since: "2030-01-02T00:00:00.000Z" }),
           ).toEqual({ calls: 1, tokens: 15, costUsd: 0.25 });
         });
       });
@@ -899,7 +930,7 @@ export function storeContract(name: string, factory: StoreFactory): void {
         const at = "2030-01-01T00:00:00.000Z";
         const budgets = [
           { scope: "turn" as const, scopeId: "*", period: null, limitUsd: null, limitTokens: 500, updatedAt: at },
-          { scope: "agent" as const, scopeId: "bot", period: "day" as const, limitUsd: 2.5, limitTokens: null, updatedAt: at },
+          { scope: "manifest" as const, scopeId: "bot", period: "day" as const, limitUsd: 2.5, limitTokens: null, updatedAt: at },
           { scope: "tenant" as const, scopeId: "*", period: "month" as const, limitUsd: 100, limitTokens: 5_000_000_000, updatedAt: at },
         ];
         await store.tx((t) => t.putModelBudgets(budgets));
@@ -976,12 +1007,12 @@ export function storeContract(name: string, factory: StoreFactory): void {
       });
     });
 
-    describe("Environments", () => {
+    describe("Agents", () => {
       const at = "2030-01-01T00:00:00.000Z";
       const recipe = { harness: "nylorun", lifecycle: {} };
       const environment = environmentRow;
 
-      it("creates an Environment once and within the limit, changes it, lists it by label", async () => {
+      it("creates an Agent once and within the limit, changes it, lists it by label", async () => {
         const store = await fresh();
         expect(await store.tx((t) => t.createEnvironment(environment("b/one", { labels: { team: "b" } }), 2))).toBe("created");
         expect(await store.tx((t) => t.createEnvironment(environment("b/one"), 2))).toBe("exists");
@@ -993,7 +1024,18 @@ export function storeContract(name: string, factory: StoreFactory): void {
           expect((await t.listEnvironments()).map((row) => row.id)).toEqual(["a/one", "b/one"]);
           expect((await t.listEnvironments({ labels: { team: "a" } })).map((row) => row.id)).toEqual(["a/one"]);
           expect((await t.listEnvironments({ labels: { team: "a", env: "prod" } })).map((row) => row.id)).toEqual([]);
-          expect(await t.environment("a/one")).toMatchObject({ kind: "virtual", ownerUserId: "ada", recipe, version: 1 });
+          expect(await t.environment("a/one")).toMatchObject({
+            kind: "virtual",
+            ownerUserId: "ada",
+            recipe,
+            version: 1,
+            manifestName: "bot",
+            manifestVersion: 1,
+            manifestRef: "tracking",
+            manifestHash: "sha256:bot-1",
+            desiredState: "on",
+          });
+          expect((await t.agentsOfManifest("bot")).get(1)).toBe(2);
           expect((await t.environment("b/one"))!.ownerUserId).toBeUndefined();
           expect(await t.environment("c/one")).toBeUndefined();
         });
@@ -1026,32 +1068,36 @@ export function storeContract(name: string, factory: StoreFactory): void {
           await t.put("sessions", "s2", session("s2", { environmentId: "p/one" }));
           await t.put("sessions", "s1", session("s1", { environmentId: "p/one" }));
           await t.put("sessions", "s3", session("s3"));
-          await t.environmentEvent("p/one", "environment.created", { kind: "pod", labels: {} });
-          await t.environmentEvent("p/one", "environment.attached", { sessionId: "s1" });
+          await t.agentEvent("p/one", "agent.created", {
+            kind: "pod",
+            labels: {},
+            manifest: { name: "bot", version: 1, tracking: "tracking" },
+          });
+          await t.agentEvent("p/one", "agent.attached", { sessionId: "s1" });
         });
         await store.tx((t) => t.updateEnvironmentPod("p/one", { observed: "running", podUid: "uid-1", hostEpoch: 1 }, at));
         await store.tx(async (t) => {
           expect((await t.environment("p/one"))!.pod).toMatchObject({ k8sName: "sbx-a-g0", observed: "running", podUid: "uid-1", hostEpoch: 1, rev: 1 });
           expect((await t.sessionsOnEnvironment("p/one")).map((row) => row.id)).toEqual(["s1", "s2"]);
-          const events = await t.environmentEvents("p/one");
-          expect(events.map((event) => [event.seq, event.type, event.environmentId])).toEqual([
-            [0, "environment.created", "p/one"],
-            [1, "environment.attached", "p/one"],
+          const events = await t.agentEvents("p/one");
+          expect(events.map((event) => [event.seq, event.type, event.agentId])).toEqual([
+            [0, "agent.created", "p/one"],
+            [1, "agent.attached", "p/one"],
           ]);
-          expect((await t.environmentEvents("p/one", { fromSeq: 1 })).map((event) => event.seq)).toEqual([1]);
+          expect((await t.agentEvents("p/one", { fromSeq: 1 })).map((event) => event.seq)).toEqual([1]);
         });
         await store.tx((t) => t.updateEnvironmentPod("p/one", { podUid: null }, at));
         expect((await store.tx((t) => t.environment("p/one")))!.pod!.podUid).toBeUndefined();
       });
 
-      it("gives an Environment one vault, deleted with it", async () => {
+      it("gives an Agent one vault, deleted with it", async () => {
         const store = await fresh();
         await store.tx(async (t) => {
           await t.createEnvironment(environment("e/one"), 10);
           await t.insertVault({ id: "v1", name: "e/one", metadataJson: null, createdAt: at, environmentId: "e/one" });
           await t.insertCredential(credential("c1", "v1", at));
         });
-        // A second vault for one Environment, or one for a missing Environment: refused.
+        // A second vault for one Agent, or one for a missing Agent: refused.
         await expect(
           store.tx((t) => t.insertVault({ id: "v2", name: "x", metadataJson: null, createdAt: at, environmentId: "e/one" })),
         ).rejects.toThrow();
@@ -1076,7 +1122,7 @@ export function storeContract(name: string, factory: StoreFactory): void {
     });
 
     describe("vault", () => {
-      it("stores one host vault, and an Environment's vaults by id", async () => {
+      it("stores one host vault, and an Agent's vaults by id", async () => {
         const store = await fresh();
         await store.tx(async (t) => {
           await t.createEnvironment(environmentRow("e1"), 10);
@@ -1084,7 +1130,7 @@ export function storeContract(name: string, factory: StoreFactory): void {
           await t.insertVault({ id: "host", name: "Host", metadataJson: null, createdAt: "2030-01-01T00:00:00.000Z", environmentId: null });
           await t.insertVault({ id: "v1", name: "A", metadataJson: '{"a":1}', createdAt: "2030-01-01T00:00:00.000Z", environmentId: "e1" });
         });
-        // Only the host vault has no Environment, and ids are unique.
+        // Only the host vault has no Agent, and ids are unique.
         await expect(
           store.tx((t) => t.insertVault({ id: "v2", name: "B", metadataJson: null, createdAt: "x", environmentId: null })),
         ).rejects.toThrow();
@@ -1194,10 +1240,14 @@ export function storeContract(name: string, factory: StoreFactory): void {
           await t.put("links", "l1", { workflowSessionId: "s1", path: "p", effectId: "e1", turnId: "t1" });
           await t.event("s1", null, "turn.completed", { tag: "x", output: {} });
           await t.put("sandboxes", "sb1", { key: "sb1" });
-          await t.put("definitions", "agent-a", { manifest: { id: "agent-a" } });
+          await t.insertAgentManifest(manifestRow("bot"));
           await t.insertPrincipal({ id: "pr_1", role: "application", tokenHash: "hp", idempotencyKey: null, createdAt: "x" });
           await t.createEnvironment(environmentRow("e1"), 10);
-          await t.environmentEvent("e1", "environment.created", { kind: "virtual", labels: {} });
+          await t.agentEvent("e1", "agent.created", {
+            kind: "virtual",
+            labels: {},
+            manifest: { name: "bot", version: 1, tracking: "tracking" },
+          });
           await t.insertVault({ id: "host", name: "Host", metadataJson: null, createdAt: "x", environmentId: null });
           await t.insertVault({ id: "v1", name: "e1", metadataJson: null, createdAt: "x", environmentId: "e1" });
           await t.insertCredential(credential("hc", "host", "x", { type: "model" }));
@@ -1215,20 +1265,21 @@ export function storeContract(name: string, factory: StoreFactory): void {
           for (const [table, id] of Object.entries(cleared))
             expect(await t.get(table as keyof typeof cleared, id)).toBeUndefined();
           expect(await t.listSandboxes()).toHaveLength(1);
-          expect(await t.listDefinitions()).toHaveLength(1);
+          expect(await t.listAgentManifests()).toHaveLength(1);
           expect(await t.environment("e1")).toBeDefined();
           expect(await t.getCredential("uc")).toBeDefined();
         });
       });
 
-      it("resets Environments with their vaults, workspaces and streams", async () => {
+      it("resets Agents with their vaults, workspaces and streams, and keeps their manifests", async () => {
         const store = await fresh();
         await populate(store);
-        await store.tx((t) => t.reset("environments"));
+        await store.tx((t) => t.reset("agents"));
         await store.tx(async (t) => {
+          expect(await t.listAgentManifests()).toHaveLength(1);
           expect(await t.listSandboxes()).toEqual([]);
           expect(await t.listEnvironments()).toEqual([]);
-          expect(await t.environmentEvents("e1")).toEqual([]);
+          expect(await t.agentEvents("e1")).toEqual([]);
           expect(await t.getVault("v1")).toBeUndefined();
           expect(await t.getCredential("uc")).toBeUndefined();
           expect(await t.getVault("host")).toBeDefined();
@@ -1242,7 +1293,7 @@ export function storeContract(name: string, factory: StoreFactory): void {
         await populate(store);
         await store.tx((t) => t.reset("all"));
         await store.tx(async (t) => {
-          expect(await t.counts()).toEqual({ sessions: 0, runningSessions: 0, uncertainEffects: 0, sandboxes: 0, definitions: 0 });
+          expect(await t.counts()).toEqual({ sessions: 0, runningSessions: 0, uncertainEffects: 0, sandboxes: 0, agentManifests: 0 });
           expect(await t.listEnvironments()).toEqual([]);
           expect(await t.getVault("v1")).toBeUndefined();
           expect(await t.getCredential("uc")).toBeUndefined();
@@ -1421,7 +1472,7 @@ export function storeContract(name: string, factory: StoreFactory): void {
         ]);
       });
 
-      it("keeps a pod Environment's reconcile and timer, a reconcile keyed by its row", async () => {
+      it("keeps a pod Agent's reconcile and timer, a reconcile keyed by its row", async () => {
         const store = await fresh();
         const { delivered, deliver } = deliveries(() => false);
         store.deliverTo(deliver);
@@ -1436,7 +1487,7 @@ export function storeContract(name: string, factory: StoreFactory): void {
           { kind: "sandbox", sandboxId: "sb1", signal: { kind: "reconcile", key: `signal:${pending[0]!.id}` } },
           { kind: "sandbox", sandboxId: "sb1", signal: { kind: "arm", timer: "idle", at: 1_700_000_000_000 } },
         ]);
-        await store.tx((t) => t.reset("environments"));
+        await store.tx((t) => t.reset("agents"));
         expect(await due(store)).toEqual([]);
       });
 

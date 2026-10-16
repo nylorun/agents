@@ -68,11 +68,11 @@ import type {
   EventType,
   EventWriter,
   LiveEvent,
-  EnvironmentEvent,
-  EnvironmentEventPayload,
-  EnvironmentEventType,
+  AgentEvent,
+  AgentEventPayload,
+  AgentEventType,
+  AgentManifestV8,
   EnvironmentKind,
-  EnvironmentManifest,
   EnvironmentRecipe,
   PodDesired,
   PodObserved,
@@ -100,7 +100,6 @@ import type {
 
 /** Tables holding JSON documents keyed by `id`. */
 export type DocTable =
-  | "definitions"
   | "sessions"
   | "commands"
   | "effects"
@@ -108,7 +107,6 @@ export type DocTable =
   | "links";
 
 export const DOC_TABLES: readonly DocTable[] = [
-  "definitions",
   "sessions",
   "commands",
   "effects",
@@ -187,17 +185,16 @@ export interface LinkDoc {
   turnId: string;
 }
 
-/** A definition document. Indexed: `manifest.id`. */
-export interface DefinitionDoc {
-  manifest: { id: string };
-}
-
 /** A sandbox record, keyed by sandbox key. */
 export interface SandboxDoc {
   key: string;
 }
 
-/** An Environment (`environments`, D55): what `PUT /v1/environments/{id}` created. */
+/**
+ * An Agent's row (`agents`; an Environment's before protocol 16): what `PUT /v1/agents/{id}`
+ * created. The Runtime's own code calls the part it runs on (its kind, recipe, pod, disk and
+ * vault) the Agent's environment, keyed by the Agent's id.
+ */
 export interface Environment {
   id: string;
   kind: EnvironmentKind;
@@ -208,7 +205,7 @@ export interface Environment {
   applied: EnvironmentRecipe;
   version: number;
   appliedVersion: number;
-  /** The owner guard: only this owner's sessions may name it. */
+  /** The owner guard (`owner` on the API): only this owner's sessions may run on it. */
   ownerUserId?: string;
   /** ISO time it was last used (`lifecycle.deleteAfter` counts from it). */
   lastUsedAt: string;
@@ -223,13 +220,17 @@ export interface Environment {
    * Q17): the setup runs once the version is written (`written`), and the seed stays until it is done.
    */
   diskSeed?: DiskSeed;
-  /** The environment manifest it was made from and its version (D63); absent for an inline one. */
-  manifestName?: string;
-  manifestVersion?: number;
-  /** The hash of what it runs (`recipe`), recorded at creation (protocol 14). */
-  manifestHash?: string;
-  /** The Environment it was forked from and the disk version it started from (Q15). */
-  forkedFrom?: { environment: string; disk: number | null };
+  /** The agent manifest it was made from and the version it resolved then, which it runs. */
+  manifestName: string;
+  manifestVersion: number;
+  /** How it names the manifest: `tracking` (`name`) or `pinned` (`name@n`). */
+  manifestRef: "tracking" | "pinned";
+  /** The hash of that manifest version. */
+  manifestHash: string;
+  /** `on`, or `off` once paused (track T6). */
+  desiredState: "on" | "off";
+  /** The Agent it was forked from and the disk version it started from (Q15). */
+  forkedFrom?: { agent: string; disk: number | null };
 }
 
 /** A pending seed of an Environment's disk (`disk_seed`). */
@@ -242,11 +243,11 @@ export interface DiskSeed {
   written?: true;
 }
 
-/** One version of an environment manifest (`environment_manifests`, D63). */
-export interface EnvironmentManifestRow {
+/** One version of an agent manifest (`agent_manifests`, protocol 16). */
+export interface AgentManifestRow {
   name: string;
   version: number;
-  body: EnvironmentManifest;
+  body: AgentManifestV8;
   hash: string;
   savedBy: { actor: string };
   createdAt: string;
@@ -363,8 +364,8 @@ export type {
 
 /** Which rows of the usage ledger a total covers. */
 export interface ModelUsageQuery {
-  scope: "tenant" | "agent" | "turn";
-  /** The agent or turn id; ignored for `tenant`. */
+  scope: "tenant" | "manifest" | "turn";
+  /** The agent manifest's name or the turn id; ignored for `tenant`. */
   id?: string;
   /** Only rows created at or after this ISO time. */
   since?: string;
@@ -398,10 +399,10 @@ export interface StoreCounts {
   /** Effects `uncertain`. */
   uncertainEffects: number;
   sandboxes: number;
-  definitions: number;
+  agentManifests: number;
 }
 
-export type ResetScope = "sessions" | "environments" | "all";
+export type ResetScope = "sessions" | "agents" | "all";
 
 /** Result of `takeOwnership`. */
 export type TakeOwnership =
@@ -701,12 +702,11 @@ export interface Tx {
     agentId?: string;
     ownerUserId?: string;
   }): Promise<StoredSession<T>[]>;
-  listDefinitions<T extends DefinitionDoc = DefinitionDoc>(): Promise<T[]>;
   listSandboxes<T extends SandboxDoc = SandboxDoc>(): Promise<T[]>;
 
-  // --- Environments (D55, protocol 11) ---------------------------------------
+  // --- Agents (protocol 16; Environments from protocol 11) ----------------------
 
-  /** Environment `id`; with `lock`, its row is locked until the transaction ends. */
+  /** Agent `id`'s row; with `lock`, it is locked until the transaction ends. */
   environment(id: string, options?: { lock?: boolean }): Promise<Environment | undefined>;
   /**
    * Creates the Environment unless one with its id exists, while the Tenant holds fewer than
@@ -739,44 +739,41 @@ export interface Tx {
   deleteEnvironment(id: string): Promise<void>;
   /** Environments by id, those with every label in `labels` when it is given. */
   listEnvironments(filter?: { labels?: Record<string, string> }): Promise<Environment[]>;
-  /** Sessions that name Environment `environmentId` (`Session.environmentId`), by id. */
+  /** Sessions on Agent `environmentId` (`Session.environmentId`), by id. */
   sessionsOnEnvironment<T extends SessionDoc = SessionDoc>(
     environmentId: string,
   ): Promise<StoredSession<T>[]>;
   /**
-   * Appends an event to the Environment's lifecycle stream through the record module. The
-   * caller holds the Environment row's lock (or created the row in this transaction).
+   * Appends an event to the Agent's lifecycle stream through the record module. The caller holds
+   * the Agent row's lock (or created the row in this transaction).
    */
-  environmentEvent<T extends EnvironmentEventType>(
-    environmentId: string,
+  agentEvent<T extends AgentEventType>(
+    agentId: string,
     type: T,
-    payload: EnvironmentEventPayload<T>,
-  ): Promise<EnvironmentEvent>;
+    payload: AgentEventPayload<T>,
+  ): Promise<AgentEvent>;
   /**
-   * The Environment's stream, from `fromSeq` on, at most `limit` events: only `types` when given,
-   * and only events recorded at or after `since` and before `until` (ISO times) when given.
+   * The Agent's stream, from `fromSeq` on, at most `limit` events: only `types` when given, and
+   * only events recorded at or after `since` and before `until` (ISO times) when given.
    */
-  environmentEvents(
-    environmentId: string,
-    options?: EnvironmentEventsQuery,
-  ): Promise<EnvironmentEvent[]>;
+  agentEvents(agentId: string, options?: AgentEventsQuery): Promise<AgentEvent[]>;
 
-  // --- Environment manifests (D63, protocol 14) --------------------------------
+  // --- Agent manifests (protocol 16) -------------------------------------------
 
   /** Holds manifest `name`'s save lock until the transaction ends, so saves of one name are serial. */
-  lockEnvironmentManifest(name: string): Promise<void>;
+  lockAgentManifest(name: string): Promise<void>;
   /** Version `version` of manifest `name`, or its latest when `version` is omitted. */
-  environmentManifest(name: string, version?: number): Promise<EnvironmentManifestRow | undefined>;
+  agentManifest(name: string, version?: number): Promise<AgentManifestRow | undefined>;
   /** Writes a new version (the caller holds the name's lock and chose the next number). */
-  insertEnvironmentManifest(row: EnvironmentManifestRow): Promise<void>;
+  insertAgentManifest(row: AgentManifestRow): Promise<void>;
   /** Each manifest's latest version, by name. */
-  listEnvironmentManifests(): Promise<EnvironmentManifestRow[]>;
+  listAgentManifests(): Promise<AgentManifestRow[]>;
   /** Every version of manifest `name`, newest first. */
-  environmentManifestVersions(name: string): Promise<EnvironmentManifestRow[]>;
+  agentManifestVersions(name: string): Promise<AgentManifestRow[]>;
   /** Deletes every version of manifest `name`; how many there were. */
-  deleteEnvironmentManifest(name: string): Promise<number>;
-  /** How many Environments were made from each version of manifest `name` (deleting ones too). */
-  environmentsOfManifest(name: string): Promise<Map<number, number>>;
+  deleteAgentManifest(name: string): Promise<number>;
+  /** How many Agents were made from each version of manifest `name` (deleting ones too). */
+  agentsOfManifest(name: string): Promise<Map<number, number>>;
 
   /** `invoking` effects of one session; takeover turns them `uncertain`. */
   invokingEffects<T extends EffectDoc = EffectDoc>(
@@ -1025,17 +1022,16 @@ export interface Tx {
    *   Tenant's record rows and log heads. The Tenant moves to the next basin
    *   generation and the current one is retired, so session ids it frees start again in an
    *   empty basin;
-   * - `environments`: sandbox records, Environments with their vaults, and their lifecycle
-   *   streams;
-   * - `all`: both, plus definitions (and which definition files they use),
+   * - `agents`: sandbox records, Agents with their vaults, and their lifecycle streams;
+   * - `all`: both, plus agent manifests (and which definition files they use),
    *   the model usage ledger, the model budgets and Tenant-wide artifacts. The host vault, principals, signing keys,
    *   settings, audit and vault idempotency rows stay.
    */
   reset(scope: ResetScope): Promise<void>;
 }
 
-/** Which of an Environment's events to read (`Tx.environmentEvents`). */
-export interface EnvironmentEventsQuery {
+/** Which of an Agent's events to read (`Tx.agentEvents`). */
+export interface AgentEventsQuery {
   readonly fromSeq?: number;
   readonly limit?: number;
   readonly types?: readonly string[];

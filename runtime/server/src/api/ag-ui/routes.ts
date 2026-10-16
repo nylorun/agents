@@ -64,7 +64,7 @@ import {
 } from "../../tenant/session-streams.js";
 import { putSession, sessionView } from "../../tenant/sessions.js";
 import { mayUseAgent } from "../../tenant/auth.js";
-import { environmentGrantsOf } from "../../tenant/environments.js";
+import { agentGrantsOf } from "../../tenant/agents.js";
 import type { TraceContext } from "../../traces/ids.js";
 import { hostTuning } from "../../tuning.js";
 
@@ -159,14 +159,11 @@ function lastUserMessage(
 function sessionOptions(
   input: RunAgentInput,
   scope: AuthScope
-): { info?: Record<string, unknown>; environment?: string } {
+): { info?: Record<string, unknown> } {
   const raw = (input.forwardedProps as { nylorun?: { session?: unknown } } | undefined)
     ?.nylorun?.session;
   if (raw === undefined) return {};
-  const parsed = PutSessionRequestSchema.pick({
-    info: true,
-    environment: true,
-  })
+  const parsed = PutSessionRequestSchema.pick({ info: true })
     .strict()
     .safeParse(raw);
   if (!parsed.success)
@@ -412,14 +409,14 @@ export async function startRun(
     id,
     {
       requestId: randomUUID(),
-      agentId,
+      agent: agentId,
       ownerUserId: caller.subject,
       ...sessionOptions(input, scope),
-    } as never,
+    },
     caller.access,
     {
       createOnly: true,
-      ...(environmentGrantsOf(scope) === undefined ? {} : { environmentGrants: environmentGrantsOf(scope)! }),
+      ...(agentGrantsOf(scope) === undefined ? {} : { agentGrants: agentGrantsOf(scope)! }),
     }
   );
   const translator = new RunTranslator(input.threadId, input.runId);

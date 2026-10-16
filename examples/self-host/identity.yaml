@@ -13,6 +13,6 @@ issuers:
     subject: "u:{sub}"
     # The realm-role mapper puts the user's realm roles in this claim; others are dropped.
     scopes: { claim: nylorun_scopes }
-    allowedScopes: [agents:read, sessions:own, environments:write, studio]
-    # Environments whose id starts with the token's org_id (a hardcoded claim here: acme/*).
-    environments: ["{org_id}/*"]
+    allowedScopes: [agents:read, sessions:own, agents:write, studio]
+    # Agents whose id starts with the token's org_id (a hardcoded claim here: acme/*).
+    agents: ["{org_id}/*"]

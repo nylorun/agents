@@ -2,7 +2,7 @@
  * R2 M3: HTTP tools. The Runtime makes the request itself, through the Tool Gate (in process, or
  * the gates service with `NYLORUN_TEST_MODEL_GATE=http`, `gates/tool-gate-http.test.ts`): the
  * input as JSON, the identity headers, the run-once key as `Idempotency-Key` and the credential
- * of the session's Environment; the answer, a failure status, a timeout or a refused address is what the model
+ * of the session's Agent; the answer, a failure status, a timeout or a refused address is what the model
  * sees. A `GET` or `DELETE` tool sends no body: its URL parameters fill the path and the rest
  * of its input is the query string. The Tenant's tool policy (R5 step 2) holds a call an `ask` rule matches, an HTTP tool's
  * or a remote MCP server's, until the session's `approve`.
@@ -14,9 +14,10 @@ import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { Agent, createClient, http, type AgentsClient } from "@nylorun/agents";
+import type { RuntimeSection } from "@nylorun/core/contracts";
 import type { ModelProvider } from "../src/core/provider.js";
 import { startTestTenant } from "./support/tenant.js";
-import { putEnvironment, putSecret } from "./support/environment-secrets.js";
+import { deploy, putAgent, putSecret, type Loop } from "./support/agents.js";
 
 const APP = "http-tools-app-token-aaaaaaaaaaaa";
 const TOKEN = "billing-secret-token-7f3c9a2e";
@@ -143,7 +144,11 @@ beforeAll(async () => {
     )
     .mcp({ shop: { type: "streamable-http", url: orders.url } })
     .build();
-  await register(runtime, agent.manifest);
+  // `billed` names its credential: a slot of the runtime section, which each Agent's vault fills.
+  await register(runtime, agent.manifest, {
+    kind: "none",
+    secrets: { billing: { type: "bearer", url: `${target.url}/refunds` } },
+  });
   // The calls a person approves (R5 step 2): `approved`, and every tool of `shop`.
   const policy = await fetch(`${runtime.url}/v1/tenant/tool-policy`, {
     method: "PUT",
@@ -162,27 +167,21 @@ afterEach(() => {
   lastToolResult = undefined;
 });
 
-async function register(on: Runtime, manifest: unknown) {
-  const response = await fetch(`${on.url}/v1/agents/orders`, {
-    method: "PUT",
-    headers: { authorization: `Bearer ${APP}`, "content-type": "application/json" },
-    body: JSON.stringify({ requestId: "put-orders", manifest, implementationVersion: "dev" }),
-  });
-  expect(response.ok).toBe(true);
+/** Saves `manifest` as agent manifest `orders` and makes Agent `orders` from it. */
+async function register(on: Runtime, manifest: Loop, runtime?: RuntimeSection) {
+  await deploy(on.url, on.headers(), manifest, runtime === undefined ? {} : { runtime });
 }
 
 type Session = ReturnType<AgentsClient["session"]>;
 
-/** Opens a session, has the model call `name` with `args`, and waits for the turn to settle or pause. */
-async function call(name: string, args: Record<string, unknown>, options: { environment?: string } = {}, on = client) {
+/**
+ * Opens a session on Agent `agent` (default `orders`), has the model call `name` with `args`, and
+ * waits for the turn to settle or pause.
+ */
+async function call(name: string, args: Record<string, unknown>, options: { agent?: string } = {}, on = client) {
   next = { name, args };
   sessions += 1;
-  const session = await on.createSession({
-    id: `s${sessions}`,
-    agentId: "orders",
-    ownerUserId: "ada",
-    ...(options.environment ? { environment: options.environment } : {}),
-  });
+  const session = await on.createSession({ id: `s${sessions}`, agent: options.agent ?? "orders", ownerUserId: "ada" });
   await session.input("go", { idempotencyKey: `m${sessions}` });
   return session;
 }
@@ -266,24 +265,19 @@ describe("an HTTP tool call", () => {
     ]);
   });
 
-  it("adds the credential of the session's Environment bound to the tool's URL", async () => {
-    await putEnvironment(runtime.url, runtime.headers(), "users/ada", { kind: "none", ownerUserId: "ada" });
-    await putSecret(runtime.url, runtime.headers(), "users/ada", "billing", {
-      type: "bearer",
-      url: `${target.url}/refunds`,
-      value: TOKEN,
-    });
-    await putEnvironment(runtime.url, runtime.headers(), "empty");
+  it("adds the credential of the session's Agent bound to the tool's URL", async () => {
+    await putAgent(runtime.url, runtime.headers(), "users/ada", { manifest: "orders", owner: "ada" });
+    await putSecret(runtime.url, runtime.headers(), "users/ada", "billing", { value: TOKEN });
+    await putAgent(runtime.url, runtime.headers(), "empty", { manifest: "orders" });
     const before = target.seen.length;
-    const session = await call("billed", { orderId: "A-6" }, { environment: "users/ada" });
+    const session = await call("billed", { orderId: "A-6" }, { agent: "users/ada" });
     await settled(session);
     expect(await completed(session)).toEqual([expect.objectContaining({ output: { refundId: "r-A-6" } })]);
     expect(target.seen.slice(before).map((item) => item.headers.authorization)).toEqual([`Bearer ${TOKEN}`]);
     expect(JSON.stringify(await session.history())).not.toContain(TOKEN);
 
-    // Without an Environment, or in one with no credential for the URL, the call never leaves:
-    // the model hears why.
-    for (const options of [{}, { environment: "empty" }]) {
+    // On an Agent with no credential for the slot, the call never leaves: the model hears why.
+    for (const options of [{}, { agent: "empty" }]) {
       const bare = await call("billed", { orderId: "A-7" }, options);
       await settled(bare);
       expect(await completed(bare)).toEqual([

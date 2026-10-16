@@ -1,7 +1,8 @@
 /**
- * Credentials for skills (R2c, D50) in an Environment's vault (D56, protocol 11), through the
- * Runtime against an in-memory sandboxes service: a second secret for a host is refused at write,
- * and the owner guard keeps another owner's sessions off an Environment that serves secrets; a pod
+ * Credentials for skills (R2c, D50) in an Agent's vault (protocol 16; an Environment's from D56),
+ * through the Runtime against an in-memory sandboxes service: a second secret for a host is
+ * refused at write, and the owner guard keeps another owner's sessions off an Agent that serves
+ * secrets; a pod
  * turn's commands see each `environment_secret` as `nylorun_managed` and each
  * `environment_variable` as its value; the vault releases the real header only for a bound host,
  * read afresh after a rotation. egress-gate's use of the release is `gates/egress-credentials`.
@@ -22,6 +23,7 @@ import { VaultService } from "../../src/vault/service.js";
 import { fakeSandboxes, type FakeSandboxes } from "../support/fake-sandboxes.js";
 import { withTestSessionStore } from "../support/store.js";
 import { startTestTenant } from "../support/tenant.js";
+import { manifestOf, saveManifest } from "../support/agents.js";
 
 const APP = "skill-credentials-app-key-aaaaaaaaaa";
 const KEK = Buffer.alloc(32, 5).toString("base64");
@@ -32,7 +34,7 @@ let runtime: Awaited<ReturnType<typeof startTestTenant>>;
 let fake: FakeSandboxes;
 let listener: HarnessListener;
 let tenantId: string;
-/** Ada's pod Environment, guarded for her sessions. */
+/** Ada's pod Agent, guarded for her sessions. */
 const ENV = "creds";
 let created: { status: number; body: any };
 
@@ -74,15 +76,14 @@ async function until<T>(what: string, read: () => Promise<T>, ok: (value: T) => 
 }
 
 async function secret(name: string, body: Record<string, unknown>) {
-  return call("PUT", `/v1/environments/${ENV}/secrets/${name}`, body);
+  return call("PUT", `/v1/agents/${ENV}/secrets/${name}`, body);
 }
 
 const open = (id: string, owner: string) =>
   call("PUT", `/v1/sessions/${id}`, {
     requestId: `open-${id}`,
-    agentId: "bot",
+    agent: ENV,
     ownerUserId: owner,
-    environment: ENV,
   });
 
 /** The vault as the gateway reads it, over the Tenant's database. */
@@ -110,11 +111,15 @@ beforeAll(async () => {
     logger: { info: () => undefined, warn: () => undefined },
   });
   const agent = Agent({ id: "bot", name: "Bot" }).instructions("Work in the sandbox.").build();
-  expect((await call("PUT", "/v1/agents/bot", { requestId: "bot", manifest: agent.manifest, implementationVersion: "dev" })).status).toBe(200);
+  await saveManifest(
+    runtime.url,
+    { authorization: `Bearer ${APP}`, "content-type": "application/json" },
+    manifestOf(agent, { runtime: { kind: "pod" } }),
+  );
 
   created = await until(
     "created",
-    () => call("PUT", `/v1/environments/${ENV}`, { kind: "pod", ownerUserId: "app:ada" }),
+    () => call("PUT", `/v1/agents/${ENV}`, { manifest: "bot", owner: "app:ada" }),
     (reply) => reply.status !== 409,
   );
   expect(created.status, JSON.stringify(created.body)).toBe(200);
@@ -134,7 +139,7 @@ afterAll(async () => {
 
 describe("credentials for skills (R2c)", { timeout: 90_000 }, () => {
   it("lists a secret and a variable, never a value", async () => {
-    const listed = (await call("GET", `/v1/environments/${ENV}/secrets`)).body;
+    const listed = (await call("GET", `/v1/agents/${ENV}/secrets`)).body;
     expect(JSON.stringify(listed)).not.toContain(SECRET);
     expect(JSON.stringify(listed)).not.toContain("eu-west-1");
     const byName = Object.fromEntries((listed.secrets as any[]).map((entry) => [entry.name, entry]));
@@ -160,15 +165,15 @@ describe("credentials for skills (R2c)", { timeout: 90_000 }, () => {
       inject: { header: "X-Api-Key", format: "{value}" },
     });
     expect(other.status, JSON.stringify(other.body)).toBe(200);
-    expect((await call("DELETE", `/v1/environments/${ENV}/secrets/BAO_KEY`)).status).toBe(200);
-    expect(((await call("GET", `/v1/environments/${ENV}/secrets`)).body.secrets as { name: string }[]).map((item) => item.name)).toEqual([
+    expect((await call("DELETE", `/v1/agents/${ENV}/secrets/BAO_KEY`)).status).toBe(200);
+    expect(((await call("GET", `/v1/agents/${ENV}/secrets`)).body.secrets as { name: string }[]).map((item) => item.name)).toEqual([
       "GH_TOKEN",
       "REGION",
     ]);
   });
 
   it("runs a pod turn with the sentinel and the variable; the gateway releases the header for a bound host only", async () => {
-    const name = podName(tenantId, ENV, created.body.pod.volumeGeneration);
+    const name = podName(tenantId, ENV, created.body.compute.pod.volumeGeneration);
     await until("the pod runs", async () => fake.podUid(name), (uid) => uid !== undefined);
     const workspace = await mkdtemp(join(tmpdir(), "nylorun-creds-ws-"));
     const harnessRoot = await mkdtemp(join(tmpdir(), "nylorun-creds-harness-"));
@@ -233,11 +238,11 @@ describe("credentials for skills (R2c)", { timeout: 90_000 }, () => {
       credentialId,
     });
 
-    // Another owner's session cannot name the Environment that serves Ada's secrets.
+    // Another owner's session cannot open on the Agent that serves Ada's secrets.
     const refused = await open("creds-bao", "app:bao");
     expect(refused.status, JSON.stringify(refused.body)).toBe(403);
-    expect(refused.body.code).toBe("environment_owner_mismatch");
-    // Ada's second session names it too.
+    expect(refused.body.code).toBe("agent_owner_mismatch");
+    // Ada's second session opens on it too.
     expect((await open("creds-ada-2", "app:ada")).status).toBe(200);
   });
 });

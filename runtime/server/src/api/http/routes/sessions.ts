@@ -1,13 +1,13 @@
 /**
- * Agents and sessions: the definitions a Tenant runs, the sessions of them, their commands,
- * history and live events, and a session's sandbox tools.
+ * Sessions: the sessions on a Tenant's Agents, their commands, history and live events, and a
+ * session's sandbox tools. Agents and their manifests have their own routes (`agents.ts`,
+ * `agent-manifests.ts`).
  */
 import type { IncomingMessage } from "node:http";
 import type { OpenAPIHono } from "@hono/zod-openapi";
 import { RESPONSE_ALREADY_SENT } from "@hono/node-server/utils/response";
 import { z } from "zod";
 import {
-  PutAgentRequestSchema,
   PutSessionRequestSchema,
   SessionCommandSchema,
 } from "@nylorun/core/contracts";
@@ -15,14 +15,10 @@ import { handleSessionSandboxTool, SandboxRouteError } from "../../../core/sandb
 import { traceContextOf } from "../../../traces/ids.js";
 import {
   AcceptedResponse,
-  ListAgentsResponse,
-  ListPublicAgentsResponse,
   ListSessionsResponse,
   SessionPage,
   HistoryPage,
   SessionEvent,
-  PutAgentRequest,
-  PutAgentResponse,
   PutSessionRequest,
   SandboxToolOutcome,
   SessionCommand,
@@ -35,16 +31,9 @@ import { command } from "../../../tenant/commands.js";
 import { loadSession, sessionOf, type TenantContext } from "../../../tenant/context.js";
 import type { SessionAccess } from "../../../tenant/context.js";
 import { fail } from "../../../tenant/http.js";
-import { environmentGrantsOf, sandboxRouteDeps } from "../../../tenant/environments.js";
+import { agentGrantsOf, sandboxRouteDeps } from "../../../tenant/agents.js";
 import { readHistory, requestCursor, streamHolderOf, streamSessionEvents } from "../../../tenant/session-streams.js";
-import {
-  listAgentsPublic,
-  listDefinitions,
-  listSessions,
-  putDefinition,
-  putSession,
-  sessionView,
-} from "../../../tenant/sessions.js";
+import { listSessions, putSession, sessionView } from "../../../tenant/sessions.js";
 import type { TenantEnv } from "../app.js";
 import { readJson } from "../body.js";
 import { TraceHeaders, tenantRoute, type RouteAccess } from "../define.js";
@@ -126,73 +115,6 @@ export function sessionRoutes(api: OpenAPIHono<TenantEnv>): void {
 
   tenantRoute(
     api,
-    {
-      credentials: ["application", "subject", "token"],
-      scopes: ["agents:read", "agents:write"],
-    },
-    {
-      method: "get",
-      path: "/v1/agents",
-      tags: ["Agents"],
-      summary: "List agents",
-      description:
-        "With an application key, every definition, manifest included. With a trusted issuer's token, only the agents it may use, by name.",
-      responses: {
-        200: json(
-          z.union([ListAgentsResponse, ListPublicAgentsResponse]),
-          "The agents",
-        ),
-      },
-    },
-    async (c) => {
-      const scope = c.get("scope");
-      const ctx = c.env.tenant;
-      return jsonResponse(
-        200,
-        scope.kind === "token"
-          ? await listAgentsPublic(ctx, scope.agents)
-          : await listDefinitions(ctx),
-      );
-    },
-  );
-
-  tenantRoute(
-    api,
-    { credentials: ["application", "subject"], scopes: ["agents:write"] },
-    {
-      method: "put",
-      path: "/v1/agents/{agentId}",
-      tags: ["Agents"],
-      summary: "Put an agent's definition",
-      description:
-        "Saves the agent's definition. With `?dryRun=true` (protocol 14) every check runs and nothing is saved: the answer says what a save would record.",
-      request: {
-        params: z.object({ agentId: z.string() }),
-        query: z.object({
-          dryRun: z.enum(["true", "false"]).optional().meta({ description: "`true`: check and save nothing" }),
-        }),
-        body: body(PutAgentRequest),
-      },
-      responses: {
-        200: json(PutAgentResponse, "The definition, stored (or checked, with dryRun)"),
-        413: { description: "A skill's files hold more than the Tenant's skill limit together (`limit_exceeded`)" },
-      },
-    },
-    async (c) => {
-      return jsonResponse(
-        200,
-        await putDefinition(
-          c.env.tenant,
-          c.req.param("agentId")!,
-          PutAgentRequestSchema.parse(await readJson(c)),
-          { dryRun: c.req.query("dryRun") === "true" },
-        ),
-      );
-    },
-  );
-
-  tenantRoute(
-    api,
     OWN_SESSIONS,
     {
       method: "get",
@@ -222,7 +144,7 @@ export function sessionRoutes(api: OpenAPIHono<TenantEnv>): void {
       tags: ["Sessions"],
       summary: "Open a session",
       description:
-        "Creates the session, or answers the one already opened with the same agent, owner, info and Environment. Its Environment (its sandbox and vault) is chosen now and fixed for its life.",
+        "Creates the session on an Agent, or answers the one already opened with the same Agent, owner and info. Its Agent (its sandbox and vault) is fixed for its life, and it pins the manifest version the Agent runs. No session is special: an app that keeps one conversation going reuses its id.",
       request: { params: sessionId, body: body(PutSessionRequest) },
       responses: {
         200: json(SessionView, "The session"),
@@ -236,13 +158,13 @@ export function sessionRoutes(api: OpenAPIHono<TenantEnv>): void {
       // Agent code may trust `info`: only an app server sets it.
       if (scope.kind === "token" && request.info !== undefined)
         fail(403, "A token caller cannot set session info", { code: "scope_required" });
-      const grants = environmentGrantsOf(scope);
+      const grants = agentGrantsOf(scope);
       const session = await putSession(
         ctx,
         c.req.param("sessionId")!,
         request,
         accessOf(scope),
-        grants === undefined ? {} : { environmentGrants: grants },
+        grants === undefined ? {} : { agentGrants: grants },
       );
       return jsonResponse(200, await ctx.store.tx((t) => sessionView(t, session)));
     },

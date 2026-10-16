@@ -16,9 +16,10 @@
  *     is no credential: /v1/admin/* is 401 with it) and no operator port
  * I2  Nylorun-Tenant compatibility: the header naming the Host's Tenant works,
  *     naming another Tenant is the opaque 404; an unknown key is 401 (protocol 9)
- * I3  a request outside the protocol range (an older protocol 10 one too) fails with 426
- *     before any mutation
- * I4  a Tenant restart (stop, start) restores sessions and agents; a database whose schema is
+ * I3  a request outside the protocol range (an older protocol 15 one too) fails with 426
+ *     before any mutation; protocol 16 is served
+ * I4  a Tenant restart (stop, start) restores sessions, agent manifests and Agents; a database
+ *     whose schema is
  *     newer than the Runtime leaves the Tenant unavailable (schema-too-new), which
  *     nylorun status reports
  * I5  sandbox reconciliation stays inside the Tenant's prefix (packed Runtime library)
@@ -26,8 +27,8 @@
  *     start (host.json from a newer CLI) leaves the Tenant running
  * I7  the Tenant keeps running after the installing Project deletes node_modules
  * I8  two Projects linked to one Tenant (`nylorun start` with NYLORUN_TENANT)
- *     develop at once, each saving its agent; stopping one keeps the Tenant, its
- *     agent and the other Project's loop
+ *     develop at once, each saving its agent manifest and making its Agent; stopping one
+ *     keeps the Tenant, its manifest and Agent, and the other Project's loop
  * I9  Project link rules: a moved checkout keeps its link; clones and worktrees
  *     do not inherit it; `nylorun start` links a worktree to the same Tenant
  */
@@ -133,23 +134,39 @@ async function ok(response) {
   return text ? JSON.parse(text) : undefined;
 }
 
-const putAgent = (url, key, agentId, name = agentId) =>
-  request(url, `/v1/agents/${agentId}`, {
+/** Saves agent manifest `name` (protocol 16): no harness settings, and `runtime` when given. */
+const putManifest = (url, key, name, { description, runtime } = {}) =>
+  request(url, `/v1/agent-manifests/${name}`, {
     method: "PUT",
     key,
     body: {
       requestId: randomUUID(),
-      implementationVersion: "dev",
-      manifest: { id: agentId, name, manifestSchemaVersion: 7 },
+      manifestSchemaVersion: 8,
+      name,
+      ...(description === undefined ? {} : { description }),
+      harness: {},
+      ...(runtime === undefined ? {} : { runtime }),
     },
   }).then(ok);
 
-const putSession = (url, key, sessionId, agentId) =>
+/** Makes (or finds) the Agent `agentId` from the saved manifest `manifest`. */
+const putAgent = (url, key, agentId, manifest = agentId) =>
+  request(url, `/v1/agents/${encodeURIComponent(agentId)}`, {
+    method: "PUT",
+    key,
+    body: { requestId: randomUUID(), manifest },
+  }).then(ok);
+
+const putSession = (url, key, sessionId, agent) =>
   request(url, `/v1/sessions/${sessionId}`, {
     method: "PUT",
     key,
-    body: { requestId: randomUUID(), agentId, ownerUserId: "acceptance" },
+    body: { requestId: randomUUID(), agent, ownerUserId: "acceptance" },
   }).then(ok);
+
+/** The saved manifests' latest versions, by name. */
+const manifests = async (url, key) =>
+  new Map((await runtimeGet(url, key, "/v1/agent-manifests")).manifests.map((view) => [view.name, view.manifest]));
 
 const status = async (url, path, key, headers) => (await request(url, path, { key, headers })).status;
 
@@ -274,20 +291,22 @@ async function i1(url, stack, adminKey) {
     key: managementKey,
     body: { requestId: randomUUID(), sandbox: { backend: "virtual" } },
   }).then(ok);
-  await putAgent(url, key, "installation-agent");
-  await putSession(url, key, "sess-installation", "installation-agent");
-  // An Environment and its vault (protocol 11) are the Runtime API's, with the application key.
-  const environment = "acceptance/installation";
-  const path = `/v1/environments/${encodeURIComponent(environment)}`;
-  await request(url, path, { method: "PUT", key, body: { requestId: randomUUID(), kind: "virtual" } }).then(ok);
+  // An agent manifest, an Agent made from it with its vault, and a session on the Agent
+  // (protocol 16) are the Runtime API's, with the application key.
+  await putManifest(url, key, "installation-agent", { runtime: { kind: "virtual" } });
+  const agent = "acceptance/installation";
+  const path = `/v1/agents/${encodeURIComponent(agent)}`;
+  await putAgent(url, key, agent, "installation-agent");
+  await putSession(url, key, "sess-installation", agent);
   await request(url, `${path}/secrets/ACCEPTANCE_TOKEN`, {
     method: "PUT",
     key,
     body: { requestId: randomUUID(), type: "environment_variable", value: "not-a-secret" },
   }).then(ok);
+  assert.deepEqual([...(await manifests(url, key)).keys()], ["installation-agent"]);
   assert.deepEqual(
-    (await runtimeGet(url, key, "/v1/agents")).agents.map((a) => a.manifest.id),
-    ["installation-agent"],
+    (await runtimeGet(url, key, "/v1/agents")).agents.map((a) => [a.id, a.manifest, a.kind]),
+    [[agent, "installation-agent", "virtual"]],
   );
   assert.equal(await status(url, "/v1/sessions/sess-installation", key), 200);
   assert.equal(await status(url, path, key), 200);
@@ -347,26 +366,20 @@ async function i2(url, stack) {
 async function i3(url, stack) {
   const { key } = await hostTenant(stack);
   assert.equal(await status(url, "/v1/me", key), 200);
-  const rejected = await request(url, "/v1/agents/too-new", {
+  assert.equal(PROTOCOL, "16", "the checks' client sends Nylorun-Protocol 16");
+  const rejected = await request(url, "/v1/agent-manifests/too-new", {
     method: "PUT",
     key,
     headers: { [PROTOCOL_HEADER]: "99" },
-    body: {
-      requestId: randomUUID(),
-      implementationVersion: "dev",
-      manifest: { id: "too-new", name: "too-new", manifestSchemaVersion: 7 },
-    },
+    body: { requestId: randomUUID(), manifestSchemaVersion: 8, name: "too-new", harness: {} },
   });
   assert.equal(rejected.status, 426, await rejected.text());
-  // The Host serves protocol 15 only: a protocol 14 request is a 426 too, and 15 is served.
-  const older = await request(url, "/v1/agents", { key, headers: { [PROTOCOL_HEADER]: "14" } });
-  assert.equal(older.status, 426, "a protocol 14 client");
-  const current = await request(url, "/v1/agents", { key, headers: { [PROTOCOL_HEADER]: "15" } });
-  assert.equal(current.status, 200, "a protocol 15 client");
-  assert.ok(
-    !(await runtimeGet(url, key, "/v1/agents")).agents.some((agent) => agent.manifest.id === "too-new"),
-    "no agent was written",
-  );
+  // The Host serves protocol 16 only: a protocol 15 request is a 426 too, and 16 is served.
+  const older = await request(url, "/v1/agents", { key, headers: { [PROTOCOL_HEADER]: "15" } });
+  assert.equal(older.status, 426, "a protocol 15 client");
+  const current = await request(url, "/v1/agents", { key, headers: { [PROTOCOL_HEADER]: "16" } });
+  assert.equal(current.status, 200, "a protocol 16 client");
+  assert.ok(!(await manifests(url, key)).has("too-new"), "no manifest was written");
   pass("I3", "a client in the protocol range works; outside it, 426 before any mutation");
 }
 
@@ -460,11 +473,11 @@ async function i6(url, stack) {
 }
 
 // ── I8: two Projects linked to one Tenant run `npm run dev` at once ──
-/** A Project's agent registry: one agent, `id`, named `name`. */
-const writeAgents = (project, id, name) =>
+/** A Project's agent registry: one agent, `id`, described as `description`. */
+const writeAgents = (project, id, description) =>
   writeFile(
     join(project, "agents/index.ts"),
-    `import { Agent } from "@nylorun/agents";\nexport const agents = [Agent({ id: "${id}", name: "${name}" }).build()];\n`,
+    `import { Agent } from "@nylorun/agents";\nexport const agents = [Agent({ id: "${id}", name: "${id}", description: "${description}" }).build()];\n`,
   );
 
 async function i8(url, stack, packed, temporary) {
@@ -474,14 +487,18 @@ async function i8(url, stack, packed, temporary) {
     await mkdir(join(project, "src"), { recursive: true });
     // The Projects share the one Tenant, so each saves its own agent id.
     await writeAgents(project, name, name);
-    // As the starter's: save each agent, then nothing runs (tsx watch saves again on an edit).
+    // As the starter's: save each agent's manifest and make its Agent, then nothing runs (tsx
+    // watch saves again on an edit).
     await writeFile(
       join(project, "src/main.ts"),
       [
         'import { createClient } from "@nylorun/agents";',
         'import { agents } from "../agents/index.ts";',
         "const client = await createClient();",
-        "for (const agent of agents) await client.saveAgent(agent);",
+        "for (const agent of agents) {",
+        "  await client.agentManifests.save({ agent });",
+        "  await client.agents.put(agent.id, { manifest: agent.id });",
+        "}",
         "",
       ].join("\n"),
     );
@@ -516,25 +533,30 @@ async function i8(url, stack, packed, temporary) {
       keys.add(credentials.applicationKey);
     }
     assert.equal(keys.size, 1, "concurrent starts share the one project key");
-    // Each Project's `npm run dev` saves its agent on the one Tenant.
-    const saved = async () =>
-      new Map((await runtimeGet(url, key, "/v1/agents")).agents.map((a) => [a.manifest.id, a.manifest.name]));
+    // Each Project's `npm run dev` saves its manifest and makes its Agent on the one Tenant:
+    // the latest description of each manifest that has an Agent.
+    const saved = async () => {
+      const made = new Set((await runtimeGet(url, key, "/v1/agents")).agents.map((a) => a.id));
+      return new Map(
+        [...(await manifests(url, key))].filter(([name]) => made.has(name)).map(([name, m]) => [name, m.description]),
+      );
+    };
     for (const name of names)
-      await eventually(async () => (await saved()).has(name), { message: `the agent of ${name}` });
+      await eventually(async () => (await saved()).has(name), { message: `the manifest and Agent of ${name}` });
 
     await devs[0].stop();
     assert.equal((await fetch(`${url}/ready`)).status, 200, "the Tenant keeps running");
-    assert.ok((await saved()).has(names[0]), "the stopped Project's agent stays saved");
-    // The other Project still develops: an edit saves its agent again.
+    assert.ok((await saved()).has(names[0]), "the stopped Project's manifest and Agent stay");
+    // The other Project still develops: an edit saves a new version of its manifest.
     await writeAgents(projects[1], names[1], `${names[1]} edited`);
     await eventually(async () => (await saved()).get(names[1]) === `${names[1]} edited`, {
-      message: "the other Project to save its edited agent",
+      message: "the other Project to save its edited manifest",
     });
     await devs[1].stop();
   } finally {
     await group.close();
   }
-  pass("I8", "two Projects linked to one Tenant develop at once; stopping one leaves the Tenant, its agent and the other");
+  pass("I8", "two Projects linked to one Tenant develop at once; stopping one leaves the Tenant, its manifest and Agent, and the other");
 }
 
 // ── I4: restart restores sessions; a too-new schema leaves the Tenant unavailable ──
@@ -542,15 +564,17 @@ async function i4(stack) {
   const url = stack.runtimeUrl;
   const { id, key } = await hostTenant(stack);
   const managementKey = await stack.managementKey();
-  await putAgent(url, key, "restart-agent", "restart-agent-name");
+  await putManifest(url, key, "restart-agent", { description: "restart-agent-description" });
+  await putAgent(url, key, "restart-agent");
   await putSession(url, key, "sess-restart", "restart-agent");
   await stack.nylorun(["stop"]);
   await stack.start(["--no-studio"]);
   assert.equal(await status(url, "/v1/sessions/sess-restart", key), 200);
+  assert.equal((await manifests(url, key)).get("restart-agent")?.description, "restart-agent-description");
   const agents = await runtimeGet(url, key, "/v1/agents");
-  assert.ok(agents.agents.some((agent) => agent.manifest.name === "restart-agent-name"));
+  assert.ok(agents.agents.some((agent) => agent.id === "restart-agent" && agent.manifest === "restart-agent"));
   assert.equal((await stack.operateStatus()).tenant.id, id, "the same Tenant after a restart");
-  pass("I4", "a Tenant restart restores sessions and agents");
+  pass("I4", "a Tenant restart restores sessions, agent manifests and Agents");
 
   // The Runtime records the migrations it applied in Drizzle's journal,
   // nylorun.__drizzle_migrations (runtime/server/src/store/postgres/migrate.ts). A migration this

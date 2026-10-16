@@ -118,7 +118,11 @@ beforeAll(async () => {
   });
   runtimeClient = client;
   const built = agents(service);
-  for (const agent of built) await client.saveAgent(agent, { implementationVersion: "dev" });
+  // Each agent's manifest, and an Agent of the same id made from it (protocol 16).
+  for (const agent of built) {
+    await client.agentManifests.save({ agent });
+    await client.agents.put(agent.id, { manifest: agent.id });
+  }
   // The guarded agent's save waits for a person (R5 step 2).
   await setToolPolicy(runtime, [{ effect: "ask", tool: "save", agent: "guarded" }]);
   const handler = createA2aHandler({
@@ -234,17 +238,19 @@ describe("Agent Card", () => {
     const response = await fetch(`${base}/support/.well-known/agent-card.json`);
     expect(response.status).toBe(200);
     const card = await response.json();
+    // An agent manifest v8 has no display name: the card names the agent by its manifest's
+    // name, and its version by the manifest version the Agent runs.
     expect(card).toMatchObject({
-      name: "Support",
+      name: "support",
       description: "Answers questions.",
-      version: "dev",
+      version: "support@1",
       supportedInterfaces: [
         { url: `${base}/support`, protocolBinding: "JSONRPC", protocolVersion: "1.0" },
       ],
       provider: { organization: "Example Inc.", url: "https://example.com" },
       capabilities: { streaming: false, pushNotifications: false, extendedAgentCard: false },
       securityRequirements: [{ schemes: { partnerKey: { list: [] } } }],
-      skills: [{ id: "support", name: "Support", description: "Answers questions.", tags: [] }],
+      skills: [{ id: "support", name: "support", description: "Answers questions.", tags: [] }],
     });
     expect(JSON.stringify(card)).not.toContain("instructions");
   });

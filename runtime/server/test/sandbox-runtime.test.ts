@@ -1,3 +1,8 @@
+/**
+ * The sandbox tools of a session on a virtual Agent, run in the Runtime: their events on the
+ * session's log, files kept across a restart, an unavailable or failing backend as a tool result,
+ * and an ephemeral Runtime's sandboxes deleted on close.
+ */
 import { mkdtemp, rm } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -5,6 +10,7 @@ import { join } from "node:path";
 import { expect, it } from "vitest";
 import { Agent } from "@nylorun/core/define";
 import { startTestTenant } from "./support/tenant.js";
+import { manifestOf, openSession as open, putAgent, saveManifest } from "./support/agents.js";
 
 const APP = "server-token-value-aaaaaaaa";
 import type { TenantConfig } from "../src/tenant/types.js";
@@ -40,28 +46,15 @@ async function boot(
   });
 }
 
-async function register(runtime: { url: string }, manifest: unknown) {
-  const response = await fetch(`${runtime.url}/v1/agents/bot`, {
-    method: "PUT",
-    headers: serverHeaders,
-    body: JSON.stringify({ requestId: "put-agent", manifest, implementationVersion: "dev" }),
-  });
-  expect(response.ok, await response.clone().text()).toBe(true);
+/** Saves bot as agent manifest `bot`, of kind virtual. */
+async function register(runtime: { url: string }) {
+  await saveManifest(runtime.url, serverHeaders, manifestOf(agent(), { runtime: { kind: "virtual" } }));
 }
 
-/** Opens session `id` on an Environment of its own (`ws/<id>`, kind virtual). */
+/** Opens session `id` on an Agent of its own (`ws/<id>`, from manifest `bot`). */
 async function openSession(runtime: { url: string }, id: string) {
-  const environment = await fetch(`${runtime.url}/v1/environments/${encodeURIComponent(`ws/${id}`)}`, {
-    method: "PUT",
-    headers: serverHeaders,
-    body: JSON.stringify({ kind: "virtual" }),
-  });
-  expect(environment.ok, await environment.clone().text()).toBe(true);
-  const response = await fetch(`${runtime.url}/v1/sessions/${id}`, {
-    method: "PUT",
-    headers: serverHeaders,
-    body: JSON.stringify({ requestId: `session-${id}`, agentId: "bot", ownerUserId: "ada", environment: `ws/${id}` }),
-  });
+  await putAgent(runtime.url, serverHeaders, `ws/${id}`, { manifest: "bot" });
+  const response = await open(runtime.url, serverHeaders, id, { agent: `ws/${id}`, ownerUserId: "ada" });
   expect(response.ok, await response.clone().text()).toBe(true);
 }
 
@@ -123,7 +116,7 @@ it("runs built-in sandbox tools in the Runtime", async () => {
   try {
     const host = await (await fetch(`${runtime.url}/v1/tenant/sandbox`, { headers: runtime.managementHeaders() })).json();
     expect(host).toMatchObject({ backend: "virtual", isolation: "process", defaultImage: "python:3.13-slim" });
-    await register(runtime, agent().manifest);
+    await register(runtime);
     await openSession(runtime, "s1");
     await say(runtime, "s1", "sum the sales");
     const session = await until(runtime, "s1", ["completed", "failed", "uncertain"]);
@@ -173,7 +166,7 @@ it("returns an unavailable backend as a failed tool result the model can read", 
     },
   });
   try {
-    await register(runtime, agent().manifest);
+    await register(runtime);
     await openSession(runtime, "s1");
     await say(runtime, "s1", "list");
     const session = await until(runtime, "s1", ["completed", "failed", "uncertain"]);
@@ -193,7 +186,7 @@ it("fails a backend failure during a write tool to the model as tool.interrupted
     sandbox: { backend: "virtual", backends: [backend] },
   });
   try {
-    await register(runtime, agent().manifest);
+    await register(runtime);
     await openSession(runtime, "s1");
     await say(runtime, "s1", "clean");
     const session = await until(runtime, "s1", ["completed", "failed", "uncertain"]);
@@ -224,7 +217,7 @@ it("deletes sandboxes of an ephemeral Runtime on close", async () => {
     modelProvider: script([{ name: "write", args: { path: "a.txt", content: "a" } }]),
     sandbox: { backend: "virtual", backends: [virtualBackend({ root })] },
   });
-  await register(runtime, agent().manifest);
+  await register(runtime);
   await openSession(runtime, "s1");
   await say(runtime, "s1", "write");
   expect((await until(runtime, "s1", ["completed", "failed", "uncertain"])).status).toBe("completed");

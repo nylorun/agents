@@ -1,17 +1,18 @@
 /**
- * The exit test of track R2d step 1 (Environments, protocol 11), the lines a Runtime without a
- * cluster can run, end to end over the Runtime API the way an app would:
+ * The exit test of track R2d step 1 (Environments, protocol 11; Agents since protocol 16), the
+ * lines a Runtime without a cluster can run, end to end over the Runtime API the way an app
+ * would, with the SDK (`@nylorun/agents`, protocol 16):
  *
- * - the app creates `users/alice/web` with Alice as its owner and writes her GitHub token and
- *   the team's npm token into it;
- * - her coder writes into the workspace; her reviewer, in a new session, finds it, and the
+ * - the app saves its agent manifests, makes Agent `users/alice/web` with Alice as its owner and
+ *   writes her GitHub token and the team's npm token into it;
+ * - one of her sessions writes into the workspace; a new session on her Agent finds it, and the
  *   shell sees each secret only as the sentinel `nylorun_managed`;
- * - Bob's session naming her Environment is refused by the owner guard (an application key's
- *   `403`, the opaque `404` acting for Bob), and setting the guard later stops his next turn;
+ * - Bob's session on her Agent is refused by the owner guard (an application key's `403`, the
+ *   opaque `404` acting for Bob), and setting the guard later stops his next turn;
  * - a second credential for `github.com` is refused at the write;
- * - a `kind: none` Environment runs an MCP-only agent with its key, and a rotated key works on
- *   the next request;
- * - `lifecycle.deleteAfter` removes an unused Environment and its vault.
+ * - a `kind: none` Agent runs an MCP-only agent with its key, and a rotated key works on the next
+ *   request;
+ * - `lifecycle.deleteAfter` removes an unused Agent and its vault.
  *
  * The pod lines (a push through egress-gate with Alice's token, an image change at the next
  * wake with the disk intact) run in the full tier's kind job.
@@ -78,26 +79,16 @@ async function api(method: string, path: string, body?: unknown, headers: Record
   return { status: response.status, text, body: (text ? JSON.parse(text) : {}) as Record<string, any> };
 }
 
-async function putAgent(agent: { manifest: unknown }, id: string) {
-  const saved = await api("PUT", `/v1/agents/${id}`, {
-    requestId: `put-${id}`,
-    manifest: agent.manifest,
-    implementationVersion: "dev",
-  });
-  expect(saved.status, saved.text).toBeLessThan(300);
-}
-
 let sessions = 0;
-/** Opens a session of `agentId` for `owner` on `environment`, runs `script`, and waits. */
-async function run(agentId: string, owner: string, environment: string, ...script: Step[]) {
+/** Opens a session on Agent `agent` for `owner`, runs `script`, and waits. */
+async function run(agent: string, owner: string, ...script: Step[]) {
   steps = [...script];
   results = [];
   sessions += 1;
   const session = await client.createSession({
     id: `r2d-${sessions}`,
-    agentId,
+    agent,
     ownerUserId: owner,
-    environment,
   });
   await session.input("go", { idempotencyKey: `m-${sessions}` });
   const deadline = Date.now() + 30_000;
@@ -137,12 +128,18 @@ beforeAll(async () => {
 
   runtime = await startTestTenant({ applicationKey: APP, modelProvider: model });
   client = createClient({ url: runtime.url, key: runtime.applicationKey });
-  await putAgent(Agent({ id: "coder" }).instructions("Write code in the workspace.").build(), "coder");
-  await putAgent(Agent({ id: "reviewer" }).instructions("Review the workspace.").build(), "reviewer");
-  await putAgent(
-    Agent({ id: "triage" }).mcp({ linear: { type: "streamable-http", url: linearUrl } }).build(),
-    "triage",
-  );
+  const coder = Agent({ id: "coder" }).instructions("Write and review code in the workspace.").build();
+  const network = { allowedHosts: ["github.com", "registry.npmjs.org"] };
+  await client.agentManifests.save({ agent: coder, name: "web", runtime: { kind: "virtual", network } });
+  await client.agentManifests.save({
+    agent: coder,
+    name: "scratch",
+    runtime: { kind: "virtual", lifecycle: { deleteAfter: "1s" } },
+  });
+  // No runtime section: an Agent made from it is of kind none.
+  await client.agentManifests.save({
+    agent: Agent({ id: "triage" }).mcp({ linear: { type: "streamable-http", url: linearUrl } }).build(),
+  });
 }, 60_000);
 
 afterAll(async () => {
@@ -151,41 +148,40 @@ afterAll(async () => {
 });
 
 describe("the R2d exit, step 1", { timeout: 60_000 }, () => {
-  it("an app creates Alice's Environment and writes her GitHub token and the team npm token into it", async () => {
-    const environment = await client.environments.put("users/alice/web", {
-      kind: "virtual",
+  it("an app makes Alice's Agent and writes her GitHub token and the team npm token into it", async () => {
+    const agent = await client.agents.put("users/alice/web", {
+      manifest: "web",
       labels: { user: "alice" },
-      network: { allowedHosts: ["github.com", "registry.npmjs.org"] },
-      ownerUserId: "alice",
+      owner: "alice",
     });
-    expect(environment).toMatchObject({
+    expect(agent).toMatchObject({
       id: "users/alice/web",
+      manifest: "web",
+      resolvedVersion: 1,
       kind: "virtual",
-      ownerUserId: "alice",
-      version: 1,
-      appliedVersion: 1,
-      manifest: { network: { allowedHosts: ["github.com", "registry.npmjs.org"] }, harness: "nylorun" },
+      owner: "alice",
+      runtime: { network: { allowedHosts: ["github.com", "registry.npmjs.org"] }, harness: "nylorun" },
     });
-    await client.environments.secrets.put("users/alice/web", "GH_TOKEN", {
+    await client.agents.secrets.put("users/alice/web", "GH_TOKEN", {
       type: "environment_secret",
       value: GH_TOKEN,
       allowedHosts: ["github.com"],
       inject: { header: "Authorization", format: "Basic {base64:x-access-token:{value}}" },
     });
-    await client.environments.secrets.put("users/alice/web", "NPM_TOKEN", {
+    await client.agents.secrets.put("users/alice/web", "NPM_TOKEN", {
       type: "environment_secret",
       value: NPM_TOKEN,
       allowedHosts: ["registry.npmjs.org"],
     });
-    const listed = await api("GET", "/v1/environments/users%2Falice%2Fweb/secrets");
+    const listed = await api("GET", "/v1/agents/users%2Falice%2Fweb/secrets");
     expect(listed.status).toBe(200);
     expect(listed.body.secrets.map((secret: { name: string }) => secret.name)).toEqual(["GH_TOKEN", "NPM_TOKEN"]);
     // Write-only: no value in any answer.
     for (const secret of [GH_TOKEN, NPM_TOKEN]) expect(listed.text).not.toContain(secret);
   });
 
-  it("her coder writes into the workspace; her reviewer, in a new session, finds it, and the shell sees only the sentinel", async () => {
-    const coder = await run("coder", "alice", "users/alice/web", {
+  it("one of her sessions writes into the workspace; a new one on her Agent finds it, and the shell sees only the sentinel", async () => {
+    const coder = await run("users/alice/web", "alice", {
       name: "write",
       args: { path: "app/README.md", content: "cloned by the coder\n" },
     });
@@ -193,9 +189,8 @@ describe("the R2d exit, step 1", { timeout: 60_000 }, () => {
     expect(coder.results.map((result) => result.status)).toEqual(["completed"]);
 
     const reviewer = await run(
-      "reviewer",
-      "alice",
       "users/alice/web",
+      "alice",
       { name: "read", args: { path: "app/README.md" } },
       { name: "bash", args: { command: 'echo "token=$GH_TOKEN npm=$NPM_TOKEN"' } },
     );
@@ -207,32 +202,31 @@ describe("the R2d exit, step 1", { timeout: 60_000 }, () => {
       expect(result.text).not.toContain(NPM_TOKEN);
     }
     const view = await client.session(reviewer.session.id).inspect();
-    expect(view.environment).toEqual({ id: "users/alice/web", version: 1 });
+    expect(view).toMatchObject({ agentId: "users/alice/web", manifest: { name: "web", version: 1 } });
   });
 
   it("Bob's session is refused by the owner guard; acting for Bob it is the 404 of a missing one", async () => {
     const asApp = await api("PUT", "/v1/sessions/bob-1", {
       requestId: "bob-1",
-      agentId: "reviewer",
+      agent: "users/alice/web",
       ownerUserId: "bob",
-      environment: "users/alice/web",
     });
     expect(asApp.status, asApp.text).toBe(403);
-    expect(asApp.body.code).toBe("environment_owner_mismatch");
+    expect(asApp.body.code).toBe("agent_owner_mismatch");
     const asBob = await api(
       "PUT",
       "/v1/sessions/bob-2",
-      { requestId: "bob-2", agentId: "reviewer", ownerUserId: "bob", environment: "users/alice/web" },
+      { requestId: "bob-2", agent: "users/alice/web", ownerUserId: "bob" },
       { "nylorun-subject": "bob", "nylorun-scopes": "sessions:own" },
     );
     expect(asBob.status, asBob.text).toBe(404);
   });
 
   it("a guard set later stops another owner's next turn", async () => {
-    await client.environments.put("teams/shared", { kind: "virtual" });
-    const bob = await run("reviewer", "bob", "teams/shared", { name: "bash", args: { command: "true" } });
+    await client.agents.put("teams/shared", { manifest: "web" });
+    const bob = await run("teams/shared", "bob", { name: "bash", args: { command: "true" } });
     expect(bob.status).toBe("completed");
-    await client.environments.put("teams/shared", { ownerUserId: "alice" });
+    await client.agents.put("teams/shared", { manifest: "web", owner: "alice" });
     const refused = await api("POST", `/v1/sessions/${bob.session.id}/commands`, {
       requestId: "again",
       idempotencyKey: "again",
@@ -240,11 +234,11 @@ describe("the R2d exit, step 1", { timeout: 60_000 }, () => {
       content: "again",
     });
     expect(refused.status, refused.text).toBe(403);
-    expect(refused.body.code).toBe("environment_owner_mismatch");
+    expect(refused.body.code).toBe("agent_owner_mismatch");
   });
 
   it("a second credential for github.com is refused at the write", async () => {
-    const refused = await api("PUT", "/v1/environments/users%2Falice%2Fweb/secrets/GITHUB_ALT", {
+    const refused = await api("PUT", "/v1/agents/users%2Falice%2Fweb/secrets/GITHUB_ALT", {
       type: "environment_secret",
       value: "ghp_other",
       allowedHosts: ["api.github.com", "github.com"],
@@ -256,15 +250,15 @@ describe("the R2d exit, step 1", { timeout: 60_000 }, () => {
     });
   });
 
-  it("a kind none Environment runs an MCP-only agent with its key, and a rotated key works on the next request", async () => {
-    const none = await client.environments.put("users/alice/linear", { kind: "none", ownerUserId: "alice" });
-    expect(none).toMatchObject({ kind: "none", state: "ready" });
-    await client.environments.secrets.put("users/alice/linear", "linear", {
+  it("a kind none Agent runs an MCP-only agent with its key, and a rotated key works on the next request", async () => {
+    const none = await client.agents.put("users/alice/linear", { manifest: "triage", owner: "alice" });
+    expect(none).toMatchObject({ kind: "none", state: "sleeping", compute: { state: "ready" } });
+    await client.agents.secrets.put("users/alice/linear", "linear", {
       type: "bearer",
       url: linearUrl,
       value: LINEAR_KEY,
     });
-    const first = await run("triage", "alice", "users/alice/linear", {
+    const first = await run("users/alice/linear", "alice", {
       name: "linear__issues",
       args: { team: "web" },
     });
@@ -273,12 +267,12 @@ describe("the R2d exit, step 1", { timeout: 60_000 }, () => {
 
     // The server now takes only the new key; the app rotates it.
     linearKey = LINEAR_ROTATED;
-    await client.environments.secrets.put("users/alice/linear", "linear", {
+    await client.agents.secrets.put("users/alice/linear", "linear", {
       type: "bearer",
       url: linearUrl,
       value: LINEAR_ROTATED,
     });
-    const second = await run("triage", "alice", "users/alice/linear", {
+    const second = await run("users/alice/linear", "alice", {
       name: "linear__issues",
       args: { team: "api" },
     });
@@ -287,24 +281,21 @@ describe("the R2d exit, step 1", { timeout: 60_000 }, () => {
     expect(linearSeen.at(-1)).toBe(`Bearer ${LINEAR_ROTATED}`);
   });
 
-  it("lifecycle.deleteAfter removes an unused Environment and its vault", async () => {
-    await client.environments.put("users/alice/scratch", {
-      kind: "virtual",
-      lifecycle: { deleteAfter: "1s" },
-    });
-    await client.environments.secrets.put("users/alice/scratch", "REGION", {
+  it("lifecycle.deleteAfter removes an unused Agent and its vault", async () => {
+    await client.agents.put("users/alice/scratch", { manifest: "scratch" });
+    await client.agents.secrets.put("users/alice/scratch", "REGION", {
       type: "environment_variable",
       value: "eu-west-1",
     });
     await new Promise((resolve) => setTimeout(resolve, 1_200));
     await runtime.handle.worker!.sweep();
-    const gone = await api("GET", "/v1/environments/users%2Falice%2Fscratch");
+    const gone = await api("GET", "/v1/agents/users%2Falice%2Fscratch");
     expect(gone.status).toBe(404);
-    const secrets = await api("GET", "/v1/environments/users%2Falice%2Fscratch/secrets");
+    const secrets = await api("GET", "/v1/agents/users%2Falice%2Fscratch/secrets");
     expect(secrets.status).toBe(404);
-    const events = await client.environments.events("users/alice/scratch");
-    expect(events.at(-1)).toMatchObject({ type: "environment.deleted", payload: { reason: "deleteAfter" } });
+    const events = await client.agents.events("users/alice/scratch");
+    expect(events.at(-1)).toMatchObject({ type: "agent.deleted", payload: { reason: "deleteAfter" } });
     // One in use stays.
-    expect((await client.environments.get("users/alice/web")).id).toBe("users/alice/web");
+    expect((await client.agents.get("users/alice/web")).id).toBe("users/alice/web");
   });
 });

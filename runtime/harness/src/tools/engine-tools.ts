@@ -12,7 +12,7 @@
  * not hashed.
  */
 import type { AgentManifest } from "@nylorun/core/define";
-import type { TurnEnvironment } from "@nylorun/core/harness-api";
+import type { TurnAgent } from "@nylorun/core/harness-api";
 import type { DurableSessionTool } from "../run/durable.js";
 import { artifactInstructions, artifactToolsFor } from "./artifacts.js";
 import { sandboxInstructions, sandboxTools, type SandboxToolLimits } from "./sandbox.js";
@@ -43,14 +43,14 @@ export interface EngineTools {
   readonly instructions: readonly string[];
 }
 
-/** Our engine's tools and text for `agent`, in a session in `environment`. */
+/** Our engine's tools and text for `agent`, in a session on Agent `runsOn` (`turn.start.agent`). */
 export function engineToolsFor(
   agent: Pick<AgentManifest, "skills">,
-  environment: TurnEnvironment | undefined,
+  runsOn: TurnAgent | undefined,
   options: Pick<EngineToolOptions, "artifactPageBytes" | "sandboxTools" | "skillReadBytes">,
 ): EngineTools {
   const skills = Object.values(agent.skills ?? {});
-  const workspace = environment?.sandbox?.workspace;
+  const workspace = runsOn?.sandbox?.workspace;
   const sandboxed = workspace !== undefined;
   const instructions: string[] = [];
   if (skills.length > 0) instructions.push(...skillCatalogText(skills));

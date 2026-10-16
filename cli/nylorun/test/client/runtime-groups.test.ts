@@ -4,8 +4,9 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { PROTOCOL_FEATURES, PROTOCOL_VERSION } from "@nylorun/core/compatibility";
 import { agentsCommand } from "../../src/client/agents.js";
+import { applyCommand } from "../../src/client/apply.js";
 import { artifactsCommand } from "../../src/client/artifacts.js";
-import { environmentsCommand } from "../../src/client/environments.js";
+import { migrateCommand } from "../../src/client/migrate.js";
 import { sessionsCommand } from "../../src/client/sessions.js";
 import { CliError } from "../../src/errors.js";
 import { fakeFetch, json, temporaryDir, temporaryHome, testDeps } from "../stack/support.js";
@@ -54,63 +55,187 @@ const headersOf = (deps: Awaited<ReturnType<typeof remote>>, path: string) =>
 
 const sha = (text: string) => `sha256:${createHash("sha256").update(text).digest("hex")}`;
 
-describe("nylorun agents", () => {
-  const manifest = (files: Record<string, string>) => ({
+/** An agent folder as nylorun apply reads it: three files, a skill and a runtime file beside. */
+async function agentFolder(root: string, harness: Record<string, unknown> = {}) {
+  await mkdir(join(root, "agents", "support", "skills", "triage"), { recursive: true });
+  await mkdir(join(root, "shared", "kit"), { recursive: true });
+  await writeFile(
+    join(root, "agents", "support", "agent.manifest.json"),
+    JSON.stringify({ manifestSchemaVersion: 8, name: "support", harness: "./harness.manifest.json", runtime: "../../shared/runtime.manifest.json" }),
+  );
+  await writeFile(
+    join(root, "agents", "support", "harness.manifest.json"),
+    JSON.stringify({ instructions: ["Answer briefly."], skills: "./skills", ...harness }),
+  );
+  await writeFile(join(root, "agents", "support", "skills", "triage", "SKILL.md"), SKILL);
+  await writeFile(
+    join(root, "shared", "runtime.manifest.json"),
+    JSON.stringify({ kind: "virtual", files: [{ path: "/workspace/kit", from: "./kit" }] }),
+  );
+  await writeFile(join(root, "shared", "kit", "run.sh"), "echo kit\n");
+}
+const SKILL = "---\nname: triage\ndescription: Triage an issue.\n---\nLabel it.\n";
+const PLAN = { name: "support", from: 2, to: 3, unchanged: false, warnings: [], errors: [], behind: 1 };
+
+describe("nylorun apply", () => {
+  it("plans each folder's manifest, then saves it under If-Match with its files uploaded first", async () => {
+    const dir = await temporaryDir();
+    await agentFolder(dir);
+    const held = new Set([`/v1/files/${sha("echo kit\n")}`]);
+    const deps = Object.assign(
+      await remote((method, path, init) => {
+        if (method === "HEAD") return new Response(null, { status: held.has(path) ? 200 : 404 });
+        if (method === "PUT" && path.startsWith("/v1/files/")) {
+          held.add(path);
+          return json({ sha256: path.slice(10), size: 8 }, 201);
+        }
+        if (method === "PUT" && path === "/v1/agent-manifests/support?dryRun=true")
+          return json({
+            ...PLAN,
+            changes: [{ section: "harness", path: "instructions", op: "replace", from: ["Old."], to: ["Answer briefly."] }],
+            warnings: [{ code: "behind", message: "1 Agent stays on version 2" }],
+          });
+        if (method === "PUT" && path === "/v1/agent-manifests/support") {
+          expect(new Headers(init!.headers).get("if-match")).toBe("2");
+          return json({ manifest: { name: "support", version: 3 }, unchanged: false, warnings: [] });
+        }
+        return undefined;
+      }),
+      { cwd: dir },
+    );
+    expect(await applyCommand(deps, ["agents"])).toBe(0);
+    expect(deps.lines).toEqual([
+      "support: version 2 → 3 (1 Agent on older versions)",
+      "  harness instructions replace",
+      "  warning: 1 Agent stays on version 2",
+    ]);
+    expect(deps.errors).toEqual(["Saved agent manifest support version 3 on http://runtime.test."]);
+    // The plan uploads what the Runtime lacks (files are stored by content); the save finds them held.
+    expect(calls(deps)).toEqual([
+      `HEAD /v1/files/${sha("echo kit\n")}`,
+      `HEAD /v1/files/${sha(SKILL)}`,
+      `PUT /v1/files/${sha(SKILL)}`,
+      "PUT /v1/agent-manifests/support?dryRun=true",
+      `HEAD /v1/files/${sha("echo kit\n")}`,
+      `HEAD /v1/files/${sha(SKILL)}`,
+      "PUT /v1/agent-manifests/support",
+    ]);
+    const saved = JSON.parse(String(deps.fetch.requests.at(-1)!.init!.body));
+    expect(saved.harness.skills.triage.files).toEqual({ "SKILL.md": sha(SKILL) });
+    expect(saved.runtime.files).toEqual([{ path: "/workspace/kit", files: { "run.sh": sha("echo kit\n") } }]);
+  });
+
+  it("--dry-run saves nothing; a manifest with gaps is an error, saved by no one (exit 1)", async () => {
+    const dir = await temporaryDir();
+    await agentFolder(dir, { requires: { sandbox: "pod" } });
+    const deps = Object.assign(
+      await remote((method, path) => {
+        if (method === "HEAD") return new Response(null, { status: 200 });
+        if (method === "PUT" && path === "/v1/agent-manifests/support?dryRun=true")
+          return json({ ...PLAN, from: null, to: 1, changes: [] });
+        return undefined;
+      }),
+      { cwd: join(dir, "agents", "support") },
+    );
+    expect(await applyCommand(deps, ["--dry-run"])).toBe(1);
+    expect(deps.lines).toEqual([
+      "support: new, version 1 (1 Agent on older versions)",
+      '  error: harness.requires.sandbox "pod" needs runtime.kind "pod"; the runtime is "virtual"',
+    ]);
+    expect(calls(deps).filter((call) => !call.startsWith("HEAD"))).toEqual(["PUT /v1/agent-manifests/support?dryRun=true"]);
+    expect(deps.errors).toEqual(["Nothing was saved for a manifest with errors."]);
+  });
+
+  it("refuses a folder with no manifest, and a file that does not validate, before any request", async () => {
+    const dir = await temporaryDir();
+    const deps = Object.assign(await remote(() => undefined), { cwd: dir });
+    await expect(applyCommand(deps, [])).rejects.toMatchObject({ exitCode: 2 });
+    await agentFolder(dir, { approval: "always" });
+    const error = await applyCommand(deps, ["agents/support"]).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(CliError);
+    expect((error as Error).message).toMatch(/harness\.manifest\.json is not valid/);
+    expect(deps.fetch.requests).toEqual([]);
+  });
+});
+
+describe("nylorun migrate v8", () => {
+  const v7 = {
     manifestSchemaVersion: 7,
     id: "support",
+    description: "Helps.",
     instructions: ["Answer briefly."],
-    skills: { triage: { name: "triage", description: "Triage", files } },
-  });
+    tools: [
+      {
+        name: "lookup",
+        inputSchema: { type: "object", properties: {} },
+        http: { url: "https://items.example.com/lookup", credential: "items" },
+      },
+    ],
+    requires: { sandbox: "any", secrets: ["GH_TOKEN"] },
+  };
 
-  it("save uploads the files the manifest names that the Runtime lacks, found by hash, then saves", async () => {
+  it("writes the three files from a v7 manifest and an environment manifest, and names the gaps to fix", async () => {
     const dir = await temporaryDir();
-    await mkdir(join(dir, "skills", "triage"), { recursive: true });
-    await writeFile(join(dir, "skills", "triage", "SKILL.md"), "# Triage");
-    await writeFile(join(dir, "skills", "other.txt"), "held already");
+    await writeFile(join(dir, "agent.json"), JSON.stringify(v7));
     await writeFile(
-      join(dir, "agent.json"),
-      JSON.stringify(manifest({ "SKILL.md": sha("# Triage"), "notes.txt": sha("held already") })),
+      join(dir, "box.json"),
+      JSON.stringify({
+        $schema: "https://docs.nylorun.com/schemas/environment-manifest/v1.json",
+        manifestSchemaVersion: 1,
+        name: "box",
+        description: "A box.",
+        harness: "nylorun",
+        kind: "pod",
+        image: "node:24",
+        secrets: { GH_TOKEN: { type: "environment_secret", allowedHosts: ["api.github.com"] } },
+      }),
     );
-    const deps = await remote((method, path) => {
-      if (method === "HEAD") return new Response(null, { status: path.endsWith(sha("held already")) ? 200 : 404 });
-      if (method === "PUT" && path.startsWith("/v1/files/")) return json({ sha256: path.slice(10), size: 8 }, 201);
-      if (method === "PUT" && path === "/v1/agents/support") return json({ agentId: "support", manifestHash: "h" });
-      return undefined;
+    const deps = Object.assign(await remote(() => undefined), { cwd: dir });
+    expect(await migrateCommand(deps, ["v8", "agent.json", "--runtime", "box.json", "--out", "agents/support"])).toBe(0);
+    const read = async (file: string) => JSON.parse(await readFile(join(dir, "agents", "support", file), "utf8"));
+    expect(await read("agent.manifest.json")).toEqual({
+      $schema: "https://docs.nylorun.com/schemas/agent-manifest/v8.json",
+      manifestSchemaVersion: 8,
+      name: "support",
+      description: "Helps.",
+      harness: "./harness.manifest.json",
+      runtime: "./runtime.manifest.json",
     });
-    expect(
-      await agentsCommand(deps, ["save", join(dir, "agent.json"), "--files", join(dir, "skills"), "--implementation-version", "v3"]),
-    ).toBe(0);
-    expect(calls(deps)).toEqual([
-      `HEAD /v1/files/${sha("# Triage")}`,
-      `PUT /v1/files/${sha("# Triage")}`,
-      `HEAD /v1/files/${sha("held already")}`,
-      "PUT /v1/agents/support",
+    expect(await read("harness.manifest.json")).toEqual({
+      $schema: "https://docs.nylorun.com/schemas/harness-manifest/v1.json",
+      instructions: ["Answer briefly."],
+      tools: v7.tools,
+      requires: { sandbox: "any", secrets: ["GH_TOKEN"] },
+    });
+    expect(await read("runtime.manifest.json")).toEqual({
+      $schema: "https://docs.nylorun.com/schemas/runtime-manifest/v1.json",
+      kind: "pod",
+      image: "node:24",
+      secrets: { GH_TOKEN: { type: "environment_secret", allowedHosts: ["api.github.com"] } },
+    });
+    expect(deps.errors).toEqual([
+      '  fix before apply: harness.tools.lookup.http.credential "items" is not a secret slot in runtime.secrets',
+      "Save it with nylorun apply agents/support.",
     ]);
-    expect(bodyOf(deps, "/v1/agents/support")).toMatchObject({ implementationVersion: "v3", manifest: { id: "support" } });
-    expect(deps.errors).toEqual(["Saved agent support on http://runtime.test (2 files, 1 uploaded)."]);
-  });
-
-  it("save refuses, before any request, a manifest naming a file it cannot find", async () => {
-    const dir = await temporaryDir();
-    await writeFile(join(dir, "agent.json"), JSON.stringify(manifest({ "SKILL.md": sha("missing") })));
-    const deps = await remote(() => undefined);
-    const error = await agentsCommand(deps, ["save", join(dir, "agent.json"), "--files", dir]).catch((e: unknown) => e);
-    expect(error).toBeInstanceOf(CliError);
-    expect((error as Error).message).toContain(`manifest.skills.triage.files["SKILL.md"] = ${sha("missing")}`);
+    // Nothing is written over an existing file.
+    await expect(migrateCommand(deps, ["v8", "agent.json", "--out", "agents/support"])).rejects.toMatchObject({ exitCode: 1 });
     expect(deps.fetch.requests).toEqual([]);
   });
 
-  it("list prints a table, and get one agent's entry", async () => {
-    const deps = await remote((method, path) =>
-      method === "GET" && path === "/v1/agents"
-        ? json({ agents: [{ agentId: "support", manifestHash: "h", implementationVersion: "dev", manifest: { description: "Helps" } }] })
-        : undefined,
+  it("without an environment manifest, kind is virtual for skills or a sandbox, else none", async () => {
+    const dir = await temporaryDir();
+    const { requires: _, ...plain } = v7;
+    await writeFile(join(dir, "plain.json"), JSON.stringify({ ...plain, tools: [] }));
+    await writeFile(
+      join(dir, "skilled.json"),
+      JSON.stringify({ ...plain, tools: [], skills: { triage: { name: "triage", description: "Triage", files: { "SKILL.md": sha(SKILL) } } } }),
     );
-    expect(await agentsCommand(deps, ["list"])).toBe(0);
-    expect(deps.lines).toEqual(["ID       KIND   DESCRIPTION", "support  agent  Helps"]);
-    expect(await agentsCommand(deps, ["get", "support"])).toBe(0);
-    expect(JSON.parse(deps.lines.slice(2).join("\n"))).toMatchObject({ agentId: "support" });
-    expect(await agentsCommand(deps, ["get", "ghost"])).toBe(1);
+    const deps = Object.assign(await remote(() => undefined), { cwd: dir });
+    expect(await migrateCommand(deps, ["v8", "plain.json", "--out", "plain"])).toBe(0);
+    expect(await migrateCommand(deps, ["v8", "skilled.json", "--out", "skilled"])).toBe(0);
+    const kind = async (out: string) => JSON.parse(await readFile(join(dir, out, "runtime.manifest.json"), "utf8")).kind;
+    expect(await kind("plain")).toBe("none");
+    expect(await kind("skilled")).toBe("virtual");
   });
 });
 
@@ -124,13 +249,13 @@ describe("nylorun sessions", () => {
       return undefined;
     });
     expect(
-      await sessionsCommand(deps, ["create", "--agent", "support", "--owner", "u1", "--environment", "users/u1", "--id", "s1", "--info", '{"ticket":7}']),
+      await sessionsCommand(deps, ["create", "--agent", "users/u1/support", "--owner", "u1", "--id", "s1", "--info", '{"ticket":7}']),
     ).toBe(0);
     expect(deps.lines).toEqual(["s1"]);
-    expect(bodyOf(deps, "/v1/sessions/s1")).toMatchObject({
-      agentId: "support",
+    expect(bodyOf(deps, "/v1/sessions/s1")).toEqual({
+      requestId: expect.any(String),
+      agent: "users/u1/support",
       ownerUserId: "u1",
-      environment: "users/u1",
       info: { ticket: 7 },
     });
     await sessionsCommand(deps, ["send", "s1", "Hello", "--idempotency-key", "k1"]);
@@ -171,7 +296,6 @@ describe("nylorun sessions", () => {
                 status: "idle",
                 activeTurnId: null,
                 lastTurnId: null,
-                environmentId: null,
                 createdAt: null,
                 lastEventAt: "2026-10-14T00:00:00.000Z",
               },
@@ -180,10 +304,10 @@ describe("nylorun sessions", () => {
           })
         : undefined,
     );
-    expect(await sessionsCommand(deps, ["list", "--agent", "support", "--limit", "1"])).toBe(0);
-    expect(calls(deps)).toEqual(["GET /v1/sessions?limit=1&agentId=support"]);
-    expect(deps.lines[0]).toMatch(/^ID +AGENT +OWNER +STATUS +ENVIRONMENT +LAST EVENT$/);
-    expect(deps.lines[1]).toMatch(/^s1 +support +u1 +idle +- +2026-10-14T00:00:00\.000Z$/);
+    expect(await sessionsCommand(deps, ["list", "--agent", "support", "--manifest", "triage", "--limit", "1"])).toBe(0);
+    expect(calls(deps)).toEqual(["GET /v1/sessions?limit=1&agentId=support&manifest=triage"]);
+    expect(deps.lines[0]).toMatch(/^ID +AGENT +OWNER +STATUS +LAST EVENT$/);
+    expect(deps.lines[1]).toMatch(/^s1 +support +u1 +idle +2026-10-14T00:00:00\.000Z$/);
     expect(deps.errors).toEqual(["More: --cursor c2"]);
   });
 
@@ -207,11 +331,11 @@ describe("nylorun sessions", () => {
   it("acts for a subject with --as, and sends NYLORUN_TOKEN in place of the key", async () => {
     const handle: Handler = (method, path) => (path === "/v1/sessions/s1" ? json({ id: "s1", status: "idle" }) : undefined);
     const deps = await remote(handle);
-    await sessionsCommand(deps, ["get", "s1", "--as", "user:7", "--scope", "sessions:own", "--scope", "environments:write"]);
+    await sessionsCommand(deps, ["get", "s1", "--as", "user:7", "--scope", "sessions:own", "--scope", "agents:write"]);
     const headers = headersOf(deps, "/v1/sessions/s1");
     expect(headers.get("authorization")).toBe(`Bearer ${KEY}`);
     expect(headers.get("nylorun-subject")).toBe("user:7");
-    expect(headers.get("nylorun-scopes")).toBe("sessions:own environments:write");
+    expect(headers.get("nylorun-scopes")).toBe("sessions:own agents:write");
     const token = await remote(handle, { NYLORUN_SERVER_KEY: "", NYLORUN_TOKEN: "idp-token" });
     await sessionsCommand(token, ["get", "s1"]);
     expect(headersOf(token, "/v1/sessions/s1").get("authorization")).toBe("Bearer idp-token");
@@ -228,28 +352,18 @@ describe("nylorun sessions", () => {
   });
 });
 
-describe("nylorun environments", () => {
-  it("put merges a recipe file with --kind and --label; secrets put reads the secret from a file", async () => {
+describe("nylorun agents", () => {
+  it("secrets put reads a typed secret from a file; restore puts a disk version back", async () => {
     const dir = await temporaryDir();
-    await writeFile(join(dir, "recipe.json"), JSON.stringify({ labels: { team: "a" }, network: { preset: "dev" } }));
-    await writeFile(join(dir, "secret.json"), JSON.stringify({ type: "bearer", token: "t0k", url: "https://mcp.test/" }));
+    await writeFile(join(dir, "secret.json"), JSON.stringify({ type: "bearer", value: "t0k", url: "https://mcp.test/" }));
     const deps = await remote((method, path) => {
-      if (method === "PUT" && path === "/v1/environments/users%2Fu1") return json({ id: "users/u1" });
-      if (method === "PUT" && path === "/v1/environments/users%2Fu1/secrets/linear") return json({ name: "linear" });
-      if (method === "POST" && path === "/v1/environments/users%2Fu1/restore") return json({ version: 4 });
+      if (method === "PUT" && path === "/v1/agents/users%2Fu1/secrets/linear") return json({ name: "linear" });
+      if (method === "POST" && path === "/v1/agents/users%2Fu1/restore") return json({ agentId: "users/u1", restored: 4, status: "done" });
       return undefined;
     });
-    expect(
-      await environmentsCommand(deps, ["put", "users/u1", join(dir, "recipe.json"), "--kind", "virtual", "--label", "owner=u1"]),
-    ).toBe(0);
-    expect(bodyOf(deps, "/v1/environments/users%2Fu1")).toMatchObject({
-      kind: "virtual",
-      labels: { team: "a", owner: "u1" },
-      network: { preset: "dev" },
-    });
-    expect(await environmentsCommand(deps, ["secrets", "put", "users/u1", "linear", join(dir, "secret.json")])).toBe(0);
-    expect(bodyOf(deps, "/secrets/linear")).toMatchObject({ type: "bearer", token: "t0k" });
-    expect(await environmentsCommand(deps, ["restore", "users/u1", "latest"])).toBe(0);
+    expect(await agentsCommand(deps, ["secrets", "put", "users/u1", "linear", join(dir, "secret.json")])).toBe(0);
+    expect(bodyOf(deps, "/secrets/linear")).toMatchObject({ type: "bearer", value: "t0k" });
+    expect(await agentsCommand(deps, ["restore", "users/u1", "latest"])).toBe(0);
     expect(bodyOf(deps, "/restore")).toMatchObject({ version: "latest" });
   });
 });

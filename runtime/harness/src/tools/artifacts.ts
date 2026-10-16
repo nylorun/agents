@@ -229,9 +229,9 @@ export async function runArtifactTool(
   }
 }
 
-/** Whether the run's session has a sandbox (`turn.start.environment.sandbox`): its agents share it. */
+/** Whether the run's session has a sandbox (`turn.start.agent.sandbox`): its agents share it. */
 function sandboxed(context: ArtifactToolContext): boolean {
-  return context.files !== undefined && context.run.start.environment?.sandbox !== undefined;
+  return context.files !== undefined && context.run.start.agent?.sandbox !== undefined;
 }
 
 function about(artifact: ArtifactMeta) {

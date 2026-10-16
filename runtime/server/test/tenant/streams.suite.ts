@@ -29,6 +29,7 @@ import {
   type StreamRecord,
 } from "../../src/streams/types.js";
 import { startTestTenant } from "../support/tenant.js";
+import { deploy, type AgentSource } from "../support/agents.js";
 import { startToolServer } from "../support/tool-server.js";
 
 export interface StreamsHarness {
@@ -268,21 +269,12 @@ export function tenantStreamsSuite(
         sessionId = "s1",
         manifest = Agent({ id: "bot", name: "Bot" }).build().manifest
       ) {
-        const agentId = (manifest as { id: string }).id;
-        expect(
-          (
-            await call(`${node.url}/v1/agents/${agentId}`, "PUT", {
-              requestId: `agent-${agentId}`,
-              manifest,
-              implementationVersion: "dev",
-            })
-          ).ok
-        ).toBe(true);
+        const agent = (await deploy(node.url, headers, manifest as AgentSource)).id;
         expect(
           (
             await call(`${node.url}/v1/sessions/${sessionId}`, "PUT", {
               requestId: `session-${sessionId}`,
-              agentId,
+              agent,
               ownerUserId: "ada",
             })
           ).ok
@@ -677,7 +669,8 @@ export function tenantStreamsSuite(
       await t.commitConcurrently(a, 5);
       const before = await t.streamOf(a);
       const observer = t.observe(a);
-      await observer.until("the history", (f) => f.length === 5);
+      // A session's log opens with agent.attached (protocol 16).
+      await observer.until("the history", (f) => f.length === 6);
 
       await t.reset(a);
       await eventually("the observer to end", () => observer.ended || undefined);
@@ -696,7 +689,7 @@ export function tenantStreamsSuite(
       expect(after).not.toBe(before);
       expect(after.endsWith("|sessions/s1")).toBe(true);
       const fresh = await t.items(a);
-      expect(seqs(fresh.items)).toEqual([0, 1]);
+      expect(seqs(fresh.items)).toEqual([0, 1, 2]);
       expect(await t.sessionStreams(1)).toEqual(["sessions/s1"]);
     });
 
@@ -755,7 +748,7 @@ export function tenantStreamsSuite(
       await t.createSession(a);
       await t.commitConcurrently(a, 3);
       const onB = t.observe(b);
-      await onB.until("the history on node B", (f) => f.length === 3);
+      await onB.until("the history on node B", (f) => f.length === 4);
 
       await t.reset(a);
       await eventually("node B's feed to end", () => onB.ended || undefined);
@@ -766,8 +759,8 @@ export function tenantStreamsSuite(
       const again = t.observe(b);
       await again.ready();
       await t.commitConcurrently(a, 2);
-      await again.until("the new session's events", (f) => f.length === 2);
-      expect(seqs(onlyEvents(again.close()))).toEqual([0, 1]);
+      await again.until("the new session's events", (f) => f.length === 3);
+      expect(seqs(onlyEvents(again.close()))).toEqual([0, 1, 2]);
     });
 
     it("re-creates a session reset while the streams are down without a collision", async () => {
@@ -792,8 +785,8 @@ export function tenantStreamsSuite(
       const after = await t.streamOf(a);
       expect(after).not.toBe(before);
       const fresh = await t.items(a);
-      expect(seqs(fresh.items)).toEqual([0, 1]);
-      expect(await t.tailOf(after)).toBe(2);
+      expect(seqs(fresh.items)).toEqual([0, 1, 2]);
+      expect(await t.tailOf(after)).toBe(3);
       await eventually("the old basin to be deleted", async () =>
         (await ctx.store.tx((tx) => tx.basinGenerations())).retired.length === 0 || undefined
       );

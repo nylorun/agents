@@ -7,8 +7,8 @@
     "node": ">=24.0.0"
   },
   "scripts": {
-    "dev": "tsx watch --env-file-if-exists=.env src/main.ts",
-    "build": "node -e \"import('node:fs/promises').then(async ({rm,cp}) => { await rm('dist', { recursive: true, force: true }); await cp('agents', 'dist/agents', { recursive: true, filter: (source) => !source.endsWith('.ts') }); await cp('environments', 'dist/environments', { recursive: true }); })\" && tsc -p tsconfig.json",
+    "dev": "tsx watch --env-file-if-exists=.env src/main.ts --dev",
+    "build": "node -e \"import('node:fs/promises').then(async ({rm,cp}) => { await rm('dist', { recursive: true, force: true }); await cp('agents', 'dist/agents', { recursive: true, filter: (source) => !source.endsWith('.ts') }); await cp('runtime', 'dist/runtime', { recursive: true }); })\" && tsc -p tsconfig.json",
     "start": "node dist/src/main.js",
     "check": "tsc --noEmit"
   },

@@ -6,27 +6,27 @@
 //
 // Starts a Tenant under a temporary Host root (`nylorun start --no-studio`), points its model at
 // a stub OpenAI-compatible model on the Compose network (it counts calls and can hold them),
-// runs `nylorun sandbox enable`, then through the Tenant API (protocol 11: pod Environments):
+// runs `nylorun sandbox enable`, then through the Tenant API (protocol 16: Agents of kind pod, each
+// made from an agent manifest whose runtime section is a pod):
 //
-// - create a pod Environment → its engine joins (host epoch > 0); a session opened on it runs
+// - make a pod Agent → its engine joins (host epoch > 0); a session opened on it runs
 //   a turn whose bash runs in the pod
 //   (hostname is the pod's), and the pod's NetworkPolicy keeps the API server closed to the
 //   command (the engine waited for it: `sandbox_network_policy_in_force` in its log);
 // - stop → suspended (no pod), the next turn resumes it on the same volume;
 // - `docker compose kill -s KILL runtime` mid model call: the turn completes, nothing uncertain,
 //   one upstream call per model effect;
-// - `kubectl delete pod --force` mid model call: a new pod joins (`environment.relaunched`), the
+// - `kubectl delete pod --force` mid model call: a new pod joins (`agent.relaunched`), the
 //   turn completes with one upstream call per model effect;
-// - the Environment's `lifecycle.idle: 20s` → suspended, the next turn resumes it; its
+// - the runtime's `lifecycle.idle: 20s` → suspended, the next turn resumes it; its
 //   `lifecycle.deleteAfter: 45s` → deleted by the Tenant sweep;
 // - the sandboxes container restarted (`docker restart`) right after a create;
-// - reset → a new, empty volume; PVC and pod deleted → `environment.lost`, turns refused
-//   (`environment_lost`) until a reset;
-// - credentials for skills (R2c): an `environment_secret` of the Environment is
-//   `nylorun_managed` in the pod, and a public header-echo host it is bound to receives the real
-//   header through egress-gate;
-// - no pod mounts a host path; `nylorun sandbox disable` → kind pod is
-//   `environment_unavailable`.
+// - reset → a new, empty volume; PVC and pod deleted → `agent.lost`, turns refused
+//   (`agent_lost`) until a reset;
+// - credentials for skills (R2c): an `environment_secret` slot of the runtime, its value written
+//   into the Agent's vault, is `nylorun_managed` in the pod, and a public header-echo host it is
+//   bound to receives the real header through egress-gate;
+// - no pod mounts a host path; `nylorun sandbox disable` → kind pod is `agent_unavailable`.
 //
 // Needs kubectl, a context with agent-sandbox v1.0.5 or none, the workspace builds (`npm run
 // build`), and the images pods use present on the cluster's node (CI: `kind load docker-image`
@@ -158,13 +158,27 @@ try {
       if (ok) assert.ok(response.ok, `${method} ${path}: ${response.status} ${text.slice(0, 400)}`);
       return { status: response.status, body: parsed };
     };
-    const environmentPath = (id) => `/v1/environments/${encodeURIComponent(id)}`;
-    const environment = async (id) => (await api("GET", environmentPath(id))).body;
+    const agentPath = (id) => `/v1/agents/${encodeURIComponent(id)}`;
+    const agent = async (id) => (await api("GET", agentPath(id))).body;
     const events = async (id) =>
-      (await api("GET", `${environmentPath(id)}/events`)).body.events.map((event) => event.type);
+      (await api("GET", `${agentPath(id)}/events`)).body.events.map((event) => event.type);
     const until = (what, check, timeout = 180_000) => eventually(check, { timeout, interval: 1000, message: what });
     const observed = (id, state, timeout) =>
-      until(`${id} ${state}`, async () => (await environment(id)).pod.observed === state, timeout);
+      until(`${id} ${state}`, async () => (await agent(id)).compute.pod?.observed === state, timeout);
+    /** Saves the agent manifest for Agent `id` (named after it, `/` as `-`), with `runtime`. */
+    const saveManifest = (id, runtime) => {
+      const name = id.replaceAll("/", "-");
+      return api("PUT", `/v1/agent-manifests/${name}`, {
+        requestId: randomUUID(),
+        manifestSchemaVersion: 8,
+        name,
+        harness: {},
+        runtime,
+      }).then(() => name);
+    };
+    /** Saves the manifest, then makes the Agent `id` from it. */
+    const putAgent = async (id, runtime) =>
+      api("PUT", agentPath(id), { requestId: randomUUID(), manifest: await saveManifest(id, runtime) });
     const podOf = async (name) => {
       const pods = JSON.parse(await kubectl(["get", "pods", "-n", namespace, "-l", `nylorun.dev/sandbox=${name}`, "-o", "json"]));
       return pods.items.find((pod) => !pod.metadata.deletionTimestamp);
@@ -220,14 +234,13 @@ try {
       const history = await historyWith(session, turns + 1);
       return JSON.stringify(history.filter((item) => item.type === "message.assistant").at(-1)?.payload ?? {});
     };
-    const open = (session, environmentId) =>
+    const open = (session, agentId) =>
       api("PUT", `/v1/sessions/${session}`, {
         requestId: randomUUID(),
-        agentId: "bot",
+        agent: agentId,
         ownerUserId: "pods-suite",
-        environment: environmentId,
       });
-    const k8sName = (id) => stack.psql(`SELECT k8s_name FROM nylorun.environments WHERE id = '${id}'`);
+    const k8sName = (id) => stack.psql(`SELECT k8s_name FROM nylorun.agents WHERE id = '${id}'`);
 
     try {
       tenant = await stack.tenant();
@@ -253,11 +266,6 @@ try {
         baseUrl: `http://${STUB_ALIAS}:8080/v1`,
         auth: { type: "api_key", key: "stub-model-key" },
       });
-      await api("PUT", "/v1/agents/bot", {
-        requestId: randomUUID(),
-        implementationVersion: "dev",
-        manifest: { id: "bot", name: "Bot", manifestSchemaVersion: 7 },
-      });
 
       step(`nylorun sandbox enable --context ${context}`);
       const enable = ["local", "sandbox", "enable", "--context", context, "--no-pull"];
@@ -266,7 +274,7 @@ try {
       tenant = await stack.tenant();
       await api("PUT", "/v1/tenant/sandbox", {
         requestId: randomUUID(),
-        // The echo hosts the credentials step's Environment reaches (R2c), in place of the dev preset.
+        // The echo hosts the credentials step's Agent reaches (R2c), in place of the dev preset.
         limits: { idle: "10m", network: ECHO_HOSTS },
         lifecycle: { stopGrace: "10s" },
       });
@@ -274,13 +282,14 @@ try {
       assert.equal(cluster?.namespace, namespace, JSON.stringify(cluster));
 
       step("create → the engine joins; a bash turn runs in the pod");
-      const created = await api("PUT", environmentPath("pods/one"), { kind: "pod" });
-      assert.equal(created.body.pod.desired, "running");
+      const created = await putAgent("pods/one", { kind: "pod" });
+      assert.equal(created.body.kind, "pod");
+      assert.equal(created.body.compute.pod.desired, "running");
       await observed("pods/one", "running", 420_000);
-      await until("the engine joins", async () => (await events("pods/one")).includes("environment.running"), 300_000);
+      await until("the engine joins", async () => (await events("pods/one")).includes("agent.running"), 300_000);
       const name = await k8sName("pods/one");
       const firstPod = await podOf(name);
-      assert.ok(firstPod, "the Environment's pod exists");
+      assert.ok(firstPod, "the Agent's pod exists");
       const log = await kubectl(["logs", "-n", namespace, firstPod.metadata.name, "-c", "workload"]);
       assert.match(log, /sandbox_network_policy_in_force/, "the engine waited for its NetworkPolicy");
       assert.ok(
@@ -296,27 +305,30 @@ try {
 
       step("credentials for skills: a sentinel in the pod, the real header at the bound host");
       const secret = `nylorun-suite-${randomUUID()}`;
-      await api("PUT", environmentPath("pods/creds"), { kind: "pod", network: { allowedHosts: ECHO_HOSTS } });
-      // The secret is the Environment's (D56): its name is the variable the pod sees.
-      const written = await api("PUT", `${environmentPath("pods/creds")}/secrets/PROBE_TOKEN`, {
+      await putAgent("pods/creds", {
+        kind: "pod",
+        network: { allowedHosts: ECHO_HOSTS },
+        secrets: { PROBE_TOKEN: { type: "environment_secret", allowedHosts: ECHO_HOSTS } },
+      });
+      // The runtime declares the slot (D64): its name is the variable the pod sees, and the
+      // Agent's vault holds only the value.
+      const written = await api("PUT", `${agentPath("pods/creds")}/secrets/PROBE_TOKEN`, {
         requestId: randomUUID(),
-        type: "environment_secret",
         value: secret,
-        allowedHosts: ECHO_HOSTS,
       });
       assert.ok(!JSON.stringify(written.body).includes(secret), "the secret's view holds no value");
       await observed("pods/creds", "running", 420_000);
-      await until("its engine joins", async () => (await events("pods/creds")).includes("environment.running"), 300_000);
+      await until("its engine joins", async () => (await events("pods/creds")).includes("agent.running"), 300_000);
       await open("creds", "pods/creds");
       const probed = await turn("creds");
       assert.match(probed, /PROBE_TOKEN=nylorun_managed/, "the pod sees the sentinel");
       const expected = createHash("sha256").update(`Bearer ${secret}`).digest("hex");
       assert.ok(probed.includes(`ECHO ${expected}`), `the bound host received the real header: ${probed}`);
       assert.ok(!JSON.stringify(await items("creds")).includes(secret), "no value in the session's history");
-      await api("POST", `${environmentPath("pods/creds")}/stop`);
+      await api("POST", `${agentPath("pods/creds")}/stop`);
 
       step("stop → suspended; the next turn resumes it on the same volume");
-      await api("POST", `${environmentPath("pods/one")}/stop`);
+      await api("POST", `${agentPath("pods/one")}/stop`);
       await observed("pods/one", "suspended");
       await until("no pod while suspended", async () => !(await podOf(name)));
       await turn("s1");
@@ -351,7 +363,7 @@ try {
         const next = await podOf(name);
         return next && next.metadata.uid !== doomed.metadata.uid;
       });
-      await until("the new pod joins", async () => (await events("pods/one")).includes("environment.relaunched"), 300_000);
+      await until("the new pod joins", async () => (await events("pods/one")).includes("agent.relaunched"), 300_000);
       await fetch(`${stubUrl}/release`, { method: "POST" });
       done = await settled("s1");
       assert.equal(done.status, "completed", JSON.stringify(done));
@@ -359,23 +371,23 @@ try {
       assert.equal((await stub()).calls - before, 2, "one upstream call per model effect after a force delete");
 
       step("lifecycle: idle (20 s) → suspended, deleteAfter (45 s) → deleted; the sandboxes service restarted after a create");
-      await api("PUT", environmentPath("pods/idle"), { kind: "pod", lifecycle: { idle: "20s" } });
+      await putAgent("pods/idle", { kind: "pod", lifecycle: { idle: "20s" } });
       await docker(["restart", `${stack.project}-sandboxes`]);
       await observed("pods/idle", "running", 420_000);
       await open("s-idle", "pods/idle");
       await turn("s-idle");
       await observed("pods/idle", "suspended", 180_000);
-      assert.ok((await events("pods/idle")).includes("environment.suspended"));
+      assert.ok((await events("pods/idle")).includes("agent.suspended"));
       await turn("s-idle");
-      await api("PUT", environmentPath("pods/gone"), { kind: "pod", lifecycle: { deleteAfter: "45s" } });
+      await putAgent("pods/gone", { kind: "pod", lifecycle: { deleteAfter: "45s" } });
       await until(
         "unused for deleteAfter and deleted",
-        async () => (await api("GET", environmentPath("pods/gone"), undefined, { ok: false })).status === 404,
+        async () => (await api("GET", agentPath("pods/gone"), undefined, { ok: false })).status === 404,
         300_000,
       );
 
       step("reset → a new, empty volume");
-      await api("POST", `${environmentPath("pods/one")}/reset`);
+      await api("POST", `${agentPath("pods/one")}/reset`);
       await observed("pods/one", "running", 420_000);
       await until("the old Sandbox is deleted", async () => !(await kubectl(["get", "sandbox", "-n", namespace, name], { check: false })));
       // Ready first, then its engine joins: read once the new pod serves the workspace.
@@ -386,26 +398,28 @@ try {
       });
       assert.match(JSON.stringify(empty.body), /not_found|No file/, "a reset starts from an empty volume");
 
-      step("PVC and pod deleted → environment.lost; turns refused until a reset");
+      step("PVC and pod deleted → agent.lost; turns refused until a reset");
       const resetName = await k8sName("pods/one");
       await kubectl(["delete", "pvc", "-n", namespace, `data-${resetName}`, "--wait=false"]);
       const victim = await podOf(resetName);
       await kubectl(["delete", "pod", "-n", namespace, victim.metadata.name, "--force", "--grace-period=0"]);
       await observed("pods/one", "lost", 300_000);
-      assert.ok((await events("pods/one")).includes("environment.lost"));
+      assert.ok((await events("pods/one")).includes("agent.lost"));
       const lost = await message("s1");
-      assert.equal(lost.body.code, "environment_lost", JSON.stringify(lost.body));
-      await api("POST", `${environmentPath("pods/one")}/reset`);
+      assert.equal(lost.body.code, "agent_lost", JSON.stringify(lost.body));
+      await api("POST", `${agentPath("pods/one")}/reset`);
       await observed("pods/one", "running", 420_000);
 
-      step("nylorun sandbox disable → kind pod is environment_unavailable");
+      step("nylorun sandbox disable → kind pod is agent_unavailable");
+      // The manifest is saved while pods are on; making a pod Agent from it needs them.
+      const after = await saveManifest("pods/after", { kind: "pod" });
       await stack.nylorun(["local", "sandbox", "disable", "--delete-namespace"], { timeout: 600_000 });
       tenant = await stack.tenant();
-      const unavailable = await api("PUT", environmentPath("pods/after"), { kind: "pod" }, { ok: false });
+      const unavailable = await api("PUT", agentPath("pods/after"), { requestId: randomUUID(), manifest: after }, { ok: false });
       assert.equal(unavailable.status, 409);
-      assert.equal(unavailable.body.code, "environment_unavailable");
+      assert.equal(unavailable.body.code, "agent_unavailable");
       const stopped = await message("s1");
-      assert.equal(stopped.body.code, "environment_unavailable", JSON.stringify(stopped.body));
+      assert.equal(stopped.body.code, "agent_unavailable", JSON.stringify(stopped.body));
     } catch (error) {
       await kubectl(["get", "sandbox,pod,pvc,secret", "-n", namespace, "-o", "wide"], { check: false }).then((out) => out && console.error(out));
       await kubectl(["describe", "pods", "-n", namespace], { check: false }).then((out) => out && console.error(out));

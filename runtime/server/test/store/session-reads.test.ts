@@ -13,8 +13,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ReadStore } from "../../src/reads/types.js";
 
-const insert = (sql: ReturnType<typeof testPool>, id: string) => sql`
-  insert into nylorun.model_usage (id,effect_key,session_id,turn_id,agent_id,input_tokens,output_tokens,total_tokens,cached_tokens,cache_write_tokens,reasoning_tokens,cost_usd,duplicate,created_at)
+/** A ledger row; `manifest` names its column, `agent_id` before protocol 16. */
+const insert = (sql: ReturnType<typeof testPool>, id: string, manifest = "manifest_name") => sql`
+  insert into nylorun.model_usage (id,effect_key,session_id,turn_id,${sql(manifest)},input_tokens,output_tokens,total_tokens,cached_tokens,cache_write_tokens,reasoning_tokens,cost_usd,duplicate,created_at)
   values (${id},${id},'s','t','bot',0,0,0,0,0,0,0,false,'2026-01-01T00:00:00.000Z')`;
 
 it("exports safe transaction order across held transactions, rollback and restart", async () => {
@@ -77,7 +78,7 @@ it("keeps legacy timestamps and quality unknown while making old ledger rows exp
   });
   await old.store.close();
   await db.sql`insert into nylorun.sessions (id,body) values ('legacy', '{"agentId":"bot","ownerUserId":"ann","status":"idle"}')`;
-  await insert(db.sql, "legacy-call");
+  await insert(db.sql, "legacy-call", "agent_id");
   const upgraded = await openTenantDatabase(options);
   const reads = createPostgresReadStore(db.sql, tenantId);
   try {

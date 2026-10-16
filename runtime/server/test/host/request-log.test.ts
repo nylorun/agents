@@ -16,6 +16,7 @@ import {
   type EphemeralRuntime,
 } from "../../src/tenant/ephemeral.js";
 import { testPool } from "../support/store.js";
+import { manifestOf } from "../support/agents.js";
 
 const TENANT = `tn_${"0".repeat(22)}rqst`;
 const APPLICATION_KEY = "request-log-application-key-00000";
@@ -59,17 +60,10 @@ beforeAll(async () => {
       headers: { ...app, "content-type": "application/json" },
       body: JSON.stringify(body),
     });
+  expect((await put("/v1/agent-manifests/bot", manifestOf(Agent({ id: "bot", name: "Bot" }).build()))).status).toBe(200);
+  expect((await put("/v1/agents/bot", { requestId: "bot", manifest: "bot" })).status).toBe(200);
   expect(
-    (
-      await put("/v1/agents/bot", {
-        requestId: "bot",
-        manifest: Agent({ id: "bot", name: "Bot" }).build().manifest,
-        implementationVersion: "dev",
-      })
-    ).status,
-  ).toBe(200);
-  expect(
-    (await put("/v1/sessions/s1", { requestId: "s1", agentId: "bot", ownerUserId: "app:ann" }))
+    (await put("/v1/sessions/s1", { requestId: "s1", agent: "bot", ownerUserId: "app:ann" }))
       .status,
   ).toBe(200);
 });

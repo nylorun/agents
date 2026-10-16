@@ -7,7 +7,8 @@ import {
   resourceRuntime,
   TENANT,
   SESSION,
-  ENVIRONMENT,
+  AGENT,
+  ASKING,
   POD,
   INPUT_ARTIFACT,
 } from "./support/resource-runtime.ts";
@@ -52,7 +53,7 @@ async function withStudio(
             r.path !== "/v1/tenant/credential-coverage",
         ),
         [],
-        "resource browsing never mutates a session, Environment or artifact",
+        "resource browsing never mutates a session, Agent or artifact",
       );
     assert.equal(
       runtime.requests.filter((r) => r.path === "/v1/artifacts").length,
@@ -66,225 +67,257 @@ async function withStudio(
   }
 }
 
-test("Environments work before agent registration: grouped by manifest, label navigation, an Environment's page, its secrets, events and sessions", async () => {
+const encoded = encodeURIComponent(AGENT);
+
+test("Agents: the list sorts and filters, the sidebar groups them by manifest, and an Agent's page shows its secrets, events and sessions", async () => {
   await withStudio(async (page, base, requests) => {
     await page.goto(base);
-    // No agent is registered; the session list still lists the Tenant's sessions.
-    await page
-      .getByRole("heading", { name: "Sessions", exact: true })
-      .waitFor();
-    // Environments hold sandboxes, secrets and disk versions: no Credentials entry.
+    await page.getByRole("heading", { name: "Sessions", exact: true }).waitFor();
+    // Agents hold compute, secrets and disk versions: no Credentials or Environments entry.
     assert.equal(await page.getByRole("link", { name: "Credentials", exact: true }).count(), 0);
-    await page.getByRole("link", { name: "Environments", exact: true }).click();
-    await page.getByRole("link", { name: ENVIRONMENT, exact: true }).waitFor();
-    await page.getByRole("link", { name: "z-last", exact: true }).waitFor();
-    // The whole list, as the session list: no pages to load.
-    assert.ok(requests.some((r) => r.path === "/v1/environments"));
-    assert.equal(requests.filter((r) => r.path.startsWith("/v1/environments?")).length, 0);
-    // The sidebar groups them by manifest, as Sessions does by agent.
+    assert.equal(await page.getByRole("link", { name: "Environments", exact: true }).count(), 0);
     const sidebar = page.locator("[data-sidebar=sidebar]");
-    await sidebar.getByRole("link", { name: "analyst-box 1" }).click();
-    await page.waitForURL(/\/environments\?manifest=analyst-box$/);
+    // Grouped by manifest, each Agent under it.
+    await sidebar.getByRole("link", { name: "analyst-box 2" }).waitFor();
+    await sidebar.locator(`a[href$="/agents/${encoded}"]`).waitFor();
+    await sidebar.getByRole("link", { name: /^Agents/u }).click();
+    await page.waitForURL((url) => url.pathname.endsWith("/agents") && url.search === "");
+    await page.getByRole("link", { name: AGENT, exact: true }).waitFor();
+    // The whole list, as the session list: no pages to load.
+    assert.ok(requests.some((r) => r.path === "/v1/agents"));
+    assert.equal(requests.filter((r) => r.path.startsWith("/v1/agents?")).length, 0);
+    // Input required sorts first; each row names the version it runs and whether it tracks.
+    const first = page.locator("tbody tr").first();
+    await first.getByRole("link", { name: ASKING, exact: true }).waitFor();
+    await first.getByText("Input required", { exact: true }).waitFor();
+    await first.getByText("analyst-box@3", { exact: true }).waitFor();
+    await first.getByText("pinned", { exact: true }).waitFor();
+    await page.locator("tbody tr", { hasText: AGENT }).getByText("tracks", { exact: true }).waitFor();
+    // Filters: a state, a manifest, an owner, a label.
+    await page.getByRole("button", { name: "Filter by state" }).click();
+    await page.getByRole("menuitemcheckbox", { name: "Input required 1" }).click();
+    await page.waitForURL(/\/agents\?state=input_required$/u);
+    await page.getByRole("link", { name: AGENT, exact: true }).waitFor({ state: "detached" });
+    await page.getByRole("button", { name: "Filter by state" }).click();
+    await page.getByRole("menuitemcheckbox", { name: "All states" }).click();
+    await page.getByRole("button", { name: "Filter by owner" }).click();
+    await page.getByRole("menuitemcheckbox", { name: "No owner guard 2" }).click();
+    await page.waitForURL(/owner=-/u);
+    await page.getByRole("link", { name: ASKING, exact: true }).waitFor({ state: "detached" });
+    await page.goto(base + "/agents");
+    await sidebar.getByRole("link", { name: "pod-box 1" }).click();
+    await page.waitForURL(/\/agents\?manifest=pod-box$/u);
     await page.getByText("1 total", { exact: true }).waitFor();
-    await page.getByRole("link", { name: ENVIRONMENT, exact: true }).waitFor({ state: "detached" });
-    // The manifest's latest version, and its JSON in a side panel.
-    await page.getByRole("button", { name: "View manifest" }).click();
-    const panel = page.getByRole("dialog", { name: "analyst-box v3" });
-    await panel.getByText('"kind": "virtual"', { exact: false }).waitFor();
-    await page.keyboard.press("Escape");
-    await panel.waitFor({ state: "hidden" });
-    // The menu filters to inline fields, then back to every manifest.
-    await page.getByRole("button", { name: "Filter by manifest" }).click();
-    await page.getByRole("menuitemcheckbox", { name: "Inline fields 1" }).click();
-    await page.waitForURL(/\/environments\?manifest=-$/);
-    await page.getByRole("link", { name: ENVIRONMENT, exact: true }).waitFor();
-    await page.getByRole("link", { name: "z-last", exact: true }).waitFor({ state: "detached" });
-    await page.getByRole("button", { name: "Filter by manifest" }).click();
-    await page.getByRole("menuitemcheckbox", { name: "All manifests 2" }).click();
-    await page.waitForURL((url) => url.pathname.endsWith("/environments") && url.search === "");
-    // A label in the table filters on it; its chip removes it.
+    await page.goto(base + "/agents");
     await page
-      .getByRole("row", { name: new RegExp(ENVIRONMENT) })
+      .locator("tbody tr", { hasText: AGENT })
       .getByRole("button", { name: "project=build" })
       .click();
-    await page.waitForURL(/label=project%3Dbuild/);
-    await page.getByRole("link", { name: "z-last", exact: true }).waitFor({ state: "detached" });
+    await page.waitForURL(/label=project%3Dbuild/u);
+    await page.getByRole("link", { name: ASKING, exact: true }).waitFor({ state: "detached" });
     await page.getByRole("button", { name: "Remove label filter project=build" }).click();
-    await page.getByRole("link", { name: "z-last", exact: true }).waitFor();
-    await page.goto(base + "/environments?label=project%3Dbuild");
-    await page.getByRole("link", { name: ENVIRONMENT, exact: true }).click();
-    await page.waitForURL(/\/environments\/team%2Fbuild$/);
-    await page.getByRole("heading", { name: ENVIRONMENT, exact: true }).waitFor();
+    await page.getByRole("link", { name: ASKING, exact: true }).waitFor();
+    // An Agent's page.
+    await page.getByRole("link", { name: AGENT, exact: true }).click();
+    await page.waitForURL(/\/agents\/team%2Fbuild$/u);
+    await page.getByRole("heading", { name: AGENT, exact: true }).waitFor();
     await page.getByText("A virtual workspace has no pod", { exact: false }).waitFor();
-    // A virtual Environment has no pod to stop or reset.
+    // Its manifest has a newer version: it moves by a fork.
+    await page.getByRole("button", { name: "Fork to v3" }).waitFor();
+    // A virtual Agent has no pod to stop or reset.
     assert.equal(await page.getByRole("button", { name: "Stop", exact: true }).count(), 0);
     assert.equal(await page.getByRole("button", { name: "Reset", exact: true }).count(), 0);
     await page.getByRole("tab", { name: "Secrets", exact: true }).click();
-    await page.waitForURL(/tab=secrets/);
-    await page.getByText("github", { exact: true }).waitFor();
-    await page.getByText("https://api.githubcopilot.com/mcp/", { exact: true }).waitFor();
+    await page.waitForURL(/tab=secrets/u);
+    await page.getByText("https://api.githubcopilot.com/mcp/", { exact: true }).first().waitFor();
+    // The slots its manifest declares, and what its tools get from them.
+    await page.getByText("What its tools get · 1 of 1 covered", { exact: true }).waitFor();
     await page.getByRole("tab", { name: "Events", exact: true }).click();
-    await page.getByText("0 · environment.created", { exact: false }).waitFor();
+    await page.getByText("0 · agent.created", { exact: false }).waitFor();
     await page.getByRole("button", { name: "Refresh events" }).click();
-    await page.getByText("1 · environment.attached", { exact: false }).waitFor();
+    await page.getByText("1 · agent.attached", { exact: false }).waitFor();
     assert.deepEqual(
-      requests
-        .filter((r) => r.path.includes("/environments/team%2Fbuild/events"))
-        .map((r) => r.path),
-      [
-        "/v1/environments/team%2Fbuild/events?from=0",
-        "/v1/environments/team%2Fbuild/events?from=1",
-      ],
+      requests.filter((r) => r.path.includes("/agents/team%2Fbuild/events")).map((r) => r.path),
+      ["/v1/agents/team%2Fbuild/events?from=0", "/v1/agents/team%2Fbuild/events?from=1"],
     );
+    // Its sessions, none special.
     await page.getByRole("tab", { name: "Sessions", exact: true }).click();
+    await page.getByRole("link", { name: "s-other", exact: true }).waitFor();
+    await page.getByText("Active turn: t9", { exact: true }).waitFor();
     await page.getByRole("link", { name: SESSION, exact: true }).click();
-    await page.waitForURL(
-      new RegExp(`/agents/external-agent/sessions/${SESSION}$`),
-    );
+    await page.waitForURL(new RegExp(`/agents/team%2Fbuild/sessions/${SESSION}$`, "u"));
     await page.getByRole("tab", { name: "Outputs", exact: true }).click();
-    await page
-      .getByRole("button", { name: "report.html", exact: true })
-      .click();
+    await page.getByRole("button", { name: "report.html", exact: true }).click();
     await page.getByText("Report version 2", { exact: true }).waitFor();
-    assert.ok(requests.some((r) => r.path.includes("environmentId=team%2Fbuild")));
-    await page
-      .getByRole("link", { name: `Environment: ${ENVIRONMENT}`, exact: true })
-      .click();
-    await page.waitForURL(/\/environments\/team%2Fbuild$/);
+    await page.getByRole("link", { name: `Agent: ${AGENT}`, exact: true }).click();
+    await page.waitForURL(/\/agents\/team%2Fbuild$/u);
     await page.getByRole("tab", { name: "Overview", exact: true, selected: true }).waitFor();
   });
 });
 
-test("a session's Environment tab shows where it runs: the version it opened on, coverage, disk and who shares it", async () => {
+test("a session's Agent tab shows where it runs: the version it opened on, coverage, disk and the other sessions", async () => {
   await withStudio(async (page, base, requests) => {
-    await page.goto(base + `/sessions/${SESSION}?inspector=environment`);
-    await page.getByRole("tab", { name: "Environment", exact: true, selected: true }).waitFor();
-    const panel = page.getByRole("tabpanel", { name: "Environment" });
-    // Opened on version 2, and still on it.
-    await panel.getByText("Version 2", { exact: true }).first().waitFor();
-    assert.equal(await panel.getByText("Version 2", { exact: true }).count(), 2);
-    // The coverage this agent's tools get from the Environment's secrets.
+    await page.goto(base + `/sessions/${SESSION}?inspector=agent`);
+    await page.getByRole("tab", { name: "Agent", exact: true, selected: true }).waitFor();
+    const panel = page.getByRole("tabpanel", { name: "Agent" });
+    await panel.getByText("analyst-box v2", { exact: true }).waitFor();
+    await panel.getByText("analyst-box@2", { exact: true }).waitFor();
+    // The coverage its tools get from the Agent's vault.
     await panel.getByText("MCP server github", { exact: true }).waitFor();
     await panel.getByText("Covered", { exact: true }).waitFor();
     await panel.getByText("Sends github", { exact: true }).waitFor();
     const coverage = requests.find((r) => r.path === "/v1/tenant/credential-coverage");
     const { requestId: _id, ...checked } = coverage?.body as Record<string, unknown>;
-    assert.deepEqual(checked, { agentId: "external-agent", environmentId: ENVIRONMENT });
-    // Its disk, and the other session that names it.
+    assert.deepEqual(checked, { agentId: AGENT });
+    // Its disk, and the other session on it.
     await panel.getByText("v2", { exact: true }).waitFor();
     await panel.getByRole("link", { name: "s-other", exact: true }).waitFor();
     await panel.getByText("running a turn", { exact: false }).waitFor();
-    // It only reads: what changes an Environment is on its page.
+    // It only reads: what changes an Agent is on its page.
     for (const name of ["Reset", "Restore", "Snapshot disk", "Add credential"])
       assert.equal(await panel.getByRole("button", { name, exact: true }).count(), 0, name);
-    await panel.getByRole("link", { name: "Disk versions", exact: true }).click();
-    await page.waitForURL(/\/environments\/team%2Fbuild\?tab=disk$/);
+    // The tab the session's Environment had before protocol 16 opens it too.
+    await page.goto(base + `/sessions/${SESSION}?inspector=environment`);
+    await page.getByRole("tab", { name: "Agent", exact: true, selected: true }).waitFor();
+    await page.getByRole("tabpanel", { name: "Agent" }).getByRole("link", { name: "Disk versions", exact: true }).click();
+    await page.waitForURL(/\/agents\/team%2Fbuild\?tab=disk$/u);
     await page.getByRole("tab", { name: "Disk", exact: true, selected: true }).waitFor();
   });
 });
 
-test("an Environment is created from a manifest and from the form, its labels and owner edited, and it is deleted", async () => {
+test("agent manifests are read only: names, versions, each version's two sections side by side, and the Agents made from it", async () => {
+  await withStudio(async (page, base, requests) => {
+    await page.goto(base);
+    await page.locator("[data-sidebar=sidebar]").getByRole("link", { name: /^Agent manifests/u }).click();
+    await page.waitForURL(/\/agent-manifests$/u);
+    const row = page.locator("tbody tr", { hasText: "analyst-box" });
+    await row.getByText("v3", { exact: true }).waitFor();
+    await row.getByText("Answers questions about data.", { exact: true }).waitFor();
+    await row.getByRole("link", { name: "analyst-box", exact: true }).click();
+    await page.waitForURL(/\/agent-manifests\/analyst-box$/u);
+    await page.getByRole("heading", { name: "analyst-box", exact: true }).waitFor();
+    await page.getByText("v3 (latest)", { exact: false }).waitFor();
+    await page.getByRole("heading", { name: "Harness", exact: true }).waitFor();
+    await page.getByRole("heading", { name: "Runtime", exact: true }).waitFor();
+    await page.getByText("github", { exact: true }).first().waitFor();
+    // The Agents made from it, on whichever version.
+    await page.getByRole("link", { name: AGENT, exact: true }).waitFor();
+    await page.getByRole("link", { name: ASKING, exact: true }).waitFor();
+    // Another version.
+    await page.getByRole("link", { name: /^v2/u }).click();
+    await page.waitForURL(/\/agent-manifests\/analyst-box\?version=2$/u);
+    await page.getByRole("button", { name: "New Agent from v2" }).waitFor();
+    assert.ok(requests.some((r) => r.path === "/v1/agent-manifests/analyst-box/versions/2"));
+    // Nothing edits a manifest here.
+    for (const name of ["New version", "Save version", "Check"])
+      assert.equal(await page.getByRole("button", { name, exact: true }).count(), 0, name);
+    await page.goto(base + "/agent-manifests/missing");
+    await page.getByText(/Agent manifest not found/u).first().waitFor();
+  });
+});
+
+test("an Agent is made from a manifest version, its labels and owner edited, forked to a newer version, and deleted", async () => {
   await withStudio(
     async (page, base, requests) => {
-      // Filtered to a manifest, New Environment makes one from its latest version.
-      await page.goto(base + "/environments?manifest=analyst-box");
-      await page.getByRole("button", { name: "New Environment" }).click();
-      const pinned = page.getByRole("dialog", { name: "New Environment from analyst-box v3" });
-      await pinned.getByRole("textbox", { name: "Environment id" }).fill("data/one");
-      await pinned.getByRole("button", { name: "Create Environment" }).click();
-      await page.waitForURL(/\/environments\/data%2Fone$/);
-      const made = requests.find((r) => r.method === "PUT" && r.path === "/v1/environments/data%2Fone");
-      assert.equal((made?.body as { manifest?: string } | undefined)?.manifest, "analyst-box@3");
+      // From a manifest's page: pinned to the version shown.
+      await page.goto(base + "/agent-manifests/analyst-box?version=2");
+      await page.getByRole("button", { name: "New Agent from v2" }).click();
+      const pinned = page.getByRole("dialog", { name: "New Agent" });
+      await pinned.getByRole("combobox", { name: "Version" }).locator("option", { hasText: "Pin v2" }).waitFor({ state: "attached" });
+      assert.equal(await pinned.getByRole("combobox", { name: "Version" }).inputValue(), "2");
+      await pinned.getByRole("textbox", { name: "ID", exact: true }).fill("data/one");
+      await pinned.getByRole("button", { name: "Create Agent" }).click();
+      await page.waitForURL(/\/agents\/data%2Fone$/u);
+      const made = requests.find((r) => r.method === "PUT" && r.path === "/v1/agents/data%2Fone");
+      const { requestId: _made, ...body } = made?.body as Record<string, unknown>;
+      assert.deepEqual(body, { manifest: "analyst-box@2", owner: "local-developer" });
 
-      // Unfiltered, it asks which manifest, or inline fields.
-      await page.goto(base + "/environments");
-      await page.getByRole("button", { name: "New Environment" }).click();
-      await page.getByRole("menuitem", { name: "From inline fields" }).click();
-      const sheet = page.getByRole("dialog", { name: "New Environment" });
+      // From the list: tracking the manifest, with labels and no owner guard.
+      await page.goto(base + "/agents");
+      await page.getByRole("button", { name: "New Agent" }).click();
+      const sheet = page.getByRole("dialog", { name: "New Agent" });
+      await sheet.getByRole("combobox", { name: "Agent manifest" }).selectOption("analyst-box");
       await sheet.getByRole("textbox", { name: "ID", exact: true }).fill("users/alice/web");
-      await sheet.getByRole("combobox", { name: "Kind" }).selectOption("virtual");
-      await sheet.getByRole("textbox", { name: "Memory" }).fill("2GiB");
-      await sheet.getByRole("textbox", { name: "Allowed hosts" }).fill("pypi.org, api.github.com");
+      await sheet.getByRole("textbox", { name: "Owner (optional)" }).fill("");
       await sheet.getByRole("textbox", { name: "Labels" }).fill("project=web");
-      await sheet.getByRole("textbox", { name: "Owner (optional)" }).fill("local-developer");
-      await sheet.getByRole("textbox", { name: "Delete after" }).fill("30d");
-      // Only a pod takes setup commands and input files.
-      assert.equal(await sheet.getByRole("button", { name: "Add setup command" }).count(), 0);
-      await sheet.getByRole("button", { name: "Create Environment" }).click();
-      await page.waitForURL(/\/environments\/users%2Falice%2Fweb$/);
-      const created = requests.find(
-        (r) => r.method === "PUT" && r.path === "/v1/environments/users%2Falice%2Fweb",
-      );
-      assert.ok(created);
-      const { requestId: _id, ...recipe } = created.body as Record<string, unknown>;
-      assert.deepEqual(recipe, {
-        kind: "virtual",
-        labels: { project: "web" },
-        resources: { memory: "2GiB" },
-        network: { allowedHosts: ["pypi.org", "api.github.com"] },
-        ownerUserId: "local-developer",
-        lifecycle: { deleteAfter: "30d" },
-      });
+      await sheet.getByRole("button", { name: "Create Agent" }).click();
+      await page.waitForURL(/\/agents\/users%2Falice%2Fweb$/u);
+      const created = requests.find((r) => r.method === "PUT" && r.path === "/v1/agents/users%2Falice%2Fweb");
+      const { requestId: _id, ...tracking } = created?.body as Record<string, unknown>;
+      assert.deepEqual(tracking, { manifest: "analyst-box", labels: { project: "web" } });
 
-      await page.goto(base + `/environments/${encodeURIComponent(ENVIRONMENT)}`);
+      await page.goto(base + `/agents/${encoded}`);
       await page.getByRole("button", { name: "Edit labels and owner" }).click();
-      const edit = page.getByRole("dialog", { name: `Edit ${ENVIRONMENT}` });
-      // What it runs is read-only: only labels and the owner guard change.
-      assert.equal(await edit.getByRole("textbox", { name: "Idle" }).isDisabled(), true);
+      const edit = page.getByRole("dialog", { name: `Edit ${AGENT}` });
       await edit.getByRole("textbox", { name: "Labels" }).fill("project=build\nteam=a");
       await edit.getByRole("button", { name: "Save labels and owner" }).click();
       await edit.waitFor({ state: "hidden" });
-      const edited = requests.find(
-        (r) => r.method === "PUT" && r.path === "/v1/environments/team%2Fbuild",
-      );
-      assert.ok(edited);
-      const { requestId: _edit, ...change } = edited.body as Record<string, unknown>;
-      // An Environment never changes what it runs: an edit sends labels and the owner guard.
-      assert.deepEqual(change, { labels: { project: "build", team: "a" }, ownerUserId: null });
+      const edited = requests.find((r) => r.method === "PUT" && r.path === "/v1/agents/team%2Fbuild");
+      const { requestId: _edit, ...change } = edited?.body as Record<string, unknown>;
+      // An Agent never changes what it runs: an edit names its manifest as it was made.
+      assert.deepEqual(change, { manifest: "analyst-box", labels: { project: "build", team: "a" }, owner: null });
 
+      // Fork to the newer version: check the plan, then fork.
+      await page.getByRole("button", { name: "Fork to v3" }).click();
+      const fork = page.getByRole("dialog", { name: `Fork ${AGENT}` });
+      assert.equal(await fork.getByRole("textbox", { name: "Agent manifest" }).inputValue(), "analyst-box@3");
+      await fork.getByRole("button", { name: "Check" }).click();
+      await fork.getByText("Made from analyst-box v3, kind virtual.", { exact: true }).waitFor();
+      await fork.getByText("Secrets copied: github.", { exact: true }).waitFor();
+      await fork.getByRole("button", { name: "Fork", exact: true }).click();
+      await page.waitForURL(/\/agents\/team%2Fbuild-v3$/u);
+      const forked = requests.filter((r) => r.method === "POST" && r.path === "/v1/agents/team%2Fbuild/fork");
+      assert.equal(forked.length, 2);
+      assert.equal((forked[0]!.body as { dryRun?: boolean }).dryRun, true);
+      const { requestId: _fork, ...forkBody } = forked[1]!.body as Record<string, unknown>;
+      assert.deepEqual(forkBody, { id: "team/build-v3", manifest: "analyst-box@3", disk: "latest", secrets: "copy" });
+
+      await page.goto(base + `/agents/${encoded}`);
       let confirmation = "";
       page.once("dialog", (dialog) => {
         confirmation = dialog.message();
         void dialog.accept();
       });
       await page.getByRole("button", { name: "Delete", exact: true }).click();
-      await page.waitForURL((url) => url.pathname.endsWith("/environments"));
-      // The confirmation says another session still names it.
-      assert.match(confirmation, /2 sessions name it/);
-      assert.ok(
-        requests.some((r) => r.method === "DELETE" && r.path === "/v1/environments/team%2Fbuild"),
-      );
+      await page.waitForURL((url) => url.pathname.endsWith("/agents"));
+      // The confirmation says sessions still run on it.
+      assert.match(confirmation, /2 sessions run on it/u);
+      assert.ok(requests.some((r) => r.method === "DELETE" && r.path === "/v1/agents/team%2Fbuild"));
     },
     false,
     true,
   );
 });
 
-test("old Environment, Credentials and vault links open the Environment's page", async () => {
+test("old Environment, Credentials and vault links open the Agent's page", async () => {
   await withStudio(async (page, base) => {
-    await page.goto(base + `/environments?selected=${encodeURIComponent(ENVIRONMENT)}&tab=events`);
-    await page.waitForURL(/\/environments\/team%2Fbuild\?tab=events$/);
+    await page.goto(base + `/environments/${encoded}?tab=events`);
+    await page.waitForURL(/\/agents\/team%2Fbuild\?tab=events$/u);
     await page.getByRole("tab", { name: "Events", exact: true, selected: true }).waitFor();
-    await page.goto(base + `/vault?environment=${encodeURIComponent(ENVIRONMENT)}`);
-    await page.waitForURL(/\/environments\/team%2Fbuild\?tab=secrets$/);
+    await page.goto(base + `/environments?selected=${encoded}&tab=disk`);
+    await page.waitForURL(/\/agents\/team%2Fbuild\?tab=disk$/u);
+    await page.goto(base + `/vault?environment=${encoded}`);
+    await page.waitForURL(/\/agents\/team%2Fbuild\?tab=secrets$/u);
+    await page.goto(base + "/environments?manifest=analyst-box");
+    await page.waitForURL(/\/agents\?manifest=analyst-box$/u);
     await page.goto(base + "/settings/credentials");
-    await page.waitForURL((url) => url.pathname.endsWith("/environments"));
+    await page.waitForURL((url) => url.pathname.endsWith("/agents"));
     // The server answers 400 for an undecodable path: only in-app navigation reaches one.
     await page.evaluate((url) => {
       history.pushState(null, "", url);
       dispatchEvent(new PopStateEvent("popstate"));
-    }, new URL(base).pathname + "/environments/%E0");
-    await page.getByRole("heading", { name: "Environment not found" }).waitFor();
+    }, new URL(base).pathname + "/agents/%E0");
+    await page.getByRole("heading", { name: "Agent not found" }).waitFor();
   });
 });
 
-test("an Environment's Secrets tab lists and writes the secrets of its vault, also through an old Credentials link", async () => {
+test("an Agent's Secrets tab lists and writes the secrets of its vault, also through an old Credentials link", async () => {
   await withStudio(
     async (page, base, requests) => {
-      await page.goto(base + `/settings/credentials?environment=${encodeURIComponent(ENVIRONMENT)}`);
-      await page.waitForURL(/\/environments\/team%2Fbuild\?tab=secrets$/);
+      await page.goto(base + `/settings/credentials?environment=${encoded}`);
+      await page.waitForURL(/\/agents\/team%2Fbuild\?tab=secrets$/u);
       await page.getByRole("tab", { name: "Secrets", exact: true, selected: true }).waitFor();
-      await page.getByText("github", { exact: true }).waitFor();
+      await page.getByRole("cell", { name: "github", exact: true }).waitFor();
       await page.getByRole("button", { name: "Add credential" }).click();
       const sheet = page.getByRole("dialog", { name: "Add credential" });
       await sheet.getByRole("combobox", { name: "Type" }).selectOption("environment_secret");
@@ -293,9 +326,7 @@ test("an Environment's Secrets tab lists and writes the secrets of its vault, al
       await sheet.getByLabel("Secret value").fill("ghp_secret_value");
       await sheet.getByRole("button", { name: "Save credential" }).click();
       await sheet.waitFor({ state: "hidden" }).catch(() => undefined);
-      const written = requests.find(
-        (r) => r.method === "PUT" && r.path === "/v1/environments/team%2Fbuild/secrets/GH_TOKEN",
-      );
+      const written = requests.find((r) => r.method === "PUT" && r.path === "/v1/agents/team%2Fbuild/secrets/GH_TOKEN");
       assert.ok(written, JSON.stringify(requests.map((r) => `${r.method} ${r.path}`)));
       const { requestId: _id, ...body } = written.body as Record<string, unknown>;
       assert.deepEqual(body, {
@@ -310,22 +341,20 @@ test("an Environment's Secrets tab lists and writes the secrets of its vault, al
   );
 });
 
-test("an Environment's Disk tab keeps, browses, restores, forks and deletes disk versions", async () => {
+test("an Agent's Disk tab keeps, browses, restores, forks from and deletes disk versions", async () => {
   await withStudio(
     async (page, base, requests) => {
-      await page.goto(base + `/environments/${encodeURIComponent(ENVIRONMENT)}?tab=disk`);
+      await page.goto(base + `/agents/${encoded}?tab=disk`);
       await page.getByRole("cell", { name: "v2 latest" }).waitFor();
       await page.getByRole("cell", { name: "v1", exact: true }).waitFor();
       await page.getByRole("button", { name: "Snapshot disk" }).click();
       await page.getByText("Kept version 3: 12 entries", { exact: false }).waitFor();
-      assert.ok(
-        requests.some((r) => r.method === "POST" && r.path === "/v1/environments/team%2Fbuild/snapshot"),
-      );
+      assert.ok(requests.some((r) => r.method === "POST" && r.path === "/v1/agents/team%2Fbuild/snapshot"));
 
-      // A version's files, through the folder artifact the Environment owns.
+      // A version's files, through the folder artifact the Agent owns.
       await page.getByRole("button", { name: "Browse version 1" }).click();
-      await page.waitForURL(/diskArtifact=a-disk&diskVersion=1/);
-      await page.getByRole("button", { name: /nested\/a \+b.html/ }).click();
+      await page.waitForURL(/diskArtifact=a-disk&diskVersion=1/u);
+      await page.getByRole("button", { name: /nested\/a \+b.html/u }).click();
       await page.getByText("Report version 1", { exact: false }).waitFor();
       assert.ok(requests.some((r) => r.path.startsWith("/v1/artifacts/a-disk/versions/1/")));
 
@@ -336,36 +365,27 @@ test("an Environment's Disk tab keeps, browses, restores, forks and deletes disk
       });
       await page.getByRole("button", { name: "Restore version 1" }).click();
       await page.getByText("Restored version 1.", { exact: true }).waitFor();
-      // Restoring changes the disk of every session that names it.
-      assert.match(confirmation, /2 sessions name it/);
-      const restore = requests.find((r) => r.path === "/v1/environments/team%2Fbuild/restore");
+      // Restoring changes the disk of every session on it.
+      assert.match(confirmation, /2 sessions run on it/u);
+      const restore = requests.find((r) => r.path === "/v1/agents/team%2Fbuild/restore");
       assert.equal((restore?.body as { version: number }).version, 1);
 
-      await page.getByRole("button", { name: "New Environment from version 2" }).click();
-      const fork = page.getByRole("dialog", { name: `New Environment from ${ENVIRONMENT} v2` });
-      await fork.getByRole("textbox", { name: "ID", exact: true }).fill("team/build-fork");
-      await fork.getByRole("button", { name: "Create from version" }).click();
-      await page.waitForURL(/\/environments\/team%2Fbuild-fork$/);
-      const created = requests.find(
-        (r) => r.method === "PUT" && r.path === "/v1/environments/team%2Fbuild-fork",
-      );
+      // A fork whose disk starts from a version, with the secrets its manifest declares.
+      await page.getByRole("button", { name: "Fork from version 2" }).click();
+      const fork = page.getByRole("dialog", { name: `Fork ${AGENT}` });
+      await fork.getByRole("textbox", { name: "New Agent id" }).fill("team/build-fork");
+      await fork.getByRole("textbox", { name: "Agent manifest" }).fill("");
+      await fork.getByRole("button", { name: "Fork", exact: true }).click();
+      await page.waitForURL(/\/agents\/team%2Fbuild-fork$/u);
+      const created = requests.find((r) => r.method === "POST" && r.path === "/v1/agents/team%2Fbuild/fork");
       const { requestId: _id, ...forked } = created!.body as Record<string, unknown>;
-      assert.deepEqual(forked, {
-        kind: "virtual",
-        labels: { project: "build" },
-        resources: { cpus: 1, memory: "1024MiB" },
-        network: { allowedHosts: ["pypi.org"] },
-        lifecycle: { idle: "15m" },
-        from: { environment: ENVIRONMENT, version: 2 },
-      });
+      assert.deepEqual(forked, { id: "team/build-fork", disk: 2, secrets: "copy" });
 
-      await page.goto(base + `/environments/${encodeURIComponent(ENVIRONMENT)}?tab=disk`);
+      await page.goto(base + `/agents/${encoded}?tab=disk`);
       page.once("dialog", (dialog) => void dialog.accept());
       await page.getByRole("button", { name: "Delete version 1" }).click();
       await page.getByText("Deleted version 1.", { exact: true }).waitFor();
-      assert.ok(
-        requests.some((r) => r.method === "DELETE" && r.path === "/v1/environments/team%2Fbuild/versions/1"),
-      );
+      assert.ok(requests.some((r) => r.method === "DELETE" && r.path === "/v1/agents/team%2Fbuild/versions/1"));
     },
     false,
     true,
@@ -375,14 +395,14 @@ test("an Environment's Disk tab keeps, browses, restores, forks and deletes disk
 test("a pod's Setup & files tab shows its setup commands and input files, which never change", async () => {
   await withStudio(
     async (page, base) => {
-      await page.goto(base + `/environments/${encodeURIComponent(POD)}?tab=setup`);
+      await page.goto(base + `/agents/${encodeURIComponent(POD)}?tab=setup`);
       await page.getByText("pip install -r requirements.txt", { exact: true }).waitFor();
       await page.getByText("1. in /workspace/app · timeout 10m", { exact: true }).waitFor();
       await page.getByRole("link", { name: `${INPUT_ARTIFACT} · v1` }).waitFor();
       assert.equal(await page.getByRole("button", { name: "Edit setup & files" }).count(), 0);
-      // A virtual Environment has neither.
-      await page.goto(base + `/environments/${encodeURIComponent(ENVIRONMENT)}?tab=setup`);
-      await page.getByText("A virtual Environment has none.", { exact: false }).waitFor();
+      // A virtual Agent has neither.
+      await page.goto(base + `/agents/${encoded}?tab=setup`);
+      await page.getByText("A virtual Agent has none.", { exact: false }).waitFor();
     },
     false,
     true,
@@ -392,8 +412,8 @@ test("a pod's Setup & files tab shows its setup commands and input files, which 
 test("the Tenant's artifacts are one paged table, filtered by kind, session and labels, each with its owner", async () => {
   await withStudio(async (page, base, requests) => {
     await page.goto(base);
-    // The sidebar holds Sessions and Environments only; the table opens by its address.
-    await page.getByRole("link", { name: "Environments", exact: true }).waitFor();
+    // The sidebar holds Sessions, Agents and agent manifests; the table opens by its address.
+    await page.locator("[data-sidebar=sidebar]").getByRole("link", { name: /^Agents/u }).waitFor();
     assert.equal(await page.getByRole("link", { name: "Artifacts", exact: true }).count(), 0);
     await page.goto(base + "/artifacts");
     await page.getByRole("button", { name: "requirements.txt", exact: true }).waitFor();
@@ -404,10 +424,10 @@ test("the Tenant's artifacts are one paged table, filtered by kind, session and 
       requests.filter((r) => r.path.startsWith("/v1/artifacts?")).map((r) => r.path),
       ["/v1/artifacts?limit=50", "/v1/artifacts?limit=50&cursor=artifacts2"],
     );
-    // Owners: the Tenant's own file, an Environment's disk, a session's outputs.
+    // Owners: the Tenant's own file, an Agent's disk, a session's outputs.
     const row = (name: string) => page.getByRole("row").filter({ hasText: name });
     await row("requirements.txt").getByText("Tenant", { exact: true }).waitFor();
-    await row("disk").getByRole("link", { name: `${ENVIRONMENT} · disk` }).waitFor();
+    await row("disk").getByRole("link", { name: `${AGENT} · disk` }).waitFor();
     await row("report.html").getByRole("link", { name: SESSION, exact: true }).waitFor();
 
     await page.getByRole("combobox", { name: "Kind" }).selectOption("folder");
@@ -426,11 +446,11 @@ test("the Tenant's artifacts are one paged table, filtered by kind, session and 
     await page.getByRole("heading", { name: "requirements.txt", exact: true }).waitFor();
     assert.ok(requests.some((r) => r.path === "/v1/artifacts?limit=50&label=purpose%3Dinput"));
 
-    // An Environment's disk opens on its Disk tab.
+    // An Agent's disk opens on its Disk tab.
     await page.getByRole("textbox", { name: "Artifact labels" }).fill("");
     await page.getByRole("button", { name: "Apply filters" }).click();
-    await row("disk").getByRole("link", { name: `${ENVIRONMENT} · disk` }).click();
-    await page.waitForURL(/\/environments\/team%2Fbuild\?tab=disk$/);
+    await row("disk").getByRole("link", { name: `${AGENT} · disk` }).click();
+    await page.waitForURL(/\/agents\/team%2Fbuild\?tab=disk$/);
   });
 });
 

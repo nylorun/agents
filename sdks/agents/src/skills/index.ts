@@ -1,4 +1,5 @@
 export {
+  hashFolder,
   loadSkillsFromDirectory,
   resolveSkillsRoot,
   parseSkill,

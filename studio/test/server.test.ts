@@ -1081,7 +1081,7 @@ function jwt(claims: Record<string, unknown>): string {
 }
 const scoped = (subject: string, scopes: string[]) => ({
   status: 200,
-  body: { subject, scopes, agents: "*", environments: [], via: "issuer:keycloak" },
+  body: { subject, scopes, agents: "*", via: "issuer:keycloak" },
 });
 /** `exp` in seconds, `ttl` seconds after the test clock's now. */
 const expIn = (clock: { now: number }, ttl: number) => Math.floor(clock.now / 1000) + ttl;

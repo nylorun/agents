@@ -8,7 +8,7 @@ names the `nylorun` command that replaced each of its own and exits 2.
 | `nylo` | `nylorun` |
 | --- | --- |
 | `nylo status` | `npx nylorun status` |
-| `nylo reset [--sessions\|--environments\|--all]` | `npx nylorun tenant reset …` |
+| `nylo reset [--sessions\|--environments\|--all]` | `npx nylorun tenant reset [--sessions\|--agents\|--all]` |
 | `nylo access signing-keys …` | `npx nylorun tenant signing-keys …` |
 | `nylo configure` | `npx nylorun tenant models set` |
 | `nylo doctor sandbox` | `npx nylorun doctor sandbox` |

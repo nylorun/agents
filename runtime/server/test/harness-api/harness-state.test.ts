@@ -6,30 +6,14 @@
  */
 import { afterEach, expect, it } from "vitest";
 import { HARNESS_LIMIT_DEFAULTS } from "@nylorun/core/contracts";
-import {
-  HARNESS_API_VERSION,
-  effectRequestHash,
-  memoryChannels,
-  type EffectIntent,
-  type HarnessChannel,
-  type TurnStart,
-} from "@nylorun/core/harness-api";
-import { boot, openSession, server, until, type Started } from "../host/execution-support.js";
+import { HARNESS_API_VERSION, effectRequestHash, type EffectIntent, type TurnStart } from "@nylorun/core/harness-api";
+import { boot, plain, server, until, type Started } from "../host/execution-support.js";
+import { attachHost, deployCustom, pods } from "../support/custom-harness.js";
 
 const cleanups: (() => Promise<unknown> | void)[] = [];
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
 });
-
-function attach(runtime: Started): HarnessChannel {
-  const channels = memoryChannels({ json: true });
-  const detach = runtime.handle.attachHarness!(channels.core, { name: "test" });
-  cleanups.push(() => {
-    channels.harness.close("test over");
-    detach();
-  });
-  return channels.harness;
-}
 
 async function call(runtime: Started, method: string, path: string, body?: unknown) {
   const response = await fetch(`${runtime.url}${path}`, {
@@ -40,18 +24,19 @@ async function call(runtime: Started, method: string, path: string, body?: unkno
   return { status: response.status, body: (await response.json().catch(() => undefined)) as any };
 }
 
-/** A Runtime with only a custom harness, `acme-mini`, connected, and session s1 on its Environment. */
+/**
+ * A Runtime with only a custom harness, `acme-mini`, connected as the host of pod Agent env-acme
+ * (a custom harness runs from its pod's image), and session s1 on that Agent.
+ */
 async function start() {
-  const runtime = await boot({ harness: "remote" });
+  const runtime = await boot({ harness: "remote", pods: pods() });
   cleanups.push(() => runtime.close());
-  const acme = attach(runtime);
+  await deployCustom(runtime.url, server, plain, { id: "env-acme", harness: "acme-mini" });
+  const acme = attachHost(runtime, "env-acme", cleanups);
   await acme.request("hello", { api: HARNESS_API_VERSION, name: "acme-mini", version: "0", features: {} });
-  expect((await call(runtime, "PUT", "/v1/environments/env-acme", { kind: "none", harness: "acme-mini" })).status).toBe(200);
-  await openSession(runtime, "seed");
-  expect(
-    (await call(runtime, "PUT", "/v1/sessions/s1", { requestId: "s1", agentId: "bot", ownerUserId: "u", environment: "env-acme" }))
-      .status
-  ).toBe(200);
+  expect((await call(runtime, "PUT", "/v1/sessions/s1", { requestId: "s1", agent: "env-acme", ownerUserId: "u" })).status).toBe(
+    200
+  );
   return { runtime, acme };
 }
 
@@ -295,5 +280,5 @@ it("says who wrote each event: the client's command, the harness's claims, core'
   });
   expect(by("tool.completed", "rm_rf")).toMatchObject({ source: { kind: "core" }, evidence: "observed", runId: run.runId });
   expect(by("turn.completed")).toMatchObject({ source: { kind: "harness", id: "acme-mini" }, evidence: "claimed" });
-  expect(by("environment.attached")).toMatchObject({ source: { kind: "core" }, evidence: "observed" });
+  expect(by("agent.attached")).toMatchObject({ source: { kind: "core" }, evidence: "observed" });
 });

@@ -290,7 +290,7 @@ describe("the gates service", () => {
     });
   });
 
-  it("scopes the ledger by the token's agent; a body that names a scope is refused", async () => {
+  it("scopes the ledger by the token's agent manifest; a body that names a scope is refused", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => completion("metered", { prompt_tokens: 5, completion_tokens: 2, total_tokens: 7 })),
@@ -303,8 +303,8 @@ describe("the gates service", () => {
       expect(await refused.json()).toMatchObject({ error: { code: "invalid_request" } });
     }
     expect((await post(server, grant)).status).toBe(200);
-    const spent = (agentId: string) =>
-      runs.store.tx((t) => t.modelUsageTotals({ scope: "agent", id: agentId }));
+    const spent = (manifest: string) =>
+      runs.store.tx((t) => t.modelUsageTotals({ scope: "manifest", id: manifest }));
     expect((await spent("capped")).calls).toBe(1);
     expect((await spent("uncapped")).calls).toBe(0);
     expect((await runs.store.tx((t) => t.modelUsageTotals({ scope: "turn", id: "turn-1" }))).calls).toBeGreaterThan(0);

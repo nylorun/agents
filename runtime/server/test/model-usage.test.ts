@@ -5,6 +5,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Agent, createClient, type AgentsClient } from "@nylorun/agents";
+import { deploy } from "./support/agents.js";
 import { startTestTenant } from "./support/tenant.js";
 
 const APP = "model-usage-app-token-aaaaaaaaaa";
@@ -68,9 +69,7 @@ async function tenant() {
   });
   expect(configured.status).toBe(200);
   const client = createClient({ url: runtime.url, key: runtime.applicationKey, tenant: runtime.tenantId });
-  await client.saveAgent(Agent({ id: "bot", name: "Bot" }).instructions("Answer.").build(), {
-    implementationVersion: "dev",
-  });
+  await deploy(runtime.url, runtime.headers(), Agent({ id: "bot", name: "Bot" }).instructions("Answer.").build());
   const usage = async (query = "") => {
     const response = await realFetch(`${runtime.url}/v1/tenant/usage${query}`, { headers: runtime.managementHeaders() });
     return { status: response.status, body: (await response.json()) as Record<string, unknown> };
@@ -97,7 +96,7 @@ describe.each([["in-process"], ["http"]] as const)("over the %s Model Gate", (tr
     const { client, usage } = await tenant();
     expect((await usage()).body).toEqual({ scope: "tenant", period: "total", calls: 0, tokens: 0, costUsd: 0 });
 
-    const session = await client.createSession({ id: "s1", agentId: "bot", ownerUserId: "ada" });
+    const session = await client.createSession({ id: "s1", agent: "bot", ownerUserId: "ada" });
     await session.input("hello", { idempotencyKey: "m1" });
     expect((await settle(session)).status).toBe("completed");
     await session.input("again", { idempotencyKey: "m2" });
@@ -106,16 +105,16 @@ describe.each([["in-process"], ["http"]] as const)("over the %s Model Gate", (tr
 
     // A custom endpoint is priced at $0: only token limits can stop it.
     expect((await usage()).body).toEqual({ scope: "tenant", period: "total", calls: 2, tokens: 30, costUsd: 0 });
-    const month = await usage("?scope=agent&id=bot&period=month");
-    expect(month.body).toMatchObject({ scope: "agent", id: "bot", period: "month", calls: 2, tokens: 30 });
+    const month = await usage("?scope=manifest&id=bot&period=month");
+    expect(month.body).toMatchObject({ scope: "manifest", id: "bot", period: "month", calls: 2, tokens: 30 });
     expect(month.body.since).toMatch(/^\d{4}-\d{2}-01T00:00:00\.000Z$/);
-    expect((await usage("?scope=agent&id=other")).body).toMatchObject({ calls: 0 });
+    expect((await usage("?scope=manifest&id=other")).body).toMatchObject({ calls: 0 });
   });
 
   it("puts the gate's timing and metered usage on the outcome, and the turn's totals on its end (R7.1)", async () => {
     provider(() => answer("hi"));
     const { client, usage } = await tenant();
-    const session = await client.createSession({ id: "s1", agentId: "bot", ownerUserId: "ada" });
+    const session = await client.createSession({ id: "s1", agent: "bot", ownerUserId: "ada" });
     await session.input("hello", { idempotencyKey: "m1" });
     expect((await settle(session)).status).toBe("completed");
     const { items } = await session.history();
@@ -148,7 +147,7 @@ describe.each([["in-process"], ["http"]] as const)("over the %s Model Gate", (tr
   it("records nothing for a call that fails", async () => {
     provider(() => new Response(JSON.stringify({ error: { message: "bad request" } }), { status: 400 }));
     const { client, usage } = await tenant();
-    const session = await client.createSession({ id: "s1", agentId: "bot", ownerUserId: "ada" });
+    const session = await client.createSession({ id: "s1", agent: "bot", ownerUserId: "ada" });
     await session.input("hello", { idempotencyKey: "m1" });
     expect((await settle(session)).status).toBe("failed");
     expect((await usage()).body).toMatchObject({ calls: 0 });
@@ -165,9 +164,10 @@ describe.each([["in-process"], ["http"]] as const)("over the %s Model Gate", (tr
   });
 });
 
-it("refuses an agent or turn total without an id, and an unknown scope", async () => {
+it("refuses a manifest or turn total without an id, and an unknown scope", async () => {
   const { usage } = await tenant();
-  expect((await usage("?scope=agent")).status).toBe(400);
+  expect((await usage("?scope=manifest")).status).toBe(400);
+  expect((await usage("?scope=agent&id=bot")).status).toBe(400);
   expect((await usage("?scope=session&id=s1")).status).toBe(400);
   expect((await usage("?period=week")).status).toBe(400);
 });

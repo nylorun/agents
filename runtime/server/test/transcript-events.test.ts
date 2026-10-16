@@ -88,14 +88,9 @@ it("writes message.assistant per model step and tool.completed for Runtime-run t
   });
   try {
     const agent = Agent({ id: "bot", name: "Bot" }).instructions("Write, then read.").build();
-    await client.saveAgent(agent, { implementationVersion: "dev" });
-    await client.environments.put("env-s1", { kind: "virtual" });
-    const session = await client.createSession({
-      id: "s1",
-      agentId: "bot",
-      ownerUserId: "ada",
-      environment: "env-s1",
-    });
+    await client.agentManifests.save({ agent, runtime: { kind: "virtual" } });
+    await client.agents.put("env-s1", { manifest: "bot" });
+    const session = await client.createSession({ id: "s1", agent: "env-s1", ownerUserId: "ada" });
     await session.input("write then read", { idempotencyKey: "m1" });
     expect((await settle(session, ["completed", "failed"])).status).toBe(
       "completed"
@@ -156,7 +151,8 @@ it("writes message.assistant per model step and tool.completed for Runtime-run t
     expect(completed!.payload).toMatchObject({
       output: "Done.",
       durationMs: expect.any(Number),
-      agentId: "bot",
+      // The Agent the session runs on (protocol 16), not its manifest.
+      agentId: "env-s1",
       totals: { steps: 0, tokens: 0, costUsd: 0 },
     });
   } finally {
@@ -187,13 +183,10 @@ it("pauses for approval on an HTTP tool with an output schema, with the call id 
     )
     .build();
   try {
-    await client.saveAgent(agent, { implementationVersion: "dev" });
+    await client.agentManifests.save({ agent });
+    await client.agents.put("notes", { manifest: "notes" });
     await setToolPolicy(runtime, [{ effect: "ask", tool: "save" }]);
-    const session = await client.createSession({
-      id: "s1",
-      agentId: "notes",
-      ownerUserId: "ada",
-    });
+    const session = await client.createSession({ id: "s1", agent: "notes", ownerUserId: "ada" });
     await session.input("save hi", { idempotencyKey: "m1" });
 
     let waits: unknown[] = [];
@@ -263,10 +256,9 @@ it("writes one message.assistant for a step that said nothing, which history ski
     tenant: runtime.tenantId,
   });
   try {
-    await client.saveAgent(Agent({ id: "bot", name: "Bot" }).instructions("Say nothing.").build(), {
-      implementationVersion: "dev",
-    });
-    const session = await client.createSession({ id: "s1", agentId: "bot", ownerUserId: "ada" });
+    await client.agentManifests.save({ agent: Agent({ id: "bot", name: "Bot" }).instructions("Say nothing.").build() });
+    await client.agents.put("bot", { manifest: "bot" });
+    const session = await client.createSession({ id: "s1", agent: "bot", ownerUserId: "ada" });
     await session.input("hello", { idempotencyKey: "m1" });
     await settle(session, ["completed", "failed"]);
     const { items } = await session.history();

@@ -15,6 +15,7 @@ import { MemoryExecution } from "../../src/execution/memory.js";
 import { TenantWorkers } from "../../src/tenant/worker.js";
 import { startTestTenant } from "../support/tenant.js";
 import { until } from "../host/execution-support.js";
+import { deploy, openSession } from "../support/agents.js";
 import { startToolServer, type ToolServer } from "../support/tool-server.js";
 
 type Started = Awaited<ReturnType<typeof startTestTenant>>;
@@ -50,28 +51,8 @@ async function seed(runtime: Started, body: Record<string, unknown>) {
 
 async function turn(runtime: Started, service: ToolServer) {
   const headers = runtime.headers();
-  expect(
-    (
-      await fetch(`${runtime.url}/v1/agents/orders`, {
-        method: "PUT",
-        headers,
-        body: JSON.stringify({
-          requestId: "put-orders",
-          manifest: ordersAt(service).manifest,
-          implementationVersion: "dev",
-        }),
-      })
-    ).ok
-  ).toBe(true);
-  expect(
-    (
-      await fetch(`${runtime.url}/v1/sessions/s1`, {
-        method: "PUT",
-        headers,
-        body: JSON.stringify({ requestId: "session-s1", agentId: "orders", ownerUserId: "u" }),
-      })
-    ).ok
-  ).toBe(true);
+  await deploy(runtime.url, headers, ordersAt(service));
+  expect((await openSession(runtime.url, headers, "s1", { agent: "orders", ownerUserId: "u" })).ok).toBe(true);
   expect(
     (
       await fetch(`${runtime.url}/v1/sessions/s1/commands`, {

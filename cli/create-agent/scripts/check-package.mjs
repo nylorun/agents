@@ -30,6 +30,7 @@ try {
     "dist/starter/_gitignore",
     "dist/starter/agents/index.ts",
     "dist/starter/agents/assistant/agent.ts",
+    "dist/starter/runtime/scratch.runtime.json",
     "dist/starter/src/main.ts",
   ])
     if (!files.includes(required))

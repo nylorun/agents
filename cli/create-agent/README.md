@@ -17,10 +17,12 @@ npm create @nylorun/agent@beta my-agent
 
 Creates a Node 24 project whose only Nylorun dependency is `@nylorun/agents`
 (plus Zod). The registry in `agents/index.ts` exports agent definitions.
-`src/main.ts` saves each agent to the Runtime with `client.saveAgent`: on every
-source edit under `npm run dev`, once under `npm start`. No code of the
-project runs during a session; the starter's assistant has no tools, and a
-comment shows how to add an `http()` tool.
+`src/main.ts` saves each agent to the Runtime as an agent manifest
+(`client.agentManifests.save`, with the runtime section in
+`runtime/scratch.runtime.json`) and makes its Agent (`client.agents.put`, id the
+agent's): on every source edit under `npm run dev`, once under `npm start`. No
+code of the project runs during a session; the starter's assistant has no
+tools, and a comment shows how to add an `http()` tool.
 
 Creation installs the project's dependencies and prints the next steps. If a
 prerequisite is missing (Node older than 24, no `docker`, an engine that does
@@ -31,7 +33,7 @@ ignored: the creator starts nothing and opens no browser.
 ```sh
 cd my-agent
 npx nylorun@beta start  # this project's Tenant (Docker) and the link in .nylorun/
-npm run dev             # tsx watch src/main.ts: saves the agents
+npm run dev             # tsx watch src/main.ts: saves the agents, makes their Agents
 npx nylorun studio      # a fresh Studio login on this project's Tenant
 npm run build
 npm start

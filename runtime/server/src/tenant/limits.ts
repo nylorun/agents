@@ -210,10 +210,6 @@ export function budgetIssues(budgets: readonly unknown[], limits: RuntimeLimits)
  * Why an agent's `requires` does not fit: more secrets than an Environment's manifest may declare
  * slots for (the Runtime limit `environmentSecretSlots`).
  */
-export function requiresIssues(requires: { readonly secrets?: readonly string[] } | undefined, limits: RuntimeLimits): string[] {
-  return more("requires.secrets", requires?.secrets?.length ?? 0, "environmentSecretSlots", limits);
-}
-
 /**
  * Why a manifest (inline, or saved) does not fit the Tenant's Runtime limits: its description,
  * its setup commands, their lengths and timeouts, its input file entries and the files of each,

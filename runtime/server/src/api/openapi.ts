@@ -156,23 +156,55 @@ interface Tag {
 
 const RUNTIME_TAGS: readonly Tag[] = [
   {
-    name: "Agents",
+    name: "Agent manifests",
     group: "Agents",
-    description: "The agents a Tenant can run: put a definition, list what is there. In `@nylorun/agents`.",
-    operations: ["PUT /v1/agents/{agentId}", "GET /v1/agents"],
+    description:
+      "Named, versioned agent manifests (protocol 16): one document with what runs inside an agent's loop (`harness`) and what the Runtime provides around it (`runtime`), checked against each other when it is saved. Save one with a plan first (`?dryRun=true`) and `If-Match`; an Agent is made from one version and keeps it, so a save changes no Agent. `client.agentManifests` in `@nylorun/agents`, and `nylorun apply`.",
+    operations: [
+      "PUT /v1/agent-manifests/{name}",
+      "GET /v1/agent-manifests",
+      "GET /v1/agent-manifests/{name}",
+      "GET /v1/agent-manifests/{name}/versions",
+      "GET /v1/agent-manifests/{name}/versions/{version}",
+      "DELETE /v1/agent-manifests/{name}",
+    ],
   },
   {
     name: "Definition files",
     group: "Agents",
     description:
-      "The files a definition names by the SHA-256 of their bytes (each skill's folder): upload each once before putting the definition, which is refused while it names one the Runtime does not hold (`definition_files_missing`) or a skill whose files hold more than the Tenant's skill limit together (`limit_exceeded`; `/v1/tenant/skills`, default 2 GiB). No file and no count of files has a limit of its own. `saveAgent` in `@nylorun/agents` does both.",
+      "The files an agent manifest names by the SHA-256 of their bytes (each skill's folder, a runtime section's input files): upload each once before saving the manifest, which is refused while it names one the Runtime does not hold (`definition_files_missing`) or a skill whose files hold more than its skill limit together (`limit_exceeded`; `/v1/tenant/skills`, default 2 GiB). No file and no count of files has a limit of its own. `client.agentManifests.save` in `@nylorun/agents` does both.",
     operations: ["PUT /v1/files/{file}", "HEAD /v1/files/{file}"],
+  },
+  {
+    name: "Agents",
+    group: "Agents",
+    description:
+      "The live instances of agent manifests: an Agent has a stable id, its manifest version, one sandbox (a virtual workspace, a pod with its own volume, or none), one vault of secrets for its shell, MCP servers and HTTP tools, its disk versions, and its sessions. Its `state` says whether it is working, sleeping, needs a person (`input_required`), is failing or paused. Create or find one from a saved manifest, watch its lifecycle, stop, reset, fork or delete it, and write its secrets. In `@nylorun/agents`.",
+    operations: [
+      "PUT /v1/agents/{agentId}",
+      "GET /v1/agents",
+      "GET /v1/agents/{agentId}",
+      "GET /v1/agents/{agentId}/events",
+      "POST /v1/agents/{agentId}/stop",
+      "POST /v1/agents/{agentId}/reset",
+      "DELETE /v1/agents/{agentId}",
+      "GET /v1/agents/{agentId}/secrets",
+      "GET /v1/agents/{agentId}/secrets/{name}",
+      "PUT /v1/agents/{agentId}/secrets/{name}",
+      "DELETE /v1/agents/{agentId}/secrets/{name}",
+      "POST /v1/agents/{agentId}/snapshot",
+      "POST /v1/agents/{agentId}/restore",
+      "POST /v1/agents/{agentId}/fork",
+      "GET /v1/agents/{agentId}/versions",
+      "DELETE /v1/agents/{agentId}/versions/{version}",
+    ],
   },
   {
     name: "Sessions API",
     group: "Sessions",
     description:
-      "A conversation with an agent: open a session, send commands, follow its events, read its history. In `@nylorun/agents`.",
+      "A conversation with an Agent: open a session on it, send commands, follow its events, read its history. No session is special: an app that keeps one conversation going reuses its id. In `@nylorun/agents`.",
     operations: [
       "PUT /v1/sessions/{sessionId}",
       "GET /v1/sessions",
@@ -192,7 +224,7 @@ const RUNTIME_TAGS: readonly Tag[] = [
     name: "AG-UI",
     group: "Sessions",
     description:
-      "The same sessions through AG-UI: a thread is one session per person, agent and thread, and each run is a turn.",
+      "The same sessions through AG-UI: a thread is one session per person, Agent and thread, and each run is a turn.",
     operations: [
       "POST /v1/ag-ui/agents/{agentId}",
       "GET /v1/ag-ui/agents/{agentId}/threads/{threadId}/events",
@@ -204,46 +236,8 @@ const RUNTIME_TAGS: readonly Tag[] = [
     name: "A2A",
     group: "Sessions",
     description:
-      "The same sessions through Agent2Agent: a context is one session per subject, agent and `contextId`, and a task is one turn. The card is how an A2A client finds the agent.",
+      "The same sessions through Agent2Agent: a context is one session per subject, Agent and `contextId`, and a task is one turn; every caller's session runs on the Agent's disk and vault, so an app that serves several audiences makes an Agent for each. The card is how an A2A client finds the Agent.",
     operations: ["GET /v1/a2a/agents/{agentId}/card", "POST /v1/a2a/agents/{agentId}"],
-  },
-  {
-    name: "Environments",
-    group: "Environments",
-    description:
-      "Where sessions run: one sandbox (a virtual workspace, a pod with its own volume, or none) made from an environment manifest or inline fields and never changed after that, and one vault of secrets for its shell, MCP servers and HTTP tools. Create or find one, watch its lifecycle, stop, reset or delete it, and write its secrets. In `@nylorun/agents`.",
-    operations: [
-      "PUT /v1/environments/{environmentId}",
-      "GET /v1/environments",
-      "GET /v1/environments/{environmentId}",
-      "GET /v1/environments/{environmentId}/events",
-      "POST /v1/environments/{environmentId}/stop",
-      "POST /v1/environments/{environmentId}/reset",
-      "DELETE /v1/environments/{environmentId}",
-      "GET /v1/environments/{environmentId}/secrets",
-      "GET /v1/environments/{environmentId}/secrets/{name}",
-      "PUT /v1/environments/{environmentId}/secrets/{name}",
-      "DELETE /v1/environments/{environmentId}/secrets/{name}",
-      "POST /v1/environments/{environmentId}/snapshot",
-      "POST /v1/environments/{environmentId}/restore",
-      "POST /v1/environments/{environmentId}/fork",
-      "GET /v1/environments/{environmentId}/versions",
-      "DELETE /v1/environments/{environmentId}/versions/{version}",
-    ],
-  },
-  {
-    name: "Environment manifests",
-    group: "Environments",
-    description:
-      "Named, versioned definitions of a kind of Environment, saved like agents (protocol 14). Save one with a plan first (`?dryRun=true`) and `If-Match`; an Environment is made from one version and keeps it, so a save changes no Environment. In `@nylorun/agents`.",
-    operations: [
-      "PUT /v1/environment-manifests/{name}",
-      "GET /v1/environment-manifests",
-      "GET /v1/environment-manifests/{name}",
-      "GET /v1/environment-manifests/{name}/versions",
-      "GET /v1/environment-manifests/{name}/versions/{version}",
-      "DELETE /v1/environment-manifests/{name}",
-    ],
   },
   {
     name: "Artifacts",
@@ -326,13 +320,13 @@ const MANAGEMENT_TAGS: readonly Tag[] = [
   {
     name: "Credential coverage",
     description:
-      "Which secret of an Environment each of an agent's MCP servers and HTTP tools would get, before a session opens. The secrets themselves are written on the Runtime API. `admin.coverage`.",
+      "Which secret of an Agent's vault each of its manifest's MCP servers and HTTP tools would get, before a session opens. The secrets themselves are written on the Runtime API. `admin.coverage`.",
     operations: ["POST /v1/tenant/credential-coverage"],
   },
   {
     name: "MCP servers",
     description:
-      "See a remote MCP server's tools before an agent names it, with an Environment's credential for its URL: their model names, sizes and annotations, or that it needs a person's sign-in. `admin.mcp`.",
+      "See a remote MCP server's tools before an agent names it, with an Agent's credential for its URL: their model names, sizes and annotations, or that it needs a person's sign-in. `admin.mcp`.",
     operations: ["POST /v1/tenant/mcp/preview"],
   },
   {
@@ -348,7 +342,7 @@ const MANAGEMENT_TAGS: readonly Tag[] = [
   {
     name: "Settings",
     description:
-      "The Tenant's sandbox backend, Environment, artifact and skill settings, and its Runtime limits. `admin.settings`.",
+      "The Tenant's sandbox backend, Agent compute, artifact and skill settings, and its Runtime limits. `admin.settings`.",
     operations: [
       "GET /v1/tenant/sandbox",
       "PUT /v1/tenant/sandbox",
@@ -460,7 +454,7 @@ function documents(): { runtime: OpenApiDocument; management: OpenApiDocument } 
     runtime: document(all, RUNTIME_TAGS, {
       title: "Nylorun Runtime API",
       description:
-        "For developers: agents, sessions (with AG-UI and A2A), Environments and artifacts, through `@nylorun/agents`. Every Tenant serves it on its one URL, beside the Management API (`/openapi/management.json`). Every request sends `Nylorun-Protocol`. Who may call each operation is its `security` and its `x-nylorun-credentials` and `x-nylorun-scopes` (the subject scopes that reach it) fields: an application key (servers) or a trusted issuer's token (browsers and apps).",
+        "For developers: agent manifests, Agents, sessions (with AG-UI and A2A) and artifacts, through `@nylorun/agents`. Every Tenant serves it on its one URL, beside the Management API (`/openapi/management.json`). Every request sends `Nylorun-Protocol`. Who may call each operation is its `security` and its `x-nylorun-credentials` and `x-nylorun-scopes` (the subject scopes that reach it) fields: an application key (servers) or a trusted issuer's token (browsers and apps).",
     }),
     management: document(all, MANAGEMENT_TAGS, {
       title: "Nylorun Management API",

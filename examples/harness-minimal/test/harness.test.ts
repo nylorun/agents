@@ -44,7 +44,7 @@ const turn = (
   routing: { rootManifest: manifest, sandbox: { ownerId: "s1", spec: {} } },
   limits,
   // A session with a sandbox: the harness offers its bash, with a note of its own.
-  environment: { id: "env", kind: "virtual", sandbox: { workspace: "/workspace" } },
+  agent: { id: "box", kind: "pod", sandbox: { workspace: "/workspace" } },
 });
 
 /** A Model Gate that answers by `answer`, or hangs until its client goes away. */

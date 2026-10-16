@@ -17,6 +17,7 @@ import {
 } from "../../src/tenant/ephemeral.js";
 import { testIssuer, type TestIssuer } from "../support/issuer.js";
 import { testPool } from "../support/store.js";
+import { manifestOf } from "../support/agents.js";
 
 const TENANT = `tn_${"0".repeat(22)}sse0`;
 const APPLICATION_KEY = "sse-bytes-application-key-0000000";
@@ -126,13 +127,10 @@ beforeAll(async () => {
     applicationKey: APPLICATION_KEY,
     model: { kind: "fixture" },
   });
-  await call("PUT", "/v1/agents/bot", {
-    requestId: "bot",
-    manifest: Agent({ id: "bot", name: "Bot" }).build().manifest,
-    implementationVersion: "dev",
-  });
-  await call("PUT", "/v1/sessions/s1", { requestId: "s1", agentId: "bot", ownerUserId: SUBJECT });
-  await call("PUT", "/v1/sessions/s2", { requestId: "s2", agentId: "bot", ownerUserId: SUBJECT });
+  await call("PUT", "/v1/agent-manifests/bot", manifestOf(Agent({ id: "bot", name: "Bot" }).build()));
+  await call("PUT", "/v1/agents/bot", { requestId: "bot", manifest: "bot" });
+  await call("PUT", "/v1/sessions/s1", { requestId: "s1", agent: "bot", ownerUserId: SUBJECT });
+  await call("PUT", "/v1/sessions/s2", { requestId: "s2", agent: "bot", ownerUserId: SUBJECT });
 });
 
 afterAll(async () => {

@@ -1,10 +1,10 @@
 /**
- * An Environment's Secrets tab's shell credentials (R2c, D56): what a skill's CLI in an Environment's
+ * An Agent's Secrets tab's shell credentials (R2c, D56): what a skill's CLI in an Agent's
  * sandbox uses. An `environment_secret` is a sealed value the sandbox only sees as
  * `nylorun_managed`; egress-gate sets it as a header on requests to its allowed hosts. An
  * `environment_variable` is a plain value the sandbox sees. Either is written with `PUT
- * /v1/environments/{id}/secrets/{name}`, where the name is the variable's. The Runtime checks
- * every field again; these helpers shape the form's input.
+ * /v1/agents/{id}/secrets/{name}`, where the name is the variable's. The Runtime checks every
+ * field again; these helpers shape the form's input.
  */
 
 /** What the CLI reads in the sandbox in place of a secret's value. */
@@ -22,7 +22,7 @@ export interface ShellSecretForm {
   readonly format: string;
 }
 
-/** The body of `PUT /v1/environments/{id}/secrets/{name}` for a shell credential. */
+/** The body of `PUT /v1/agents/{id}/secrets/{name}` for a shell credential. */
 export type ShellSecretRequest =
   | {
       type: "environment_secret";

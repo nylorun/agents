@@ -1,6 +1,7 @@
 /**
  * Owner enforcement: two subjects on one Tenant never reach each other's sessions, nor open a
- * session on an Environment guarded for the other (its `ownerUserId`, protocol 11).
+ * session on an Agent guarded for the other (its `owner`; protocol 16, an Environment's
+ * `ownerUserId` from protocol 11).
  * Another owner's resource answers exactly what a missing one does, so a subject cannot learn
  * which ids exist. Requests without `Nylorun-Subject` keep today's answers.
  */
@@ -113,46 +114,46 @@ it("answers PUT on another owner's session id with 404, not 409", async () => {
   // Naming someone else as the owner is refused before any lookup.
   const forged = await tenant.call("PUT", "/v1/sessions/forged", {
     as: bao,
-    body: { requestId: "forged", agentId: "bot", ownerUserId: ada.subject },
+    body: { requestId: "forged", agent: "bot", ownerUserId: ada.subject },
   });
   expect(forged.status).toBe(403);
   expect((await tenant.call("GET", "/v1/sessions/forged")).status).toBe(404);
   // Without a subject, a mismatch is still the 409 it was.
   const mismatch = await tenant.call("PUT", "/v1/sessions/ada-s", {
-    body: { requestId: "again", agentId: "bot", ownerUserId: bao.subject },
+    body: { requestId: "again", agent: "bot", ownerUserId: bao.subject },
   });
   expect(mismatch.status).toBe(409);
 });
 
-it("refuses secret writes to a subject without environments:write, its own Environment included", async () => {
+it("refuses secret writes to a subject without agents:write, its own Agent included", async () => {
   const { environmentId, secretName } = adaEnvironment;
   const body = { requestId: "steal", type: "bearer", url: "https://mcp.example.com/tools", value: "mine" };
   for (const [method, path, sent] of [
-    ["PUT", `/v1/environments/${environmentId}/secrets/${secretName}`, body],
-    ["DELETE", `/v1/environments/${environmentId}/secrets/${secretName}`, undefined],
-    ["PUT", `/v1/environments/${environmentId}`, { requestId: "take", ownerUserId: null }],
-    ["DELETE", `/v1/environments/${environmentId}`, undefined],
+    ["PUT", `/v1/agents/${environmentId}/secrets/${secretName}`, body],
+    ["DELETE", `/v1/agents/${environmentId}/secrets/${secretName}`, undefined],
+    ["PUT", `/v1/agents/${environmentId}`, { requestId: "take", manifest: "bot", owner: null }],
+    ["DELETE", `/v1/agents/${environmentId}`, undefined],
   ] as const)
     for (const as of [ada, bao]) {
       const reply = await tenant.call(method, path, { as, ...(sent ? { body: sent } : {}) });
       expect(reply.status, `${method} ${path}`).toBe(403);
     }
   // Nothing changed: the guard and the secret are still there.
-  const view = await tenant.call("GET", `/v1/environments/${environmentId}`);
-  expect(view.body.ownerUserId).toBe(ada.subject);
+  const view = await tenant.call("GET", `/v1/agents/${environmentId}`);
+  expect(view.body.owner).toBe(ada.subject);
   expect(
-    (await tenant.call("GET", `/v1/environments/${environmentId}/secrets`)).body.secrets.map(
+    (await tenant.call("GET", `/v1/agents/${environmentId}/secrets`)).body.secrets.map(
       (secret: { name: string }) => secret.name
     )
   ).toEqual([secretName]);
-  // A subject sees only its own sessions on an Environment.
-  expect((await tenant.call("GET", `/v1/environments/${environmentId}`, { as: bao })).body.sessions).toEqual([]);
+  // A subject sees only its own sessions on an Agent.
+  expect((await tenant.call("GET", `/v1/agents/${environmentId}`, { as: bao })).body.sessions).toEqual([]);
 });
 
 it("refuses the Management API to a subject (protocol 8)", async () => {
   for (const [method, path, body] of [
-    ["POST", "/v1/tenant/credential-coverage", { agentId: "bot", environmentId: adaEnvironment.environmentId }],
-    ["POST", "/v1/tenant/mcp/preview", { url: "https://mcp.example.com/tools", environmentId: adaEnvironment.environmentId }],
+    ["POST", "/v1/tenant/credential-coverage", { agentId: adaEnvironment.environmentId }],
+    ["POST", "/v1/tenant/mcp/preview", { url: "https://mcp.example.com/tools", agentId: adaEnvironment.environmentId }],
     ["GET", "/v1/tenant", undefined],
   ] as const)
     for (const as of [ada, bao]) {
@@ -171,53 +172,53 @@ it("refuses the Management API to a subject (protocol 8)", async () => {
     }
 });
 
-it("does not let a session name an Environment guarded for another owner", async () => {
+it("does not let a session open on an Agent guarded for another owner", async () => {
   const other = await createSession(tenant, "bao-v", bao, {
-    environment: adaEnvironment.environmentId,
+    agent: adaEnvironment.environmentId,
   });
   const missing = await createSession(tenant, "bao-v", bao, {
-    environment: "env-missing",
+    agent: "env-missing",
   });
-  // Acting for a person: exactly the 404 of a missing Environment.
+  // Acting for a person: exactly the 404 of a missing Agent.
   expect(other.status).toBe(404);
   expect(other.text).toBe(missing.text);
   expect((await tenant.call("GET", "/v1/sessions/bao-v")).status).toBe(404);
-  // Its own Environment opens.
+  // Its own Agent opens.
   const own = await createSession(tenant, "bao-v2", bao, {
-    environment: baoEnvironment.environmentId,
+    agent: baoEnvironment.environmentId,
   });
   expect(own.status).toBe(200);
-  expect(own.body.environment).toEqual({ id: baoEnvironment.environmentId, version: 1 });
+  expect(own.body).toMatchObject({ agentId: baoEnvironment.environmentId, manifest: { name: "bot", version: 1 } });
   // Without a subject, the mismatch is a 403 that names it.
   const operator = await tenant.call("PUT", "/v1/sessions/op-v", {
     body: {
       requestId: "op-v",
-      agentId: "bot",
+      agent: adaEnvironment.environmentId,
       ownerUserId: bao.subject,
-      environment: adaEnvironment.environmentId,
     },
   });
   expect(operator.status).toBe(403);
-  expect(operator.body.code).toBe("environment_owner_mismatch");
-  // The removed fields are refused, not ignored (protocol 11).
+  expect(operator.body.code).toBe("agent_owner_mismatch");
+  // The removed fields are refused, not ignored (protocols 11 and 16).
   for (const extra of [
     { vaultIds: ["vlt_x"] },
     { sandbox: { session: "ada-s" } },
     { credentialSelections: {} },
+    { environment: baoEnvironment.environmentId },
   ]) {
     const refused = await createSession(tenant, "bao-x", bao, extra);
     expect(refused.status, JSON.stringify(extra)).toBe(400);
   }
 });
 
-it("refuses a turn when the Environment's guard moves to another owner", async () => {
+it("refuses a turn when the Agent's guard moves to another owner", async () => {
   const environmentId = "env-moved";
   await createEnvironment(tenant, bao, { id: environmentId });
   expect(
-    (await createSession(tenant, "bao-moved", bao, { environment: environmentId })).status
+    (await createSession(tenant, "bao-moved", bao, { agent: environmentId })).status
   ).toBe(200);
-  const moved = await tenant.call("PUT", `/v1/environments/${environmentId}`, {
-    body: { requestId: "move", ownerUserId: ada.subject },
+  const moved = await tenant.call("PUT", `/v1/agents/${environmentId}`, {
+    body: { requestId: "move", manifest: "bot", owner: ada.subject },
   });
   expect(moved.status).toBe(200);
   const turn = await tenant.call("POST", "/v1/sessions/bao-moved/commands", {
@@ -225,5 +226,5 @@ it("refuses a turn when the Environment's guard moves to another owner", async (
     body: { requestId: "m-moved", idempotencyKey: "m-moved", type: "message", content: "hi" },
   });
   expect(turn.status).toBe(403);
-  expect(turn.body.code).toBe("environment_owner_mismatch");
+  expect(turn.body.code).toBe("agent_owner_mismatch");
 });

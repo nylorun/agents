@@ -95,7 +95,7 @@ describe("pod lifecycle", () => {
       facts({ status: status({ ready: false, reason: "ImagePullBackOff", message: "no such image" }), now: T0 + hostTuning().pods.readyDeadlineMs + 1 }),
     );
     expect(decision.patch).toMatchObject({ observed: "failed", reason: "ImagePullBackOff: no such image" });
-    expect(decision.events).toEqual([{ type: "environment.failed", payload: { reason: "ImagePullBackOff: no such image" } }]);
+    expect(decision.events).toEqual([{ type: "agent.failed", payload: { reason: "ImagePullBackOff: no such image" } }]);
   });
 
   it("suspends an idle pod, and re-arms the timer of one used since", () => {
@@ -103,7 +103,7 @@ describe("pod lifecycle", () => {
     const idle = decide(facts({ row: base, trigger: "idle", now: T0 + 61_000 }));
     expect(idle.patch).toMatchObject({ desired: "suspended", rev: 2, hostEpoch: 4 });
     expect(idle.apply).toEqual({ mode: "Suspended", rotateJoin: false });
-    expect(idle.events).toEqual([{ type: "environment.suspended", payload: { reason: "idle" } }]);
+    expect(idle.events).toEqual([{ type: "agent.suspended", payload: { reason: "idle" } }]);
     const early = decide(facts({ row: base, trigger: "idle", now: T0 + 30_000 }));
     expect(early.patch.desired).toBeUndefined();
     expect(early.arm).toContainEqual({ timer: "idle", at: T0 + 60_000 });
@@ -141,7 +141,7 @@ describe("pod lifecycle", () => {
     const joined = row({ observed: "running", podUid: "uid-1", hostEpoch: 5 });
     const pvc = decide(facts({ row: joined, status: status({ volume: "missing", ready: false }) }));
     expect(pvc.patch).toMatchObject({ observed: "lost", hostEpoch: 6 });
-    expect(pvc.events[0]?.type).toBe("environment.lost");
+    expect(pvc.events[0]?.type).toBe("agent.lost");
     expect(pvc.delete).toEqual([NAME]);
     const vanished = decide(facts({ row: joined, status: gone }));
     expect(vanished.patch.observed).toBe("lost");

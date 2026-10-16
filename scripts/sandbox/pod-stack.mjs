@@ -1,5 +1,5 @@
 // What the network invariant and the red-team suite share (F7.2, S10): a Tenant with sandboxes
-// enabled on a cluster, one pod Environment (protocol 11) created through the Runtime API and
+// enabled on a cluster, one pod Agent (protocol 16) made through the Runtime API and
 // joined, a busybox
 // probe pod in the sandbox namespace (under the same NetworkPolicy as every sandbox pod), and
 // tokens minted by the gateway's keys service, as core mints them at join.
@@ -30,7 +30,7 @@ export const HOST_JOIN_PATH = "/nylorun/harness/v1/host/join";
 export const JOIN_TOKEN_FILE = "/run/nylorun/join/token";
 
 export const PROBE_IMAGE = "busybox:1.37.0";
-/** In the Tenant's default network ceiling, so a pod Environment may allow it. */
+/** In the Tenant's default network ceiling, so a pod Agent's runtime may allow it. */
 export const ALLOWED_HOST = "pypi.org";
 
 export function podOptions() {
@@ -66,8 +66,8 @@ fetch(process.env.NYLORUN_KEYS_URL + "/nylorun/v1/keys/sign", {
 }).then(async (r) => console.log(await r.text()), (e) => console.log(JSON.stringify({ error: String(e) })));`;
 
 /**
- * Runs `fn(pod)` on a fresh Tenant with sandboxes enabled and one joined pod Environment whose
- * recipe allows `ALLOWED_HOST` (`pod.sandboxId` is its id: the `sbx` claim of the pod's tokens).
+ * Runs `fn(pod)` on a fresh Tenant with sandboxes enabled and one joined pod Agent whose runtime
+ * section allows `ALLOWED_HOST` (`pod.sandboxId` is its id: the `sbx` claim of the pod's tokens).
  * Always deletes the namespace and resets the Tenant.
  */
 export async function withPodSandbox({ name, context, hostAddress, step }, fn) {
@@ -99,22 +99,30 @@ export async function withPodSandbox({ name, context, hostAddress, step }, fn) {
       assert.ok(host && ports.harness && ports.gates && ports.egress, "enable records the host address and pod-facing ports");
       const tenant = await stack.tenant();
 
-      step(`create pod Environment net/one (network.allowedHosts ${ALLOWED_HOST})`);
+      step(`make pod Agent net/one from manifest net-one (network.allowedHosts ${ALLOWED_HOST})`);
       const sandboxId = "net/one";
-      const environmentPath = `/v1/environments/${encodeURIComponent(sandboxId)}`;
-      const put = await fetch(`${stack.runtimeUrl}${environmentPath}`, {
-        method: "PUT",
-        headers: runtimeHeaders(tenant.key, { "content-type": "application/json" }),
-        body: JSON.stringify({ kind: "pod", network: { allowedHosts: [ALLOWED_HOST] } }),
+      const put = async (path, body) => {
+        const response = await fetch(`${stack.runtimeUrl}${path}`, {
+          method: "PUT",
+          headers: runtimeHeaders(tenant.key, { "content-type": "application/json" }),
+          body: JSON.stringify(body),
+        });
+        assert.ok(response.ok, `PUT ${path}: ${response.status} ${await response.text()}`);
+      };
+      await put("/v1/agent-manifests/net-one", {
+        manifestSchemaVersion: 8,
+        name: "net-one",
+        harness: {},
+        runtime: { kind: "pod", network: { allowedHosts: [ALLOWED_HOST] } },
       });
-      assert.ok(put.ok, `PUT ${environmentPath}: ${put.status} ${await put.text()}`);
+      await put(`/v1/agents/${encodeURIComponent(sandboxId)}`, { manifest: "net-one" });
 
       step("wait for the sandbox pod to run and its engine to join");
       // The row the join wrote: the pod that joined and the host epoch its tokens carry.
       const joinedRow = async () => {
         const [k8sName = "", podUid = "", hostEpoch = "0", observed = ""] = (
           await stack.psql(
-            `SELECT k8s_name, coalesce(pod_uid, ''), host_epoch, observed FROM nylorun.environments WHERE id = '${sandboxId}'`,
+            `SELECT k8s_name, coalesce(pod_uid, ''), host_epoch, observed FROM nylorun.agents WHERE id = '${sandboxId}'`,
           )
         ).split("|");
         return { k8sName, podUid, epoch: Number(hostEpoch), observed };

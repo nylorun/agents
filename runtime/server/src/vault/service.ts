@@ -18,11 +18,11 @@
  * sealEnvironmentSecretCopies(from, vaultId, slots | null): Promise<SealedSecretCopies>
  * insertEnvironmentSecretCopies(t: Tx, vaultId, from, actor, sealed): Promise<{ copied; dropped }>
  *
- * // Its secrets (`/v1/environments/{id}/secrets`): each opens its own transaction and writes its
+ * // Its secrets (`/v1/agents/{id}/secrets`): each opens its own transaction and writes its
  * // audit rows in it. A put needs the vault key, so callers reach it through `Keys`.
- * putEnvironmentSecret(environmentId, name, body: PutEnvironmentSecretRequest, actor): Promise<EnvironmentSecretView>
- * listEnvironmentSecrets(environmentId): Promise<EnvironmentSecretView[]>
- * getEnvironmentSecret(environmentId, name): Promise<EnvironmentSecretView>
+ * putEnvironmentSecret(environmentId, name, body: PutAgentSecretRequest, actor): Promise<AgentSecretView>
+ * listEnvironmentSecrets(environmentId): Promise<AgentSecretView[]>
+ * getEnvironmentSecret(environmentId, name): Promise<AgentSecretView>
  * deleteEnvironmentSecret(environmentId, name, actor): Promise<{ id: string }>
  *
  * // The shell's variables of a session's sandbox, in the caller's transaction (R2c).
@@ -91,10 +91,10 @@ import type {
   CredentialCoverageRequest,
   CredentialIdentity,
   EnvironmentSecretInject,
-  EnvironmentSecretView,
+  AgentSecretView,
   HostModelProviderInfo,
   HostModelView,
-  PutEnvironmentSecretRequest,
+  PutAgentSecretRequest,
   PutHostModelRequest,
   CustomModelSettings,
   ModelInput,
@@ -385,7 +385,7 @@ export class VaultService {
   // --- an Environment's secrets ----------------------------------------------------
 
   /**
-   * `PUT /v1/environments/{id}/secrets/{name}`: creates or replaces one credential. The same
+   * `PUT /v1/agents/{id}/secrets/{name}`: creates or replaces one credential. The same
    * name and type keeps the credential's id and re-seals its value and binding; another type
    * replaces it. Refused (`409 credential_conflict`) when another credential of the vault is
    * bound to one of its hosts or to its URL. Runs under the Environment row's lock, which also
@@ -394,9 +394,9 @@ export class VaultService {
   async putEnvironmentSecret(
     environmentId: string,
     name: string,
-    body: PutEnvironmentSecretRequest,
+    body: PutAgentSecretRequest,
     actor: string,
-  ): Promise<EnvironmentSecretView> {
+  ): Promise<AgentSecretView> {
     const invalid = environmentSecretNameError(body.type, name);
     if (invalid) throw new VaultError(400, invalid);
     let payload: SecretPayload;
@@ -452,7 +452,7 @@ export class VaultService {
   }
 
   /** The Environment's secrets: names, types and bindings, never values. */
-  async listEnvironmentSecrets(environmentId: string): Promise<EnvironmentSecretView[]> {
+  async listEnvironmentSecrets(environmentId: string): Promise<AgentSecretView[]> {
     return this.store.tx(async (t) => {
       const vault = await this.environmentVault(t, environmentId);
       return (await t.credentialsForVault(vault.id))
@@ -462,7 +462,7 @@ export class VaultService {
     });
   }
 
-  async getEnvironmentSecret(environmentId: string, name: string): Promise<EnvironmentSecretView> {
+  async getEnvironmentSecret(environmentId: string, name: string): Promise<AgentSecretView> {
     return this.store.tx(async (t) => {
       const vault = await this.environmentVault(t, environmentId);
       const row = await t.credentialByName(vault.id, name);
@@ -645,18 +645,18 @@ export class VaultService {
   // --- coverage --------------------------------------------------------------------
 
   /**
-   * What a session that names `request.environmentId` would send for each URL `manifest` names
-   * (`credentialNeeds`), decided as `authorize` decides a call: the credential of the
-   * Environment's vault bound to the URL. Reads no secret, writes no audit row.
+   * What a session on Agent `request.agentId` would send for each URL `manifest` (its manifest
+   * version's loop manifest) names (`credentialNeeds`), decided as `authorize` decides a call:
+   * the credential of the Agent's vault bound to the URL. Reads no secret, writes no audit row.
    */
   async coverage(
     manifest: AgentManifest | WorkflowManifest,
     request: CredentialCoverageRequest,
   ): Promise<CredentialCoverage> {
-    const environmentId = request.environmentId;
+    const environmentId: string | undefined = request.agentId;
     return this.store.tx(async (t) => {
       const credentials: { row: VaultCredentialRow; url?: string }[] = [];
-      if (environmentId !== undefined) {
+      {
         const vault = await this.environmentVault(t, environmentId);
         for (const row of await t.credentialsForVault(vault.id))
           if (isUserCredential(row)) credentials.push({ row, url: bindingUrl(row) });
@@ -674,7 +674,6 @@ export class VaultService {
       });
       return {
         agentId: request.agentId,
-        environmentId: environmentId ?? null,
         complete: entries.every((entry) => entry.status === "covered"),
         entries,
       };
@@ -850,7 +849,7 @@ export class VaultService {
       environment && environment.pod?.desired !== "deleted"
         ? await t.vaultOfEnvironment(environmentId)
         : undefined;
-    if (!vault) throw new VaultError(404, "Environment not found");
+    if (!vault) throw new VaultError(404, "Agent not found");
     return vault;
   }
 
@@ -1009,7 +1008,7 @@ function bindingUrl(row: VaultCredentialRow): string | undefined {
 /** Where a credential is, for coverage: never its value. */
 function coverageCredential(environmentId: string, row: VaultCredentialRow): CoverageCredential {
   const via = (JSON.parse(row.bindingJson) as { via?: string }).via;
-  return { environmentId, name: row.name, ...(via === undefined ? {} : { via }) };
+  return { agentId: environmentId, name: row.name, ...(via === undefined ? {} : { via }) };
 }
 
 /** One coverage entry, with the sentence that says what the session would do. */
@@ -1023,13 +1022,13 @@ function coverageEntry(
   const required = need.kind === "http";
   const where =
     environmentId === undefined
-      ? "Without an Environment, no credential is sent"
-      : `Environment ${environmentId} holds no credential for this URL`;
+      ? "Without an Agent, no credential is sent"
+      : `Agent ${environmentId} holds no credential for this URL`;
   const message =
     invalid !== undefined
       ? `No credential can be bound to this URL (${invalid}).`
       : credential !== undefined
-        ? `Sends '${credential.name}' from Environment ${credential.environmentId}${credential.via ? ` through ${credential.via}` : ""}.`
+        ? `Sends '${credential.name}' from Agent ${credential.agentId}${credential.via ? ` through ${credential.via}` : ""}.`
         : required
           ? `${where}: each call fails with http.credential.`
           : `${where}: the server is called without one, which only a public server accepts.`;
@@ -1052,7 +1051,7 @@ function coverageEntry(
  * the vault's other credentials.
  */
 function conflictOf(
-  type: PutEnvironmentSecretRequest["type"],
+  type: PutAgentSecretRequest["type"],
   binding: CredentialBinding,
   others: readonly UserCredentialRow[],
 ): void {
@@ -1084,7 +1083,7 @@ function credentialBinding(row: UserCredentialRow): CredentialBinding {
 }
 
 /** A secret as `GET .../secrets/{name}` shows it: never its value. */
-function secretViewOf(row: UserCredentialRow): EnvironmentSecretView {
+function secretViewOf(row: UserCredentialRow): AgentSecretView {
   const binding = credentialBinding(row);
   return {
     name: row.name,
