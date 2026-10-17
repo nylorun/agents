@@ -1,5 +1,11 @@
 # nylorun
 
+## 0.18.1-beta
+
+### Patch Changes
+
+- Pin studio to the tested release.
+
 ## 0.18.0-beta
 
 ### Minor Changes
