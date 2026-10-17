@@ -767,6 +767,28 @@ test("the message box keeps focus while a turn runs, so a paste into the focused
   });
 });
 
+test("the message box inserts the text a paste carries, not what the clipboard holds after", async () => {
+  await withStudio(async ({ page, studioUrl }) => {
+    await page.goto(`${studioUrl}/tenants/${TENANT}/agents/${AGENT}/sessions/${ALICE_SESSION}`);
+    await page.locator("article", { hasText: "Order 42 ships today." }).waitFor();
+    const message = page.getByRole("textbox", { name: "Message" });
+    await message.fill("Where is ");
+    // A paste built in the page has no default insertion: the text lands only if
+    // the box inserts it from the event, as dictation tools that restore the
+    // clipboard right after pasting need.
+    const paste = (text: string) =>
+      message.evaluate((element, text) => {
+        const clipboardData = new DataTransfer();
+        clipboardData.setData("text/plain", text);
+        element.dispatchEvent(new ClipboardEvent("paste", { clipboardData, bubbles: true, cancelable: true }));
+      }, text);
+    await paste("order 42?");
+    assert.equal(await message.inputValue(), "Where is order 42?");
+    await paste(" And 43?");
+    assert.equal(await message.inputValue(), "Where is order 42? And 43?");
+  });
+});
+
 test("a file the model does not read is sent like any other: the harness tells the model (protocol 15)", async () => {
   await withStudio(async ({ page, studioUrl, uploads, commands }) => {
     await page.goto(`${studioUrl}/tenants/${TENANT}/agents/${AGENT}/sessions/${ALICE_SESSION}`);
