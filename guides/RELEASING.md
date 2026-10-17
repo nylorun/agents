@@ -153,9 +153,9 @@ package has no tarball there.
 4. When the release publishes `@nylorun/cli`, deprecate it on npm: trusted
    publishing (OIDC) cannot, and a newly published version is not deprecated.
    An npm owner runs
-   `npm deprecate @nylorun/cli "nylo is part of nylorun, and nylorun 0.18 removes both. Run npx nylorun --help."`,
+   `npm deprecate @nylorun/cli "nylo is part of nylorun, and nylorun 0.19 removes both. Run npx nylorun --help."`,
    which marks every version; `npm view @nylorun/cli@beta deprecated` then
-   prints the message. nylorun 0.18 removes `nylo` and `@nylorun/cli`.
+   prints the message. nylorun 0.19 removes `nylo` and `@nylorun/cli`.
 
 The jobs run in this order:
 

@@ -71,7 +71,7 @@ try {
   const starterPkg = await readJson(
     join(temporary, "cli/create-agent/starter/package.json"),
   );
-  assert.equal(starterPkg.scripts.dev, "tsx watch --env-file-if-exists=.env src/main.ts --dev");
+  assert.equal(starterPkg.scripts.dev, "tsx watch --env-file-if-exists=.env src/main.ts");
   assert.equal(starterPkg.scripts.studio, undefined);
   assert.equal(starterPkg.scripts.start, "node dist/src/main.js");
   assert.ok(

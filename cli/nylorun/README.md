@@ -130,7 +130,7 @@ apply`; `nylorun configure` is `nylorun tenant models set`. `nylorun dev`,
 are gone.
 
 The package's second command, `nylo`, was the Runtime client until nylorun took
-its commands. Until nylorun 0.18, which removes it, it names the `nylorun`
+its commands. Until nylorun 0.19, which removes it, it names the `nylorun`
 command that replaced each of its own and exits 2:
 
 | `nylo` | `nylorun` |
