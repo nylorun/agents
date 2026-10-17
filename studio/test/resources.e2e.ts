@@ -69,7 +69,7 @@ async function withStudio(
 
 const encoded = encodeURIComponent(AGENT);
 
-test("Agents: the list sorts and filters, the sidebar groups them by manifest, and an Agent's page shows its secrets, events and sessions", async () => {
+test("Agents: the sidebar lists each Agent as a filter on the sessions, the list sorts and filters, and an Agent's page shows its secrets, events and sessions", async () => {
   await withStudio(async (page, base, requests) => {
     await page.goto(base);
     await page.getByRole("heading", { name: "Sessions", exact: true }).waitFor();
@@ -77,10 +77,15 @@ test("Agents: the list sorts and filters, the sidebar groups them by manifest, a
     assert.equal(await page.getByRole("link", { name: "Credentials", exact: true }).count(), 0);
     assert.equal(await page.getByRole("link", { name: "Environments", exact: true }).count(), 0);
     const sidebar = page.locator("[data-sidebar=sidebar]");
-    // Grouped by manifest, each Agent under it.
-    await sidebar.getByRole("link", { name: "analyst-box 2" }).waitFor();
-    await sidebar.locator(`a[href$="/agents/${encoded}"]`).waitFor();
+    // One row per Agent, no manifest rows: each filters the session table to its sessions.
+    assert.equal(await sidebar.getByRole("link", { name: "analyst-box 2" }).count(), 0);
+    await sidebar.locator(`a[href$="/sessions?agent=${encoded}"]`).click();
+    await page.waitForURL(/\/sessions\?agent=team%2Fbuild$/u);
+    await page.getByRole("button", { name: "Filter by Agent" }).getByText(AGENT, { exact: true }).waitFor();
+    // Agents opens every session; Manage Agents opens the list.
     await sidebar.getByRole("link", { name: /^Agents/u }).click();
+    await page.waitForURL((url) => url.pathname.endsWith("/sessions") && url.search === "");
+    await page.getByRole("link", { name: "Manage Agents" }).click();
     await page.waitForURL((url) => url.pathname.endsWith("/agents") && url.search === "");
     await page.getByRole("link", { name: AGENT, exact: true }).waitFor();
     // The whole list, as the session list: no pages to load.
@@ -104,9 +109,7 @@ test("Agents: the list sorts and filters, the sidebar groups them by manifest, a
     await page.getByRole("menuitemcheckbox", { name: "No owner guard 2" }).click();
     await page.waitForURL(/owner=-/u);
     await page.getByRole("link", { name: ASKING, exact: true }).waitFor({ state: "detached" });
-    await page.goto(base + "/agents");
-    await sidebar.getByRole("link", { name: "pod-box 1" }).click();
-    await page.waitForURL(/\/agents\?manifest=pod-box$/u);
+    await page.goto(base + "/agents?manifest=pod-box");
     await page.getByText("1 total", { exact: true }).waitFor();
     await page.goto(base + "/agents");
     await page
@@ -189,7 +192,7 @@ test("a session's Agent tab shows where it runs: the version it opened on, cover
 test("agent manifests are read only: names, versions, each version's two sections side by side, and the Agents made from it", async () => {
   await withStudio(async (page, base, requests) => {
     await page.goto(base);
-    await page.locator("[data-sidebar=sidebar]").getByRole("link", { name: /^Agent manifests/u }).click();
+    await page.locator("[data-sidebar=sidebar]").getByRole("link", { name: /^Manifests/u }).click();
     await page.waitForURL(/\/agent-manifests$/u);
     const row = page.locator("tbody tr", { hasText: "analyst-box" });
     await row.getByText("v3", { exact: true }).waitFor();
@@ -413,7 +416,7 @@ test("a pod's Setup & files tab shows its setup commands and input files, which 
 test("the Tenant's artifacts are one paged table, filtered by kind, session and labels, each with its owner", async () => {
   await withStudio(async (page, base, requests) => {
     await page.goto(base);
-    // The sidebar holds Sessions, Agents and agent manifests; the table opens by its address.
+    // The sidebar holds Agents and, below them, manifests and models; the table opens by its address.
     await page.locator("[data-sidebar=sidebar]").getByRole("link", { name: /^Agents/u }).waitFor();
     assert.equal(await page.getByRole("link", { name: "Artifacts", exact: true }).count(), 0);
     await page.goto(base + "/artifacts");

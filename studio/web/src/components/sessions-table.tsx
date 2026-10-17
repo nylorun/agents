@@ -4,6 +4,7 @@ import { ArrowDown, ArrowUp, Bot, ChevronDown, GitBranch, LoaderCircle } from "l
 import type { AgentManifestView, AgentView } from "@nylorun/agents";
 import type { Connection } from "@/studio-types";
 import { agentPath } from "@/agent-path";
+import { agentsPath } from "@/agent-list";
 import {
   lastActivity,
   sessionAgents,
@@ -109,12 +110,30 @@ export function SessionsTable({
         <span className="text-xs text-muted-foreground">
           {sessions.length} total
         </span>
+        {/* The Agent's own page (secrets, disk, setup), or every Agent's, beside the filter. */}
+        {agentFilter === undefined ? (
+          <Button variant="ghost" size="sm" className="ml-auto" asChild>
+            <Link to={agentsPath()}>
+              <Bot />
+              Manage Agents
+            </Link>
+          </Button>
+        ) : byId.get(agentFilter)?.listed ? (
+          <Button variant="ghost" size="sm" className="ml-auto" asChild>
+            <Link to={agentPath(agentFilter)}>
+              <Bot />
+              Agent details
+            </Link>
+          </Button>
+        ) : (
+          <span className="ml-auto" />
+        )}
         <DropdownMenu open={filterOpen} onOpenChange={setFilterOpen}>
           <DropdownMenuTrigger asChild>
             <Button
               variant="outline"
               size="sm"
-              className="ml-auto w-44 justify-between font-normal"
+              className="w-44 justify-between font-normal"
               aria-label="Filter by Agent"
             >
               <span className="truncate">{filterLabel}</span>

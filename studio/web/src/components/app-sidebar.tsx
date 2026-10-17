@@ -1,15 +1,6 @@
 import { Link } from "react-router-dom";
 import type { AgentView } from "@nylorun/agents";
-import {
-  Bot,
-  Building2,
-  Cpu,
-  FileJson,
-  Files,
-  LoaderCircle,
-  MessagesSquare,
-  Plus,
-} from "lucide-react";
+import { Bot, Building2, Cpu, Files, LoaderCircle, Plus } from "lucide-react";
 import type { Connection } from "@/studio-types";
 import { shortTenantId, type StudioTenantInfo } from "@/config";
 import { embedded } from "@/embed/index.ts";
@@ -19,12 +10,11 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { sessionsPath } from "@/session-list";
-import { agentGroups, agentsPath, stateLabel, type AgentGroup } from "@/agent-list";
-import { agentPath, manifestPath } from "@/agent-path";
+import { manifestVersionOf, stateLabel } from "@/agent-list";
+import { manifestPath } from "@/agent-path";
 import { agentUnavailable } from "@/credential-coverage";
 import { STUDIO_OWNER } from "@/session-open";
 import type { AgentCatalog } from "@/resources/agents";
@@ -55,53 +45,53 @@ function stateDot(state: string): string {
         : "bg-sidebar-foreground/30";
 }
 
-/** One manifest under Agents, which filters the list to it, then its Agents, each to its page. */
-function AgentGroupItems({
-  group,
-  activeAgentId,
-  activeManifest,
-}: Readonly<{ group: AgentGroup; activeAgentId?: string; activeManifest?: string }>) {
+/** The sessions of an Agent that wait on a person or fail, from what made its state. */
+function needsPerson(agent: AgentView): number {
+  return agent.attention.filter(
+    (item) => item.sessionId !== undefined && (item.state === "input_required" || item.state === "failing"),
+  ).length;
+}
+
+/** One Agent under Agents: it filters the session table to its sessions. */
+function AgentItem({ agent, active }: Readonly<{ agent: AgentView; active: boolean }>) {
+  const waiting = needsPerson(agent);
+  // The dot and the count are seen only: the name says them too.
+  const label =
+    `${agent.id} · ${stateLabel(agent.state)}` +
+    (waiting > 0 ? ` · ${waiting} ${waiting === 1 ? "session needs" : "sessions need"} attention` : "");
   return (
-    <>
-      <SidebarMenuSubItem>
-        <SidebarMenuSubButton asChild isActive={group.name === activeManifest} size="sm">
-          <Link to={agentsPath({ manifest: group.name })} title={group.name}>
-            <FileJson />
-            <span className="min-w-0 flex-1 truncate">{group.name}</span>
-            <span className="ml-auto shrink-0 text-xs tabular-nums text-sidebar-foreground/70">
-              {group.agents.length}
+    <SidebarMenuSubItem>
+      <SidebarMenuSubButton asChild isActive={active} size="sm">
+        <Link to={sessionsPath(agent.id)} aria-label={label} title={`${label} · ${manifestVersionOf(agent)}`}>
+          <span className={"size-1.5 shrink-0 rounded-full " + stateDot(agent.state)} aria-hidden />
+          <span className="min-w-0 flex-1 truncate font-mono text-xs">{agent.id}</span>
+          {waiting > 0 ? (
+            <span
+              className={
+                "ml-auto shrink-0 rounded-full px-1.5 text-xs tabular-nums text-white " +
+                (agent.state === "failing" ? "bg-red-500" : "bg-amber-500")
+              }
+              aria-hidden
+            >
+              {waiting}
             </span>
-          </Link>
-        </SidebarMenuSubButton>
-      </SidebarMenuSubItem>
-      {group.agents.map((agent) => (
-        <SidebarMenuSubItem key={agent.id}>
-          <SidebarMenuSubButton asChild isActive={agent.id === activeAgentId} size="sm" className="pl-6">
-            <Link to={agentPath(agent.id)} title={`${agent.id} · ${stateLabel(agent.state)}`}>
-              <span className={"size-1.5 shrink-0 rounded-full " + stateDot(agent.state)} aria-hidden />
-              <span className="min-w-0 flex-1 truncate font-mono text-xs">{agent.id}</span>
-              <span className="ml-auto shrink-0 text-xs tabular-nums text-sidebar-foreground/70">
-                {agent.sessions.length}
-              </span>
-            </Link>
-          </SidebarMenuSubButton>
-        </SidebarMenuSubItem>
-      ))}
-    </>
+          ) : null}
+        </Link>
+      </SidebarMenuSubButton>
+    </SidebarMenuSubItem>
   );
 }
 
-/** Starts a session on the Agent picked from its menu, grouped by manifest, from any page. */
-function NewSessionItem({ groups }: Readonly<{ groups: readonly AgentGroup[] }>) {
+/** Starts a session on the Agent picked from its menu, from any page. */
+function NewSessionItem({ agents }: Readonly<{ agents: readonly AgentView[] }>) {
   const start = useStartSession();
-  const withAgents = groups.filter((group) => group.agents.length > 0);
   return (
     <SidebarMenuItem className="pt-1">
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <SidebarMenuButton
             tooltip="New session"
-            disabled={withAgents.length === 0}
+            disabled={agents.length === 0}
             className="h-9 justify-center gap-2 px-3 font-medium bg-primary text-primary-foreground shadow-xs hover:bg-primary/90 hover:text-primary-foreground active:bg-primary/90 active:text-primary-foreground data-[state=open]:bg-primary/90 data-[state=open]:hover:bg-primary/90 data-[state=open]:hover:text-primary-foreground"
           >
             <Plus />
@@ -113,44 +103,26 @@ function NewSessionItem({ groups }: Readonly<{ groups: readonly AgentGroup[] }>)
           <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
             Start a session on
           </DropdownMenuLabel>
-          {withAgents.map((group, index) => (
-            <AgentMenuGroup key={group.name} group={group} separated={index > 0} onPick={start} />
-          ))}
+          {agents.map((agent) => {
+            const unavailable = agentUnavailable(agent, STUDIO_OWNER);
+            return (
+              <DropdownMenuItem
+                key={agent.id}
+                disabled={unavailable !== undefined}
+                title={unavailable}
+                onSelect={() => start(agent)}
+              >
+                <Bot />
+                <span className="truncate font-mono text-xs">{agent.id}</span>
+              </DropdownMenuItem>
+            );
+          })}
         </DropdownMenuContent>
       </DropdownMenu>
     </SidebarMenuItem>
   );
 }
 
-function AgentMenuGroup({
-  group,
-  separated,
-  onPick,
-}: Readonly<{ group: AgentGroup; separated: boolean; onPick: (agent: AgentView) => void }>) {
-  return (
-    <>
-      {separated ? <DropdownMenuSeparator /> : null}
-      <DropdownMenuLabel className="flex items-center gap-1.5 text-xs font-normal text-muted-foreground">
-        <FileJson className="size-3.5" />
-        {group.name}
-      </DropdownMenuLabel>
-      {group.agents.map((agent) => {
-        const unavailable = agentUnavailable(agent, STUDIO_OWNER);
-        return (
-          <DropdownMenuItem
-            key={agent.id}
-            disabled={unavailable !== undefined}
-            title={unavailable}
-            onSelect={() => onPick(agent)}
-          >
-            <Bot />
-            <span className="truncate font-mono text-xs">{agent.id}</span>
-          </DropdownMenuItem>
-        );
-      })}
-    </>
-  );
-}
 function statusDotClass(status: Connection["status"]): string {
   return status === "Running"
     ? "bg-emerald-500"
@@ -222,29 +194,24 @@ export function AppSidebar({
   connection,
   tenant,
   catalog,
-  sessionsActive,
-  agentsActive,
-  manifestsActive,
+  allSessionsActive,
   activeAgentId,
-  activeManifest,
+  manifestsActive,
   settingsSection,
 }: Readonly<{
   connection: Connection;
   tenant?: StudioTenantInfo;
   catalog: AgentCatalog;
-  /** The session list is open. */
-  sessionsActive?: boolean;
-  /** The Agents list, an Agent's page or one of its sessions is open. */
-  agentsActive?: boolean;
+  /** The session table is open on every Agent's sessions. */
+  allSessionsActive?: boolean;
+  /** The Agent the session table is filtered on, or whose page or session is open. */
+  activeAgentId?: string;
   /** The agent manifests or one manifest's page is open. */
   manifestsActive?: boolean;
-  /** The open Agent, or the open session's. */
-  activeAgentId?: string;
-  /** The manifest the Agents list is filtered on. */
-  activeManifest?: string;
   settingsSection?: SettingsSection;
 }>) {
-  const groups = agentGroups(catalog.manifests, catalog.agents);
+  // By id, so a row stays put as its state changes; its dot tells the state.
+  const agents = [...catalog.agents].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader>
@@ -277,33 +244,17 @@ export function AppSidebar({
             tenant={tenant}
             active={settingsSection === "overview"}
           />
-          <NewSessionItem groups={groups} />
+          <NewSessionItem agents={agents} />
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>
+              {/* Agents open the session table: all of it, or each Agent's sessions. */}
               <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={sessionsActive} tooltip="Sessions">
+                <SidebarMenuButton asChild isActive={allSessionsActive} tooltip="Agents">
                   <Link to={sessionsPath()}>
-                    <MessagesSquare />
-                    <span>Sessions</span>
-                    {connection.status === "Running" ? (
-                      <span className="tabular-nums text-sidebar-foreground/70">
-                        ({connection.sessions.length})
-                      </span>
-                    ) : null}
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={agentsActive && activeAgentId === undefined && activeManifest === undefined}
-                  tooltip="Agents"
-                >
-                  <Link to={agentsPath()}>
                     <Bot />
                     <span>Agents</span>
                     {catalog.status === "Ready" ? (
@@ -314,15 +265,10 @@ export function AppSidebar({
                   </Link>
                 </SidebarMenuButton>
                 <SidebarMenuSub>
-                  {groups.map((group) => (
-                    <AgentGroupItems
-                      key={group.name}
-                      group={group}
-                      {...(agentsActive && activeAgentId !== undefined ? { activeAgentId } : {})}
-                      {...(agentsActive && activeManifest !== undefined ? { activeManifest } : {})}
-                    />
+                  {agents.map((agent) => (
+                    <AgentItem key={agent.id} agent={agent} active={agent.id === activeAgentId} />
                   ))}
-                  {catalog.status === "Ready" && groups.length === 0 ? (
+                  {catalog.status === "Ready" && agents.length === 0 ? (
                     <SidebarMenuSubItem>
                       <span className="block px-2 py-1 text-xs text-muted-foreground">No Agents yet</span>
                     </SidebarMenuSubItem>
@@ -342,11 +288,21 @@ export function AppSidebar({
                   ) : null}
                 </SidebarMenuSub>
               </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+      </SidebarContent>
+      {/* Pinned below the Agents, which scroll above it: what Agents are made from and run on. */}
+      <SidebarFooter>
+        <SidebarGroup className="p-0">
+          <SidebarGroupLabel>Configure</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
               <SidebarMenuItem>
                 <SidebarMenuButton asChild isActive={manifestsActive} tooltip="Agent manifests">
                   <Link to={manifestPath()}>
                     <Files />
-                    <span>Agent manifests</span>
+                    <span>Manifests</span>
                     {catalog.status === "Ready" && !catalog.manifestsError ? (
                       <span className="tabular-nums text-sidebar-foreground/70">
                         ({catalog.manifests.length})
@@ -355,16 +311,6 @@ export function AppSidebar({
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-      </SidebarContent>
-      {/* Pinned below the Agents, which scroll above it. */}
-      <SidebarFooter>
-        <SidebarGroup className="p-0">
-          <SidebarGroupLabel>Settings</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
               <SidebarMenuItem>
                 <SidebarMenuButton
                   asChild
