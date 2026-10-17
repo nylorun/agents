@@ -917,6 +917,47 @@ it is data from an outside sender that cannot approve anything: a label, not a d
 senders are relayed by an app. _Avoid_: "hook URL", "inbound webhook" for the endpoint; "token" for
 the secret.
 
+**Booked wake** (track T4, D77): A turn a session's agent booked for itself with `schedule_wake`,
+which our engine offers when the version the session runs sets `runtime.selfWake`
+(`turn.start.agent.selfWake`). The call is a `runtime` effect (`EffectTarget {kind: "runtime",
+operation: "schedule_wake"}`): `recordIntent` serves it in the call's own transaction
+(`serveRuntimeTool`), so a replayed turn books once, and answers it `completed`; no harness runs
+it. A session holds one booking, its Agent's trigger `wake:<sessionId>` (kind `wake`, with
+`sessionId`, `note` and `effectId`): a new one replaces it (`wake.booked`, `replaced`), `cancel`
+removes it (`wake.cancelled`), and a sessions reset drops it. It is at least
+`triggerMinIntervalMs` and at most `wakeMaxAheadMs` ahead, its note at most `wakeNoteChars`. The
+sweep's next pass arms it (moved triggers), and it fires as a trigger does: a run of kind `wake`
+counted in `triggerRunsPerHour`, queued on a busy session, its note the message with
+`cause.kind: "self"`, unwrapped (the model's own words); then the row goes. _Avoid_: "reminder",
+"alarm", "self-trigger".
+
+**Memory** (track T5, D72): An Agent's Markdown files under `/memories`, kept across sessions,
+wakes and upgrades, turned on by its manifest's `harness.memory` (`access`, `read_write` or
+`read_only`, the same in every turn whoever starts it; `instructions`). Postgres holds them: one
+`memories` row per path, content inline (at most `memoryBytes`, `memoriesPerAgent` per Agent), and
+one `memory_versions` row per change (`create`, `str_replace`, `insert`, `delete`, `rename`), with
+the content it left and its actor (`agent:<manifest>@<n>` with session, turn and trigger run for a
+turn's write; `human:<subject>` or `application` for the API). Every write goes through
+`applyMemoryCommand` (`memory/service.ts`), Anthropic's memory tool commands with their result
+strings; it locks each path it touches (`pg_advisory_xact_lock` on the path, then the row), and
+never rewrites what was written. Paths follow `memoryPathOf` (`@nylorun/core`): `/memories/…`,
+ending in `.md`, no `.`, `..` or empty segment, at most 512 characters; a folder is only a prefix.
+The API (`/v1/agents/{id}/memories`, `/memory_versions`) lists, reads, writes whole (with a
+`content_sha256` precondition, `409 memory_conflict`), deletes and pages versions. A fork copies
+the memories at version 1 with no history; a delete removes them and their versions. Versions are
+kept while the Agent exists. A model reaches them with the `memory` tool, a `runtime` effect
+(`EffectTarget {kind: "runtime", operation: "memory"}`) that `recordIntent` serves in the call's own
+transaction (`serveMemoryTool`, `memory/tool.ts`), so a replayed turn applies a write once and sees
+the same view; it checks each command's parameters, refuses a write from a `read_only` agent or a
+sub-agent (`memory.forbidden`), versions a write as `agent:<manifest>@<n>` with the session, turn
+and the trigger run that started the turn (`Session.turnCause`), and records `memory.updated` and
+`agent.memory_updated`. `turn.start.memory` carries the access, the agent's instructions and the
+index, newest first within `memoryIndexLines` and `memoryIndexBytes`. Our engine offers the tool
+with Anthropic's schema (`tools/memory.ts` in `@nylorun/harness`), view-only for `read_only` and
+agents used as tools, and pins the index after the instructions as user-role context
+(`ExecutionState.pinned`, kept for the session, re-pinned after a compaction). _Avoid_: "memory store" for an Agent's memories (Managed Agents'
+term for a shared resource); "knowledge base".
+
 ## Runtime architecture
 
 One line each; the module named is where the term lives in code.

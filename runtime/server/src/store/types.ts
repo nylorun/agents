@@ -91,6 +91,8 @@ import type {
   QueuedMessageRow,
   AgentTriggerRow,
   TriggerRunRow,
+  MemoryRow,
+  MemoryVersionRow,
   SigningKeyRow,
   VaultAuditRow,
   VaultCredentialRow,
@@ -380,6 +382,8 @@ export type {
   QueuedMessageRow,
   AgentTriggerRow,
   TriggerRunRow,
+  MemoryRow,
+  MemoryVersionRow,
   PrincipalRow,
   SigningKeyRow,
   VaultAuditRow,
@@ -866,6 +870,31 @@ export interface Tx {
   listTriggerRuns(agentId: string, options: { triggerId?: string; before?: string; limit: number }): Promise<TriggerRunRow[]>;
   /** Deletes runs fired before `before`; returns how many. */
   pruneTriggerRuns(before: string): Promise<number>;
+  // Memory (track T5, D72): paths are normalised `/memories/...` paths; versions page by id.
+  /** One memory; with `lock`, its path is locked until the transaction ends, whether or not a row has it. */
+  memory(agentId: string, path: string, options?: { lock?: boolean }): Promise<MemoryRow | undefined>;
+  /**
+   * An Agent's memories by path: those inside `folder` (a normalised folder path, `/memories` for
+   * all), after path `after`; with `lock`, their rows are locked until the transaction ends.
+   */
+  memories(
+    agentId: string,
+    options: { folder?: string; after?: string; limit?: number; lock?: boolean },
+  ): Promise<MemoryRow[]>;
+  countMemories(agentId: string): Promise<number>;
+  /** An Agent's newest memories first (by `updatedAt`, then path): what the pinned index lists. */
+  recentMemories(agentId: string, limit: number): Promise<Pick<MemoryRow, "path" | "description" | "bytes">[]>;
+  /** Inserts or replaces a memory. */
+  putMemory(row: MemoryRow): Promise<void>;
+  deleteMemory(agentId: string, path: string): Promise<void>;
+  insertMemoryVersion(row: MemoryVersionRow): Promise<void>;
+  /** An Agent's memory versions, newest first, before version id `before`; `path` keeps one path's. */
+  memoryVersions(agentId: string, options: { path?: string; before?: string; limit: number }): Promise<MemoryVersionRow[]>;
+  memoryVersion(agentId: string, id: string): Promise<MemoryVersionRow | undefined>;
+  /** Copies Agent `from`'s memories to new Agent `to`, each at version 1, with no history (a fork). */
+  copyMemories(from: string, to: string, now: string): Promise<number>;
+  /** Deletes an Agent's memories and their versions. */
+  deleteAgentMemories(agentId: string): Promise<void>;
   /** Links of one workflow session joined to their existing agent sessions, ordered by agent session id. */
   linkedSessions<S extends SessionDoc = SessionDoc>(
     workflowSessionId: string,

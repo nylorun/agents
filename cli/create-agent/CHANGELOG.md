@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.16.0-beta
+
+### Minor Changes
+
+- 22c61ce: Protocol 16, Agents from one manifest (track T2), a fresh start. An agent manifest (v8) is one versioned document at `/v1/agent-manifests/{name}` with a `harness` section (what runs inside the loop, including the harness's id) and a `runtime` section (what an environment manifest said). The Runtime checks the two against each other when it is saved (`422 manifest_inconsistent` with `details.gaps`), in place of `requires` at session open. Agent definitions and environment manifests are gone.
+
+  Environments are Agents: `/v1/agents/{id}` and its sub-routes, made from a saved manifest only (`manifest: "name"` tracks it, `"name@n"` pins a version; either resolves once, into `resolvedVersion`), with a derived `state` (`working`, `sleeping`, `input_required`, `failing`, `paused`) and `attention`. Every session runs on one Agent (`PUT /v1/sessions/{id} { agent, ownerUserId }`) and pins its manifest version. No session is special (D71). Error codes, events (`agent.*`), scopes (`agents:write`, `agent-manifests:write`) and identity-file grants (`agents`) say Agent; model budget scope `agent` is `manifest`. Harness API 5: `turn.start.agent` replaces `turn.start.environment`, with `definition` and `loop`. Migration 0032 closes older sessions (`protocol_16`) and drops Environments with their disks and vaults.
+
+  The SDK has `client.agentManifests`, `client.agents` and `composeManifest(dir)` for three-file authoring; the CLI has `nylorun apply`, `nylorun agent-manifests`, `nylorun agents` and `nylorun migrate v8`; Studio has an Agents screen, an Agent page and an Agent manifests screen. See MIGRATION.md.
+
+### Patch Changes
+
+- cc8d034: Track T3 in the clients. The SDK has `client.agents.plan(id, input)` (what a move would do), `client.agents.restart(id, { retry? })` and `list({ outdated: true })`. The CLI has `nylorun agents pin <id> <n>`, `track <id>`, `restart <id> [--retry]`, `put --dry-run`, and `list --outdated` (`--behind` kept as its alias), and prints the version an Agent moves to. Studio's Agent page moves an Agent (Move to vN, Pin, Track), restarts it on a pending version or retries a failed one, and shows "vN at next start", a version waiting for secrets, or one that failed to start. The starter's dev loop no longer deletes and remakes its Agent: the tracking Agent moves on each save.
+- Update the tested Harness, SDK, Admin and Runtime compatibility combination.
+
 ## 0.15.2-beta
 
 ### Patch Changes

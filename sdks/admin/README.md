@@ -160,7 +160,7 @@ the tool policy and budgets (`toolRules`, `toolRuleFieldChars`, `toolRuleTextCha
 `modelBudgets`), flows (`flowConcurrency`, `flowMapItems`, `flowLoopIterations`), sessions
 (`sessionQueuedMessages`), triggers (`triggersPerAgent`, `triggerMinIntervalMs`,
 `triggerRunsPerHour`, `triggerJitterPercent`, `triggerJitterMaxMs`, `triggerPromptChars`,
-`triggerRunRetentionMs`, `webhookBodyBytes`), disk versions (`diskVersionEntries`, `diskVersionBytes`,
+`triggerRunRetentionMs`, `webhookBodyBytes`, `wakeMaxAheadMs`, `wakeNoteChars`), memory (`memoryBytes`, `memoriesPerAgent`, `memoryIndexLines`, `memoryIndexBytes`), disk versions (`diskVersionEntries`, `diskVersionBytes`,
 `diskLeaseMs`, `diskPodWaitMs`), model calls (`modelRequestMs`, `modelIdleMs`,
 `modelAttempts`, `modelRetryDelayMs`, `modelProviderRetries`,
 `modelRetryDelayMaxMs`) and tools (`toolAttempts`, `httpToolTimeoutMs`,

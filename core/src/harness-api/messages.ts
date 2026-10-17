@@ -25,6 +25,7 @@ import type {
   RunRoutingSchema,
   TraceContextSchema,
   TurnAgentSchema,
+  TurnMemorySchema,
   TurnOutputSchema,
   TurnStartSchema,
   WorkspaceCallSchema,
@@ -88,6 +89,9 @@ export type EffectTarget = z.infer<typeof EffectTargetSchema>;
 
 /** The Environment a turn runs in (`turn.start.environment`, protocol 15). */
 export type TurnAgent = z.infer<typeof TurnAgentSchema>;
+
+/** The Agent's memory as a turn starts (`turn.start.memory`, track T5). */
+export type TurnMemory = z.infer<typeof TurnMemorySchema>;
 
 /** An artifact as the artifact seam shows it to a harness (`artifact.read`, `artifact.write`). */
 export type ArtifactMeta = z.infer<typeof ArtifactMetaSchema>;

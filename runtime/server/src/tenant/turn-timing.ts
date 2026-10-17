@@ -15,6 +15,8 @@ export interface TurnTiming {
   turnStartedAt?: string;
   /** The trace context the turn's message arrived with (R7.4); it ends with the turn. */
   turnTrace?: unknown;
+  /** What started the turn when not a client (track T4); it ends with the turn. */
+  turnCause?: unknown;
   pausedMs?: number;
   pausedAt?: string;
 }
@@ -69,5 +71,6 @@ export async function endTurn(
   delete s.turnStartedAt;
   delete s.pausedMs;
   delete s.turnTrace;
+  delete s.turnCause;
   return facts;
 }

@@ -217,6 +217,20 @@ const RUNTIME_TAGS: readonly Tag[] = [
     ],
   },
   {
+    name: "Memory",
+    group: "Agents",
+    description:
+      "An Agent's memories (track T5, D72): Markdown files under `/memories` it keeps across sessions, wakes and upgrades, shaped like Anthropic's memory stores. List and read them, write one whole (with a `content_sha256` precondition), delete one or a folder, and read the version every change leaves, with who made it. In `@nylorun/agents` and `nylorun agents memories`.",
+    operations: [
+      "GET /v1/agents/{agentId}/memories",
+      "GET /v1/agents/{agentId}/memories/{path}",
+      "PUT /v1/agents/{agentId}/memories/{path}",
+      "DELETE /v1/agents/{agentId}/memories/{path}",
+      "GET /v1/agents/{agentId}/memory_versions",
+      "GET /v1/agents/{agentId}/memory_versions/{versionId}",
+    ],
+  },
+  {
     name: "Sessions API",
     group: "Sessions",
     description:

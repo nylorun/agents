@@ -191,7 +191,7 @@ describe("the checks between the sections", () => {
     expect(agent.body.disk).toBeUndefined();
   });
 
-  it("takes schedule, at and webhook triggers, and refuses selfWake until its step of T4", async () => {
+  it("takes schedule, at and webhook triggers, and selfWake", async () => {
     const saved = await call("PUT", manifests("woken"), box("woken", { triggers: { daily: { schedule: "0 9 * * *", session: "s", prompt: "Wake." } } }));
     expect(saved.status, JSON.stringify(saved.body)).toBe(200);
     const hook = await call("PUT", manifests("hooked"), box("hooked", { triggers: { h: { webhook: "standard-webhooks", session: "s", prompt: "x" } } }));
@@ -199,8 +199,7 @@ describe("the checks between the sections", () => {
     const other = await call("PUT", manifests("github"), box("github", { triggers: { h: { webhook: "github", session: "s", prompt: "x" } } }));
     expect(other.status).toBe(400);
     const self = await call("PUT", manifests("self"), box("self", { selfWake: true }));
-    expect(self.status).toBe(400);
-    expect(JSON.stringify(self.body)).toContain("runtime.selfWake is not available yet");
+    expect(self.status, JSON.stringify(self.body)).toBe(200);
   });
 });
 
@@ -407,6 +406,7 @@ describe("forking", { timeout: 60_000 }, () => {
           expect.objectContaining({ path: "secrets.PYPI" }),
         ]),
         sessions: 1,
+        memories: 0,
       },
     });
     expect((await call("GET", agents("forks/v2"))).status).toBe(404);

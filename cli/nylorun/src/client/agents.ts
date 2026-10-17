@@ -11,7 +11,7 @@
 import type { AgentEventType, AgentView } from "@nylorun/agents";
 import { parseAgentManifestRef } from "@nylorun/core/contracts";
 import type { StackDeps } from "../stack/commands.js";
-import { readSecret } from "./io.js";
+import { readSecret, readText } from "./io.js";
 import {
   integerFlag,
   labelsOf,
@@ -81,6 +81,13 @@ NYLORUN_TOKEN).
   runs <id> [--trigger <id>] [--limit <n>] [--cursor <c>]
                                       what each fire came to (started, queued, skipped,
                                       failed), newest first, as JSON
+  memories ls <id> [--prefix <folder>] [--limit <n>] [--cursor <c>]
+                                      its memories (track T5) by path, as JSON
+  memories cat <id> <path>            one memory's content
+  memories put <id> <path> <file|->   write a memory whole (seed it), from a file or stdin
+  memories rm <id> <path>             delete a memory, or every memory in a folder
+  memories versions <id> [--path <path>] [--limit <n>] [--cursor <c>]
+                                      every change to its memories, newest first, as JSON
 
 ${runtimeFlagsUsage}`;
 
@@ -439,6 +446,68 @@ async function triggers(deps: StackDeps, args: readonly string[]): Promise<numbe
   throw usageError(`Usage: nylorun agents triggers <list|pause|resume|run|new-secret> …\n\n${agentsUsage}`);
 }
 
+/** `nylorun agents memories <ls|cat|put|rm|versions> …` (track T5). */
+async function memories(deps: StackDeps, args: readonly string[]): Promise<number> {
+  const [verb, ...rest] = args;
+  const pageOf = (flags: ReturnType<typeof parseFlags>) => {
+    const limit = flags.values.get("--limit");
+    if (limit !== undefined && !/^[1-9]\d*$/.test(limit)) throw usageError("--limit must be a positive number.");
+    const cursor = flags.values.get("--cursor");
+    return { ...(limit === undefined ? {} : { limit: Number(limit) }), ...(cursor === undefined ? {} : { cursor }) };
+  };
+  if (verb === "ls" || verb === "list") {
+    const usage = "nylorun agents memories ls <id> [--prefix <folder>] [--limit <n>] [--cursor <c>]";
+    const flags = parseFlags(rest, { values: ["--prefix", "--limit", "--cursor"] }, usage);
+    const [id] = positional(flags, 1, usage);
+    const prefix = flags.values.get("--prefix");
+    const { client } = await runtimeClient(deps, flags);
+    printJson(
+      deps,
+      await runtimeCall(() => client.agents.memories.list(id!, { ...(prefix === undefined ? {} : { pathPrefix: prefix }), ...pageOf(flags) })),
+    );
+    return 0;
+  }
+  if (verb === "cat") {
+    const usage = "nylorun agents memories cat <id> <path>";
+    const flags = parseFlags(rest, {}, usage);
+    const [id, path] = positional(flags, 2, usage);
+    const { client } = await runtimeClient(deps, flags);
+    deps.out((await runtimeCall(() => client.agents.memories.get(id!, path!))).content);
+    return 0;
+  }
+  if (verb === "put") {
+    const usage = "nylorun agents memories put <id> <path> <file|->";
+    const flags = parseFlags(rest, {}, usage);
+    const [id, path, source] = positional(flags, 3, usage);
+    const content = await readText(deps, source!);
+    const { client } = await runtimeClient(deps, flags);
+    printJson(deps, await runtimeCall(() => client.agents.memories.put(id!, path!, content)));
+    return 0;
+  }
+  if (verb === "rm" || verb === "delete") {
+    const usage = "nylorun agents memories rm <id> <path>";
+    const flags = parseFlags(rest, {}, usage);
+    const [id, path] = positional(flags, 2, usage);
+    const { client } = await runtimeClient(deps, flags);
+    const deleted = await runtimeCall(() => client.agents.memories.delete(id!, path!));
+    deps.out(`Deleted ${deleted.deleted} ${deleted.deleted === 1 ? "memory" : "memories"} at ${deleted.path} of Agent ${id}.`);
+    return 0;
+  }
+  if (verb === "versions") {
+    const usage = "nylorun agents memories versions <id> [--path <path>] [--limit <n>] [--cursor <c>]";
+    const flags = parseFlags(rest, { values: ["--path", "--limit", "--cursor"] }, usage);
+    const [id] = positional(flags, 1, usage);
+    const path = flags.values.get("--path");
+    const { client } = await runtimeClient(deps, flags);
+    printJson(
+      deps,
+      await runtimeCall(() => client.agents.memories.versions(id!, { ...(path === undefined ? {} : { path }), ...pageOf(flags) })),
+    );
+    return 0;
+  }
+  throw usageError(`Usage: nylorun agents memories <ls|cat|put|rm|versions> …\n\n${agentsUsage}`);
+}
+
 /** `nylorun agents runs <id>` (track T4). */
 async function runs(deps: StackDeps, args: readonly string[]): Promise<number> {
   const usage = "nylorun agents runs <id> [--trigger <id>] [--limit <n>] [--cursor <c>]";
@@ -483,6 +552,7 @@ const COMMANDS: Record<string, (deps: StackDeps, args: readonly string[]) => Pro
   fork,
   triggers,
   runs,
+  memories,
 };
 
 /** `nylorun agents <command> ...` */

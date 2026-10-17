@@ -493,6 +493,87 @@ the secret slots, `secrets`). Its JSON Schema is
   of them, refused while an Agent was made from one (`409 manifest_in_use`). Model budgets of
   scope `manifest` (`PUT /v1/tenant/budgets`) cap a manifest's calls by its name.
 
+### Triggers, webhooks and wakes
+
+An Agent starts turns with no client connected (track T4) from what its manifest's
+`runtime.triggers` declares, by id. Each trigger has exactly one of `schedule` (five-field cron,
+in `timezone`, an IANA name, UTC by default), `at` (one time, RFC 3339 with an offset) or
+`webhook` (`"standard-webhooks"`), and the `session` its runs go to and its `prompt`:
+
+```json
+"runtime": {
+  "kind": "none",
+  "triggers": {
+    "hourly-check": { "schedule": "0 * * * *", "timezone": "Asia/Kolkata", "session": "triage-inbox", "prompt": "Check for new issues." },
+    "alerts": { "webhook": "standard-webhooks", "session": "new", "prompt": "An alert arrived. Investigate it." },
+    "launch-day": { "at": "2026-11-01T09:00:00+05:30", "session": "launch", "prompt": "Post the launch checklist." }
+  },
+  "selfWake": true
+}
+```
+
+- **Sessions.** `session` is a session id of the Agent, opened by the trigger's first run (owned
+  by the Agent's owner, or `installation`) and open to people and apps like any session, or
+  `"new"` for a session per run (`run-<runId>`). A named session that belongs to another Agent
+  fails the run (`session_conflict`).
+- **Runs.** Each time a trigger fires is a run, at `GET /v1/agents/{id}/runs`
+  (`nylorun agents runs`): `started` a turn, `queued` behind a running turn, `skipped`
+  (`overlap`, `rate_limited`, `paused`) or `failed`. A trigger fires on the Runtime's durable
+  timers, with Postgres holding when each one is due: after downtime it fires once, marked `late`,
+  and never backfills the times it missed. A schedule's runs move by a fixed offset per trigger
+  (`triggerJitterPercent`). A schedule adds at most one queued run to a busy session; its later
+  fires are skipped (`overlap`).
+- **Status.** Triggers start active with a new Agent; a trigger a newer version adds arrives
+  `paused` (`new`). `GET /v1/agents/{id}/triggers`, `POST .../triggers/{id}/pause`, `/resume`
+  and `/run` (with an `Idempotency-Key`), and `nylorun agents triggers`.
+- **Webhooks.** A webhook trigger's endpoint is `webhookUrl`, `POST /v1/webhooks/{endpointId}`:
+  no credential and no protocol header, Standard Webhooks signatures (`webhook-id`,
+  `webhook-timestamp` within `triggers.webhookToleranceMs`, `webhook-signature`), any body up to
+  `webhookBodyBytes`. Make its signing secret with `POST .../triggers/{id}/secret`
+  (`nylorun agents triggers new-secret`); it is shown once and replaces the one before. Relay
+  GitHub, Stripe or Slack through your app, signing with that secret. The payload reaches the
+  model under the prompt, labelled as data from an outside sender; it never approves anything.
+  Put a Runtime that faces the internet behind a proxy that limits requests to `/v1/webhooks/`.
+- **Wakes.** `"selfWake": true` offers the agent `schedule_wake`: it books its session's next turn
+  (`in` or `at`, and a `note` that is that turn's message), one booking per session.
+- **The session queue.** A message to a session whose turn runs is queued and starts the next
+  turn (protocol 17); `delivery: "reject"` answers `409 session_busy` instead.
+- **Limits.** `triggersPerAgent`, `triggerMinIntervalMs`, `triggerRunsPerHour` (the guard against
+  an Agent triggering itself), `triggerPromptChars`, `triggerRunRetentionMs`, `wakeMaxAheadMs`,
+  `wakeNoteChars`, `webhookBodyBytes` and `sessionQueuedMessages` ([Runtime limits](#runtime-limits)).
+  An hourly trigger on a hundred Agents is 2,400 turns a day: set model budgets before leaving
+  Agents running unattended.
+
+### Agent memory
+
+An Agent keeps memory across sessions, wakes and upgrades (track T5) when its manifest turns it on:
+
+```json
+"harness": {
+  "memory": { "access": "read_write", "instructions": "Keep the team's release conventions." }
+}
+```
+
+- **What it is.** Markdown files under `/memories`, which the agent reads and edits with one
+  `memory` tool (Anthropic's memory tool: `view`, `create`, `str_replace`, `insert`, `delete`,
+  `rename`). Each session starts with an index of them, newest first, with each file's
+  frontmatter `description`. `access: "read_only"` lets the agent view but not change them; an
+  agent used as a tool only views. Memory works the same whoever starts the turn: a person, an
+  app, a trigger or a wake.
+- **Where it lives.** Postgres, with the Agent: every change is a version naming who made it
+  (the manifest version, session, turn and trigger run, or the person or app over the API). A
+  fork copies the memories; deleting the Agent deletes them.
+- **Managing it.** `GET /v1/agents/{id}/memories`, `GET`, `PUT` (with an optional
+  `contentSha256` precondition) and `DELETE /v1/agents/{id}/memories/{path}`, and
+  `GET /v1/agents/{id}/memory_versions[/{versionId}]`; `nylorun agents memories ls|cat|put|rm|versions`.
+- **Keep secrets out.** The engine tells the agent never to keep secrets, but nothing scans what
+  it writes: read an Agent's memory before you share or fork it.
+- **Limits.** `memoryBytes`, `memoriesPerAgent`, `memoryIndexLines` and `memoryIndexBytes`
+  ([Runtime limits](#runtime-limits)).
+
+`npm run test:t5-exit` checks it on a Compose Tenant: a scheduled Agent writes a memory in one
+fire and reads it back in the next, with an upgrade in between.
+
 ## Postgres for session events
 
 Postgres holds the record of every session event (`nylorun_streams.session_events`), and
@@ -758,7 +839,13 @@ What only the Runtime checks:
 | `triggerJitterMaxMs` | The most that offset may be | 5 min | A JavaScript timer |
 | `triggerPromptChars` | One trigger's `prompt` | 8,000 characters | One record entry, escaped |
 | `triggerRunRetentionMs` | How long an Agent's runs are kept | 30 days | A JavaScript number; floor 24 h (runs dedupe repeated fires) |
+| `wakeMaxAheadMs` | How far ahead `schedule_wake` may book a session's next turn (and at least `triggerMinIntervalMs` ahead) | 30 days | A JavaScript number; a long wait is armed in steps |
+| `wakeNoteChars` | The longest note a booked wake carries to its turn | 2,000 characters | One record entry, escaped |
 | `webhookBodyBytes` | The largest delivery a webhook endpoint reads, before it verifies it (`413` past it) | 256 KiB | 960 KiB: the payload goes into one record entry |
+| `memoryBytes` | The largest memory an Agent keeps (track T5), in UTF-8 bytes | 100 KB | 32 MiB: a memory reaches a harness in one Harness API frame |
+| `memoriesPerAgent` | The most memories one Agent holds | 10,000 | A JavaScript number |
+| `memoryIndexLines` | The most lines of the memory index a session pins | 200 | A JavaScript number |
+| `memoryIndexBytes` | The most UTF-8 bytes of that index | 25 KiB | 16 MiB: it crosses in `turn.start` |
 
 A limit above its ceiling, or under its floor, is `400`, naming the bound and why, and nothing changes.
 Each limit is read where it is checked, so a new value holds for the next request, write, call

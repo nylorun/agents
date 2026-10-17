@@ -541,6 +541,10 @@ async function beginMessageTurn(
   startTurn(s);
   if (first.trace) s.turnTrace = first.trace;
   else delete s.turnTrace;
+  // A trigger's run or a booked wake among the messages started it (track T4).
+  const cause = messages.find((message) => message.cause)?.cause;
+  if (cause) s.turnCause = { kind: cause.kind, triggerId: cause.triggerId, runId: cause.runId };
+  else delete s.turnCause;
   // The files the session's messages named: `read_artifact` reads them again (protocol 12).
   const named = messages.flatMap((message) => message.fileArtifacts);
   if (named.length > 0) s.fileArtifacts = [...new Set([...(s.fileArtifacts ?? []), ...named])];

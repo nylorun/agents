@@ -495,7 +495,7 @@ export { RuntimeError, IncompatibleRuntimeError } from "./http.js";
 export type { Destination, IncompatibleReason } from "./http.js";
 export type { LiveEvent } from "@nylorun/core/contracts";
 export { AccessClient } from "./access.js";
-export { AgentInstancesClient, AgentSecretsClient, runtimeFiles } from "./agents.js";
+export { AgentInstancesClient, AgentMemoriesClient, AgentSecretsClient, runtimeFiles } from "./agents.js";
 export type { AgentFilter, AgentInput, AgentSecretInput, RuntimeFileBytes } from "./agents.js";
 export { AgentManifestsClient, ManifestGapsError, agentManifest, requirementGaps } from "./agent-manifests.js";
 export type {

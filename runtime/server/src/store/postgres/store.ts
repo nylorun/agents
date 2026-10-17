@@ -124,6 +124,8 @@ import type {
   QueuedMessageRow,
   AgentTriggerRow,
   TriggerRunRow,
+  MemoryRow,
+  MemoryVersionRow,
   ToolCrossingRow,
   TakeOwnership,
   Tx,
@@ -166,6 +168,8 @@ import {
   sessionQueue,
   agentTriggers,
   triggerRuns,
+  memories,
+  memoryVersions,
   toJson,
   toolCrossings,
   signingKeys,
@@ -1707,6 +1711,114 @@ class PostgresTx implements Tx {
       .returning({ id: triggerRuns.id });
     return deleted.length;
   }
+  // --- memory (track T5) ------------------------------------------------------
+
+  async memory(agentId: string, path: string, options: { lock?: boolean } = {}): Promise<MemoryRow | undefined> {
+    this.check();
+    // The path's own lock, held whether or not a row has it, so two writes creating it queue.
+    if (options.lock)
+      await this.db.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`nylorun.memories:${agentId}:${path}`}))`);
+    const query = this.db
+      .select()
+      .from(memories)
+      .where(and(eq(memories.agentId, agentId), eq(memories.path, path)));
+    const [row] = options.lock ? await query.for("update") : await query;
+    return row;
+  }
+
+  async memories(
+    agentId: string,
+    options: { folder?: string; after?: string; limit?: number; lock?: boolean },
+  ): Promise<MemoryRow[]> {
+    this.check();
+    const conditions: SQL[] = [eq(memories.agentId, agentId)];
+    // `starts_with`, not LIKE: a path may hold `%` or `_`.
+    if (options.folder !== undefined) conditions.push(sql`starts_with(${memories.path}, ${`${options.folder}/`})`);
+    if (options.after !== undefined) conditions.push(gt(memories.path, options.after));
+    const ordered = this.db
+      .select()
+      .from(memories)
+      .where(and(...conditions))
+      .orderBy(memories.path);
+    const limited = options.limit === undefined ? ordered : ordered.limit(options.limit);
+    return options.lock ? limited.for("update") : limited;
+  }
+
+  async countMemories(agentId: string): Promise<number> {
+    this.check();
+    const [row] = await this.db.select({ n: count() }).from(memories).where(eq(memories.agentId, agentId));
+    return Number(row?.n ?? 0);
+  }
+
+  async recentMemories(agentId: string, limit: number): Promise<Pick<MemoryRow, "path" | "description" | "bytes">[]> {
+    this.check();
+    return this.db
+      .select({ path: memories.path, description: memories.description, bytes: memories.bytes })
+      .from(memories)
+      .where(eq(memories.agentId, agentId))
+      .orderBy(desc(memories.updatedAt), memories.path)
+      .limit(limit);
+  }
+
+  async putMemory(row: MemoryRow): Promise<void> {
+    this.check();
+    const { agentId: _a, path: _p, ...set } = row;
+    await this.db
+      .insert(memories)
+      .values(row)
+      .onConflictDoUpdate({ target: [memories.agentId, memories.path], set });
+  }
+
+  async deleteMemory(agentId: string, path: string): Promise<void> {
+    this.check();
+    await this.db.delete(memories).where(and(eq(memories.agentId, agentId), eq(memories.path, path)));
+  }
+
+  async insertMemoryVersion(row: MemoryVersionRow): Promise<void> {
+    this.check();
+    await this.db.insert(memoryVersions).values(row);
+  }
+
+  async memoryVersions(
+    agentId: string,
+    options: { path?: string; before?: string; limit: number },
+  ): Promise<MemoryVersionRow[]> {
+    this.check();
+    const conditions = [eq(memoryVersions.agentId, agentId)];
+    if (options.path !== undefined) conditions.push(eq(memoryVersions.path, options.path));
+    if (options.before !== undefined) conditions.push(lt(memoryVersions.id, options.before));
+    return this.db
+      .select()
+      .from(memoryVersions)
+      .where(and(...conditions))
+      .orderBy(desc(memoryVersions.id))
+      .limit(options.limit);
+  }
+
+  async memoryVersion(agentId: string, id: string): Promise<MemoryVersionRow | undefined> {
+    this.check();
+    const [row] = await this.db
+      .select()
+      .from(memoryVersions)
+      .where(and(eq(memoryVersions.agentId, agentId), eq(memoryVersions.id, id)));
+    return row;
+  }
+
+  async copyMemories(from: string, to: string, now: string): Promise<number> {
+    this.check();
+    const copied = await this.db.execute(sql`
+      INSERT INTO ${memories} (agent_id, path, content, content_sha256, bytes, description, version, updated_at)
+      SELECT ${to}, path, content, content_sha256, bytes, description, 1, ${now}
+      FROM ${memories} WHERE agent_id = ${from}`);
+    return Number((copied as unknown as { count?: number }).count ?? 0);
+  }
+
+  async deleteAgentMemories(agentId: string): Promise<void> {
+    this.check();
+    await this.db.delete(memories).where(eq(memories.agentId, agentId));
+    await this.db.delete(memoryVersions).where(eq(memoryVersions.agentId, agentId));
+  }
+
 
   // --- tool crossings --------------------------------------------------------
 
@@ -2041,6 +2153,8 @@ class PostgresTx implements Tx {
     const db = this.db;
     if (scope === "sessions" || scope === "all") {
       for (const table of SESSION_TABLES) await db.delete(table);
+      // A session's booked wake (T4) goes with it.
+      await db.delete(agentTriggers).where(eq(agentTriggers.kind, "wake"));
       await db.delete(toolCrossings);
       // A session's artifacts go with it (their versions by cascade).
       await db.delete(artifacts).where(isNotNull(artifacts.sessionId));
@@ -2060,6 +2174,9 @@ class PostgresTx implements Tx {
       await db.delete(agentEvents);
       await db.delete(agentTriggers);
       await db.delete(triggerRuns);
+      // Memories belong to the Agents (D72).
+      await db.delete(memories);
+      await db.delete(memoryVersions);
       await db.delete(sandboxSignals);
     }
     if (scope === "all") {

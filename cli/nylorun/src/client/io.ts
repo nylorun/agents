@@ -25,6 +25,16 @@ async function readStdin(deps: StackDeps, refusal: string): Promise<string> {
   return await deps.stdin.text();
 }
 
+/** The text in file `source`, or on standard input for `-`, as it is. */
+export async function readText(deps: StackDeps, source: string): Promise<string> {
+  if (source === "-") return readStdin(deps, "Pipe the text in on standard input, or name a file.");
+  try {
+    return await readFile(resolve(deps.cwd ?? process.cwd(), source), "utf8");
+  } catch (error) {
+    throw usageError(`Cannot read ${source}: ${(error as NodeJS.ErrnoException).code ?? error}.`);
+  }
+}
+
 /**
  * The JSON body in file `source`, or on standard input for `-`, as `schema` parses it. Fields
  * named in `readOnly` (a view's, so a `get` can be edited and put back) are dropped first. A

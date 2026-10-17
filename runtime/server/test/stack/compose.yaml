@@ -23,8 +23,24 @@ services:
     image: postgres:17.11
     # Logical replication for the stream relay (Durable Streams §14). Every test file has its
     # own database and pool, and files run in parallel: room for many connections.
+    # wal_sender_timeout=24s: Postgres asks for a keepalive reply every 12s (half of it), and a
+    # caught-up relay confirms past WAL that holds none of its rows (other test databases,
+    # autovacuum, the running-transactions record) only then. At the default 60s a slot can
+    # trail pg_current_wal_lsn() for 30s, longer than the tests wait for no lag (20s). A relay
+    # holding rows S2 does not have answers no keepalive, and Postgres drops it after the whole
+    # timeout: that must outlast the 10s S2 outage of test/failure/durable-streams.
     command:
-      ["postgres", "-c", "wal_level=logical", "-c", "max_slot_wal_keep_size=1GB", "-c", "max_connections=500"]
+      [
+        "postgres",
+        "-c",
+        "wal_level=logical",
+        "-c",
+        "max_slot_wal_keep_size=1GB",
+        "-c",
+        "max_connections=500",
+        "-c",
+        "wal_sender_timeout=24s",
+      ]
     environment:
       POSTGRES_USER: nylorun
       POSTGRES_PASSWORD: nylorun

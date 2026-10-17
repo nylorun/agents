@@ -9,7 +9,7 @@ import type { EffectOutcome } from "@nylorun/core/contracts";
 import type { AgentRef, ModelAdapter } from "@nylorun/core/define";
 import type { DelegationHost } from "../loop/delegation.js";
 import type { AgentDefinition } from "../definition/agent-definition.js";
-import { AgentManifestSchema } from "@nylorun/core/contracts";
+import { AgentManifestSchema, checkMemoryCall } from "@nylorun/core/contracts";
 import { agentFrom, withHttpTarget } from "@nylorun/core/define";
 import { TOOL_CALL_TOOL } from "../tools/tool-search.js";
 import type { McpToolSet } from "../tools/mcp.js";
@@ -167,6 +167,13 @@ export async function runDurable(options: {
    * hashed.
    */
   engineTools?: (agent: AgentManifest) => EngineTools;
+  /**
+   * Text to keep at the head of the conversation (`ExecutionState.pinned`): the memory index
+   * block (`memoryIndexBlock`, track T5). The state keeps what it pinned at the session's first
+   * turn, and after a compaction takes this; without it, the state drops its pinned text. Not
+   * hashed.
+   */
+  pinned?: readonly string[];
   /** Segment rollover (Model Calls §10): yield after this many steps or milliseconds. */
   yieldAfter?: { readonly steps?: number; readonly ms?: number };
   /** The model the turn's calls use (`turn.start.model`), for the root and every child. */
@@ -323,7 +330,9 @@ export async function runDurable(options: {
       tools[tool.name] =
         tool.name === TOOL_CALL_TOOL
           ? deferredToolCall(tool, deferred, hostedTool)
-          : hostedTool(tool);
+          : tool.target?.kind === "runtime" && tool.target.operation === "memory"
+            ? checkedMemoryTool(hostedTool(tool))
+            : hostedTool(tool);
     const implementations: Implementations = { tools };
     return definitionFor(
       agentFrom(agent, implementations, {
@@ -390,10 +399,13 @@ export async function runDurable(options: {
       execute(
         hosted,
         {
-          state: withLayout(
-            checkpoint.state ??
-              initializeExecutionState(hosted, { executionId: checkpoint.sessionId }),
-            options.mcp,
+          state: withPinned(
+            withLayout(
+              checkpoint.state ??
+                initializeExecutionState(hosted, { executionId: checkpoint.sessionId }),
+              options.mcp,
+            ),
+            options.pinned,
           ),
           input: checkpoint.input,
           info: checkpoint.info,
@@ -432,6 +444,36 @@ function withLayout(state: ExecutionState, mcp: McpToolSet | undefined): Executi
   if (mcp === undefined) return state;
   const { factsHash, deferred } = mcp.layout;
   return { ...state, mcpLayout: { factsHash, deferred: [...deferred] } };
+}
+
+/**
+ * The state with the text our engine keeps at the head of the conversation: what it pinned
+ * before, or `pinned` when it has none (the session's first turn, or after a compaction).
+ */
+function withPinned(state: ExecutionState, pinned: readonly string[] | undefined): ExecutionState {
+  if (pinned === undefined) {
+    if (state.pinned === undefined) return state;
+    const { pinned: _dropped, ...rest } = state;
+    return rest;
+  }
+  return state.pinned === undefined ? { ...state, pinned: [...pinned] } : state;
+}
+
+/**
+ * `memory` (track T5): each command's parameters are checked before the call is sent
+ * (`checkMemoryCall`), so a call the Runtime would refuse is never journaled; the model reads the
+ * error text and may call again.
+ */
+function checkedMemoryTool(run: ReturnType<HostedTool>): ReturnType<HostedTool> {
+  return {
+    ...run,
+    async execute(args: unknown, ctx: unknown) {
+      const checked = checkMemoryCall(args);
+      if ("error" in checked)
+        return { kind: "failed", code: "tool.invalid-arguments", message: checked.error };
+      return run.execute(args, ctx);
+    },
+  };
 }
 
 /** What a tool effect names beside its input: the tool, what runs it, its skill and its agent. */

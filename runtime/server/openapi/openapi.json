@@ -6376,6 +6376,7 @@
               "queue_full",
               "trigger_expired",
               "trigger_paused",
+              "memory_conflict",
               "agent_busy",
               "agent_unavailable",
               "placement_refused",
@@ -8913,6 +8914,15 @@
             "$ref": "#/components/schemas/QueueTakenEvent"
           },
           {
+            "$ref": "#/components/schemas/WakeBookedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/WakeCancelledEvent"
+          },
+          {
+            "$ref": "#/components/schemas/MemoryUpdatedEvent"
+          },
+          {
             "$ref": "#/components/schemas/MessageAssistantEvent"
           },
           {
@@ -8991,6 +9001,9 @@
             "turn.cancelled": "#/components/schemas/TurnCancelledEvent",
             "message.queued": "#/components/schemas/MessageQueuedEvent",
             "queue.taken": "#/components/schemas/QueueTakenEvent",
+            "wake.booked": "#/components/schemas/WakeBookedEvent",
+            "wake.cancelled": "#/components/schemas/WakeCancelledEvent",
+            "memory.updated": "#/components/schemas/MemoryUpdatedEvent",
             "message.assistant": "#/components/schemas/MessageAssistantEvent",
             "model.failed": "#/components/schemas/ModelFailedEvent",
             "context.compacted": "#/components/schemas/ContextCompactedEvent",
@@ -11114,6 +11127,627 @@
           "payload"
         ]
       },
+      "WakeBookedEvent": {
+        "type": "object",
+        "properties": {
+          "schema": {
+            "type": "string",
+            "enum": [
+              "nylorun.event/2"
+            ]
+          },
+          "eventId": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "runId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "turnId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "incarnation": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "epoch": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "time": {
+            "type": "string"
+          },
+          "schemaVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "client",
+                  "core",
+                  "model-gate",
+                  "tool-gate",
+                  "egress-gate",
+                  "sandboxes",
+                  "edge",
+                  "init",
+                  "controller",
+                  "loop",
+                  "supervisor",
+                  "harness",
+                  "evidence",
+                  "operator",
+                  "human",
+                  "api"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ]
+          },
+          "evidence": {
+            "type": "string",
+            "enum": [
+              "observed",
+              "measured",
+              "attested",
+              "claimed",
+              "asserted"
+            ]
+          },
+          "principal": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "application",
+                  "subject",
+                  "flow-host",
+                  "core",
+                  "trigger"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          "trace": {
+            "type": "object",
+            "properties": {
+              "traceId": {
+                "type": "string"
+              },
+              "spanId": {
+                "type": "string"
+              },
+              "parentSpanId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "traceId",
+              "spanId"
+            ]
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "internal",
+              "restricted"
+            ]
+          },
+          "retention": {
+            "type": "string",
+            "enum": [
+              "full",
+              "metadata"
+            ]
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "wake.booked"
+            ]
+          },
+          "payload": {
+            "type": "object",
+            "properties": {
+              "at": {
+                "type": "string"
+              },
+              "note": {
+                "type": "string"
+              },
+              "effectId": {
+                "type": "string"
+              },
+              "replaced": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "at",
+              "note",
+              "effectId",
+              "replaced"
+            ],
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "schema",
+          "eventId",
+          "tenantId",
+          "sessionId",
+          "runId",
+          "turnId",
+          "incarnation",
+          "epoch",
+          "seq",
+          "cursor",
+          "time",
+          "schemaVersion",
+          "source",
+          "evidence",
+          "visibility",
+          "retention",
+          "type",
+          "payload"
+        ]
+      },
+      "WakeCancelledEvent": {
+        "type": "object",
+        "properties": {
+          "schema": {
+            "type": "string",
+            "enum": [
+              "nylorun.event/2"
+            ]
+          },
+          "eventId": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "runId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "turnId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "incarnation": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "epoch": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "time": {
+            "type": "string"
+          },
+          "schemaVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "client",
+                  "core",
+                  "model-gate",
+                  "tool-gate",
+                  "egress-gate",
+                  "sandboxes",
+                  "edge",
+                  "init",
+                  "controller",
+                  "loop",
+                  "supervisor",
+                  "harness",
+                  "evidence",
+                  "operator",
+                  "human",
+                  "api"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ]
+          },
+          "evidence": {
+            "type": "string",
+            "enum": [
+              "observed",
+              "measured",
+              "attested",
+              "claimed",
+              "asserted"
+            ]
+          },
+          "principal": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "application",
+                  "subject",
+                  "flow-host",
+                  "core",
+                  "trigger"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          "trace": {
+            "type": "object",
+            "properties": {
+              "traceId": {
+                "type": "string"
+              },
+              "spanId": {
+                "type": "string"
+              },
+              "parentSpanId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "traceId",
+              "spanId"
+            ]
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "internal",
+              "restricted"
+            ]
+          },
+          "retention": {
+            "type": "string",
+            "enum": [
+              "full",
+              "metadata"
+            ]
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "wake.cancelled"
+            ]
+          },
+          "payload": {
+            "type": "object",
+            "properties": {
+              "effectId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "effectId"
+            ],
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "schema",
+          "eventId",
+          "tenantId",
+          "sessionId",
+          "runId",
+          "turnId",
+          "incarnation",
+          "epoch",
+          "seq",
+          "cursor",
+          "time",
+          "schemaVersion",
+          "source",
+          "evidence",
+          "visibility",
+          "retention",
+          "type",
+          "payload"
+        ]
+      },
+      "MemoryUpdatedEvent": {
+        "type": "object",
+        "properties": {
+          "schema": {
+            "type": "string",
+            "enum": [
+              "nylorun.event/2"
+            ]
+          },
+          "eventId": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "runId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "turnId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "incarnation": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "epoch": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "time": {
+            "type": "string"
+          },
+          "schemaVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "client",
+                  "core",
+                  "model-gate",
+                  "tool-gate",
+                  "egress-gate",
+                  "sandboxes",
+                  "edge",
+                  "init",
+                  "controller",
+                  "loop",
+                  "supervisor",
+                  "harness",
+                  "evidence",
+                  "operator",
+                  "human",
+                  "api"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ]
+          },
+          "evidence": {
+            "type": "string",
+            "enum": [
+              "observed",
+              "measured",
+              "attested",
+              "claimed",
+              "asserted"
+            ]
+          },
+          "principal": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "application",
+                  "subject",
+                  "flow-host",
+                  "core",
+                  "trigger"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          "trace": {
+            "type": "object",
+            "properties": {
+              "traceId": {
+                "type": "string"
+              },
+              "spanId": {
+                "type": "string"
+              },
+              "parentSpanId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "traceId",
+              "spanId"
+            ]
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "internal",
+              "restricted"
+            ]
+          },
+          "retention": {
+            "type": "string",
+            "enum": [
+              "full",
+              "metadata"
+            ]
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "memory.updated"
+            ]
+          },
+          "payload": {
+            "type": "object",
+            "properties": {
+              "effectId": {
+                "type": "string"
+              },
+              "changes": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    },
+                    "operation": {
+                      "type": "string",
+                      "enum": [
+                        "create",
+                        "str_replace",
+                        "insert",
+                        "delete",
+                        "rename"
+                      ]
+                    },
+                    "version": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "operation",
+                    "version"
+                  ],
+                  "additionalProperties": false
+                },
+                "minItems": 1
+              }
+            },
+            "required": [
+              "effectId",
+              "changes"
+            ],
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "schema",
+          "eventId",
+          "tenantId",
+          "sessionId",
+          "runId",
+          "turnId",
+          "incarnation",
+          "epoch",
+          "seq",
+          "cursor",
+          "time",
+          "schemaVersion",
+          "source",
+          "evidence",
+          "visibility",
+          "retention",
+          "type",
+          "payload"
+        ]
+      },
       "MessageAssistantEvent": {
         "type": "object",
         "properties": {
@@ -12208,7 +12842,8 @@
                   "mcp",
                   "http",
                   "sandbox",
-                  "harness"
+                  "harness",
+                  "runtime"
                 ]
               },
               "server": {
@@ -18834,7 +19469,8 @@
                     "agent.run",
                     "agent.trigger_paused",
                     "agent.trigger_resumed",
-                    "agent.trigger_secret_rotated"
+                    "agent.trigger_secret_rotated",
+                    "agent.memory_updated"
                   ]
                 },
                 "payload": {
@@ -19113,6 +19749,10 @@
                   "sessions": {
                     "type": "integer",
                     "minimum": 0
+                  },
+                  "memories": {
+                    "type": "integer",
+                    "minimum": 0
                   }
                 },
                 "required": [
@@ -19124,7 +19764,8 @@
                   "setup",
                   "secrets",
                   "changes",
-                  "sessions"
+                  "sessions",
+                  "memories"
                 ],
                 "additionalProperties": false
               }
@@ -19996,6 +20637,10 @@
                   "sessions": {
                     "type": "integer",
                     "minimum": 0
+                  },
+                  "memories": {
+                    "type": "integer",
+                    "minimum": 0
                   }
                 },
                 "required": [
@@ -20007,7 +20652,8 @@
                   "setup",
                   "secrets",
                   "changes",
-                  "sessions"
+                  "sessions",
+                  "memories"
                 ],
                 "additionalProperties": false
               }
@@ -20613,6 +21259,300 @@
         "required": [
           "runs",
           "nextCursor"
+        ],
+        "additionalProperties": false
+      },
+      "MemoryList": {
+        "type": "object",
+        "properties": {
+          "memories": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "bytes": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "contentSha256": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "version": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0
+                },
+                "updatedAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path",
+                "bytes",
+                "contentSha256",
+                "description",
+                "version",
+                "updatedAt"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "memories",
+          "nextCursor"
+        ],
+        "additionalProperties": false
+      },
+      "Memory": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "contentSha256": {
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "version": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "updatedAt": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "bytes",
+          "contentSha256",
+          "description",
+          "version",
+          "updatedAt",
+          "content"
+        ],
+        "additionalProperties": false
+      },
+      "PutMemoryRequest": {
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "contentSha256": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "content"
+        ],
+        "additionalProperties": false
+      },
+      "MemoryVersionPage": {
+        "type": "object",
+        "properties": {
+          "versions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "fromPath": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "operation": {
+                  "type": "string",
+                  "enum": [
+                    "create",
+                    "str_replace",
+                    "insert",
+                    "delete",
+                    "rename"
+                  ]
+                },
+                "bytes": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "minimum": 0
+                },
+                "contentSha256": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "actor": {
+                  "type": "string"
+                },
+                "sessionId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "turnId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "triggerRunId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "createdAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "path",
+                "fromPath",
+                "operation",
+                "bytes",
+                "contentSha256",
+                "actor",
+                "sessionId",
+                "turnId",
+                "triggerRunId",
+                "createdAt"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "versions",
+          "nextCursor"
+        ],
+        "additionalProperties": false
+      },
+      "MemoryVersionDetail": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "fromPath": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "operation": {
+            "type": "string",
+            "enum": [
+              "create",
+              "str_replace",
+              "insert",
+              "delete",
+              "rename"
+            ]
+          },
+          "bytes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "contentSha256": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "actor": {
+            "type": "string"
+          },
+          "sessionId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "turnId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "triggerRunId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "content": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "path",
+          "fromPath",
+          "operation",
+          "bytes",
+          "contentSha256",
+          "actor",
+          "sessionId",
+          "turnId",
+          "triggerRunId",
+          "createdAt",
+          "content"
         ],
         "additionalProperties": false
       },
@@ -21340,6 +22280,26 @@
             "additionalProperties": {},
             "description": "The harness's own settings, passed to it in turn.start; the Runtime never reads them"
           },
+          "memory": {
+            "type": "object",
+            "properties": {
+              "access": {
+                "type": "string",
+                "enum": [
+                  "read_write",
+                  "read_only"
+                ],
+                "description": "`read_write` (the default) or `read_only`"
+              },
+              "instructions": {
+                "type": "string",
+                "maxLength": 4096,
+                "description": "What this agent should remember, after the engine's own memory rules"
+              }
+            },
+            "additionalProperties": false,
+            "description": "The Agent's memory: Markdown files under /memories it keeps across sessions (D72)"
+          },
           "functions": {
             "description": "Reserved: Functions are not available yet"
           }
@@ -21688,7 +22648,7 @@
           },
           "selfWake": {
             "type": "boolean",
-            "description": "Reserved for schedule_wake (D77); refused for now"
+            "description": "Offer the agent schedule_wake: it books its session's next turn itself (D77)"
           }
         },
         "required": [
@@ -23450,6 +24410,7 @@
               "http",
               "sandbox",
               "harness",
+              "runtime",
               null
             ]
           },
@@ -28660,6 +29621,951 @@
         }
       }
     },
+    "/v1/agents/{agentId}/memories": {
+      "get": {
+        "tags": [
+          "Memory"
+        ],
+        "summary": "List an Agent's memories",
+        "description": "Its memories by path, each with its size, `content_sha256`, frontmatter `description` and version. `pathPrefix` keeps one folder's (`conventions` for `/memories/conventions/…`).",
+        "security": [
+          {
+            "applicationKey": []
+          },
+          {
+            "issuerToken": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "application",
+          "subject",
+          "token"
+        ],
+        "x-nylorun-scopes": [
+          "sessions:own",
+          "agents:read",
+          "agents:write"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The Agent id, percent-encoded"
+            },
+            "required": true,
+            "description": "The Agent id, percent-encoded",
+            "name": "agentId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "A page holds at most the Tenant's Runtime limit `pageItems` (default 200); a larger limit gets that many"
+            },
+            "required": false,
+            "description": "A page holds at most the Tenant's Runtime limit `pageItems` (default 200); a larger limit gets that many",
+            "name": "limit",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "name": "cursor",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Only the memories in this folder, relative to `/memories`"
+            },
+            "required": false,
+            "description": "Only the memories in this folder, relative to `/memories`",
+            "name": "pathPrefix",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `17`"
+            },
+            "required": true,
+            "description": "The protocol version, `17`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The person an application key acts for"
+            },
+            "required": false,
+            "description": "The person an application key acts for",
+            "name": "Nylorun-Subject",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The subject's space-separated scopes; required with a subject"
+            },
+            "required": false,
+            "description": "The subject's space-separated scopes; required with a subject",
+            "name": "Nylorun-Scopes",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of memories",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid headers, path, body or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No credential (`credential_required`), one the Tenant does not accept (`credential_invalid`), a token that expired (`token_expired`), or a token whose issuer's keys cannot be fetched now (`issuer_unavailable`). `WWW-Authenticate: Bearer` names the protected resource metadata (`resource_metadata`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/agents/{agentId}/memories/{path}": {
+      "get": {
+        "tags": [
+          "Memory"
+        ],
+        "summary": "Read a memory",
+        "description": "The memory's content, with its size, `content_sha256`, description and version.",
+        "security": [
+          {
+            "applicationKey": []
+          },
+          {
+            "issuerToken": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "application",
+          "subject",
+          "token"
+        ],
+        "x-nylorun-scopes": [
+          "sessions:own",
+          "agents:read",
+          "agents:write"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The Agent id, percent-encoded"
+            },
+            "required": true,
+            "description": "The Agent id, percent-encoded",
+            "name": "agentId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The memory's path under `/memories`, percent-encoded: `conventions%2Frelease.md` is `/memories/conventions/release.md`"
+            },
+            "required": true,
+            "description": "The memory's path under `/memories`, percent-encoded: `conventions%2Frelease.md` is `/memories/conventions/release.md`",
+            "name": "path",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `17`"
+            },
+            "required": true,
+            "description": "The protocol version, `17`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The person an application key acts for"
+            },
+            "required": false,
+            "description": "The person an application key acts for",
+            "name": "Nylorun-Subject",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The subject's space-separated scopes; required with a subject"
+            },
+            "required": false,
+            "description": "The subject's space-separated scopes; required with a subject",
+            "name": "Nylorun-Scopes",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The memory",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Memory"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid headers, path, body or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No credential (`credential_required`), one the Tenant does not accept (`credential_invalid`), a token that expired (`token_expired`), or a token whose issuer's keys cannot be fetched now (`issuer_unavailable`). `WWW-Authenticate: Bearer` names the protected resource metadata (`resource_metadata`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No memory has this path"
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Memory"
+        ],
+        "summary": "Write a memory",
+        "description": "Creates the memory or replaces its content, as the `memory` tool's `create` does, and records a version with the caller as its actor. This is how an app seeds an Agent's memory. With `contentSha256` the write applies only while the memory still has that content (`\"\"`: only while no memory has the path); otherwise `409 memory_conflict` with the current memory. The path ends in `.md`; the Runtime limits `memoryBytes` (`413`) and `memoriesPerAgent` (`409 limit_exceeded`) hold.",
+        "security": [
+          {
+            "applicationKey": []
+          },
+          {
+            "issuerToken": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "application",
+          "subject",
+          "token"
+        ],
+        "x-nylorun-scopes": [
+          "agents:write"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The Agent id, percent-encoded"
+            },
+            "required": true,
+            "description": "The Agent id, percent-encoded",
+            "name": "agentId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The memory's path under `/memories`, percent-encoded: `conventions%2Frelease.md` is `/memories/conventions/release.md`"
+            },
+            "required": true,
+            "description": "The memory's path under `/memories`, percent-encoded: `conventions%2Frelease.md` is `/memories/conventions/release.md`",
+            "name": "path",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `17`"
+            },
+            "required": true,
+            "description": "The protocol version, `17`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The person an application key acts for"
+            },
+            "required": false,
+            "description": "The person an application key acts for",
+            "name": "Nylorun-Subject",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The subject's space-separated scopes; required with a subject"
+            },
+            "required": false,
+            "description": "The subject's space-separated scopes; required with a subject",
+            "name": "Nylorun-Scopes",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutMemoryRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The memory as written",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Memory"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid headers, path, body or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No credential (`credential_required`), one the Tenant does not accept (`credential_invalid`), a token that expired (`token_expired`), or a token whose issuer's keys cannot be fetched now (`issuer_unavailable`). `WWW-Authenticate: Bearer` names the protected resource metadata (`resource_metadata`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The `contentSha256` precondition no longer holds, or a folder has this path (`memory_conflict`)"
+          },
+          "413": {
+            "description": "Larger than the Runtime limit `memoryBytes`"
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Memory"
+        ],
+        "summary": "Delete a memory or a folder",
+        "description": "Deletes the memory, or every memory in the folder the path names, each with a version that records the delete. Versions stay with the Agent.",
+        "security": [
+          {
+            "applicationKey": []
+          },
+          {
+            "issuerToken": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "application",
+          "subject",
+          "token"
+        ],
+        "x-nylorun-scopes": [
+          "agents:write"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The Agent id, percent-encoded"
+            },
+            "required": true,
+            "description": "The Agent id, percent-encoded",
+            "name": "agentId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The memory's path under `/memories`, percent-encoded: `conventions%2Frelease.md` is `/memories/conventions/release.md`"
+            },
+            "required": true,
+            "description": "The memory's path under `/memories`, percent-encoded: `conventions%2Frelease.md` is `/memories/conventions/release.md`",
+            "name": "path",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `17`"
+            },
+            "required": true,
+            "description": "The protocol version, `17`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The person an application key acts for"
+            },
+            "required": false,
+            "description": "The person an application key acts for",
+            "name": "Nylorun-Subject",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The subject's space-separated scopes; required with a subject"
+            },
+            "required": false,
+            "description": "The subject's space-separated scopes; required with a subject",
+            "name": "Nylorun-Scopes",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "What was deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    },
+                    "deleted": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "deleted"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid headers, path, body or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No credential (`credential_required`), one the Tenant does not accept (`credential_invalid`), a token that expired (`token_expired`), or a token whose issuer's keys cannot be fetched now (`issuer_unavailable`). `WWW-Authenticate: Bearer` names the protected resource metadata (`resource_metadata`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No memory or folder has this path"
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/agents/{agentId}/memory_versions": {
+      "get": {
+        "tags": [
+          "Memory"
+        ],
+        "summary": "List an Agent's memory versions",
+        "description": "Every change to its memories, newest first: the operation, the path (a rename's names its old one), and who made it: `agent:<manifest>@<version>` with the session, turn and trigger run of a turn's write, or the API caller. `path` keeps one memory's.",
+        "security": [
+          {
+            "applicationKey": []
+          },
+          {
+            "issuerToken": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "application",
+          "subject",
+          "token"
+        ],
+        "x-nylorun-scopes": [
+          "sessions:own",
+          "agents:read",
+          "agents:write"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The Agent id, percent-encoded"
+            },
+            "required": true,
+            "description": "The Agent id, percent-encoded",
+            "name": "agentId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "A page holds at most the Tenant's Runtime limit `pageItems` (default 200); a larger limit gets that many"
+            },
+            "required": false,
+            "description": "A page holds at most the Tenant's Runtime limit `pageItems` (default 200); a larger limit gets that many",
+            "name": "limit",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "name": "cursor",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Only this memory's versions, relative to `/memories`"
+            },
+            "required": false,
+            "description": "Only this memory's versions, relative to `/memories`",
+            "name": "path",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `17`"
+            },
+            "required": true,
+            "description": "The protocol version, `17`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The person an application key acts for"
+            },
+            "required": false,
+            "description": "The person an application key acts for",
+            "name": "Nylorun-Subject",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The subject's space-separated scopes; required with a subject"
+            },
+            "required": false,
+            "description": "The subject's space-separated scopes; required with a subject",
+            "name": "Nylorun-Scopes",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of versions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryVersionPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid headers, path, body or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No credential (`credential_required`), one the Tenant does not accept (`credential_invalid`), a token that expired (`token_expired`), or a token whose issuer's keys cannot be fetched now (`issuer_unavailable`). `WWW-Authenticate: Bearer` names the protected resource metadata (`resource_metadata`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/agents/{agentId}/memory_versions/{versionId}": {
+      "get": {
+        "tags": [
+          "Memory"
+        ],
+        "summary": "Read a memory version",
+        "description": "One version with the content it left (`null` for a delete). To roll a memory back, write this content again.",
+        "security": [
+          {
+            "applicationKey": []
+          },
+          {
+            "issuerToken": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "application",
+          "subject",
+          "token"
+        ],
+        "x-nylorun-scopes": [
+          "sessions:own",
+          "agents:read",
+          "agents:write"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The Agent id, percent-encoded"
+            },
+            "required": true,
+            "description": "The Agent id, percent-encoded",
+            "name": "agentId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The version's id (`mv_…`)"
+            },
+            "required": true,
+            "description": "The version's id (`mv_…`)",
+            "name": "versionId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `17`"
+            },
+            "required": true,
+            "description": "The protocol version, `17`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The person an application key acts for"
+            },
+            "required": false,
+            "description": "The person an application key acts for",
+            "name": "Nylorun-Subject",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The subject's space-separated scopes; required with a subject"
+            },
+            "required": false,
+            "description": "The subject's space-separated scopes; required with a subject",
+            "name": "Nylorun-Scopes",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryVersionDetail"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid headers, path, body or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No credential (`credential_required`), one the Tenant does not accept (`credential_invalid`), a token that expired (`token_expired`), or a token whose issuer's keys cannot be fetched now (`issuer_unavailable`). `WWW-Authenticate: Bearer` names the protected resource metadata (`resource_metadata`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such version"
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/sessions/{sessionId}": {
       "put": {
         "tags": [
@@ -29428,6 +31334,15 @@
                     },
                     {
                       "$ref": "#/components/schemas/QueueTakenEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/WakeBookedEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/WakeCancelledEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/MemoryUpdatedEvent"
                     },
                     {
                       "$ref": "#/components/schemas/MessageAssistantEvent"
@@ -33868,6 +35783,10 @@
       "description": "What starts an Agent's turns with no client connected (track T4, D74): the schedules, one-shot times and webhook endpoints its manifest's `runtime.triggers` declare. Each trigger's status is the Agent's: pause and resume it, run it now, make a webhook trigger's signing secret, and read its runs (`started`, `queued`, `skipped` or `failed`, with a reason). In `@nylorun/agents` and `nylorun agents triggers`."
     },
     {
+      "name": "Memory",
+      "description": "An Agent's memories (track T5, D72): Markdown files under `/memories` it keeps across sessions, wakes and upgrades, shaped like Anthropic's memory stores. List and read them, write one whole (with a `content_sha256` precondition), delete one or a folder, and read the version every change leaves, with who made it. In `@nylorun/agents` and `nylorun agents memories`."
+    },
+    {
       "name": "Sessions API",
       "description": "A conversation with an Agent: open a session on it, send commands, follow its events, read its history. No session is special: an app that keeps one conversation going reuses its id. In `@nylorun/agents`."
     },
@@ -33895,7 +35814,8 @@
         "Agent manifests",
         "Definition files",
         "Agents",
-        "Triggers"
+        "Triggers",
+        "Memory"
       ]
     },
     {

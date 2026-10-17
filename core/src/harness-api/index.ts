@@ -51,6 +51,7 @@ export {
   TranscriptUpdateSchema,
   TurnOutputSchema,
   TurnStartSchema,
+  TurnMemorySchema,
   coreMessages,
   coreRequests,
   harnessRequests,

@@ -9,6 +9,7 @@ import { harnessSectionOf } from "@nylorun/core/define";
 import type {
   AgentManifest,
   AgentManifestV8,
+  AgentMemorySettings,
   AgentView,
   PutAgentRequest,
   PutAgentSecretRequest,
@@ -31,6 +32,8 @@ export interface ManifestOptions {
   harness?: string;
   /** The harness section's `loop` settings. */
   loop?: Record<string, unknown>;
+  /** The harness section's `memory` (track T5). */
+  memory?: AgentMemorySettings;
 }
 
 /** The agent manifest v8 a loop manifest makes, with its id as the name unless `name` is given. */
@@ -42,7 +45,11 @@ export function manifestOf(source: AgentSource, options: ManifestOptions = {}): 
     name: options.name ?? loop.id,
     ...(loop.description === undefined ? {} : { description: loop.description }),
     ...(loop.metadata === undefined ? {} : { metadata: loop.metadata }),
-    harness: options.loop === undefined ? harness : { ...harness, loop: options.loop },
+    harness: {
+      ...harness,
+      ...(options.loop === undefined ? {} : { loop: options.loop }),
+      ...(options.memory === undefined ? {} : { memory: options.memory }),
+    },
     ...(options.runtime === undefined ? {} : { runtime: options.runtime }),
   } as AgentManifestV8;
 }

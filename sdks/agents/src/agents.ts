@@ -21,6 +21,10 @@
  * `resumeTrigger` and `runTrigger` change or run one, `rotateWebhookSecret` makes a webhook
  * trigger's signing secret (D75), and `runs(id)` pages what each fire came to.
  *
+ * Memory (track T5, D72): an Agent whose manifest sets `harness.memory` keeps Markdown files under
+ * `/memories` across sessions. `agents.memories` lists, reads, writes (to seed it), deletes and
+ * pages the versions every change leaves.
+ *
  * Disk versions (Host feature `environment-disk-versions`): `snapshot(id)` keeps a version of
  * the Agent's disk between turns, `restore(id, version)` puts one back, and
  * `put(id, { manifest, from: { agent, version } })` creates a new Agent from another's version.
@@ -39,6 +43,10 @@ import {
   type AgentView,
   type DeleteAgentResponse,
   type ForkAgentRequest,
+  type Memory,
+  type MemoryList,
+  type MemoryVersionDetail,
+  type MemoryVersionPage,
   type PutAgentRequest,
   type PutAgentSecretRequest,
   type TriggerRun,
@@ -148,6 +156,78 @@ export class AgentSecretsClient {
   }
 }
 
+/**
+ * An Agent's memories (track T5, D72): `client.agents.memories`. A path is a memory's path under
+ * `/memories` (`conventions/release.md` or `/memories/conventions/release.md`).
+ */
+export class AgentMemoriesClient {
+  constructor(
+    private readonly transport: Transport,
+    private readonly path: (agentId: string) => string,
+  ) {}
+
+  private memoryPath(agentId: string, path: string): string {
+    const relative = path.replace(/^\/+/, "").replace(/^memories\//, "");
+    return `${this.path(agentId)}/memories/${segment(relative)}`;
+  }
+
+  /** The Agent's memories by path; `pathPrefix` keeps one folder's. */
+  async list(
+    agentId: string,
+    options: { pathPrefix?: string; limit?: number; cursor?: string; signal?: AbortSignal } = {},
+  ): Promise<MemoryList> {
+    const query = new URLSearchParams({ limit: String(options.limit ?? 100) });
+    if (options.pathPrefix !== undefined) query.set("pathPrefix", options.pathPrefix);
+    if (options.cursor !== undefined) query.set("cursor", options.cursor);
+    return this.transport.json(`${this.path(agentId)}/memories?${query}`, "GET", undefined, options.signal);
+  }
+
+  /** One memory with its content. */
+  async get(agentId: string, path: string, options: { signal?: AbortSignal } = {}): Promise<Memory> {
+    return this.transport.json(this.memoryPath(agentId, path), "GET", undefined, options.signal);
+  }
+
+  /**
+   * Writes the memory whole, creating or replacing it: how an app seeds an Agent's memory. With
+   * `contentSha256` the write applies only while the memory still has that content (`""`: only
+   * while there is none); otherwise `409 memory_conflict`.
+   */
+  async put(
+    agentId: string,
+    path: string,
+    content: string,
+    options: { contentSha256?: string; signal?: AbortSignal } = {},
+  ): Promise<Memory> {
+    return this.transport.json(
+      this.memoryPath(agentId, path),
+      "PUT",
+      { content, ...(options.contentSha256 === undefined ? {} : { contentSha256: options.contentSha256 }) },
+      options.signal,
+    );
+  }
+
+  /** Deletes a memory, or every memory in a folder. */
+  async delete(agentId: string, path: string, options: { signal?: AbortSignal } = {}): Promise<{ path: string; deleted: number }> {
+    return this.transport.json(this.memoryPath(agentId, path), "DELETE", undefined, options.signal);
+  }
+
+  /** Every change to the Agent's memories, newest first; `path` keeps one memory's. */
+  async versions(
+    agentId: string,
+    options: { path?: string; limit?: number; cursor?: string; signal?: AbortSignal } = {},
+  ): Promise<MemoryVersionPage> {
+    const query = new URLSearchParams({ limit: String(options.limit ?? 50) });
+    if (options.path !== undefined) query.set("path", options.path);
+    if (options.cursor !== undefined) query.set("cursor", options.cursor);
+    return this.transport.json(`${this.path(agentId)}/memory_versions?${query}`, "GET", undefined, options.signal);
+  }
+
+  /** One version with the content it left (`null` for a delete). */
+  async version(agentId: string, versionId: string, options: { signal?: AbortSignal } = {}): Promise<MemoryVersionDetail> {
+    return this.transport.json(`${this.path(agentId)}/memory_versions/${segment(versionId)}`, "GET", undefined, options.signal);
+  }
+}
+
 /** The Tenant's Agents: `client.agents`. */
 export class AgentInstancesClient {
   constructor(private readonly transport: Transport) {}
@@ -163,6 +243,11 @@ export class AgentInstancesClient {
   /** The Agent's secrets. */
   get secrets(): AgentSecretsClient {
     return new AgentSecretsClient(this.transport, (agentId) => this.path(agentId));
+  }
+
+  /** The Agent's memories (track T5). */
+  get memories(): AgentMemoriesClient {
+    return new AgentMemoriesClient(this.transport, (agentId) => this.path(agentId));
   }
 
   /**

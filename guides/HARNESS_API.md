@@ -95,6 +95,17 @@ Which token:
   your records.
 - `loop` (optional): the harness section's `loop`, your own settings, which the Runtime passes on
   without reading. Ours reads none yet.
+- `memory` (`TurnMemorySchema`, optional; track T5): present when the version the session runs
+  sets `harness.memory`. `access` (`read_write` or `read_only`, the same in every turn),
+  `instructions` (the agent's own, after yours), and `index`: one line per memory, newest first,
+  `- <path>` with ` — <description>` from its frontmatter, within the Runtime limits
+  `memoryIndexLines` and `memoryIndexBytes` (`truncated` when some were left out). Pin the index
+  where the prompt prefix stays cacheable (ours: a user-role entry at the head of the session,
+  fresh after a compaction), and offer a `memory` tool whose calls are `runtime` effects
+  (below); offer only `view` for `read_only` and to sub-agents. Ours words it with `memoryTool`
+  and `memoryIndexBlock` (`@nylorun/harness/api`), checks each command's parameters before it
+  sends a call (`checkMemoryCall`, `@nylorun/core/contracts`; core checks again), and takes a
+  call named `memory.<command>` or `memory/<command>` as `memory` with that command.
 - `checkpoint` (`HarnessCheckpointSchema`): `sessionId`, `turnId`, `segment`, `manifestHash`,
   `input` and `state`.
   - `input` is the turn's message: a string, `{text, metadata?}`, `{content, metadata?}`, or
@@ -212,10 +223,12 @@ What an intent carries:
     | `{kind: "http", tool}` | the call's agent declares an HTTP tool named `tool` | you, through the Tool Gate |
     | `{kind: "sandbox"}` | the session has a sandbox and `toolName` is one of `bash`, `read`, `write`, `edit`, `grep`, `glob` | you, in the session's sandbox |
     | `{kind: "harness"}` | always: your own process, whose egress gate is its only control | you |
+    | `{kind: "runtime", operation: "schedule_wake"}` | the session's version sets `runtime.selfWake` (`turn.start.agent.selfWake`); input `{in \| at, note}` or `{cancel: true}` | core, in the intent's own transaction: answered `completed`, never `execute` |
+    | `{kind: "runtime", operation: "memory"}` | the session's version sets `harness.memory` (`turn.start.memory`); input is Anthropic's memory tool's: `command` (`view`, `create`, `str_replace`, `insert`, `delete`, `rename`) and its parameters | core, likewise: a view, or a write versioned to the turn; a missing parameter, a path outside `/memories` or a write that is `read_only` or a sub-agent's (`memory.forbidden`) is a failure with text for the model |
     Each refusal is answered `completed` with a failure and never runs: an MCP tool the session
     did not discover is `tool.unknown`, one the turn disabled `tool.disabled`, and a call with no
     target, or an HTTP tool or sandbox the session lacks, `tool.unavailable`. Core runs no tool
-    itself: `tool_search` over deferred tools is yours (ours is a `harness` call), and the
+    itself but `schedule_wake` (track T4) and `memory` (track T5): `tool_search` over deferred tools is yours (ours is a `harness` call), and the
     deferred tool's call names its own MCP target. A tool of yours may take any name; a name two
     of the model's tools share is yours to refuse. `skill` (optional) names the skill the call
     ran.

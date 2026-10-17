@@ -24,6 +24,7 @@ export {
   type SkillFiles,
 } from "./tools/skills.js";
 export { engineToolsFor, type EngineToolOptions, type EngineTools } from "./tools/engine-tools.js";
+export { memoryIndexBlock, memoryTool } from "./tools/memory.js";
 export {
   DEFAULT_MCP_TOOL_CONFIG,
   MODEL_TOOL_NAME_MAX,

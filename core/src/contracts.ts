@@ -39,9 +39,28 @@ export { FILE_NAME_MAX, FILE_PATH_MAX } from "./utils/file-systems.js";
 import { DEFAULT_HARNESS, HARNESS_ID_PATTERN, isHarnessId } from "./utils/harness-id.js";
 export { DEFAULT_HARNESS, HARNESS_ID_PATTERN, isHarnessId };
 import { isDefinitionFileHash, skillFilesIssue } from "./utils/definition-files.js";
+import { MEMORY_ACCESS, MEMORY_INSTRUCTIONS_MAX, MEMORY_OPERATIONS } from "./utils/memory.js";
+export {
+  MEMORY_ACCESS,
+  MEMORY_COMMANDS,
+  MEMORY_DESCRIPTION_MAX,
+  MEMORY_INSTRUCTIONS_MAX,
+  MEMORY_OPERATIONS,
+  MEMORY_PATH_MAX,
+  MEMORY_ROOT,
+  checkMemoryCall,
+  memoryAliasOf,
+  memoryDescriptionOf,
+  memoryPathOf,
+  memoryPathWithin,
+  type MemoryAccess,
+  type MemoryCommandName,
+  type MemoryOperation,
+} from "./utils/memory.js";
 export type {
   AgentHarnessSection,
   AgentManifest,
+  AgentMemorySettings,
   HarnessMcpServer,
   HarnessSection,
   HarnessSkill,
@@ -1251,6 +1270,19 @@ export const EgressConnectionPayloadSchema = z
 
 /** The schema id of an Agent's lifecycle events (its stream in the record). */
 export const AGENT_EVENT_SCHEMA = "nylorun.agent-event/1";
+/**
+ * `memory.updated` (track T5, D72): the session's agent changed the Agent's memory with its
+ * `memory` tool: each memory the call changed, what changed it and its version after. The Agent's
+ * stream carries the same as `agent.memory_updated`, with the session.
+ */
+export const MemoryUpdatedPayloadSchema = z
+  .object({
+    effectId: z.string(),
+    changes: z
+      .array(z.object({ path: z.string(), operation: z.enum(MEMORY_OPERATIONS), version: z.number().int().positive() }).strict())
+      .min(1),
+  })
+  .passthrough();
 export const AGENT_EVENT_TYPES = [
   "agent.created",
   "agent.attached",
@@ -1276,6 +1308,8 @@ export const AGENT_EVENT_TYPES = [
   "agent.trigger_paused",
   "agent.trigger_resumed",
   "agent.trigger_secret_rotated",
+  // Memory (track T5, D72): a turn changed the Agent's memories.
+  "agent.memory_updated",
 ] as const;
 export type AgentEventType = (typeof AGENT_EVENT_TYPES)[number];
 /** The payload of each Agent lifecycle event. */
@@ -1369,6 +1403,8 @@ export const AGENT_EVENT_PAYLOADS = {
   "agent.trigger_resumed": z.object({ triggerId: z.string() }).passthrough(),
   /** A webhook trigger's signing secret was made or replaced; the one before stopped working. */
   "agent.trigger_secret_rotated": z.object({ triggerId: z.string() }).passthrough(),
+  /** A turn changed the Agent's memories (`memory.updated` in its session): which, and how. */
+  "agent.memory_updated": MemoryUpdatedPayloadSchema.extend({ sessionId: z.string(), turnId: z.string() }),
 } as const satisfies Record<AgentEventType, z.ZodType>;
 
 
@@ -1772,6 +1808,21 @@ const harnessIdField = HarnessIdSchema.optional().meta({
 const harnessLoopField = definitionJson
   .optional()
   .meta({ description: "The harness's own settings, passed to it in turn.start; the Runtime never reads them" });
+/**
+ * `harness.memory` (track T5, D72): turns the Agent's memory on. Its `access` holds in every turn,
+ * whoever starts it; `instructions` follow the engine's own memory rules.
+ */
+const harnessMemoryField = z
+  .strictObject({
+    access: z.enum(MEMORY_ACCESS).optional().meta({ description: "`read_write` (the default) or `read_only`" }),
+    instructions: z
+      .string()
+      .max(MEMORY_INSTRUCTIONS_MAX)
+      .optional()
+      .meta({ description: "What this agent should remember, after the engine's own memory rules" }),
+  })
+  .optional()
+  .meta({ description: "The Agent's memory: Markdown files under /memories it keeps across sessions (D72)" });
 /** Fields the harness section refuses with where they went. */
 const REMOVED_HARNESS_FIELDS: Readonly<Record<string, string>> = Object.freeze({
   requires:
@@ -1793,6 +1844,7 @@ const agentHarnessObject = z
       plugins: z.array(pluginLabelSchema).optional(),
       outputSchema: definitionJson.optional(),
       loop: harnessLoopField,
+      memory: harnessMemoryField,
       functions: z.unknown().optional().meta({ description: "Reserved: Functions are not available yet" }),
     },
     { error: removedFieldError(REMOVED_HARNESS_FIELDS) },
@@ -1994,10 +2046,79 @@ export const WebhookAcceptedResponseSchema = z
 export const RunTriggerResponseSchema = z.object({ run: TriggerRunSchema }).strict();
 
 /**
+ * One of an Agent's memories (track T5, D72), as `GET /v1/agents/{id}/memories` lists it: its
+ * path under `/memories`, size, content hash (the precondition a `PUT` may send), the
+ * `description` of its frontmatter when it has one, and its version, which every change bumps.
+ */
+export const MemorySummarySchema = z
+  .object({
+    path: z.string(),
+    bytes: z.number().int().nonnegative(),
+    contentSha256: z.string(),
+    description: z.string().nullable(),
+    version: z.number().int().positive(),
+    updatedAt: z.string(),
+  })
+  .strict();
+export type MemorySummary = z.infer<typeof MemorySummarySchema>;
+/** `GET /v1/agents/{id}/memories`: memories by path. */
+export const MemoryListSchema = z
+  .object({ memories: z.array(MemorySummarySchema), nextCursor: z.string().nullable() })
+  .strict();
+export type MemoryList = z.infer<typeof MemoryListSchema>;
+/** `GET /v1/agents/{id}/memories/{path}`: one memory with its content. */
+export const MemorySchema = MemorySummarySchema.extend({ content: z.string() }).strict();
+export type Memory = z.infer<typeof MemorySchema>;
+/**
+ * `PUT /v1/agents/{id}/memories/{path}`: the memory's whole content, creating it or replacing it.
+ * With `contentSha256`, the write applies only while the memory's content still has that hash
+ * (`409 memory_conflict` with the current text otherwise); an empty string requires that no
+ * memory has the path.
+ */
+export const PutMemoryRequestSchema = z
+  .object({
+    content: z.string(),
+    contentSha256: z.string().optional(),
+  })
+  .strict();
+export type PutMemoryRequest = z.infer<typeof PutMemoryRequestSchema>;
+/**
+ * One change to a memory: what changed it (`create`, `str_replace`, `insert`, `delete`,
+ * `rename`), the content it left (`null` for a delete), and who made it: `agent:<manifest>@<n>`
+ * for a turn, with its session, turn and trigger run, or the principal of an API call. A rename's
+ * version is on the new path and names the old one in `fromPath`.
+ */
+export const MemoryVersionSchema = z
+  .object({
+    id: z.string(),
+    path: z.string(),
+    fromPath: z.string().nullable(),
+    operation: z.enum(MEMORY_OPERATIONS),
+    bytes: z.number().int().nonnegative().nullable(),
+    contentSha256: z.string().nullable(),
+    actor: z.string(),
+    sessionId: z.string().nullable(),
+    turnId: z.string().nullable(),
+    triggerRunId: z.string().nullable(),
+    createdAt: z.string(),
+  })
+  .strict();
+export type MemoryVersion = z.infer<typeof MemoryVersionSchema>;
+/** `GET /v1/agents/{id}/memory_versions/{versionId}`: one version with the content it left. */
+export const MemoryVersionDetailSchema = MemoryVersionSchema.extend({ content: z.string().nullable() })
+  .strict();
+export type MemoryVersionDetail = z.infer<typeof MemoryVersionDetailSchema>;
+/** `GET /v1/agents/{id}/memory_versions`: versions, newest first. */
+export const MemoryVersionPageSchema = z
+  .object({ versions: z.array(MemoryVersionSchema), nextCursor: z.string().nullable() })
+  .strict();
+export type MemoryVersionPage = z.infer<typeof MemoryVersionPageSchema>;
+
+/**
  * What the Runtime provides around the loop: the `runtime` section of agent manifest v8, with
  * environment manifest v1's fields but its identity and its `harness` (now `harness.id`).
- * `triggers` (track T4, D74) start the Agent's turns with no client connected; `selfWake` is
- * reserved for T4's next step and refused until then.
+ * `triggers` (track T4, D74) start the Agent's turns with no client connected; `selfWake` offers
+ * the agent `schedule_wake`, which books its session's next turn (D77).
  */
 const runtimeSectionObject = z
   .strictObject(
@@ -2020,9 +2141,8 @@ const runtimeSectionObject = z
         .meta({ description: "What starts the Agent's turns with no client connected, by trigger id (D74)" }),
       selfWake: z
         .boolean()
-        .refine((value) => value === undefined, { message: "runtime.selfWake is not available yet" })
         .optional()
-        .meta({ description: "Reserved for schedule_wake (D77); refused for now" }),
+        .meta({ description: "Offer the agent schedule_wake: it books its session's next turn itself (D77)" }),
     },
     { error: removedFieldError(REMOVED_RUNTIME_SECTION_FIELDS) },
   )
@@ -2076,6 +2196,7 @@ export const HarnessManifestFileSchema = z
     plugins: z.array(z.union([pathField("an Agent Plugin folder"), pluginLabelSchema])).optional(),
     outputSchema: definitionJson.optional(),
     loop: harnessLoopField,
+    memory: harnessMemoryField,
     /** MCP server or HTTP tool name → the `runtime.secrets` slot it authenticates with. */
     credentials: z.record(z.string().min(1), z.string().min(1)).optional(),
     /** What this harness needs of any runtime it is combined with; checked by the composer only. */
@@ -2276,6 +2397,8 @@ export const AgentForkPlanSchema = z
     ),
     /** The source's sessions: they stay on it. */
     sessions: z.number().int().nonnegative(),
+    /** The source's memories (track T5): copied as they are now, each at version 1, with no history. */
+    memories: z.number().int().nonnegative(),
   })
   .strict();
 export type AgentForkPlan = z.infer<typeof AgentForkPlanSchema>;
@@ -2979,10 +3102,11 @@ export const ContextCompactedPayloadSchema = z
 export const TOOL_CALL_STATUSES = ["completed", "failed", "cancelled"] as const;
 /**
  * Where a tool call ran (R5.1), its effect's target kind (protocol 15): an MCP server, an HTTP
- * tool's URL, the session's sandbox, or the harness that runs the turn (`harness`: a tool it runs
- * in its own process, such as our engine's skill, artifact and `tool_search` tools).
+ * tool's URL, the session's sandbox, the harness that runs the turn (`harness`: a tool it runs
+ * in its own process, such as our engine's skill, artifact and `tool_search` tools), or the
+ * Runtime itself (`runtime`: `schedule_wake`, track T4).
  */
-export const TOOL_CALL_KINDS = ["mcp", "http", "sandbox", "harness"] as const;
+export const TOOL_CALL_KINDS = ["mcp", "http", "sandbox", "harness", "runtime"] as const;
 /**
  * What the Tenant's tool policy did with a tool call (R5 step 2), when it did more than allow
  * it: `deny` refused it unsent; `ask` held it for a person, who approved it (`approvedBy`, when
@@ -3127,6 +3251,14 @@ export const TurnCancelledPayloadSchema = z
 export const MessageQueuedPayloadSchema = z
   .object({ queuedMessageId: z.string(), position: z.number().int().positive(), requestId: z.string() })
   .passthrough();
+/**
+ * `wake.booked` (track T4, D77): the session's agent booked its next turn with `schedule_wake`,
+ * at `at`, replacing any booking before. `wake.cancelled`: it cancelled its booking.
+ */
+export const WakeBookedPayloadSchema = z
+  .object({ at: z.string(), note: z.string(), effectId: z.string(), replaced: z.boolean() })
+  .passthrough();
+export const WakeCancelledPayloadSchema = z.object({ effectId: z.string() }).passthrough();
 /** `queue.taken` (protocol 17): the turn that started with the queued messages, in order. */
 export const QueueTakenPayloadSchema = z
   .object({ turnId: z.string(), queuedMessageIds: z.array(z.string()).min(1) })
@@ -3447,6 +3579,9 @@ export const EVENT_CATALOG = {
   "turn.cancelled": { payload: TurnCancelledPayloadSchema, source: "api", version: 1 },
   "message.queued": { payload: MessageQueuedPayloadSchema, source: "api", version: 1 },
   "queue.taken": { payload: QueueTakenPayloadSchema, source: "api", version: 1 },
+  "wake.booked": { payload: WakeBookedPayloadSchema, source: "api", version: 1 },
+  "wake.cancelled": { payload: WakeCancelledPayloadSchema, source: "api", version: 1 },
+  "memory.updated": { payload: MemoryUpdatedPayloadSchema, source: "api", version: 1 },
   "message.assistant": { payload: AssistantMessagePayloadSchema, source: "loop", version: 1 },
   "model.failed": { payload: ModelFailedPayloadSchema, source: "loop", version: 1 },
   "context.compacted": { payload: ContextCompactedPayloadSchema, source: "loop", version: 1 },

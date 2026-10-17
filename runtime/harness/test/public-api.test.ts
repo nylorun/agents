@@ -14,6 +14,8 @@ describe("public API", () => {
         "checkCompatibility",
         // A harness of your own words the same facts with our helpers (protocol 15).
         "engineToolsFor",
+        "memoryIndexBlock",
+        "memoryTool",
         "sandboxTools",
         "skillCatalogText",
         "mcpToolSet",
@@ -59,6 +61,8 @@ describe("public API", () => {
         "formatSkillCatalog",
         "isArtifactTool",
         "isSkillTool",
+        "memoryIndexBlock",
+        "memoryTool",
         "runAbortKind",
         "runArtifactTool",
         "runSkillTool",

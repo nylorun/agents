@@ -308,7 +308,8 @@ export async function fireTimer(ctx: TenantContext, key: string): Promise<void> 
     if (due > now) return row;
     const agent = await liveEnvironment(t, agentId, { lock: true });
     if (!agent) return undefined;
-    const trigger = (await triggersOf(t, agent))[triggerId];
+    // A booked wake (D77) is its own trigger: its session, with its note as the message.
+    const trigger = row.kind === "wake" ? wakeTriggerOf(row) : (await triggersOf(t, agent))[triggerId];
     if (!trigger) {
       await t.deleteAgentTrigger(agentId, triggerId);
       return undefined;
@@ -319,6 +320,11 @@ export async function fireTimer(ctx: TenantContext, key: string): Promise<void> 
       late: now - due > hostTuning().triggers.lateGraceMs,
     });
     const limits = await readRuntimeLimits(t);
+    // A booked wake runs once and goes: the session may book the next.
+    if (row.kind === "wake") {
+      await t.deleteAgentTrigger(agentId, triggerId);
+      return undefined;
+    }
     // An `at` runs once: then it is completed.
     const next = row.kind === "at" ? null : nextFireAt(agentId, triggerId, trigger, new Date(Math.max(now, due)), limits);
     const stamp = new Date(now).toISOString();
@@ -467,7 +473,7 @@ function triggerMessage(
   kind: TriggerKind,
   payload?: WebhookPayload,
 ): TurnMessage {
-  const cause = { kind: "trigger" as const, triggerId, runId };
+  const cause = { kind: kind === "wake" ? ("self" as const) : ("trigger" as const), triggerId, runId };
   if (!payload)
     return {
       command: { type: "message", requestId: runId, idempotencyKey: runId, content: trigger.prompt },
@@ -718,4 +724,82 @@ export async function receiveWebhook(
     if (!repeated) await t.putAgentTrigger({ ...row, lastFireAt: receivedAt, updatedAt: receivedAt });
     return { runId: run.id, status: run.status, reason: run.reason };
   });
+}
+
+// ---------------------------------------------------------------------------
+// Booked wakes (D77)
+
+/** The id of session `sessionId`'s booked wake among its Agent's triggers: one per session. */
+export const wakeIdOf = (sessionId: string) => `wake:${sessionId}`;
+
+/** A booked wake as a trigger: its session, with its note, the model's own words, as the message. */
+function wakeTriggerOf(row: AgentTriggerRow): Trigger | undefined {
+  if (row.sessionId === null || row.note === null) return undefined;
+  return { session: row.sessionId, prompt: row.note } as Trigger;
+}
+
+const DURATION_UNITS: Record<string, number> = { s: 1_000, m: 60_000, h: 3_600_000, d: 86_400_000 };
+
+/** A tool outcome the model reads as a failed call. */
+const wakeFailed = (message: string) => ({ kind: "failed", code: "tool.invalid-input", message });
+
+/**
+ * `schedule_wake` (D77), served by the record in the call's transaction (a `runtime` effect): on
+ * session `s` (locked), when the version it runs sets `runtime.selfWake`. `{in | at, note}` books
+ * its next turn, replacing a booking before, at least `triggerMinIntervalMs` and at most
+ * `wakeMaxAheadMs` ahead, the note at most `wakeNoteChars`; `{cancel: true}` removes the booking.
+ * The booking is the session's Agent's trigger `wake:<sessionId>`, armed by the sweep's next pass.
+ */
+export async function serveRuntimeTool(t: Tx, s: Session, request: { effectId: string; input?: unknown; target?: unknown }): Promise<unknown> {
+  const pinned = s.definition ? await t.agentManifest(s.definition.name, s.definition.version) : undefined;
+  if ((pinned?.body as AgentManifestV8 | undefined)?.runtime?.selfWake !== true)
+    return { kind: "failed", code: "tool.unavailable", message: "This session's agent does not book its own wakes (runtime.selfWake)." };
+  const input = (request.input ?? {}) as { in?: unknown; at?: unknown; note?: unknown; cancel?: unknown };
+  const triggerId = wakeIdOf(s.id);
+  const existing = await t.agentTrigger(s.agentId, triggerId, { lock: true });
+  const now = new Date();
+  const stamp = now.toISOString();
+  if (input.cancel === true) {
+    if (existing) await t.deleteAgentTrigger(s.agentId, triggerId);
+    await t.event(s.id, s.activeTurnId, "wake.cancelled", { effectId: request.effectId });
+    return { kind: "completed", output: { cancelled: existing !== undefined } };
+  }
+  const limits = await readRuntimeLimits(t);
+  if (typeof input.note !== "string" || input.note.trim() === "") return wakeFailed("note is required: what to do at that turn.");
+  if (input.note.length > limits.wakeNoteChars)
+    return wakeFailed(`note is ${input.note.length} characters; the Runtime limit wakeNoteChars allows ${limits.wakeNoteChars}.`);
+  let at: number;
+  if (typeof input.in === "string" && input.at === undefined) {
+    const match = /^([1-9][0-9]*)(s|m|h|d)$/.exec(input.in);
+    if (!match) return wakeFailed("in is a duration such as 30m, 2h or 1d.");
+    at = now.getTime() + Number(match[1]) * DURATION_UNITS[match[2]!]!;
+  } else if (typeof input.at === "string" && input.in === undefined) {
+    at = Date.parse(input.at);
+    if (!/[zZ]|[+-]\d\d:\d\d$/.test(input.at) || !Number.isFinite(at)) return wakeFailed("at is an RFC 3339 time with an offset.");
+  } else return wakeFailed("Give exactly one of in and at, or cancel: true.");
+  const ahead = at - now.getTime();
+  if (ahead < limits.triggerMinIntervalMs)
+    return wakeFailed(`A wake is at least ${limits.triggerMinIntervalMs} ms ahead (the Runtime limit triggerMinIntervalMs).`);
+  if (ahead > limits.wakeMaxAheadMs)
+    return wakeFailed(`A wake is at most ${limits.wakeMaxAheadMs} ms ahead (the Runtime limit wakeMaxAheadMs).`);
+  const when = new Date(at).toISOString();
+  await t.putAgentTrigger({
+    agentId: s.agentId,
+    triggerId,
+    kind: "wake",
+    status: "active",
+    pausedReason: null,
+    generation: (existing?.generation ?? -1) + 1,
+    nextFireAt: when,
+    lastFireAt: null,
+    endpointId: null,
+    sealedSecret: null,
+    sessionId: s.id,
+    note: input.note,
+    effectId: request.effectId,
+    createdAt: existing?.createdAt ?? stamp,
+    updatedAt: stamp,
+  });
+  await t.event(s.id, s.activeTurnId, "wake.booked", { at: when, note: input.note, effectId: request.effectId, replaced: existing !== undefined });
+  return { kind: "completed", output: { at: when, replaced: existing !== undefined } };
 }
