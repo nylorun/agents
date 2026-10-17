@@ -13,8 +13,8 @@ const impact = { none: 0, patch: 1, minor: 2, major: 3 };
  * nor Studio is one: developers run nylorun with npx, and Studio ships only as
  * `ghcr.io/nylorun/studio`, pinned by nylorun (`cli/nylorun/package.json`
  * `nylorun.studio`), so a Studio release reaches developers through nylorun.
- * The deprecated @nylorun/cli only runs nylorun's `nylo`, so it is not one
- * either.
+ * @nylorun/cli only runs nylorun's `nylorun` under another name, so it is not
+ * one either.
  */
 export const CREATOR_PINS = Object.freeze([
   "core",
@@ -193,7 +193,7 @@ export function planVersions(
     // nylorun pins the Runtime and Studio images (nylorun.runtime, nylorun.studio).
     ["runtime", ["nylorun"]],
     ["studio", ["nylorun"]],
-    // The deprecated @nylorun/cli pins the nylorun whose `nylo` it runs.
+    // @nylorun/cli pins the nylorun whose `nylorun` it runs.
     ["nylorun", ["cli"]],
   ]) {
     if (versions[dependency] && versions[dependency] !== before[dependency])

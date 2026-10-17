@@ -12,7 +12,7 @@ const allowed = {
   studio: ["agents", "admin"],
   // nylorun: the local Tenants, and the client of their Runtime API (agents) and Management API (admin).
   nylorun: ["core", "agents", "admin"],
-  // The deprecated @nylorun/cli depends on nylorun only, and runs its `nylo`.
+  // @nylorun/cli depends on nylorun only, and runs its `nylorun`.
   cli: [],
 };
 // Substrate SDKs (sandbox, durable execution, streams) stay behind adapter contracts.
@@ -203,8 +203,9 @@ export function checkBoundaries(name) {
   // The nylorun package owns `nylorun`; the Runtime is a library and an image, with no bin.
   if (name === "runtime" && pkg.bin !== undefined)
     throw new Error("Runtime must have no bin: the nylorun package owns nylorun, and the Runtime runs as the ghcr.io/nylorun/runtime image");
-  // nylorun owns its command (and `nylo`); no other package declares the nylorun bin.
-  if (name !== "nylorun" && pkg.bin?.nylorun !== undefined)
+  // nylorun owns its command (and `nylo`); no other package declares the nylorun bin, except
+  // @nylorun/cli, nylorun under another name, whose `nylorun` runs nylorun's.
+  if (name !== "nylorun" && name !== "cli" && pkg.bin?.nylorun !== undefined)
     throw new Error(`${name} must not declare the nylorun bin: the nylorun package owns it`);
   // Studio ships only as the ghcr.io/nylorun/studio image, never to npm.
   if (name === "studio" && (pkg.private !== true || pkg.bin !== undefined))

@@ -7,9 +7,8 @@
  *   scaffolds the starter from the packed creator, installs it offline from
  *   the tarballs and builds it. Its only Nylorun dependencies are
  *   @nylorun/agents and @nylorun/core; it has no Nylorun devDependency.
- * - Installs nylorun and the
- *   deprecated @nylorun/cli from their tarballs into a separate tools
- *   directory, as `npx` would; @nylorun/cli runs nylorun's nylo, which names its replacement.
+ * - Installs nylorun and @nylorun/cli from their tarballs into a separate
+ *   tools directory, as `npx` would; @nylorun/cli is nylorun under another name.
  * - Builds (or reuses, see scripts/lib/stack.mjs) the Runtime and Studio
  *   images and, under a temporary NYLORUN_HOME, runs `nylorun start` in the
  *   project with NYLORUN_TENANT naming the test Tenant (its containers and
@@ -179,17 +178,15 @@ try {
     cwd: tools,
   });
   const nylorunBin = join(tools, "node_modules/nylorun/dist/cli.js");
-  // The deprecated package says so on stderr and runs nylorun's nylo, which names the nylorun
-  // command that replaced each of its own.
-  const deprecated = spawnSync(
-    process.execPath,
-    [join(tools, "node_modules/@nylorun/cli/dist/cli.js"), "status"],
-    { encoding: "utf8" },
+  // @nylorun/cli is nylorun under another name: its `nylorun` prints nylorun's help.
+  const help = (entry) => spawnSync(process.execPath, [entry, "--help"], { encoding: "utf8" });
+  const mirrored = help(join(tools, "node_modules/@nylorun/cli/dist/cli.js"));
+  assert.equal(mirrored.status, 0, mirrored.stderr);
+  assert.match(mirrored.stdout, /^nylorun <command>/);
+  assert.deepEqual(
+    { stdout: mirrored.stdout, stderr: mirrored.stderr },
+    { stdout: help(nylorunBin).stdout, stderr: "" },
   );
-  assert.equal(deprecated.status, 2, deprecated.stderr);
-  assert.equal(deprecated.stdout, "");
-  assert.match(deprecated.stderr, /^@nylorun\/cli is deprecated/);
-  assert.match(deprecated.stderr, /nylo status is nylorun status\./);
 
   const images = await ensureImages();
   await withStack(

@@ -71,10 +71,8 @@ what each workflow job does, and the Recovery table.
    succeeds for each image the plan publishes, and
    `npm view nylorun@beta nylorun.runtime nylorun.studio` prints the plan's
    Runtime and Studio versions. If the plan publishes `@nylorun/cli`,
-   `npm view @nylorun/cli@beta deprecated` prints its deprecation; when it
-   prints nothing, run the `npm deprecate` command in RELEASING.md ("Publish
-   the reviewed commit", step 4), or, without an npm owner's login, give the
-   user that exact command. Done when every check matches.
+   `npm view @nylorun/cli@beta dependencies.nylorun` prints the plan's nylorun
+   version. Done when every check matches.
    Report the versions, the PR and the run URL.
 
 ## Latest

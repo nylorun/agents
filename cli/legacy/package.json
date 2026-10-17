@@ -3,7 +3,7 @@
   "version": "0.16.4-beta",
   "type": "module",
   "license": "Apache-2.0",
-  "description": "Deprecated: nylo ships in the nylorun package. This package runs nylorun's nylo until nylorun 0.19, which removes both.",
+  "description": "nylorun under another name: npx @nylorun/cli <command> runs npx nylorun <command>.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/nylorun/agents.git",
@@ -38,6 +38,6 @@
     "vitest": "^5.0.4"
   },
   "bin": {
-    "nylo": "dist/cli.js"
+    "nylorun": "dist/cli.js"
   }
 }

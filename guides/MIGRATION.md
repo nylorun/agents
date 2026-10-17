@@ -1,3 +1,15 @@
+# `@nylorun/cli` is nylorun under another name
+
+`@nylorun/cli` is no longer deprecated, and nylorun 0.19 does not remove it. Its one command is now
+`nylorun`, which runs nylorun's `nylorun` with the same arguments, so `npx @nylorun/cli <command>`
+is `npx nylorun <command>`, help, output and exit codes included. It prints no deprecation line.
+
+| Before | Now |
+| --- | --- |
+| `npx @nylorun/cli <command>` (`nylo`: exits 2 naming the `nylorun` command) | `npx @nylorun/cli <command>` runs `nylorun <command>` |
+| `nylo` from `@nylorun/cli` in an npm script | `nylorun` (from either package); `nylo` stays in nylorun until 0.19 |
+| `npm i -g @nylorun/cli` for `nylo` | `npm i -g nylorun` or `npm i -g @nylorun/cli`, not both: each provides `nylorun` (`EEXIST`) |
+
 # Session usage by token kind (protocol 18)
 
 Additive: the Runtime serves protocol 16, 17 and 18. A protocol 16 or 17 client reads usage as
@@ -563,9 +575,8 @@ Part of protocol 14 (D66, D67).
 
 # One command: `nylo` is part of `nylorun`
 
-`nylorun` is the one command. `nylo` keeps its name until nylorun 0.19, which removes it and the
-deprecated `@nylorun/cli`; each of its commands exits 2 naming the `nylorun` command that replaced
-it. Commands other than the installation's
+`nylorun` is the one command. `nylo` keeps its name until nylorun 0.19, which removes it; each of
+its commands exits 2 naming the `nylorun` command that replaced it. Commands other than the installation's
 lifecycle moved into groups, each named after the API it uses, and the old spellings exit 2
 naming the new one.
 
@@ -947,7 +958,8 @@ commands, their flags, output and exit codes are unchanged; only the messages th
 `@nylorun/cli`, "the CLI" or "the nylorun package" now name `nylo` and nylorun. `@nylorun/cli`
 stays as a forwarder: its `nylo` prints one line on stderr and runs nylorun's, so
 `npx @nylorun/cli status` and `eval "$(npx @nylorun/cli env)"` keep working (stdout carries only
-the export lines). nylorun 0.19 removes it.
+the export lines). A later release makes `@nylorun/cli` nylorun under another name: see "`@nylorun/cli` is
+nylorun under another name".
 
 | Before | Now |
 | --- | --- |

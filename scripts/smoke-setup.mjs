@@ -114,7 +114,7 @@ try {
   });
   const plan = await readJson(join(temporary, ".release/plan.json"));
   // A Runtime release reaches developers through nylorun, which pins its image,
-  // and through the @nylorun/cli stub, which pins nylorun exactly.
+  // and through @nylorun/cli, which pins nylorun exactly.
   assert.deepEqual(Object.keys(plan.packages).sort(), [
     "cli",
     "create-agent",

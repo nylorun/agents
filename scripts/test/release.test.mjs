@@ -54,7 +54,7 @@ test("a Runtime beta release advances creator and preserves unrelated compatibil
       await writeJson(join(directory, packagePath(name), "package.json"), {
         name: packageName(name),
         version,
-        // The deprecated CLI pins the nylorun whose nylo it runs.
+        // The CLI pins the nylorun whose nylorun it runs.
         ...(name === "cli" ? { dependencies: { nylorun: "0.1.0-beta.1" } } : {}),
       });
     }
@@ -106,7 +106,7 @@ test("a Runtime beta release advances creator and preserves unrelated compatibil
       cli: "0.1.1-beta",
       "create-agent": "0.1.1-beta",
     });
-    // The deprecated CLI follows nylorun, and pins the released one.
+    // The CLI follows nylorun, and pins the released one.
     assert.deepEqual(
       JSON.parse(await readFile(join(directory, "cli/legacy/package.json"), "utf8")).dependencies,
       { nylorun: "0.1.1-beta" },
