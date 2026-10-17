@@ -92,7 +92,8 @@ test("Agents: the list sorts and filters, the sidebar groups them by manifest, a
     await first.getByText("Input required", { exact: true }).waitFor();
     await first.getByText("analyst-box@3", { exact: true }).waitFor();
     await first.getByText("pinned", { exact: true }).waitFor();
-    await page.locator("tbody tr", { hasText: AGENT }).getByText("tracks", { exact: true }).waitFor();
+    await page.locator("tbody tr", { hasText: AGENT }).getByText("pinned", { exact: true }).waitFor();
+    await page.locator("tbody tr", { hasText: POD }).getByText("tracks", { exact: true }).waitFor();
     // Filters: a state, a manifest, an owner, a label.
     await page.getByRole("button", { name: "Filter by state" }).click();
     await page.getByRole("menuitemcheckbox", { name: "Input required 1" }).click();
