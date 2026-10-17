@@ -68,6 +68,22 @@ describe("usageRow", () => {
     expect(untimed).not.toHaveProperty("firstTokenMs");
   });
 
+  it("keeps the adapter's cost by token kind, only when all four parts are costs", () => {
+    const split = { input: 0.0012, cacheRead: 0.0001, cacheWrite: 0, output: 0.0007 };
+    const priced = { ...answered, evidence: { ...answered.evidence, extras: { ...answered.evidence!.extras, costSplit: split } } };
+    expect(usageRow(request, priced, at)).toMatchObject({
+      costInputUsd: 0.0012,
+      costCacheReadUsd: 0.0001,
+      costCacheWriteUsd: 0,
+      costOutputUsd: 0.0007,
+    });
+    expect(usageRow(request, answered, at)).not.toHaveProperty("costInputUsd");
+    for (const costSplit of [{ ...split, output: -1 }, { ...split, cacheWrite: "0" }, { input: 0.1 }, [0, 0, 0, 0]]) {
+      const odd = { ...answered, evidence: { ...answered.evidence, extras: { ...answered.evidence!.extras, costSplit } } };
+      expect(usageRow(request, odd as ModelGateOutcome, at)).not.toHaveProperty("costInputUsd");
+    }
+  });
+
   it("records nothing for a failure, or an answer without usage", () => {
     expect(usageRow(request, { kind: "failed", code: "auth", message: "no", retryable: false }, at)).toBeUndefined();
     expect(usageRow(request, { output: [], finishReason: "stop" }, at)).toBeUndefined();

@@ -319,6 +319,13 @@ export function piModel(options: PiModelOptions = {}): RuntimeModelAdapter {
           // pi-ai initializes missing counters to zero; reporting provenance is unknown.
           tokensReported: null,
           costKnown: !selection.custom,
+          // The cost by token kind, at the catalog's prices: the usage ledger keeps it.
+          costSplit: {
+            input: response.usage.cost.input,
+            cacheRead: response.usage.cost.cacheRead,
+            cacheWrite: response.usage.cost.cacheWrite,
+            output: response.usage.cost.output,
+          },
           producer: {
             provider: selected.provider,
             api: selected.api,

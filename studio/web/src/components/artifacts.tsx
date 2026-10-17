@@ -6,6 +6,15 @@ import {
   type FormEvent,
 } from "react";
 import { Link, useSearchParams } from "react-router-dom";
+import {
+  ChevronLeft,
+  ChevronRight,
+  File,
+  FileImage,
+  FileText,
+  Folder,
+  RefreshCw,
+} from "lucide-react";
 import type { ArtifactView, FolderEntry } from "@nylorun/agents";
 import { createTenantClient, tenantRuntimePath } from "@/proxy-client";
 import {
@@ -16,6 +25,7 @@ import {
 } from "@/resources/artifacts";
 import { messageOf, usePages, useRead } from "@/resources/reads";
 import { agentPath } from "@/agent-path";
+import { fullTime, shortTime } from "@/time-format";
 import { sessionHref } from "@/session-open";
 import {
   ResourceLayout,
@@ -23,6 +33,7 @@ import {
   ReadState,
   Metadata,
 } from "@/components/resource-layout";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -37,6 +48,18 @@ import {
 
 const date = (value: string) => new Date(value).toLocaleString();
 const size = (bytes: number) => `${bytes.toLocaleString()} bytes`;
+/** A size to glance at: "2.3 MB". */
+function formatSize(bytes: number) {
+  if (bytes < 1000) return `${bytes} B`;
+  const units = ["KB", "MB", "GB", "TB"];
+  let value = bytes / 1000;
+  let unit = 0;
+  while (value >= 1000 && unit < units.length - 1) {
+    value /= 1000;
+    unit++;
+  }
+  return `${value.toFixed(value < 10 ? 1 : 0)} ${units[unit]}`;
+}
 
 /**
  * The artifacts page, a session's Record tab and an Agent's Disk tab share one
@@ -449,28 +472,167 @@ export function SessionArtifacts({
   revision: string;
 }) {
   const selection = useArtifactSelection("session");
+  const sdk = useMemo(() => createTenantClient(tenantId), [tenantId]);
+  const load = useCallback(
+    (signal: AbortSignal) => sdk.artifacts.list({ sessionId, signal }),
+    [sdk, sessionId, revision],
+  );
+  const read = useRead(load);
+  const artifacts = read.data ?? [];
+  const open = (a: ArtifactView) =>
+    selection.update({
+      selected: a.artifactId,
+      version: String(a.latestVersion),
+      tab: "preview",
+      file: null,
+    });
+  // An open artifact takes the whole tab, so its preview is not pushed below the list.
+  if (selection.id) {
+    const index = artifacts.findIndex((a) => a.artifactId === selection.id);
+    const previous = index > 0 ? artifacts[index - 1] : undefined;
+    const next = index >= 0 ? artifacts[index + 1] : undefined;
+    return (
+      <div className="flex min-h-0 flex-1 flex-col">
+        <nav className="flex shrink-0 items-center gap-1 border-b px-2 py-1.5">
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() =>
+              selection.update({
+                selected: null,
+                version: null,
+                tab: null,
+                file: null,
+              })
+            }
+          >
+            <ChevronLeft className="size-4" />
+            Artifacts
+          </Button>
+          <span className="flex-1" />
+          {index >= 0 ? (
+            <span className="text-xs text-muted-foreground">
+              {index + 1} of {artifacts.length}
+            </span>
+          ) : null}
+          <Button
+            size="icon"
+            variant="ghost"
+            aria-label="Previous artifact"
+            disabled={!previous}
+            onClick={() => previous && open(previous)}
+          >
+            <ChevronLeft className="size-4" />
+          </Button>
+          <Button
+            size="icon"
+            variant="ghost"
+            aria-label="Next artifact"
+            disabled={!next}
+            onClick={() => next && open(next)}
+          >
+            <ChevronRight className="size-4" />
+          </Button>
+        </nav>
+        <ArtifactInspector
+          key={selection.id}
+          tenantId={tenantId}
+          selection={selection}
+        />
+      </div>
+    );
+  }
   return (
-    <div className="min-h-0 flex-1 overflow-auto p-4">
-      <ArtifactList
-        tenantId={tenantId}
-        sessionId={sessionId}
-        selection={selection}
-        revision={revision}
-        heading="Files"
-      />
-      {selection.id ? (
-        <div className="mt-4 border-t">
-          <ArtifactInspector
-            key={selection.id}
-            tenantId={tenantId}
-            selection={selection}
-            onClose={() => selection.update({ selected: null })}
-          />
-        </div>
+    <div className="min-h-0 flex-1 space-y-3 overflow-auto p-4">
+      <div className="flex items-center justify-between gap-2">
+        <h2 className="text-sm font-medium">
+          {read.data
+            ? `${artifacts.length} artifact${artifacts.length === 1 ? "" : "s"}`
+            : "Artifacts"}
+        </h2>
+        <Button
+          size="icon"
+          variant="ghost"
+          aria-label="Refresh artifacts"
+          title="Refresh artifacts"
+          disabled={read.pending}
+          onClick={read.reload}
+        >
+          <RefreshCw className="size-4" />
+        </Button>
+      </div>
+      {artifacts.length ? (
+        <ul className="divide-y rounded-md border">
+          {artifacts.map((a) => {
+            const Icon =
+              a.kind === "folder"
+                ? Folder
+                : previewKind(a.contentType) === "image"
+                  ? FileImage
+                  : previewKind(a.contentType) === "text"
+                    ? FileText
+                    : File;
+            return (
+              <li key={a.artifactId}>
+                <button
+                  aria-label={a.name}
+                  className="flex w-full items-center gap-3 px-3 py-2.5 text-left hover:bg-muted/50"
+                  onClick={() => open(a)}
+                >
+                  <Icon className="size-4 shrink-0 text-muted-foreground" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-medium">
+                      {a.name}
+                    </span>
+                    <span className="block text-xs text-muted-foreground">
+                      {typeLabel(a)}
+                    </span>
+                  </span>
+                  {a.latestVersion > 1 ? (
+                    <Badge variant="secondary">v{a.latestVersion}</Badge>
+                  ) : null}
+                  <time
+                    className="shrink-0 text-xs text-muted-foreground"
+                    dateTime={a.updatedAt}
+                    title={fullTime(a.updatedAt)}
+                  >
+                    {shortTime(a.updatedAt)}
+                  </time>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
       ) : null}
+      <ReadState
+        {...read}
+        onRetry={read.reload}
+        empty={
+          read.data?.length
+            ? undefined
+            : "No artifacts yet. They appear when a client uploads a file to the session or a turn saves or exports outputs."
+        }
+      />
     </div>
   );
 }
+
+/** A short type for a list row: "Folder", or the media subtype, such as "PNG". */
+function typeLabel(a: Pick<ArtifactView, "kind" | "contentType">) {
+  if (a.kind === "folder") return "Folder";
+  const subtype = a.contentType.split(";")[0].split("/")[1]?.trim() ?? "";
+  if (!subtype || subtype === "octet-stream") return "File";
+  if (subtype === "plain") return "Text";
+  return subtype.replace(/^(x-|vnd\.)/, "").split(/[+.]/)[0].toUpperCase();
+}
+
+/** Where a version's bytes came from, as a person reads it. */
+const SOURCE_LABELS: Record<string, string> = {
+  upload: "Uploaded",
+  engine: "Saved by the agent",
+  export: "Exported",
+  snapshot: "Disk snapshot",
+};
 
 function ArtifactList({
   tenantId,
@@ -572,7 +734,7 @@ export function ArtifactInspector({
 }: {
   tenantId: string;
   selection: ArtifactSelection;
-  onClose: () => void;
+  onClose?: () => void;
 }) {
   const sdk = useMemo(() => createTenantClient(tenantId), [tenantId]);
   const { id, version, validVersion, tab, file, update } = selection;
@@ -595,47 +757,60 @@ export function ArtifactInspector({
     <section className="flex h-full min-h-0 flex-col">
       <ResourceHeader title={artifact?.name ?? id} onClose={onClose}>
         <Button
-          size="sm"
-          variant="outline"
+          size="icon"
+          variant="ghost"
+          aria-label="Refresh metadata"
+          title="Refresh metadata"
           onClick={read.reload}
           disabled={read.pending}
         >
-          Refresh metadata
+          <RefreshCw className="size-4" />
         </Button>
       </ResourceHeader>
       <div className="min-h-0 flex-1 space-y-4 overflow-auto p-4">
         <ReadState {...read} onRetry={read.reload} />
         {artifact ? (
           <>
-            <div className="flex flex-wrap items-end justify-between gap-2">
-              <label className="text-sm">
-                Version
-                <select
-                  aria-label="Artifact version"
-                  className="ml-2 rounded border bg-background p-1.5"
-                  value={version ?? ""}
-                  onChange={(e) =>
-                    update({ version: e.target.value, file: null })
-                  }
-                >
-                  {!selectedVersion ? (
-                    <option value={version ?? ""}>
-                      {validVersion ? "Select version" : "Invalid version"}
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+              <select
+                aria-label="Artifact version"
+                className="rounded border bg-background p-1.5 text-sm"
+                value={version ?? ""}
+                onChange={(e) =>
+                  update({ version: e.target.value, file: null })
+                }
+              >
+                {!selectedVersion ? (
+                  <option value={version ?? ""}>
+                    {validVersion ? "Select version" : "Invalid version"}
+                  </option>
+                ) : null}
+                {artifact.versions
+                  ?.slice()
+                  .reverse()
+                  .map((v) => (
+                    <option key={v.version} value={v.version}>
+                      v{v.version}
+                      {v.version === artifact.latestVersion ? " · latest" : ""}
                     </option>
-                  ) : null}
-                  {artifact.versions
-                    ?.slice()
-                    .reverse()
-                    .map((v) => (
-                      <option key={v.version} value={v.version}>
-                        v{v.version}
-                        {v.version === artifact.latestVersion
-                          ? " · latest"
-                          : ""}
-                      </option>
-                    ))}
-                </select>
-              </label>
+                  ))}
+              </select>
+              {selectedVersion ? (
+                <span className="min-w-0 flex-1 text-xs text-muted-foreground">
+                  {[
+                    typeLabel({
+                      kind: artifact.kind,
+                      contentType: selectedVersion.contentType,
+                    }),
+                    formatSize(selectedVersion.size),
+                    SOURCE_LABELS[selectedVersion.source] ??
+                      selectedVersion.source,
+                    shortTime(selectedVersion.createdAt),
+                  ].join(" · ")}
+                </span>
+              ) : (
+                <span className="flex-1" />
+              )}
               {selectedVersion ? (
                 <ArtifactDownload
                   tenantId={tenantId}
@@ -652,40 +827,12 @@ export function ArtifactInspector({
                 />
               ) : null}
             </div>
-            <Metadata
-              entries={[
-                ["Artifact ID", id],
-                ["Kind", artifact.kind],
-                ["Owner", <ArtifactOwner artifact={artifact} />],
-                ["Created", date(artifact.createdAt)],
-                ["Updated", date(artifact.updatedAt)],
-              ]}
-            />
-            {selectedVersion ? (
-              <Metadata
-                entries={[
-                  ["Version", `v${selectedVersion.version} · pinned`],
-                  ["Size", size(selectedVersion.size)],
-                  ["MIME type", selectedVersion.contentType],
-                  ["Source", selectedVersion.source],
-                  ["Version created", date(selectedVersion.createdAt)],
-                  ["SHA-256", selectedVersion.sha256],
-                ]}
-              />
-            ) : version !== undefined ? (
+            {!selectedVersion && version !== undefined ? (
               <p role="alert" className="text-sm">
                 {validVersion
                   ? "This artifact has no such version. Select one of its recorded versions."
                   : "Invalid artifact version."}
               </p>
-            ) : null}
-            {artifact.labels && Object.keys(artifact.labels).length ? (
-              <details className="text-sm">
-                <summary>Labels</summary>
-                <pre className="whitespace-pre-wrap break-all text-xs">
-                  {JSON.stringify(artifact.labels, null, 2)}
-                </pre>
-              </details>
             ) : null}
             <Tabs
               value={activeTab}
@@ -693,7 +840,9 @@ export function ArtifactInspector({
             >
               <TabsList aria-label="Artifact tabs">
                 <TabsTrigger value="preview">Preview</TabsTrigger>
-                <TabsTrigger value="versions">Versions</TabsTrigger>
+                <TabsTrigger value="versions">
+                  Versions ({artifact.versions?.length ?? 0})
+                </TabsTrigger>
                 {artifact.kind === "folder" ? (
                   <TabsTrigger value="changes">Changes</TabsTrigger>
                 ) : null}
@@ -761,6 +910,40 @@ export function ArtifactInspector({
                 </TabsContent>
               ) : null}
             </Tabs>
+            <details className="text-sm">
+              <summary className="cursor-pointer text-muted-foreground">
+                Details
+              </summary>
+              <div className="mt-2">
+                <Metadata
+                  entries={[
+                    ["Artifact ID", id],
+                    ["Kind", artifact.kind],
+                    ["Owner", <ArtifactOwner artifact={artifact} />],
+                    ["Created", date(artifact.createdAt)],
+                    ["Updated", date(artifact.updatedAt)],
+                  ]}
+                />
+                {selectedVersion ? (
+                  <div className="mt-2">
+                    <Metadata
+                      entries={[
+                        ["Size", size(selectedVersion.size)],
+                        ["MIME type", selectedVersion.contentType],
+                        ["Source", selectedVersion.source],
+                        ["Version created", date(selectedVersion.createdAt)],
+                        ["SHA-256", selectedVersion.sha256],
+                      ]}
+                    />
+                  </div>
+                ) : null}
+                {artifact.labels && Object.keys(artifact.labels).length ? (
+                  <pre className="mt-2 whitespace-pre-wrap break-all text-xs">
+                    {JSON.stringify(artifact.labels, null, 2)}
+                  </pre>
+                ) : null}
+              </div>
+            </details>
           </>
         ) : null}
       </div>
@@ -915,7 +1098,7 @@ function FilePreview({
             </p>
           ) : (
             <img
-              className="max-h-96 max-w-full object-contain"
+              className="max-h-[70vh] max-w-full rounded object-contain"
               src={imageUrl}
               alt={file ?? "Artifact preview"}
               onError={() => setImageError(true)}

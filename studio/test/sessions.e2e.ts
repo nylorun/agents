@@ -162,6 +162,13 @@ async function fakeRuntime(sessionReads = false) {
         creation: { agent: AGENT, ownerUserId: "app:alice", info: { tier: "gold" } },
         items: [
           event(ALICE_SESSION, "command.message", { type: "message", content: "Where is order 42?" }),
+          // The model call the Usage tab lists as eff_1.
+          event(ALICE_SESSION, "message.assistant", {
+            invocationId: "1",
+            text: "Order 42 ships today.",
+            toolCalls: [],
+            effectId: "eff_1",
+          }),
           event(ALICE_SESSION, "turn.completed", { output: "Order 42 ships today." }),
         ],
       },
@@ -325,6 +332,10 @@ async function fakeRuntime(sessionReads = false) {
           unpricedCalls: 0,
           unreportedCalls: 0,
           unknownQualityCalls: 0,
+          costSplit: { input: 0.0081, cacheRead: 0.0002, cacheWrite: 0, output: 0.004 },
+          splitCalls: 1,
+          modelTimeMs: 4200,
+          timedCalls: 1,
         });
       return send(200, {
         asOf,
@@ -339,8 +350,16 @@ async function fakeRuntime(sessionReads = false) {
             provider: "openai",
             model: "gpt-test",
             at: "2026-10-15T10:59:58.000Z",
+            startedAt: "2026-10-15T10:59:53.800Z",
+            endedAt: "2026-10-15T10:59:58.000Z",
             outcome: "completed",
-            usage: { ...usageNumbers(1234, 567), duplicate: false, tokensReported: true, costKnown: true },
+            usage: {
+              ...usageNumbers(1234, 567),
+              duplicate: false,
+              tokensReported: true,
+              costKnown: true,
+              costSplit: { input: 0.0081, cacheRead: 0.0002, cacheWrite: 0, output: 0.004 },
+            },
           },
         ],
       });
@@ -631,19 +650,39 @@ test("a chat message shows its time only while it is hovered", async () => {
   });
 });
 
-test("a session's Usage tab shows its token totals and each model call", async () => {
+test("a session's Usage tab is one ledger of the session, its turns and each model call", async () => {
   await withStudio(
     async ({ page, studioUrl }) => {
       await page.goto(`${studioUrl}/tenants/${TENANT}/agents/${AGENT}/sessions/${ALICE_SESSION}`);
       await page.getByRole("tab", { name: "Usage", exact: true }).click();
       await page.waitForURL(/inspector=usage/u);
       const panel = page.getByRole("tabpanel");
-      await panel.getByText("Total tokens").waitFor();
-      await panel.getByText("1,801", { exact: true }).first().waitFor();
-      await panel.getByText("$0.01", { exact: true }).first().waitFor();
-      const call = panel.locator("tbody tr");
-      assert.equal(await call.count(), 1);
-      assert.match((await call.textContent()) ?? "", /gpt-test.*1,234.*567.*200.*1,801/u);
+      // The session: tokens and cost by kind, adding up to the total.
+      const session = panel.getByRole("region", { name: "Session" });
+      await session.getByText("1 model call · 4.2s model time · 1 turn").waitFor();
+      const rows = session.locator("tbody tr");
+      assert.deepEqual(
+        (await rows.allTextContents()).map((text) => text.replace(/\s+/gu, " ").trim()),
+        [
+          "Cached input20010%$0.00022%",
+          "Uncached input1,23462%$0.008166%",
+          "Output56728%$0.004033%",
+          "Total2,001$0.0123",
+        ],
+      );
+      await session.getByText("Output includes 50 reasoning tokens.").waitFor();
+      // The turn, then its call, with the same columns.
+      const calls = panel.getByRole("region", { name: "Model calls" }).locator("tbody tr");
+      assert.equal(await calls.count(), 2);
+      assert.match((await calls.nth(0).textContent()) ?? "", /Turn 1.*1 call.*200.*1,234.*567.*2,001.*4\.2s.*\$0\.0123/u);
+      assert.match((await calls.nth(1).textContent()) ?? "", /#1.*200.*1,234.*567.*2,001.*4\.2s.*\$0\.0123/u);
+      // Its menu opens the call's event in the Events tab.
+      await calls.nth(1).hover();
+      await page.getByRole("button", { name: "More options for call 1" }).click();
+      await page.getByRole("menuitem", { name: /View event/u }).click();
+      await page.waitForURL(/inspector=events/u);
+      await page.getByRole("button", { name: "Close event details" }).waitFor();
+      await page.getByText("message.assistant", { exact: true }).waitFor();
     },
     true,
   );

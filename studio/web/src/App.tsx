@@ -1468,6 +1468,11 @@ function SessionView({
                 .filter((e) => e.type.startsWith("turn."))
                 .map((e) => e.eventId)
                 .join("|")}
+              events={events}
+              onViewEvent={(event) => {
+                changeTab("events");
+                openEvent(event);
+              }}
             />
           </TabsPrimitive.Content>
         </TabsPrimitive.Root>

@@ -5183,6 +5183,19 @@ const usageNumbers = {
   reasoningTokens: z.number().int().nonnegative(),
   costUsd: z.number().nonnegative(),
 };
+/**
+ * A cost by the token kind it paid for, at the prices in force when the call was made:
+ * uncached input, input read from the provider's cache, input written to it, and output.
+ */
+export const CostSplitSchema = z
+  .object({
+    input: z.number().nonnegative(),
+    cacheRead: z.number().nonnegative(),
+    cacheWrite: z.number().nonnegative(),
+    output: z.number().nonnegative(),
+  })
+  .strict();
+export type CostSplit = z.infer<typeof CostSplitSchema>;
 export const SessionUsageTotalsSchema = z
   .object({
     sessionId: z.string(),
@@ -5194,6 +5207,19 @@ export const SessionUsageTotalsSchema = z
     unpricedCalls: z.number().int().nonnegative(),
     unreportedCalls: z.number().int().nonnegative(),
     unknownQualityCalls: z.number().int().nonnegative(),
+    /**
+     * `costUsd` by token kind, summed over the `splitCalls` calls that kept their split. A call
+     * recorded before the split was kept counts in `costUsd` only. Protocol 18, like
+     * `modelTimeMs` and `timedCalls`: an older client's read leaves all four out.
+     */
+    costSplit: CostSplitSchema,
+    splitCalls: z.number().int().nonnegative(),
+    /**
+     * The calls' durations added up, from when the gate sent each call to when its answer was
+     * complete, over the `timedCalls` calls the gate timed. Calls that overlap each count in full.
+     */
+    modelTimeMs: z.number().int().nonnegative(),
+    timedCalls: z.number().int().nonnegative(),
   })
   .strict();
 export type SessionUsageTotals = z.infer<typeof SessionUsageTotalsSchema>;
@@ -5212,6 +5238,12 @@ export const ModelCallSchema = z
     provider: z.string().nullable(),
     model: z.string().nullable(),
     at: z.string(),
+    /**
+     * When the gate sent the call, and when its answer was complete; null when untimed. Protocol
+     * 18, like `usage.costSplit`: an older client's read leaves them out.
+     */
+    startedAt: z.string().nullable(),
+    endedAt: z.string().nullable(),
     outcome: z.enum(["completed", "failed"]),
     usage: z
       .object({
@@ -5219,6 +5251,8 @@ export const ModelCallSchema = z
         duplicate: z.boolean(),
         tokensReported: z.boolean().nullable(),
         costKnown: z.boolean().nullable(),
+        /** `costUsd` by token kind; null for a call recorded before the split was kept. */
+        costSplit: CostSplitSchema.nullable(),
       })
       .strict()
       .nullable(),

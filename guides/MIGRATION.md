@@ -1,3 +1,20 @@
+# Session usage by token kind (protocol 18)
+
+Additive: the Runtime serves protocol 16, 17 and 18. A protocol 16 or 17 client reads usage as
+before; only a protocol 18 client gets the new fields.
+
+- **Model calls carry their timing and their cost by token kind.** For a protocol 18 client,
+  `GET /v1/sessions/{id}/calls/model` (and the export, `GET /v1/tenant/calls/model`) returns
+  `startedAt` and `endedAt`, the gate's timing, and `usage.costSplit`
+  `{input, cacheRead, cacheWrite, output}`. Both are null for a call recorded before they were
+  kept.
+- **Session usage adds the split and the model time.** For a protocol 18 client,
+  `GET /v1/sessions/{id}/usage` adds `costSplit`, summed over the `splitCalls` calls that kept it,
+  and `modelTimeMs`, each call's duration added up over the `timedCalls` calls that were timed.
+- **Clients.** `@nylorun/agents` from this release speaks protocol 18 and requires the Host
+  feature `usage-by-kind`, so it needs a Runtime from this release too (an older one answers
+  `426`). An older SDK keeps working against this Runtime.
+
 # A queue per session (protocol 17)
 
 Additive: the Runtime serves protocol 16 and 17, and Harness API 5 is unchanged.

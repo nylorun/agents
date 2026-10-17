@@ -96,7 +96,7 @@ manifest the session pinned when it opened (`GET /v1/sessions/{id}/manifest`, Ho
 feature `session-reads`; without it, the harness section of the version its Agent
 runs), named `name@version`, and says when the manifest has a newer version: an
 Agent keeps its version, and moves by a fork. **Deployed** shows where it runs (below).
-**Record** lists the session's files (its artifacts). **Events** is the session's
+**Record** lists the session's artifacts (outputs and uploads). **Events** is the session's
 event log; a workflow session adds **Progress** (its tree, live) and **Iterations**,
 and opens on Progress.
 **Usage** shows the session's recorded model usage (tokens in and out, cache reads
@@ -186,7 +186,7 @@ Its tabs (`?tab=`):
   compute, the manifest version it runs, and its use, as fields, with its runtime
   as JSON.
 - **Sessions**: the sessions on it, by last activity, each linked to its page and
-  its files; none is marked special.
+  its artifacts; none is marked special.
 - **Secrets**: its vault, through the Runtime API
   (`PUT|DELETE /v1/agents/{id}/secrets/{name}`): a Bearer token or a Headers map
   (name and value rows) bound to a URL, with an optional gateway URL (`via`) and
