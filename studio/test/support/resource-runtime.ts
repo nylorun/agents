@@ -8,7 +8,7 @@ export const TENANT = "tn_00000000000000000000000001";
 export const SESSION = "s-resource";
 /** A virtual Agent pinned to `analyst-box@2`; v3 is the latest. */
 export const AGENT = "team/build";
-/** A pod Agent with setup commands and an input file. */
+/** A pod Agent tracking `pod-box`, with setup commands and an input file. */
 export const POD = "team/pod";
 /** An Agent pinned to `analyst-box@3`, whose session waits on a person: it sorts first. */
 export const ASKING = "z-last";
@@ -142,6 +142,7 @@ const pod = (id: string) =>
   agent(id, {
     manifest: "pod-box",
     resolvedVersion: 1,
+    tracking: "tracking",
     kind: "pod",
     runtime: {
       image: "python:3.13-slim",
