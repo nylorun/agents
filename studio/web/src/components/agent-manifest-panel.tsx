@@ -66,7 +66,7 @@ function ViewToggle({
 }
 
 /**
- * A session's Manifest tab: the loop manifest it pinned (`pinned`), named by its agent manifest
+ * A session's Manifest tab, Declared view: the loop manifest it pinned (`pinned`), named by its agent manifest
  * and version, laid out or as JSON, and whether its Agent has a sandbox.
  */
 export function AgentManifestPanel({
@@ -126,7 +126,7 @@ export function AgentManifestPanel({
           <ManifestJson manifest={manifest} />
         ) : isWorkflow ? (
           <p className="text-sm text-muted-foreground">
-            A flow agent's stages are on the Tree tab.
+            A flow agent's stages are on the Events tab, under Progress.
           </p>
         ) : (
           <>

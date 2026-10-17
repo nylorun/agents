@@ -88,12 +88,17 @@ times. The table is filtered to an Agent from its **All Agents** menu;
 `/tenants/<id>/sessions?agent=<agentId>` is the filtered list. A session's page is
 `/agents/<agentId>/sessions/<sessionId>` (each id one percent-encoded segment);
 `/sessions/<sessionId>` finds its Agent and opens it. Each session shows chat beside
-an **Events** inspector, an **Outputs** tab (the session's artifacts), a
-**Manifest** tab (**Workflow** for a flow), an **Agent** tab and a **Usage** tab.
-**Manifest** shows the loop manifest the session pinned when it opened
-(`GET /v1/sessions/{id}/manifest`, Host feature `session-reads`; without it, the
-harness section of the version its Agent runs), named `name@version`, and says when
-the manifest has a newer version: an Agent keeps its version, and moves by a fork.
+an inspector of four tabs, one per kind of data and the same for agent and workflow
+sessions: **Manifest** (what the agent is), **Record** (what the session holds),
+**Events** (what happened) and **Usage** (what it cost). `?inspector=` names the tab
+and `?view=` its view. **Manifest** has two views. **Declared** shows the loop
+manifest the session pinned when it opened (`GET /v1/sessions/{id}/manifest`, Host
+feature `session-reads`; without it, the harness section of the version its Agent
+runs), named `name@version`, and says when the manifest has a newer version: an
+Agent keeps its version, and moves by a fork. **Deployed** shows where it runs (below).
+**Record** lists the session's files (its artifacts). **Events** is the session's
+event log; a workflow session adds **Progress** (its tree, live) and **Iterations**,
+and opens on Progress.
 **Usage** shows the session's recorded model usage (tokens in and out, cache reads
 and writes, reasoning tokens, cost and model calls) and each model call, read again
 when a turn ends. The header's inspector button hides the inspector and gives the
@@ -107,7 +112,7 @@ at the bottom of the sidebar. **New session** opens a session on the Agent picke
 (`PUT /v1/sessions/{id} { agent }`, owner `local-developer`); an Agent whose owner
 guard names another owner cannot be picked. An Agent's page has **New session** too.
 
-A session's **Agent** tab shows where it runs: its Agent (linked to its page), its
+A session's **Manifest** tab, under **Deployed**, shows where it runs: its Agent (linked to its page), its
 kind, state and compute, the manifest version the session opened on beside the one
 the Agent runs, the harness, sandbox and allowed hosts, what its MCP servers and
 HTTP tools get from the Agent's secrets
@@ -115,7 +120,9 @@ HTTP tools get from the Agent's secrets
 call that would fail), its latest disk version, the connections its sandbox opened
 while this session's turns ran, and the other sessions on it. It only reads: a
 reset, a restore or a secret change applies to every session on the Agent, so
-those stay on the Agent's page. `?inspector=environment` opens it too.
+those stay on the Agent's page. The tab names before the four tabs still open their
+place: `?inspector=agent` (or `environment`) opens Deployed, `artifacts` opens Record,
+and `tree` and `iterations` open Events' workflow views.
 
 Settings links use `/tenants/<id>/settings/overview` and `/settings/models`
 under the same Tenant prefix; a legacy `/settings` link redirects to Models.
@@ -179,7 +186,7 @@ Its tabs (`?tab=`):
   compute, the manifest version it runs, and its use, as fields, with its runtime
   as JSON.
 - **Sessions**: the sessions on it, by last activity, each linked to its page and
-  Outputs; none is marked special.
+  its files; none is marked special.
 - **Secrets**: its vault, through the Runtime API
   (`PUT|DELETE /v1/agents/{id}/secrets/{name}`): a Bearer token or a Headers map
   (name and value rows) bound to a URL, with an optional gateway URL (`via`) and
@@ -229,7 +236,7 @@ Old links redirect, including in embeds: `/environments/<id>` and
 
 ## Artifacts
 
-Artifacts open from where they belong: a session's Outputs tab, an
+Artifacts open from where they belong: a session's Record tab, an
 Agent's Disk tab, or its Setup & files tab; the sidebar has no entry for
 them. `/artifacts` is every artifact the Tenant holds, newest first, 50 at a
 time with **Load more** (`GET /v1/artifacts?limit=50`, Host feature

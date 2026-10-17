@@ -1,7 +1,7 @@
 /**
- * The Manifest tab's view of what a session runs: the loop manifest it pinned (its Agent's agent
- * manifest version's harness section, flat), with the agent's instructions, tools, skills and MCP
- * servers, each skill and server with the plugin that brought it. The harness adds the sandbox
+ * The Manifest tab's Declared view of what a session runs: the loop manifest it pinned (its
+ * Agent's agent manifest version's harness section, flat), with the agent's instructions, tools,
+ * skills and MCP servers, each skill and server with the plugin that brought it. The harness adds the sandbox
  * and skill tools and their text when it runs a turn. Pure, so `scripts/manifest-model.test.mjs` runs it without a
  * browser.
  */

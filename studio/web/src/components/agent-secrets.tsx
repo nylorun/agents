@@ -590,7 +590,7 @@ export function AgentSecrets({
             sandbox.
           </p>
           <p>
-            What its servers and tools get is listed above, and on each session's Agent tab.
+            What its servers and tools get is listed above, and on each session's Manifest tab, under Deployed.
             Model-provider credentials are managed in Settings, under Models.
           </p>
           <a

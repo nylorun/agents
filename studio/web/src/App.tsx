@@ -100,6 +100,13 @@ import type { PinnedManifestState } from "@/manifest/model";
 import { ApprovalCard } from "@/components/approval-card";
 import { Markdown } from "@/components/markdown";
 import { pendingApprovals } from "@/approvals";
+import {
+  defaultEventsView,
+  inspectorPlace,
+  type EventsTabView,
+  type InspectorTab,
+  type ManifestTabView,
+} from "@/inspector-tabs";
 import type { AgentManifest, Connection } from "@/studio-types";
 import {
   isWorkflowManifest,
@@ -148,16 +155,6 @@ const pretty = (value: unknown) =>
 const code =
   "rounded bg-muted px-1.5 py-0.5 font-mono text-sm text-foreground";
 
-/** The tabs beside a session's chat; `artifacts` is the Outputs tab, `agent` where it runs. */
-type InspectorTab =
-  | "events"
-  | "manifest"
-  | "tree"
-  | "iterations"
-  | "artifacts"
-  | "agent"
-  | "usage";
-
 /** Where Studio remembers whether the session inspector is shown. */
 const INSPECTOR_STORAGE_KEY = "nylorun.studio.inspector";
 
@@ -192,6 +189,30 @@ function MessageTime({ value }: { value: string }) {
 
 const tabTrigger =
   "border-b-2 border-transparent px-0 pb-3 text-sm font-medium text-muted-foreground outline-none transition-colors hover:text-foreground data-[state=active]:border-primary data-[state=active]:text-foreground";
+
+/** A view switch inside an inspector tab: a segmented control, the active view raised. */
+function InspectorViews({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex h-12 shrink-0 items-center border-b px-4">
+      <TabsPrimitive.List aria-label={label} className="inline-flex gap-0.5 rounded-lg bg-muted p-0.5">
+        {children}
+      </TabsPrimitive.List>
+    </div>
+  );
+}
+
+function InspectorView({ value, children }: { value: string; children: ReactNode }) {
+  return (
+    <TabsPrimitive.Trigger
+      value={value}
+      className="rounded-md px-3 py-1 text-sm font-medium text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm"
+    >
+      {children}
+    </TabsPrimitive.Trigger>
+  );
+}
+
+const inspectorPanel = "flex min-h-0 flex-1 flex-col overflow-hidden outline-none";
 
 /**
  * Studio serves its installation's one Tenant. `/tenants/<id>/…` is its
@@ -855,7 +876,9 @@ function SessionView({
   const [status, setStatus] = useState("loading");
   const [error, setError] = useState("");
   const [sending, setSending] = useState(false);
-  const [activeTab, setActiveTab] = useState<InspectorTab>(isWorkflow ? "tree" : "events");
+  const [activeTab, setActiveTab] = useState<InspectorTab>("events");
+  const [manifestView, setManifestView] = useState<ManifestTabView>("declared");
+  const [eventsView, setEventsView] = useState<EventsTabView>(defaultEventsView(isWorkflow));
   const [selectedEvent, setSelectedEvent] = useState<StudioEvent | undefined>();
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [inspectorShown, setInspectorShown] = useState(inspectorShownAtFirst);
@@ -872,25 +895,16 @@ function SessionView({
   const workflowLink = lookupWorkflowLink(sessionId);
   const [sessionQuery, setSessionQuery] = useSearchParams();
   useEffect(() => {
-    const asked = sessionQuery.get("inspector");
-    // `environment` named the session's Environment tab before protocol 16.
-    const tab = asked === "environment" ? "agent" : asked;
-    setActiveTab(
-      tab === "artifacts" ||
-        tab === "events" ||
-        tab === "agent" ||
-        tab === "manifest" ||
-        tab === "usage" ||
-        (isWorkflow && (tab === "tree" || tab === "iterations"))
-        ? tab
-        : isWorkflow
-          ? "tree"
-          : "events",
-    );
+    const place = inspectorPlace(sessionQuery.get("inspector"), sessionQuery.get("view"), isWorkflow);
+    setActiveTab(place.tab);
+    // The other tab keeps the view it was left on.
+    if (place.tab === "manifest") setManifestView(place.manifestView);
+    if (place.tab === "events") setEventsView(place.eventsView);
   }, [sessionQuery, isWorkflow]);
   function openArtifact(id: string, version: number) {
     const query = new URLSearchParams(sessionQuery);
-    query.set("inspector", "artifacts");
+    query.set("inspector", "record");
+    query.delete("view");
     query.set("artifact", id);
     query.set("artifactVersion", String(version));
     query.set("artifactTab", "preview");
@@ -1058,13 +1072,30 @@ function SessionView({
     setSelectedEvent(event);
     setDetailsOpen(true);
   };
+  const showInspector = (tab: InspectorTab, view?: string): void => {
+    const query = new URLSearchParams(sessionQuery);
+    query.set("inspector", tab);
+    if (view) query.set("view", view);
+    else query.delete("view");
+    setSessionQuery(query);
+  };
   const changeTab = (value: string): void => {
     const nextTab = value as InspectorTab;
     setActiveTab(nextTab);
-    const query = new URLSearchParams(sessionQuery);
-    query.set("inspector", nextTab);
-    setSessionQuery(query);
+    // A tab opens on the view it was left on.
+    showInspector(
+      nextTab,
+      nextTab === "manifest" ? manifestView : nextTab === "events" ? eventsView : undefined,
+    );
     if (nextTab !== "events") setDetailsOpen(false);
+  };
+  const changeManifestView = (value: string): void => {
+    setManifestView(value as ManifestTabView);
+    showInspector("manifest", value);
+  };
+  const changeEventsView = (value: string): void => {
+    setEventsView(value as EventsTabView);
+    showInspector("events", value);
   };
   const showDetails =
     inspectorShown && activeTab === "events" && detailsOpen && selectedEvent !== undefined;
@@ -1082,6 +1113,7 @@ function SessionView({
 
   // Newest-first in the Events table; chat stays chronological.
   const chatEvents = chronological;
+  const eventLog = <EventTable events={events} selected={selectedEvent} onSelect={openEvent} />;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -1333,119 +1365,97 @@ function SessionView({
         >
           <div className="flex h-12 shrink-0 items-end border-b bg-background px-4">
             <TabsPrimitive.List className="flex h-full items-end gap-5 overflow-x-auto">
-              {workflowManifest ? (
-                <>
-                  <TabsPrimitive.Trigger
-                    value="tree"
-                    className={tabTrigger}
-                  >
-                    Tree
-                  </TabsPrimitive.Trigger>
-                  <TabsPrimitive.Trigger
-                    value="iterations"
-                    className={tabTrigger}
-                  >
-                    Iterations
-                  </TabsPrimitive.Trigger>
-                </>
-              ) : null}
-              <TabsPrimitive.Trigger
-                value="events"
-                className={tabTrigger}
-              >
+              <TabsPrimitive.Trigger value="manifest" className={tabTrigger}>
+                Manifest
+              </TabsPrimitive.Trigger>
+              <TabsPrimitive.Trigger value="record" className={tabTrigger}>
+                Record
+              </TabsPrimitive.Trigger>
+              <TabsPrimitive.Trigger value="events" className={tabTrigger}>
                 Events
-              </TabsPrimitive.Trigger>
-              <TabsPrimitive.Trigger
-                value="manifest"
-                className={tabTrigger}
-              >
-                {workflowManifest ? "Workflow" : "Manifest"}
-              </TabsPrimitive.Trigger>
-              <TabsPrimitive.Trigger value="agent" className={tabTrigger}>
-                Agent
-              </TabsPrimitive.Trigger>
-              <TabsPrimitive.Trigger value="artifacts" className={tabTrigger}>
-                Outputs
               </TabsPrimitive.Trigger>
               <TabsPrimitive.Trigger value="usage" className={tabTrigger}>
                 Usage
               </TabsPrimitive.Trigger>
             </TabsPrimitive.List>
           </div>
-          {tree ? (
-            <TabsPrimitive.Content
-              value="tree"
-              className="flex min-h-0 flex-1 flex-col overflow-hidden outline-none"
+          <TabsPrimitive.Content value="manifest" className={inspectorPanel}>
+            <TabsPrimitive.Root
+              value={manifestView}
+              onValueChange={changeManifestView}
+              className="flex min-h-0 flex-1 flex-col overflow-hidden"
             >
-              <WorkflowTree
-                root={tree}
-                liveByPath={liveByPath}
-                selectedPath={selectedNode?.path}
-                onSelect={setSelectedNode}
-              />
-              {selectedNode ? (
-                <p className="shrink-0 border-t px-4 py-2 font-mono text-xs text-muted-foreground">
-                  {selectedNode.path}
-                  {selectedNode.kind === "item" || selectedNode.kind === "map"
-                    ? " · item drill-down"
-                    : ""}
-                  {liveByPath.get(selectedNode.path)?.agentSessionId
-                    ? ` · agent session ${liveByPath.get(selectedNode.path)?.agentSessionId}`
-                    : ""}
-                </p>
-              ) : null}
-            </TabsPrimitive.Content>
-          ) : null}
-          {workflowManifest ? (
-            <TabsPrimitive.Content
-              value="iterations"
-              className="flex min-h-0 flex-1 flex-col overflow-hidden outline-none"
-            >
-              <div className="flex h-12 shrink-0 items-center gap-3 border-b px-4">
-                <h2 className="text-sm font-medium">Iteration timeline</h2>
-              </div>
-              <IterationTimeline
-                rows={iterations}
-                selected={selectedIteration}
-                onSelect={setSelectedIteration}
-              />
-            </TabsPrimitive.Content>
-          ) : null}
-          <TabsPrimitive.Content
-            value="events"
-            className="flex min-h-0 flex-1 flex-col overflow-hidden outline-none"
-          >
-            <EventTable
-              events={events}
-              selected={selectedEvent}
-              onSelect={openEvent}
-            />
+              <InspectorViews label="Manifest views">
+                <InspectorView value="declared">Declared</InspectorView>
+                <InspectorView value="deployed">Deployed</InspectorView>
+              </InspectorViews>
+              <TabsPrimitive.Content value="declared" className={inspectorPanel}>
+                <AgentManifestPanel agent={agent} pinned={pinned} hasSandbox={hasSandbox} />
+              </TabsPrimitive.Content>
+              <TabsPrimitive.Content value="deployed" className={inspectorPanel}>
+                <SessionAgentPanel
+                  tenantId={tenantId}
+                  sessionId={sessionId}
+                  agentId={agentId}
+                  {...((pinned.kind === "pinned" || pinned.kind === "agent") && pinned.version
+                    ? { version: pinned.version }
+                    : {})}
+                />
+              </TabsPrimitive.Content>
+            </TabsPrimitive.Root>
           </TabsPrimitive.Content>
-          <TabsPrimitive.Content value="artifacts" className="flex min-h-0 flex-1 flex-col overflow-hidden outline-none">
+          <TabsPrimitive.Content value="record" className={inspectorPanel}>
             <SessionArtifacts
               tenantId={tenantId}
               sessionId={sessionId}
               revision={events.filter(e => e.type.startsWith("artifact.")).map(e => e.eventId).join("|")}
             />
           </TabsPrimitive.Content>
-          <TabsPrimitive.Content
-            value="agent"
-            className="flex min-h-0 flex-1 flex-col overflow-hidden outline-none"
-          >
-            <SessionAgentPanel
-              tenantId={tenantId}
-              sessionId={sessionId}
-              agentId={agentId}
-              {...((pinned.kind === "pinned" || pinned.kind === "agent") && pinned.version
-                ? { version: pinned.version }
-                : {})}
-            />
-          </TabsPrimitive.Content>
-          <TabsPrimitive.Content
-            value="manifest"
-            className="flex min-h-0 flex-1 flex-col overflow-hidden outline-none"
-          >
-            <AgentManifestPanel agent={agent} pinned={pinned} hasSandbox={hasSandbox} />
+          <TabsPrimitive.Content value="events" className={inspectorPanel}>
+            {tree ? (
+              <TabsPrimitive.Root
+                value={eventsView}
+                onValueChange={changeEventsView}
+                className="flex min-h-0 flex-1 flex-col overflow-hidden"
+              >
+                <InspectorViews label="Events views">
+                  <InspectorView value="progress">Progress</InspectorView>
+                  <InspectorView value="iterations">Iterations</InspectorView>
+                  <InspectorView value="log">Log</InspectorView>
+                </InspectorViews>
+                <TabsPrimitive.Content value="progress" className={inspectorPanel}>
+                  <WorkflowTree
+                    root={tree}
+                    liveByPath={liveByPath}
+                    selectedPath={selectedNode?.path}
+                    onSelect={setSelectedNode}
+                  />
+                  {selectedNode ? (
+                    <p className="shrink-0 border-t px-4 py-2 font-mono text-xs text-muted-foreground">
+                      {selectedNode.path}
+                      {selectedNode.kind === "item" || selectedNode.kind === "map"
+                        ? " · item drill-down"
+                        : ""}
+                      {liveByPath.get(selectedNode.path)?.agentSessionId
+                        ? ` · agent session ${liveByPath.get(selectedNode.path)?.agentSessionId}`
+                        : ""}
+                    </p>
+                  ) : null}
+                </TabsPrimitive.Content>
+                <TabsPrimitive.Content value="iterations" className={inspectorPanel}>
+                  <IterationTimeline
+                    rows={iterations}
+                    selected={selectedIteration}
+                    onSelect={setSelectedIteration}
+                  />
+                </TabsPrimitive.Content>
+                <TabsPrimitive.Content value="log" className={inspectorPanel}>
+                  {eventLog}
+                </TabsPrimitive.Content>
+              </TabsPrimitive.Root>
+            ) : (
+              eventLog
+            )}
           </TabsPrimitive.Content>
           <TabsPrimitive.Content
             value="usage"

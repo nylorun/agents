@@ -39,7 +39,7 @@ const date = (value: string) => new Date(value).toLocaleString();
 const size = (bytes: number) => `${bytes.toLocaleString()} bytes`;
 
 /**
- * The artifacts page, a session's Outputs tab and an Agent's Disk tab share one
+ * The artifacts page, a session's Record tab and an Agent's Disk tab share one
  * inspector, each with its own URL state.
  */
 export type ArtifactSelectionScope = "page" | "session" | "disk";
@@ -83,7 +83,7 @@ export function useArtifactSelection(scope: ArtifactSelectionScope = "page") {
       if (value === null) next.delete(field);
       else if (value !== undefined) next.set(field, value);
     }
-    if (scope === "session" && values.selected) next.set("inspector", "artifacts");
+    if (scope === "session" && values.selected) next.set("inspector", "record");
     if (scope === "disk" && values.selected) next.set("tab", "disk");
     setQuery(next, { replace });
   }
@@ -456,7 +456,7 @@ export function SessionArtifacts({
         sessionId={sessionId}
         selection={selection}
         revision={revision}
-        heading="Outputs"
+        heading="Files"
       />
       {selection.id ? (
         <div className="mt-4 border-t">

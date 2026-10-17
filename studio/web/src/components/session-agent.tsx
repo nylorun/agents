@@ -15,7 +15,7 @@ import { EgressRow, egressOf } from "@/components/agent-egress";
 import type { ManifestVersion as PinnedVersion } from "@/manifest/model";
 
 /**
- * A session's Agent tab: where the session runs. It shows the Agent (its state and compute),
+ * A session's Manifest tab, Deployed view: where the session runs. It shows the Agent (its state and compute),
  * the manifest version the session pinned when it opened, what its MCP servers and HTTP tools
  * get from the Agent's secrets, its disk, the connections its sandbox opened while this
  * session's turns ran, and the other sessions on it. It only reads: what changes an Agent (a

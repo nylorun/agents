@@ -151,7 +151,7 @@ test("Agents: the sidebar lists each Agent as a filter on the sessions, the list
     await page.getByText("Active turn: t9", { exact: true }).waitFor();
     await page.getByRole("link", { name: SESSION, exact: true }).click();
     await page.waitForURL(new RegExp(`/agents/team%2Fbuild/sessions/${SESSION}$`, "u"));
-    await page.getByRole("tab", { name: "Outputs", exact: true }).click();
+    await page.getByRole("tab", { name: "Record", exact: true }).click();
     await page.getByRole("button", { name: "report.html", exact: true }).click();
     await page.getByText("Report version 2", { exact: true }).waitFor();
     await page.getByRole("link", { name: `Agent: ${AGENT}`, exact: true }).click();
@@ -160,11 +160,13 @@ test("Agents: the sidebar lists each Agent as a filter on the sessions, the list
   });
 });
 
-test("a session's Agent tab shows where it runs: the version it opened on, coverage, disk and the other sessions", async () => {
+test("a session's Manifest tab, under Deployed, shows where it runs: the version it opened on, coverage, disk and the other sessions", async () => {
   await withStudio(async (page, base, requests) => {
+    // The Agent tab's link before the four tabs opens it.
     await page.goto(base + `/sessions/${SESSION}?inspector=agent`);
-    await page.getByRole("tab", { name: "Agent", exact: true, selected: true }).waitFor();
-    const panel = page.getByRole("tabpanel", { name: "Agent" });
+    await page.getByRole("tab", { name: "Manifest", exact: true, selected: true }).waitFor();
+    await page.getByRole("tab", { name: "Deployed", exact: true, selected: true }).waitFor();
+    const panel = page.getByRole("tabpanel", { name: "Deployed" });
     await panel.getByText("analyst-box v2", { exact: true }).waitFor();
     await panel.getByText("analyst-box@2", { exact: true }).waitFor();
     // The coverage its tools get from the Agent's vault.
@@ -183,8 +185,8 @@ test("a session's Agent tab shows where it runs: the version it opened on, cover
       assert.equal(await panel.getByRole("button", { name, exact: true }).count(), 0, name);
     // The tab the session's Environment had before protocol 16 opens it too.
     await page.goto(base + `/sessions/${SESSION}?inspector=environment`);
-    await page.getByRole("tab", { name: "Agent", exact: true, selected: true }).waitFor();
-    await page.getByRole("tabpanel", { name: "Agent" }).getByRole("link", { name: "Disk versions", exact: true }).click();
+    await page.getByRole("tab", { name: "Deployed", exact: true, selected: true }).waitFor();
+    await page.getByRole("tabpanel", { name: "Deployed" }).getByRole("link", { name: "Disk versions", exact: true }).click();
     await page.waitForURL(/\/agents\/team%2Fbuild\?tab=disk$/u);
     await page.getByRole("tab", { name: "Disk", exact: true, selected: true }).waitFor();
   });
@@ -545,7 +547,7 @@ test("an exact-version event opens the session artifact inspector, including thr
       .first()
       .click();
     await page
-      .getByRole("tab", { name: "Outputs", exact: true, selected: true })
+      .getByRole("tab", { name: "Record", exact: true, selected: true })
       .waitFor();
     await page.locator("pre", { hasText: "Report version 1" }).waitFor();
   });
