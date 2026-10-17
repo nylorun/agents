@@ -1,5 +1,24 @@
 # @nylorun/agents
 
+## 0.25.0-beta
+
+### Minor Changes
+
+- ed08ba8: `agentManifests.save({ agent, runtime, memory })` turns on a built agent's memory (`harness.memory`, `{ access?, instructions? }`), and a skill folder's `SKILL.md` may list the secret slots its scripts read in its frontmatter (`secrets: [GH_TOKEN]`): `.skills()`, `.plugin()` and `composeManifest` make them the skill's `secrets` in the harness section, which the Runtime checks against `runtime.secrets` at save. A `secrets` that is not a list of environment variable names skips the skill with a warning.
+- eeb6294: Session usage as one ledger (protocol 18). The usage ledger keeps each model call's cost by token kind (uncached input, cache read, cache write, output) at the prices the adapter applied (migration 0037). For a protocol 18 client, `GET /v1/sessions/{id}/calls/model` returns each call's `startedAt`, `endedAt` and `usage.costSplit` (null for a call recorded before), and `GET /v1/sessions/{id}/usage` adds `costSplit` with `splitCalls`, and the calls' durations added up as `modelTimeMs` with `timedCalls`. A protocol 16 or 17 client reads usage as before. Studio's Usage tab is rebuilt on them: a Session card with one tokens bar and a ledger of tokens and cost by kind adding up to a total row, then the model calls grouped by turn with the same columns (cached, uncached, output, total, time, cost), and a row menu whose View event opens the call's event in the Events tab.
+
+### Patch Changes
+
+- ed08ba8: `composeManifest(dir)`, and so `nylorun apply`, keep a `harness.manifest.json`'s `memory`: the composed harness section turned the Agent's memory on only when the manifest was saved as one document.
+- ed08ba8: Public text names no internal roadmap codes: the OpenAPI documents' descriptions, the type comments of `@nylorun/core`, `@nylorun/agents` and `@nylorun/admin`, and the CLI's help, README and generated compose file. A Runtime test fails when either OpenAPI document names one.
+- Pin core to the tested release.
+- Updated dependencies [ed08ba8]
+- Updated dependencies [ed08ba8]
+- Updated dependencies [ed08ba8]
+- Updated dependencies [eeb6294]
+- Updated dependencies [ed08ba8]
+  - @nylorun/core@0.25.0-beta
+
 ## 0.24.0-beta
 
 ### Minor Changes

@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.28.0-beta
+
+### Minor Changes
+
+- eeb6294: Session usage as one ledger (protocol 18). The usage ledger keeps each model call's cost by token kind (uncached input, cache read, cache write, output) at the prices the adapter applied (migration 0037). For a protocol 18 client, `GET /v1/sessions/{id}/calls/model` returns each call's `startedAt`, `endedAt` and `usage.costSplit` (null for a call recorded before), and `GET /v1/sessions/{id}/usage` adds `costSplit` with `splitCalls`, and the calls' durations added up as `modelTimeMs` with `timedCalls`. A protocol 16 or 17 client reads usage as before. Studio's Usage tab is rebuilt on them: a Session card with one tokens bar and a ledger of tokens and cost by kind adding up to a total row, then the model calls grouped by turn with the same columns (cached, uncached, output, total, time, cost), and a row menu whose View event opens the call's event in the Events tab.
+- 8a1d186: A simpler Studio sidebar. Agents is one flat list, one row per Agent with its state's dot, and a count only when its sessions wait on a person or fail. Agents opens every session, and an Agent filters the session table to its own sessions, as the table's Agent filter does. The table links to the Agent's page (Agent details) or, unfiltered, to the Agents list (Manage Agents). The Sessions entry and the manifest rows under Agents are gone; Manifests and Models sit under Configure at the foot of the sidebar, and New session lists the Agents without grouping them by manifest.
+- 524f648: A session's inspector has four tabs, one per kind of data and the same for agent and workflow sessions: **Manifest** (what the agent is), **Record** (what the session holds), **Events** (what happened) and **Usage** (what it cost). Manifest's two views are **Declared**, the manifest the session pinned (the old Manifest tab, also for a workflow), and **Deployed**, where it runs (the old Agent tab). Record holds the session's artifacts (the Artifacts tab, earlier Outputs). A workflow's Tree and Iterations tabs are Events' **Progress** and **Iterations** views, beside **Log**; a workflow session opens on Progress. `?view=` names a tab's view, and the old `?inspector=` values (`agent`, `environment`, `artifacts`, `tree`, `iterations`) still open their place.
+
+### Patch Changes
+
+- ec1b546: Studio's message box inserts the text a paste carries instead of letting the browser read the clipboard again. Dictation tools that paste and then put the clipboard back (Wispr Flow in Chrome) lost that race after the first message: nothing went in, or the clipboard's earlier text did.
+- bf68ad2: A session's Outputs tab is now Artifacts, since it also holds the files a client uploads. It lists each artifact as a row (type, a version badge past v1, time) and opens one in place of the list, with a way back and the previous or next artifact, so its preview is no longer pushed below the list. The inspector puts the preview first under a one-line summary (type, size, source, time) and folds the IDs, owner and hash into Details; its refresh buttons are icons.
+- ed08ba8: Restart on vN and Retry vN work again. Studio's proxy forwards `POST /v1/agents/{id}/restart` (with `retry`) to the Runtime, as it forwards stop and reset, instead of answering `404 Unsupported Studio operation`.
+- Pin agents to the tested release.
+- Pin admin to the tested release.
+- Updated dependencies [ed08ba8]
+- Updated dependencies [ed08ba8]
+- Updated dependencies [ed08ba8]
+- Updated dependencies [eeb6294]
+- Updated dependencies
+- Updated dependencies
+  - @nylorun/agents@0.25.0-beta
+  - @nylorun/admin@0.19.1-beta
+
 ## 0.27.0-beta
 
 ### Minor Changes

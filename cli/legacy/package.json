@@ -1,6 +1,6 @@
 {
   "name": "@nylorun/cli",
-  "version": "0.16.3-beta",
+  "version": "0.16.4-beta",
   "type": "module",
   "license": "Apache-2.0",
   "description": "Deprecated: nylo ships in the nylorun package. This package runs nylorun's nylo until nylorun 0.19, which removes both.",
@@ -30,7 +30,7 @@
     "prepack": "npm run build"
   },
   "dependencies": {
-    "nylorun": "0.17.0-beta"
+    "nylorun": "0.18.0-beta"
   },
   "devDependencies": {
     "typescript": "npm:@typescript/typescript6@^6.0.2",

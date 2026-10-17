@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.16.1-beta
+
+### Patch Changes
+
+- ed08ba8: The starter's `npm run dev` no longer passes `--dev`, which `src/main.ts` stopped reading when the Agent began tracking its manifest, and its README empties the Tenant with `npx nylorun tenant reset --all` instead of `npx -p nylorun nylo reset --all`, which exits 2.
+- Update the tested Harness, SDK, Admin and Runtime compatibility combination.
+
 ## 0.16.0-beta
 
 ### Minor Changes

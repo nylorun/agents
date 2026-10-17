@@ -1,5 +1,23 @@
 # @nylorun/cli
 
+## 0.16.4-beta
+
+### Patch Changes
+
+- ed08ba8: `nylo` and the deprecated `@nylorun/cli` name the release that removes them, nylorun 0.19, where they said "one release": `nylo`'s message ends "nylorun 0.19 removes nylo.", and `@nylorun/cli`'s stderr line, description and README say nylorun 0.19 removes both.
+- Pin nylorun to the tested release.
+- Updated dependencies [ed08ba8]
+- Updated dependencies [ed08ba8]
+- Updated dependencies [ed08ba8]
+- Updated dependencies [ed08ba8]
+- Updated dependencies [eeb6294]
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+  - nylorun@0.18.0-beta
+
 ## 0.16.3-beta
 
 ### Patch Changes

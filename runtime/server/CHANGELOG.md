@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.29.0-beta
+
+### Minor Changes
+
+- eeb6294: Session usage as one ledger (protocol 18). The usage ledger keeps each model call's cost by token kind (uncached input, cache read, cache write, output) at the prices the adapter applied (migration 0037). For a protocol 18 client, `GET /v1/sessions/{id}/calls/model` returns each call's `startedAt`, `endedAt` and `usage.costSplit` (null for a call recorded before), and `GET /v1/sessions/{id}/usage` adds `costSplit` with `splitCalls`, and the calls' durations added up as `modelTimeMs` with `timedCalls`. A protocol 16 or 17 client reads usage as before. Studio's Usage tab is rebuilt on them: a Session card with one tokens bar and a ledger of tokens and cost by kind adding up to a total row, then the model calls grouped by turn with the same columns (cached, uncached, output, total, time, cost), and a row menu whose View event opens the call's event in the Events tab.
+
+### Patch Changes
+
+- ed08ba8: Credential failures name the session's Agent, not its Environment: an HTTP tool's `http.credential` failure says "The session's Agent holds no credential '…' for …", and an MCP server's `credential_rejected` says the credential came from, or is missing in, the session's Agent.
+- ed08ba8: A flow's HTTP stage or HTTP verifier, and an HTTP tool of an agent the harness section embeds (a flow's `agents`, or an agent used as a tool), now has its `credential` checked when the manifest is saved, as an agent's own HTTP tool has: it must name a `bearer` or `headers` slot of `runtime.secrets` bound to its URL, or the save is `422 manifest_inconsistent` naming it (`harness.root stage "refund" http.credential "checks" is not a secret slot in runtime.secrets`). Before, such a manifest saved and each call failed at run time with `http.credential`.
+- ed08ba8: The Runtime API's Agent manifests tag no longer says a save changes no Agent: a save moves every Agent that tracks the manifest to the new version, and a pinned one stays.
+- ed08ba8: Public text names no internal roadmap codes: the OpenAPI documents' descriptions, the type comments of `@nylorun/core`, `@nylorun/agents` and `@nylorun/admin`, and the CLI's help, README and generated compose file. A Runtime test fails when either OpenAPI document names one.
+- ed08ba8: Webhook URLs name the Runtime's public URL. A trigger's `webhookUrl` is at `NYLORUN_PUBLIC_URL`, else the origin the request reached, so behind a reverse proxy that rewrites `Host` to `localhost:<port>` it is the proxy's URL, not `http://localhost:<port>`; the Runtime API's `401` challenges name it too. `nylorun start` passes `NYLORUN_PUBLIC_URL` from its shell to the runtime container (default `http://localhost:<port>`).
+- ed08ba8: The tool policy's documentation matches how rules match: `tool` is the tool's identity (an MCP tool's own name on its `server`, or an HTTP tool's declared name), never the model-facing `server__tool`, which is refused; `agent` is the agent manifest's name, or the id of an agent used as a tool or of a flow's agent. `PUT /v1/tenant/tool-policy` describes each selector, and `GET` documents its `409` for a stored rule it cannot apply.
+- ed08ba8: `POST /v1/webhooks/{endpointId}` takes no credential and ignores one that is sent: a delivery with an `Authorization` header is no longer checked against the Tenant's keys, since its Standard Webhooks signature is its grant. The OpenAPI document says so: `security: []`, no `Nylorun-*` headers, and `webhook-id`, `webhook-timestamp` and `webhook-signature` required.
+- Pin core to the tested release.
+- Pin harness to the tested release.
+- Updated dependencies [ed08ba8]
+- Updated dependencies [ed08ba8]
+- Updated dependencies [ed08ba8]
+- Updated dependencies [eeb6294]
+- Updated dependencies [ed08ba8]
+- Updated dependencies
+  - @nylorun/core@0.25.0-beta
+  - @nylorun/harness@0.29.1-beta
+
 ## 0.28.0-beta
 
 ### Minor Changes
