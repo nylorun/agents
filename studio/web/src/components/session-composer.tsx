@@ -128,9 +128,24 @@ export function SessionComposer({
 
   function onPaste(event: ClipboardEvent<HTMLTextAreaElement>) {
     const files = event.clipboardData.files;
-    if (files.length === 0) return;
+    if (files.length > 0) {
+      event.preventDefault();
+      attach(files);
+      return;
+    }
+    // The box inserts the text the paste carries. Left to itself, Chrome reads
+    // the clipboard again to insert, and dictation tools that paste and then put
+    // back what the clipboard held (Wispr Flow) lose that race: nothing goes in,
+    // or the clipboard's earlier text does.
+    const text = event.clipboardData.getData("text/plain");
+    if (disabled || !text) return;
     event.preventDefault();
-    attach(files);
+    // insertText keeps the browser's undo and fires the input event React reads.
+    if (!document.execCommand("insertText", false, text)) {
+      const element = event.currentTarget;
+      element.setRangeText(text, element.selectionStart, element.selectionEnd, "end");
+      onChange(element.value);
+    }
   }
 
   const carriesFiles = (event: DragEvent) => event.dataTransfer.types.includes("Files");
