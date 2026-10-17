@@ -102,7 +102,12 @@ const analystBox = (version: number) => ({
       instructions: ["Analyse the data."],
       mcpServers: { github: { name: "github", type: "streamable-http", url: "https://api.githubcopilot.com/mcp/" } },
     },
-    runtime: { kind: "virtual", network: { allowedHosts: ["pypi.org"] }, lifecycle: { idle: "15m" } },
+    runtime: {
+      kind: "virtual",
+      network: { allowedHosts: ["pypi.org"] },
+      lifecycle: { idle: "15m" },
+      triggers: { "weekly-kpi": { schedule: "0 8 * * 1", timezone: "Europe/Berlin", session: "kpi", prompt: "Write the weekly KPI digest." } },
+    },
   },
   savedBy: { actor: "application" },
   createdAt: time,
@@ -194,6 +199,44 @@ const event = {
   payload: { artifactId: file.artifactId, version: 1, name: file.name },
 };
 
+const trigger = (status: string) => ({
+  id: "weekly-kpi",
+  kind: "schedule",
+  status,
+  pausedReason: status === "paused" ? "manual" : null,
+  schedule: "0 8 * * 1",
+  timezone: "Europe/Berlin",
+  session: "kpi",
+  nextRunAt: status === "active" ? "2026-10-12T06:00:00.000Z" : null,
+  lastRunAt: time,
+});
+const run = {
+  id: "run-1",
+  triggerId: "weekly-kpi",
+  kind: "schedule",
+  dueAt: time,
+  firedAt: time,
+  late: false,
+  status: "started",
+  reason: null,
+  sessionId: SESSION,
+  turnId: "t1",
+  queuedMessageId: null,
+};
+const memoryVersion = {
+  id: "mv1",
+  path: "conventions/release.md",
+  fromPath: null,
+  operation: "create",
+  bytes: 24,
+  contentSha256: "c".repeat(64),
+  actor: "agent:analyst-box@2",
+  sessionId: SESSION,
+  turnId: "t1",
+  triggerRunId: null,
+  createdAt: time,
+};
+
 /** `artifactReads: false`: a Host without artifact pages. */
 export async function resourceRuntime({ artifactReads = true } = {}) {
   const requests: {
@@ -203,6 +246,18 @@ export async function resourceRuntime({ artifactReads = true } = {}) {
     range?: string;
   }[] = [];
   let refreshes = 0;
+  let triggerStatus = "active";
+  let memories = [
+    {
+      path: "conventions/release.md",
+      bytes: 24,
+      contentSha256: "c".repeat(64),
+      description: "How releases are named",
+      version: 1,
+      updatedAt: time,
+      content: "Releases are named vN.\n",
+    },
+  ];
   const server = createServer(async (req, res) => {
     let raw = "";
     for await (const chunk of req) raw += chunk;
@@ -348,6 +403,28 @@ export async function resourceRuntime({ artifactReads = true } = {}) {
       });
     }
     if (/^\/v1\/agents\/[^/]+\/secrets$/.test(path)) return send(200, { secrets: [] });
+    if (path === "/v1/agents/team%2Fbuild/triggers")
+      return send(200, { triggers: [trigger(triggerStatus)] });
+    if (/^\/v1\/agents\/team%2Fbuild\/triggers\/weekly-kpi\/(?:pause|resume)$/.test(path) && req.method === "POST") {
+      triggerStatus = path.endsWith("/pause") ? "paused" : "active";
+      return send(200, { triggers: [trigger(triggerStatus)] });
+    }
+    if (path === "/v1/agents/team%2Fbuild/triggers/weekly-kpi/run" && req.method === "POST")
+      return send(200, { run: { ...run, id: "run-now", firedAt: "2026-10-11T00:00:00.000Z" } });
+    if (path === "/v1/agents/team%2Fbuild/runs") return send(200, { runs: [run], nextCursor: null });
+    if (path === "/v1/agents/team%2Fbuild/memories")
+      return send(200, { memories: memories.map(({ content: _, ...rest }) => rest), nextCursor: null });
+    if (/^\/v1\/agents\/team%2Fbuild\/memories\/[^/]+$/.test(path)) {
+      const found = memories.find((m) => m.path === decodeURIComponent(path.split("/")[5]!));
+      if (!found) return send(404, { code: "memory_not_found", message: "Memory not found" });
+      if (req.method === "DELETE") {
+        memories = memories.filter((m) => m !== found);
+        return send(200, { path: found.path, deleted: 1 });
+      }
+      return send(200, found);
+    }
+    if (path === "/v1/agents/team%2Fbuild/memory_versions")
+      return send(200, { versions: [memoryVersion], nextCursor: null });
     if (path === "/v1/agents/team%2Fbuild/events") {
       const seq = refreshes++;
       return send(200, {

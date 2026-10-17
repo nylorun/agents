@@ -491,6 +491,8 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
     reloadCatalog();
     await loadList();
   }, [reloadCatalog, loadList]);
+  // The header's Refresh: an open Agent's page reads itself and its open tab again.
+  const [revision, setRevision] = useState(0);
   useEffect(() => {
     void loadList();
   }, [loadList]);
@@ -554,11 +556,22 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
         <header className="flex h-14 shrink-0 items-center gap-2 border-b px-4">
           <SidebarTrigger />
           <Separator orientation="vertical" className="mr-1 data-[orientation=vertical]:h-5" />
+          {agent?.kind === "agent" ? (
+            <nav aria-label="Breadcrumb" className="flex min-w-0 shrink items-center gap-1.5 text-sm">
+              <Link to="/agents" className="shrink-0 text-muted-foreground hover:text-foreground">
+                Agents
+              </Link>
+              <span aria-hidden className="text-muted-foreground/60">
+                /
+              </span>
+              <strong className="truncate font-mono text-[13px]" aria-current="page">
+                {agent.id}
+              </strong>
+            </nav>
+          ) : (
           <strong className="max-w-64 shrink-0 truncate">
             {resourceActive === "agents"
-              ? agent?.kind === "agent"
-                ? "Agent"
-                : "Agents"
+              ? "Agents"
               : resourceActive === "manifests"
                 ? manifest?.kind === "manifest"
                   ? "Agent manifest"
@@ -571,6 +584,7 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
                       ? "Sessions"
                       : (agentId ?? "Nylorun Studio")}
           </strong>
+          )}
           <div ref={setHeaderStart} className="flex min-w-0 items-center gap-2 overflow-hidden" />
           {embedStatus === "reconnecting" || embedStatus === "failed" ? (
             <Badge variant="outline" role="status">
@@ -583,7 +597,10 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
             size="icon-sm"
             aria-label="Refresh"
             title="Refresh"
-            onClick={() => void refresh()}
+            onClick={() => {
+              setRevision((n) => n + 1);
+              void refresh();
+            }}
           >
             <RefreshCw />
           </Button>
@@ -611,6 +628,7 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
               tenantId={tenant.id}
               id={agent.id}
               sessions={connection.sessions}
+              revision={revision}
               onChanged={reloadCatalog}
             />
           ) : agent?.kind === "list" ? (

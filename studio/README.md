@@ -176,38 +176,60 @@ makes one from a saved manifest: the manifest, **Track the latest** or a version
 pin, its id, owner guard (`local-developer` by default) and labels
 (`PUT /v1/agents/{id} { manifest, owner?, labels? }`). Creating it opens no session.
 
-Each Agent's page is `/agents/<id>` (the id percent-encoded as one segment), with
-**New session**, **Edit labels and owner** (`PUT` with its manifest as it was made),
-**Fork** (**Fork to v<n>** when its manifest has a newer version), **Stop** and
-**Reset** for a pod, and **Delete**; confirmations name how many sessions run on it.
-Its tabs (`?tab=`):
+Each Agent's page is `/agents/<id>` (the id percent-encoded as one segment): an
+instance of one agent manifest version, with what it holds. Its header names that
+version (linked to it), whether it tracks the manifest or is pinned, its kind, owner
+guard and labels, with **New session** and a ⋯ menu: **Edit labels and owner** (`PUT`
+with its manifest as it was made), **Stop compute** and **Reset disk** for a pod,
+**Fork into a new Agent** and **Delete Agent**; confirmations name how many sessions
+run on it. The app header's Refresh reads the page and its open tab again.
 
-- **Overview**: its state and what made it (each linked to its session), its
-  compute, the manifest version it runs, and its use, as fields, with its runtime
-  as JSON.
-- **Sessions**: the sessions on it, by last activity, each linked to its page and
-  its artifacts; none is marked special.
-- **Secrets**: its vault, through the Runtime API
-  (`PUT|DELETE /v1/agents/{id}/secrets/{name}`): a Bearer token or a Headers map
-  (name and value rows) bound to a URL, with an optional gateway URL (`via`) and
-  identity header, or a shell secret or variable for skills' CLIs in its sandbox
-  (not offered for kind `none`). A `PUT` replaces the secret, so rotating sends the
-  whole credential again. **Preview tools** on a URL-bound one lists the MCP
-  server's tools behind it with the Agent's credential
-  (`POST /v1/tenant/mcp/preview { url, agentId }`, Management API). Below, the slots
-  its manifest declares (set, missing or not set) and what its tools get
-  (`credential-coverage`). Secret reads return names, types and bindings, never
-  values.
-- **Disk** (not for kind `none`): its disk versions, newest first. **Snapshot
-  disk** keeps one; **Restore** puts one back (a pod gets a new volume seeded
-  before the next turn); **Fork** makes a new Agent whose disk starts from that
-  version; **Delete** removes one; **Browse** opens the version in the artifact
-  inspector (files and changes), since the versions are versions of a folder
-  artifact the Agent owns.
-- **Setup & files**: a pod's input files (linked to the artifact) and setup
-  commands, run on a new disk; they never change.
-- **Events**: manually refreshed events: all, its lifecycle (`agent.*`), or the
-  connections its sandbox opened (`agent.egress`).
+Its tabs (`?tab=`) are one full-width table each, of single-line rows, with a search,
+filter menus and a count; a row's actions are behind its ⋯ and a row opens its
+details in a panel on the right. It opens on its sessions:
+
+- **Sessions**: the sessions on it, by last activity, filtered by who started them
+  and their status; a row opens the session. None is marked special.
+- **Triggers**: what starts its turns with no client connected
+  (`GET /v1/agents/{id}/triggers`): each trigger's schedule in words, the session its
+  runs go to, its next run and status, with **Run now**, **Pause**, **Resume** and
+  **Copy webhook URL** (`POST …/triggers/{id}/run|pause|resume`); its panel shows the
+  prompt its manifest version gives it. Below, every run, newest first
+  (`GET …/runs`), filtered by trigger and result.
+- **Artifacts**: what its sessions made, read one session at a time
+  (`GET /v1/artifacts?sessionId=…`), and the input files its runtime copies in,
+  filtered by source and session; a row opens the artifact inspector.
+- **Memory**: what it keeps across every session (`GET …/memories`), each memory
+  with its description, version and who changed it last (`GET …/memory_versions`),
+  filtered by who changed it; a row opens its content and history, and **Delete**
+  removes one (`DELETE …/memories/{path}`).
+- **Disk** (not for kind `none`): its disk versions, newest first. **Snapshot now**
+  (the toolbar's ⋯) keeps one; a row's **Restore** puts one back (a pod gets a new
+  volume seeded before the next turn), **Fork into a new Agent** makes one whose disk
+  starts from that version, **Delete** removes one, and **Browse** (or the row) opens
+  the version in the artifact inspector (files and changes), since the versions are
+  versions of a folder artifact the Agent owns.
+- **Activity**: its events, newest first, read on from the last one it holds: its
+  lifecycle (`agent.*`) and the connections its sandbox opened (`agent.egress`),
+  filtered by type and result; a row opens the event.
+- **Vault**: the slots its manifest version declares, each with its type, what in
+  the harness uses it and whether the vault holds a value. Everything but the value
+  is the manifest's, so **Set value** asks only for it (a token, a secret value, a
+  variable's value, or a headers slot's name and value rows) and sends
+  `PUT /v1/agents/{id}/secrets/{name} { value }` (or `{ headers }`); the panel shows
+  what the manifest says of the slot (its description, what uses it, where it is
+  sent and how, and whether it is required). A secret no slot declares can only be
+  deleted. Secret reads return names, types and bindings, never values.
+- **Manifest**: the version it runs as a readable spec, with an outline: its harness
+  section (instructions, tools, skills, MCP servers, memory), then its runtime section
+  (compute, lifecycle, network, setup and input files, vault slots, triggers,
+  limits), each item on one line with a quiet note of what it is now. A row opens its
+  part of the manifest as JSON. The ⋯ menu moves the Agent within its manifest
+  (**Pin**, **Track the manifest**, **Move to v<n>**, **Restart**, **Retry**), shows
+  the whole manifest, or opens all its versions.
+
+The tabs it had before still open their place: `?tab=overview` opens Sessions,
+`secrets` Vault, `setup` Manifest and `events` Activity.
 
 **Fork** (`POST /v1/agents/{id}/fork`) names the new Agent's id, the manifest
 (`name` for its latest, or `name@n`), where its disk starts (a snapshot now, a disk
@@ -231,13 +253,13 @@ repository and save its next version with `nylorun apply`.
 Old links redirect, including in embeds: `/environments/<id>` and
 `/environments?selected=<id>&tab=…` to the Agent's page, `/environments` to
 `/agents` (its filters kept), `/settings/credentials?environment=<id>` and
-`/vault?environment=<id>` to its Secrets tab (without one, to `/agents`), and
+`/vault?environment=<id>` to its Vault tab (without one, to `/agents`), and
 `/sandboxes` to `/agents`. Pages keep their selection and tabs in the URL.
 
 ## Artifacts
 
 Artifacts open from where they belong: a session's Record tab, an
-Agent's Disk tab, or its Setup & files tab; the sidebar has no entry for
+Agent's Artifacts and Disk tabs; the sidebar has no entry for
 them. `/artifacts` is every artifact the Tenant holds, newest first, 50 at a
 time with **Load more** (`GET /v1/artifacts?limit=50`, Host feature
 `artifact-reads`), filtered by kind, session and labels (`?kind=`,

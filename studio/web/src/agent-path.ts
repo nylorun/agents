@@ -8,14 +8,20 @@
  * `node --test` covers it.
  */
 
-/** The tabs of an Agent's page, in order. */
+/**
+ * The tabs of an Agent's page, in order: what it does (its sessions and the triggers that start
+ * them), what it keeps (artifacts, memory, disk), what happened (activity), and how it is set
+ * up (its vault, and the manifest version it is an instance of). It opens on its sessions.
+ */
 export const AGENT_TABS = [
-  "overview",
   "sessions",
-  "secrets",
+  "triggers",
+  "artifacts",
+  "memory",
   "disk",
-  "setup",
-  "events",
+  "activity",
+  "vault",
+  "manifest",
 ] as const;
 export type AgentTab = (typeof AGENT_TABS)[number];
 
@@ -23,10 +29,25 @@ export function isAgentTab(value: unknown): value is AgentTab {
   return AGENT_TABS.includes(value as AgentTab);
 }
 
-/** `/agents/<id>`, opened on `tab` (the overview when omitted). */
+/** Where each tab the page had before lives now: its overview opened the page. */
+const RENAMED_TABS: Readonly<Record<string, AgentTab>> = {
+  overview: "sessions",
+  details: "sessions",
+  secrets: "vault",
+  setup: "manifest",
+  events: "activity",
+};
+
+/** The tab `?tab=` names, an old name read as its new one; undefined for none or an unknown one. */
+export function agentTabOf(value: string | null): AgentTab | undefined {
+  if (value === null) return undefined;
+  return isAgentTab(value) ? value : RENAMED_TABS[value];
+}
+
+/** `/agents/<id>`, opened on `tab` (its sessions when omitted). */
 export function agentPath(id: string, tab?: AgentTab): string {
   const path = `/agents/${encodeURIComponent(id)}`;
-  return tab === undefined || tab === "overview" ? path : `${path}?tab=${tab}`;
+  return tab === undefined || tab === "sessions" ? path : `${path}?tab=${tab}`;
 }
 
 /** `/agent-manifests`, or one manifest's page, opened on `version` (its latest when omitted). */
@@ -69,8 +90,7 @@ export function manifestRoute(pathname: string): Route<"manifest"> {
 
 /** The tab an old `?tab=` names on an Agent's page. */
 function legacyTab(value: string | null): AgentTab | undefined {
-  if (value === "details") return undefined;
-  return isAgentTab(value) ? value : undefined;
+  return agentTabOf(value);
 }
 
 /**
@@ -78,7 +98,7 @@ function legacyTab(value: string | null): AgentTab | undefined {
  * is no old route:
  * - `/environments/<id>` → `/agents/<id>`, and `/environments?selected=<id>&tab=` → its tab
  * - `/environments` → `/agents` (its `manifest` and `label` filters kept)
- * - `/settings/credentials?environment=<id>` and `/vault?environment=<id>` → its Secrets tab
+ * - `/settings/credentials?environment=<id>` and `/vault?environment=<id>` → its Vault tab
  * - those without an Environment, and `/sandboxes` → `/agents`
  */
 export function legacyRedirect(pathname: string, search: string): string | undefined {
@@ -106,7 +126,7 @@ export function legacyRedirect(pathname: string, search: string): string | undef
   if (/^\/(?:settings\/credentials|vault)\/?$/u.test(pathname)) {
     const environment = query.get("environment");
     return environment
-      ? withQuery(agentPath(environment, "secrets"), rest(["environment"]))
+      ? withQuery(agentPath(environment, "vault"), rest(["environment"]))
       : withQuery("/agents", rest(["environment"]));
   }
   if (/^\/sandboxes\/?$/u.test(pathname)) return withQuery("/agents", query);
