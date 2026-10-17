@@ -1,5 +1,5 @@
 /**
- * Harness ids (track R4): the name a harness says in `hello`, an Environment's `harness`, and the
+ * Harness ids: the name a harness says in `hello`, an Environment's `harness`, and the
  * key of the Tenant's placement. A session runs the harness it pinned when it opened.
  */
 

@@ -40,11 +40,12 @@ that file.
 
 Which token:
 
-- A harness container uses its own token, made by the operator with
-  `nylorun-operate harness token put <id>` and bound to that harness id. Our harness uses
-  `NYLORUN_HARNESS_TOKEN`, bound to `nylorun`.
-- A harness in a pod sandbox holds no token: it joins (§9). A custom harness runs this way: an
-  agent manifest names it only with a pod runtime and its `image` ([Build your own harness](#build-your-own-harness)).
+- Our harness uses `NYLORUN_HARNESS_TOKEN`, bound to `nylorun`.
+- A harness in a pod sandbox holds no token: it joins (§9). A custom harness runs only this way:
+  an agent manifest names it only with a pod runtime and its `image` ([Build your own harness](#build-your-own-harness)).
+- `nylorun-operate harness token put <id>` still makes a token bound to another harness id, but
+  since protocol 16 a connection with one takes no runs: a custom harness's sessions run in their
+  Agent's pod, and only its host takes them (§2, §9).
 
 ## §2 Work: hello, lease, renew, release
 
@@ -110,6 +111,9 @@ Which token:
   `input` and `state`.
   - `input` is the turn's message: a string, `{text, metadata?}`, `{content, metadata?}`, or
     `{kind: "continue"}` for the next segment of a yielded turn.
+  - A turn that takes more than one message that waited in the session's queue (protocol 17)
+    starts from `{kind: "messages", messages: [...]}`, each one of the shapes a single message
+    has, in order. Write each as its own `input` transcript entry (§6).
   - `state` is yours, as your last output left it (§7).
 - `outcomes`: the completed outcomes of this segment, with their request hashes. Replay them
   without asking core again.
@@ -412,7 +416,7 @@ as `TranscriptUpdate`s, `{keep, entries, length}`, made with
 record entry limit, and an entry larger than it is an event of its own, which core refuses.
 Entries are one of five kinds (`TranscriptEntrySchema`):
 
-- `input`: the turn's input event;
+- `input`: the turn's input event, one per message for a turn that takes several (§3);
 - `candidate`: the model's answer, by `stepId`;
 - `tool-results`: the step's tool results;
 - `final`: the turn's output;
@@ -532,6 +536,8 @@ There are three numbers:
 
 v5's schemas are strict, and v5 is frozen: a change to a message is a new version. Core speaks
 one version: a harness that says `api: 4` is refused.
+
+Protocol 17 added one input shape within v5: `checkpoint.input` `{kind: "messages"}` (§3).
 
 What v5 changed (protocol 16, agents from one manifest):
 

@@ -8,11 +8,11 @@
     "admin": "0.19.0-beta",
     "core": "0.24.0-beta"
   },
-  "templateHash": "60e316fca211cefcc675f1c8d0685d469808756512538d810a008d2c2cc96a1e",
+  "templateHash": "2018f692ce3ee88d18f8039044e46db9d373bbc640c50299ecd0c490b4344f8e",
   "files": {
     ".env.example": "cdb5515339fc0de86e4a7c74ab3fae9c9372383033908b77c9e5c22ac6adc82d",
     ".gitignore": "35d28e69221a58d60f19655637c7d99310a6dd6e0fda5f51c544d876ad19a3a0",
-    "package.json": "803495c10f130b3674064755cc784fc5e8e2fc7d25fdc7c89f4e00ed51c02abe",
+    "package.json": "2658aa831b1de58bca178841d298c4719622f698c031f4568f129ffc599b747e",
     "runtime/scratch.runtime.json": "7c5ff586f41d5c33f0554c09f1eae4284fef1730ddcca5dcf21d003e89c0b82d",
     "src/index.ts": "d61a6b97f77f2f813384e82ded8f7a2905f98f2b75399b32510d6f266d057b8e",
     "src/main.ts": "2a8dcd88129c9d30a1570039bbb22e63d0ff11a3a00f1bfd05fa581990e65c32",

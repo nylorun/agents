@@ -25,7 +25,7 @@ export interface WorkflowErrorPayload {
  *
  * @deprecated Use the event catalog (`EVENT_CATALOG`, `SessionEventOf<"node.agent">` in
  * `@nylorun/core/contracts`): it types the events the Runtime writes. `node.completed` is
- * written for a flow's HTTP stages only (R7.1), with more fields; `node.failed`,
+ * written for a flow's HTTP stages only, with more fields; `node.failed`,
  * `switch.selected`, `map.items` and `loop.waiting` are not written.
  */
 export type WorkflowLiveEventPayload =

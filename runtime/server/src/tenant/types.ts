@@ -77,6 +77,11 @@ export interface TenantConfig {
    * the identity file (`NYLORUN_IDENTITY_FILE`). Absent: none.
    */
   issuers?: import("./issuers.js").TrustedIssuers;
+  /**
+   * The URL clients reach the Runtime API at (`NYLORUN_PUBLIC_URL`, no trailing slash): the base
+   * of webhook URLs and the OAuth resource. Absent: the origin each request reached.
+   */
+  publicUrl?: string;
   logger: Logger;
 }
 

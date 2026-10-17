@@ -150,6 +150,12 @@ package has no tarball there.
    its OpenAPI documents (`openapi.json`, `management-openapi.json`), taken from the
    tarball npm published; a rerun uploads only a missing one
    and never replaces one (`scripts/release/assets.mjs`).
+4. When the release publishes `@nylorun/cli`, deprecate it on npm: trusted
+   publishing (OIDC) cannot, and a newly published version is not deprecated.
+   An npm owner runs
+   `npm deprecate @nylorun/cli "nylo is part of nylorun, and nylorun 0.18 removes both. Run npx nylorun --help."`,
+   which marks every version; `npm view @nylorun/cli@beta deprecated` then
+   prints the message. nylorun 0.18 removes `nylo` and `@nylorun/cli`.
 
 The jobs run in this order:
 

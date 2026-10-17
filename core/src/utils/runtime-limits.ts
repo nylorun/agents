@@ -1,5 +1,5 @@
 /**
- * Runtime limits (harness boundary S0, B15): the sizes, counts and deadlines the Runtime holds
+ * Runtime limits: the sizes, counts and deadlines the Runtime holds
  * what crosses it to, one Tenant setting (`limits.config`, `GET`/`PUT /v1/tenant/limits`) with a
  * default each. A harness learns the ones it must respect from `turn.start.limits`
  * (`HarnessLimitsSchema`, a part of them).
@@ -92,7 +92,7 @@ const harnessLimits = {
 };
 
 /**
- * The Runtime limits: the harness's (above), and the ones only the Runtime checks (B15), by area.
+ * The Runtime limits: the harness's (above), and the ones only the Runtime checks, by area.
  *
  * Requests and uploads:
  * - `requestBodyBytes`: the largest JSON body a Runtime or Management API route reads.
@@ -162,7 +162,7 @@ const harnessLimits = {
  *   longest `reason` or `matches` expression.
  * - `modelBudgets`: the most model budgets the Tenant sets.
  *
- * Triggers (track T4, D74; checked when a manifest is saved, and when a trigger fires):
+ * Triggers (checked when a manifest is saved, and when a trigger fires):
  * - `triggersPerAgent`: the most triggers one agent manifest declares.
  * - `triggerMinIntervalMs`: the shortest gap between two runs of one schedule (cron is minute
  *   grained, so at least a minute), checked over its next fires at save.
@@ -172,13 +172,13 @@ const harnessLimits = {
  *   its runs, as a part of its interval and at most.
  * - `triggerPromptChars`: the longest prompt one trigger holds.
  * - `triggerRunRetentionMs`: how long runs are kept; they dedupe repeated fires, so at least a day.
- * - `wakeMaxAheadMs`: how far ahead `schedule_wake` may book a session's next turn (D77); at least
+ * - `wakeMaxAheadMs`: how far ahead `schedule_wake` may book a session's next turn; at least
  *   `triggerMinIntervalMs` ahead too. A long wait is armed in steps, so it has no timer ceiling.
  * - `wakeNoteChars`: the longest note a booked wake carries to its turn.
  * - `webhookBodyBytes`: the largest delivery a webhook endpoint reads, before it verifies it
  *   (`413` past it); the payload goes into the turn's message, one record entry.
  *
- * Memory (track T5, D72; checked on every write):
+ * Memory (checked on every write):
  * - `memoryBytes`: the largest memory, in UTF-8 bytes.
  * - `memoriesPerAgent`: the most memories one Agent holds.
  * - `memoryIndexLines`, `memoryIndexBytes`: the most lines and UTF-8 bytes of the index a session

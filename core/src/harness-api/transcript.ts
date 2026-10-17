@@ -1,5 +1,5 @@
 /**
- * Transcript edits (blueprint P0.3): a segment's transcript changes are recorded as
+ * Transcript edits: a segment's transcript changes are recorded as
  * `transcript.updated` events, each an edit of the transcript before it. Shared by core, which
  * records and folds them, and a harness, which computes them and keeps its cache with them.
  */

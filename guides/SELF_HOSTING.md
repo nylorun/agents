@@ -9,7 +9,8 @@ Read [DEPLOYMENT.md](./DEPLOYMENT.md) first: it covers the Tenant's containers, 
 in front of the Runtime, Postgres, the gateway and the harness. This guide covers who gets in
 and where credentials come from. [`examples/self-host`](../examples/self-host/README.md) runs
 all of it on one machine with Keycloak and oauth2-proxy, and checks
-it end to end. Upgrading from protocol 15:
+it end to end. Upgrading from protocol 16:
+[MIGRATION.md](./MIGRATION.md#a-queue-per-session-protocol-17); from protocol 15:
 [MIGRATION.md](./MIGRATION.md#agents-from-one-manifest-protocol-16-harness-api-5); from protocol 10:
 [MIGRATION.md](./MIGRATION.md#environments-replace-sandboxes-and-vaults-protocol-11-a-fresh-start);
 from protocol 7: [MIGRATION.md](./MIGRATION.md#runtime-and-management-apis-protocol-8); from an
@@ -68,7 +69,7 @@ Agents, sessions and artifacts) for apps and people, and the **Management API**
 application key sent with one (`403 origin_rejected`).
 
 **Browsers and apps** present the token your identity provider gave the person, with
-`Nylorun-Protocol: 16` (the Runtime serves 16 only). The Runtime verifies it against the identity file and takes the subject,
+`Nylorun-Protocol: 17` (the Runtime serves 16 and 17; the SDKs send 17). The Runtime verifies it against the identity file and takes the subject,
 scopes and Agent grants from it. Nylorun mints no token and ships no browser client:
 use your provider's SDK to sign in, and put the Runtime behind a reverse proxy that answers
 [CORS](#cors-at-your-proxy). An issuer's token cannot act for anyone else: with

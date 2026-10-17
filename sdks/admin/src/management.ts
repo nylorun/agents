@@ -119,7 +119,7 @@ export interface ManagementModels {
 
 export interface ManagementMcp {
   /**
-   * A remote MCP server's tools before an agent names it (R2b C12): the Runtime connects with
+   * A remote MCP server's tools before an agent names it: the Runtime connects with
    * the credential for `url` in the vault of Agent `agentId` (none without one), lists the
    * tools and closes; it never calls
    * one. Each tool has the name the model would call it, made with `name` (default: from the
@@ -184,7 +184,7 @@ export class ManagementClient {
   readonly coverage: (request: Body<CredentialCoverageRequest>) => Promise<CredentialCoverage>;
   readonly mcp: ManagementMcp;
   /**
-   * The rules the Tool Gate applies to every MCP and HTTP tool call (R5 step 2): `deny` refuses
+   * The rules the Tool Gate applies to every MCP and HTTP tool call: `deny` refuses
    * a call, `ask` holds it until a person approves it on the session, `allow` runs it.
    */
   readonly toolPolicy: {

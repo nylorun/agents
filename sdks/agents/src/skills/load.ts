@@ -16,6 +16,7 @@ import {
   skillFilePathIssue,
   type SkillFileSource,
 } from "@nylorun/core/define";
+import { ENVIRONMENT_NAME_PATTERN } from "@nylorun/core/contracts";
 import matter from "gray-matter";
 
 const SKILL_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -52,6 +53,11 @@ export class SkillsError extends Error {
 export interface LoadedSkill {
   readonly name: string;
   readonly description: string;
+  /**
+   * The `runtime.secrets` slots its scripts read (`environment_secret` or `environment_variable`),
+   * from its SKILL.md's frontmatter `secrets`: sorted, each once.
+   */
+  readonly secrets?: readonly string[];
   /** Every file of the folder by its `/`-separated path, as `sha256:<hex>`. */
   readonly files: Readonly<Record<string, string>>;
   /** Each file's bytes, by `sha256:<hex>`, for the client to upload. */
@@ -117,12 +123,12 @@ export function loadSkillsFromDirectory(
       });
       continue;
     }
-    const parsed = parseSkill(readFileSync(skillReal, "utf8"), entry.name);
-    if (!parsed) {
+    const parsed = readSkill(readFileSync(skillReal, "utf8"), entry.name);
+    if (typeof parsed === "string") {
       diagnostics.push({
         severity: "warning",
         code: `${prefix}.skill-skipped`,
-        message: `Skipped skill '${entry.name}' because SKILL.md is not a valid Agent Skill`,
+        message: `Skipped skill '${entry.name}' because SKILL.md ${parsed}`,
         path: skillFile,
       });
       continue;
@@ -139,30 +145,54 @@ export function loadSkillsFromDirectory(
     skills[parsed.name] = {
       name: parsed.name,
       description: parsed.description,
+      ...(parsed.secrets === undefined ? {} : { secrets: parsed.secrets }),
       ...readFiles(`skill '${parsed.name}'`, boundary, directoryReal, diagnostics, prefix),
     };
   }
   return skills;
 }
 
-export function parseSkill(
-  text: string,
-  directoryName: string
-): { name: string; description: string; instructions: string } | undefined {
+/** A SKILL.md's frontmatter and instructions: `secrets` lists the secret slots its scripts read. */
+export interface ParsedSkill {
+  name: string;
+  description: string;
+  secrets?: string[];
+  instructions: string;
+}
+
+export function parseSkill(text: string, directoryName: string): ParsedSkill | undefined {
+  const parsed = readSkill(text, directoryName);
+  return typeof parsed === "string" ? undefined : parsed;
+}
+
+const INVALID_SKILL = "is not a valid Agent Skill";
+
+/** The skill a SKILL.md declares, or why it declares none. */
+function readSkill(text: string, directoryName: string): ParsedSkill | string {
   let parsed: ReturnType<typeof matter>;
   try {
     parsed = matter(text);
   } catch {
-    return undefined;
+    return INVALID_SKILL;
   }
   const name = asTrimmedString(parsed.data.name);
   const description = asTrimmedString(parsed.data.description);
-  if (!name || !description || description.length > 1024) return undefined;
+  if (!name || !description || description.length > 1024) return INVALID_SKILL;
   if (name.length > 64 || !SKILL_NAME.test(name) || name !== directoryName)
-    return undefined;
+    return INVALID_SKILL;
+  const secrets: unknown = parsed.data.secrets;
+  if (
+    secrets !== undefined &&
+    (!Array.isArray(secrets) ||
+      !secrets.every((item) => typeof item === "string" && ENVIRONMENT_NAME_PATTERN.test(item)))
+  )
+    return "has secrets that are not a list of environment variable names";
   return {
     name,
     description,
+    ...(secrets === undefined || secrets.length === 0
+      ? {}
+      : { secrets: [...new Set(secrets as string[])].sort() }),
     instructions: parsed.content.replace(/^\r?\n/, ""),
   };
 }

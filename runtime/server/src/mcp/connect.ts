@@ -194,7 +194,7 @@ export class McpCallFailed extends Error {
 export class CredentialRejected extends McpCallFailed {
   constructor(
     readonly server: string,
-    /** Whether a credential of the session's Environment was sent. */
+    /** Whether a credential of the session's Agent was sent. */
     readonly sent: boolean,
     /**
      * The answer's `WWW-Authenticate`, which may name the server's protected-resource metadata
@@ -205,8 +205,8 @@ export class CredentialRejected extends McpCallFailed {
     super({
       code: "credential_rejected",
       message: sent
-        ? `The MCP server '${server}' answered HTTP 401: it rejected the credential from the session's Environment`
-        : `The MCP server '${server}' answered HTTP 401: it needs a credential, and the session's Environment holds none for it`,
+        ? `The MCP server '${server}' answered HTTP 401: it rejected the credential from the session's Agent`
+        : `The MCP server '${server}' answered HTTP 401: it needs a credential, and the session's Agent holds none for it`,
       sent: true,
       retryable: false,
       server,

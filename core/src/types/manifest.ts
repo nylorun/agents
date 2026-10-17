@@ -14,8 +14,8 @@ export interface PluginLabel {
 }
 
 /**
- * Whether each call waits for a person's approval, in a manifest saved before R5 step 2 (the
- * Tool Gate holds such a call). New definitions use the Tenant's tool policy instead.
+ * Whether each call waits for a person's approval, in a manifest saved before the Tenant's tool
+ * policy (the Tool Gate holds such a call). New definitions use the Tenant's tool policy instead.
  */
 export type ApprovalMode = "never" | "always";
 
@@ -42,12 +42,16 @@ export interface HttpToolTarget {
   readonly method?: HttpToolMethod;
   /**
    * Adds a vault credential to each request, as for a remote MCP server: the credential in the
-   * vault of the session's Environment bound to `url` (a `bearer` token or a `headers` map, sent
-   * to its `via` when it has one, with its identity header). This name labels it in coverage.
+   * vault of the session's Agent bound to `url` (a `bearer` token or a `headers` map, sent to its
+   * `via` when it has one, with its identity header). In an agent manifest v8 it names a
+   * `runtime.secrets` slot, checked when the manifest is saved; it labels the tool in coverage.
    * When the vault holds none, the call fails with `http.credential` and is not sent.
    */
   readonly credential?: string;
-  /** How long the service may take to answer. Default 60000, at most 300000. */
+  /**
+   * How long the service may take to answer. Default 60000, at most the Tenant's Runtime limit
+   * `httpToolTimeoutMs` (`PUT /v1/tenant/limits`).
+   */
   readonly timeoutMs?: number;
 }
 
@@ -65,7 +69,7 @@ export interface ToolManifest {
   /** Present when the Runtime runs this tool as an HTTP request. Never with `agent`. */
   readonly http?: HttpToolTarget;
   /**
-   * @deprecated Removed in R5 step 2: the Runtime refuses a definition that sets it, and tool
+   * @deprecated Removed with the Tenant's tool policy: the Runtime refuses a definition that sets it, and tool
    * approvals are the Tenant's tool policy (`PUT /v1/tenant/tool-policy`). Read only from
    * manifests saved before, which the Tool Gate still holds for approval.
    */
@@ -86,17 +90,17 @@ export interface SkillManifest {
 }
 
 /**
- * One tool's settings on an MCP server (manifest v6, R2b C9). Each setting resolves from the
+ * One tool's settings on an MCP server (manifest v6). Each setting resolves from the
  * tool's own entry, then the `"*"` entry, then the server, then the default.
  */
 export interface McpToolSettings {
   /** `false`: the tool never reaches the model and cannot be called. Default `true`. */
   readonly enabled?: boolean;
-  /** @deprecated Removed in R5 step 2, as `ToolManifest.approval`; read only from older manifests. */
+  /** @deprecated Removed, as `ToolManifest.approval`; read only from older manifests. */
   readonly approval?: ApprovalMode;
   /**
    * `true`: the tool leaves the model's tool list; the model finds it with `tool_search` and runs
-   * it with `tool_call` (R2b C10). A hint the harness reads (`turn.start.mcp`): Nylorun's engine
+   * it with `tool_call`. A hint the harness reads (`turn.start.mcp`): Nylorun's engine
    * follows it, and without one defers when the agent's MCP tools would take more than a tenth of
    * the model's context window.
    */
@@ -107,12 +111,12 @@ interface McpServerFields {
   readonly name: string;
   readonly url: string;
   readonly headers?: Readonly<Record<string, string>>;
-  /** @deprecated Removed in R5 step 2, as `ToolManifest.approval`; read only from older manifests. */
+  /** @deprecated Removed, as `ToolManifest.approval`; read only from older manifests. */
   readonly approval?: ApprovalMode;
-  /** Defers every tool of the server, or none (manifest v6, R2b C10). Default: automatic. */
+  /** Defers every tool of the server, or none (manifest v6). Default: automatic. */
   readonly deferred?: boolean;
   /**
-   * Settings per tool (manifest v6, R2b C9), keyed by the server's own tool name (before C6
+   * Settings per tool (manifest v6), keyed by the server's own tool name (before
    * renaming), with `"*"` for every tool without an entry: `{"*": {enabled: false}}` and an
    * entry per wanted tool make an allowlist.
    */
@@ -162,11 +166,11 @@ export interface AgentManifest {
   readonly tools?: readonly ToolManifest[];
   readonly skills?: Readonly<Record<string, SkillManifest>>;
   readonly mcpServers?: Readonly<Record<string, McpServerManifest>>;
-  /** What the agent needs of its session's Environment, checked when a session opens (D65). */
+  /** What the agent needs of its session's Environment, checked when a session opens. */
   readonly requires?: AgentRequirements;
 }
 
-/** What an agent needs of the Environment its session opens on (protocol 14, D65). */
+/** What an agent needs of the Environment its session opens on (protocol 14). */
 export interface AgentRequirements {
   /** `any`: kind `virtual` or `pod`; `pod`: kind `pod`; `none`: nothing. */
   readonly sandbox?: "none" | "any" | "pod";
@@ -175,7 +179,7 @@ export interface AgentRequirements {
 }
 
 /**
- * Agent manifest v8 (protocol 16, track T2): one versioned document saved at
+ * Agent manifest v8 (protocol 16): one versioned document saved at
  * `/v1/agent-manifests/{name}`, with what runs inside the agent loop (`harness`) and what the
  * Runtime provides around it (`runtime`). An Agent is made from one version of it.
  */
@@ -217,12 +221,12 @@ export interface AgentHarnessSection {
   readonly outputSchema?: JsonObject;
   /** The harness's own settings: passed to it in `turn.start`, never read by the Runtime. */
   readonly loop?: JsonObject;
-  /** Turns on the Agent's memory (track T5, D72): Markdown files it keeps across sessions. */
+  /** Turns on the Agent's memory: Markdown files it keeps across sessions. */
   readonly memory?: AgentMemorySettings;
 }
 
 /**
- * `harness.memory` (track T5, D72): the Agent's memory, the same in every turn whoever starts it.
+ * `harness.memory`: the Agent's memory, the same in every turn whoever starts it.
  * `access` is `read_write` (the default) or `read_only`; `instructions` tell the model what this
  * agent should remember, after the engine's own memory rules.
  */

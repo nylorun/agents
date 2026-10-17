@@ -313,8 +313,8 @@ async function trace(deps: StackDeps, args: readonly string[]): Promise<number> 
 async function exec(deps: StackDeps, args: readonly string[]): Promise<number> {
   const usage = "nylorun sessions exec <id> [--timeout <s>] -- <command>...";
   const split = args.indexOf("--");
+  const flags = parseFlags(split < 0 ? args : args.slice(0, split), { values: ["--timeout"] }, usage);
   if (split < 0 || split === args.length - 1) throw usageError(`Usage: ${usage}`);
-  const flags = parseFlags(args.slice(0, split), { values: ["--timeout"] }, usage);
   const [id] = positional(flags, 1, usage);
   const timeout = integerFlag(flags, "--timeout");
   const command = args.slice(split + 1).join(" ");

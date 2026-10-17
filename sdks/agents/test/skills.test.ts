@@ -209,3 +209,26 @@ it("parses YAML frontmatter with gray-matter including quoted colons", () => {
     true
   );
 });
+
+it("reads the secret slots a skill's scripts read from its SKILL.md's frontmatter secrets", () => {
+  const root = catalog();
+  write(
+    root,
+    "open-pr/SKILL.md",
+    "---\nname: open-pr\ndescription: Open a pull request.\nsecrets: [GH_TOKEN, GH_HOST, GH_TOKEN]\n---\nRun gh.\n"
+  );
+  write(root, "triage/SKILL.md", "---\nname: triage\ndescription: Triage an issue.\n---\nOk.\n");
+  write(root, "bad/SKILL.md", "---\nname: bad\ndescription: Bad secrets.\nsecrets: gh-token\n---\nNo.\n");
+  const diagnostics: { code: string; message: string }[] = [];
+  const loaded = loadSkillsFromDirectory(root, diagnostics as never);
+  expect(loaded["open-pr"]!.secrets).toEqual(["GH_HOST", "GH_TOKEN"]);
+  expect(loaded.triage).not.toHaveProperty("secrets");
+  expect(loaded.bad).toBeUndefined();
+  expect(diagnostics.map((item) => item.message)).toEqual([
+    "Skipped skill 'bad' because SKILL.md has secrets that are not a list of environment variable names",
+  ]);
+  const part = skills(root);
+  expect(part.skillSecrets).toEqual({ "open-pr": ["GH_HOST", "GH_TOKEN"] });
+  // The v7 manifest's skills stay as they were: secrets belong to the harness section.
+  expect(part.skills!["open-pr"]).not.toHaveProperty("secrets");
+});

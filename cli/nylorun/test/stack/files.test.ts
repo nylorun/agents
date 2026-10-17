@@ -186,7 +186,7 @@ describe("compose.yaml", () => {
       "- ${NYLORUN_HOST_ROOT}/host-credentials.json:/run/nylorun/host-credentials.json:ro",
     );
     expect(compose).toContain("NYLORUN_STUDIO_PUBLIC_PORT: ${NYLORUN_STUDIO_PORT}");
-    expect(compose).toContain("NYLORUN_PUBLIC_URL: http://localhost:${NYLORUN_PORT}");
+    expect(compose).toContain("NYLORUN_PUBLIC_URL: ${NYLORUN_PUBLIC_URL:-http://localhost:${NYLORUN_PORT}}");
   });
 
   it("packs core and loop into runtime and the Model Gate into gateway (combined packing)", () => {

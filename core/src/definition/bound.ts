@@ -53,6 +53,8 @@ export interface DefinitionPart {
   readonly skills?: Readonly<Record<string, SkillManifest>>;
   /** Each skill file's bytes, by `sha256:<hex>`. Not a manifest field. */
   readonly skillFiles?: Readonly<Record<string, SkillFileSource>>;
+  /** The secret slots each skill's scripts read, by skill name. Not a manifest field. */
+  readonly skillSecrets?: Readonly<Record<string, readonly string[]>>;
   readonly mcpServers?: Readonly<Record<string, McpServerManifest>>;
   readonly sandbox?: SandboxManifest;
 }

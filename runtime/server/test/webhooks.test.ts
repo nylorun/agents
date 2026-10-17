@@ -72,14 +72,14 @@ async function call(method: string, path: string): Promise<{ status: number; bod
 /** A Standard Webhooks delivery to the endpoint, signed with `key` unless told otherwise. */
 async function deliver(
   body: string,
-  options: { id?: string; key?: string; timestamp?: number; signature?: string } = {},
+  options: { id?: string; key?: string; timestamp?: number; signature?: string; headers?: Record<string, string> } = {},
 ): Promise<{ status: number; body: any }> {
   const id = options.id ?? `msg_${Math.random().toString(36).slice(2)}`;
   const timestamp = String(options.timestamp ?? Math.floor(Date.now() / 1000));
   const signature = options.signature ?? `v1,${signWebhook(webhookKeyOf(options.key ?? secret), id, timestamp, Buffer.from(body))}`;
   const response = await fetch(url, {
     method: "POST",
-    headers: { "content-type": "application/json", "webhook-id": id, "webhook-timestamp": timestamp, "webhook-signature": signature },
+    headers: { "content-type": "application/json", "webhook-id": id, "webhook-timestamp": timestamp, "webhook-signature": signature, ...options.headers },
     body,
   });
   return { status: response.status, body: await response.json() };
@@ -128,6 +128,16 @@ describe("a webhook endpoint", () => {
     const unknown = await fetch(`${runtime.url}/v1/webhooks/wh_${"0".repeat(32)}`, { method: "POST", body: "x" });
     expect(unknown.status).toBe(404);
     expect((await call("GET", "/v1/agents/hooks/runs")).body.runs.length).toBe(before);
+  });
+
+  it("ignores a credential or subject a sender sends: the signature is the grant", async () => {
+    const sent = await deliver('{"with":"credential"}', {
+      headers: { authorization: "Bearer not-a-key", "Nylorun-Subject": "someone", "Nylorun-Scopes": "agents:write" },
+    });
+    expect(sent.status, JSON.stringify(sent.body)).toBe(202);
+    await idle("alerts");
+    const unsigned = await fetch(url, { method: "POST", headers: { authorization: `Bearer ${APP}` }, body: "{}" });
+    expect(unsigned.status).toBe(401);
   });
 
   it("takes any media type, and reads at most webhookBodyBytes", async () => {
@@ -199,5 +209,24 @@ describe("a webhook endpoint", () => {
       runtime: { kind: "none", triggers: { t: { schedule: "0 * * * *", session: "s", prompt: "x" } } } as RuntimeSection,
     });
     expect((await call("POST", "/v1/agents/timed/triggers/t/secret")).status).toBe(400);
+  });
+});
+
+describe("behind a proxy that rewrites Host", () => {
+  it("names webhook URLs at the public URL (NYLORUN_PUBLIC_URL), not the origin the request reached", async () => {
+    const proxied = await startTestTenant({ applicationKey: APP, publicUrl: "https://runtime.example.com" });
+    try {
+      await deploy(proxied.url, headers, Agent({ id: "hooks", name: "Hooks" }).instructions("x").build(), {
+        name: "hooks",
+        runtime: { kind: "none", triggers: { alerts: { webhook: "standard-webhooks", session: "a", prompt: "x" } } } as RuntimeSection,
+      });
+      const read = await fetch(`${proxied.url}/v1/agents/hooks/triggers`, { headers });
+      const [trigger] = (await read.json()).triggers;
+      expect(trigger.webhookUrl).toMatch(/^https:\/\/runtime\.example\.com\/v1\/webhooks\/wh_[0-9a-f]{32}$/);
+      const made = await fetch(`${proxied.url}/v1/agents/hooks/triggers/alerts/secret`, { method: "POST", headers });
+      expect((await made.json()).webhookUrl).toBe(trigger.webhookUrl);
+    } finally {
+      await proxied.close();
+    }
   });
 });

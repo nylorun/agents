@@ -6,7 +6,8 @@
  * (`agent.manifest.json`, whose sections may be paths), `harness-manifest.json` and
  * `runtime-manifest.json`. Each allows a top-level `$schema`, which the composer drops before it
  * saves: the Runtime's own schemas stay strict. A runtime file's `files` also allow `{ path,
- * from }`, a folder beside the file the composer hashes into `{ path, files }`.
+ * from }`, a folder beside the file the composer hashes into `{ path, files }`. A published `$id`
+ * keeps its content but for descriptions: a change takes a new version (`published-schemas.test.ts`).
  */
 import { z } from "zod";
 import {

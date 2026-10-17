@@ -38,7 +38,8 @@ npx nylorun doctor                 # Node 24+, Docker, Compose v2, and the Tenan
 ## Commands
 
 The installation's lifecycle is a handful of top-level commands; everything else
-is in a group that follows the API it uses, and each group has its own `--help`.
+is in a group that follows the API it uses. Every group and command takes `--help`
+(or `-h`), which prints its own usage and exits 0.
 
 ```sh
 nylorun up|start [--tenant <name>] [--no-link] [--no-studio] [--allow-downgrade] [--studio-embed-origin <origin>]... [--studio-embed-origin-reset] [--restate-ui]
@@ -56,16 +57,19 @@ nylorun apply [<dir>...] [--dry-run] [--if-match <n>]   # plan, then save each f
 nylorun migrate v8 <agent.json> [--runtime <environment-manifest.json>] [--name <name>] [--out <dir>]   # the three files from a v7 manifest; reads no Runtime
 nylorun agent-manifests list [--json]       # name, latest version, runtime kind, harness, Agents
 nylorun agent-manifests get <name>[@<n>] | versions <name> | rm <name>
-nylorun agents list [--state <s>] [--manifest <name>] [--label <key=value>]... [--behind] [--limit <n>] [--cursor <c>] [--json]   # --behind: on an older manifest version
+nylorun agents list [--state <s>] [--manifest <name>] [--label <key=value>]... [--outdated] [--limit <n>] [--cursor <c>] [--json]   # --outdated (or --behind): moving to another manifest version
 nylorun agents get|stop|reset|rm|snapshot|versions <id>
-nylorun agents put <id> --manifest <name[@n]> [--owner <user>] [--label <key=value>]...   # name tracks its latest version, name@n pins one
-nylorun agents fork <id> <new-id> [--manifest <name[@n]>] [--disk <latest|n|empty>] [--secrets <copy|none>] [--dry-run]   # onto a new manifest version
+nylorun agents put <id> --manifest <name[@n]> [--owner <user>] [--label <key=value>]... [--dry-run]   # name tracks its latest version, name@n pins one; --dry-run prints the move
+nylorun agents pin <id> <version>   # move it to that manifest version, and keep it there
+nylorun agents track <id>           # move it to its manifest's latest version, and with each save
+nylorun agents restart <id> [--retry]   # apply the version it waits to start on now; --retry: the one that failed to start
+nylorun agents fork <id> <new-id> [--manifest <name[@n]>] [--disk <latest|n|empty>] [--secrets <copy|none>] [--label <key=value>]... [--dry-run]   # onto a new manifest version
 nylorun agents restore <id> <version|latest>
 nylorun agents delete-version <id> <version>
 nylorun agents events <id> [--from <n>] [--types <type,…>] [--since <time>] [--until <time>]
 nylorun agents triggers list <id> | pause|resume <id> <trigger> | run <id> <trigger> [--idempotency-key <k>] | new-secret <id> <trigger>
 nylorun agents runs <id> [--trigger <id>] [--limit <n>] [--cursor <c>]   # what each trigger fire came to
-nylorun agents memories ls|cat|put|rm|versions <id> [<path>] [<file|->]   # its memories (track T5); put seeds one
+nylorun agents memories ls|cat|put|rm|versions <id> [<path>] [<file|->]   # its memories; put seeds one
 nylorun agents secrets list|get|put|rm <id> [<name>] [<secret.json|->]   # put without a file: a slot's value on stdin
 nylorun sessions list [--agent <id>] [--manifest <name>] [--status <s>] [--owner <user>] [--limit <n>] [--cursor <c>] [--json]
 nylorun sessions create --agent <id> --owner <user> [--id <id>] [--info <json>]   # a session on Agent <id>
@@ -126,8 +130,8 @@ apply`; `nylorun configure` is `nylorun tenant models set`. `nylorun dev`,
 are gone.
 
 The package's second command, `nylo`, was the Runtime client until nylorun took
-its commands. For one release it names the `nylorun` command that replaced each
-of its own and exits 2:
+its commands. Until nylorun 0.18, which removes it, it names the `nylorun`
+command that replaced each of its own and exits 2:
 
 | `nylo` | `nylorun` |
 | --- | --- |

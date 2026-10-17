@@ -458,7 +458,10 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
       path: "/v1/tenant/tool-policy",
       tags: ["Tenant"],
       summary: "Get the Tenant's tool policy",
-      responses: { 200: json(ToolPolicy, "The rules the Tool Gate applies to every MCP and HTTP tool call") },
+      responses: {
+        200: json(ToolPolicy, "The rules the Tool Gate applies to every MCP and HTTP tool call"),
+        409: { description: "A stored rule names an MCP tool by its model-facing `server__tool` name: every call is refused until the policy is set again" },
+      },
     },
     async (c) => {
       try {
@@ -481,7 +484,7 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
       tags: ["Tenant"],
       summary: "Set the Tenant's tool policy",
       description:
-        "Replaces every rule. The Tool Gate applies them to each MCP and HTTP tool call of every harness, before it sends the call: the strictest rule that matches decides. `deny` refuses the call (the model gets `tool.denied`), `ask` holds it and pauses the turn until a person answers it with an `approve` command on the session, `allow` runs it. A call no rule matches runs. A rule matches when every selector it sets matches: `tool` (the name the model calls it by; `*` matches any run of characters), `server` (an MCP server's name), `kind` (`mcp` or `http`), `agent` (the agent that calls it) and `when` (fields of the call's input by dotted path, each tested with `equals`, `in`, `gt`, `gte`, `lt`, `lte` or `matches`). Sandbox tools never cross the gate. An empty list allows every call.",
+        "Replaces every rule. The Tool Gate applies them to each MCP and HTTP tool call of every harness, before it sends the call: the strictest rule that matches decides. `deny` refuses the call (the model gets `tool.denied`), `ask` holds it and pauses the turn until a person answers it with an `approve` command on the session, `allow` runs it. A call no rule matches runs. A rule matches when every selector it sets matches: `tool` (the tool's identity: an MCP tool's own name on its `server`, or an HTTP tool's declared name, never the name the model calls it by; `*` matches any run of characters), `server` (an MCP server's name), `kind` (`mcp` or `http`), `agent` (the agent that calls it: the agent manifest's name, or the id of an agent used as a tool or of a flow's agent, never an Agent's id) and `when` (fields of the call's input by dotted path, each tested with `equals`, `in`, `gt`, `gte`, `lt`, `lte` or `matches`). A `tool` with `__` in it, a model-facing `server__tool` name, is refused (`400`): name an MCP tool by `server` and `tool`. A stored policy with such a rule refuses every call until it is set again. Sandbox tools never cross the gate. An empty list allows every call.",
       request: { body: body(PutToolPolicyRequest) },
       responses: { 200: json(ToolPolicy, "The policy now in force") },
     },

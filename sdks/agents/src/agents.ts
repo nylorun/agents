@@ -4,24 +4,24 @@
  * `pod` or `none`), one vault of secrets for its shell, MCP servers and HTTP tools, and the
  * sessions that run on it. It is made only from a saved manifest, `name` (tracking) or `name@n`
  * (pinned), and runs one version of it at a time: `put` with another version moves it, and a save
- * moves every Agent that tracks the manifest (track T3). Its manifest, kind, harness and storage
+ * moves every Agent that tracks the manifest. Its manifest, kind, harness and storage
  * are fixed (`409 agent_fixed_field`): `fork` makes a new Agent to change them. It has
  * its own id and outlives its sessions; whether it serves one person or a project is the app's
  * choice, made by its id:
  *
  * - `agents.put("users/alice/triage", { manifest: "triage", owner: "alice" })`: get-or-create
  *   in one call. Write its secrets with `agents.secrets.put(id, name, { value })` and open
- *   sessions on it with `createSession({ agent: id, ... })`. Creating it opens no session (D71).
+ *   sessions on it with `createSession({ agent: id, ... })`. Creating it opens no session.
  *
  * Ids may hold `/`; they are sent percent-encoded as one path segment. Secret values are
  * write-only: no call reads one back.
  *
- * Triggers (track T4, D74): what its manifest's `runtime.triggers` declares starts its turns with
+ * Triggers: what its manifest's `runtime.triggers` declares starts its turns with
  * no client connected. `triggers(id)` lists them with their status and next run, `pauseTrigger`,
  * `resumeTrigger` and `runTrigger` change or run one, `rotateWebhookSecret` makes a webhook
- * trigger's signing secret (D75), and `runs(id)` pages what each fire came to.
+ * trigger's signing secret, and `runs(id)` pages what each fire came to.
  *
- * Memory (track T5, D72): an Agent whose manifest sets `harness.memory` keeps Markdown files under
+ * Memory: an Agent whose manifest sets `harness.memory` keeps Markdown files under
  * `/memories` across sessions. `agents.memories` lists, reads, writes (to seed it), deletes and
  * pages the versions every change leaves.
  *
@@ -60,7 +60,7 @@ import { id, segment, type Transport } from "./http.js";
 export type AgentInput = Omit<PutAgentRequest, "requestId">;
 /**
  * One secret of an Agent's vault, as written: typed, or only its value (`{ value }`, or
- * `{ headers }` for a `headers` secret) when its manifest declares the slot (D64).
+ * `{ headers }` for a `headers` secret) when its manifest declares the slot.
  */
 export type AgentSecretInput =
   | PutAgentSecretRequest
@@ -73,7 +73,7 @@ export interface AgentFilter {
   readonly state?: string;
   /** The agent manifest's name. */
   readonly manifest?: string;
-  /** `true`: only Agents moving to another version of their manifest (track T3); `false`: the others. */
+  /** `true`: only Agents moving to another version of their manifest; `false`: the others. */
   readonly outdated?: boolean;
 }
 
@@ -81,7 +81,7 @@ export interface AgentFilter {
 export type RuntimeFileBytes = Readonly<Record<string, Uint8Array>>;
 
 /**
- * A runtime section's `files` entry by content hash (Q6): `contents` (each file's path under
+ * A runtime section's `files` entry by content hash: `contents` (each file's path under
  * `path` and its bytes or text) hashed, as `entry` for the manifest's `runtime.files` and `bytes`
  * for `agentManifests.save`'s `files`, which uploads them. Each file holds at most 2 GiB.
  */
@@ -119,7 +119,7 @@ export class AgentSecretsClient {
    * Creates or replaces secret `name` (`PUT /v1/agents/{id}/secrets/{name}`): for
    * `environment_secret` and `environment_variable` the name is the variable's. A second
    * credential for a host or a URL is a 409 `credential_conflict`. When the Agent's manifest
-   * declares the secret's slot (D64), send only `{ value }` (or `{ headers }`); a name it does
+   * declares the secret's slot, send only `{ value }` (or `{ headers }`); a name it does
    * not declare is `409 secret_not_in_manifest`.
    */
   async put(
@@ -157,7 +157,7 @@ export class AgentSecretsClient {
 }
 
 /**
- * An Agent's memories (track T5, D72): `client.agents.memories`. A path is a memory's path under
+ * An Agent's memories: `client.agents.memories`. A path is a memory's path under
  * `/memories` (`conventions/release.md` or `/memories/conventions/release.md`).
  */
 export class AgentMemoriesClient {
@@ -245,7 +245,7 @@ export class AgentInstancesClient {
     return new AgentSecretsClient(this.transport, (agentId) => this.path(agentId));
   }
 
-  /** The Agent's memories (track T5). */
+  /** The Agent's memories. */
   get memories(): AgentMemoriesClient {
     return new AgentMemoriesClient(this.transport, (agentId) => this.path(agentId));
   }
@@ -255,7 +255,7 @@ export class AgentInstancesClient {
    * with this id (`PUT /v1/agents/{id}`): `{ manifest: "name" }` tracks the manifest (its latest
    * version when the Agent is made), `"name@n"` pins version n. On an existing Agent, labels
    * replace, `owner` sets or clears the owner guard, and `manifest` moves it to that version of
-   * its manifest (track T3): at once, at its pod's next start for a runtime change (`targetVersion`,
+   * its manifest: at once, at its pod's next start for a runtime change (`targetVersion`,
    * `waitingFor: "start"`), or once a required secret the version adds is set. Another manifest,
    * kind, harness or storage is `409 agent_fixed_field` (fork it instead).
    */
@@ -264,7 +264,7 @@ export class AgentInstancesClient {
   }
 
   /**
-   * What `put` would do to the existing Agent (`PUT /v1/agents/{id}?dryRun=true`, track T3): the
+   * What `put` would do to the existing Agent (`PUT /v1/agents/{id}?dryRun=true`): the
    * version it runs and the one `input.manifest` names, when that applies (`now`, `next_start`,
    * `secrets`, or `refused` with each fixed field), the changes, and the secrets it would wait
    * for or leave unused. Nothing changes.
@@ -310,7 +310,7 @@ export class AgentInstancesClient {
   }
 
   /**
-   * Applies a version the Agent waits to apply (`POST /v1/agents/{id}/restart`, track T3): a
+   * Applies a version the Agent waits to apply (`POST /v1/agents/{id}/restart`): a
    * running pod stops, so the next turn starts it on the version; a stopped one starts at once.
    * `retry` first moves it to the version that failed to start again. Refused during a turn.
    */
@@ -351,7 +351,7 @@ export class AgentInstancesClient {
   }
 
   /**
-   * Forks the Agent into a new one, `options.id` (Q15): how an Agent changes what is fixed for its
+   * Forks the Agent into a new one, `options.id`: how an Agent changes what is fixed for its
    * life (its manifest, kind, harness or storage). It is made from `options.manifest` (default the source's manifest,
    * tracking), its disk starts from `options.disk` (`latest`, the default, snapshots first; a
    * version; or `empty`) and the secrets the new manifest declares are copied

@@ -75,7 +75,7 @@ export interface SessionView {
 }
 /** `AgentsClient.createSession`'s options. */
 export interface CreateSessionOptions {
-  /** The session's id, which the app chooses (D71). Default: a new UUID. */
+  /** The session's id, which the app chooses. Default: a new UUID. */
   id?: string;
   /**
    * The Agent the session runs on (`client.agents`): its manifest version, its sandbox and its
@@ -328,7 +328,7 @@ export class SessionClient {
     );
   }
   /**
-   * The session's tool calls (R5, Host feature `tool-calls`), in the order they were first sent:
+   * The session's tool calls (Host feature `tool-calls`), in the order they were first sent:
    * each one's tool, input, status and sends. `attempts` above 1: a crash re-sent it.
    */
   async toolCalls(
@@ -343,7 +343,7 @@ export class SessionClient {
     );
   }
   /**
-   * A turn's trace (R7, Host feature `traces`): its spans as OTLP/HTTP JSON (`resourceSpans`), as
+   * A turn's trace (Host feature `traces`): its spans as OTLP/HTTP JSON (`resourceSpans`), as
    * the Runtime posts them to an OTLP collector. Post it to a collector's `/v1/traces` to backfill
    * one, or read it without one.
    */

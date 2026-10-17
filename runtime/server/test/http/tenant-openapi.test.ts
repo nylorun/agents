@@ -327,3 +327,17 @@ it("documents no Nylorun-Tenant header anywhere (protocol 5)", () => {
   const text = JSON.stringify(document);
   expect(text).not.toContain('"name":"Nylorun-Tenant"');
 });
+
+it("documents a webhook delivery with no credential and no Nylorun-* header, signed by its webhook-* headers", () => {
+  const delivery = operation("post", "/v1/webhooks/{endpointId}");
+  expect(delivery.security).toEqual([]);
+  expect(delivery["x-nylorun-credentials"]).toEqual([]);
+  const headers = delivery.parameters.filter((p: { in: string }) => p.in === "header");
+  expect(headers.map((p: { name: string }) => p.name).sort()).toEqual([
+    "webhook-id",
+    "webhook-signature",
+    "webhook-timestamp",
+  ]);
+  for (const header of headers) expect(header.required, header.name).toBe(true);
+  expect(delivery.responses["403"]).toBeUndefined();
+});

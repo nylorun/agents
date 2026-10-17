@@ -53,7 +53,7 @@ link it to that Agent.
 | Pinned file preview | `artifacts.download({ version, range })` → version `content` |
 | Exported folder files and changes | `artifacts.tree()`, `.file()`, `.diff()` → version `tree`, `files/{encodedPath}`, `diff` |
 | Native streamed download | `artifacts.link({ version, file?, expiresIn: 60 })` → authenticated `POST /v1/artifacts/{id}/links`, then public `GET /v1/artifact-links/{token}` |
-| Message attachments | `artifacts.upload(file, { name, sessionId, contentType })` → `POST /v1/artifacts?name=…&sessionId=…` (the proxy keeps only those two, checks `GET /v1/sessions/{id}`, needs `Content-Length`, refuses over `maxUploadBytes`, 32 MiB, and streams the body); then `session.inputParts([text?, …{ type: "file", artifactId, version }])` → `POST /v1/sessions/{id}/commands`; any file is accepted (protocol 15) |
+| Message attachments | `artifacts.upload(file, { name, sessionId, contentType })` → `POST /v1/artifacts?name=…&sessionId=…` (the proxy keeps only those two, checks `GET /v1/sessions/{id}`, needs `Content-Length`, refuses over `maxUploadBytes` only when the server sets one, none by default, and streams the body; the Runtime holds it to the Tenant's artifact limits); then `session.inputParts([text?, …{ type: "file", artifactId, version }])` → `POST /v1/sessions/{id}/commands`; any file is accepted (protocol 15) |
 | Model inputs (Model settings) | Management `models.catalog()` → `GET /v1/tenant/models` (each model's `inputs` and `addableInputs`); `models.setInputs({ provider, model, inputs })` → `PUT /v1/tenant/models/inputs` (allowed by the proxy); a custom endpoint's `models.put({ settings: { inputs } })` |
 
 The proxy allows these Agent routes and nothing else under them: `GET /v1/agents`

@@ -34,6 +34,10 @@ import type { TenantEnv } from "./app.js";
 export type Credential = "application" | "subject" | "management" | "token";
 
 export interface RouteAccess {
+  /**
+   * The credentials the route takes. None (with `anonymous`): the route takes no credential and
+   * ignores one that is sent, as a webhook delivery, whose signature is its grant.
+   */
   readonly credentials: readonly Credential[];
   /** The subject scopes that reach the route: any one of them, none (`never`), or all (`any`). */
   readonly scopes: readonly SubjectScope[] | "never" | "any";
@@ -137,6 +141,11 @@ export function declaredRoute(
 }
 
 function authenticated(access: RouteAccess): MiddlewareHandler<TenantEnv> {
+  if (access.credentials.length === 0)
+    return async (c, next) => {
+      c.set("scope", { kind: "anonymous" });
+      await next();
+    };
   return async (c, next) => {
     const keys = keyAccess(access);
     const scope = await authenticateCaller(c, access.anonymous === true, keys);
@@ -163,9 +172,12 @@ export function tenantRoute(
 ): void {
   const takes = (credential: Credential) => access.credentials.includes(credential);
   const schemes = [...new Set(access.credentials.map((credential) => SCHEMES[credential]))];
+  // A route that takes no credential is called by others than Nylorun's clients: it documents
+  // neither a credential nor `Nylorun-*` headers.
+  const open = access.credentials.length === 0;
   const protocol = z.string().meta({ description: `The protocol version, \`${PROTOCOL_VERSION}\`` });
   const headers = z.object({
-    "Nylorun-Protocol": access.unversioned ? protocol.optional() : protocol,
+    ...(open ? {} : { "Nylorun-Protocol": access.unversioned ? protocol.optional() : protocol }),
     ...(takes("subject")
       ? {
           "Nylorun-Subject": z
@@ -181,11 +193,10 @@ export function tenantRoute(
   });
   api.openAPIRegistry.registerPath({
     ...route,
-    // `{}`: no credential needed (OpenAPI's optional security).
-    security: [
-      ...schemes.map((scheme) => ({ [scheme]: [] })),
-      ...(access.anonymous ? [{}] : []),
-    ],
+    // `{}`: no credential needed (OpenAPI's optional security); none at all: `[]`.
+    security: open
+      ? []
+      : [...schemes.map((scheme) => ({ [scheme]: [] })), ...(access.anonymous ? [{}] : [])],
     // A route's own headers (`traceparent`, R7.4) beside the common ones.
     request: {
       ...route.request,
@@ -198,11 +209,15 @@ export function tenantRoute(
           ? "No credential (`credential_required`), one the Tenant does not accept (`credential_invalid`), a token that expired (`token_expired`), or a token whose issuer's keys cannot be fetched now (`issuer_unavailable`). `WWW-Authenticate: Bearer` names the protected resource metadata (`resource_metadata`)"
           : "No credential (`credential_required`), or one the Tenant does not accept (`credential_invalid`), with a `WWW-Authenticate: Bearer` challenge",
       ),
-      403: rejected(
-        takes("management")
-          ? "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject"
-          : "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
-      ),
+      ...(open
+        ? {}
+        : {
+            403: rejected(
+              takes("management")
+                ? "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject"
+                : "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            ),
+          }),
       404: rejected("Not found (`not_found`)"),
       426: { description: "`Nylorun-Protocol` missing or unsupported", content: { "application/json": { schema: ProtocolRejected } } },
       503: rejected("The Tenant's storage or streams are unavailable"),

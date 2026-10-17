@@ -40,7 +40,7 @@ export interface TenantVault {
   session(sessionId: string): Promise<Session | undefined>;
   /**
    * The authorization of one request to a session's remote MCP server or HTTP tool: its
-   * credential from the vault of the session's Environment.
+   * credential from the vault of the session's Agent.
    */
   authorizeMcp(sessionId: string, request: McpCredentialRequest): Promise<AuthorizeResult>;
   /** Vault writes and token signing with the Tenant's vault key (the keys service, F4.2). */

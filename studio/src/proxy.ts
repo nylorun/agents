@@ -33,14 +33,15 @@ const isManifestSave = (method: string, path: string) => method === "PUT" && mat
 
 /**
  * Agent writes on the Runtime API: make one from a manifest version or change its labels and
- * owner (`PUT`), stop or reset it, fork it, keep or restore a version of its disk, delete it or
+ * owner (`PUT`), stop, restart (on its pending version, or `retry` the failed one) or reset it,
+ * fork it, keep or restore a version of its disk, delete it or
  * one of its disk versions, and write or delete one of its secrets; and save an agent manifest.
  */
 function isAgentWrite(method: string, path: string): boolean {
   return (
     (method === "PUT" && matches(`${AGENT}(?:/secrets/[^/]+)?`, path)) ||
     isManifestSave(method, path) ||
-    (method === "POST" && matches(`${AGENT}/(?:stop|reset|fork|snapshot|restore)`, path)) ||
+    (method === "POST" && matches(`${AGENT}/(?:stop|restart|reset|fork|snapshot|restore)`, path)) ||
     (method === "DELETE" && matches(`${AGENT}(?:/secrets/[^/]+|/versions/[1-9]\\d*)?`, path))
   );
 }

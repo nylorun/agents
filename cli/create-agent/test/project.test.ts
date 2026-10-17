@@ -24,7 +24,7 @@ describe("starter template", () => {
     expect(
       Object.keys(manifest.devDependencies).filter((name) => name.includes("nylorun")),
     ).toEqual([]);
-    expect(manifest.scripts.dev).toBe("tsx watch --env-file-if-exists=.env src/main.ts --dev");
+    expect(manifest.scripts.dev).toBe("tsx watch --env-file-if-exists=.env src/main.ts");
     expect(manifest.scripts.studio).toBeUndefined();
     expect(manifest.scripts.start).toBe("node dist/src/main.js");
     expect(manifest.scripts["dev:app"]).toBeUndefined();

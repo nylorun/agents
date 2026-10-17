@@ -211,17 +211,19 @@ When your app server runs on another machine (a laptop reaching a Mac mini on
 the LAN, or a cloud backend reaching a server), put a reverse proxy in front of
 the Runtime on the Runtime's machine. `nylorun start` publishes the Runtime on
 `127.0.0.1` only and accepts only its own `Host` names, so the proxy is the one
-way in. Nothing in the Runtime changes.
+way in. Nothing in the Runtime changes but the URL it names itself by.
 
 | Proxy rule | Why |
 | --- | --- |
 | Listen with TLS; forward to `127.0.0.1:<port>` (the port `nylorun start` prints) | A key travels on every request |
 | Rewrite `Host` to `localhost:<port>` | The Runtime answers `421` to any other `Host` |
+| Start the Runtime with the proxy's URL: `NYLORUN_PUBLIC_URL=https://runtime.example.com nylorun start` | Webhook URLs and the OAuth `resource` name it; without it they name `http://localhost:<port>` |
 | Forward to the Runtime port only (`NYLORUN_PORT`); never Studio or Restate | Studio is for operators, behind its own sign-in proxy; Restate's UI has no authentication |
 | Forward only `/health`, `/ready`, `/.well-known/oauth-protected-resource` and `/v1/*` | Nothing else is the Runtime API or the Management API; the well-known document tells OAuth clients where to sign in |
 | Optional: answer `/v1/tenant/*` with `403` unless the request comes from your operator networks | Defense in depth for the Management API, on top of the key role |
 | Pass every other header through: `Authorization`, `Nylorun-Protocol`, `Nylorun-Subject`, `Nylorun-Scopes`, and `Origin` | Your app server sets the `Nylorun-*` headers. The Runtime refuses keys sent with an `Origin` |
 | Answer CORS yourself, for your app's origins only, when browsers call the Runtime: preflights (`OPTIONS`) and `Access-Control-Allow-Origin`; allow `Authorization`, `Content-Type`, `Nylorun-Protocol` and `Last-Event-ID`, and expose `Retry-After` and `WWW-Authenticate` | The Runtime sends no CORS headers (protocol 7); browsers present a trusted issuer's token |
+| Allow request bodies as large as the Tenant's upload limits: an artifact (`POST /v1/artifacts`, 100 MiB by default, `/v1/tenant/artifacts`) and a skill file (`PUT /v1/files/sha256:…`, 2 GiB by default, `/v1/tenant/skills`). Caddy sets no limit; nginx's `client_max_body_size` is 1 MiB unless you raise it | A smaller limit refuses uploads, and `nylorun apply` and `agentManifests.save` for an agent with skill files |
 | Don't buffer responses; allow idle streams | Event streams are long-lived SSE with a keepalive every 15 seconds |
 | Restrict source addresses where you can; rate-limit at the edge | Limits scanning and guessing |
 
@@ -305,7 +307,7 @@ none), one vault, and the sessions that run on it, under an id the app chooses
 (`users/alice/web`, `projects/acme`). It is made only from a saved manifest, with
 `PUT /v1/agents/{id}` (`client.agents.put` in `@nylorun/agents`): `{ "manifest": "analyst" }`
 tracks the manifest (its latest version now, and each version saved later), `"analyst@3"` pins
-version 3. It runs **one version at a time and moves in place** (track T3): a `PUT` naming
+version 3. It runs **one version at a time and moves in place**: a `PUT` naming
 another version moves it, a save moves every Agent that tracks the manifest, and each session's
 next turn runs the version the Agent runs then. Its kind, harness and storage are fixed: a fork
 changes those. Every session names its Agent when it opens (`agent: "<id>"`). No session is special: making an Agent opens none, and the
@@ -325,7 +327,7 @@ which had agent definitions, environment manifests and Environments:
   `limits` and `secrets` (slots), resolved against the Tenant's limits when it is made, with
   `manifest`, `resolvedVersion`, `manifestHash` and `tracking` saying where it came from and
   `harness` the harness that runs its loop (the manifest's `harness.id`, else `nylorun`). It
-  moves between versions of its manifest in place (track T3): a pod applies a new runtime at its
+  moves between versions of its manifest in place: a pod applies a new runtime at its
   next start, on the same volume, and a start that fails (its setup, the pod, or longer than
   `tenant.upgradeStartMs`) goes back to the version it ran with its disk as it is; its kind,
   harness and storage are fixed (`409 agent_fixed_field`). A reset or a lost pod rebuilds what it
@@ -456,12 +458,16 @@ the secret slots, `secrets`). Its JSON Schema is
   (`savedBy`), from Studio, the CLI or the SDK alike. `?dryRun=true` (`agentManifests.plan()`,
   `nylorun apply --dry-run`) saves nothing and answers the plan: each change by section and
   path, every reason the save would be refused, warnings (an image tag rather than a digest,
-  kind `pod` with no sandbox pods) and how many Agents stay on older versions. **A save changes
-  no Agent.**
+  kind `pod` with no sandbox pods), the Agents it would move and how many stay on older
+  versions. **A save moves every Agent that tracks the manifest** to the new version: at once,
+  at its pod's next start for a runtime change a pod applies only when it starts, or once a
+  required secret the version adds is set. A pinned Agent stays, and so does one whose kind,
+  harness or storage the version changes ([Agents](#agents)).
 - **Its sections must fit.** The Runtime checks the two against each other and refuses every
   gap at once (`422 manifest_inconsistent`, `details.gaps`): a custom harness needs
-  `runtime.kind` `pod` with an `image`; an MCP server's or HTTP tool's `credential` must name a
-  `bearer` or `headers` slot of `runtime.secrets` bound to its exact URL; a skill's `secrets`
+  `runtime.kind` `pod` with an `image`; an MCP server's, HTTP tool's, flow HTTP stage's or HTTP
+  verifier's `credential` (an embedded agent's too) must name a `bearer` or `headers` slot of
+  `runtime.secrets` bound to its exact URL; a skill's `secrets`
   must name `environment_secret` or `environment_variable` slots; skills need a sandbox
   (`virtual` or `pod`). It also refuses what the Tenant's limits do not allow, files it does not
   hold, a tool that runs your code and a tool's `approval` (the Tenant's
@@ -495,7 +501,7 @@ the secret slots, `secrets`). Its JSON Schema is
 
 ### Triggers, webhooks and wakes
 
-An Agent starts turns with no client connected (track T4) from what its manifest's
+An Agent starts turns with no client connected from what its manifest's
 `runtime.triggers` declares, by id. Each trigger has exactly one of `schedule` (five-field cron,
 in `timezone`, an IANA name, UTC by default), `at` (one time, RFC 3339 with an offset) or
 `webhook` (`"standard-webhooks"`), and the `session` its runs go to and its `prompt`:
@@ -526,7 +532,8 @@ in `timezone`, an IANA name, UTC by default), `at` (one time, RFC 3339 with an o
 - **Status.** Triggers start active with a new Agent; a trigger a newer version adds arrives
   `paused` (`new`). `GET /v1/agents/{id}/triggers`, `POST .../triggers/{id}/pause`, `/resume`
   and `/run` (with an `Idempotency-Key`), and `nylorun agents triggers`.
-- **Webhooks.** A webhook trigger's endpoint is `webhookUrl`, `POST /v1/webhooks/{endpointId}`:
+- **Webhooks.** A webhook trigger's endpoint is `webhookUrl`, `POST /v1/webhooks/{endpointId}` at
+  `NYLORUN_PUBLIC_URL` (else the origin the request reached):
   no credential and no protocol header, Standard Webhooks signatures (`webhook-id`,
   `webhook-timestamp` within `triggers.webhookToleranceMs`, `webhook-signature`), any body up to
   `webhookBodyBytes`. Make its signing secret with `POST .../triggers/{id}/secret`
@@ -537,7 +544,9 @@ in `timezone`, an IANA name, UTC by default), `at` (one time, RFC 3339 with an o
 - **Wakes.** `"selfWake": true` offers the agent `schedule_wake`: it books its session's next turn
   (`in` or `at`, and a `note` that is that turn's message), one booking per session.
 - **The session queue.** A message to a session whose turn runs is queued and starts the next
-  turn (protocol 17); `delivery: "reject"` answers `409 session_busy` instead.
+  turn (protocol 17); `delivery: "reject"` answers `409 session_busy` instead. AG-UI and A2A
+  refuse it, as before: a run or a task is the turn it starts (AG-UI's `RUN_ERROR`
+  `session_busy`, A2A's `UnsupportedOperationError`).
 - **Limits.** `triggersPerAgent`, `triggerMinIntervalMs`, `triggerRunsPerHour` (the guard against
   an Agent triggering itself), `triggerPromptChars`, `triggerRunRetentionMs`, `wakeMaxAheadMs`,
   `wakeNoteChars`, `webhookBodyBytes` and `sessionQueuedMessages` ([Runtime limits](#runtime-limits)).
@@ -546,7 +555,7 @@ in `timezone`, an IANA name, UTC by default), `at` (one time, RFC 3339 with an o
 
 ### Agent memory
 
-An Agent keeps memory across sessions, wakes and upgrades (track T5) when its manifest turns it on:
+An Agent keeps memory across sessions, wakes and upgrades when its manifest turns it on:
 
 ```json
 "harness": {
@@ -601,7 +610,7 @@ a cancel then reaches another process only through the 5-second poll.
 
 ## Traces
 
-Each turn is one OpenTelemetry trace, derived from the session log (track R7): a root span
+Each turn is one OpenTelemetry trace, derived from the session log: a root span
 `invoke_agent <agent>` for the turn, and a child span for every model call (`chat <model>`)
 and tool call (`execute_tool <tool>`, a flow's HTTP stage too), plus a marker for each pause
 and answer. Egress connections are not in a turn's trace: each is an `agent.egress` event
@@ -842,7 +851,7 @@ What only the Runtime checks:
 | `wakeMaxAheadMs` | How far ahead `schedule_wake` may book a session's next turn (and at least `triggerMinIntervalMs` ahead) | 30 days | A JavaScript number; a long wait is armed in steps |
 | `wakeNoteChars` | The longest note a booked wake carries to its turn | 2,000 characters | One record entry, escaped |
 | `webhookBodyBytes` | The largest delivery a webhook endpoint reads, before it verifies it (`413` past it) | 256 KiB | 960 KiB: the payload goes into one record entry |
-| `memoryBytes` | The largest memory an Agent keeps (track T5), in UTF-8 bytes | 100 KB | 32 MiB: a memory reaches a harness in one Harness API frame |
+| `memoryBytes` | The largest memory an Agent keeps, in UTF-8 bytes | 100 KiB | 32 MiB: a memory reaches a harness in one Harness API frame |
 | `memoriesPerAgent` | The most memories one Agent holds | 10,000 | A JavaScript number |
 | `memoryIndexLines` | The most lines of the memory index a session pins | 200 | A JavaScript number |
 | `memoryIndexBytes` | The most UTF-8 bytes of that index | 25 KiB | 16 MiB: it crosses in `turn.start` |
@@ -1520,8 +1529,9 @@ with `approval: "always"` keeps it as an ask.
 A skill that runs a CLI (`gh`, `glab`, `aws`, `curl`) on a pod Agent authenticates with
 a credential whose value never enters the sandbox. Two more secret types live in the same
 Agent vault as MCP credentials; for both, the secret's name is the variable's name
-(`PUT /v1/agents/{id}/secrets/GH_TOKEN`), and a skill names the ones it reads in its `secrets`,
-which must be slots of these types in the manifest's runtime section:
+(`PUT /v1/agents/{id}/secrets/GH_TOKEN`), and a skill names the ones it reads in its `secrets`
+(a skill folder's, in its `SKILL.md` frontmatter: `secrets: [GH_TOKEN]`), which must be slots of
+these types in the manifest's runtime section:
 
 - **`environment_secret`** `{ type, value, allowedHosts, inject? }`: every command sees
   `$<name>` set to `nylorun_managed`, a fixed sentinel. When a command sends HTTPS to one of
