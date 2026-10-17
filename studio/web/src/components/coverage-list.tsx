@@ -15,8 +15,8 @@ const TONE_CLASS = {
 
 /**
  * What an Agent's MCP servers and HTTP tools get from its vault's secrets, one entry each, as the
- * Runtime checked it (`credential-coverage`). An Agent's Secrets tab and a session's Agent tab
- * show it.
+ * Runtime checked it (`credential-coverage`). An Agent's Secrets tab and a session's Manifest
+ * tab (Deployed) show it.
  */
 export function CoverageList({ coverage }: Readonly<{ coverage: Coverage }>) {
   return (

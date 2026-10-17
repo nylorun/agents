@@ -700,16 +700,18 @@ test("New session opens a session on the Agent picked, for the local developer, 
     assert.equal(puts.length, 1);
     const { requestId: _id, ...body } = puts[0]!.body;
     assert.deepEqual(body, { agent: AGENT, ownerUserId: "local-developer" });
-    // Its Agent tab: where it runs, and what its tools get from the Agent's vault.
+    // Its Manifest tab, under Deployed: where it runs, and what its tools get from the Agent's vault.
     await page.getByRole("link", { name: `Agent: ${AGENT}`, exact: true }).waitFor();
-    await page.getByRole("tab", { name: "Agent", exact: true }).click();
-    const panel = page.getByRole("tabpanel", { name: "Agent" });
+    await page.getByRole("tab", { name: "Manifest", exact: true }).click();
+    await page.getByRole("tab", { name: "Deployed", exact: true }).click();
+    await page.waitForURL(/inspector=manifest&view=deployed/u);
+    const panel = page.getByRole("tabpanel", { name: "Deployed" });
     await panel.getByText("orders v1", { exact: true }).waitFor();
     await panel.getByText("MCP server tickets", { exact: true }).waitFor();
     await panel.getByText("No credential", { exact: true }).waitFor();
     assert.ok(coverage.includes(AGENT));
     // Its manifest is older than the latest: the Agent moves by a fork.
-    await page.getByRole("tab", { name: "Manifest", exact: true }).click();
+    await page.getByRole("tab", { name: "Declared", exact: true }).click();
     await page.getByText("v2 is the latest", { exact: false }).waitFor();
   }, true);
 });
@@ -727,6 +729,9 @@ test("an Agent's page starts a session on it", async () => {
 test("a flow node in the Workflow tree opens its child session, which runs on the flow's Agent", async () => {
   await withStudio(async ({ page, studioUrl, puts }) => {
     await page.goto(`${studioUrl}/tenants/${TENANT}/agents/${FLOW}/sessions/${FLOW_SESSION}`);
+    // A workflow session opens on its Events tab's Progress view, the tree.
+    await page.getByRole("tab", { name: "Events", exact: true, selected: true }).waitFor();
+    await page.getByRole("tab", { name: "Progress", exact: true, selected: true }).waitFor();
     await page.getByRole("main").getByRole("link", { name: new RegExp(CHILD_AGENT, "u") }).first().click();
     await page.waitForURL(`${studioUrl}/tenants/${TENANT}/agents/${FLOW}/sessions/${CHILD_SESSION}`);
     await page.locator("article", { hasText: "Route via Rotterdam." }).waitFor();
@@ -861,7 +866,7 @@ test("a message's files show their name, type and an image's thumbnail, and open
     await preview.getByText("image/png · 70 B").waitFor();
     await preview.getByRole("img", { name: "diagram.png" }).waitFor();
     await preview.click();
-    await page.waitForURL(/inspector=artifacts&artifact=art_seed&artifactVersion=1/u);
+    await page.waitForURL(/inspector=record&artifact=art_seed&artifactVersion=1/u);
   });
 });
 

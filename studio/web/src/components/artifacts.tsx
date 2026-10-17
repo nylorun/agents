@@ -62,7 +62,7 @@ function formatSize(bytes: number) {
 }
 
 /**
- * The artifacts page, a session's Artifacts tab and an Agent's Disk tab share one
+ * The artifacts page, a session's Record tab and an Agent's Disk tab share one
  * inspector, each with its own URL state.
  */
 export type ArtifactSelectionScope = "page" | "session" | "disk";
@@ -106,7 +106,7 @@ export function useArtifactSelection(scope: ArtifactSelectionScope = "page") {
       if (value === null) next.delete(field);
       else if (value !== undefined) next.set(field, value);
     }
-    if (scope === "session" && values.selected) next.set("inspector", "artifacts");
+    if (scope === "session" && values.selected) next.set("inspector", "record");
     if (scope === "disk" && values.selected) next.set("tab", "disk");
     setQuery(next, { replace });
   }
