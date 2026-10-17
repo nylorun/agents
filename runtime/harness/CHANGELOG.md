@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.29.0-beta
+
+### Minor Changes
+
+- 22c61ce: Protocol 16, Agents from one manifest (track T2), a fresh start. An agent manifest (v8) is one versioned document at `/v1/agent-manifests/{name}` with a `harness` section (what runs inside the loop, including the harness's id) and a `runtime` section (what an environment manifest said). The Runtime checks the two against each other when it is saved (`422 manifest_inconsistent` with `details.gaps`), in place of `requires` at session open. Agent definitions and environment manifests are gone.
+
+  Environments are Agents: `/v1/agents/{id}` and its sub-routes, made from a saved manifest only (`manifest: "name"` tracks it, `"name@n"` pins a version; either resolves once, into `resolvedVersion`), with a derived `state` (`working`, `sleeping`, `input_required`, `failing`, `paused`) and `attention`. Every session runs on one Agent (`PUT /v1/sessions/{id} { agent, ownerUserId }`) and pins its manifest version. No session is special (D71). Error codes, events (`agent.*`), scopes (`agents:write`, `agent-manifests:write`) and identity-file grants (`agents`) say Agent; model budget scope `agent` is `manifest`. Harness API 5: `turn.start.agent` replaces `turn.start.environment`, with `definition` and `loop`. Migration 0032 closes older sessions (`protocol_16`) and drops Environments with their disks and vaults.
+
+  The SDK has `client.agentManifests`, `client.agents` and `composeManifest(dir)` for three-file authoring; the CLI has `nylorun apply`, `nylorun agent-manifests`, `nylorun agents` and `nylorun migrate v8`; Studio has an Agents screen, an Agent page and an Agent manifests screen. See MIGRATION.md.
+
+- bf942ed: Our engine offers the `memory` tool (track T5, D72). An agent whose version sets `harness.memory` gets one `memory` tool with Anthropic's memory tool schema (`view`, `create`, `str_replace`, `insert`, `delete`, `rename`; `view` only for a `read_only` agent and an agent used as a tool), our memory rules followed by the agent's `instructions`, and its memory index pinned after the instructions as user-role context: kept for the session so the prompt prefix stays cacheable (`ExecutionState.pinned`), and re-pinned after a compaction. Each command's parameters are checked before a call is sent (`checkMemoryCall` in `@nylorun/core/contracts`, which the Runtime also uses), and a call named `memory.<command>` or `memory/<command>` runs as `memory` with that command (`memoryAliasOf`). `ModelRequest.pinned` carries the pinned text; `memoryTool` and `memoryIndexBlock` are exported for your own harness.
+- ffeb3bb: `schedule_wake` (track T4, D77). An agent manifest's `runtime.selfWake: true` offers the agent `schedule_wake`: `{in | at, note}` books its session's next turn, replacing the booking before, and `{cancel: true}` removes it. The Runtime serves the call in its own transaction (a new effect target, `{kind: "runtime", operation: "schedule_wake"}`, additive on Harness API 5; `turn.start.agent.selfWake` tells a harness to offer it), so a replayed turn books once. The booking fires as a trigger run of kind `wake`, its note the turn's message with `cause.kind: "self"`. New session events `wake.booked` and `wake.cancelled`, tool call kind `runtime`, and Runtime limits `wakeMaxAheadMs` and `wakeNoteChars`.
+- 9e60e40: Protocol 17, a queue per session (track T4, D76). A message sent while the session's turn runs or waits is queued (`{status: "queued", queuedMessageId, position}`, `message.queued`) and starts the next turn when this one ends, with every queued message, each its own user message (`queue.taken`); a cancel ends the turn, not the queue. `delivery: "reject"` keeps the refusal, now `409 session_busy`, and a protocol 16 client's messages default to it, so the Host serves protocol 16 and 17. The queue holds at most the Runtime limit `sessionQueuedMessages` (`429 queue_full`), and session reads count `queuedMessages`. Our engine takes `{kind: "messages", messages}` as a turn's input. The SDK's `input` and `inputParts` take `delivery`, and the CLI's `sessions send` takes `--reject-if-busy`. See MIGRATION.md.
+
+### Patch Changes
+
+- 3a575d7: Track T3, versions per turn: a turn's first segment takes the manifest version its session's Agent runs then, so a session moves with its Agent between turns and keeps one version through every segment, approval and rollover of a turn. A turn whose message named a variant, and a flow's sessions, keep the version they pinned; a changed loop manifest drops the session's MCP snapshot. The turn span names the version (`nylorun.manifest.version`). Our engine takes a new version's output schema at the next turn.
+- Pin core to the tested release.
+- Updated dependencies [218b078]
+- Updated dependencies [22c61ce]
+- Updated dependencies [1ded443]
+- Updated dependencies [76dcd11]
+- Updated dependencies [bf942ed]
+- Updated dependencies [4fa160d]
+- Updated dependencies [9fed948]
+- Updated dependencies [ffeb3bb]
+- Updated dependencies [9e60e40]
+- Updated dependencies [f85483d]
+- Updated dependencies [ae54de7]
+  - @nylorun/core@0.24.0-beta
+
 ## 0.28.0-beta
 
 ### Minor Changes
