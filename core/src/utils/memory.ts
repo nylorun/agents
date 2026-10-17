@@ -1,5 +1,5 @@
 /**
- * Agent memory (track T5, D72): what a memory's path may be, and what its index line shows.
+ * Agent memory: what a memory's path may be, and what its index line shows.
  * The Runtime and the engine's `memory` tool share these rules, so a path the tool accepts is one
  * the Runtime stores.
  *
@@ -139,7 +139,7 @@ export function checkMemoryCall(
 }
 
 /**
- * The `memory` call a tool name stands for when a model names the command in it (E-P1):
+ * The `memory` call a tool name stands for when a model names the command in it:
  * `memory.create` and `memory/create` are `memory` with `command: "create"`. Answers the command,
  * or `undefined` for any other name.
  */

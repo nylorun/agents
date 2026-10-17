@@ -1,4 +1,4 @@
-import { CliError } from "./errors.js";
+import { CliError, HelpRequest } from "./errors.js";
 
 /** Both commands refuse native Windows before acting; WSL2 runs them. */
 export function refuseNativeWindows(): void {
@@ -12,12 +12,16 @@ export function refuseNativeWindows(): void {
 /**
  * Run a command (`nylorun` or `nylo`) and exit once stdout and stderr are flushed: with
  * `process.exitCode` (0 when unset), or after printing a failure's message with its
- * `CliError` exit code (else 1).
+ * `CliError` exit code (else 1); a `HelpRequest`'s usage on stdout, exiting 0.
  */
 export function runCommand(main: () => Promise<void>): void {
   void main().then(
     () => finish(process.exitCode === undefined ? 0 : Number(process.exitCode)),
     (error: unknown) => {
+      if (error instanceof HelpRequest) {
+        console.log(error.message);
+        return finish(0);
+      }
       console.error(error instanceof Error ? error.message : String(error));
       return finish(error instanceof CliError ? error.exitCode : 1);
     },

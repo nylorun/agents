@@ -1,5 +1,5 @@
 /**
- * How a harness reaches core (R4.5). Three version numbers apply, and each moves on its own:
+ * How a harness reaches core. Three version numbers apply, and each moves on its own:
  *
  * - the transport: path `/nylorun/harness/v1` and header `Nylorun-Harness-Api: 1`, for the
  *   WebSocket and its frames (`FrameSchema`), one JSON text message per frame;

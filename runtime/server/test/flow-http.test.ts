@@ -15,7 +15,7 @@ import { Agent, createClient, http, type AgentsClient, type BuiltWorkflow } from
 import type { HostEffect } from "@nylorun/harness/run";
 import type { ModelProvider } from "../src/core/provider.js";
 import { startTestTenant } from "./support/tenant.js";
-import { deploy, type DeployOptions } from "./support/agents.js";
+import { deploy, manifestOf, writeManifest, type DeployOptions } from "./support/agents.js";
 
 const APP = "flow-http-app-token-aaaaaaaaaaaaa";
 const TOKEN = "checks-secret-token-5d1e8b7c";
@@ -153,9 +153,17 @@ describe("an HTTP stage", { timeout: 30_000 }, () => {
   it("adds the credential of the session's Agent bound to the stage's URL", async () => {
     const before = target.seen.length;
     const desk = Agent({ id: "billed-desk" }).pipe(orders, stage("refund", "/refunds", { credential: "checks" })).build();
+    // Its `credential` names a slot of the runtime section, as an agent's HTTP tool's does.
+    const undeclared = await writeManifest(runtime.url, runtime.headers(), manifestOf(desk));
+    expect(undeclared.status).toBe(422);
+    expect(undeclared.body).toMatchObject({
+      details: { gaps: ['harness.root stage "refund" http.credential "checks" is not a secret slot in runtime.secrets'] },
+    });
+    const slots = { kind: "none" as const, secrets: { checks: { type: "bearer" as const, url: `${target.url}/refunds` } } };
     const { last, events } = await run(desk, {
       id: "flows/checks",
       owner: "ada",
+      runtime: slots,
       secrets: { checks: { type: "bearer", url: `${target.url}/refunds`, value: TOKEN } },
     });
     expect(last.type, JSON.stringify(last.payload)).toBe("turn.completed");
@@ -163,7 +171,7 @@ describe("an HTTP stage", { timeout: 30_000 }, () => {
     expect(JSON.stringify(events)).not.toContain(TOKEN);
 
     // On an Agent whose vault holds no such credential, the request never leaves and the stage fails.
-    const bare = await run(desk);
+    const bare = await run(desk, { runtime: slots });
     expect(bare.last.type).toBe("turn.failed");
     expect(JSON.stringify(bare.last.payload)).toContain("http.credential");
     expect(target.seen.length).toBe(before + 1);

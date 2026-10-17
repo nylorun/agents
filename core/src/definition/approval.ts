@@ -1,5 +1,5 @@
 /**
- * `approval` in a manifest (R5 step 2). Tool approvals are the Tenant's tool policy now, decided
+ * `approval` in a manifest. Tool approvals are the Tenant's tool policy now, decided
  * at the Runtime's Tool Gate for every harness: `PUT /v1/tenant/tool-policy`, a rule with
  * `effect: "ask"`. So `PUT /v1/agents/:id` and a turn's manifest refuse a definition that sets
  * `approval` on an HTTP tool, an MCP server or an MCP tool's settings, and the SDK refuses it

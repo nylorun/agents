@@ -68,19 +68,19 @@ export function normalizeMcpServers(
   return Object.freeze(mcpServers);
 }
 
-/** The key of an MCP server's `tools` map that sets every tool without an entry (R2b C9). */
+/** The key of an MCP server's `tools` map that sets every tool without an entry. */
 export const MCP_TOOL_DEFAULTS = "*";
 
-/** A tool's settings once resolved (R2b C9): its entry, then `"*"`, then the server, then the default. */
+/** A tool's settings once resolved: its entry, then `"*"`, then the server, then the default. */
 export interface ResolvedMcpToolSettings {
   readonly enabled: boolean;
   readonly approval: ApprovalMode;
-  /** Undefined: nothing sets it, and the harness decides (R2b C10, automatic deferral). */
+  /** Undefined: nothing sets it, and the harness decides (automatic deferral). */
   readonly deferred?: boolean;
 }
 
 /**
- * The settings of the server's tool named `serverToolName` (its own name, before C6 renaming):
+ * The settings of the server's tool named `serverToolName` (its own name, before renaming):
  * from the tool's entry in `tools`, then the `"*"` entry, then the server, then the default
  * (enabled, approval `never`, deferral automatic).
  */
@@ -140,7 +140,7 @@ function isMcpServer(value: unknown): value is McpServerManifest {
   return false;
 }
 
-/** A server, or one of its tools' settings, that sets `approval` (removed in R5 step 2). */
+/** A server, or one of its tools' settings, that sets `approval` (removed with the Tenant's tool policy). */
 function setsApproval(server: Record<string, unknown>): boolean {
   if (server.approval !== undefined) return true;
   return isRecord(server.tools) && Object.values(server.tools).some((settings) => isRecord(settings) && settings.approval !== undefined);

@@ -182,6 +182,7 @@ test("proxy forwards Agent and agent manifest reads and same-origin writes on th
         const secret = { requestId: "r", type: "bearer", url: "https://mcp.example.com/mcp", value: "tok" };
         assert.equal((await send("PUT", "/v1/agents/team%2Fbuild/secrets/github", secret)).status, 200);
         assert.equal((await send("POST", "/v1/agents/team%2Fbuild/stop", {})).status, 200);
+        assert.equal((await send("POST", "/v1/agents/team%2Fbuild/restart", { requestId: "r", retry: true })).status, 200);
         assert.equal((await send("POST", "/v1/agents/team%2Fbuild/reset", {})).status, 200);
         assert.equal((await send("POST", "/v1/agents/team%2Fbuild/snapshot", {})).status, 200);
         assert.equal((await send("POST", "/v1/agents/team%2Fbuild/restore", { requestId: "r", version: 2 })).status, 200);
@@ -212,6 +213,7 @@ test("proxy forwards Agent and agent manifest reads and same-origin writes on th
             "PUT /v1/agents/team%2Fbuild",
             "PUT /v1/agents/team%2Fbuild/secrets/github",
             "POST /v1/agents/team%2Fbuild/stop",
+            "POST /v1/agents/team%2Fbuild/restart",
             "POST /v1/agents/team%2Fbuild/reset",
             "POST /v1/agents/team%2Fbuild/snapshot",
             "POST /v1/agents/team%2Fbuild/restore",
@@ -235,12 +237,13 @@ test("proxy forwards Agent and agent manifest reads and same-origin writes on th
           ],
         );
         // A manifest save names the version it was made over; nothing else carries If-Match.
-        assert.equal(seen[9]!.headers["if-match"], undefined);
-        assert.equal(seen[10]!.headers["if-match"], "2");
+        assert.equal(seen[10]!.headers["if-match"], undefined);
         assert.equal(seen[11]!.headers["if-match"], "2");
+        assert.equal(seen[12]!.headers["if-match"], "2");
         // The owner guard is the operator's: an Agent write is not a session's owner.
         assert.deepEqual(JSON.parse(seen[0]!.body), agent);
         assert.deepEqual(JSON.parse(seen[1]!.body), secret);
+        assert.deepEqual(JSON.parse(seen[3]!.body), { requestId: "r", retry: true });
         for (const { headers } of seen) {
           assert.equal(headers.authorization, "Bearer server-secret");
           assert.equal(headers["nylorun-subject"], undefined);
@@ -251,6 +254,7 @@ test("proxy forwards Agent and agent manifest reads and same-origin writes on th
         assert.equal((await send("PUT", "/v1/agents/a", { manifest: "m" }, "https://evil.example")).status, 403);
         assert.equal((await send("DELETE", "/v1/agents/a", undefined, "https://evil.example")).status, 403);
         assert.equal((await send("POST", "/v1/agents/a/restore", { version: 1 }, "https://evil.example")).status, 403);
+        assert.equal((await send("POST", "/v1/agents/a/restart", {}, "https://evil.example")).status, 403);
         assert.equal((await send("POST", "/v1/agents/a/fork", { id: "b" }, "https://evil.example")).status, 403);
         assert.equal((await send("PUT", "/v1/agent-manifests/m", { name: "m" }, "https://evil.example")).status, 403);
         // Nothing else under an Agent, no protocol-15 Environment route, no protocol-10 sandbox or vault.

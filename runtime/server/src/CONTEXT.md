@@ -261,8 +261,9 @@ with an image, every credential the harness names is a declared slot of the righ
 runtime's kind gives the loop the sandbox it needs): `422 manifest_inconsistent` with
 `details.gaps`, in place of `requires` at session open. Each section's own checks run too (no code
 tools or approvals, HTTP tool timeouts, skill files; the Tenant's limits, input files). A version
-records `savedBy` and is never changed; a save changes no Agent. `DELETE` removes every version,
-refused while an Agent names one (`409 manifest_in_use`). The engine runs a version's **loop
+records `savedBy` and is never changed; a save moves every Agent that tracks the manifest to it
+(at once, at its pod's next start, or once its required secrets are set), and a pinned one stays.
+`DELETE` removes every version, refused while an Agent names one (`409 manifest_in_use`). The engine runs a version's **loop
 manifest** (`loopManifestOf`: the harness section with the manifest's name as its id, in agent
 manifest v7's shape or workflow manifest v3's), which a session pins.
 _Avoid_: "definition" for the manifest (definitions left in protocol 16), "template".

@@ -33,7 +33,7 @@ export function isFlowDelegate(
 }
 
 /**
- * The longest tool name every model provider accepts (R2b C6, Q14): OpenAI's and Anthropic's
+ * The longest tool name every model provider accepts: OpenAI's and Anthropic's
  * `^[a-zA-Z0-9_-]{1,64}$`. A provider's ceiling, not a setting.
  */
 export const MODEL_TOOL_NAME_MAX = 64;

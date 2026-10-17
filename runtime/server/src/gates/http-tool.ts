@@ -319,7 +319,7 @@ export async function runHttpTool(
       if (authorized.status === "unauthenticated")
         return failed(
           "http.credential",
-          `The session's Environment holds no credential '${http.credential}' for ${authorized.url}`,
+          `The session's Agent holds no credential '${http.credential}' for ${authorized.url}`,
         );
       credential = authorized.headers;
       identity = authorized.identity;

@@ -3,7 +3,7 @@
  * tokens, through the Management API. (Subject tokens, the access policy, browser keys and
  * revocations left the Runtime in protocol 7.)
  */
-import { CliError } from "../errors.js";
+import { CliError, HelpRequest, isHelp } from "../errors.js";
 import { parseStackFlags, type StackDeps } from "../stack/commands.js";
 import { connect, managementClient } from "./target.js";
 
@@ -21,6 +21,7 @@ export async function signingKeysCommand(
   input: readonly string[],
 ): Promise<number> {
   const [action, ...args] = input;
+  if (isHelp(action)) throw new HelpRequest(`Usage:\n${signingKeysUsage}`);
   const flags = parseStackFlags(
     args,
     { booleans: action === "rotate" ? ["--force"] : [], values: ["--tenant"] },

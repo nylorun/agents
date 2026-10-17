@@ -47,7 +47,7 @@ export const McpSnapshotSchema = z.object({
 
 /** One tool of a server, as a turn sees it. */
 export const McpToolFactSchema = McpToolRecordSchema.extend({
-  /** False when the turn's manifest disables it (R2b C9): the record refuses its calls. */
+  /** False when the turn's manifest disables it: the record refuses its calls. */
   enabled: z.boolean(),
   /** The manifest's `deferred` setting of the tool; absent, the harness decides. */
   deferred: z.boolean().optional(),

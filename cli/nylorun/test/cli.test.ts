@@ -39,11 +39,11 @@ describe("nylorun", () => {
     expect(stdout).toMatch(/down\|stop/);
     expect(stdout).toMatch(/^ {2}doctor sandbox \[--tenant <name>\] \[--json\]/m);
     expect(stdout).toMatch(/^ {2}apply \[<dir>\.\.\.\] \[--dry-run\] \[--if-match <n>\]$/m);
-    expect(stdout).toMatch(/^ {2}migrate v8 <agent\.json> \[--runtime <environment-manifest\.json>\] \[--out <dir>\]$/m);
-    expect(stdout).toMatch(/^ {2}agent-manifests {2}list \| get \| versions \| rm$/m);
     expect(stdout).toMatch(
-      /^ {2}agents {8}list \| get \| put \| fork \| stop .*\n {16}versions \| delete-version \| events \| secrets$/m,
+      /^ {2}migrate v8 <agent\.json> \[--runtime <environment-manifest\.json>\] \[--name <name>\] \[--out <dir>\]$/m,
     );
+    expect(stdout).toMatch(/^ {2}agent-manifests {2}list \| get \| versions \| rm$/m);
+    expect(stdout).toMatch(/^ {2}agents {8}list \| get \| put \| pin \| track \| restart \| fork \| stop /m);
     expect(stdout).toMatch(/^ {2}sessions {6}list \| create \| get \| send/m);
     expect(stdout).not.toMatch(/^ {2}environments/m);
     expect(stdout).toMatch(/^ {2}artifacts {5}list \| get \| upload/m);
@@ -51,7 +51,56 @@ describe("nylorun", () => {
       /^ {2}tenant {8}reset \| keys \| signing-keys \| models \| usage \| calls \| budgets \| tool-policy \|\n {16}settings \| coverage \| mcp$/m,
     );
     expect(stdout).toMatch(/^ {2}local {9}ls \| delete \| logs \| reset \| sandbox \| telemetry/m);
-    expect(stdout).not.toMatch(/\bnylo\b|legacy|--name|\bdev\b|configure/i);
+    expect(stdout).not.toMatch(/\bnylo\b|legacy|\bdev\b|configure/i);
+    expect(stdout).not.toMatch(/^ {2}(up|down|status|studio)\b.*--name/m);
+  });
+
+  it("lists every agents command the agents group's help names", () => {
+    const top = nylorun(["--help"]).stdout;
+    const group = top.match(/^ {2}agents {8}.*(\n {16}.*)*/m)![0];
+    const commands = [...nylorun(["agents", "--help"]).stdout.matchAll(/^ {2}([a-z][a-z-]*)\b/gm)].map((m) => m[1]!);
+    expect(commands).toEqual(expect.arrayContaining(["pin", "track", "restart", "triggers", "runs", "memories"]));
+    for (const command of new Set([...commands, "reset"]))
+      expect(group).toMatch(new RegExp(`(^|[ |])${command}( |$)`, "m"));
+  });
+
+  it.each([
+    [["migrate", "v8"], /^Usage: nylorun migrate v8 <agent\.json>.*--name <name>/],
+    [["apply", "agent"], /^Usage: nylorun apply /],
+    [["agents", "get"], /^Usage: nylorun agents get <id>\n\nEvery command takes --tenant <name>/],
+    [["agents", "pin", "a1"], /^Usage: nylorun agents pin <id> <version>/],
+    [["agents", "secrets"], /^Usage:\n {2}secrets list <id>/],
+    [["agents", "triggers"], /^Usage:\n {2}triggers list <id>/],
+    [["agents", "memories", "ls"], /^Usage: nylorun agents memories ls <id>/],
+    [["sessions", "exec", "s1"], /^Usage: nylorun sessions exec <id>/],
+    [["artifacts", "zip"], /^Usage: nylorun artifacts zip/],
+    [["agent-manifests", "get"], /^Usage: nylorun agent-manifests get/],
+    [["tenant", "reset"], /^Usage: nylorun tenant reset /],
+    [["tenant", "keys"], /^Usage:\n {2}keys put <id>/],
+    [["tenant", "keys", "put"], /^Usage: nylorun tenant keys put <id>/],
+    [["tenant", "signing-keys"], /^Usage:\n {2}signing-keys list/],
+    [["tenant", "models"], /^Usage:\n {2}models catalog/],
+    [["tenant", "models", "set"], /^Usage: nylorun tenant models set/],
+    [["tenant", "budgets"], /^Usage: nylorun tenant budgets \[get \| put <file\|->\]/],
+    [["tenant", "settings"], /^Usage:\n {2}settings sandbox [^]*settings limits/],
+    [["tenant", "settings", "limits"], /^Usage: nylorun tenant settings limits/],
+    [["tenant", "coverage"], /^Usage: nylorun tenant coverage --agent <id>/],
+    [["tenant", "mcp"], /^Usage:\n {2}mcp inspect <url>/],
+    [["tenant", "usage"], /^Usage: nylorun tenant usage /],
+    [["up"], /^Usage: nylorun (up|start) /],
+    [["status"], /^Usage: nylorun status /],
+    [["doctor"], /^Usage: nylorun doctor \[--json\]/],
+    [["doctor", "sandbox"], /^Usage: nylorun doctor sandbox /],
+    [["local", "logs"], /^Usage: nylorun local logs /],
+    [["local", "sandbox", "status"], /^Usage: nylorun local sandbox status /],
+    [["local", "telemetry", "enable"], /^Usage: nylorun local telemetry /],
+  ])("%j --help prints its own usage (exit 0)", (args, usage) => {
+    for (const help of ["--help", "-h"]) {
+      const { code, stdout, stderr } = nylorun([...args, help]);
+      expect({ code, stderr }).toEqual({ code: 0, stderr: "" });
+      expect(stdout).toMatch(usage);
+    }
+    expect(nylorun(["tenant", "settings", "--help"]).stdout).not.toMatch(/budgets|tool-policy|coverage/);
   });
 
   it("each group has its own help", () => {
@@ -161,13 +210,13 @@ describe("nylorun", () => {
 
 describe("nylo (part of nylorun now)", () => {
   it.each([
-    [["status"], /^nylo is part of nylorun now: nylo status is nylorun status\.$/m],
+    [["status"], /^nylo is part of nylorun now: nylo status is nylorun status\. nylorun 0\.18 removes nylo\.$/m],
     [["reset", "--all"], /nylo reset is nylorun tenant reset\./],
     [["access", "signing-keys", "list"], /nylo access is nylorun tenant signing-keys list\|rotate\|revoke\./],
     [["configure"], /nylo configure is nylorun tenant models set\./],
     [["doctor", "sandbox"], /nylo doctor is nylorun doctor sandbox\./],
     [["env"], /nylo env is nothing: the SDKs read the Project link themselves/],
-    [[], /^nylo is part of nylorun now: run nylorun --help\.$/m],
+    [[], /^nylo is part of nylorun now: run nylorun --help\. nylorun 0\.18 removes nylo\.$/m],
   ])("%j names the nylorun command (exit 2)", (args, message) => {
     const { code, stdout, stderr } = nylorun(args, {}, "dist/nylo.js");
     expect(code).toBe(2);

@@ -3,7 +3,7 @@
   "version": "0.16.3-beta",
   "type": "module",
   "license": "Apache-2.0",
-  "description": "Deprecated: nylo ships in the nylorun package. This package runs nylorun's nylo for one more release.",
+  "description": "Deprecated: nylo ships in the nylorun package. This package runs nylorun's nylo until nylorun 0.18, which removes both.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/nylorun/agents.git",

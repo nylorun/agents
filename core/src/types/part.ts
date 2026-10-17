@@ -26,5 +26,10 @@ export interface PartDeclaration<Info = unknown> {
   readonly skills?: Readonly<Record<string, SkillManifest>>;
   /** Each skill file's bytes, by `sha256:<hex>`, for the client to upload. Not projected into the manifest. */
   readonly skillFiles?: Readonly<Record<string, SkillFileSource>>;
+  /**
+   * The secret slots each skill's scripts read, by skill name (a SKILL.md's `secrets`): the
+   * harness section's `skills.<name>.secrets` when the agent is saved. Not projected into the manifest.
+   */
+  readonly skillSecrets?: Readonly<Record<string, readonly string[]>>;
   readonly mcpServers?: Readonly<Record<string, McpServerManifest>>;
 }

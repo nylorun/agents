@@ -349,7 +349,7 @@ export const agentTriggers = nylorun.table(
 
 /**
  * An Agent's memories (track T5, D72): one row per Markdown file under `/memories`, its content
- * inline (the Runtime limit `memoryBytes`, 100 KB by default, bounds it). `version` counts the
+ * inline (the Runtime limit `memoryBytes`, 100 KiB by default, bounds it). `version` counts the
  * changes to this path; `description` is its frontmatter's, for the pinned index. A write locks the
  * one row it changes, so writes to different memories never wait on each other.
  */

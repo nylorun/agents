@@ -1,5 +1,5 @@
 /**
- * The Harness API as one JSON Schema document (R4.5, Q4), generated from the same zod schemas the
+ * The Harness API as one JSON Schema document, generated from the same zod schemas the
  * Runtime validates with, so a harness written in another language validates against what core
  * enforces. The build writes it to `dist/harness-api/harness-api.schema.json`
  * (`@nylorun/core/harness-api/schema.json`). `$defs` holds every published schema by name, and

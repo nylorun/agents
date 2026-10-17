@@ -1,5 +1,5 @@
 /**
- * The gates a harness calls (R4.5): the Model Gate and the Tool Gate, on the gateway's port. A
+ * The gates a harness calls: the Model Gate and the Tool Gate, on the gateway's port. A
  * harness never holds a model or tool credential: it presents the run token of the run it holds
  * (`RunGrant.token`) as `Authorization: Bearer`, and the gate takes the session, turn and agent
  * from the token. Every call is keyed by its effect id, sent as `Idempotency-Key`: a re-send

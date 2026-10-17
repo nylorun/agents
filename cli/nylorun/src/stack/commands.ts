@@ -3,7 +3,7 @@ import { mkdir, readFile, rm } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 import { compareVersions } from "@nylorun/core/compatibility";
 import { findProjectRoot } from "@nylorun/core/project";
-import { CliError } from "../errors.js";
+import { CliError, HelpRequest, isHelp } from "../errors.js";
 import {
   credentialsPath,
   readCredentialsFile,
@@ -277,6 +277,27 @@ interface Flags {
   lists: Map<string, string[]>;
 }
 
+/** A command's `usage` line (or block, when it starts indented), as `--help` prints it. */
+export const usageText = (usage: string): string => (/^\s/.test(usage) ? `Usage:\n${usage}` : `Usage: ${usage}`);
+
+/**
+ * The lines of a group's usage block that start with command `name` (`secrets`, `settings`),
+ * with the lines that continue them, as `--help` prints them.
+ */
+export function usageLinesOf(usage: string, name: string): string {
+  let keep = false;
+  const lines = usage.split("\n").filter((line) => {
+    if (/^ {2}\S/.test(line)) keep = line === `  ${name}` || line.startsWith(`  ${name} `);
+    else if (!/^ {3}/.test(line)) keep = false;
+    return keep;
+  });
+  return `Usage:\n${lines.join("\n")}`;
+}
+
+/**
+ * `args` as the options `allowed` names, and the rest. `--help` or `-h` anywhere is a
+ * `HelpRequest` for `usage`; an option `allowed` does not name is a usage error.
+ */
 export function parseStackFlags(
   args: readonly string[],
   allowed: {
@@ -293,6 +314,7 @@ export function parseStackFlags(
   const rest: string[] = [];
   for (let index = 0; index < args.length; index += 1) {
     const raw = args[index]!;
+    if (isHelp(raw)) throw new HelpRequest(usageText(usage));
     const arg = allowed.aliases?.[raw] ?? raw;
     // `-` alone is an argument: standard input.
     if (arg === "-" || !arg.startsWith("-")) {

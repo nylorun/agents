@@ -155,7 +155,7 @@ ${healthcheck("restate")}    restart: unless-stopped
     # Its reachability is in the Tenant's status (GET /v1/tenant, streams.reachable).
     restart: unless-stopped
 
-  rustfs: # the Object store (D35); not published, only the runtime and the gateway hold its credential
+  rustfs: # the Object store; not published, only the runtime and the gateway hold its credential
     image: ${PINNED_IMAGES.rustfs}
     container_name: ${project}-rustfs
     labels: *tenant
@@ -234,7 +234,9 @@ ${healthcheck("gateway")}    restart: unless-stopped
       # Host headers the Runtime accepts: its name on the Compose network, and the
       # published port as clients on this machine address it.
       NYLORUN_ALLOWED_HOSTS: runtime:4000,localhost:\${NYLORUN_PORT},127.0.0.1:\${NYLORUN_PORT}
-      NYLORUN_PUBLIC_URL: http://localhost:\${NYLORUN_PORT}
+      # The URL clients use: webhook URLs and the OAuth resource. Behind a reverse proxy, its URL
+      # (\`NYLORUN_PUBLIC_URL=https://runtime.example.com nylorun start\`).
+      NYLORUN_PUBLIC_URL: \${NYLORUN_PUBLIC_URL:-http://localhost:\${NYLORUN_PORT}}
       NYLORUN_DATABASE_URL: postgres://nylorun:\${NYLORUN_POSTGRES_PASSWORD}@postgres:5432/nylorun
       NYLORUN_RESTATE_INGRESS_URL: http://restate:8080
       NYLORUN_RESTATE_ADMIN_URL: http://restate:9070
@@ -255,7 +257,7 @@ ${healthcheck("gateway")}    restart: unless-stopped
       NYLORUN_HARNESS_LISTEN_PORT: "4200"
       NYLORUN_HARNESS_ALLOWED_HOSTS: runtime:4200${sandboxes ? SANDBOXES_HARNESS_HOST : ""}
       NYLORUN_HARNESS_TOKEN: \${NYLORUN_HARNESS_TOKEN:?run nylorun start}
-      # Traces (R7.2): from the shell that runs \`nylorun start\`. Unset, they are
+      # Traces: from the shell that runs \`nylorun start\`. Unset, they are
       # empty and the Runtime exports nothing. A collector on this machine is host.docker.internal.
       OTEL_EXPORTER_OTLP_ENDPOINT: \${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: \${OTEL_EXPORTER_OTLP_TRACES_ENDPOINT:-}

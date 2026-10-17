@@ -1,5 +1,5 @@
 /**
- * What a harness writes into the session's record besides its effects (R4.5): transcript
+ * What a harness writes into the session's record besides its effects: transcript
  * entries, and the effect id rule replays depend on.
  *
  * Transcript. A session's transcript is shared by every turn: a run reads it once

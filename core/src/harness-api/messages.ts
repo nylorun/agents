@@ -1,5 +1,5 @@
 /**
- * Harness API v4 (blueprint D37–D42; the harness boundary, protocol 15): the messages between
+ * Harness API v4 (the harness boundary, protocol 15): the messages between
  * core and a harness. A run is a lease on one session's segment; core records, the harness runs
  * the engine. Who executes what: the harness runs model, MCP, HTTP and sandbox calls and its own
  * tools (our engine's skill, artifact and deferred-tool tools among them, over the
@@ -90,7 +90,7 @@ export type EffectTarget = z.infer<typeof EffectTargetSchema>;
 /** The Environment a turn runs in (`turn.start.environment`, protocol 15). */
 export type TurnAgent = z.infer<typeof TurnAgentSchema>;
 
-/** The Agent's memory as a turn starts (`turn.start.memory`, track T5). */
+/** The Agent's memory as a turn starts (`turn.start.memory`). */
 export type TurnMemory = z.infer<typeof TurnMemorySchema>;
 
 /** An artifact as the artifact seam shows it to a harness (`artifact.read`, `artifact.write`). */
@@ -114,13 +114,13 @@ export type CompactionFacts = z.infer<typeof CompactionFactsSchema>;
 /** A completed outcome of the segment, with the hash of the request it answered. */
 export type RecordedOutcome = z.infer<typeof RecordedOutcomeSchema>;
 
-/** The lease on one run. `token` is the run token (F5) when the gates require one. */
+/** The lease on one run. `token` is the run token when the gates require one. */
 export type RunGrant = z.infer<typeof RunGrantSchema>;
 
 /** Where a harness sends the session's tool calls. */
 export type RunRouting = z.infer<typeof RunRoutingSchema>;
 
-/** W3C trace context a turn carries (R4.10). */
+/** W3C trace context a turn carries. */
 export type TraceContext = z.infer<typeof TraceContextSchema>;
 
 /** The model a turn's calls use when they name none (`turn.start.model`, protocol 15). */
@@ -156,10 +156,10 @@ export type WorkspaceRecord = z.infer<typeof WorkspaceRecordSchema>;
 /** A sandbox tool call core sends to the harness that serves workspaces. */
 export type WorkspaceCall = z.infer<typeof WorkspaceCallSchema>;
 
-/** One operation on a workspace's disk (R2d step 3). */
+/** One operation on a workspace's disk. */
 export type WorkspaceDiskCall = z.infer<typeof WorkspaceDiskCallSchema>;
 
-/** Requests core sends to a harness that declared `workspace` (F6.2), with their answers. */
+/** Requests core sends to a harness that declared `workspace`, with their answers. */
 export type CoreRequests = RequestTypes<typeof coreRequests>;
 
 /** Messages core sends to a harness, without an answer. */

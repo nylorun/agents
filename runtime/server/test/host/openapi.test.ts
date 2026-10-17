@@ -2,6 +2,7 @@
  * The Runtime's OpenAPI document: valid OpenAPI 3.2 (as Scalar, which renders it, reads it),
  * served as generated, with every declared route in it once.
  */
+import { readFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -132,4 +133,24 @@ it("serves both documents to anyone, but not to a browser", async () => {
     });
     expect(fromBrowser.status, path).toBe(403);
   }
+});
+
+/**
+ * Internal roadmap codes: `track T3`, `D74`, `Q15`, `R2b C12`, `R5 step 2`, `R7.1`, `B15`, `F8.2`,
+ * `M4`, `P0.3`, `T28`. Not `S2` (the stream store), a status code, a hash or base64.
+ */
+const ROADMAP_CODE = /\btrack [A-Z]\d|\b(?:[DQ]\d{1,3}|R\d{1,2}[a-d]?(?:\.\d+)?|[BCFIMPT]\d{1,2}(?:\.\d+)?)\b/;
+
+it("names no internal roadmap code in either document", () => {
+  for (const code of ["(track T3)", "(D74)", "(Q15)", "(R2b C12)", "(R5 step 2)", "(R7.1)", "(B15)", "(F8.2)", "(track R2 M4)"])
+    expect(code).toMatch(ROADMAP_CODE);
+  for (const text of ["Postgres, Restate and S2", "S3", "`409`", "sha256:9fD12a", "OAuth 2.0", "UTF-8", "ES256"])
+    expect(text).not.toMatch(ROADMAP_CODE);
+  for (const name of ["openapi.json", "management-openapi.json"]) {
+    const snapshot = readFileSync(new URL(`../../openapi/${name}`, import.meta.url), "utf8");
+    const found = snapshot.split("\n").filter((line) => ROADMAP_CODE.test(line));
+    expect(found, name).toEqual([]);
+  }
+  for (const document of [runtimeDocument(), managementDocument()])
+    expect(JSON.stringify(document)).not.toMatch(ROADMAP_CODE);
 });

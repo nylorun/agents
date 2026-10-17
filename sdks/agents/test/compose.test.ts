@@ -25,7 +25,7 @@ function folder(files: Record<string, string | Uint8Array | object>): string {
 }
 
 const TRIAGE_SKILL = "---\nname: triage\ndescription: Triage an issue.\n---\nLabel it.\n";
-const PR_SKILL = "---\nname: open-pr\ndescription: Open a pull request.\n---\nSteps.\n";
+const PR_SKILL = "---\nname: open-pr\ndescription: Open a pull request.\nsecrets: [GH_TOKEN]\n---\nSteps.\n";
 const SETUP = "#!/bin/sh\necho ready\n";
 
 /** Two agents sharing one runtime file, as `nylorun apply agents/` reads them. */
@@ -54,6 +54,7 @@ function project(harness: Record<string, unknown> = {}, runtime: Record<string, 
       plugins: ["../../plugins/github"],
       credentials: { linear: "linear", lookup: "items" },
       requires: { sandbox: "any", secrets: ["GH_TOKEN"] },
+      memory: { access: "read_only", instructions: "Keep the label conventions." },
       ...harness,
     },
     "agents/triage/skills/triage/SKILL.md": TRIAGE_SKILL,
@@ -111,6 +112,7 @@ describe("composeManifest", () => {
         description: "Open a pull request.",
         files: { "SKILL.md": sha256(PR_SKILL) },
         plugin: { name: "github", version: "1.2.0" },
+        secrets: ["GH_TOKEN"],
       },
     });
     expect(harness.mcpServers).toEqual({
@@ -123,6 +125,7 @@ describe("composeManifest", () => {
       },
     });
     expect(harness.plugins).toEqual([{ name: "github", version: "1.2.0" }]);
+    expect(harness.memory).toEqual({ access: "read_only", instructions: "Keep the label conventions." });
     // Only the composer reads these; the API never sees them.
     for (const field of ["requires", "credentials", "$schema"]) expect(harness).not.toHaveProperty(field);
     expect(runtime).not.toHaveProperty("$schema");
@@ -142,6 +145,7 @@ describe("composeManifest", () => {
       'harness.requires.secrets "GH_TOKEN" is not a secret slot in runtime.secrets',
       'harness.mcpServers.linear.credential "linear" is not a secret slot in runtime.secrets',
       'harness.tools.lookup.http.credential "items" is not a secret slot in runtime.secrets',
+      'harness.skills.open-pr.secrets "GH_TOKEN" is not a secret slot in runtime.secrets',
       'harness.skills needs a sandbox; runtime.kind "none" has none',
     ]);
   });

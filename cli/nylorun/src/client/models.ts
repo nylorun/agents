@@ -7,7 +7,7 @@
 import { randomUUID } from "node:crypto";
 import type { ManagementClient } from "@nylorun/admin";
 import type { HostModelView, ModelUsageQuery } from "@nylorun/core/contracts";
-import { CliError } from "../errors.js";
+import { CliError, HelpRequest, isHelp } from "../errors.js";
 import { parseStackFlags, type StackDeps } from "../stack/commands.js";
 import { printJson, printTable, readSecret } from "./io.js";
 import { connect, managementClient } from "./target.js";
@@ -161,6 +161,7 @@ async function select(deps: StackDeps, args: readonly string[]): Promise<number>
 /** `nylorun tenant models <verb> ...` */
 export async function modelsCommand(deps: StackDeps, args: readonly string[]): Promise<number> {
   const [verb, ...rest] = args;
+  if (isHelp(verb)) throw new HelpRequest(`Usage:\n${modelsUsage}`);
   if (verb === "catalog" || verb === "providers" || verb === "get") return read(deps, verb, rest);
   if (verb === "set") return set(deps, rest);
   if (verb === "select") return select(deps, rest);

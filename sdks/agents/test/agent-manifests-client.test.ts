@@ -1,3 +1,6 @@
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { HOST_PROTOCOL } from "@nylorun/core/compatibility";
@@ -85,6 +88,24 @@ describe("client.agentManifests", () => {
     expect(sent.map(({ method, path }) => `${method} ${path}`)).toEqual(["PUT /v1/agent-manifests/orders-v2"]);
     expect(sent[0]!.body.harness).not.toHaveProperty("requires");
     expect(sent[0]!.body.harness).not.toHaveProperty("id");
+  });
+
+  it("turns on the agent's memory, and carries its skills' SKILL.md secrets into the harness section", async () => {
+    const root = mkdtempSync(join(tmpdir(), "nylorun-manifest-skills-"));
+    mkdirSync(join(root, "open-pr"));
+    writeFileSync(
+      join(root, "open-pr/SKILL.md"),
+      "---\nname: open-pr\ndescription: Open a pull request.\nsecrets: [GH_TOKEN]\n---\nRun gh.\n",
+    );
+    const agent = Agent({ id: "builder" }).instructions("Build.").skills(root).build();
+    const runtime = { kind: "virtual" as const, secrets: { GH_TOKEN: { type: "environment_variable" as const } } };
+    const memory = { access: "read_only" as const, instructions: "Keep the build conventions." };
+    const { harness } = agentManifest({ agent, runtime, memory });
+    expect(harness).toMatchObject({ memory, skills: { "open-pr": { name: "open-pr", secrets: ["GH_TOKEN"] } } });
+    // The built agent's own manifest (v7) keeps no secrets on its skills.
+    expect(agent.manifest.skills!["open-pr"]).not.toHaveProperty("secrets");
+    const flow = Agent({ id: "flow" }).pipe(Agent({ id: "step" }).instructions("Step.")).build();
+    expect(() => agentManifest({ agent: flow, memory })).toThrow(/flow, whose harness section has none/);
   });
 
   it("refuses an agent that misses its requires, and a code tool, before sending anything", async () => {

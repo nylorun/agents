@@ -16,6 +16,8 @@ export function configForFactory(options: {
   delivery?: TenantConfig["delivery"];
   /** The trusted issuers of the identity file (`NYLORUN_IDENTITY_FILE`). */
   issuers?: TenantConfig["issuers"];
+  /** The URL clients reach the Runtime API at (`NYLORUN_PUBLIC_URL`). */
+  publicUrl?: string;
 }): (id: string) => TenantConfig {
   return (id: string): TenantConfig => {
     const tenant = tenantPaths(options.hostRoot);
@@ -28,6 +30,7 @@ export function configForFactory(options: {
       model: options.model ?? { kind: "vault" },
       ...(options.delivery ? { delivery: options.delivery } : {}),
       ...(options.issuers ? { issuers: options.issuers } : {}),
+      ...(options.publicUrl ? { publicUrl: options.publicUrl } : {}),
       logger: {
         info: (message, fields) =>
           options.logger.info(message, { tenantId: id, ...fields }),

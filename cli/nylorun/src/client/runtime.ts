@@ -10,8 +10,8 @@ import {
   SUBJECT_SCOPES,
   type SubjectScope,
 } from "@nylorun/agents";
-import { CliError } from "../errors.js";
-import { parseStackFlags, type StackDeps } from "../stack/commands.js";
+import { CliError, HelpRequest, isHelp } from "../errors.js";
+import { parseStackFlags, usageText, type StackDeps } from "../stack/commands.js";
 import { connect, type Connection } from "./target.js";
 
 /** Flags every Runtime API command takes. */
@@ -24,12 +24,13 @@ export const usageError = (message: string) => new CliError(message, 2);
 
 export type Flags = ReturnType<typeof parseStackFlags>;
 
-/** `args` parsed with the Runtime flags added to `allowed`. */
+/** `args` parsed with the Runtime flags added to `allowed`; `--help` names them too. */
 export function parseFlags(
   args: readonly string[],
   allowed: { booleans?: readonly string[]; values?: readonly string[]; lists?: readonly string[] },
   usage: string,
 ): Flags {
+  if (args.some(isHelp)) throw new HelpRequest(`${usageText(usage)}\n\n${runtimeFlagsUsage}`);
   return parseStackFlags(
     args,
     {

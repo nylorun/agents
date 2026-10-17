@@ -1,5 +1,5 @@
 /**
- * Tools that would run the developer's code (track R2 M6): an agent's own tool with no `http`
+ * Tools that would run the developer's code: an agent's own tool with no `http`
  * and no `agent`, and a flow agent's `tool` stage without `http`. The tools in a pinned
  * manifest's `runtime` block are the Runtime's own. The
  * Runtime runs agents from their manifests alone, so `PUT /v1/agents/:id` refuses a definition

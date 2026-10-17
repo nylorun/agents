@@ -22298,7 +22298,7 @@
               }
             },
             "additionalProperties": false,
-            "description": "The Agent's memory: Markdown files under /memories it keeps across sessions (D72)"
+            "description": "The Agent's memory: Markdown files under /memories it keeps across sessions"
           },
           "functions": {
             "description": "Reserved: Functions are not available yet"
@@ -22644,11 +22644,11 @@
             "additionalProperties": {
               "$ref": "#/components/schemas/Trigger"
             },
-            "description": "What starts the Agent's turns with no client connected, by trigger id (D74)"
+            "description": "What starts the Agent's turns with no client connected, by trigger id"
           },
           "selfWake": {
             "type": "boolean",
-            "description": "Offer the agent schedule_wake: it books its session's next turn itself (D77)"
+            "description": "Offer the agent schedule_wake: it books its session's next turn itself"
           }
         },
         "required": [
@@ -24683,7 +24683,7 @@
           "Agent manifests"
         ],
         "summary": "Save an agent manifest",
-        "description": "Saves the manifest as its next version, or answers the latest unchanged when nothing differs. Every Agent that tracks the manifest moves to the new version (track T3): at once, at its pod's next start for a runtime change a pod applies only when it starts, or once a required secret the version adds is set; a pinned one stays, and so does one whose kind, harness or storage the version changes (`agents_behind`). The Runtime checks the harness and runtime sections against each other: a custom harness needs a pod with an image, every credential the harness names is a declared slot of the right type, and the runtime's kind gives the loop the sandbox it needs; every gap is named in one `422 manifest_inconsistent` (`details.gaps`). `If-Match: <version>` refuses the save with `412 manifest_changed` when the latest version is no longer the one you read (`0` for a manifest that does not exist yet). With `?dryRun=true` the answer is the plan: the changes by section, every reason a save would be refused (`errors`, the gaps first), warnings, the Agents it would move (`moves`) and how many stay on older versions (`behind`); nothing is saved. Clients compose the authoring files and drop their `$schema` before they send one document.",
+        "description": "Saves the manifest as its next version, or answers the latest unchanged when nothing differs. Every Agent that tracks the manifest moves to the new version: at once, at its pod's next start for a runtime change a pod applies only when it starts, or once a required secret the version adds is set; a pinned one stays, and so does one whose kind, harness or storage the version changes (`agents_behind`). The Runtime checks the harness and runtime sections against each other: a custom harness needs a pod with an image, every credential the harness names is a declared slot of the right type, and the runtime's kind gives the loop the sandbox it needs; every gap is named in one `422 manifest_inconsistent` (`details.gaps`). `If-Match: <version>` refuses the save with `412 manifest_changed` when the latest version is no longer the one you read (`0` for a manifest that does not exist yet). With `?dryRun=true` the answer is the plan: the changes by section, every reason a save would be refused (`errors`, the gaps first), warnings, the Agents it would move (`moves`) and how many stay on older versions (`behind`); nothing is saved. Clients compose the authoring files and drop their `$schema` before they send one document.",
         "security": [
           {
             "applicationKey": []
@@ -25772,7 +25772,7 @@
           "Agents"
         ],
         "summary": "Create, find or move an Agent",
-        "description": "Creates the Agent, its vault and its compute from a saved agent manifest, within the Tenant's limits, or answers the one with this id, so get-or-create is one call. `manifest: \"name\"` records that it tracks the manifest (its latest version, and each version saved later) and `\"name@n\"` that it is pinned; the version it runs is `resolvedVersion`. On an existing one, labels replace, `owner` sets or (with `null`) clears the owner guard, and `manifest` moves it (track T3) with its id, disk, vault and sessions: a harness-only change applies at once (each session's next turn runs it), a runtime change of a pod at its next start (`targetVersion`, `waitingFor: start`), and a version that adds a required secret once a value is set (`waitingFor: secrets`). Its manifest's name, kind, harness and storage are fixed (`409 agent_fixed_field`): fork it to change them. `?dryRun=true` answers the move's plan and changes nothing. Creating an Agent opens no session (D71). Kind `pod` needs sandbox pods (`nylorun local sandbox enable`) and is created at once.",
+        "description": "Creates the Agent, its vault and its compute from a saved agent manifest, within the Tenant's limits, or answers the one with this id, so get-or-create is one call. `manifest: \"name\"` records that it tracks the manifest (its latest version, and each version saved later) and `\"name@n\"` that it is pinned; the version it runs is `resolvedVersion`. On an existing one, labels replace, `owner` sets or (with `null`) clears the owner guard, and `manifest` moves it with its id, disk, vault and sessions: a harness-only change applies at once (each session's next turn runs it), a runtime change of a pod at its next start (`targetVersion`, `waitingFor: start`), and a version that adds a required secret once a value is set (`waitingFor: secrets`). Its manifest's name, kind, harness and storage are fixed (`409 agent_fixed_field`): fork it to change them. `?dryRun=true` answers the move's plan and changes nothing. Creating an Agent opens no session. Kind `pod` needs sandbox pods (`nylorun local sandbox enable`) and is created at once.",
         "security": [
           {
             "applicationKey": []
@@ -26217,7 +26217,7 @@
           "Agents"
         ],
         "summary": "List Agents",
-        "description": "Every Agent with all the labels asked for, in `state`, made from `manifest` and `outdated` (moving to another version, track T3) when given, by id. A token caller sees only the Agents its grants reach, and a caller acting for a person only that person's sessions on each. `limit` opts into pages.",
+        "description": "Every Agent with all the labels asked for, in `state`, made from `manifest` and `outdated` (moving to another version) when given, by id. A token caller sees only the Agents its grants reach, and a caller acting for a person only that person's sessions on each. `limit` opts into pages.",
         "security": [
           {
             "applicationKey": []
@@ -26428,7 +26428,7 @@
           "Agents"
         ],
         "summary": "Read an Agent's events",
-        "description": "`agent.created`, `.attached`, `.detached`, `.deleted`, a pod's `.running`, `.suspended`, `.relaunched`, `.lost`, `.reset` and `.failed`, `.forked`, a move's `.outdated`, `.version_changed` and `.start_failed` (track T3), and `agent.egress` for every connection its sandbox opens through egress-gate, naming the turns that were running (D67), in order, numbered from 0, at most the Tenant's Runtime limit `environmentEventItems` (default 1000) per call: `from` reads on.",
+        "description": "`agent.created`, `.attached`, `.detached`, `.deleted`, a pod's `.running`, `.suspended`, `.relaunched`, `.lost`, `.reset` and `.failed`, `.forked`, a move's `.outdated`, `.version_changed` and `.start_failed`, and `agent.egress` for every connection its sandbox opens through egress-gate, naming the turns that were running, in order, numbered from 0, at most the Tenant's Runtime limit `environmentEventItems` (default 1000) per call: `from` reads on.",
         "security": [
           {
             "applicationKey": []
@@ -26879,7 +26879,7 @@
           "Agents"
         ],
         "summary": "Restart an Agent on its pending version",
-        "description": "Applies a version the Agent waits to apply (track T3): a running pod stops, so the next turn starts it on the version, on the same volume; a stopped or failed one is asked to run at once. `retry: true` first moves it to the version that failed to start (`failedVersion`) again. Kinds `virtual` and `none` apply a version at once, so there is nothing to wait for. Refused during a turn (`agent_busy`). The body is optional.",
+        "description": "Applies a version the Agent waits to apply: a running pod stops, so the next turn starts it on the version, on the same volume; a stopped or failed one is asked to run at once. `retry: true` first moves it to the version that failed to start (`failedVersion`) again. Kinds `virtual` and `none` apply a version at once, so there is nothing to wait for. Refused during a turn (`agent_busy`). The body is optional.",
         "security": [
           {
             "applicationKey": []
@@ -27321,7 +27321,7 @@
           "Agents"
         ],
         "summary": "Write an Agent's secret",
-        "description": "Creates or replaces one credential of the Agent's vault: an `environment_secret` (the variable `name` reads the sentinel `nylorun_managed` in the sandbox, and egress-gate sets the value as a header on requests to `allowedHosts`), an `environment_variable` (a plain variable), or a `bearer` token or `headers` map for the MCP servers and HTTP tools at `url`. The same name and type re-seals the value and binding; another type replaces it. A rotated value is used from the next request. A second credential for a host or a URL is `409 credential_conflict`. When the Agent's manifest declares secret slots (D64; while it moves to another version, that version's), send only the value (`{ value }`, or `{ headers }` for a `headers` slot): the type and binding come from the slot, and a name it does not declare is `409 secret_not_in_manifest`.",
+        "description": "Creates or replaces one credential of the Agent's vault: an `environment_secret` (the variable `name` reads the sentinel `nylorun_managed` in the sandbox, and egress-gate sets the value as a header on requests to `allowedHosts`), an `environment_variable` (a plain variable), or a `bearer` token or `headers` map for the MCP servers and HTTP tools at `url`. The same name and type re-seals the value and binding; another type replaces it. A rotated value is used from the next request. A second credential for a host or a URL is `409 credential_conflict`. When the Agent's manifest declares secret slots (while it moves to another version, that version's), send only the value (`{ value }`, or `{ headers }` for a `headers` slot): the type and binding come from the slot, and a name it does not declare is `409 secret_not_in_manifest`.",
         "security": [
           {
             "applicationKey": []
@@ -28084,7 +28084,7 @@
           "Agents"
         ],
         "summary": "Fork an Agent",
-        "description": "Copies the Agent into a new one (Q15), which is how an Agent changes what is fixed for its life: a new Agent `id`, made from `manifest` (default the source's manifest name, tracking, at its latest version), its disk started from a version of this one's (`disk`: `latest`, the default, takes a snapshot first; a version number; or `empty`) and its secrets copied inside the Runtime (`secrets`: `copy`, the default, copies those the new manifest declares; `none`). On a fork onto other setup the new manifest's setup runs on the copied disk before its first turn. This Agent keeps what it runs, its disk and its sessions. `dryRun` answers the plan and makes nothing. To move an Agent to another version of the same manifest, with the same kind, harness and storage, `PUT` it instead (track T3).",
+        "description": "Copies the Agent into a new one, which is how an Agent changes what is fixed for its life: a new Agent `id`, made from `manifest` (default the source's manifest name, tracking, at its latest version), its disk started from a version of this one's (`disk`: `latest`, the default, takes a snapshot first; a version number; or `empty`) and its secrets copied inside the Runtime (`secrets`: `copy`, the default, copies those the new manifest declares; `none`). On a fork onto other setup the new manifest's setup runs on the copied disk before its first turn. This Agent keeps what it runs, its disk and its sessions. `dryRun` answers the plan and makes nothing. To move an Agent to another version of the same manifest, with the same kind, harness and storage, `PUT` it instead.",
         "security": [
           {
             "applicationKey": []
@@ -29455,21 +29455,9 @@
           "Triggers"
         ],
         "summary": "Deliver to a webhook trigger",
-        "description": "A sender's delivery, signed with Standard Webhooks (`webhook-id`, `webhook-timestamp` within 5 minutes by default, `webhook-signature`): no credential and no `Nylorun-Protocol`. The body, any media type, at most the Runtime limit `webhookBodyBytes`, is read as bytes and verified before anything else. It runs the trigger once per `webhook-id`: a retry answers the first run. The body reaches the model as data under the trigger's prompt. Other senders (GitHub, Stripe, Slack) are relayed by an app.",
-        "security": [
-          {
-            "applicationKey": []
-          },
-          {
-            "issuerToken": []
-          },
-          {}
-        ],
-        "x-nylorun-credentials": [
-          "application",
-          "subject",
-          "token"
-        ],
+        "description": "A sender's delivery, signed with Standard Webhooks (`webhook-id`, `webhook-timestamp` within 5 minutes by default, `webhook-signature`): no credential (an `Authorization` header is ignored) and no `Nylorun-Protocol`. The body, any media type, at most the Runtime limit `webhookBodyBytes`, is read as bytes and verified before anything else. It runs the trigger once per `webhook-id`: a retry answers the first run. The body reaches the model as data under the trigger's prompt. Other senders (GitHub, Stripe, Slack) are relayed by an app.",
+        "security": [],
+        "x-nylorun-credentials": [],
         "x-nylorun-scopes": "any",
         "parameters": [
           {
@@ -29485,39 +29473,9 @@
           {
             "schema": {
               "type": "string",
-              "description": "The protocol version, `17`"
-            },
-            "required": false,
-            "description": "The protocol version, `17`",
-            "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The person an application key acts for"
-            },
-            "required": false,
-            "description": "The person an application key acts for",
-            "name": "Nylorun-Subject",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The subject's space-separated scopes; required with a subject"
-            },
-            "required": false,
-            "description": "The subject's space-separated scopes; required with a subject",
-            "name": "Nylorun-Scopes",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
               "description": "The delivery's id; a retry sends the same"
             },
-            "required": false,
+            "required": true,
             "description": "The delivery's id; a retry sends the same",
             "name": "webhook-id",
             "in": "header"
@@ -29527,7 +29485,7 @@
               "type": "string",
               "description": "Seconds since the epoch"
             },
-            "required": false,
+            "required": true,
             "description": "Seconds since the epoch",
             "name": "webhook-timestamp",
             "in": "header"
@@ -29537,7 +29495,7 @@
               "type": "string",
               "description": "`v1,<base64>`, space-separated"
             },
-            "required": false,
+            "required": true,
             "description": "`v1,<base64>`, space-separated",
             "name": "webhook-signature",
             "in": "header"
@@ -29577,17 +29535,7 @@
             }
           },
           "401": {
-            "description": "Not signed with the endpoint's secret, or a timestamp out of tolerance"
-          },
-          "403": {
-            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
+            "description": "Unsigned, not signed with the endpoint's secret, or a timestamp out of tolerance"
           },
           "404": {
             "description": "No endpoint has this id"
@@ -35768,7 +35716,7 @@
   "tags": [
     {
       "name": "Agent manifests",
-      "description": "Named, versioned agent manifests (protocol 16): one document with what runs inside an agent's loop (`harness`) and what the Runtime provides around it (`runtime`), checked against each other when it is saved. Save one with a plan first (`?dryRun=true`) and `If-Match`; an Agent is made from one version and keeps it, so a save changes no Agent. `client.agentManifests` in `@nylorun/agents`, and `nylorun apply`."
+      "description": "Named, versioned agent manifests (protocol 16): one document with what runs inside an agent's loop (`harness`) and what the Runtime provides around it (`runtime`), checked against each other when it is saved. Save one with a plan first (`?dryRun=true`) and `If-Match`; an Agent runs one version at a time, and a save moves every Agent that tracks the manifest to the new version, while a pinned one stays. `client.agentManifests` in `@nylorun/agents`, and `nylorun apply`."
     },
     {
       "name": "Definition files",
@@ -35780,11 +35728,11 @@
     },
     {
       "name": "Triggers",
-      "description": "What starts an Agent's turns with no client connected (track T4, D74): the schedules, one-shot times and webhook endpoints its manifest's `runtime.triggers` declare. Each trigger's status is the Agent's: pause and resume it, run it now, make a webhook trigger's signing secret, and read its runs (`started`, `queued`, `skipped` or `failed`, with a reason). In `@nylorun/agents` and `nylorun agents triggers`."
+      "description": "What starts an Agent's turns with no client connected: the schedules, one-shot times and webhook endpoints its manifest's `runtime.triggers` declare. Each trigger's status is the Agent's: pause and resume it, run it now, make a webhook trigger's signing secret, and read its runs (`started`, `queued`, `skipped` or `failed`, with a reason). In `@nylorun/agents` and `nylorun agents triggers`."
     },
     {
       "name": "Memory",
-      "description": "An Agent's memories (track T5, D72): Markdown files under `/memories` it keeps across sessions, wakes and upgrades, shaped like Anthropic's memory stores. List and read them, write one whole (with a `content_sha256` precondition), delete one or a folder, and read the version every change leaves, with who made it. In `@nylorun/agents` and `nylorun agents memories`."
+      "description": "An Agent's memories: Markdown files under `/memories` it keeps across sessions, wakes and upgrades, shaped like Anthropic's memory stores. List and read them, write one whole (with a `content_sha256` precondition), delete one or a folder, and read the version every change leaves, with who made it. In `@nylorun/agents` and `nylorun agents memories`."
     },
     {
       "name": "Sessions API",

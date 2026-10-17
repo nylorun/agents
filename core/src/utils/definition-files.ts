@@ -1,5 +1,5 @@
 /**
- * Definition files (track R2 M4): the files a definition names by content hash, uploaded once
+ * Definition files: the files a definition names by content hash, uploaded once
  * with `PUT /v1/files/sha256:<hex>` and held by the Runtime. Today they are the files of a
  * skill's folder (`SkillManifest.files`). Shared by the SDK, the wire schema and the Runtime.
  */
@@ -10,7 +10,8 @@ import { FILE_NAME_MAX, FILE_PATH_MAX } from "./file-systems.js";
 
 /**
  * The most bytes one skill's files may hold together when the Tenant sets no limit of its own
- * (2 GiB, Tenant setting `skills.config`); an Environment's manifest may set a lower one. No file
+ * (2 GiB, Tenant setting `skills.config`); an agent manifest's `runtime.limits.skills.totalBytes`
+ * may set a lower one. No file
  * and no count of files has a limit of its own.
  */
 export const SKILL_TOTAL_BYTES_DEFAULT = 2 * 1024 * 1024 * 1024;
@@ -27,7 +28,7 @@ export const SKILL_FILE_PATH_MAX =
   FILE_PATH_MAX - `${SKILLS_MOUNT}/${"n".repeat(FILE_NAME_MAX)}@${"0".repeat(12)}/`.length;
 
 /**
- * The folder of a sandbox that holds one version of a skill, read-only (D66):
+ * The folder of a sandbox that holds one version of a skill, read-only:
  * `/skills/<name>@<12 hex>`, the hex from the SHA-256 of its canonical file map. A version keeps
  * its folder and is never replaced, so sessions whose agents carry different versions of a skill
  * share an Environment without changing each other's files.

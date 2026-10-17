@@ -13,8 +13,8 @@ import {
   PutTenantSkillsRequestSchema,
   PutToolPolicyRequestSchema,
 } from "@nylorun/core/contracts";
-import { CliError } from "../errors.js";
-import { parseStackFlags, type StackDeps } from "../stack/commands.js";
+import { CliError, HelpRequest, isHelp } from "../errors.js";
+import { parseStackFlags, usageLinesOf, type StackDeps } from "../stack/commands.js";
 import { printJson, printTable, readBody, type BodySchema } from "./io.js";
 import { connect, managementClient } from "./target.js";
 
@@ -116,11 +116,12 @@ export const toolPolicyCommand = (deps: StackDeps, args: readonly string[]) =>
 /** `nylorun tenant settings sandbox | artifacts | skills | limits ...` */
 export async function settingsCommand(deps: StackDeps, args: readonly string[]): Promise<number> {
   const [which, ...rest] = args;
+  if (isHelp(which)) throw new HelpRequest(usageLinesOf(settingsUsage, "settings"));
   if (which === "sandbox") return documentCommand(deps, sandbox, rest);
   if (which === "artifacts") return documentCommand(deps, artifacts, rest);
   if (which === "skills") return documentCommand(deps, skillSettings, rest);
   if (which === "limits") return documentCommand(deps, limitSettings, rest);
-  throw usageError();
+  throw usageError(usageLinesOf(settingsUsage, "settings"));
 }
 
 const COVERAGE_USAGE = "nylorun tenant coverage --agent <id> [--tenant <name>] [--json]";

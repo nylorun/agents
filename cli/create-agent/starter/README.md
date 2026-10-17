@@ -88,8 +88,8 @@ there gives it a Tenant of its own, and `npx nylorun start --tenant <name>`
 links it to this project's Tenant instead.
 Keep `.nylorun/` private. The application key is derived from the Tenant's
 admin key when the project is linked. Ordinary
-shutdown/restart preserves completed session history; `npx -p nylorun nylo
-reset --all` empties the Tenant, and `npx nylorun local reset` deletes all its data.
+shutdown/restart preserves completed session history; `npx nylorun tenant reset
+--all` empties the Tenant, and `npx nylorun local reset` deletes all its data.
 
 This beta supports local text, HTTP tools, remote MCP servers and agents used
 as tools; the starter itself wires none of them. Advanced waits, media,
