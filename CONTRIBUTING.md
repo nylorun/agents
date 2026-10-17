@@ -18,7 +18,7 @@ Directories follow the Docker images: `runtime/` builds `ghcr.io/nylorun/runtime
 | `sdks/admin/`       | `@nylorun/admin`: the Management API client                                    |
 | `cli/nylorun/`      | `nylorun`: sets up and runs local Tenants (Docker), and the client of their APIs (`src/client/`) |
 | `cli/create-agent/` | Starter, renderer, compatibility pins, and smoke tests                         |
-| `cli/legacy/`       | Deprecated `@nylorun/cli`: runs nylorun's `nylo`, which names its replacement   |
+| `cli/legacy/`       | `@nylorun/cli`: nylorun under another name; its `nylorun` runs nylorun's       |
 | `examples/`         | Generated application shell and authored demonstrations                        |
 | `scripts/`          | Repository development, validation, and release tooling                        |
 | `guides/`           | Deployment, self-hosting, migration and release guides                         |

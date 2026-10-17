@@ -1,19 +1,21 @@
-# @nylorun/cli (deprecated)
+# @nylorun/cli
 
-`nylo`, the Runtime client, became part of [`nylorun`](../nylorun/README.md):
-its commands are `nylorun` commands now. This package is kept until nylorun
-0.19, which removes it and nylorun's `nylo`: its `nylo` prints one line on
-stderr, then runs nylorun's `nylo`, which names the `nylorun` command that
-replaced each of its own and exits 2.
+`@nylorun/cli` is [`nylorun`](../nylorun/README.md) under another name. Its one
+command, `nylorun`, runs nylorun's `nylorun` with the same arguments, so either
+package name works:
 
-| `nylo` | `nylorun` |
-| --- | --- |
-| `nylo status` | `npx nylorun status` |
-| `nylo reset [--sessions\|--environments\|--all]` | `npx nylorun tenant reset [--sessions\|--agents\|--all]` |
-| `nylo access signing-keys …` | `npx nylorun tenant signing-keys …` |
-| `nylo configure` | `npx nylorun tenant models set` |
-| `nylo doctor sandbox` | `npx nylorun doctor sandbox` |
-| `nylo env` | none: the SDKs read the Project link themselves |
+```sh
+npx @nylorun/cli status    # the same as npx nylorun status
+npx @nylorun/cli --help    # nylorun's help
+```
 
-This package depends on `nylorun` only, at the version released with it. See
+This package depends on `nylorun` only, at the version released with it, so both
+names run the same code. Prefer `nylorun` in new projects and docs.
+
+Install one of them globally, not both: each provides the `nylorun` command, and
+npm refuses the second global install (`EEXIST`). In a project, having both is
+harmless.
+
+`nylo`, the former Runtime client, is nylorun's: it names the `nylorun` command
+that replaced each of its own and exits 2, and nylorun 0.19 removes it. See
 [MIGRATION.md](../../guides/MIGRATION.md).

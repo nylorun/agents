@@ -1,6 +1,6 @@
 # Releasing packages and images
 
-Packages have independent versions. Core changes advance its pinned engine/SDK/host consumers and nylorun; engine changes advance Runtime; SDK changes advance Studio and nylorun; Admin changes advance Studio and nylorun, which use them; Runtime and Studio changes advance nylorun, which pins their images; nylorun changes advance the deprecated `@nylorun/cli`, which pins the nylorun whose `nylo` it runs (`nylo` names the nylorun command that replaced each of its own). Every package release updates the creator compatibility combination. Internal dependencies use exact tested pins. Merging a release PR (one that changes `.release/plan.json`) publishes it on npm's `beta` channel, with no approval. Moving `latest` is the one human step: an administrator clicks **Promote to latest**. Nothing else publishes on merge or tag push.
+Packages have independent versions. Core changes advance its pinned engine/SDK/host consumers and nylorun; engine changes advance Runtime; SDK changes advance Studio and nylorun; Admin changes advance Studio and nylorun, which use them; Runtime and Studio changes advance nylorun, which pins their images; nylorun changes advance `@nylorun/cli`, nylorun under another name, which pins the nylorun whose `nylorun` it runs. Every package release updates the creator compatibility combination. Internal dependencies use exact tested pins. Merging a release PR (one that changes `.release/plan.json`) publishes it on npm's `beta` channel, with no approval. Moving `latest` is the one human step: an administrator clicks **Promote to latest**. Nothing else publishes on merge or tag push.
 
 Coding agents release by following [the release skill](../.claude/skills/release/SKILL.md).
 
@@ -8,8 +8,8 @@ The creator's compatibility combination (`cli/create-agent/compatibility.json`)
 pins exactly what a generated project or the examples install or depend on:
 Core, Harness, Agents, Admin and Runtime. Neither nylorun nor
 Studio is in it: developers run nylorun with `npx`, and Studio ships only as its
-image, which nylorun pins. Nor is the deprecated `@nylorun/cli`, which only runs
-nylorun's `nylo`. A protocol change needs a
+image, which nylorun pins. Nor is `@nylorun/cli`, which only runs nylorun's
+`nylorun` under another name. A protocol change needs a
 breaking bump of Core, Runtime, Agents and nylorun, the Runtime clients.
 
 A release publishes two kinds of artifact:
@@ -129,7 +129,7 @@ release plan controls publication.
 
 `release:check` validates the exact creator combination, using candidate tarballs
 for changed packages and registry versions for unchanged pins. It also exercises
-nylorun's commands, the deprecated `@nylorun/cli`, and production assets. An unavailable unchanged pin blocks release.
+nylorun's commands, `@nylorun/cli` (the same commands under its name), and production assets. An unavailable unchanged pin blocks release.
 It requires both image pins to equal the Runtime and Studio versions the plan
 publishes or keeps, and fails if `@nylorun/studio` is not private.
 Artifacts are saved under `.tmp/release-artifacts/` for inspection; a private
@@ -150,12 +150,6 @@ package has no tarball there.
    its OpenAPI documents (`openapi.json`, `management-openapi.json`), taken from the
    tarball npm published; a rerun uploads only a missing one
    and never replaces one (`scripts/release/assets.mjs`).
-4. When the release publishes `@nylorun/cli`, deprecate it on npm: trusted
-   publishing (OIDC) cannot, and a newly published version is not deprecated.
-   An npm owner runs
-   `npm deprecate @nylorun/cli "nylo is part of nylorun, and nylorun 0.19 removes both. Run npx nylorun --help."`,
-   which marks every version; `npm view @nylorun/cli@beta deprecated` then
-   prints the message. nylorun 0.19 removes `nylo` and `@nylorun/cli`.
 
 The jobs run in this order:
 

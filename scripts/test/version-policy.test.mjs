@@ -129,7 +129,7 @@ test("a Harness release also advances Runtime and pins the canonical contracts t
 });
 
 
-test("a Studio release advances nylorun, which pins its image, the deprecated CLI and the creator", () => {
+test("a Studio release advances nylorun, which pins its image, the CLI and the creator", () => {
   const { plan, changesets } = planVersions(versions, pins, [intent("studio", "minor")]);
   assert.deepEqual(plan.packages, {
     nylorun: "0.1.1-beta",
@@ -190,7 +190,7 @@ test("core releases propagate to both hosts and SDK without coupling engine rele
   assert.equal(engine.packages.studio, undefined);
   assert.ok(engine.packages.runtime);
   assert.ok(engine.packages.nylorun);
-  // The deprecated CLI follows the nylorun it pins.
+  // The CLI follows the nylorun it pins.
   assert.ok(engine.packages.cli);
 });
 

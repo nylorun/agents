@@ -6,7 +6,7 @@
  *   public registry, with an empty npm config and cache and no publishing
  *   credentials in the environment. The creator installs the starter (only
  *   @nylorun/agents) and starts nothing.
- * - The published `nylorun` (with `nylo`) and the deprecated `@nylorun/cli`,
+ * - The published `nylorun` (with `nylo`) and `@nylorun/cli` (nylorun under another name),
  *   installed from the registry beside the project (what `npx` runs):
  *   `nylorun start` in the project
  *   creates and starts its Tenant on the images it pins
@@ -124,7 +124,7 @@ export async function publicCreatorSmoke(versions, pins) {
   const project = join(temporary, "application");
   const tools = join(temporary, "tools");
   const nylorun = join(tools, "node_modules/nylorun/dist/cli.js");
-  const deprecatedNylo = join(tools, "node_modules/@nylorun/cli/dist/cli.js");
+  const mirror = join(tools, "node_modules/@nylorun/cli/dist/cli.js");
   const npmrc = join(temporary, ".npmrc");
   try {
     await writeFile(npmrc, "");
@@ -198,26 +198,21 @@ export async function publicCreatorSmoke(versions, pins) {
           assert.equal(link.hostUrl, runtimeUrl);
           const { tenantId } = link;
           const key = credentials.applicationKey;
-          // The published nylorun reaches the Management API through the link; the deprecated
-          // package's nylo names the nylorun command that replaced it (exit 2).
+          // The published nylorun reaches the Management API through the link.
           await stack.nylorun(["tenant", "signing-keys", "list"], { cwd: project, echo: false });
-          const deprecated = await stack.nylorun(["status"], {
-            cwd: project,
-            entry: deprecatedNylo,
-            check: false,
-          });
-          assert.equal(deprecated.code, 2);
-          assert.match(deprecated.stderr ?? "", /nylo status is nylorun status\./);
 
-          // The published nylorun reports the Tenant (nylorun-operate status in the runtime container).
-          const { tenant } = JSON.parse(
-            (await stack.nylorun(["status", "--json"], { cwd: project, echo: false })).stdout,
-          );
-          assert.deepEqual(
-            { id: tenant?.id, state: tenant?.state },
-            { id: tenantId, state: "open" },
-            "nylorun status reports the Project's Tenant open",
-          );
+          // The published nylorun reports the Tenant (nylorun-operate status in the runtime
+          // container), and so does @nylorun/cli, which runs it under another name.
+          for (const entry of [undefined, mirror]) {
+            const { tenant } = JSON.parse(
+              (await stack.nylorun(["status", "--json"], { cwd: project, echo: false, entry })).stdout,
+            );
+            assert.deepEqual(
+              { id: tenant?.id, state: tenant?.state },
+              { id: tenantId, state: "open" },
+              `${entry ? "@nylorun/cli" : "nylorun"} status reports the Project's Tenant open`,
+            );
+          }
           group.start("dev", process.execPath, [npmCli(), "run", "dev"], {
             cwd: project,
             env: stack.env,

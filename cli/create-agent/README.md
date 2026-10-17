@@ -64,7 +64,7 @@ remain outside that registry for later migration.
 
 `npm run test:starter` (`cli/create-agent/scripts/smoke-starter.mjs`) packs the
 workspace, scaffolds the starter from the packed creator, installs `nylorun`
-(and the deprecated `@nylorun/cli`, which it checks names the nylorun command that replaced `nylo`)
+(and `@nylorun/cli`, which it checks prints nylorun's help)
 beside it (never into it), runs `nylorun start` in it and
 `npm run dev` against a temporary local Tenant, then resets that Tenant,
 seeds the fixture model and runs one turn with the starter's assistant.
