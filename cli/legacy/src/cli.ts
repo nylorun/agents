@@ -5,9 +5,9 @@ import { pathToFileURL } from "node:url";
 
 // @nylorun/cli is deprecated: `nylo` is part of nylorun. This runs nylorun's `nylo` with the same
 // arguments, after one line on stderr; it names the nylorun command that replaced each of its own.
-// nylorun 0.18 removes `nylo`, and this package with it.
+// nylorun 0.19 removes `nylo`, and this package with it.
 process.stderr.write(
-  "@nylorun/cli is deprecated: nylo is part of nylorun, and nylorun 0.18 removes both. Run npx nylorun --help.\n",
+  "@nylorun/cli is deprecated: nylo is part of nylorun, and nylorun 0.19 removes both. Run npx nylorun --help.\n",
 );
 const require = createRequire(import.meta.url);
 const manifest = require.resolve("nylorun/package.json");

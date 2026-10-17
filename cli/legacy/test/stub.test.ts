@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 
 const DEPRECATION =
-  "@nylorun/cli is deprecated: nylo is part of nylorun, and nylorun 0.18 removes both. Run npx nylorun --help.\n";
+  "@nylorun/cli is deprecated: nylo is part of nylorun, and nylorun 0.19 removes both. Run npx nylorun --help.\n";
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -30,7 +30,7 @@ it("runs nylorun's nylo, after one deprecation line on stderr: it names the nylo
   expect(code).toBe(2);
   expect(stdout).toBe("");
   expect(stderr).toBe(
-    `${DEPRECATION}nylo is part of nylorun now: nylo status is nylorun status. nylorun 0.18 removes nylo.\n`,
+    `${DEPRECATION}nylo is part of nylorun now: nylo status is nylorun status. nylorun 0.19 removes nylo.\n`,
   );
 });
 

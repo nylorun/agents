@@ -4,7 +4,7 @@ import { runCommand } from "./command.js";
 import { CliError } from "./errors.js";
 
 /**
- * `nylo` became part of `nylorun`. Until nylorun 0.18, which removes it, this command names the
+ * `nylo` became part of `nylorun`. Until nylorun 0.19, which removes it, this command names the
  * `nylorun` command that replaces each of its own and exits 2.
  */
 const REPLACEMENTS: Record<string, string> = {
@@ -22,7 +22,7 @@ function nyloMessage(argv: readonly string[]): string {
     replacement
       ? `nylo is part of nylorun now: nylo ${argv[0]} is ${replacement}.`
       : "nylo is part of nylorun now: run nylorun --help."
-  } nylorun 0.18 removes nylo.`;
+  } nylorun 0.19 removes nylo.`;
 }
 
 runCommand(async () => {

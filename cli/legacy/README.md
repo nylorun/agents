@@ -2,7 +2,7 @@
 
 `nylo`, the Runtime client, became part of [`nylorun`](../nylorun/README.md):
 its commands are `nylorun` commands now. This package is kept until nylorun
-0.18, which removes it and nylorun's `nylo`: its `nylo` prints one line on
+0.19, which removes it and nylorun's `nylo`: its `nylo` prints one line on
 stderr, then runs nylorun's `nylo`, which names the `nylorun` command that
 replaced each of its own and exits 2.
 

@@ -563,7 +563,7 @@ Part of protocol 14 (D66, D67).
 
 # One command: `nylo` is part of `nylorun`
 
-`nylorun` is the one command. `nylo` keeps its name until nylorun 0.18, which removes it and the
+`nylorun` is the one command. `nylo` keeps its name until nylorun 0.19, which removes it and the
 deprecated `@nylorun/cli`; each of its commands exits 2 naming the `nylorun` command that replaced
 it. Commands other than the installation's
 lifecycle moved into groups, each named after the API it uses, and the old spellings exit 2
@@ -947,7 +947,7 @@ commands, their flags, output and exit codes are unchanged; only the messages th
 `@nylorun/cli`, "the CLI" or "the nylorun package" now name `nylo` and nylorun. `@nylorun/cli`
 stays as a forwarder: its `nylo` prints one line on stderr and runs nylorun's, so
 `npx @nylorun/cli status` and `eval "$(npx @nylorun/cli env)"` keep working (stdout carries only
-the export lines). nylorun 0.18 removes it.
+the export lines). nylorun 0.19 removes it.
 
 | Before | Now |
 | --- | --- |
