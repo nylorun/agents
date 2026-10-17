@@ -142,6 +142,7 @@ const pod = (id: string) =>
   agent(id, {
     manifest: "pod-box",
     resolvedVersion: 1,
+    tracking: "tracking",
     kind: "pod",
     runtime: {
       image: "python:3.13-slim",
