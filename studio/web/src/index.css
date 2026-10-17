@@ -66,9 +66,12 @@
   --radius-xl: calc(var(--radius) + 4px);
 }
 
-* { @apply border-border; }
-html, body, #root { height: 100%; overflow: hidden; }
-body { @apply bg-background text-foreground; }
+/* In the base layer, so a utility's border color (`border-transparent`) wins over it. */
+@layer base {
+  * { @apply border-border; }
+  html, body, #root { height: 100%; overflow: hidden; }
+  body { @apply bg-background text-foreground; }
+}
 
 .dark {
   --sidebar: hsl(240 5.9% 10%);

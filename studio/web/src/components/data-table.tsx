@@ -34,6 +34,12 @@ export function ToolbarCount({ children }: Readonly<{ children: ReactNode }>) {
   return <span className="ml-auto truncate text-sm text-muted-foreground">{children}</span>;
 }
 
+/** "3 sessions", or "1 of 3 sessions" when filters hide some. */
+export function countText(shown: number, total: number, one: string, many: string): string {
+  const noun = total === 1 ? one : many;
+  return shown === total ? `${total} ${noun}` : `${shown} of ${total} ${noun}`;
+}
+
 export function SearchBox({
   label,
   value,

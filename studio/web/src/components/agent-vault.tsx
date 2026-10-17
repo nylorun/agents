@@ -19,6 +19,7 @@ import {
   TableFrame,
   TableToolbar,
   ToolbarCount,
+  countText,
   cellClass,
   headClass,
   menuCellClass,
@@ -133,7 +134,7 @@ export function AgentVault({
           onChange={setType}
         />
         <ToolbarCount>
-          {shown.length === rows.length ? `${rows.length} slots` : `${shown.length} of ${rows.length} slots`}
+          {countText(shown.length, rows.length, "slot", "slots")}
         </ToolbarCount>
       </TableToolbar>
       <TableFrame minWidth={680}>

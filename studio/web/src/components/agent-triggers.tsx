@@ -17,6 +17,7 @@ import {
   TableFrame,
   TableToolbar,
   ToolbarCount,
+  countText,
   cellClass,
   headClass,
   menuCellClass,
@@ -158,7 +159,7 @@ export function AgentTriggers({
       ) : null}
       <TableToolbar>
         <h2 className="text-sm font-medium">Triggers</h2>
-        <ToolbarCount>{shown.length === 1 ? "1 trigger" : `${shown.length} triggers`}</ToolbarCount>
+        <ToolbarCount>{countText(shown.length, shown.length, "trigger", "triggers")}</ToolbarCount>
       </TableToolbar>
       <TableFrame minWidth={760}>
         <thead>
@@ -224,7 +225,7 @@ export function AgentTriggers({
           onChange={setResult}
         />
         <ToolbarCount>
-          {filtered.length === allRuns.length ? `${allRuns.length} runs` : `${filtered.length} of ${allRuns.length} runs`}
+          {countText(filtered.length, allRuns.length, "run", "runs")}
         </ToolbarCount>
       </TableToolbar>
       <TableFrame minWidth={720}>

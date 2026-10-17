@@ -16,6 +16,7 @@ import {
   TableFrame,
   TableToolbar,
   ToolbarCount,
+  countText,
   cellClass,
   headClass,
   menuCellClass,
@@ -138,7 +139,7 @@ export function AgentArtifacts({ tenantId, agent }: { tenantId: string; agent: A
           onChange={setSession}
         />
         <ToolbarCount>
-          {shown.length === rows.length ? `${rows.length} artifacts` : `${shown.length} of ${rows.length} artifacts`}
+          {countText(shown.length, rows.length, "artifact", "artifacts")}
         </ToolbarCount>
       </TableToolbar>
       <TableFrame minWidth={720}>

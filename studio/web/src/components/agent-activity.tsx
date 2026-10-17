@@ -18,6 +18,7 @@ import {
   TableFrame,
   TableToolbar,
   ToolbarCount,
+  countText,
   cellClass,
   headClass,
   menuCellClass,
@@ -135,7 +136,7 @@ function ActivityTable({
           onChange={setResult}
         />
         <ToolbarCount>
-          {shown.length === events.length ? `${events.length} events` : `${shown.length} of ${events.length} events`}
+          {countText(shown.length, events.length, "event", "events")}
         </ToolbarCount>
       </TableToolbar>
       <TableFrame minWidth={720}>

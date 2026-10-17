@@ -370,8 +370,8 @@ test("an Agent's Vault sets a declared slot's value and nothing else, also throu
       await page.getByRole("menuitem", { name: "Set value" }).click();
       const panel = page.getByRole("dialog", { name: "github" });
       // Its type and where it goes are the manifest's: the value is all it asks for.
-      assert.equal(await panel.getByRole("textbox").count(), 0);
       await panel.getByLabel("Token").fill("ghp_secret_value");
+      assert.equal(await panel.locator("input").count(), 1);
       await panel.getByRole("button", { name: "Save", exact: true }).click();
       await page.getByText("Saved github.", { exact: false }).waitFor();
       const written = requests.find((r) => r.method === "PUT" && r.path === "/v1/agents/team%2Fbuild/secrets/github");

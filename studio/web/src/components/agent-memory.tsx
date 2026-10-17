@@ -15,6 +15,7 @@ import {
   TableFrame,
   TableToolbar,
   ToolbarCount,
+  countText,
   cellClass,
   headClass,
   menuCellClass,
@@ -104,7 +105,7 @@ export function AgentMemory({ tenantId, agent }: { tenantId: string; agent: Agen
           onChange={setBy}
         />
         <ToolbarCount>
-          {shown.length === memories.length ? `${memories.length} memories` : `${shown.length} of ${memories.length} memories`}
+          {countText(shown.length, memories.length, "memory", "memories")}
         </ToolbarCount>
       </TableToolbar>
       <TableFrame minWidth={720}>

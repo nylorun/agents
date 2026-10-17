@@ -13,6 +13,7 @@ import {
   TableFrame,
   TableToolbar,
   ToolbarCount,
+  countText,
   cellClass,
   headClass,
   menuCellClass,
@@ -85,7 +86,7 @@ export function AgentSessionsTab({
           onChange={setStatus}
         />
         <ToolbarCount>
-          {rows.length === sorted.length ? `${sorted.length} sessions` : `${rows.length} of ${sorted.length} sessions`}
+          {countText(rows.length, sorted.length, "session", "sessions")}
         </ToolbarCount>
       </TableToolbar>
       <TableFrame minWidth={640}>

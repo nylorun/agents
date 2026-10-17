@@ -16,6 +16,7 @@ import {
   TableFrame,
   TableToolbar,
   ToolbarCount,
+  countText,
   cellClass,
   headClass,
   menuCellClass,
@@ -148,7 +149,7 @@ export function AgentDisk({
         <span className="text-sm text-muted-foreground">
           What its disk held between turns. Put one back to undo a session's work.
         </span>
-        <ToolbarCount>{count === 1 ? "1 version" : `${count} versions`}</ToolbarCount>
+        <ToolbarCount>{countText(count, count, "version", "versions")}</ToolbarCount>
         <ActionMenu
           label="Disk actions"
           bordered
@@ -179,7 +180,7 @@ export function AgentDisk({
             >
               <td className={cellClass}>
                 v{v.version}
-                {v.version === versions.latest ? <span className="ml-2 text-xs text-muted-foreground">latest</span> : null}
+                {v.version === versions.latest ? <span className="ml-1 text-xs text-muted-foreground"> latest</span> : null}
               </td>
               <td className={`${cellClass} text-muted-foreground`}>
                 <time dateTime={v.createdAt} title={fullTime(v.createdAt)}>
