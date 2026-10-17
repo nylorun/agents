@@ -1,5 +1,18 @@
 # @nylorun/core
 
+## 0.25.0-beta
+
+### Minor Changes
+
+- eeb6294: Session usage as one ledger (protocol 18). The usage ledger keeps each model call's cost by token kind (uncached input, cache read, cache write, output) at the prices the adapter applied (migration 0037). For a protocol 18 client, `GET /v1/sessions/{id}/calls/model` returns each call's `startedAt`, `endedAt` and `usage.costSplit` (null for a call recorded before), and `GET /v1/sessions/{id}/usage` adds `costSplit` with `splitCalls`, and the calls' durations added up as `modelTimeMs` with `timedCalls`. A protocol 16 or 17 client reads usage as before. Studio's Usage tab is rebuilt on them: a Session card with one tokens bar and a ledger of tokens and cost by kind adding up to a total row, then the model calls grouped by turn with the same columns (cached, uncached, output, total, time, cost), and a row menu whose View event opens the call's event in the Events tab.
+
+### Patch Changes
+
+- ed08ba8: `agentManifests.save({ agent, runtime, memory })` turns on a built agent's memory (`harness.memory`, `{ access?, instructions? }`), and a skill folder's `SKILL.md` may list the secret slots its scripts read in its frontmatter (`secrets: [GH_TOKEN]`): `.skills()`, `.plugin()` and `composeManifest` make them the skill's `secrets` in the harness section, which the Runtime checks against `runtime.secrets` at save. A `secrets` that is not a list of environment variable names skips the skill with a warning.
+- ed08ba8: A flow's HTTP stage or HTTP verifier, and an HTTP tool of an agent the harness section embeds (a flow's `agents`, or an agent used as a tool), now has its `credential` checked when the manifest is saved, as an agent's own HTTP tool has: it must name a `bearer` or `headers` slot of `runtime.secrets` bound to its URL, or the save is `422 manifest_inconsistent` naming it (`harness.root stage "refund" http.credential "checks" is not a secret slot in runtime.secrets`). Before, such a manifest saved and each call failed at run time with `http.credential`.
+- ed08ba8: Public text names no internal roadmap codes: the OpenAPI documents' descriptions, the type comments of `@nylorun/core`, `@nylorun/agents` and `@nylorun/admin`, and the CLI's help, README and generated compose file. A Runtime test fails when either OpenAPI document names one.
+- ed08ba8: The tool policy's documentation matches how rules match: `tool` is the tool's identity (an MCP tool's own name on its `server`, or an HTTP tool's declared name), never the model-facing `server__tool`, which is refused; `agent` is the agent manifest's name, or the id of an agent used as a tool or of a flow's agent. `PUT /v1/tenant/tool-policy` describes each selector, and `GET` documents its `409` for a stored rule it cannot apply.
+
 ## 0.24.0-beta
 
 ### Minor Changes

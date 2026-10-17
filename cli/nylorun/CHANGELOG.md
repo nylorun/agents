@@ -1,5 +1,34 @@
 # nylorun
 
+## 0.18.0-beta
+
+### Minor Changes
+
+- eeb6294: Session usage as one ledger (protocol 18). The usage ledger keeps each model call's cost by token kind (uncached input, cache read, cache write, output) at the prices the adapter applied (migration 0037). For a protocol 18 client, `GET /v1/sessions/{id}/calls/model` returns each call's `startedAt`, `endedAt` and `usage.costSplit` (null for a call recorded before), and `GET /v1/sessions/{id}/usage` adds `costSplit` with `splitCalls`, and the calls' durations added up as `modelTimeMs` with `timedCalls`. A protocol 16 or 17 client reads usage as before. Studio's Usage tab is rebuilt on them: a Session card with one tokens bar and a ledger of tokens and cost by kind adding up to a total row, then the model calls grouped by turn with the same columns (cached, uncached, output, total, time, cost), and a row menu whose View event opens the call's event in the Events tab.
+
+### Patch Changes
+
+- ed08ba8: Public text names no internal roadmap codes: the OpenAPI documents' descriptions, the type comments of `@nylorun/core`, `@nylorun/agents` and `@nylorun/admin`, and the CLI's help, README and generated compose file. A Runtime test fails when either OpenAPI document names one.
+- ed08ba8: `nylo` and the deprecated `@nylorun/cli` name the release that removes them, nylorun 0.19, where they said "one release": `nylo`'s message ends "nylorun 0.19 removes nylo.", and `@nylorun/cli`'s stderr line, description and README say nylorun 0.19 removes both.
+- ed08ba8: `--help` (or `-h`) works on every command and subcommand: it prints that command's own usage on stdout and exits 0, where `nylorun migrate v8 --help`, `nylorun tenant budgets --help` and others exited 2 with "Unknown option --help", and `nylorun tenant settings --help` printed the usage of `budgets`, `tool-policy` and `coverage` too. `nylorun --help` lists every `agents` command (`pin`, `track`, `restart`, `triggers`, `runs` and `memories` were missing) and `migrate v8 --name`, and the README lists `agents pin`, `track`, `restart`, `put --dry-run`, `fork --label` and `list --outdated`.
+- ed08ba8: Webhook URLs name the Runtime's public URL. A trigger's `webhookUrl` is at `NYLORUN_PUBLIC_URL`, else the origin the request reached, so behind a reverse proxy that rewrites `Host` to `localhost:<port>` it is the proxy's URL, not `http://localhost:<port>`; the Runtime API's `401` challenges name it too. `nylorun start` passes `NYLORUN_PUBLIC_URL` from its shell to the runtime container (default `http://localhost:<port>`).
+- Pin core to the tested release.
+- Pin agents to the tested release.
+- Pin admin to the tested release.
+- Pin runtime to the tested release.
+- Pin studio to the tested release.
+- Updated dependencies [ed08ba8]
+- Updated dependencies [ed08ba8]
+- Updated dependencies [ed08ba8]
+- Updated dependencies [ed08ba8]
+- Updated dependencies [eeb6294]
+- Updated dependencies [ed08ba8]
+- Updated dependencies
+- Updated dependencies
+  - @nylorun/core@0.25.0-beta
+  - @nylorun/agents@0.25.0-beta
+  - @nylorun/admin@0.19.1-beta
+
 ## 0.17.0-beta
 
 ### Minor Changes
