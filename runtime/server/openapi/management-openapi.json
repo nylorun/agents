@@ -3477,6 +3477,18 @@
           "at": {
             "type": "string"
           },
+          "startedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "endedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "outcome": {
             "type": "string",
             "enum": [
@@ -3532,6 +3544,37 @@
                   "boolean",
                   "null"
                 ]
+              },
+              "costSplit": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "input": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "cacheRead": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "cacheWrite": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "output": {
+                    "type": "number",
+                    "minimum": 0
+                  }
+                },
+                "required": [
+                  "input",
+                  "cacheRead",
+                  "cacheWrite",
+                  "output"
+                ],
+                "additionalProperties": false
               }
             },
             "required": [
@@ -3544,7 +3587,8 @@
               "costUsd",
               "duplicate",
               "tokensReported",
-              "costKnown"
+              "costKnown",
+              "costSplit"
             ],
             "additionalProperties": false
           }
@@ -3558,6 +3602,8 @@
           "provider",
           "model",
           "at",
+          "startedAt",
+          "endedAt",
           "outcome",
           "usage"
         ],

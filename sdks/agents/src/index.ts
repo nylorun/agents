@@ -74,6 +74,7 @@ export type {
   SessionManifestView,
   HistoryPage,
   SessionUsageTotals,
+  CostSplit,
   ModelCall,
   ModelCallsPage,
   AgentPage,

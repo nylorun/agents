@@ -867,6 +867,7 @@ export function storeContract(name: string, factory: StoreFactory): void {
         expect(first).toEqual({
           ...usage("u1"), duplicate: false, tokensReported: null, costKnown: null, txid: expect.any(String),
           startedAt: null, endedAt: null, firstTokenMs: null,
+          costInputUsd: null, costCacheReadUsd: null, costCacheWriteUsd: null, costOutputUsd: null,
         });
         const again = await store.tx((t) =>
           t.recordModelUsage({ ...usage("u2"), effectKey: usage("u1").effectKey }),

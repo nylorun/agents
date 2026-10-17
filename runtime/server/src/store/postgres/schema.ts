@@ -568,7 +568,8 @@ export const signingKeys = nylorun.table(
  * flagged `duplicate`; both were billed. Budgets read their spend from it. Token counts are 0
  * when the provider sent none. `startedAt`, `endedAt` and `firstTokenMs` are the gate's own
  * timing of the call (R7.1, migration 0022); null on rows written before, and `firstTokenMs`
- * when the provider streamed nothing.
+ * when the provider streamed nothing. The `cost*Usd` columns split `costUsd` by token kind, at the
+ * prices the adapter applied (migration 0037); null on rows written before.
  */
 export const modelUsage = nylorun.table(
   "model_usage",
@@ -604,6 +605,14 @@ export const modelUsage = nylorun.table(
     endedAt: text(),
     /** From `startedAt` to the provider's first stream event. */
     firstTokenMs: integer(),
+    /** What the uncached input cost. */
+    costInputUsd: doublePrecision(),
+    /** What the input read from the provider's cache cost. */
+    costCacheReadUsd: doublePrecision(),
+    /** What the input written to the provider's cache cost. */
+    costCacheWriteUsd: doublePrecision(),
+    /** What the output cost. */
+    costOutputUsd: doublePrecision(),
   },
   (t) => [
     index("model_usage_session").on(t.sessionId, t.createdAt, t.id),
@@ -961,11 +970,25 @@ export type DefinitionFileRow = typeof definitionFiles.$inferSelect;
 
 export type ModelUsageWrite = Omit<
   ModelUsageRow,
-  "duplicate" | "txid" | "tokensReported" | "costKnown" | "startedAt" | "endedAt" | "firstTokenMs"
+  | "duplicate"
+  | "txid"
+  | "tokensReported"
+  | "costKnown"
+  | "startedAt"
+  | "endedAt"
+  | "firstTokenMs"
+  | "costInputUsd"
+  | "costCacheReadUsd"
+  | "costCacheWriteUsd"
+  | "costOutputUsd"
 > & {
   tokensReported?: boolean | null;
   costKnown?: boolean | null;
   startedAt?: string | null;
   endedAt?: string | null;
   firstTokenMs?: number | null;
+  costInputUsd?: number | null;
+  costCacheReadUsd?: number | null;
+  costCacheWriteUsd?: number | null;
+  costOutputUsd?: number | null;
 };

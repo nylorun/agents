@@ -24187,6 +24187,46 @@
           "unknownQualityCalls": {
             "type": "integer",
             "minimum": 0
+          },
+          "costSplit": {
+            "type": "object",
+            "properties": {
+              "input": {
+                "type": "number",
+                "minimum": 0
+              },
+              "cacheRead": {
+                "type": "number",
+                "minimum": 0
+              },
+              "cacheWrite": {
+                "type": "number",
+                "minimum": 0
+              },
+              "output": {
+                "type": "number",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "input",
+              "cacheRead",
+              "cacheWrite",
+              "output"
+            ],
+            "additionalProperties": false
+          },
+          "splitCalls": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "modelTimeMs": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "timedCalls": {
+            "type": "integer",
+            "minimum": 0
           }
         },
         "required": [
@@ -24204,7 +24244,11 @@
           "duplicates",
           "unpricedCalls",
           "unreportedCalls",
-          "unknownQualityCalls"
+          "unknownQualityCalls",
+          "costSplit",
+          "splitCalls",
+          "modelTimeMs",
+          "timedCalls"
         ],
         "additionalProperties": false
       },
@@ -24267,6 +24311,18 @@
           "at": {
             "type": "string"
           },
+          "startedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "endedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "outcome": {
             "type": "string",
             "enum": [
@@ -24322,6 +24378,37 @@
                   "boolean",
                   "null"
                 ]
+              },
+              "costSplit": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "input": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "cacheRead": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "cacheWrite": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "output": {
+                    "type": "number",
+                    "minimum": 0
+                  }
+                },
+                "required": [
+                  "input",
+                  "cacheRead",
+                  "cacheWrite",
+                  "output"
+                ],
+                "additionalProperties": false
               }
             },
             "required": [
@@ -24334,7 +24421,8 @@
               "costUsd",
               "duplicate",
               "tokensReported",
-              "costKnown"
+              "costKnown",
+              "costSplit"
             ],
             "additionalProperties": false
           }
@@ -24348,6 +24436,8 @@
           "provider",
           "model",
           "at",
+          "startedAt",
+          "endedAt",
           "outcome",
           "usage"
         ],

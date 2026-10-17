@@ -143,6 +143,13 @@ it("reconciles all billed rows including duplicates, genuine zero and unknown qu
     calls: 2,
     costUsd: 0.5,
   });
+  // Rows from before the split and the gate's timing: they count in the totals only.
+  expect(totals).toMatchObject({
+    costSplit: { input: 0, cacheRead: 0, cacheWrite: 0, output: 0 },
+    splitCalls: 0,
+    modelTimeMs: 0,
+    timedCalls: 0,
+  });
   const first = ModelCallsPageSchema.parse(await client.session("s-a").modelCalls({ limit: 2 }));
   const second = await client.session("s-a").modelCalls({ limit: 2, cursor: first.nextCursor! });
   expect([...first.calls, ...second.calls].map((c) => c.id)).toEqual([
@@ -179,6 +186,66 @@ it("reconciles all billed rows including duplicates, genuine zero and unknown qu
     400,
   );
   expect((await request("/v1/sessions/missing/usage")).status).toBe(404);
+});
+
+it("splits cost by token kind and adds up model time, over the calls that kept them", async () => {
+  const store = contextOf(rt.handle).store;
+  const row = (id: string, extra: object) => ({
+    id,
+    effectKey: id,
+    sessionId: "s-c",
+    turnId: "t1",
+    manifestName: "bot",
+    provider: "openai",
+    model: "gpt-test",
+    inputTokens: 100,
+    outputTokens: 10,
+    totalTokens: 1110,
+    cachedTokens: 1000,
+    cacheWriteTokens: 0,
+    reasoningTokens: 0,
+    costUsd: 0.003,
+    createdAt: "2026-01-01T00:00:02.000Z",
+    ...extra,
+  });
+  await store.tx(async (t) => {
+    await t.recordModelUsage(
+      row("split-a", {
+        startedAt: "2026-01-01T00:00:00.500Z",
+        endedAt: "2026-01-01T00:00:02.000Z",
+        costInputUsd: 0.001,
+        costCacheReadUsd: 0.0005,
+        costCacheWriteUsd: 0,
+        costOutputUsd: 0.0015,
+      }),
+    );
+    await t.recordModelUsage(
+      row("split-b", {
+        createdAt: "2026-01-01T00:00:05.000Z",
+        startedAt: "2026-01-01T00:00:02.750Z",
+        endedAt: "2026-01-01T00:00:05.000Z",
+      }),
+    );
+  });
+  const totals = SessionUsageTotalsSchema.parse(await client.session("s-c").usage());
+  expect(totals).toMatchObject({
+    calls: 2,
+    costUsd: 0.006,
+    costSplit: { input: 0.001, cacheRead: 0.0005, cacheWrite: 0, output: 0.0015 },
+    splitCalls: 1,
+    modelTimeMs: 3750,
+    timedCalls: 2,
+  });
+  const { calls } = ModelCallsPageSchema.parse(await client.session("s-c").modelCalls());
+  expect(calls.map((c) => [c.id, c.startedAt, c.endedAt, c.usage?.costSplit])).toEqual([
+    [
+      "split-a",
+      "2026-01-01T00:00:00.500Z",
+      "2026-01-01T00:00:02.000Z",
+      { input: 0.001, cacheRead: 0.0005, cacheWrite: 0, output: 0.0015 },
+    ],
+    ["split-b", "2026-01-01T00:00:02.750Z", "2026-01-01T00:00:05.000Z", null],
+  ]);
 });
 
 it("advances bounded history over internal events and reapplies ownership and filter binding", async () => {

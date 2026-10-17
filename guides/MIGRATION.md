@@ -1,3 +1,17 @@
+# Session usage by token kind
+
+Additive: the Runtime serves protocol 16 and 17 as before.
+
+- **Model calls carry their timing and their cost by token kind.** `GET /v1/sessions/{id}/calls/model`
+  (and the export, `GET /v1/tenant/calls/model`) returns `startedAt` and `endedAt`, the gate's
+  timing, and `usage.costSplit` `{input, cacheRead, cacheWrite, output}`. Both are null for a call
+  recorded before they were kept.
+- **Session usage adds the split and the model time.** `GET /v1/sessions/{id}/usage` adds
+  `costSplit`, summed over the `splitCalls` calls that kept it, and `modelTimeMs`, each call's
+  duration added up over the `timedCalls` calls that were timed.
+- **A client that parses these reads strictly** (`@nylorun/agents` before this release) refuses
+  the new fields: update it with the Runtime.
+
 # A queue per session (protocol 17)
 
 Additive: the Runtime serves protocol 16 and 17, and Harness API 5 is unchanged.
