@@ -135,7 +135,8 @@ harness decides how its model sees each one, and tells the model when it cannot 
 one. Studio sends files as they are: it resizes and converts nothing. On **Send** each new file is uploaded into the session
 (`POST /v1/artifacts?name=…&sessionId=…` through the proxy, which checks the session
 exists, needs a `Content-Length` and streams the bytes, refusing a file over
-`maxUploadBytes`, 32 MiB by default), then the message goes as text and file parts
+`maxUploadBytes` when the Studio server sets one; it has no default, so a file is held only to
+the Tenant's artifact limits, `/v1/tenant/artifacts`), then the message goes as text and file parts
 (`session.inputParts`). When the message fails, the draft and its chips stay, and a
 resend reuses the files already uploaded. In the chat, a message's files
 show their name, type and an image's thumbnail, and open the artifact.
