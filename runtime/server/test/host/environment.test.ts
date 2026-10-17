@@ -75,6 +75,14 @@ it("C8: configFor stub returns defaults in the Tenant directory", () => {
     expect(tenantConfig.model).toEqual({ kind: "vault" });
     expect(tenantConfig.sandbox.backend).toBe("auto");
     expect(tenantConfig.paths.home).toBe(tenantPaths(realRoot).home);
+    expect(tenantConfig.publicUrl).toBeUndefined();
+    // NYLORUN_PUBLIC_URL reaches every Tenant: its webhook URLs and OAuth resource.
+    const proxied = configForFactory({
+      hostRoot: realRoot,
+      logger: createHostLogger(() => {}),
+      publicUrl: "https://runtime.example.com",
+    });
+    expect(proxied(id).publicUrl).toBe("https://runtime.example.com");
   } finally {
     rmSync(realRoot, { recursive: true, force: true });
   }
