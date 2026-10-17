@@ -168,8 +168,8 @@ describe("Wave 0 schemas", () => {
 });
 
 describe("checkCompatibility", () => {
-  it("serves protocol 16 and 17 clients; they require Agents, and 17 the session queue", () => {
-    expect(PROTOCOL_VERSION).toBe(17);
+  it("serves protocol 16 to 18 clients; they require Agents, 17 the session queue, 18 usage by kind", () => {
+    expect(PROTOCOL_VERSION).toBe(18);
     // Protocol 8 clients require the Management API (key roles); protocol 9 clients the OAuth
     // resource server's 401 challenges; protocol 12 clients model inputs; protocol 13 clients the
     // flat manifest (v7); protocol 15 clients the harness boundary; protocol 16 clients agent
@@ -183,7 +183,10 @@ describe("checkCompatibility", () => {
     expect(PROTOCOL_FEATURES).not.toContain("environments");
     expect(PROTOCOL_FEATURES).not.toContain("environment-manifests");
     expect(PROTOCOL_FEATURES).toContain("harness-boundary");
-    expect(HOST_PROTOCOL).toMatchObject({ min: 16, max: 17 });
+    expect(HOST_PROTOCOL).toMatchObject({ min: 16, max: 18 });
+    // Protocol 18 is additive: usage reads carry the cost by token kind and the calls' timing.
+    expect(PROTOCOL_FEATURES).toContain("usage-by-kind");
+    expect(checkCompatibility({ version: 18, required: [...PROTOCOL_FEATURES] }, HOST_PROTOCOL)).toMatchObject({ ok: true });
     // Protocol 17 is additive: the session queue (D76), whose refusal has a code.
     expect(PROTOCOL_FEATURES).toContain("session-queue");
     expect(checkCompatibility({ version: 17, required: [...PROTOCOL_FEATURES] }, HOST_PROTOCOL)).toMatchObject({ ok: true });

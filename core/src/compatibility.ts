@@ -1,6 +1,11 @@
 export { hashManifest } from "./utils/hash.js";
 
 /**
+ * Protocol 18: session usage by token kind. A model call read (`/v1/sessions/{id}/calls/model`,
+ * `/v1/tenant/calls/model`) carries the gate's timing (`startedAt`, `endedAt`) and its cost by
+ * token kind (`usage.costSplit`), and a session's usage (`/v1/sessions/{id}/usage`) adds
+ * `costSplit`, `splitCalls`, `modelTimeMs` and `timedCalls`. The Host serves protocol 16, 17 and 18:
+ * an older client, whose SDK parses these reads strictly, gets them without the new fields.
  * Protocol 17: a queue per session. A message sent while the session's turn runs,
  * or while it waits on an approval, an answer or an uncertain call, is queued
  * (`{status: "queued", queuedMessageId, position}`, `message.queued`) instead of refused, unless
@@ -103,7 +108,7 @@ export { hashManifest } from "./utils/hash.js";
  * it. The Host still accepts protocol 4 (and `Nylorun-Tenant`), 5 and 6 clients on every route
  * that remains; a client that requires `action-endpoints` is refused by the feature check.
  */
-export const PROTOCOL_VERSION = 17;
+export const PROTOCOL_VERSION = 18;
 /** What a client of this protocol requires of a Host. */
 export const PROTOCOL_FEATURES = [
   "studio-principal",
@@ -151,6 +156,11 @@ export const PROTOCOL_FEATURES = [
    * `delivery: "reject"`, and the busy refusal is `409 session_busy`.
    */
   "session-queue",
+  /**
+   * Protocol 18: model call reads carry their timing and their cost by token kind, and a
+   * session's usage the cost by kind and the model time.
+   */
+  "usage-by-kind",
 ] as const;
 export type ProtocolFeature = (typeof PROTOCOL_FEATURES)[number];
 /**
@@ -217,14 +227,15 @@ export interface ProtocolRange {
   features: readonly string[];
 }
 /**
- * What this Host serves: protocol 16 and 17. Protocol 16 replaced agent definitions and
+ * What this Host serves: protocol 16, 17 and 18. Protocol 16 replaced agent definitions and
  * Environments with agent manifests and Agents, so an older client is answered `426` naming the
  * protocol it needs rather than routes it cannot use. Protocol 17 is additive: a protocol 16
- * client's messages default to `delivery: "reject"`.
+ * client's messages default to `delivery: "reject"`. Protocol 18 is additive: a protocol 16 or 17
+ * client's usage reads leave out the fields it added.
  */
 export const HOST_PROTOCOL: ProtocolRange = {
   min: 16,
-  max: 17,
+  max: 18,
   features: [...PROTOCOL_FEATURES, ...OPTIONAL_HOST_FEATURES],
 };
 export const DEFINITION_SCHEMA_VERSION = 2;

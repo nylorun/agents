@@ -5209,7 +5209,8 @@ export const SessionUsageTotalsSchema = z
     unknownQualityCalls: z.number().int().nonnegative(),
     /**
      * `costUsd` by token kind, summed over the `splitCalls` calls that kept their split. A call
-     * recorded before the split was kept counts in `costUsd` only.
+     * recorded before the split was kept counts in `costUsd` only. Protocol 18, like
+     * `modelTimeMs` and `timedCalls`: an older client's read leaves all four out.
      */
     costSplit: CostSplitSchema,
     splitCalls: z.number().int().nonnegative(),
@@ -5237,7 +5238,10 @@ export const ModelCallSchema = z
     provider: z.string().nullable(),
     model: z.string().nullable(),
     at: z.string(),
-    /** When the gate sent the call, and when its answer was complete; null when untimed. */
+    /**
+     * When the gate sent the call, and when its answer was complete; null when untimed. Protocol
+     * 18, like `usage.costSplit`: an older client's read leaves them out.
+     */
     startedAt: z.string().nullable(),
     endedAt: z.string().nullable(),
     outcome: z.enum(["completed", "failed"]),

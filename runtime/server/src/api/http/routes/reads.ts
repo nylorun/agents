@@ -1,7 +1,8 @@
 /** Read-only sub-resources and opt-in pages. The execution routes retain their contracts. */
 import type { OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
-import { SESSION_STATUSES } from "@nylorun/core/contracts";
+import { SESSION_STATUSES, type ModelCall, type SessionUsageTotals as UsageTotals } from "@nylorun/core/contracts";
+import { PROTOCOL_HEADER } from "@nylorun/core/compatibility";
 import {
   SessionManifestView,
   SessionUsageTotals,
@@ -18,6 +19,29 @@ import { readRuntimeLimits } from "../../../tenant/runtime-limits.js";
 import type { TenantEnv } from "../app.js";
 import { tenantRoute } from "../define.js";
 import { jsonResponse } from "../respond.js";
+
+/**
+ * Whether a client speaks protocol 18, whose usage reads carry the calls' timing and the cost by
+ * token kind. An older client's SDK parses these reads strictly, so it gets them without.
+ */
+function usageByKind(header: string | undefined): boolean {
+  const protocol = Number(header?.trim());
+  return Number.isInteger(protocol) && protocol >= 18;
+}
+
+/** A session's usage as a protocol 16 or 17 client reads it. */
+function totalsBefore18(totals: UsageTotals) {
+  const { costSplit: _split, splitCalls: _splitCalls, modelTimeMs: _time, timedCalls: _timed, ...rest } = totals;
+  return rest;
+}
+
+/** A model call as a protocol 16 or 17 client reads it. */
+function callBefore18(call: ModelCall) {
+  const { startedAt: _started, endedAt: _ended, usage, ...rest } = call;
+  if (usage === null) return { ...rest, usage };
+  const { costSplit: _split, ...counts } = usage;
+  return { ...rest, usage: counts };
+}
 
 /** A page's `limit`, held to the Tenant's Runtime limit `pageItems` (`pageSize`). */
 const limitParam = (fallback?: number) =>
@@ -142,14 +166,17 @@ export function readRoutes(api: OpenAPIHono<TenantEnv>): void {
         requirePrincipal(c.get("scope"));
         const store = readStoreOf(c.env.tenant),
           access = readAccess(c.get("scope")),
-          id = c.req.param("sessionId")!;
+          id = c.req.param("sessionId")!,
+          current = usageByKind(c.req.header(PROTOCOL_HEADER));
         if (kind === "usage") {
           const q = parseQuery(turnQuery, c.req.query());
-          return jsonResponse(200, await store.usage(id, q.turnId, access));
+          const totals = await store.usage(id, q.turnId, access);
+          return jsonResponse(200, current ? totals : totalsBefore18(totals));
         }
         const q = parseQuery(callsQuery, c.req.query());
         const limit = await pageSize(c.env.tenant, q.limit, { fallback: CALLS_PAGE_DEFAULT });
-        return jsonResponse(200, await store.modelCalls(id, q.turnId, { ...q, limit }, access));
+        const page = await store.modelCalls(id, q.turnId, { ...q, limit }, access);
+        return jsonResponse(200, current ? page : { ...page, calls: page.calls.map(callBefore18) });
       },
     );
   }
@@ -254,7 +281,11 @@ export function readRoutes(api: OpenAPIHono<TenantEnv>): void {
     async (c) => {
       const q = parseQuery(exportQuery, c.req.query());
       const limit = await pageSize(c.env.tenant, q.limit, { fallback: EXPORT_PAGE_DEFAULT, name: "exportPageItems" });
-      return jsonResponse(200, await readStoreOf(c.env.tenant).exportModel(q.after, limit));
+      const page = await readStoreOf(c.env.tenant).exportModel(q.after, limit);
+      return jsonResponse(
+        200,
+        usageByKind(c.req.header(PROTOCOL_HEADER)) ? page : { ...page, calls: page.calls.map(callBefore18) },
+      );
     },
   );
 }

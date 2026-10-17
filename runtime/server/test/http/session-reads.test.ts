@@ -10,6 +10,7 @@ import {
   SessionUsageTotalsSchema,
 } from "@nylorun/core/contracts";
 import { AgentsClient } from "@nylorun/agents";
+import { PROTOCOL_HEADER } from "@nylorun/core/compatibility";
 import { startTestTenant } from "../support/tenant.js";
 import { testTenantPool } from "../support/store.js";
 import { contextOf } from "../tenant/streams.suite.js";
@@ -246,6 +247,20 @@ it("splits cost by token kind and adds up model time, over the calls that kept t
     ],
     ["split-b", "2026-01-01T00:00:02.750Z", "2026-01-01T00:00:05.000Z", null],
   ]);
+  // A protocol 17 client parses these reads strictly: it gets them as they were.
+  const before = { [PROTOCOL_HEADER]: "17" };
+  const oldTotals = await json("/v1/sessions/s-c/usage", before);
+  expect(oldTotals).toMatchObject({ calls: 2, costUsd: 0.006 });
+  for (const key of ["costSplit", "splitCalls", "modelTimeMs", "timedCalls"])
+    expect(oldTotals).not.toHaveProperty(key);
+  const oldCalls = (await json("/v1/sessions/s-c/calls/model", before)).calls;
+  expect(oldCalls).toHaveLength(2);
+  for (const call of oldCalls) {
+    expect(call).not.toHaveProperty("startedAt");
+    expect(call).not.toHaveProperty("endedAt");
+    expect(call.usage).not.toHaveProperty("costSplit");
+    expect(call.usage).toMatchObject({ costUsd: 0.003, duplicate: false });
+  }
 });
 
 it("advances bounded history over internal events and reapplies ownership and filter binding", async () => {
