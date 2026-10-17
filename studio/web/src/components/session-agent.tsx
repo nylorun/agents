@@ -116,8 +116,8 @@ export function SessionAgentPanel({
             <Section
               title={`What its tools get${counts ? ` · ${counts.covered} of ${coverage.entries.length} covered` : ""}`}
               actions={
-                <Link className="text-sm underline underline-offset-4" to={agentPath(agentId, "secrets")}>
-                  Manage secrets
+                <Link className="text-sm underline underline-offset-4" to={agentPath(agentId, "vault")}>
+                  Open the vault
                 </Link>
               }
             >
@@ -128,8 +128,8 @@ export function SessionAgentPanel({
               <p className="text-sm text-muted-foreground">
                 Its manifest declares no MCP server or HTTP tool that takes a credential.
               </p>
-              <Link className="text-sm underline underline-offset-4" to={agentPath(agentId, "secrets")}>
-                The Agent's secrets
+              <Link className="text-sm underline underline-offset-4" to={agentPath(agentId, "vault")}>
+                The Agent's vault
               </Link>
             </Section>
           )}
@@ -234,8 +234,8 @@ function SessionConnections({
         egress ? <EgressRow key={`${egress.startedAt}:${index}`} egress={egress} sessionId={sessionId} /> : null,
       )}
       {read.data?.truncated ? (
-        <Link className="text-xs underline" to={agentPath(agentId, "events")}>
-          Older connections: the Agent's events
+        <Link className="text-xs underline" to={agentPath(agentId, "activity")}>
+          Older connections: the Agent's activity
         </Link>
       ) : null}
     </Section>

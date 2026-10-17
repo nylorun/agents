@@ -15,14 +15,15 @@ const matches = (pattern: string, path: string) =>
 
 /**
  * Agent reads on the Runtime API: the list (with state, manifest and label filters, and pages),
- * one Agent, its lifecycle events, its disk versions, and its secrets' names, types and bindings
- * (never a value); and the agent manifests, one manifest, its versions and one version.
+ * one Agent, its lifecycle events, its disk versions, its secrets' names, types and bindings
+ * (never a value), its memories (one with its content) and their versions, and its triggers and
+ * their runs; and the agent manifests, one manifest, its versions and one version.
  */
 function isAgentRead(method: string, path: string): boolean {
   return (
     method === "GET" &&
     (path === "/v1/agents" ||
-      matches(`${AGENT}(?:/events|/versions|/secrets(?:/[^/]+)?)?`, path) ||
+      matches(`${AGENT}(?:/events|/versions|/secrets(?:/[^/]+)?|/memories(?:/[^/]+)?|/memory_versions(?:/[^/]+)?|/triggers|/runs)?`, path) ||
       path === MANIFESTS ||
       matches(`${MANIFEST}(?:/versions(?:/[1-9]\\d*)?)?`, path))
   );
@@ -31,18 +32,24 @@ function isAgentRead(method: string, path: string): boolean {
 /** Saving an agent manifest's next version (`PUT`, or its plan with `?dryRun=true`). */
 const isManifestSave = (method: string, path: string) => method === "PUT" && matches(MANIFEST, path);
 
+/** Running a trigger once now: no body, and an `Idempotency-Key` that makes a retry the same run. */
+const isTriggerRun = (method: string, path: string) =>
+  method === "POST" && matches(`${AGENT}/triggers/[^/]+/run`, path);
+
 /**
  * Agent writes on the Runtime API: make one from a manifest version or change its labels and
  * owner (`PUT`), stop, restart (on its pending version, or `retry` the failed one) or reset it,
  * fork it, keep or restore a version of its disk, delete it or
- * one of its disk versions, and write or delete one of its secrets; and save an agent manifest.
+ * one of its disk versions, write or delete one of its secrets, delete one of its memories, and
+ * pause, resume or run one of its triggers; and save an agent manifest.
  */
 function isAgentWrite(method: string, path: string): boolean {
   return (
     (method === "PUT" && matches(`${AGENT}(?:/secrets/[^/]+)?`, path)) ||
     isManifestSave(method, path) ||
     (method === "POST" && matches(`${AGENT}/(?:stop|restart|reset|fork|snapshot|restore)`, path)) ||
-    (method === "DELETE" && matches(`${AGENT}(?:/secrets/[^/]+|/versions/[1-9]\\d*)?`, path))
+    (method === "POST" && matches(`${AGENT}/triggers/[^/]+/(?:pause|resume|run)`, path)) ||
+    (method === "DELETE" && matches(`${AGENT}(?:/secrets/[^/]+|/memories/[^/]+|/versions/[1-9]\\d*)?`, path))
   );
 }
 
@@ -260,7 +267,7 @@ export async function proxyRuntime(
     tenantWrite ||
     artifactLink ||
     managementCheck ||
-    (agentWrite && method !== "DELETE")
+    (agentWrite && method !== "DELETE" && !isTriggerRun(method, path))
   ) {
     if (!request.headers["content-type"]?.startsWith("application/json"))
       return fail(415, "JSON required");
@@ -335,6 +342,9 @@ export async function proxyRuntime(
           : {}),
         ...(request.headers["last-event-id"]
           ? { "last-event-id": String(request.headers["last-event-id"]) }
+          : {}),
+        ...(isTriggerRun(method, path) && request.headers["idempotency-key"]
+          ? { "idempotency-key": String(request.headers["idempotency-key"]) }
           : {}),
         accept: request.headers.accept ?? "application/json",
         ...(artifactContent

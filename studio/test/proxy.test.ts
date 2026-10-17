@@ -193,6 +193,15 @@ test("proxy forwards Agent and agent manifest reads and same-origin writes on th
         const manifest = { requestId: "r", manifestSchemaVersion: 8, name: "triage", harness: {} };
         assert.equal((await send("PUT", "/v1/agent-manifests/triage?dryRun=true", manifest, origin, { "if-match": "2" })).status, 200);
         assert.equal((await send("PUT", "/v1/agent-manifests/triage", manifest, origin, { "if-match": "2" })).status, 200);
+        assert.equal((await send("DELETE", "/v1/agents/team%2Fbuild/memories/notes%2Fa.md")).status, 200);
+        assert.equal((await send("POST", "/v1/agents/team%2Fbuild/triggers/daily/pause", {})).status, 200);
+        assert.equal((await send("POST", "/v1/agents/team%2Fbuild/triggers/daily/resume", {})).status, 200);
+        // A run takes no body: its Idempotency-Key makes a retry the same run.
+        const run = await fetch(base + "/v1/agents/team%2Fbuild/triggers/daily/run", {
+          method: "POST",
+          headers: { origin, "idempotency-key": "k1" },
+        });
+        assert.equal(run.status, 200);
         for (const path of [
           "/v1/agents",
           "/v1/agents?limit=50&state=failing&manifest=triage&label=team%3Da",
@@ -201,6 +210,12 @@ test("proxy forwards Agent and agent manifest reads and same-origin writes on th
           "/v1/agents/team%2Fbuild/versions",
           "/v1/agents/team%2Fbuild/secrets",
           "/v1/agents/team%2Fbuild/secrets/github",
+          "/v1/agents/team%2Fbuild/memories?limit=100",
+          "/v1/agents/team%2Fbuild/memories/notes%2Fa.md",
+          "/v1/agents/team%2Fbuild/memory_versions?limit=50&path=notes%2Fa.md",
+          "/v1/agents/team%2Fbuild/memory_versions/mv1",
+          "/v1/agents/team%2Fbuild/triggers",
+          "/v1/agents/team%2Fbuild/runs?limit=50",
           "/v1/agent-manifests",
           "/v1/agent-manifests/triage",
           "/v1/agent-manifests/triage/versions",
@@ -223,6 +238,10 @@ test("proxy forwards Agent and agent manifest reads and same-origin writes on th
             "POST /v1/agents/team%2Fbuild/fork",
             "PUT /v1/agent-manifests/triage?dryRun=true",
             "PUT /v1/agent-manifests/triage",
+            "DELETE /v1/agents/team%2Fbuild/memories/notes%2Fa.md",
+            "POST /v1/agents/team%2Fbuild/triggers/daily/pause",
+            "POST /v1/agents/team%2Fbuild/triggers/daily/resume",
+            "POST /v1/agents/team%2Fbuild/triggers/daily/run",
             "GET /v1/agents",
             "GET /v1/agents?limit=50&state=failing&manifest=triage&label=team%3Da",
             "GET /v1/agents/team%2Fbuild",
@@ -230,6 +249,12 @@ test("proxy forwards Agent and agent manifest reads and same-origin writes on th
             "GET /v1/agents/team%2Fbuild/versions",
             "GET /v1/agents/team%2Fbuild/secrets",
             "GET /v1/agents/team%2Fbuild/secrets/github",
+            "GET /v1/agents/team%2Fbuild/memories?limit=100",
+            "GET /v1/agents/team%2Fbuild/memories/notes%2Fa.md",
+            "GET /v1/agents/team%2Fbuild/memory_versions?limit=50&path=notes%2Fa.md",
+            "GET /v1/agents/team%2Fbuild/memory_versions/mv1",
+            "GET /v1/agents/team%2Fbuild/triggers",
+            "GET /v1/agents/team%2Fbuild/runs?limit=50",
             "GET /v1/agent-manifests",
             "GET /v1/agent-manifests/triage",
             "GET /v1/agent-manifests/triage/versions",
@@ -244,6 +269,9 @@ test("proxy forwards Agent and agent manifest reads and same-origin writes on th
         assert.deepEqual(JSON.parse(seen[0]!.body), agent);
         assert.deepEqual(JSON.parse(seen[1]!.body), secret);
         assert.deepEqual(JSON.parse(seen[3]!.body), { requestId: "r", retry: true });
+        assert.equal(seen[16]!.body, "");
+        assert.equal(seen[16]!.headers["idempotency-key"], "k1");
+        assert.equal(seen[16]!.headers["content-type"], undefined);
         for (const { headers } of seen) {
           assert.equal(headers.authorization, "Bearer server-secret");
           assert.equal(headers["nylorun-subject"], undefined);
@@ -256,6 +284,8 @@ test("proxy forwards Agent and agent manifest reads and same-origin writes on th
         assert.equal((await send("POST", "/v1/agents/a/restore", { version: 1 }, "https://evil.example")).status, 403);
         assert.equal((await send("POST", "/v1/agents/a/restart", {}, "https://evil.example")).status, 403);
         assert.equal((await send("POST", "/v1/agents/a/fork", { id: "b" }, "https://evil.example")).status, 403);
+        assert.equal((await send("POST", "/v1/agents/a/triggers/t/run", undefined, "https://evil.example")).status, 403);
+        assert.equal((await send("DELETE", "/v1/agents/a/memories/m.md", undefined, "https://evil.example")).status, 403);
         assert.equal((await send("PUT", "/v1/agent-manifests/m", { name: "m" }, "https://evil.example")).status, 403);
         // Nothing else under an Agent, no protocol-15 Environment route, no protocol-10 sandbox or vault.
         for (const [method, path] of [
@@ -267,6 +297,11 @@ test("proxy forwards Agent and agent manifest reads and same-origin writes on th
           ["DELETE", "/v1/agents/a/versions"],
           ["DELETE", "/v1/agents/a/versions/latest"],
           ["POST", "/v1/agents/a/versions"],
+          // Memories and triggers: no write from Studio beyond these, and no signing secret.
+          ["PUT", "/v1/agents/a/memories/m.md"],
+          ["POST", "/v1/agents/a/triggers/t/secret"],
+          ["POST", "/v1/agents/a/triggers"],
+          ["DELETE", "/v1/agents/a/triggers/t"],
           // A manifest is saved, never deleted, from Studio.
           ["DELETE", "/v1/agent-manifests/m"],
           ["POST", "/v1/agent-manifests/m"],

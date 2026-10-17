@@ -574,8 +574,8 @@ test("the session list shows every session and filters on an Agent; an Agent's p
     await page.getByRole("link", { name: "Agent details" }).click();
     await page.waitForURL(`${studioUrl}/tenants/${TENANT}/agents/${AGENT}`);
     await page.getByRole("heading", { name: AGENT, exact: true }).waitFor();
-    await page.getByRole("tab", { name: "Sessions", exact: true }).click();
-    await page.waitForURL(/tab=sessions$/u);
+    // It opens on them.
+    await page.getByRole("tab", { name: "Sessions", exact: true, selected: true }).waitFor();
     await page.getByRole("link", { name: FILES_SESSION, exact: true }).waitFor();
     await page.getByRole("link", { name: ALICE_SESSION, exact: true }).click();
     await page.waitForURL(`${studioUrl}/tenants/${TENANT}/agents/${AGENT}/sessions/${ALICE_SESSION}`);

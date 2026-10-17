@@ -4,23 +4,24 @@ import type { AgentView } from "@nylorun/agents";
 import { createTenantClient } from "@/proxy-client";
 import { messageOf, useRead } from "@/resources/reads";
 import { agentPath } from "@/agent-path";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { fullTime, shortTime } from "@/time-format";
 import { ReadState } from "@/components/resource-layout";
 import { date, otherSessionsNote } from "@/components/agents";
 import { ForkSheet } from "@/components/agent-fork";
+import { useArtifactSelection } from "@/components/artifacts";
+import { ArtifactSheet } from "@/components/agent-artifacts";
 import {
-  ArtifactInspector,
-  useArtifactSelection,
-} from "@/components/artifacts";
+  ActionMenu,
+  EmptyRow,
+  TableFrame,
+  TableToolbar,
+  ToolbarCount,
+  cellClass,
+  headClass,
+  menuCellClass,
+  rowClass,
+  type MenuAction,
+} from "@/components/data-table";
 
 const bytes = (n: number) =>
   n < 1024
@@ -33,9 +34,9 @@ const bytes = (n: number) =>
 
 /**
  * An Agent's disk versions (R2d step 3, Host feature `environment-disk-versions`): keep one
- * between turns, put one back, fork a new Agent from one, delete one, and browse a version's
- * files and changes. The versions are versions of one folder artifact the Agent owns, read
- * through `/v1/artifacts`.
+ * between turns (the toolbar's ⋯), and from each row's ⋯ browse its files, put it back, fork a
+ * new Agent from it or delete it. The versions are versions of one folder artifact the Agent
+ * owns, read through `/v1/artifacts`; a row opens it in the artifact inspector on the right.
  */
 export function AgentDisk({
   tenantId,
@@ -53,10 +54,7 @@ export function AgentDisk({
   const navigate = useNavigate();
   const id = agent.id;
   const selection = useArtifactSelection("disk");
-  const load = useCallback(
-    (signal: AbortSignal) => sdk.agents.versions(id, { signal }),
-    [sdk, id],
-  );
+  const load = useCallback((signal: AbortSignal) => sdk.agents.versions(id, { signal }), [sdk, id]);
   const read = useRead(load);
   const [acting, setActing] = useState(false);
   const [error, setError] = useState("");
@@ -107,41 +105,27 @@ export function AgentDisk({
     });
   const remove = (version: number) =>
     run(async () => {
-      if (!window.confirm(`Delete version ${version} of ${id}'s disk? This cannot be undone.`))
-        return undefined;
+      if (!window.confirm(`Delete version ${version} of ${id}'s disk? This cannot be undone.`)) return undefined;
       await sdk.agents.deleteVersion(id, version);
-      if (selection.id && selection.version === version)
-        selection.update({ selected: null, version: null, file: null });
+      if (selection.id && selection.version === version) selection.update({ selected: null, version: null, file: null });
       return `Deleted version ${version}.`;
     });
-  const browse = (artifactId: string, version: number) =>
-    selection.update({
-      selected: artifactId,
-      version: String(version),
-      tab: "preview",
-      file: null,
-    });
-
   const versions = read.data;
+  const browse = (version: number) =>
+    versions?.artifactId
+      ? selection.update({ selected: versions.artifactId, version: String(version), tab: "preview", file: null })
+      : undefined;
+  const actions = (version: number): MenuAction[] => [
+    ...(versions?.artifactId ? [{ label: "Browse", onSelect: () => browse(version) }] : []),
+    { label: "Restore…", onSelect: () => void restore(version), disabled: acting || operation !== undefined },
+    { label: "Fork into a new Agent…", onSelect: () => setForking(version), disabled: acting },
+    { label: "Delete…", onSelect: () => void remove(version), destructive: true, separated: true, disabled: acting },
+  ];
+  const count = versions?.versions.length ?? 0;
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <p className="max-w-2xl text-sm text-muted-foreground">
-          A disk version keeps what the Agent's disk holds, between turns. Put one back
-          to undo a session's work, or fork a new Agent from one, with the secrets its
-          manifest version declares.
-        </p>
-        <div className="flex gap-2">
-          <Button variant="outline" disabled={read.pending} onClick={read.reload}>
-            Refresh versions
-          </Button>
-          <Button disabled={acting || operation !== undefined} onClick={() => void snapshot()}>
-            Snapshot disk
-          </Button>
-        </div>
-      </div>
+    <div>
       {operation ? (
-        <p role="status" className="rounded-md border p-3 text-sm">
+        <p role="status" className="border-b px-4 py-2 text-sm">
           {operation.kind === "snapshot"
             ? "Keeping a version of the disk"
             : operation.kind === "restore"
@@ -151,105 +135,72 @@ export function AgentDisk({
         </p>
       ) : null}
       {error ? (
-        <p role="alert" className="break-words text-sm text-red-600">
+        <p role="alert" className="border-b px-4 py-2 text-sm break-words text-red-600">
           {error}
         </p>
       ) : null}
       {notice ? (
-        <p role="status" className="text-sm text-muted-foreground">
+        <p role="status" className="border-b px-4 py-2 text-sm text-muted-foreground">
           {notice}
         </p>
       ) : null}
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Version</TableHead>
-            <TableHead>Kept</TableHead>
-            <TableHead>Size</TableHead>
-            <TableHead className="text-right">Actions</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
+      <TableToolbar>
+        <span className="text-sm text-muted-foreground">
+          What its disk held between turns. Put one back to undo a session's work.
+        </span>
+        <ToolbarCount>{count === 1 ? "1 version" : `${count} versions`}</ToolbarCount>
+        <ActionMenu
+          label="Disk actions"
+          bordered
+          actions={[{ label: "Snapshot now", onSelect: () => void snapshot(), disabled: acting || operation !== undefined }]}
+        />
+      </TableToolbar>
+      <TableFrame minWidth={520}>
+        <thead>
+          <tr>
+            <th className={headClass}>Version</th>
+            <th className={`${headClass} w-[30%]`}>Kept</th>
+            <th className={`${headClass} w-[20%]`}>Size</th>
+            <th className={`${headClass} w-12`}>
+              <span className="sr-only">Actions</span>
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {versions && count === 0 ? (
+            <EmptyRow columns={4}>No disk versions yet. Snapshot the disk to keep one.</EmptyRow>
+          ) : null}
           {versions?.versions.map((v) => (
-            <TableRow
+            <tr
               key={v.version}
-              data-state={
-                selection.id && selection.version === v.version ? "selected" : undefined
-              }
+              className={`${rowClass} ${versions.artifactId ? "cursor-pointer" : ""}`}
+              data-state={selection.id && selection.version === v.version ? "selected" : undefined}
+              onClick={() => browse(v.version)}
             >
-              <TableCell>
+              <td className={cellClass}>
                 v{v.version}
-                {v.version === versions.latest ? (
-                  <Badge variant="outline" className="ml-2">
-                    latest
-                  </Badge>
-                ) : null}
-              </TableCell>
-              <TableCell>{date(v.createdAt)}</TableCell>
-              <TableCell>{bytes(v.bytes)}</TableCell>
-              <TableCell className="space-x-1 text-right">
-                {versions.artifactId ? (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    aria-label={`Browse version ${v.version}`}
-                    onClick={() => browse(versions.artifactId!, v.version)}
-                  >
-                    Browse
-                  </Button>
-                ) : null}
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  aria-label={`Restore version ${v.version}`}
-                  disabled={acting || operation !== undefined}
-                  onClick={() => void restore(v.version)}
-                >
-                  Restore
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  aria-label={`Fork from version ${v.version}`}
-                  disabled={acting}
-                  onClick={() => setForking(v.version)}
-                >
-                  Fork
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  aria-label={`Delete version ${v.version}`}
-                  disabled={acting}
-                  onClick={() => void remove(v.version)}
-                >
-                  Delete
-                </Button>
-              </TableCell>
-            </TableRow>
+                {v.version === versions.latest ? <span className="ml-2 text-xs text-muted-foreground">latest</span> : null}
+              </td>
+              <td className={`${cellClass} text-muted-foreground`}>
+                <time dateTime={v.createdAt} title={fullTime(v.createdAt)}>
+                  {shortTime(v.createdAt)}
+                </time>
+              </td>
+              <td className={`${cellClass} text-muted-foreground`}>{bytes(v.bytes)}</td>
+              <td className={menuCellClass}>
+                <ActionMenu label={`Actions for version ${v.version}`} actions={actions(v.version)} />
+              </td>
+            </tr>
           ))}
-        </TableBody>
-      </Table>
-      <ReadState
-        {...read}
-        onRetry={read.reload}
-        empty={
-          versions && versions.versions.length === 0
-            ? "No disk versions yet. Snapshot the disk to keep one."
-            : undefined
-        }
-      />
+        </tbody>
+      </TableFrame>
+      <ReadState {...read} onRetry={read.reload} />
       {selection.id ? (
-        <div className="rounded-lg border">
-          <ArtifactInspector
-            key={selection.id}
-            tenantId={tenantId}
-            selection={selection}
-            onClose={() =>
-              selection.update({ selected: null, version: null, tab: null, file: null })
-            }
-          />
-        </div>
+        <ArtifactSheet
+          tenantId={tenantId}
+          selection={selection}
+          onClose={() => selection.update({ selected: null, version: null, tab: null, file: null })}
+        />
       ) : null}
       {forking !== undefined ? (
         <ForkSheet

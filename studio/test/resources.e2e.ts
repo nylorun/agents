@@ -121,34 +121,69 @@ test("Agents: the sidebar lists each Agent as a filter on the sessions, the list
     await page.getByRole("link", { name: ASKING, exact: true }).waitFor({ state: "detached" });
     await page.getByRole("button", { name: "Remove label filter project=build" }).click();
     await page.getByRole("link", { name: ASKING, exact: true }).waitFor();
-    // An Agent's page.
+    // An Agent's page: what it is an instance of, and one tab for each thing it holds.
     await page.getByRole("link", { name: AGENT, exact: true }).click();
     await page.waitForURL(/\/agents\/team%2Fbuild$/u);
     await page.getByRole("heading", { name: AGENT, exact: true }).waitFor();
-    await page.getByText("A virtual workspace has no pod", { exact: false }).waitFor();
-    // Its manifest has a newer version: the pinned Agent moves to it in place (track T3).
-    await page.getByRole("button", { name: "Move to v3" }).waitFor();
-    await page.getByRole("button", { name: "Track the manifest" }).waitFor();
-    // A virtual Agent has no pod to stop or reset.
-    assert.equal(await page.getByRole("button", { name: "Stop", exact: true }).count(), 0);
-    assert.equal(await page.getByRole("button", { name: "Reset", exact: true }).count(), 0);
-    await page.getByRole("tab", { name: "Secrets", exact: true }).click();
-    await page.waitForURL(/tab=secrets/u);
-    await page.getByText("https://api.githubcopilot.com/mcp/", { exact: true }).first().waitFor();
-    // The slots its manifest declares, and what its tools get from them.
-    await page.getByText("What its tools get · 1 of 1 covered", { exact: true }).waitFor();
-    await page.getByRole("tab", { name: "Events", exact: true }).click();
-    await page.getByText("0 · agent.created", { exact: false }).waitFor();
-    await page.getByRole("button", { name: "Refresh events" }).click();
-    await page.getByText("1 · agent.attached", { exact: false }).waitFor();
+    await page.getByRole("navigation", { name: "Breadcrumb" }).getByRole("link", { name: "Agents", exact: true }).waitFor();
+    await page.getByRole("link", { name: "analyst-box v2", exact: true }).waitFor();
+    await page.getByText("pinned", { exact: true }).first().waitFor();
+    // It opens on its sessions; none is special.
+    await page.getByRole("tab", { name: "Sessions", exact: true, selected: true }).waitFor();
     assert.deepEqual(
-      requests.filter((r) => r.path.includes("/agents/team%2Fbuild/events")).map((r) => r.path),
-      ["/v1/agents/team%2Fbuild/events?from=0", "/v1/agents/team%2Fbuild/events?from=1"],
+      await page.getByRole("tab").allTextContents(),
+      ["Sessions", "Triggers", "Artifacts", "Memory", "Disk", "Activity", "Vault", "Manifest"],
     );
-    // Its sessions, none special.
-    await page.getByRole("tab", { name: "Sessions", exact: true }).click();
     await page.getByRole("link", { name: "s-other", exact: true }).waitFor();
-    await page.getByText("Active turn: t9", { exact: true }).waitFor();
+    await page.locator("tbody tr", { hasText: "s-other" }).getByText("running", { exact: true }).waitFor();
+    await page.getByRole("button", { name: "Filter by status" }).click();
+    await page.getByRole("menuitemradio", { name: "idle" }).click();
+    await page.getByRole("link", { name: "s-other", exact: true }).waitFor({ state: "detached" });
+    await page.getByText("1 of 2 sessions", { exact: true }).waitFor();
+    // A virtual Agent has no pod to stop or reset; its moves are on the Manifest tab.
+    await page.getByRole("button", { name: "More actions" }).click();
+    await page.getByRole("menuitem", { name: "Edit labels and owner…" }).waitFor();
+    for (const name of ["Stop compute", "Reset disk…"])
+      assert.equal(await page.getByRole("menuitem", { name, exact: true }).count(), 0, name);
+    await page.keyboard.press("Escape");
+    // The vault: the slots its manifest version declares, and whether each holds a value.
+    await page.getByRole("tab", { name: "Vault", exact: true }).click();
+    await page.waitForURL(/tab=vault/u);
+    const slot = page.locator("tbody tr", { hasText: "github" });
+    await slot.getByText("MCP server github", { exact: true }).waitFor();
+    await slot.getByText("Set", { exact: false }).waitFor();
+    await slot.click();
+    const details = page.getByRole("dialog", { name: "github" });
+    await details.getByText("From the manifest", { exact: true }).waitFor();
+    await details.getByText("https://api.githubcopilot.com/mcp/", { exact: true }).waitFor();
+    await page.keyboard.press("Escape");
+    // The manifest version it runs, as a readable spec, and its moves.
+    await page.getByRole("tab", { name: "Manifest", exact: true }).click();
+    await page.getByRole("region", { name: "MCP servers" }).getByText("https://api.githubcopilot.com/mcp/", { exact: true }).waitFor();
+    await page.getByRole("region", { name: "Triggers" }).getByText("Mondays at 08:00, Europe/Berlin → Session kpi", { exact: true }).waitFor();
+    await page.getByRole("button", { name: "Manifest actions" }).click();
+    await page.getByRole("menuitem", { name: "Move to v3" }).waitFor();
+    await page.getByRole("menuitem", { name: "Track the manifest" }).waitFor();
+    await page.keyboard.press("Escape");
+    // Its activity, read on from the last event it holds.
+    await page.getByRole("tab", { name: "Activity", exact: true }).click();
+    await page.getByRole("cell", { name: "agent.created" }).waitFor();
+    await page.getByRole("button", { name: "Refresh", exact: true }).click();
+    await page.getByRole("cell", { name: "agent.attached" }).waitFor();
+    await page.getByRole("tab", { name: "Activity", exact: true, selected: true }).waitFor();
+    const events = requests.filter((r) => r.path.includes("/agents/team%2Fbuild/events")).map((r) => r.path);
+    assert.equal(events[0], "/v1/agents/team%2Fbuild/events?from=0");
+    // Its artifacts: each session's, read one session at a time.
+    await page.getByRole("tab", { name: "Artifacts", exact: true }).click();
+    await page.getByRole("cell", { name: "report.html", exact: true }).waitFor();
+    assert.ok(requests.some((r) => r.path === `/v1/artifacts?sessionId=${SESSION}`));
+    // Its memory.
+    await page.getByRole("tab", { name: "Memory", exact: true }).click();
+    await page.getByRole("cell", { name: "conventions/release.md", exact: true }).click();
+    await page.getByRole("dialog", { name: "conventions/release.md" }).getByText("Releases are named vN.", { exact: false }).waitFor();
+    await page.keyboard.press("Escape");
+    // A session's page links back to the Agent's, opened on its sessions.
+    await page.getByRole("tab", { name: "Sessions", exact: true }).click();
     await page.getByRole("link", { name: SESSION, exact: true }).click();
     await page.waitForURL(new RegExp(`/agents/team%2Fbuild/sessions/${SESSION}$`, "u"));
     await page.getByRole("tab", { name: "Record", exact: true }).click();
@@ -156,7 +191,7 @@ test("Agents: the sidebar lists each Agent as a filter on the sessions, the list
     await page.getByText("Report version 2", { exact: true }).waitFor();
     await page.getByRole("link", { name: `Agent: ${AGENT}`, exact: true }).click();
     await page.waitForURL(/\/agents\/team%2Fbuild$/u);
-    await page.getByRole("tab", { name: "Overview", exact: true, selected: true }).waitFor();
+    await page.getByRole("tab", { name: "Sessions", exact: true, selected: true }).waitFor();
   });
 });
 
@@ -254,7 +289,8 @@ test("an Agent is made from a manifest version, its labels and owner edited, for
       assert.deepEqual(tracking, { manifest: "analyst-box", labels: { project: "web" } });
 
       await page.goto(base + `/agents/${encoded}`);
-      await page.getByRole("button", { name: "Edit labels and owner" }).click();
+      await page.getByRole("button", { name: "More actions" }).click();
+      await page.getByRole("menuitem", { name: "Edit labels and owner…" }).click();
       const edit = page.getByRole("dialog", { name: `Edit ${AGENT}` });
       await edit.getByRole("textbox", { name: "Labels" }).fill("project=build\nteam=a");
       await edit.getByRole("button", { name: "Save labels and owner" }).click();
@@ -265,7 +301,8 @@ test("an Agent is made from a manifest version, its labels and owner edited, for
       assert.deepEqual(change, { manifest: "analyst-box@2", labels: { project: "build", team: "a" }, owner: null });
 
       // Fork onto the newer version: check the plan, then fork.
-      await page.getByRole("button", { name: "Fork", exact: true }).click();
+      await page.getByRole("button", { name: "More actions" }).click();
+      await page.getByRole("menuitem", { name: "Fork into a new Agent…" }).click();
       const fork = page.getByRole("dialog", { name: `Fork ${AGENT}` });
       assert.equal(await fork.getByRole("textbox", { name: "Agent manifest" }).inputValue(), "analyst-box@3");
       await fork.getByRole("button", { name: "Check" }).click();
@@ -285,7 +322,8 @@ test("an Agent is made from a manifest version, its labels and owner edited, for
         confirmation = dialog.message();
         void dialog.accept();
       });
-      await page.getByRole("button", { name: "Delete", exact: true }).click();
+      await page.getByRole("button", { name: "More actions" }).click();
+      await page.getByRole("menuitem", { name: "Delete Agent…" }).click();
       await page.waitForURL((url) => url.pathname.endsWith("/agents"));
       // The confirmation says sessions still run on it.
       assert.match(confirmation, /2 sessions run on it/u);
@@ -300,11 +338,14 @@ test("old Environment, Credentials and vault links open the Agent's page", async
   await withStudio(async (page, base) => {
     await page.goto(base + `/environments/${encoded}?tab=events`);
     await page.waitForURL(/\/agents\/team%2Fbuild\?tab=events$/u);
-    await page.getByRole("tab", { name: "Events", exact: true, selected: true }).waitFor();
+    // The tabs it had before read as the ones that hold them now.
+    await page.getByRole("tab", { name: "Activity", exact: true, selected: true }).waitFor();
     await page.goto(base + `/environments?selected=${encoded}&tab=disk`);
     await page.waitForURL(/\/agents\/team%2Fbuild\?tab=disk$/u);
     await page.goto(base + `/vault?environment=${encoded}`);
-    await page.waitForURL(/\/agents\/team%2Fbuild\?tab=secrets$/u);
+    await page.waitForURL(/\/agents\/team%2Fbuild\?tab=vault$/u);
+    await page.goto(base + `/agents/${encoded}?tab=overview`);
+    await page.getByRole("tab", { name: "Sessions", exact: true, selected: true }).waitFor();
     await page.goto(base + "/environments?manifest=analyst-box");
     await page.waitForURL(/\/agents\?manifest=analyst-box$/u);
     await page.goto(base + "/settings/credentials");
@@ -318,30 +359,90 @@ test("old Environment, Credentials and vault links open the Agent's page", async
   });
 });
 
-test("an Agent's Secrets tab lists and writes the secrets of its vault, also through an old Credentials link", async () => {
+test("an Agent's Vault sets a declared slot's value and nothing else, also through an old Credentials link", async () => {
   await withStudio(
     async (page, base, requests) => {
       await page.goto(base + `/settings/credentials?environment=${encoded}`);
-      await page.waitForURL(/\/agents\/team%2Fbuild\?tab=secrets$/u);
-      await page.getByRole("tab", { name: "Secrets", exact: true, selected: true }).waitFor();
+      await page.waitForURL(/\/agents\/team%2Fbuild\?tab=vault$/u);
+      await page.getByRole("tab", { name: "Vault", exact: true, selected: true }).waitFor();
       await page.getByRole("cell", { name: "github", exact: true }).waitFor();
-      await page.getByRole("button", { name: "Add credential" }).click();
-      const sheet = page.getByRole("dialog", { name: "Add credential" });
-      await sheet.getByRole("combobox", { name: "Type" }).selectOption("environment_secret");
-      await sheet.getByRole("textbox", { name: "Variable name" }).fill("GH_TOKEN");
-      await sheet.getByRole("textbox", { name: "Allowed hosts" }).fill("api.github.com");
-      await sheet.getByLabel("Secret value").fill("ghp_secret_value");
-      await sheet.getByRole("button", { name: "Save credential" }).click();
-      await sheet.waitFor({ state: "hidden" }).catch(() => undefined);
-      const written = requests.find((r) => r.method === "PUT" && r.path === "/v1/agents/team%2Fbuild/secrets/GH_TOKEN");
+      await page.getByRole("button", { name: "Actions for github" }).click();
+      await page.getByRole("menuitem", { name: "Set value" }).click();
+      const panel = page.getByRole("dialog", { name: "github" });
+      // Its type and where it goes are the manifest's: the value is all it asks for.
+      assert.equal(await panel.getByRole("textbox").count(), 0);
+      await panel.getByLabel("Token").fill("ghp_secret_value");
+      await panel.getByRole("button", { name: "Save", exact: true }).click();
+      await page.getByText("Saved github.", { exact: false }).waitFor();
+      const written = requests.find((r) => r.method === "PUT" && r.path === "/v1/agents/team%2Fbuild/secrets/github");
       assert.ok(written, JSON.stringify(requests.map((r) => `${r.method} ${r.path}`)));
       const { requestId: _id, ...body } = written.body as Record<string, unknown>;
-      assert.deepEqual(body, {
-        type: "environment_secret",
-        value: "ghp_secret_value",
-        allowedHosts: ["api.github.com"],
-      });
+      assert.deepEqual(body, { value: "ghp_secret_value" });
       assert.equal(requests.some((r) => r.path.startsWith("/v1/tenant/vaults")), false);
+    },
+    false,
+    true,
+  );
+});
+
+test("an Agent's Triggers tab pauses, resumes and runs a trigger, and lists its runs", async () => {
+  await withStudio(
+    async (page, base, requests) => {
+      await page.goto(base + `/agents/${encoded}?tab=triggers`);
+      const row = page.locator("tbody tr", { hasText: "weekly-kpi" }).first();
+      await row.getByText("Mondays at 08:00, Europe/Berlin", { exact: true }).waitFor();
+      await row.getByText("Active", { exact: true }).waitFor();
+      await page.getByRole("cell", { name: "A turn in session s-resource" }).waitFor();
+      // Its panel shows the prompt its manifest version gives it.
+      await row.click();
+      const panel = page.getByRole("dialog", { name: "weekly-kpi" });
+      await panel.getByText("Write the weekly KPI digest.", { exact: true }).waitFor();
+      await page.keyboard.press("Escape");
+      await page.getByRole("button", { name: "Actions for weekly-kpi" }).click();
+      await page.getByRole("menuitem", { name: "Pause" }).click();
+      await page.getByText("Paused weekly-kpi.", { exact: true }).waitFor();
+      await row.getByText("Paused", { exact: true }).waitFor();
+      await page.getByRole("button", { name: "Actions for weekly-kpi" }).click();
+      await page.getByRole("menuitem", { name: "Resume" }).click();
+      await row.getByText("Active", { exact: true }).waitFor();
+      await page.getByRole("button", { name: "Actions for weekly-kpi" }).click();
+      await page.getByRole("menuitem", { name: "Run now" }).click();
+      await page.getByText("Ran weekly-kpi", { exact: false }).waitFor();
+      const posts = requests.filter((r) => r.method === "POST" && r.path.startsWith("/v1/agents/team%2Fbuild/triggers/"));
+      assert.deepEqual(
+        posts.map((r) => r.path),
+        [
+          "/v1/agents/team%2Fbuild/triggers/weekly-kpi/pause",
+          "/v1/agents/team%2Fbuild/triggers/weekly-kpi/resume",
+          "/v1/agents/team%2Fbuild/triggers/weekly-kpi/run",
+        ],
+      );
+    },
+    false,
+    true,
+  );
+});
+
+test("an Agent's Memory tab reads a memory and its history, and deletes it", async () => {
+  await withStudio(
+    async (page, base, requests) => {
+      await page.goto(base + `/agents/${encoded}?tab=memory`);
+      const row = page.locator("tbody tr", { hasText: "conventions/release.md" });
+      await row.getByText("How releases are named", { exact: true }).waitFor();
+      await row.getByText(SESSION, { exact: true }).waitFor();
+      await page.getByRole("button", { name: "Actions for conventions/release.md" }).click();
+      await page.getByRole("menuitem", { name: "History" }).click();
+      const panel = page.getByRole("dialog", { name: "conventions/release.md" });
+      await panel.getByText("create", { exact: true }).waitFor();
+      await page.keyboard.press("Escape");
+      page.once("dialog", (dialog) => void dialog.accept());
+      await page.getByRole("button", { name: "Actions for conventions/release.md" }).click();
+      await page.getByRole("menuitem", { name: "Delete…" }).click();
+      await page.getByText("Deleted conventions/release.md.", { exact: true }).waitFor();
+      await page.getByText("It keeps no memories yet.", { exact: true }).waitFor();
+      assert.ok(
+        requests.some((r) => r.method === "DELETE" && r.path === "/v1/agents/team%2Fbuild/memories/conventions%2Frelease.md"),
+      );
     },
     false,
     true,
@@ -354,12 +455,14 @@ test("an Agent's Disk tab keeps, browses, restores, forks from and deletes disk 
       await page.goto(base + `/agents/${encoded}?tab=disk`);
       await page.getByRole("cell", { name: "v2 latest" }).waitFor();
       await page.getByRole("cell", { name: "v1", exact: true }).waitFor();
-      await page.getByRole("button", { name: "Snapshot disk" }).click();
+      await page.getByRole("button", { name: "Disk actions" }).click();
+      await page.getByRole("menuitem", { name: "Snapshot now" }).click();
       await page.getByText("Kept version 3: 12 entries", { exact: false }).waitFor();
       assert.ok(requests.some((r) => r.method === "POST" && r.path === "/v1/agents/team%2Fbuild/snapshot"));
 
       // A version's files, through the folder artifact the Agent owns.
-      await page.getByRole("button", { name: "Browse version 1" }).click();
+      await page.getByRole("button", { name: "Actions for version 1" }).click();
+      await page.getByRole("menuitem", { name: "Browse" }).click();
       await page.waitForURL(/diskArtifact=a-disk&diskVersion=1/u);
       await page.getByRole("button", { name: /nested\/a \+b.html/u }).click();
       await page.getByText("Report version 1", { exact: false }).waitFor();
@@ -370,7 +473,9 @@ test("an Agent's Disk tab keeps, browses, restores, forks from and deletes disk 
         confirmation = dialog.message();
         void dialog.accept();
       });
-      await page.getByRole("button", { name: "Restore version 1" }).click();
+      await page.keyboard.press("Escape");
+      await page.getByRole("button", { name: "Actions for version 1" }).click();
+      await page.getByRole("menuitem", { name: "Restore…" }).click();
       await page.getByText("Restored version 1.", { exact: true }).waitFor();
       // Restoring changes the disk of every session on it.
       assert.match(confirmation, /2 sessions run on it/u);
@@ -378,7 +483,8 @@ test("an Agent's Disk tab keeps, browses, restores, forks from and deletes disk 
       assert.equal((restore?.body as { version: number }).version, 1);
 
       // A fork whose disk starts from a version, with the secrets its manifest declares.
-      await page.getByRole("button", { name: "Fork from version 2" }).click();
+      await page.getByRole("button", { name: "Actions for version 2" }).click();
+      await page.getByRole("menuitem", { name: "Fork into a new Agent…" }).click();
       const fork = page.getByRole("dialog", { name: `Fork ${AGENT}` });
       await fork.getByRole("textbox", { name: "New Agent id" }).fill("team/build-fork");
       await fork.getByRole("textbox", { name: "Agent manifest" }).fill("");
@@ -390,7 +496,8 @@ test("an Agent's Disk tab keeps, browses, restores, forks from and deletes disk 
 
       await page.goto(base + `/agents/${encoded}?tab=disk`);
       page.once("dialog", (dialog) => void dialog.accept());
-      await page.getByRole("button", { name: "Delete version 1" }).click();
+      await page.getByRole("button", { name: "Actions for version 1" }).click();
+      await page.getByRole("menuitem", { name: "Delete…" }).click();
       await page.getByText("Deleted version 1.", { exact: true }).waitFor();
       assert.ok(requests.some((r) => r.method === "DELETE" && r.path === "/v1/agents/team%2Fbuild/versions/1"));
     },
@@ -399,21 +506,27 @@ test("an Agent's Disk tab keeps, browses, restores, forks from and deletes disk 
   );
 });
 
-test("a pod's Setup & files tab shows its setup commands and input files, which never change", async () => {
-  await withStudio(
-    async (page, base) => {
-      await page.goto(base + `/agents/${encodeURIComponent(POD)}?tab=setup`);
-      await page.getByText("pip install -r requirements.txt", { exact: true }).waitFor();
-      await page.getByText("1. in /workspace/app · timeout 10m", { exact: true }).waitFor();
-      await page.getByRole("link", { name: `${INPUT_ARTIFACT} · v1` }).waitFor();
-      assert.equal(await page.getByRole("button", { name: "Edit setup & files" }).count(), 0);
-      // A virtual Agent has neither.
-      await page.goto(base + `/agents/${encoded}?tab=setup`);
-      await page.getByText("A virtual Agent has none.", { exact: false }).waitFor();
-    },
-    false,
-    true,
-  );
+test("a pod's Manifest tab shows its setup commands and input files, which never change", async () => {
+  await withStudio(async (page, base) => {
+    // The Setup tab it had before is its Manifest tab now.
+    await page.goto(base + `/agents/${encodeURIComponent(POD)}?tab=setup`);
+    await page.getByRole("tab", { name: "Manifest", exact: true, selected: true }).waitFor();
+    const setup = page.getByRole("region", { name: "Setup" });
+    await setup.getByText(`${INPUT_ARTIFACT} v1 → /workspace/data`, { exact: true }).waitFor();
+    await setup.getByText("pip install -r requirements.txt", { exact: true }).waitFor();
+    await setup.getByText("in /workspace/app · timeout 10m", { exact: true }).click();
+    await page.getByRole("dialog", { name: "2. Run" }).getByText('"cwd": "/workspace/app"', { exact: false }).waitFor();
+    await page.keyboard.press("Escape");
+    // A pod can be stopped and reset.
+    await page.getByRole("button", { name: "More actions" }).click();
+    await page.getByRole("menuitem", { name: "Stop compute" }).waitFor();
+    await page.getByRole("menuitem", { name: "Reset disk…" }).waitFor();
+    await page.keyboard.press("Escape");
+    // A virtual Agent has neither setup nor input files.
+    await page.goto(base + `/agents/${encoded}?tab=manifest`);
+    await page.getByRole("region", { name: "Compute" }).waitFor();
+    assert.equal(await page.getByRole("region", { name: "Setup" }).count(), 0);
+  });
 });
 
 test("the Tenant's artifacts are one paged table, filtered by kind, session and labels, each with its owner", async () => {

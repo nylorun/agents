@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   agentPath,
   agentRoute,
+  agentTabOf,
   legacyRedirect,
   manifestPath,
   manifestRoute,
@@ -10,11 +11,22 @@ import {
 
 test("an Agent's page is one percent-encoded segment, opened on a tab", () => {
   assert.equal(agentPath("users/alice/triage"), "/agents/users%2Falice%2Ftriage");
-  assert.equal(agentPath("team/build", "overview"), "/agents/team%2Fbuild");
+  assert.equal(agentPath("team/build", "sessions"), "/agents/team%2Fbuild");
   assert.equal(agentPath("team/build", "disk"), "/agents/team%2Fbuild?tab=disk");
   assert.equal(manifestPath(), "/agent-manifests");
   assert.equal(manifestPath("triage"), "/agent-manifests/triage");
   assert.equal(manifestPath("triage", 3), "/agent-manifests/triage?version=3");
+});
+
+test("the page opens on its sessions, and the tabs it had before open where they live now", () => {
+  assert.equal(agentTabOf(null), undefined);
+  assert.equal(agentTabOf("triggers"), "triggers");
+  assert.equal(agentTabOf("overview"), "sessions");
+  assert.equal(agentTabOf("details"), "sessions");
+  assert.equal(agentTabOf("secrets"), "vault");
+  assert.equal(agentTabOf("setup"), "manifest");
+  assert.equal(agentTabOf("events"), "activity");
+  assert.equal(agentTabOf("nope"), undefined);
 });
 
 test("a route names the list, one Agent or manifest, or a segment that is not found", () => {
@@ -34,7 +46,7 @@ test("old Environment, Credentials, vault and sandbox links open the Agent's pag
   assert.equal(legacyRedirect("/environments/team%2Fbuild", "?tab=disk"), "/agents/team%2Fbuild?tab=disk");
   assert.equal(
     legacyRedirect("/environments", "?selected=team%2Fbuild&tab=secrets"),
-    "/agents/team%2Fbuild?tab=secrets",
+    "/agents/team%2Fbuild?tab=vault",
   );
   assert.equal(
     legacyRedirect("/environments", "?selected=team%2Fbuild&tab=details&label=a%3Db"),
@@ -44,11 +56,11 @@ test("old Environment, Credentials, vault and sandbox links open the Agent's pag
   assert.equal(legacyRedirect("/environments", ""), "/agents");
   assert.equal(
     legacyRedirect("/settings/credentials", "?environment=team%2Fbuild"),
-    "/agents/team%2Fbuild?tab=secrets",
+    "/agents/team%2Fbuild?tab=vault",
   );
   assert.equal(
     legacyRedirect("/vault", "?environment=team%2Fbuild&embed=1"),
-    "/agents/team%2Fbuild?tab=secrets&embed=1",
+    "/agents/team%2Fbuild?tab=vault&embed=1",
   );
   assert.equal(legacyRedirect("/settings/credentials", ""), "/agents");
   assert.equal(legacyRedirect("/sandboxes", "?label=a%3Db"), "/agents?label=a%3Db");

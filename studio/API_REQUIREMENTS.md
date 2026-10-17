@@ -26,21 +26,25 @@ link it to that Agent.
 | Studio view | Public API / SDK |
 | --- | --- |
 | Agents table, sidebar groups, state, manifest, owner and label filters | `agents.list()` → `GET /v1/agents` and `agentManifests.list()` → `GET /v1/agent-manifests`, filtered, sorted and grouped in the browser as sessions are |
-| Agent page and its Overview | `agents.get()` → `GET /v1/agents/{id}`; `agentManifests.get(name)` → `GET /v1/agent-manifests/{name}` for the latest version (**Fork to v<n>**) |
+| Agent page and its header | `agents.get()` → `GET /v1/agents/{id}`; `agentManifests.get(name, version)` → `GET /v1/agent-manifests/{name}/versions/{n}` for the version it runs (the Manifest tab and the Vault's uses); `agentManifests.get(name)` → `GET /v1/agent-manifests/{name}` for the latest version (**Move to v<n>**, **Fork to v<n>**) |
 | New Agent, from a manifest it tracks or a version it pins | `agentManifests.versions(name)` → `GET /v1/agent-manifests/{name}/versions`; `agents.put(id, { manifest: "name" \| "name@n", owner?, labels? })` → `PUT /v1/agents/{id}` |
 | Edit labels and owner | `agents.put(id, { manifest, labels, owner })` → `PUT /v1/agents/{id}` (its manifest as it was made: what it runs is unchanged) |
 | Fork: a new Agent from a manifest version, with this one's disk and secrets | `agents.planFork()`, `.fork()` → `POST /v1/agents/{id}/fork` (`dryRun: true` for the plan) |
-| Stop, Reset (pods), Delete | `agents.stop()`, `.reset()`, `.delete()` → `POST /v1/agents/{id}/stop`, `POST …/reset`, `DELETE /v1/agents/{id}` |
+| Stop compute, Reset disk (pods), Delete Agent | `agents.stop()`, `.reset()`, `.delete()` → `POST /v1/agents/{id}/stop`, `POST …/reset`, `DELETE /v1/agents/{id}` |
 | Sessions tab | the Agent view's `sessions`, with each one's times from the session list below |
-| Secrets tab (names, types, bindings) | `agents.secrets.list()` → `GET /v1/agents/{id}/secrets`; the view's `slots`; Management `coverage({ agentId })` → `POST /v1/tenant/credential-coverage` |
-| Secrets tab forms | `agents.secrets.put()`, `.delete()` → `PUT`, `DELETE /v1/agents/{id}/secrets/{name}` |
-| Preview tools | Management `mcp.preview({ url, agentId })` → `POST /v1/tenant/mcp/preview` |
+| Triggers tab | `agents.triggers()` → `GET /v1/agents/{id}/triggers`; `agents.runs({ limit: 50 })` → `GET …/runs?limit=50`; each trigger's prompt from the manifest version |
+| Triggers tab: Pause, Resume, Run now | `agents.pauseTrigger()`, `.resumeTrigger()` → `POST …/triggers/{id}/pause`, `…/resume` (`{}`); `agents.runTrigger()` → `POST …/triggers/{id}/run` (no body, an `Idempotency-Key` the proxy passes on) |
+| Artifacts tab | `artifacts.list({ sessionId })` → `GET /v1/artifacts?sessionId=…` for each session on it, and the runtime's `files` |
+| Memory tab | `agents.memories.list()` → `GET …/memories`; `.versions({ limit: 100 })` → `GET …/memory_versions?limit=100` for who changed each last |
+| Memory tab: a memory, its history, Delete | `.get(path)` → `GET …/memories/{path}`; `.versions({ path })` → `GET …/memory_versions?path=…`; `.delete(path)` → `DELETE …/memories/{path}` |
+| Vault tab (slots, types, bindings, set or not) | `agents.secrets.list()` → `GET /v1/agents/{id}/secrets`; the view's `slots` and `runtime.secrets`; the manifest version's harness for what uses each |
+| Vault tab: Set value, Delete (a secret no slot declares) | `agents.secrets.put(id, name, { value } \| { headers })`, `.delete()` → `PUT`, `DELETE /v1/agents/{id}/secrets/{name}` |
 | Disk tab: versions | `agents.versions()` → `GET /v1/agents/{id}/versions` |
-| Disk tab: Snapshot disk, Restore, Delete | `agents.snapshot()`, `.restore(id, version)`, `.deleteVersion()` → `POST …/snapshot`, `POST …/restore`, `DELETE …/versions/{n}` |
+| Disk tab: Snapshot now, Restore, Delete | `agents.snapshot()`, `.restore(id, version)`, `.deleteVersion()` → `POST …/snapshot`, `POST …/restore`, `DELETE …/versions/{n}` |
 | Disk tab: Fork from a version | `agents.fork(id, { id, disk: n })` → `POST /v1/agents/{id}/fork` |
 | Disk tab: Browse a version | the artifact reads below, on the `artifactId` the versions read names |
-| Setup & files tab | the runtime's `setup` and `files` from `GET /v1/agents/{id}`, read only |
-| Events tab, manual refresh | `agents.events({ from, types? })` → `GET /v1/agents/{id}/events?from=…` (`agent.*`; `types=agent.egress` for connections) |
+| Manifest tab | the version's manifest from `agentManifests.get(name, version)`; without it, the runtime, slots and limits from `GET /v1/agents/{id}`; read only. Its moves: `agents.put(id, { manifest: "name" \| "name@n" })`, `agents.restart(id, { retry? })` |
+| Activity tab, refreshed by the header's Refresh | `agents.events({ from, types? })` → `GET /v1/agents/{id}/events?from=…` (`agent.*`; `types=agent.egress` for connections) |
 | Agent manifests, a manifest's versions and one version's sections | `agentManifests.list()`, `.versions(name)`, `.get(name, version)` → `GET /v1/agent-manifests`, `GET …/{name}/versions`, `GET …/{name}/versions/{n}` |
 | New session | `createSession({ id, agent, ownerUserId })` → `PUT /v1/sessions/{id}` (the proxy sets `ownerUserId: local-developer`) |
 | Session's Manifest tab, Declared | `session.manifest()` → `GET /v1/sessions/{id}/manifest` (Host feature `session-reads`; without it, `agents.get()` and `agentManifests.get(name, version)`); `agentManifests.get(name)` for the latest version |
@@ -59,8 +63,11 @@ link it to that Agent.
 The proxy allows these Agent routes and nothing else under them: `GET /v1/agents`
 (with its filters and pages), `GET`, `PUT` and `DELETE /v1/agents/{id}`, `GET …/events`,
 `GET …/versions`, `DELETE …/versions/{n}`, `GET …/secrets`, `GET`, `PUT` and
-`DELETE …/secrets/{name}`, and `POST …/stop`, `…/reset`, `…/fork`, `…/snapshot` and
-`…/restore`; `GET /v1/agent-manifests`, `GET /v1/agent-manifests/{name}`,
+`DELETE …/secrets/{name}`, `GET …/memories`, `GET` and `DELETE …/memories/{path}`,
+`GET …/memory_versions` and `…/memory_versions/{id}`, `GET …/triggers` and `…/runs`,
+`POST …/triggers/{id}/pause`, `…/resume` and `…/run` (the one Agent write without a
+JSON body; the proxy passes its `Idempotency-Key` on), and `POST …/stop`, `…/reset`,
+`…/fork`, `…/snapshot` and `…/restore`; `GET /v1/agent-manifests`, `GET /v1/agent-manifests/{name}`,
 `GET …/versions` and `GET …/versions/{n}`, and `PUT /v1/agent-manifests/{name}`
 (`?dryRun=true` for the plan), whose `If-Match` it passes on. It no longer allows
 `/v1/environments/**` or `/v1/environment-manifests/**`.
