@@ -148,7 +148,7 @@ const pretty = (value: unknown) =>
 const code =
   "rounded bg-muted px-1.5 py-0.5 font-mono text-sm text-foreground";
 
-/** The tabs beside a session's chat; `artifacts` is the Outputs tab, `agent` where it runs. */
+/** The tabs beside a session's chat; `artifacts` is the Artifacts tab, `agent` where it runs. */
 type InspectorTab =
   | "events"
   | "manifest"
@@ -1365,7 +1365,7 @@ function SessionView({
                 Agent
               </TabsPrimitive.Trigger>
               <TabsPrimitive.Trigger value="artifacts" className={tabTrigger}>
-                Outputs
+                Artifacts
               </TabsPrimitive.Trigger>
               <TabsPrimitive.Trigger value="usage" className={tabTrigger}>
                 Usage
