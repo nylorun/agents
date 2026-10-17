@@ -184,6 +184,21 @@ export function usageRow(
     ...(typeof firstTokenMs === "number" && Number.isFinite(firstTokenMs) && firstTokenMs >= 0
       ? { firstTokenMs: Math.round(firstTokenMs) }
       : {}),
+    ...costSplitColumns(outcome.evidence?.extras?.costSplit),
+  };
+}
+
+/** The ledger's cost-by-kind columns from the adapter's `costSplit`; none unless all four are costs. */
+function costSplitColumns(split: unknown) {
+  if (!split || typeof split !== "object" || Array.isArray(split)) return {};
+  const { input, cacheRead, cacheWrite, output } = split as Record<string, unknown>;
+  const parts = [input, cacheRead, cacheWrite, output];
+  if (!parts.every((part) => typeof part === "number" && Number.isFinite(part) && part >= 0)) return {};
+  return {
+    costInputUsd: input as number,
+    costCacheReadUsd: cacheRead as number,
+    costCacheWriteUsd: cacheWrite as number,
+    costOutputUsd: output as number,
   };
 }
 

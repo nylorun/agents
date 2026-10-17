@@ -60,18 +60,18 @@ it("C3: the Admin API's old paths require the protocol first, as any route does"
   expect(bad.status).toBe(426);
 });
 
-it("P17: the Host serves protocol 16 and 17 clients, and refuses 4 to 15 and 18 with 426", async () => {
+it("P18: the Host serves protocol 16, 17 and 18 clients, and refuses 4 to 15 and 19 with 426", async () => {
   const { url } = await startTestHost({ module: createFakeModule() });
-  for (const version of ["4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "18"]) {
+  for (const version of ["4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "19"]) {
     const { status, body } = await getJson(`${url}/v1/agents`, {
       headers: { ...tenantHeaders(), [PROTOCOL_HEADER]: version },
     });
     expect(status, `protocol ${version}`).toBe(426);
-    expect(ProtocolRejectedResponseSchema.parse(body).protocol).toMatchObject({ min: 16, max: 17 });
+    expect(ProtocolRejectedResponseSchema.parse(body).protocol).toMatchObject({ min: 16, max: 18 });
   }
   // Protocol 16 makes Environments Agents, made from agent manifests: a fresh start, so 15 is
-  // not served. Protocol 17 (the session queue) is additive.
-  for (const version of ["16", "17"]) {
+  // not served. Protocol 17 (the session queue) and 18 (usage by kind) are additive.
+  for (const version of ["16", "17", "18"]) {
     const { status } = await getJson(`${url}/v1/agents`, {
       headers: { ...tenantHeaders(), [PROTOCOL_HEADER]: version },
     });

@@ -17,6 +17,7 @@ import {
   type SQLWrapper,
 } from "drizzle-orm";
 import type {
+  CostSplit,
   LiveEvent,
   ModelCall,
   AgentView,
@@ -72,6 +73,19 @@ function accessWhere(access: ReadAccess): SQL | undefined {
     access.agents === undefined ? undefined : grantsWhere(sessions.agentId, access.agents),
   );
 }
+/** A row's cost by token kind, when the adapter kept it (migration 0037). */
+function costSplitOf(row: ModelUsageRow): CostSplit | null {
+  const { costInputUsd, costCacheReadUsd, costCacheWriteUsd, costOutputUsd } = row;
+  if (costInputUsd === null || costCacheReadUsd === null || costCacheWriteUsd === null || costOutputUsd === null)
+    return null;
+  return {
+    input: costInputUsd,
+    cacheRead: costCacheReadUsd,
+    cacheWrite: costCacheWriteUsd,
+    output: costOutputUsd,
+  };
+}
+
 function publicCall(row: ModelUsageRow): ModelCall {
   return {
     id: row.id,
@@ -82,6 +96,8 @@ function publicCall(row: ModelUsageRow): ModelCall {
     provider: row.provider,
     model: row.model,
     at: row.createdAt,
+    startedAt: row.startedAt,
+    endedAt: row.endedAt,
     outcome: "completed",
     usage: {
       inputTokens: row.inputTokens,
@@ -94,6 +110,7 @@ function publicCall(row: ModelUsageRow): ModelCall {
       duplicate: row.duplicate,
       tokensReported: row.tokensReported,
       costKnown: row.costKnown,
+      costSplit: costSplitOf(row),
     },
   };
 }
@@ -335,6 +352,19 @@ export function createPostgresReadStore(source: PostgresClient, tenantId: string
               sql<number>`count(*) filter (where ${modelUsage.tokensReported} is null or ${modelUsage.costKnown} is null)`.mapWith(
                 Number,
               ),
+            costInput: sum(modelUsage.costInputUsd),
+            costCacheRead: sum(modelUsage.costCacheReadUsd),
+            costCacheWrite: sum(modelUsage.costCacheWriteUsd),
+            costOutput: sum(modelUsage.costOutputUsd),
+            splitCalls: sql<number>`count(${modelUsage.costInputUsd})`.mapWith(Number),
+            // The gate's timing is ISO text; a row timed before migration 0022 has none.
+            modelTimeMs: sql<number>`coalesce(round(sum(extract(epoch from (${modelUsage.endedAt}::timestamptz - ${modelUsage.startedAt}::timestamptz)) * 1000)), 0)`.mapWith(
+              Number,
+            ),
+            timedCalls:
+              sql<number>`count(*) filter (where ${modelUsage.startedAt} is not null and ${modelUsage.endedAt} is not null)`.mapWith(
+                Number,
+              ),
           })
           .from(modelUsage)
           .where(
@@ -343,8 +373,15 @@ export function createPostgresReadStore(source: PostgresClient, tenantId: string
               turnId === undefined ? undefined : eq(modelUsage.turnId, turnId),
             ),
           );
+        const { costInput, costCacheRead, costCacheWrite, costOutput, ...rest } = totals!;
         return {
-          ...totals,
+          ...rest,
+          costSplit: {
+            input: costInput,
+            cacheRead: costCacheRead,
+            cacheWrite: costCacheWrite,
+            output: costOutput,
+          },
           sessionId: id,
           turnId: turnId ?? null,
           asOf: new Date().toISOString(),
