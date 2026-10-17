@@ -2,24 +2,26 @@
  * Agent manifests (protocol 16, track T2): `client.agentManifests`. An agent manifest (v8) is one
  * named, versioned document with what runs inside the agent loop (`harness`: the harness's id,
  * instructions, tools, skills, MCP servers, plugins, output schema, the harness's own `loop`
- * settings; or a flow, `kind: "workflow"`) and what the Runtime provides around it (`runtime`:
- * kind, image, network, setup, files, limits, secret slots). The Runtime checks the two against
- * each other when it is saved (`422 manifest_inconsistent`); an Agent (`client.agents`) is made
- * from one version.
+ * settings, memory; or a flow, `kind: "workflow"`) and what the Runtime provides around it
+ * (`runtime`: kind, image, network, setup, files, limits, secret slots). The Runtime checks the
+ * two against each other when it is saved (`422 manifest_inconsistent`); an Agent
+ * (`client.agents`) is made from one version.
  *
  * `save` takes the document, what `composeManifest` read from a folder, or a built agent or flow
  * with the runtime section to run it in: the SDK makes the harness section from the agent's
- * manifest (`harnessSectionOf`). It first uploads the files the manifest names by hash that the
- * Runtime does not hold (skills, a flow's agents' skills, runtime files), and refuses before
- * sending a tool that runs your code or an `approval`, as the Runtime runs agents from their
- * manifests alone.
+ * manifest (`harnessSectionOf`), with its skills' `secrets`, `loop` and `memory`. It first
+ * uploads the files the manifest names by hash that the Runtime does not hold (skills, a flow's
+ * agents' skills, runtime files), and refuses before sending a tool that runs your code or an
+ * `approval`, as the Runtime runs agents from their manifests alone.
  */
 import {
   AGENT_MANIFEST_V8_SCHEMA_VERSION,
   AgentManifestV8Schema,
   isAgentManifestName,
+  type AgentHarnessSection,
   type AgentManifestPlan,
   type AgentManifestV8,
+  type AgentMemorySettings,
   type AgentManifestVersions,
   type AgentManifestView,
   type DeleteAgentManifestResponse,
@@ -72,6 +74,11 @@ export interface AgentManifestFromAgent {
   readonly runtime?: RuntimeSection;
   /** The harness's own settings (`harness.loop`), passed to it in `turn.start`. */
   readonly loop?: JsonObject;
+  /**
+   * Turns on the Agent's memory (`harness.memory`): `access` `read_write` (the default) or
+   * `read_only`, and `instructions` on what to remember. An agent's only, not a flow's.
+   */
+  readonly memory?: AgentMemorySettings;
 }
 
 /** What `composeManifest` read from a folder: the document, the bytes of the files it names, its gaps. */
@@ -114,13 +121,19 @@ export class ManifestGapsError extends Error {
   }
 }
 
+/** An agent's binding, with its parts; none for a flow. */
+function agentBindingOf(agent: AgentSource) {
+  if (isBuiltWorkflow(agent) || (agent.manifest as { kind?: string }).kind === "workflow") return undefined;
+  const built = agent.build?.() ?? agent;
+  if (isBuiltWorkflow(built)) return undefined;
+  const binding = built.getBinding?.();
+  return binding && "parts" in binding ? binding : undefined;
+}
+
 /** The agent's declarations, then those of each agent it uses as a tool. */
 function declarationsOf(agent: AgentSource) {
-  if (isBuiltWorkflow(agent) || (agent.manifest as { kind?: string }).kind === "workflow") return [];
-  const built = agent.build?.() ?? agent;
-  if (isBuiltWorkflow(built)) return [];
-  const binding = built.getBinding?.();
-  if (!binding || !("parts" in binding)) return [];
+  const binding = agentBindingOf(agent);
+  if (!binding) return [];
   const found = [...(binding.parts ?? [])];
   for (const tool of binding.tools ?? []) {
     const delegate = delegateOf(tool);
@@ -142,6 +155,21 @@ function skillFilesOf(agent: AgentSource | BuiltWorkflow, into = new Map<string,
   for (const item of declarationsOf(agent))
     for (const [sha256, source] of Object.entries(item.skillFiles ?? {})) into.set(sha256, source);
   return into;
+}
+
+/**
+ * The harness section's skills with the secret slots each reads (a SKILL.md's `secrets`, which
+ * `.skills()` and `.plugin()` keep on the agent's parts, outside its v7 manifest).
+ */
+function withSkillSecrets(agent: AgentSource, skills: AgentHarnessSection["skills"]): AgentHarnessSection["skills"] {
+  const secrets: Record<string, readonly string[]> = Object.assign(
+    {},
+    ...(agentBindingOf(agent)?.parts ?? []).map((part) => part.skillSecrets ?? {}),
+  );
+  if (skills === undefined || Object.keys(secrets).length === 0) return skills;
+  return Object.fromEntries(
+    Object.entries(skills).map(([key, skill]) => [key, secrets[key] ? { ...skill, secrets: [...secrets[key]] } : skill]),
+  );
 }
 
 const quoted = (value: string) => JSON.stringify(value);
@@ -204,9 +232,15 @@ function prepare(input: AgentManifestInput): {
     const loop = agent.manifest as AgentManifest | WorkflowManifest;
     refuse(loop);
     // `harnessSectionOf` leaves out the loop manifest's identity and its `requires`, checked here.
+    const section = harnessSectionOf(loop, input.harness === undefined ? {} : { harness: input.harness });
+    if (input.memory !== undefined && "kind" in section)
+      throw new TypeError(`memory turns on an agent's memory; ${agent.id} is a flow, whose harness section has none`);
+    const skills = "kind" in section ? undefined : withSkillSecrets(agent as AgentSource, section.skills);
     const harness = {
-      ...harnessSectionOf(loop, input.harness === undefined ? {} : { harness: input.harness }),
+      ...section,
+      ...(skills === undefined ? {} : { skills }),
       ...(input.loop === undefined ? {} : { loop: input.loop }),
+      ...(input.memory === undefined ? {} : { memory: input.memory }),
     };
     const description = input.description ?? loop.description;
     const metadata = input.metadata ?? loop.metadata;

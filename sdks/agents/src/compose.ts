@@ -6,7 +6,8 @@
  * - `agent.manifest.json` (`AgentManifestFileSchema`): the manifest's name, description and
  *   metadata, with `harness` and `runtime` inline or as paths to the two files below.
  * - `harness.manifest.json` (`HarnessManifestFileSchema`): the harness section, whose `skills`
- *   may be a folder of skill folders, `mcpServers` an `mcp.json` (the Agent Plugins format), and
+ *   may be a folder of skill folders (each skill's `secrets` from its SKILL.md's frontmatter),
+ *   `mcpServers` an `mcp.json` (the Agent Plugins format), and
  *   `plugins` Agent Plugin folders, folded in as `.plugin()` folds them; `credentials` names the
  *   `runtime.secrets` slot each MCP server or HTTP tool authenticates with; `requires` is checked
  *   against the runtime section here, since the API never sees it.
@@ -34,7 +35,7 @@ import type { AgentHarnessSection, HarnessMcpServer, HarnessSkill } from "@nylor
 import { sectionGaps, type PluginLabel, type SkillFileSource } from "@nylorun/core/define";
 import { requirementGaps, type ComposedManifest } from "./agent-manifests.js";
 import { loadMcpServers, loadPlugin, type PluginDiagnostic } from "./plugins/load.js";
-import { hashFolder, loadSkillsFromDirectory, type SkillDiagnostic } from "./skills/load.js";
+import { hashFolder, loadSkillsFromDirectory, type LoadedSkill, type SkillDiagnostic } from "./skills/load.js";
 
 /** The file `composeManifest` reads in a folder. */
 export const AGENT_MANIFEST_FILE = "agent.manifest.json";
@@ -135,6 +136,16 @@ function relativeTo(path: string): string {
   return relative(process.cwd(), path) || path;
 }
 
+/** A skill read from its folder as the harness section declares it, with its SKILL.md's `secrets`. */
+function harnessSkill(skill: LoadedSkill): HarnessSkill {
+  return {
+    name: skill.name,
+    description: skill.description,
+    files: { ...skill.files },
+    ...(skill.secrets === undefined ? {} : { secrets: [...skill.secrets] }),
+  };
+}
+
 /** The agent harness section a `harness.manifest.json` describes, its paths resolved. */
 function agentHarness(
   file: HarnessManifestFile,
@@ -158,7 +169,7 @@ function agentHarness(
   if (typeof file.skills === "string") {
     const diagnostics: SkillDiagnostic[] = [];
     for (const skill of Object.values(loadSkillsFromDirectory(resolve(base, file.skills), diagnostics))) {
-      addSkill({ name: skill.name, description: skill.description, files: { ...skill.files } }, file.skills);
+      addSkill(harnessSkill(skill), file.skills);
       for (const [sha256, source] of Object.entries(skill.sources)) files.set(sha256, source);
     }
     warnings.push(...warningsOf(diagnostics));
@@ -184,7 +195,7 @@ function agentHarness(
     warnings.push(...warningsOf(loaded.diagnostics).map((message) => `Plugin '${loaded.name}': ${message}`));
     const label: PluginLabel = { name: loaded.name, ...(loaded.version === undefined ? {} : { version: loaded.version }) };
     for (const skill of Object.values(loaded.skills)) {
-      addSkill({ name: skill.name, description: skill.description, files: { ...skill.files }, plugin: label }, entry);
+      addSkill({ ...harnessSkill(skill), plugin: label }, entry);
       for (const [sha256, source] of Object.entries(skill.sources)) files.set(sha256, source);
     }
     for (const [key, server] of Object.entries(loaded.mcpServers))
@@ -210,6 +221,7 @@ function agentHarness(
     ...(plugins.length === 0 ? {} : { plugins }),
     ...(file.outputSchema === undefined ? {} : { outputSchema: file.outputSchema }),
     ...(file.loop === undefined ? {} : { loop: file.loop }),
+    ...(file.memory === undefined ? {} : { memory: file.memory }),
   };
 }
 

@@ -27,6 +27,9 @@ export function compileDeclaration<Info>(declaration: PartDeclaration<Info>): De
     ...(declaration.skillFiles === undefined || Object.keys(declaration.skillFiles).length === 0
       ? {}
       : { skillFiles: declaration.skillFiles }),
+    ...(declaration.skillSecrets === undefined || Object.keys(declaration.skillSecrets).length === 0
+      ? {}
+      : { skillSecrets: declaration.skillSecrets }),
     ...(declaration.mcpServers === undefined || Object.keys(declaration.mcpServers).length === 0
       ? {}
       : { mcpServers: declaration.mcpServers }),

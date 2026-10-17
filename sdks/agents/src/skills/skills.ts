@@ -26,9 +26,10 @@ export interface SkillsPart extends PartDeclaration {
  * ```
  *
  * Sets `skills`: each skill's name, description and files (every file of its folder, binary
- * included, by content hash). The client uploads the files the Runtime lacks when it saves the
- * agent's manifest; the Runtime adds the skill catalog and serves `load_skill` / `read_skill_resource`
- * from them.
+ * included, by content hash). A SKILL.md's frontmatter `secrets` (environment variable names)
+ * become the skill's `secrets` in the harness section when the agent's manifest is saved. The
+ * client uploads the files the Runtime lacks when it saves the agent's manifest; the Runtime adds
+ * the skill catalog and serves `load_skill` / `read_skill_resource` from them.
  */
 export function skills(directory: string): SkillsPart {
   const root = resolveSkillsRoot(directory);
@@ -43,13 +44,15 @@ export function skills(directory: string): SkillsPart {
 }
 
 /**
- * The manifest's skills and the bytes behind their files. A plugin's skills carry its label, so
- * a tool call can be traced to the plugin that brought the skill.
+ * The manifest's skills, the bytes behind their files and the secret slots their SKILL.md lists
+ * (`secrets`, the harness section's when the agent is saved). A plugin's skills carry its label,
+ * so a tool call can be traced to the plugin that brought the skill.
  */
 export function skillsDeclaration(
   listed: readonly LoadedSkill[],
   plugin?: PluginLabel
-): Required<Pick<PartDeclaration, "skills" | "skillFiles">> {
+): Required<Pick<PartDeclaration, "skills" | "skillFiles">> & Pick<PartDeclaration, "skillSecrets"> {
+  const secrets = listed.filter((skill) => skill.secrets !== undefined).map((skill) => [skill.name, skill.secrets!]);
   return {
     skills: Object.fromEntries(
       listed.map((skill) => [
@@ -63,5 +66,6 @@ export function skillsDeclaration(
       ])
     ),
     skillFiles: Object.assign({}, ...listed.map((skill) => skill.sources)),
+    ...(secrets.length === 0 ? {} : { skillSecrets: Object.fromEntries(secrets) }),
   };
 }
