@@ -151,7 +151,7 @@ test("Agents: the sidebar lists each Agent as a filter on the sessions, the list
     await page.getByText("Active turn: t9", { exact: true }).waitFor();
     await page.getByRole("link", { name: SESSION, exact: true }).click();
     await page.waitForURL(new RegExp(`/agents/team%2Fbuild/sessions/${SESSION}$`, "u"));
-    await page.getByRole("tab", { name: "Outputs", exact: true }).click();
+    await page.getByRole("tab", { name: "Artifacts", exact: true }).click();
     await page.getByRole("button", { name: "report.html", exact: true }).click();
     await page.getByText("Report version 2", { exact: true }).waitFor();
     await page.getByRole("link", { name: `Agent: ${AGENT}`, exact: true }).click();
@@ -545,7 +545,7 @@ test("an exact-version event opens the session artifact inspector, including thr
       .first()
       .click();
     await page
-      .getByRole("tab", { name: "Outputs", exact: true, selected: true })
+      .getByRole("tab", { name: "Artifacts", exact: true, selected: true })
       .waitFor();
     await page.locator("pre", { hasText: "Report version 1" }).waitFor();
   });
@@ -627,7 +627,7 @@ test("an embedded artifact inspector navigates and downloads without a Studio be
       download.url(),
       /\/_studio\/tenants\/[^/]+\/runtime\/v1\/artifact-links\/v1$/,
     );
-    await frame.getByRole("tab", { name: "Versions", exact: true }).click();
+    await frame.getByRole("tab", { name: "Versions (2)", exact: true }).click();
     await frame.getByRole("button", { name: "Version 2", exact: true }).click();
     await frame.getByText("Report version 2", { exact: true }).waitFor();
     assert.ok(

@@ -641,7 +641,7 @@ function AgentSessions({
             </p>
             {s.activeTurnId ? <p className="break-all text-xs">Active turn: {s.activeTurnId}</p> : null}
             <Link className="inline-block text-xs underline" to={`${sessionPath(agent.id, s.id)}?inspector=artifacts`}>
-              Outputs
+              Artifacts
             </Link>
           </div>
         );
