@@ -134,7 +134,7 @@ const jsonValue: z.ZodType<JsonValue> = z
   )
   .meta({ id: "JsonValue" });
 /**
- * A name the model sees in a tool name (R2b C6): a declared tool's, or an MCP server's, which
+ * A name the model sees in a tool name: a declared tool's, or an MCP server's, which
  * prefixes its tools' names. Letters, digits, `_` and `-`, up to 64: what every provider accepts.
  */
 const modelFacingName = (what: string) =>
@@ -147,7 +147,7 @@ const pluginLabelSchema = z
   .object({ name: z.string().min(1), version: z.string().min(1).optional() })
   .strict()
   .meta({ id: "PluginLabel" });
-/** One tool's settings on an MCP server (R2b C9). */
+/** One tool's settings on an MCP server. */
 const mcpToolSettingsSchema = z
   .object({
     enabled: z.boolean().optional(),
@@ -156,7 +156,7 @@ const mcpToolSettingsSchema = z
   })
   .strict()
   .meta({ id: "McpToolSettings" });
-/** Per-tool settings keyed by the server's tool names, `"*"` for the rest (R2b C9, C10). */
+/** Per-tool settings keyed by the server's tool names, `"*"` for the rest. */
 const mcpServerSettings = {
   deferred: z.boolean().optional(),
   tools: z.record(z.string().min(1), mcpToolSettingsSchema).optional(),
@@ -306,13 +306,13 @@ const removedFieldError =
     return removed === undefined ? undefined : removedFields[removed];
   };
 /**
- * An environment variable name a shell secret or plain variable may take (R2c, D50): a POSIX
+ * An environment variable name a shell secret or plain variable may take: a POSIX
  * name, of any length (POSIX and Linux set none; a request's body bounds it). Names the sandbox
  * needs for itself (the proxy, the trust store, `PATH`, `HOME`) and `NYLORUN_*` are reserved.
  */
 export const ENVIRONMENT_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 /**
- * What an agent needs of the Environment its session opens on (protocol 14, D65), checked when a
+ * What an agent needs of the Environment its session opens on (protocol 14), checked when a
  * session opens (`409 environment_unsuitable`). `sandbox`: `any` needs kind `virtual` or `pod`,
  * `pod` needs kind `pod`, `none` needs nothing. `secrets`: names its skills' scripts read, which
  * the Environment's vault must hold. The agent names no Environment: the app still maps.
@@ -652,7 +652,7 @@ const resourcesSchema = z
  */
 const AGENT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*(?:\/[A-Za-z0-9][A-Za-z0-9._-]*)*$/;
 /**
- * An identifier's grammar is the protocol's (B15): it crosses the Runtime API, tokens and grants
+ * An identifier's grammar is the protocol's: it crosses the Runtime API, tokens and grants
  * and means the same in every installation, so its length is a constant of the protocol, not a
  * setting.
  */
@@ -719,7 +719,7 @@ export const EnvironmentLabelsSchema = z.record(
 );
 export type EnvironmentLabels = z.infer<typeof EnvironmentLabelsSchema>;
 
-/** A harness id (track R4): what a harness names itself in `hello`. */
+/** A harness id: what a harness names itself in `hello`. */
 export const HarnessIdSchema = z.string().regex(HARNESS_ID_PATTERN, {
   message: "harness must be a harness id: lowercase letters, digits and dashes, starting with a letter",
 });
@@ -787,7 +787,7 @@ const relativeFilePath = z
   );
 /**
  * One input file entry (pods only): an artifact version copied to `path` (a file artifact, or a
- * folder's files under it), or (Q6) files by content hash, each `sha256:<hex>` of a definition
+ * folder's files under it), or files by content hash, each `sha256:<hex>` of a definition
  * file the Tenant holds (`PUT /v1/files/sha256:<hex>`, at most 2 GiB each), copied under `path`
  * at its relative path. A manifest by hash moves to another Tenant with its files.
  */
@@ -831,7 +831,7 @@ export const AgentManifestNameSchema = z
   .meta({ description: "An agent manifest's name, such as `triage`" });
 /**
  * Which agent manifest an Agent is made from: `name` (tracking: the latest version when the Agent
- * is created; track T3 moves it on) or `name@n` (pinned to version `n`).
+ * is created, and each version saved later) or `name@n` (pinned to version `n`).
  */
 export function parseAgentManifestRef(ref: string): { name: string; version?: number } | undefined {
   const at = ref.lastIndexOf("@");
@@ -923,8 +923,8 @@ const runtimeFields = {
  * the live instance of one version of an agent manifest: `manifest: "name"` records that it
  * tracks the manifest (its latest version, and every version saved later) and `"name@n"` that it
  * is pinned to one; the version it runs is `resolvedVersion`. On an existing Agent, `labels`
- * replace its labels, `owner` sets or clears its owner guard, and `manifest` moves it (track T3,
- * D73): to another version of its manifest, tracking or pinned. A move changes no data: its id,
+ * replace its labels, `owner` sets or clears its owner guard, and `manifest` moves it:
+ * to another version of its manifest, tracking or pinned. A move changes no data: its id,
  * disk, vault and sessions stay. A harness-only change applies at once; a runtime change of a pod
  * waits for its next start; one that adds a required secret waits for its value. Its manifest's
  * name, kind, harness and storage are fixed (`409 agent_fixed_field`); fork it to change them.
@@ -957,9 +957,10 @@ export const PutAgentRequestSchema = z
 export type PutAgentRequest = z.infer<typeof PutAgentRequestSchema>;
 
 /**
- * What an Agent's environment runs: its manifest version's runtime section resolved against the
- * Tenant's limits when the Agent was made, with the harness that runs its loop. It never changes
- * after that.
+ * What an Agent's environment runs: the runtime section of the manifest version it runs, resolved
+ * against the Tenant's limits when the Agent was made or moved to that version, with the harness
+ * that runs its loop. A move to another version changes it; its kind, harness and storage never
+ * change.
  */
 export const EnvironmentRecipeSchema = z
   .object({
@@ -978,7 +979,7 @@ export const EnvironmentRecipeSchema = z
   .strict();
 export type EnvironmentRecipe = z.infer<typeof EnvironmentRecipeSchema>;
 
-/** A session on an Agent, as the Agent's view lists it: none is special (D71). */
+/** A session on an Agent, as the Agent's view lists it: none is special. */
 export const AgentSessionSchema = z
   .object({
     id: z.string(),
@@ -1011,8 +1012,8 @@ export const AgentPodViewSchema = z
     /** Why it failed, or was lost. */
     reason: z.string().optional(),
     /**
-     * The workload image by digest (`repo@sha256:…`), pinned the first time a pod was ready
-     * (Q14): every later pod runs it. Absent before then, or for an image with no repository.
+     * The workload image by digest (`repo@sha256:…`), pinned the first time a pod was ready:
+     * every later pod runs it. Absent before then, or for an image with no repository.
      */
     imageDigest: z.string().optional(),
   })
@@ -1029,7 +1030,7 @@ export const COMPUTE_STATES = ["ready", "creating", "running", "stopped"] as con
 /**
  * An Agent's state (protocol 16), derived when it is read, the first that holds:
  *
- * - `paused`: its desired state is `off` (nothing in protocol 16 sets it; track T6 adds the control).
+ * - `paused`: its desired state is `off` (nothing in protocol 16 sets it).
  * - `failing`: its compute failed or was lost, or a session's latest finished turn failed.
  * - `input_required`: a session waits on a person (an approval or interaction, or an uncertain
  *   effect), even while another works.
@@ -1065,7 +1066,7 @@ export const AgentViewSchema = z
     /** Whether `manifest` tracks the manifest's latest version or pins one. */
     tracking: z.enum(["tracking", "pinned"]),
     /**
-     * Track T3: the version it moves to while it is outdated, else `null`. It waits for a value of
+     * The version it moves to while it is outdated, else `null`. It waits for a value of
      * each required secret the version adds (`waitingFor: "secrets"`) or for its pod's next start
      * (`"start"`); turns run `resolvedVersion` meanwhile.
      */
@@ -1095,9 +1096,9 @@ export const AgentViewSchema = z
     state: z.string().meta({ description: "working, sleeping, input_required, failing or paused; an open set" }),
     /** Every state that holds, with the session behind each: what made `state` first. */
     attention: z.array(AgentAttentionSchema),
-    /** `on`, or `off` once paused (track T6). */
+    /** `on`, or `off` once paused. */
     desired: z.enum(["on", "off"]),
-    /** When its next trigger fires: the earliest next run of its active triggers (D74), or `null`. */
+    /** When its next trigger fires: the earliest next run of its active triggers, or `null`. */
     nextWakeAt: z.string().nullable(),
     compute: z
       .object({
@@ -1227,22 +1228,22 @@ export const DeleteAgentResponseSchema = z
   .strict();
 export type DeleteAgentResponse = z.infer<typeof DeleteAgentResponseSchema>;
 
-/** A turn that was running on an Agent when one of its connections opened (D67). */
+/** A turn that was running on an Agent when one of its connections opened. */
 export const EgressRunningTurnSchema = z
   .object({ sessionId: z.string(), turnId: z.string() })
   .strict();
 export type EgressRunningTurn = z.infer<typeof EgressRunningTurnSchema>;
 
 /**
- * One connection a pod Agent opened through egress-gate (track R7, Q6): written when it closes,
- * or at once when the gate refused it, to the Agent's own stream as `agent.egress` (D67). The
+ * One connection a pod Agent opened through egress-gate: written when it closes,
+ * or at once when the gate refused it, to the Agent's own stream as `agent.egress`. The
  * connection is the Agent's: its egress token names the pod, and the Agent's sessions run turns
- * in parallel (D66). `runningTurns` lists the turns active on it as the connection opened, at
+ * in parallel. `runningTurns` lists the turns active on it as the connection opened, at
  * most 16, as context and never as the owner.
  *
  * `startedAt` is the gate's clock at CONNECT and `durationMs` runs from there to the close, so
  * the span is the gate's own measurement. `bytesUp` is what the sandbox sent, `bytesDown` what it
- * got. `mode: "credential"` is a host an `environment_secret` is bound to (R2c): the gate read
+ * got. `mode: "credential"` is a host an `environment_secret` is bound to: the gate read
  * each request (`requests`) and set a credential on it (`credentialIds`, ids only). It never
  * carries a header value, a URL path or a body.
  */
@@ -1271,7 +1272,7 @@ export const EgressConnectionPayloadSchema = z
 /** The schema id of an Agent's lifecycle events (its stream in the record). */
 export const AGENT_EVENT_SCHEMA = "nylorun.agent-event/1";
 /**
- * `memory.updated` (track T5, D72): the session's agent changed the Agent's memory with its
+ * `memory.updated`: the session's agent changed the Agent's memory with its
  * `memory` tool: each memory the call changed, what changed it and its version after. The Agent's
  * stream carries the same as `agent.memory_updated`, with the session.
  */
@@ -1322,7 +1323,7 @@ export const AGENT_EVENT_PAYLOADS = {
       manifest: z
         .object({ name: z.string(), version: z.number().int().positive(), tracking: z.enum(["tracking", "pinned"]) })
         .strict(),
-      /** The Agent it was forked from, and the disk version it started from (Q15). */
+      /** The Agent it was forked from, and the disk version it started from. */
       forkedFrom: z
         .object({ agent: z.string(), disk: z.number().int().positive().nullable() })
         .strict()
@@ -1359,7 +1360,7 @@ export const AGENT_EVENT_PAYLOADS = {
     })
     .passthrough(),
   /**
-   * Asked to move to version `to` of its manifest, which waits (track T3): for a value of each
+   * Asked to move to version `to` of its manifest, which waits: for a value of each
    * required secret it adds (`secrets`), or for its pod's next start (`start`).
    */
   "agent.outdated": z
@@ -1369,13 +1370,13 @@ export const AGENT_EVENT_PAYLOADS = {
       waitingFor: z.enum(["secrets", "start"]),
     })
     .passthrough(),
-  /** Runs version `to` of its manifest now: turns that start from here run it (track T3). */
+  /** Runs version `to` of its manifest now: turns that start from here run it. */
   "agent.version_changed": z
     .object({ from: z.number().int().positive(), to: z.number().int().positive() })
     .passthrough(),
   /**
    * Its pod did not start on version `to` (its setup failed, the pod failed, or it took longer
-   * than the Host allows): it went back to version `from`, with its disk as it was (track T3).
+   * than the Host allows): it went back to version `from`, with its disk as it was.
    */
   "agent.start_failed": z
     .object({
@@ -1385,7 +1386,7 @@ export const AGENT_EVENT_PAYLOADS = {
       reverted: z.boolean(),
     })
     .passthrough(),
-  /** A connection through egress-gate, with the turns running as it opened (D67). */
+  /** A connection through egress-gate, with the turns running as it opened. */
   "agent.egress": EgressConnectionPayloadSchema,
   /** A trigger fired, or was run by hand: the run and what came of it (`TriggerRunSchema`). */
   "agent.run": z
@@ -1430,7 +1431,7 @@ export const ListAgentEventsResponseSchema = z
 /**
  * `PUT /v1/sessions/{id}` (protocol 16): the session's Agent, owner and info. The session runs on
  * the Agent for its life (its sandbox, its vault's credentials) and pins the manifest version the
- * Agent runs when it opens. No session is special (D71): an app that keeps one conversation
+ * Agent runs when it opens. No session is special: an app that keeps one conversation
  * going reuses its id.
  */
 export const PutSessionRequestSchema = z
@@ -1443,7 +1444,7 @@ export const PutSessionRequestSchema = z
   })
   .strict();
 export type PutSessionRequest = z.infer<typeof PutSessionRequestSchema>;
-/** The hosts a harness can run on (blueprint D38). */
+/** The hosts a harness can run on. */
 export const PLACEMENT_HOSTS = ["harness-container", "sandbox"] as const;
 export type PlacementHost = (typeof PLACEMENT_HOSTS)[number];
 
@@ -1477,7 +1478,7 @@ export const TenantEnvironmentsConfigSchema = z
       .strict()
       .optional(),
     /**
-     * Where each harness may run (blueprint D38), by harness id (`nylorun`, or `*` for the rest):
+     * Where each harness may run, by harness id (`nylorun`, or `*` for the rest):
      * `harness-container` (the Runtime's harness) and `sandbox` (the engine in a pod).
      * Default `{ "*": { hosts: ["harness-container", "sandbox"] } }`. Checked when a session
      * opens; a host left out is refused (`placement_refused`). `"*": { hosts: [] }` refuses every
@@ -1511,7 +1512,7 @@ const CredentialHeaderValueSchema = z
   .string()
   .min(1)
   .refine((value) => !/[\r\n\0]/.test(value), "A header value has no CR, LF or NUL");
-/** A `headers` credential's map (Q6): one or more headers sent on every request. */
+/** A `headers` credential's map: one or more headers sent on every request. */
 const CredentialHeadersSchema = z
   .record(CredentialHeaderNameSchema, CredentialHeaderValueSchema)
   .refine((value) => Object.keys(value).length > 0, "At least one header is required")
@@ -1522,7 +1523,7 @@ const CredentialHeadersSchema = z
 /** A loopback host as a URL's `hostname` names it: plain `http` reaches only these. */
 export const LOOPBACK_HOSTS = /^(?:localhost|127(?:\.\d{1,3}){3}|\[::1\])$/i;
 /**
- * `via` (R2b C2, Q11): where this installation reaches the credential's server, such as a
+ * `via`: where this installation reaches the credential's server, such as a
  * gateway's endpoint for it. An absolute `https` URL (`http` only to a loopback host), with no
  * userinfo, query string or fragment. Credentials are still matched by the URL the manifest
  * names; `via` changes only where the request goes.
@@ -1545,7 +1546,7 @@ export const CredentialViaSchema = z.string().superRefine((value, ctx) => {
     ctx.addIssue({ code: "custom", message: "via may not carry a fragment" });
 });
 /**
- * The identity header (R2b C2, Q1–Q3): each request carries the session owner's subject in
+ * The identity header: each request carries the session owner's subject in
  * `header`, for a gateway that keeps each person's accounts. A session with no person as its
  * owner (the reserved `installation`) sends none.
  */
@@ -1588,13 +1589,13 @@ const EnvironmentNameSchema = z
   .regex(ENVIRONMENT_NAME_PATTERN, "An environment variable name is a letter or _ followed by letters, digits or _")
   .refine((name) => !isReservedEnvironmentName(name), "That environment variable name is reserved");
 /**
- * The value a sandbox sees for every `environment_secret` (R2c, D50): never the secret. Word
+ * The value a sandbox sees for every `environment_secret`: never the secret. Word
  * characters only, so CLIs that check a token's format before sending it (the Vercel CLI
  * refuses anything matching `\W`) still send the request egress-gate sets the header on.
  */
 export const ENVIRONMENT_SECRET_SENTINEL = "nylorun_managed";
 /**
- * How egress-gate writes an `environment_secret` into a request (R2c, D50): one header, set on
+ * How egress-gate writes an `environment_secret` into a request: one header, set on
  * every request to a bound host. `format` is text with `{value}` once, optionally inside a
  * `{base64:…}` group, for example `Bearer {value}` (the default),
  * `Basic {base64:x-access-token:{value}}` or `{value}`.
@@ -1646,13 +1647,13 @@ const EnvironmentValueSchema = z
 
 /**
  * The name of a credential for a tool (`bearer` or `headers`): a label of 1–64 characters.
- * An identifier's grammar is the protocol's (B15): it crosses the Runtime API, tokens and grants
+ * An identifier's grammar is the protocol's: it crosses the Runtime API, tokens and grants
  * and means the same in every installation, so its length is a constant of protocol 15, not a
  * setting.
  */
 export const TOOL_SECRET_NAME_PATTERN = /^[A-Za-z0-9._-]{1,64}$/;
 /**
- * `PUT /v1/agents/{agentId}/secrets/{name}` (D56): creates or replaces one credential
+ * `PUT /v1/agents/{agentId}/secrets/{name}`: creates or replaces one credential
  * in the Environment's vault. For `environment_secret` and `environment_variable` the name is
  * the variable's name (a POSIX name, not reserved); for `bearer` and `headers` it is a label.
  * The same name and type keeps the credential and re-seals its value and binding; another type
@@ -1698,7 +1699,7 @@ export const PutAgentSecretRequestSchema = z.discriminatedUnion("type", [
 ]);
 export type PutAgentSecretRequest = z.infer<typeof PutAgentSecretRequestSchema>;
 /**
- * A secret write on an Environment whose manifest declares the secret's slot (D64): only the
+ * A secret write on an Environment whose manifest declares the secret's slot: only the
  * value, `value` (or `headers` for a `headers` slot). Its type and binding come from the slot.
  */
 export const PutAgentSecretValueRequestSchema = z
@@ -1737,7 +1738,7 @@ const slotBase = {
   description: z.string().optional(),
 };
 /**
- * One secret an Environment of a kind needs (D64): its type and binding, never its value. The
+ * One secret an Environment of a kind needs: its type and binding, never its value. The
  * value is written into each Environment's vault (`PUT /v1/agents/{id}/secrets/{name}`
  * with `{ value }`, or `{ headers }` for `headers`), and the binding comes from here.
  */
@@ -1809,7 +1810,7 @@ const harnessLoopField = definitionJson
   .optional()
   .meta({ description: "The harness's own settings, passed to it in turn.start; the Runtime never reads them" });
 /**
- * `harness.memory` (track T5, D72): turns the Agent's memory on. Its `access` holds in every turn,
+ * `harness.memory`: turns the Agent's memory on. Its `access` holds in every turn,
  * whoever starts it; `instructions` follow the engine's own memory rules.
  */
 const harnessMemoryField = z
@@ -1822,7 +1823,7 @@ const harnessMemoryField = z
       .meta({ description: "What this agent should remember, after the engine's own memory rules" }),
   })
   .optional()
-  .meta({ description: "The Agent's memory: Markdown files under /memories it keeps across sessions (D72)" });
+  .meta({ description: "The Agent's memory: Markdown files under /memories it keeps across sessions" });
 /** Fields the harness section refuses with where they went. */
 const REMOVED_HARNESS_FIELDS: Readonly<Record<string, string>> = Object.freeze({
   requires:
@@ -1916,7 +1917,7 @@ type _HarnessSkillDrift = AssertNoDrift<ManifestDrift<HarnessSkill, z.output<typ
 type _HarnessMcpServerDrift = AssertNoDrift<ManifestDrift<HarnessMcpServer, z.output<typeof harnessMcpServerSchema>>>;
 
 /**
- * A trigger's id in `runtime.triggers` (track T4, D74): 1–64 letters, digits, `.`, `_` and `-`,
+ * A trigger's id in `runtime.triggers`: 1–64 letters, digits, `.`, `_` and `-`,
  * starting with a letter or digit. The map key; it names the trigger in routes and runs.
  */
 export const TriggerIdSchema = z
@@ -1926,18 +1927,18 @@ export const TriggerIdSchema = z
   })
   .meta({ description: "A trigger's id, such as `hourly-check`" });
 
-/** The signature schemes a webhook trigger verifies (D75): Standard Webhooks only in T4. */
+/** The signature schemes a webhook trigger verifies: Standard Webhooks only. */
 export const WEBHOOK_SCHEMES = ["standard-webhooks"] as const;
 
 /**
- * One trigger of an agent manifest's `runtime.triggers` (track T4, D74): exactly one of
+ * One trigger of an agent manifest's `runtime.triggers`: exactly one of
  * `schedule` (five-field cron, minute granularity, in `timezone`, an IANA name, default UTC), `at`
  * (one run at an RFC 3339 time with an offset) or `webhook` (a webhook endpoint verified with the
  * named scheme), plus the `session` each run goes to and the author's `prompt`.
  *
  * `session` is a session id of the Agent, opened on the trigger's first run if it does not
- * exist, or `"new"` for a new session per run (`run-<runId>`). The Runtime keeps no main session
- * (D71). The cron's smallest gap, the `at` time, the prompt's length and how many triggers a
+ * exist, or `"new"` for a new session per run (`run-<runId>`). The Runtime keeps no main session.
+ * The cron's smallest gap, the `at` time, the prompt's length and how many triggers a
  * manifest holds are checked against the Tenant's Runtime limits when it is saved.
  */
 export const TriggerSchema = z
@@ -1961,7 +1962,7 @@ export const TriggerSchema = z
   })
   .meta({ id: "Trigger" });
 export type Trigger = z.infer<typeof TriggerSchema>;
-/** What a trigger is: the field it has, or `wake` for a session's own booking (D77). */
+/** What a trigger is: the field it has, or `wake` for a session's own booking. */
 export const TRIGGER_KINDS = ["schedule", "at", "webhook", "wake"] as const;
 export type TriggerKind = (typeof TRIGGER_KINDS)[number];
 /** A trigger's kind, from its manifest entry. */
@@ -1970,7 +1971,7 @@ export function triggerKindOf(trigger: Trigger): Exclude<TriggerKind, "wake"> {
 }
 
 /**
- * A trigger's status on an Agent (D74): `active` fires, `paused` does not (`pausedReason`
+ * A trigger's status on an Agent: `active` fires, `paused` does not (`pausedReason`
  * `manual`, or `new` for one an upgrade added), `completed` is an `at` that ran.
  */
 export const TRIGGER_STATUSES = ["active", "paused", "completed"] as const;
@@ -1990,7 +1991,7 @@ export const TriggerViewSchema = z
     nextRunAt: z.string().nullable(),
     lastRunAt: z.string().nullable(),
     /**
-     * A webhook trigger's endpoint (D75): `POST` Standard Webhooks deliveries to it. The origin is
+     * A webhook trigger's endpoint: `POST` Standard Webhooks deliveries to it. The origin is
      * the one this read reached.
      */
     webhookUrl: z.string().optional(),
@@ -2001,7 +2002,7 @@ export const TriggerViewSchema = z
 export type TriggerView = z.infer<typeof TriggerViewSchema>;
 export const TriggerListSchema = z.object({ triggers: z.array(TriggerViewSchema) }).strict();
 /**
- * What a run came to (D74): `started` a turn, `queued` a message behind a running turn,
+ * What a run came to: `started` a turn, `queued` a message behind a running turn,
  * `skipped` (nothing started: `overlap`, `rate_limited`, `paused`) or `failed` (`queue_full`,
  * `session_conflict`, `agent_unavailable`).
  */
@@ -2031,7 +2032,7 @@ export const TriggerRunPageSchema = z
   .strict();
 export type TriggerRunPage = z.infer<typeof TriggerRunPageSchema>;
 /**
- * `POST /v1/agents/{id}/triggers/{triggerId}/secret` (D75): a webhook trigger's new signing secret,
+ * `POST /v1/agents/{id}/triggers/{triggerId}/secret`: a webhook trigger's new signing secret,
  * in the Standard Webhooks format (`whsec_` and 32 random bytes in base64), shown this once. It
  * replaces the one before at once.
  */
@@ -2046,7 +2047,7 @@ export const WebhookAcceptedResponseSchema = z
 export const RunTriggerResponseSchema = z.object({ run: TriggerRunSchema }).strict();
 
 /**
- * One of an Agent's memories (track T5, D72), as `GET /v1/agents/{id}/memories` lists it: its
+ * One of an Agent's memories, as `GET /v1/agents/{id}/memories` lists it: its
  * path under `/memories`, size, content hash (the precondition a `PUT` may send), the
  * `description` of its frontmatter when it has one, and its version, which every change bumps.
  */
@@ -2117,8 +2118,8 @@ export type MemoryVersionPage = z.infer<typeof MemoryVersionPageSchema>;
 /**
  * What the Runtime provides around the loop: the `runtime` section of agent manifest v8, with
  * environment manifest v1's fields but its identity and its `harness` (now `harness.id`).
- * `triggers` (track T4, D74) start the Agent's turns with no client connected; `selfWake` offers
- * the agent `schedule_wake`, which books its session's next turn (D77).
+ * `triggers` start the Agent's turns with no client connected; `selfWake` offers
+ * the agent `schedule_wake`, which books its session's next turn.
  */
 const runtimeSectionObject = z
   .strictObject(
@@ -2138,11 +2139,11 @@ const runtimeSectionObject = z
       triggers: z
         .record(TriggerIdSchema, TriggerSchema)
         .optional()
-        .meta({ description: "What starts the Agent's turns with no client connected, by trigger id (D74)" }),
+        .meta({ description: "What starts the Agent's turns with no client connected, by trigger id" }),
       selfWake: z
         .boolean()
         .optional()
-        .meta({ description: "Offer the agent schedule_wake: it books its session's next turn itself (D77)" }),
+        .meta({ description: "Offer the agent schedule_wake: it books its session's next turn itself" }),
     },
     { error: removedFieldError(REMOVED_RUNTIME_SECTION_FIELDS) },
   )
@@ -2151,7 +2152,7 @@ export const RuntimeSectionSchema = runtimeSectionObject;
 export type RuntimeSection = z.infer<typeof RuntimeSectionSchema>;
 
 /**
- * Agent manifest v8 (protocol 16, track T2): one versioned document with what runs inside the
+ * Agent manifest v8 (protocol 16): one versioned document with what runs inside the
  * agent loop (`harness`) and what the Runtime provides around it (`runtime`), saved at
  * `PUT /v1/agent-manifests/{name}`. Without `runtime`, an Agent made from it is kind `none`.
  * The Runtime also checks the two sections against each other when it is saved (`sectionGaps`).
@@ -2306,7 +2307,7 @@ export type AgentManifestChange = z.infer<typeof AgentManifestChangeSchema>;
  * `PUT /v1/agent-manifests/{name}?dryRun=true`: what saving it would do, with nothing saved.
  * `errors` lists every reason the Runtime would refuse it: the gaps between its sections, the
  * Tenant's limits, its files; a save with errors is refused. A save moves every Agent that tracks
- * the manifest (track T3): `moves` counts them by when the new version applies. `behind` counts
+ * the manifest: `moves` counts them by when the new version applies. `behind` counts
  * the Agents that stay on an older version: pinned ones, and tracking ones it cannot move.
  */
 export const AgentManifestPlanSchema = z
@@ -2346,7 +2347,7 @@ export const DeleteAgentManifestResponseSchema = z
   .strict();
 export type DeleteAgentManifestResponse = z.infer<typeof DeleteAgentManifestResponseSchema>;
 /**
- * `POST /v1/agents/{id}/fork` (Q15): copies an Agent, with its disk and vault, into a new one,
+ * `POST /v1/agents/{id}/fork`: copies an Agent, with its disk and vault, into a new one,
  * made from `manifest` (default the source's manifest at its latest version): how an Agent
  * changes what is fixed for its life (its kind, harness, storage or manifest). The source keeps
  * what it runs, its disk and its sessions.
@@ -2397,7 +2398,7 @@ export const AgentForkPlanSchema = z
     ),
     /** The source's sessions: they stay on it. */
     sessions: z.number().int().nonnegative(),
-    /** The source's memories (track T5): copied as they are now, each at version 1, with no history. */
+    /** The source's memories: copied as they are now, each at version 1, with no history. */
     memories: z.number().int().nonnegative(),
   })
   .strict();
@@ -2409,7 +2410,7 @@ export const ForkAgentResponseSchema = z.union([
 ]);
 export type ForkAgentResponse = z.infer<typeof ForkAgentResponseSchema>;
 /**
- * `PUT /v1/agents/{id}?dryRun=true` on an existing Agent (track T3): what moving it to the
+ * `PUT /v1/agents/{id}?dryRun=true` on an existing Agent: what moving it to the
  * version `manifest` names would do, with nothing changed. `applies`: `none` (it runs that
  * version), `now` (turns that start from here run it), `next_start` (a runtime change: its pod's
  * next start applies it), `secrets` (it waits for a value of each of `missingSecrets`), or
@@ -2451,7 +2452,7 @@ export const AgentMovePlanSchema = z
   .strict();
 export type AgentMovePlan = z.infer<typeof AgentMovePlanSchema>;
 /**
- * `POST /v1/agents/{id}/restart` (track T3): applies a pending version now. A running pod stops,
+ * `POST /v1/agents/{id}/restart`: applies a pending version now. A running pod stops,
  * so the next turn starts it on the version (a stopped one starts at once); `retry` first moves
  * it to the version that failed to start (`failedVersion`) again.
  */
@@ -2578,7 +2579,7 @@ export type ListAgentSecretsResponse = z.infer<typeof ListAgentSecretsResponseSc
 /** The MCP transports a preview speaks: a manifest's remote server types. */
 export const MCP_PREVIEW_TYPES = ["streamable-http", "sse"] as const;
 /**
- * `POST /v1/tenant/mcp/preview` (R2b C12): what a remote MCP server offers, before an agent
+ * `POST /v1/tenant/mcp/preview`: what a remote MCP server offers, before an agent
  * names it. The Runtime connects with the credential for `url` in the vault of Agent `agentId`
  * (none without one), lists the tools and closes the connection; it never calls a tool.
  */
@@ -2617,7 +2618,7 @@ export const McpPreviewToolSchema = z
     /** The server's own name for the tool. */
     serverToolName: z.string(),
     /**
-     * What the model would call it as Nylorun's engine names MCP tools (R2b C6); absent when the
+     * What the model would call it as Nylorun's engine names MCP tools; absent when the
      * engine leaves the tool out (its input schema is not one it can use). A harness of your own
      * names tools itself.
      */
@@ -2631,7 +2632,7 @@ export const McpPreviewToolSchema = z
   .strict();
 export type McpPreviewTool = z.infer<typeof McpPreviewToolSchema>;
 /**
- * A preview (R2b C12). A server that answered `401` is `authRequired`, with its RFC 9728
+ * A preview. A server that answered `401` is `authRequired`, with its RFC 9728
  * protected-resource metadata when it publishes any: it needs a person's sign-in or a key the
  * Environment's vault does not hold, so reach it with a key or through a gateway (`via`).
  */
@@ -2648,7 +2649,7 @@ export const McpPreviewSchema = z
     /** The server's instructions from `initialize`. */
     instructions: z.string().optional(),
     tools: z.array(McpPreviewToolSchema),
-    /** Tools Nylorun's engine names otherwise than `server__tool` (R2b C6). */
+    /** Tools Nylorun's engine names otherwise than `server__tool`. */
     renamed: z.array(z.object({ serverToolName: z.string(), name: z.string() }).strict()),
     authRequired: z
       .object({
@@ -2733,7 +2734,7 @@ const commandBase = {
   idempotencyKey: IdempotencyKeySchema,
 };
 /**
- * What a message to a busy session does (protocol 17, D76): `queue` waits for the running turn to
+ * What a message to a busy session does (protocol 17): `queue` waits for the running turn to
  * end and starts the next one; `reject` is refused with `409 session_busy`. A protocol 17 client's
  * default is `queue`, a protocol 16 client's `reject`.
  */
@@ -2828,11 +2829,11 @@ export type MessageEventBody = z.infer<typeof MessageEventBodySchema>;
 /** The envelope every session event carries (`nylorun.event/2`, Durable Streams §9.5). */
 export const EVENT_SCHEMA = "nylorun.event/2";
 /**
- * Who wrote an event (track R4, R4.9): the writer says so, not the event's type. `client` is a
+ * Who wrote an event: the writer says so, not the event's type. `client` is a
  * command over the Runtime API (its `principal` says who sent it), `core` is core's own logic
  * (settle, sweeps, the flow host, exports, the tools core serves), `harness` is what a harness
  * reported (`source.id` is its harness id, `runId` its run), and the gates are themselves.
- * `loop` and `api` are what events written before R4 say.
+ * `loop` and `api` are what older events say.
  */
 export const EventSourceKindSchema = z.enum([
   "client",
@@ -2867,10 +2868,10 @@ export const EvidenceClassSchema = z.enum([
   "asserted",
 ]);
 export type EvidenceClass = z.infer<typeof EvidenceClassSchema>;
-/** A command's sender (R4.9): from the request's credential, never from its body. */
+/** A command's sender: from the request's credential, never from its body. */
 export const EventPrincipalSchema = z
   .object({
-    /** `trigger`: core, for an Agent's trigger (track T4); its id is the trigger's. */
+    /** `trigger`: core, for an Agent's trigger; its id is the trigger's. */
     kind: z.enum(["application", "subject", "flow-host", "core", "trigger"]),
     id: z.string(),
   })
@@ -2878,7 +2879,7 @@ export const EventPrincipalSchema = z
 export type EventPrincipal = z.infer<typeof EventPrincipalSchema>;
 
 /**
- * Who wrote an event, as its writer says (R4.9). Absent, core wrote it and saw it (`core`,
+ * Who wrote an event, as its writer says. Absent, core wrote it and saw it (`core`,
  * `observed`).
  */
 export interface EventWriter {
@@ -2915,7 +2916,7 @@ const eventEnvelope = {
   schemaVersion: z.number().int().positive(),
   source: z.object({ kind: EventSourceKindSchema, id: z.string() }),
   evidence: EvidenceClassSchema,
-  /** Who sent a command (`command.*`, a cancel's `turn.cancelled`), from its credential (R4.9). */
+  /** Who sent a command (`command.*`, a cancel's `turn.cancelled`), from its credential. */
   principal: EventPrincipalSchema.optional(),
   trace: z
     .object({
@@ -2992,7 +2993,7 @@ const toolIds = {
   invocationId: z.string().min(1),
 };
 /**
- * When a gate served a call (R7.1): its own start and end, as it measured them. Absent when no
+ * When a gate served a call: its own start and end, as it measured them. Absent when no
  * gate measured the call (a fixture model, a sandbox or core-served tool, a call refused before
  * it was sent).
  */
@@ -3000,7 +3001,7 @@ export const GateTimesSchema = z
   .object({ startedAt: z.string(), endedAt: z.string() })
   .passthrough();
 /**
- * What the Model Gate's meter recorded for a model call (R7.1), from the usage ledger: the
+ * What the Model Gate's meter recorded for a model call, from the usage ledger: the
  * tokens and cost the Runtime counts, beside the `usage` the harness reported. `cachedTokens`
  * and `costUsd` are absent when zero.
  */
@@ -3014,7 +3015,7 @@ export const MeteredUsageSchema = z
   })
   .passthrough();
 /**
- * The timing of a model call's outcome (R7.1), on `message.assistant`, `model.failed` and
+ * The timing of a model call's outcome, on `message.assistant`, `model.failed` and
  * `context.compacted`. `durationMs` is the journal's window, from the intent to the outcome;
  * `gate`, `firstTokenMs` and `meteredUsage` are the meter's, absent when no gate metered the
  * call.
@@ -3058,7 +3059,7 @@ export const AssistantMessagePayloadSchema = z
     ...eventAgent,
   })
   .passthrough();
-/** True when a `message.assistant` said nothing: no text and no tool calls (R7.1). */
+/** True when a `message.assistant` said nothing: no text and no tool calls. */
 export function isEmptyAssistantMessage(payload: {
   readonly text?: unknown;
   readonly toolCalls?: readonly unknown[];
@@ -3098,17 +3099,17 @@ export const ContextCompactedPayloadSchema = z
     ...eventAgent,
   })
   .passthrough();
-/** How a tool call ended (R5.1): the tool answered, the Runtime ended it, or a cancel did. */
+/** How a tool call ended: the tool answered, the Runtime ended it, or a cancel did. */
 export const TOOL_CALL_STATUSES = ["completed", "failed", "cancelled"] as const;
 /**
- * Where a tool call ran (R5.1), its effect's target kind (protocol 15): an MCP server, an HTTP
+ * Where a tool call ran, its effect's target kind (protocol 15): an MCP server, an HTTP
  * tool's URL, the session's sandbox, the harness that runs the turn (`harness`: a tool it runs
  * in its own process, such as our engine's skill, artifact and `tool_search` tools), or the
- * Runtime itself (`runtime`: `schedule_wake`, track T4).
+ * Runtime itself (`runtime`: `schedule_wake`).
  */
 export const TOOL_CALL_KINDS = ["mcp", "http", "sandbox", "harness", "runtime"] as const;
 /**
- * What the Tenant's tool policy did with a tool call (R5 step 2), when it did more than allow
+ * What the Tenant's tool policy did with a tool call, when it did more than allow
  * it: `deny` refused it unsent; `ask` held it for a person, who approved it (`approvedBy`, when
  * known) or denied it.
  */
@@ -3120,7 +3121,7 @@ export const ToolPolicyFactSchema = z
   })
   .passthrough();
 /**
- * `tool.completed`: how one tool call ended, written once per call (R5.1). `status`
+ * `tool.completed`: how one tool call ended, written once per call. `status`
  * `completed`: the tool answered, with its output or the tool error it reported (`error`).
  * `failed`: the Runtime ended the call (`tool.disabled`, `tool.unavailable`, `tool.denied`, or
  * `tool.interrupted` for a call a crash interrupted, which may have run). `cancelled`: the turn
@@ -3130,7 +3131,7 @@ export const ToolPolicyFactSchema = z
 export const ToolCompletedPayloadSchema = z
   .object({
     ...toolIds,
-    /** The tool call's effect id (R7.1). */
+    /** The tool call's effect id. */
     effectId: z.string().min(1).optional(),
     /** The name the model called the tool by, as its harness named it: for display. */
     toolName: z.string().min(1),
@@ -3155,7 +3156,7 @@ export const ToolCompletedPayloadSchema = z
     /** From the first send to the outcome; absent when the call never ran. */
     durationMs: z.number().int().nonnegative().optional(),
     /**
-     * The Tool Gate's own start and end of the call's last send (R7.1): an MCP or HTTP tool
+     * The Tool Gate's own start and end of the call's last send: an MCP or HTTP tool
      * through the gateway. Absent for a sandbox or core-served tool.
      */
     gate: GateTimesSchema.optional(),
@@ -3166,18 +3167,18 @@ export const ToolCompletedPayloadSchema = z
         code: z.string(),
         message: z.string(),
         /**
-         * With `credential_rejected` (R2b C1): the MCP server, or the HTTP tool's `credential`,
+         * With `credential_rejected`: the MCP server, or the HTTP tool's `credential`,
          * whose server answered `401`.
          */
         server: z.string().optional(),
-        /** An MCP tool error (R2b C7): true when calling again may work, as for `mcp.unreachable`. */
+        /** An MCP tool error: true when calling again may work, as for `mcp.unreachable`. */
         retryable: z.boolean().optional(),
       })
       .passthrough()
       .optional(),
     /**
-     * How many credential values the Runtime replaced with `[redacted]` in `output` or `error`
-     * (R2b C8): the server echoed what it was sent. Absent when none.
+     * How many credential values the Runtime replaced with `[redacted]` in `output` or `error`:
+     * the server echoed what it was sent. Absent when none.
      */
     redacted: z.number().int().positive().optional(),
     ...eventAgent,
@@ -3187,7 +3188,7 @@ export const EffectUncertainPayloadSchema = z
   .object({ effectId: z.string().min(1), message: z.string().optional() })
   .passthrough();
 /**
- * How a turn that ended went (R7.1), on `turn.completed`, `turn.failed` and `turn.cancelled`:
+ * How a turn that ended went, on `turn.completed`, `turn.failed` and `turn.cancelled`:
  * `durationMs` from the turn's start to its end, waits for a person included, so the turn's span
  * holds every crossing in it; `pausedMs`, how much of that it waited paused; `totals` from the
  * usage ledger (`steps`: the model calls the gate metered). Absent on a turn
@@ -3252,7 +3253,7 @@ export const MessageQueuedPayloadSchema = z
   .object({ queuedMessageId: z.string(), position: z.number().int().positive(), requestId: z.string() })
   .passthrough();
 /**
- * `wake.booked` (track T4, D77): the session's agent booked its next turn with `schedule_wake`,
+ * `wake.booked`: the session's agent booked its next turn with `schedule_wake`,
  * at `at`, replacing any booking before. `wake.cancelled`: it cancelled its booking.
  */
 export const WakeBookedPayloadSchema = z
@@ -3303,7 +3304,7 @@ export const CommandMessagePayloadSchema = z
     /** Set when the message waited in the session's queue (protocol 17): its id there. */
     queuedMessageId: z.string().optional(),
     /**
-     * What sent it, when not a client (track T4): a trigger's run (`trigger`, with the trigger
+     * What sent it, when not a client: a trigger's run (`trigger`, with the trigger
      * and run ids), or the session's own booked wake (`self`).
      */
     cause: z
@@ -3311,7 +3312,7 @@ export const CommandMessagePayloadSchema = z
       .strict()
       .optional(),
     /**
-     * The W3C trace context the message was sent with (R7.4): the turn's trace is the caller's,
+     * The W3C trace context the message was sent with: the turn's trace is the caller's,
      * and its root span the child of the caller's span.
      */
     trace: z
@@ -3380,7 +3381,7 @@ export const NodeStartedPayloadSchema = z
   .passthrough();
 /**
  * `node.completed`: a flow's HTTP stage or HTTP verifier ended, or a tool stage the Runtime
- * refused to run (R7.1), named as its `node.started` names it. `status` reads as
+ * refused to run, named as its `node.started` names it. `status` reads as
  * `tool.completed`'s: `completed` when the stage's server answered (an error answer included),
  * `failed` when the Runtime ended it, `cancelled` when a cancel did. `gate` is the Tool Gate's
  * own start and end of its last send.
@@ -3428,7 +3429,7 @@ export const LoopVerifiedPayloadSchema = z
   })
   .passthrough();
 /**
- * `transcript.updated` (internal; blueprint P0.3): the own loop's model-facing transcript after a
+ * `transcript.updated` (internal): the own loop's model-facing transcript after a
  * settled segment, as an edit of the previous one: keep its first `keep` entries, then append
  * `entries`; the result has `length` entries. `keep` is 0 for a snapshot (after compaction, or
  * for a session written before transcripts were recorded). Large edits are split into
@@ -3452,7 +3453,7 @@ export const TranscriptUpdatedPayloadSchema = z
 export const ArtifactSourceSchema = z.enum(["upload", "engine", "export", "snapshot"]);
 export type ArtifactSource = z.infer<typeof ArtifactSourceSchema>;
 /**
- * What an artifact holds: one file, or a folder (F8.2), whose versions are manifests of paths to
+ * What an artifact holds: one file, or a folder, whose versions are manifests of paths to
  * content-addressed files.
  */
 export const ArtifactKindSchema = z.enum(["file", "folder"]);
@@ -3496,7 +3497,7 @@ export const ArtifactExportSkipReasonSchema = z.enum([
   "file_too_large",
   "too_large",
   "tenant_total",
-  /** Past the session's Environment's own total (its manifest's `limits.artifacts.totalBytes`). */
+  /** Past the session's Agent's own total (its manifest's `runtime.limits.artifacts.totalBytes`). */
   "environment_total",
 ]);
 export type ArtifactExportSkipReason = z.infer<typeof ArtifactExportSkipReasonSchema>;
@@ -3538,10 +3539,10 @@ export const McpServerOutcomeSchema = z
     message: z.string(),
     /** The tools it added to the session that its `tools` settings leave enabled; 0 unless connected. */
     tools: z.number().int().nonnegative(),
-    /** Listed tools the server's `tools` settings disable (R2b C9); absent when none. */
+    /** Listed tools the server's `tools` settings disable; absent when none. */
     disabled: z.number().int().positive().optional(),
     /**
-     * Keys of the server's `tools` settings that name no tool it listed (R2b C9): a diagnostic,
+     * Keys of the server's `tools` settings that name no tool it listed: a diagnostic,
      * since servers change their lists.
      */
     unknownTools: z.array(z.string()).optional(),
@@ -3826,7 +3827,7 @@ export const StreamRelayStatusSchema = z
 export type StreamRelayStatus = z.infer<typeof StreamRelayStatusSchema>;
 
 /**
- * The Tenant's harnesses (F6.2): `in-process` runs one in core's process; `remote` waits for
+ * The Tenant's harnesses: `in-process` runs one in core's process; `remote` waits for
  * harnesses on the Harness API listener. `workspace` says one that serves the Tenant's
  * workspaces is connected.
  */
@@ -3948,7 +3949,7 @@ export const TenantStatusSchema = z
         retained: z.number().int().nonnegative(),
       })
       .strict(),
-    /** The Tenant's harnesses (F6.2). */
+    /** The Tenant's harnesses. */
     harness: HarnessStatusSchema.optional(),
     /**
      * Durable Session Execution invocations of this Tenant that need an operator: paused
@@ -4071,14 +4072,14 @@ const RETIRED_SUBJECT_SCOPES: readonly string[] = ["vaults:own", "tenant:setting
 
 /**
  * 1–200 visible ASCII characters; spaces only inside.
- * An identifier's grammar is the protocol's (B15): it crosses the Runtime API, tokens and grants
+ * An identifier's grammar is the protocol's: it crosses the Runtime API, tokens and grants
  * and means the same in every installation, so its length is a constant of protocol 15, not a
  * setting.
  */
 const SUBJECT_PATTERN = /^[\x21-\x7e](?:[\x20-\x7e]{0,198}[\x21-\x7e])?$/;
 /**
  * The owner of a session opened for no person: an MCP server's or HTTP tool's identity header
- * (R2b C2) names nobody for it. A reserved subject.
+ * names nobody for it. A reserved subject.
  */
 export const INSTALLATION_OWNER = "installation";
 /** Owner ids the Runtime uses itself: `host` (the model vault's) and `installation`. */
@@ -4316,7 +4317,7 @@ export const SessionViewSchema = z
     /** Messages waiting in the session's queue for the next turn (protocol 17). */
     queuedMessages: z.number().int().nonnegative(),
     /**
-     * The harness that runs the session's turns, pinned when it opened (track R4): its
+     * The harness that runs the session's turns, pinned when it opened: its
      * manifest's `harness.id`, else `nylorun`.
      */
     harness: z.string(),
@@ -4444,7 +4445,7 @@ export const EffectiveSandboxConfigSchema = z
       .strict(),
     /** Pods (Host feature `sandbox-pods`): the pod's stop grace. */
     lifecycle: z.object({ stopGrace: z.string() }).strict().optional(),
-    /** Where each harness may run (D38). */
+    /** Where each harness may run. */
     placement: z
       .record(z.string(), z.object({ hosts: z.array(z.enum(PLACEMENT_HOSTS)) }).strict())
       .optional(),
@@ -4579,7 +4580,7 @@ export type PutModelBudgetsRequest = z.infer<typeof PutModelBudgetsRequestSchema
 export const ModelBudgetsSchema = z.object({ budgets: z.array(ModelBudgetSchema) }).strict();
 export type ModelBudgets = z.infer<typeof ModelBudgetsSchema>;
 
-/** What a tool policy rule does to a call it matches (R5 step 2). */
+/** What a tool policy rule does to a call it matches. */
 export const TOOL_POLICY_EFFECTS = ["allow", "ask", "deny"] as const;
 /** A test of one field of a tool call's input; every test it sets must hold. */
 export const ToolInputConditionSchema = z
@@ -4609,12 +4610,13 @@ export const ToolInputConditionSchema = z
   });
 export type ToolInputCondition = z.infer<typeof ToolInputConditionSchema>;
 /**
- * One rule of the Tenant's tool policy (R5 step 2), applied at the Tool Gate to every MCP and
- * HTTP tool call of every harness. A rule matches a call when every selector it sets matches:
- * `tool` (the tool's identity: an MCP tool's own name on its server, or an HTTP tool's declared
- * name; never the name a harness gave the model; `*` for any run of characters), `server` (an MCP
- * server's name), `kind`, `agent` (the agent that calls it) and `when` (fields of the input, by
- * dotted path). The strictest matching rule decides: `deny` refuses the call before it is sent,
+ * One rule of the Tenant's tool policy, applied at the Tool Gate to every MCP and HTTP tool call
+ * of every harness. A rule matches a call when every selector it sets matches: `tool` (the tool's
+ * identity: an MCP tool's own name on its server, or an HTTP tool's declared name; never the name
+ * a harness gave the model; `*` for any run of characters), `server` (an MCP server's name),
+ * `kind`, `agent` (the agent that calls it: the agent manifest's name, or the id of an agent used
+ * as a tool or of a flow's agent; never an Agent's id) and `when` (fields of the input, by dotted
+ * path). The strictest matching rule decides: `deny` refuses the call before it is sent,
  * `ask` holds it until a person approves it on the session (`approve`), `allow` runs it. A call no
  * rule matches runs. Sandbox tools never cross the gate; their network side is egress policy.
  *
@@ -4626,11 +4628,28 @@ export const ToolRuleSchema = z
     effect: z.enum(TOOL_POLICY_EFFECTS),
     // The selectors, and `when`'s paths, are at most the Tenant's Runtime limit
     // `toolRuleFieldChars` long; `reason` at most `toolRuleTextChars` (checked when put).
-    tool: z.string().min(1).optional(),
-    server: z.string().min(1).optional(),
+    tool: z
+      .string()
+      .min(1)
+      .optional()
+      .meta({
+        description:
+          "The tool's identity: an MCP tool's own name on its `server`, or an HTTP tool's declared name, never the name the model calls it by. `*` matches any run of characters; a name with `__` in it is refused",
+      }),
+    server: z.string().min(1).optional().meta({ description: "An MCP server's name; `*` matches any run of characters" }),
     kind: z.enum(["mcp", "http"]).optional(),
-    agent: z.string().min(1).optional(),
-    when: z.record(z.string().min(1), ToolInputConditionSchema).optional(),
+    agent: z
+      .string()
+      .min(1)
+      .optional()
+      .meta({
+        description:
+          "The agent that calls the tool: the agent manifest's name, or the id of an agent used as a tool or of a flow's agent, never an Agent's id. `*` matches any run of characters",
+      }),
+    when: z
+      .record(z.string().min(1), ToolInputConditionSchema)
+      .optional()
+      .meta({ description: "Fields of the call's input by dotted path, each tested by every test its condition sets" }),
     /** Why the rule exists: shown with a held or denied call. */
     reason: z.string().min(1).optional(),
   })
@@ -4685,7 +4704,7 @@ export type AgUiRunErrorCode = z.infer<typeof AgUiRunErrorCodeSchema>;
 
 /**
  * A Tenant id as Studio's routes accept it.
- * An identifier's grammar is the protocol's (B15): it crosses the Runtime API, tokens and grants
+ * An identifier's grammar is the protocol's: it crosses the Runtime API, tokens and grants
  * and means the same in every installation, so its length is a constant of protocol 15, not a
  * setting.
  */
@@ -4847,7 +4866,7 @@ export const ARTIFACT_TOTAL_BYTES_DEFAULT = 10 * 1024 * 1024 * 1024;
 /**
  * The longest artifact name, in characters: the longest file name a workspace's file system takes
  * (`NAME_MAX`), since a name becomes one when the artifact is copied into a sandbox or downloaded.
- * A standard's constant, not a limit (B15).
+ * A standard's constant, not a limit.
  */
 export const ARTIFACT_NAME_MAX = FILE_NAME_MAX;
 /**
@@ -4880,7 +4899,7 @@ export type ArtifactVersionView = z.infer<typeof ArtifactVersionViewSchema>;
 
 /**
  * An artifact: an id, a name and numbered versions, its bytes in the Object store. A file's
- * version is its bytes; a folder's (F8.2) is a manifest of paths to content-addressed files.
+ * version is its bytes; a folder's is a manifest of paths to content-addressed files.
  */
 export const ArtifactViewSchema = z
   .object({
@@ -4891,7 +4910,7 @@ export const ArtifactViewSchema = z
     /** The session it belongs to; absent for a Tenant-wide artifact an application made. */
     sessionId: z.string().optional(),
     /**
-     * The Agent whose disk versions it holds (R2d step 3); absent otherwise. Such an artifact
+     * The Agent whose disk versions it holds; absent otherwise. Such an artifact
      * changes only through `/v1/agents/{id}/snapshot` and its versions routes.
      */
     agentId: z.string().optional(),
@@ -4925,7 +4944,7 @@ export const UploadArtifactResponseSchema = z
 export type UploadArtifactResponse = z.infer<typeof UploadArtifactResponseSchema>;
 
 /**
- * `PUT /v1/files/sha256:{hex}`: a definition file the Runtime holds (track R2 M4), named by the
+ * `PUT /v1/files/sha256:{hex}`: a definition file the Runtime holds, named by the
  * SHA-256 of its bytes. `201` stored it, `200` already had it.
  */
 export const DefinitionFileViewSchema = z
@@ -4979,7 +4998,7 @@ export const FOLDER_CONTENT_TYPE = "application/vnd.nylorun.folder+json";
 /** The manifest format a folder version is stored as. */
 export const FOLDER_MANIFEST_FORMAT = "nylorun.folder.v1";
 /**
- * The manifest format of an Environment's disk versions (R2d step 3): v1's entries, plus file
+ * The manifest format of an Environment's disk versions: v1's entries, plus file
  * modes and modification times, symbolic links and empty directories. Readers accept both.
  */
 export const FOLDER_MANIFEST_FORMAT_V2 = "nylorun.folder.v2";
@@ -5012,7 +5031,7 @@ export type FolderEntry = z.infer<typeof FolderEntrySchema>;
 
 /**
  * A folder version as stored: the files, sorted by path, each naming its content-addressed
- * bytes by SHA-256. The one manifest format for folders, reused by P5's snapshots.
+ * bytes by SHA-256. The one manifest format for folders, reused by disk snapshots.
  */
 export const FolderManifestSchema = z
   .object({
@@ -5111,7 +5130,7 @@ export const TenantSkillsViewSchema = z
 export type TenantSkillsView = z.infer<typeof TenantSkillsViewSchema>;
 
 /**
- * A Tenant's Runtime limits (harness boundary S0), stored as Tenant setting `limits.config`: what
+ * A Tenant's Runtime limits, stored as Tenant setting `limits.config`: what
  * one record entry, model call, model file, tool answer, harness state and Harness API chunk may
  * hold. Each limit left out is its default (`RUNTIME_LIMIT_DEFAULTS`); none may pass its ceiling
  * (`RUNTIME_LIMIT_CEILINGS`, a `400` naming it).
@@ -5182,8 +5201,8 @@ export const ModelCallSchema = z
   .object({
     id: z.string(),
     /**
-     * The model effect the call served: the effect id its harness sent as `Idempotency-Key`
-     * (track R4), so a call is joined to the journal.
+     * The model effect the call served: the effect id its harness sent as `Idempotency-Key`,
+     * so a call is joined to the journal.
      */
     effectId: z.string(),
     sessionId: z.string(),
@@ -5220,9 +5239,9 @@ export const ModelCallExportPageSchema = z
   .strict();
 export type ModelCallExportPage = z.infer<typeof ModelCallExportPageSchema>;
 /**
- * One tool call of a session (R5.2), read from the effect journal: what ran, with what input,
+ * One tool call of a session, read from the effect journal: what ran, with what input,
  * how many sends, and how it ended. `invoking` while it runs. `uncertain` only for a call
- * recorded before R5. The output is in the session's log (`tool.completed`).
+ * recorded by an older Runtime. The output is in the session's log (`tool.completed`).
  */
 export const ToolCallSchema = z
   .object({
@@ -5239,7 +5258,7 @@ export const ToolCallSchema = z
     skill: z.string().nullable(),
     /** The Agent Plugin that brought its MCP server or skill. */
     plugin: pluginLabelSchema.nullable(),
-    /** `held`: the Tool Gate holds it for a person's approval (R5 step 2). */
+    /** `held`: the Tool Gate holds it for a person's approval. */
     status: z.enum(["invoking", "held", ...TOOL_CALL_STATUSES, "uncertain"]),
     attempts: z.number().int().nonnegative(),
     input: z.unknown(),
@@ -5254,12 +5273,12 @@ export const ToolCallsPageSchema = z
   .object({ calls: z.array(ToolCallSchema), nextCursor: z.string().nullable(), asOf: z.string() })
   .strict();
 export type ToolCallsPage = z.infer<typeof ToolCallsPageSchema>;
-/** One OTLP attribute (R7.5): a key and an `AnyValue` (`stringValue`, `intValue`, …). */
+/** One OTLP attribute: a key and an `AnyValue` (`stringValue`, `intValue`, …). */
 export const OtlpKeyValueSchema = z
   .object({ key: z.string(), value: z.record(z.string(), z.unknown()) })
   .passthrough();
 /**
- * One span as OTLP/HTTP JSON encodes it (R7.5): hex ids, times in nanoseconds as decimal strings,
+ * One span as OTLP/HTTP JSON encodes it: hex ids, times in nanoseconds as decimal strings,
  * `kind` (1 internal, 3 client) and `status.code` (0 unset, 1 ok, 2 error) as numbers.
  */
 export const OtlpSpanSchema = z
@@ -5277,7 +5296,7 @@ export const OtlpSpanSchema = z
   .passthrough();
 export type OtlpSpan = z.infer<typeof OtlpSpanSchema>;
 /**
- * A turn's trace (R7.5, feature `traces`): the OTLP `ExportTraceServiceRequest` JSON the Runtime
+ * A turn's trace (feature `traces`): the OTLP `ExportTraceServiceRequest` JSON the Runtime
  * posts to a collector, built from the turn's log rows. One resource, one scope.
  */
 export const TurnTraceSchema = z

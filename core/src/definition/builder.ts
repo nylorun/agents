@@ -67,7 +67,7 @@ interface BuilderSnapshot {
   readonly metadata?: JsonObject;
   readonly outputSchema?: ToolSchemaSource;
   readonly inputSchema?: ToolSchemaSource;
-  /** What the agent needs of its session's Environment (D65). */
+  /** What the agent needs of its session's Environment. */
   readonly requires?: AgentRequirements;
   readonly entries: readonly DefinitionPart[];
   /** Builder-level problems, reported with the assembly diagnostics. */
@@ -287,7 +287,7 @@ export class AgentBuilder<
   }
 
   /**
-   * What the agent needs of the Environment its session opens on (protocol 14, D65): a sandbox
+   * What the agent needs of the Environment its session opens on (protocol 14): a sandbox
    * (`any` or `pod`) and secret names its skills' scripts read. A session whose Environment lacks
    * them is refused when it opens. The agent still names no Environment. Set once.
    */

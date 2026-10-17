@@ -80,7 +80,7 @@ the browser.
 Studio lists the Tenant's sessions, sends text, displays completed
 assistant responses and tool inputs/results, restores history, observes
 canonical SSE events, and cancels a turn. Every session runs on an Agent
-(protocol 16), and none is special (D71). **Sessions** is one table of every
+(protocol 16), and none is special. **Sessions** is one table of every
 session (Agent, owner, last activity, status), newest activity first; its
 **Last activity** header sorts oldest first. Last activity is the session's last
 committed event, else when it opened; a Runtime without `session-reads` lists no

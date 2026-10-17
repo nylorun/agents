@@ -5,7 +5,7 @@
  * short-lived URL that needs no credential, for `<img>` tags and sharing. A message names an
  * artifact in a file part (`session.inputParts`), and the model reads it.
  *
- * Folders (F8.2): at the end of each turn the Runtime exports `/workspace/outputs` of the
+ * Folders: at the end of each turn the Runtime exports `/workspace/outputs` of the
  * session's sandbox as a version of its `outputs` folder. Read one as a tree, one file by path,
  * a diff between versions or a zip.
  *

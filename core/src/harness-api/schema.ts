@@ -94,8 +94,8 @@ export const EffectTargetSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("harness") }).strict(),
   /**
    * An operation the Runtime itself serves, in the transaction that journals the call, keyed by
-   * the effect id (track T4): `schedule_wake` books the session's next turn (D77); `memory` (track
-   * T5, D72) is a call of the `memory` tool, with Anthropic's memory tool parameters as its input,
+   * the effect id: `schedule_wake` books the session's next turn; `memory` is a
+   * call of the `memory` tool, with Anthropic's memory tool parameters as its input,
    * on the Agent's memories. Answered at once; the harness never executes it.
    */
   z.object({ kind: z.literal("runtime"), operation: z.enum(["schedule_wake", "memory"]) }).strict(),
@@ -206,7 +206,7 @@ export const WorkspaceCallSchema = z
   .strict();
 
 /**
- * One operation on the disk of a workspace (R2d step 3): `list` its entries (files with mode and
+ * One operation on the disk of a workspace: `list` its entries (files with mode and
  * modification time, links, empty directories; paths relative to the volume, `workspace/…` and
  * in a pod `harness/…`), `read` a range of one file (answered `{kind: "read", base64, eof}`),
  * `clear` it (the engine's own files stay), or `put` entries back in order. A `workspace.read`
@@ -248,7 +248,7 @@ export const WorkspaceDiskCallSchema = z
   .object({ session: WorkspaceSessionSchema, spec: z.unknown(), disk: DiskOpSchema })
   .strict();
 
-/** The lease on one run. `token` is the run token (F5) when the gates require one. */
+/** The lease on one run. `token` is the run token when the gates require one. */
 export const RunGrantSchema = z
   .object({
     runId: id,
@@ -276,7 +276,7 @@ export const RunRoutingSchema = z
         environmentId: id.optional(),
         spec: z.unknown().optional(),
         /**
-         * Variables every sandbox command gets (R2c, D50): each `environment_secret` name set to
+         * Variables every sandbox command gets: each `environment_secret` name set to
          * the sentinel `nylorun_managed`, and each `environment_variable`'s value. Never a secret.
          */
         environment: z.record(z.string(), z.string()).optional(),
@@ -287,7 +287,7 @@ export const RunRoutingSchema = z
   .strict();
 
 /**
- * The fields of `TurnStart.checkpoint` a harness reads (R4.2); the rest are our engine's. An
+ * The fields of `TurnStart.checkpoint` a harness reads; the rest are our engine's. An
  * agent turn's `input` is the turn's message: a string, `{text, metadata?}`, `{content,
  * metadata?}` with user content parts, `{kind: "messages", messages}` for messages that waited in
  * the session's queue (protocol 17: each one of the shapes before, each its own user message, in
@@ -347,7 +347,7 @@ export const TurnAgentSchema = z
     /** Present when the session has a sandbox. */
     sandbox: z.object({ workspace: z.string().regex(/^\//) }).strict().optional(),
     /**
-     * The version the session runs sets `runtime.selfWake` (track T4, D77): our engine offers
+     * The version the session runs sets `runtime.selfWake`: our engine offers
      * `schedule_wake`, a `runtime` effect.
      */
     selfWake: z.boolean().optional(),
@@ -355,7 +355,7 @@ export const TurnAgentSchema = z
   .strict();
 
 /**
- * The Agent's memory as a turn starts (track T5, D72), present when the version its session runs
+ * The Agent's memory as a turn starts, present when the version its session runs
  * sets `harness.memory`: its access in every turn, the agent's own `instructions`, and the index a
  * harness pins in the session (one line per memory, newest first, with its description, within
  * the Runtime limits `memoryIndexLines` and `memoryIndexBytes`; `truncated` when some were left
@@ -389,7 +389,7 @@ export const TurnStartSchema = z
      * passes on without reading. Ours reads none yet.
      */
     loop: document.optional(),
-    /** The Agent's memory (track T5), when the version its session runs sets `harness.memory`. Absent for a flow. */
+    /** The Agent's memory, when the version its session runs sets `harness.memory`. Absent for a flow. */
     memory: TurnMemorySchema.optional(),
     /** The segment's checkpoint; an agent's state has no transcript (`transcript.cursor`). */
     checkpoint: document,
@@ -410,14 +410,14 @@ export const TurnStartSchema = z
         flowLimits: z.unknown().optional(),
         /**
          * Informational: the Tenant answers model calls with the fixture model. The Model Gate
-         * answers them itself (R4.3), so a harness calls the gate as for any model.
+         * answers them itself, so a harness calls the gate as for any model.
          */
         fixtureModel: z.boolean(),
       })
       .strict(),
     routing: RunRoutingSchema,
     /**
-     * The turn's trace context (R4.10), when the Runtime traces: a harness may send it as
+     * The turn's trace context, when the Runtime traces: a harness may send it as
      * `traceparent` on its gate calls and as `TRACEPARENT` to the processes it starts, so its own
      * spans join the turn's trace. The Runtime never ingests a harness's spans.
      */
@@ -480,7 +480,7 @@ export const IntentAnswerSchema = z.union([
       status: z.literal("execute"),
       rejoin: z.literal(true).optional(),
       /**
-       * The call's span context (R7.4), for a tool call: a harness hands it on as `TRACEPARENT`
+       * The call's span context, for a tool call: a harness hands it on as `TRACEPARENT`
        * to the command it runs, so the command's own spans join the call's.
        */
       traceparent: TraceContextSchema.shape.traceparent.optional(),
@@ -507,7 +507,7 @@ export type RequestTypes<Schemas extends RequestSchemas> = {
 /** Requests a harness sends to core, with their answers. */
 export const harnessRequests = {
   /**
-   * `features.workspace` declares that the harness serves the Tenant's workspaces (F6.2):
+   * `features.workspace` declares that the harness serves the Tenant's workspaces:
    * core then sends it the `workspace.*` requests. The answer names the Tenant (its workspace
    * keys are scoped by it) and the sandbox backend preference the harness selects with.
    */
@@ -578,7 +578,7 @@ export const harnessRequests = {
     result: z.object({ mcp: McpFactsSchema.optional() }).strict(),
   },
   /**
-   * A definition file's bytes, base64 (track R2 M4): one the run's definition names, for the
+   * A definition file's bytes, base64: one the run's definition names, for the
    * skills its sandbox mounts. With `offset` and `length` (at most `turn.start.limits.chunkBytes`,
    * its default without `length`; more is `limit_exceeded`), only those bytes: fewer than
    * `length`, none past the end, once the file ends. Without them the whole file, which must then
@@ -719,7 +719,7 @@ export const harnessRequests = {
       z
         .object({
           status: z.literal("refused"),
-          /** The total a folder version would pass: the Tenant's, or the session's Environment's. */
+          /** The total a folder version would pass: the Tenant's, or the session's Agent's. */
           reason: z.enum(["tenant_total", "environment_total"]),
           message: z.string(),
           limit: z.number().int().nonnegative(),
@@ -737,7 +737,7 @@ export const harnessRequests = {
 } satisfies RequestSchemas;
 
 /**
- * Requests core sends to a harness that declared `workspace` (F6.2), with their answers. A
+ * Requests core sends to a harness that declared `workspace`, with their answers. A
  * sandbox tool's answer is its `SandboxToolOutcome`; the harness claims its `environment.*` events
  * while the request is in flight.
  */

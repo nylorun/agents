@@ -1,5 +1,5 @@
 /**
- * Agent manifests (protocol 16, track T2): `client.agentManifests`. An agent manifest (v8) is one
+ * Agent manifests (protocol 16): `client.agentManifests`. An agent manifest (v8) is one
  * named, versioned document with what runs inside the agent loop (`harness`: the harness's id,
  * instructions, tools, skills, MCP servers, plugins, output schema, the harness's own `loop`
  * settings, memory; or a flow, `kind: "workflow"`) and what the Runtime provides around it
@@ -295,7 +295,7 @@ export class AgentManifestsClient {
 
   /**
    * Saves the manifest's next version (`PUT /v1/agent-manifests/{name}`), or answers the latest
-   * unchanged; every Agent that tracks the manifest moves to it (track T3). Refused before anything is sent when it
+   * unchanged; every Agent that tracks the manifest moves to it. Refused before anything is sent when it
    * misses its `requires` or, composed, its sections do not fit (`ManifestGapsError`).
    */
   async save(input: AgentManifestInput, options: AgentManifestSaveOptions = {}): Promise<SaveAgentManifestResponse> {

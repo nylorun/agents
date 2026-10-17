@@ -159,7 +159,7 @@ const RUNTIME_TAGS: readonly Tag[] = [
     name: "Agent manifests",
     group: "Agents",
     description:
-      "Named, versioned agent manifests (protocol 16): one document with what runs inside an agent's loop (`harness`) and what the Runtime provides around it (`runtime`), checked against each other when it is saved. Save one with a plan first (`?dryRun=true`) and `If-Match`; an Agent is made from one version and keeps it, so a save changes no Agent. `client.agentManifests` in `@nylorun/agents`, and `nylorun apply`.",
+      "Named, versioned agent manifests (protocol 16): one document with what runs inside an agent's loop (`harness`) and what the Runtime provides around it (`runtime`), checked against each other when it is saved. Save one with a plan first (`?dryRun=true`) and `If-Match`; an Agent runs one version at a time, and a save moves every Agent that tracks the manifest to the new version, while a pinned one stays. `client.agentManifests` in `@nylorun/agents`, and `nylorun apply`.",
     operations: [
       "PUT /v1/agent-manifests/{name}",
       "GET /v1/agent-manifests",
@@ -205,7 +205,7 @@ const RUNTIME_TAGS: readonly Tag[] = [
     name: "Triggers",
     group: "Agents",
     description:
-      "What starts an Agent's turns with no client connected (track T4, D74): the schedules, one-shot times and webhook endpoints its manifest's `runtime.triggers` declare. Each trigger's status is the Agent's: pause and resume it, run it now, make a webhook trigger's signing secret, and read its runs (`started`, `queued`, `skipped` or `failed`, with a reason). In `@nylorun/agents` and `nylorun agents triggers`.",
+      "What starts an Agent's turns with no client connected: the schedules, one-shot times and webhook endpoints its manifest's `runtime.triggers` declare. Each trigger's status is the Agent's: pause and resume it, run it now, make a webhook trigger's signing secret, and read its runs (`started`, `queued`, `skipped` or `failed`, with a reason). In `@nylorun/agents` and `nylorun agents triggers`.",
     operations: [
       "GET /v1/agents/{agentId}/triggers",
       "POST /v1/agents/{agentId}/triggers/{triggerId}/pause",
@@ -220,7 +220,7 @@ const RUNTIME_TAGS: readonly Tag[] = [
     name: "Memory",
     group: "Agents",
     description:
-      "An Agent's memories (track T5, D72): Markdown files under `/memories` it keeps across sessions, wakes and upgrades, shaped like Anthropic's memory stores. List and read them, write one whole (with a `content_sha256` precondition), delete one or a folder, and read the version every change leaves, with who made it. In `@nylorun/agents` and `nylorun agents memories`.",
+      "An Agent's memories: Markdown files under `/memories` it keeps across sessions, wakes and upgrades, shaped like Anthropic's memory stores. List and read them, write one whole (with a `content_sha256` precondition), delete one or a folder, and read the version every change leaves, with who made it. In `@nylorun/agents` and `nylorun agents memories`.",
     operations: [
       "GET /v1/agents/{agentId}/memories",
       "GET /v1/agents/{agentId}/memories/{path}",

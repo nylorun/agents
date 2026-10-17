@@ -160,6 +160,48 @@ describe("checks between the sections", () => {
     ]);
   });
 
+  it("checks a flow's HTTP stages and verifiers, and embedded agents' HTTP tools, as an agent's HTTP tools", () => {
+    const runtime = {
+      kind: "none" as const,
+      secrets: {
+        MODE: { type: "environment_variable" as const },
+        ORDERS: { type: "bearer" as const, url: "https://api.example.com/orders" },
+        CHECKS: { type: "headers" as const, url: "https://checks.example/verify" },
+      },
+    };
+    const http = (credential: string, url = "https://api.example.com/orders") => ({ url, credential });
+    const flow = (stage: string, verifier: string, embedded: string) => ({
+      kind: "workflow" as const,
+      root: {
+        chain: [
+          { tool: { name: "fetch", http: http(stage) } },
+          { loop: { run: { agent: "writer" }, verify: { http: http(verifier, "https://checks.example/verify") }, max: 3 } },
+        ],
+      },
+      agents: {
+        writer: {
+          manifestSchemaVersion: 7 as const,
+          id: "writer",
+          tools: [{ name: "orders", inputSchema: { type: "object" }, http: http(embedded) }],
+        },
+      },
+    });
+    expect(sectionGaps({ harness: flow("ORDERS", "CHECKS", "ORDERS"), runtime })).toEqual([]);
+    expect(sectionGaps({ harness: flow("NOPE", "MODE", "ORDERS"), runtime })).toEqual([
+      'harness.root stage "fetch" http.credential "NOPE" is not a secret slot in runtime.secrets',
+      'harness.root stage "@1.verify" http.credential "MODE" is a slot of type environment_variable; an HTTP verifier needs a bearer or headers slot',
+    ]);
+    expect(sectionGaps({ harness: flow("ORDERS", "ORDERS", "NOPE"), runtime })).toEqual([
+      'harness.root stage "@1.verify" http.credential "ORDERS" is bound to https://api.example.com/orders, not to an HTTP verifier\'s URL https://checks.example/verify',
+      'harness.agents.writer.tools.orders.http.credential "NOPE" is not a secret slot in runtime.secrets',
+    ]);
+    // An agent an agent's tool runs is checked too.
+    const writer = flow("x", "x", "NOPE").agents.writer;
+    expect(sectionGaps({ harness: { tools: [{ name: "write", inputSchema: { type: "object" }, agent: writer }] }, runtime })).toEqual([
+      'harness.tools.write.agent.tools.orders.http.credential "NOPE" is not a secret slot in runtime.secrets',
+    ]);
+  });
+
   it("derives the sandbox the harness needs and checks the runtime's kind gives it", () => {
     expect(sandboxNeedOf({ instructions: ["x"] })).toBe("none");
     expect(sandboxNeedOf({ skills: { labeler: SKILL } })).toBe("sandbox");

@@ -1,8 +1,8 @@
 /**
- * HTTP tools (R2 M3): a tool the manifest describes as one HTTP request, which the Runtime makes
+ * HTTP tools: a tool the manifest describes as one HTTP request, which the Runtime makes
  * itself through its Tool Gate. No developer code runs for it: the tool value carries its target
  * (`http`) into the manifest, and its `execute` only says where it runs. Whether a call waits for
- * a person is the Tenant's tool policy, decided at the Tool Gate (R5 step 2), never the tool's.
+ * a person is the Tenant's tool policy, decided at the Tool Gate, never the tool's.
  * An HTTP tool is also a flow stage. `http({ url })` without a name and an input is a bare
  * target, a Loop's HTTP verifier: its manifest form is itself, `{ http: { url, … } }`.
  *
@@ -42,7 +42,7 @@ export const HTTP_TOOL_DEFAULT_TIMEOUT_MS = 60_000;
 export interface HttpTool {
   readonly http: HttpToolTarget;
   /**
-   * @deprecated A pinned manifest's `approval`, from before R5 step 2: kept so the rebuilt
+   * @deprecated A pinned manifest's `approval`, from before the Tenant's tool policy: kept so the rebuilt
    * definition hashes as pinned, and held by the Tool Gate. Nothing asks for it here, and
    * `http()` refuses it.
    */

@@ -18,13 +18,13 @@ export interface SessionToolRef {
   readonly name: string;
   /**
    * Text the model reads while the tool is advertised, such as `tool_search`'s note of the
-   * servers whose tools are deferred (R2b C10). Not hashed.
+   * servers whose tools are deferred. Not hashed.
    */
   readonly instructions?: readonly string[];
 }
 
 /**
- * Rebuild an agent from its manifest and the code of its tools, by name (T28). Agents used as
+ * Rebuild an agent from its manifest and the code of its tools, by name. Agents used as
  * tools and HTTP tools need no code. A session tool (`sessionTools`) is offered in the session
  * part, after the agent's own, with `sessionInstructions` (text not tied to one tool) before its
  * tools' own; it needs its code, and its name may not be one of the agent's tools.

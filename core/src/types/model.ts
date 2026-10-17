@@ -168,7 +168,7 @@ export interface ModelRequest {
   readonly instructions: readonly string[];
   /**
    * Text the engine keeps at the head of the conversation, after the instructions, as user-role
-   * context: the Agent's memory index (track T5). The same for every call until it is re-pinned.
+   * context: the Agent's memory index. The same for every call until it is re-pinned.
    */
   readonly pinned?: readonly string[];
   readonly context: ContextSnapshot;

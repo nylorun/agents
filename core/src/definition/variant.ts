@@ -32,10 +32,10 @@ function removeOnlyTools(
 }
 
 /**
- * One tool setting, or the `"*"` entry, only tightened (R2b C9, Q18): `enabled` kept or set to
+ * One tool setting, or the `"*"` entry, only tightened: `enabled` kept or set to
  * `false`, `approval` and `deferred` kept. Each level of a tool's resolution (its entry, then
  * `"*"`) either keeps its value or tightens it, so the tool does too. A variant adds no
- * approval: tool approvals are the Tenant's tool policy (R5 step 2).
+ * approval: tool approvals are the Tenant's tool policy.
  */
 function tightensSettings(
   prior: McpToolSettings | undefined,
@@ -50,7 +50,7 @@ function tightensSettings(
 
 /**
  * The servers of a turn variant: the pinned ones, the same but for their `tools` maps, where a
- * variant may only disable a tool (R2b C9, Q18). An entry the pin has
+ * variant may only disable a tool. An entry the pin has
  * stays, since dropping one could widen.
  */
 function tightensServers(
@@ -75,7 +75,7 @@ function tightensServers(
 /**
  * Whether `candidate` is a valid turn-manifest variant of the session's pinned manifest
  * (`loops.md` §3.4). A variant may remove tools (agents used as tools and HTTP tools included),
- * tighten its MCP servers' tool settings (R2b C9, Q18), and change its instructions, name,
+ * tighten its MCP servers' tool settings, and change its instructions, name,
  * description and metadata. Its skills and servers are setup: the sandbox holds the skills from
  * the session's start.
  */

@@ -1,5 +1,5 @@
 /**
- * Agent manifest v8's two sections against each other (protocol 16, track T2). The Runtime sees
+ * Agent manifest v8's two sections against each other (protocol 16). The Runtime sees
  * both sections when a manifest is saved, so it checks there what `requires` used to check when a
  * session opened: every gap is named in one `422 manifest_inconsistent`, and a dry run reports
  * them as plan errors. The CLI and the SDK run the same checks while they compose the files.
@@ -15,6 +15,7 @@ import type {
 } from "../types/manifest.js";
 import type { WorkflowManifest } from "../types/workflow.js";
 import { DEFAULT_HARNESS } from "../utils/harness-id.js";
+import { forEachFlowNode } from "./flow/paths.js";
 
 /** What the loop needs of the runtime: a pod, any sandbox (`virtual` or `pod`), or nothing. */
 export type SandboxNeed = "pod" | "sandbox" | "none";
@@ -86,9 +87,10 @@ export function runtimeOf(manifest: Pick<AgentManifestV8, "runtime">): RuntimeSe
  * order. Empty when they fit:
  *
  * 1. A custom harness (`harness.id` not `nylorun`) needs `runtime.kind` `pod` with an `image`.
- * 2. Every credential the harness names is a declared slot of the right type: an MCP server's or
- *    HTTP tool's `credential` a `bearer` or `headers` slot bound to its URL, a skill's `secrets`
- *    `environment_secret` or `environment_variable` slots.
+ * 2. Every credential the harness names is a declared slot of the right type: an MCP server's,
+ *    HTTP tool's, flow HTTP stage's or HTTP verifier's `credential` (an embedded agent's too) a
+ *    `bearer` or `headers` slot bound to its URL, a skill's `secrets` `environment_secret` or
+ *    `environment_variable` slots.
  * 3. The runtime's kind gives the harness the sandbox it needs (`sandboxNeedOf`).
  */
 export function sectionGaps(manifest: Pick<AgentManifestV8, "harness" | "runtime">): string[] {
@@ -119,13 +121,37 @@ export function sectionGaps(manifest: Pick<AgentManifestV8, "harness" | "runtime
     if (want === undefined || normalizeCredentialUrl(slot.url) !== want)
       gaps.push(`${where} ${quoted(name)} is bound to ${slot.url}, not to ${what}'s URL ${url}`);
   };
-  if (!isWorkflowHarness(harness)) {
+  // The Tool Gate sends an HTTP target's `credential` from the vault by that name, wherever the
+  // target sits: an agent's HTTP tool, a flow's HTTP stage or HTTP verifier, or one of an
+  // embedded agent's.
+  const agentTools = (tools: AgentManifest["tools"], at: string): void => {
+    for (const tool of tools ?? []) {
+      if (tool.http?.credential !== undefined)
+        urlSlot(`${at}.tools.${tool.name}.http.credential`, tool.http.credential, tool.http.url, "an HTTP tool");
+      if (tool.agent !== undefined) embedded(tool.agent, `${at}.tools.${tool.name}.agent`);
+    }
+  };
+  const flowStages = (flow: Pick<WorkflowManifest, "root" | "agents">, at: string): void => {
+    forEachFlowNode(flow.root, ({ node, key, role }) => {
+      const http = "http" in node ? node.http : "tool" in node ? node.tool.http : undefined;
+      if (http?.credential !== undefined)
+        urlSlot(
+          `${at}.root stage ${quoted(key)} http.credential`,
+          http.credential,
+          http.url,
+          role === "verify" ? "an HTTP verifier" : "an HTTP stage",
+        );
+    });
+    for (const [id, agent] of Object.entries(flow.agents)) embedded(agent, `${at}.agents.${id}`);
+  };
+  const embedded = (agent: AgentManifest | WorkflowManifest, at: string): void =>
+    "kind" in agent ? flowStages(agent, at) : agentTools(agent.tools, at);
+  if (isWorkflowHarness(harness)) flowStages(harness, "harness");
+  else {
     for (const [key, server] of Object.entries(harness.mcpServers ?? {}))
       if (server.credential !== undefined)
         urlSlot(`harness.mcpServers.${key}.credential`, server.credential, server.url, "an MCP server");
-    for (const tool of harness.tools ?? [])
-      if (tool.http?.credential !== undefined)
-        urlSlot(`harness.tools.${tool.name}.http.credential`, tool.http.credential, tool.http.url, "an HTTP tool");
+    agentTools(harness.tools, "harness");
     for (const [key, skill] of Object.entries(harness.skills ?? {}))
       for (const name of skill.secrets ?? []) {
         const slot = slots[name];

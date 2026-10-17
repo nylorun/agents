@@ -1,5 +1,5 @@
 /**
- * Three-file authoring (protocol 16, track T2): `composeManifest(dir)` reads `agent.manifest.json`
+ * Three-file authoring (protocol 16): `composeManifest(dir)` reads `agent.manifest.json`
  * and the files it names, and makes the one agent manifest v8 document the Runtime saves, with
  * the bytes of every file it names by hash. `nylorun apply` runs it for each folder.
  *

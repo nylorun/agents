@@ -1,7 +1,7 @@
 export { hashManifest } from "./utils/hash.js";
 
 /**
- * Protocol 17: a queue per session (track T4, D76). A message sent while the session's turn runs,
+ * Protocol 17: a queue per session. A message sent while the session's turn runs,
  * or while it waits on an approval, an answer or an uncertain call, is queued
  * (`{status: "queued", queuedMessageId, position}`, `message.queued`) instead of refused, unless
  * it asks `delivery: "reject"`; the refusal now has a code, `409 session_busy`. When the turn ends
@@ -11,7 +11,7 @@ export { hashManifest } from "./utils/hash.js";
  * `sessionQueuedMessages` a message is `429 queue_full`. Session reads count `queuedMessages`. The
  * Host serves protocol 16 and 17: a message from a protocol 16 client is `reject` unless it says
  * otherwise, so its sessions answer `409` as before.
- * Protocol 16: Agents from one manifest (track T2), a fresh start. An agent manifest (v8) is one
+ * Protocol 16: Agents from one manifest, a fresh start. An agent manifest (v8) is one
  * versioned document at `/v1/agent-manifests/{name}` with a `harness` section (what runs inside
  * the loop, including the harness's id) and a `runtime` section (what an environment manifest
  * said); the Runtime checks the two against each other when it is saved
@@ -20,14 +20,14 @@ export { hashManifest } from "./utils/hash.js";
  * Environments are Agents: `/v1/agents/{id}` (with `.../events`, `stop`, `reset`, `snapshot`,
  * `restore`, `versions`, `fork` and `secrets`) is made from a saved manifest only, records it as
  * tracking (`name`) or pinned (`name@n`) into `resolvedVersion`, the version it runs. An Agent
- * evolves (track T3, D73): a `PUT` naming another version of its manifest moves it (`dryRun`
+ * evolves: a `PUT` naming another version of its manifest moves it (`dryRun`
  * answers the plan), a save moves every Agent that tracks the manifest, and each turn takes the
  * version its Agent runs when it starts; a runtime change waits for a pod's next start, and its
  * kind, harness and storage are fixed (`409 agent_fixed_field`). Reads add `state`
  * (`working`, `sleeping`, `input_required`, `failing`, `paused`) and `attention`, and the
  * compute's state moves to `compute.state`. Every session belongs to one Agent:
  * `PUT /v1/sessions/{id}` takes `{ agent, ownerUserId, info }` and pins the manifest version its
- * Agent runs; no session is special (D71). Error codes, event types (`agent.*`), the scopes
+ * Agent runs; no session is special. Error codes, event types (`agent.*`), the scopes
  * (`agents:write`, `agent-manifests:write`) and identity-file grants (`agents`) say Agent. Model
  * budget scope `agent` is `manifest`. Harness API 5: `turn.start.agent` replaces
  * `turn.start.environment`. Sessions opened before protocol 16 are closed (`protocol_16`) and
@@ -48,7 +48,7 @@ export { hashManifest } from "./utils/hash.js";
  * key on (a policy rule with `__` in its `tool` refuses every call). The record refuses an
  * outcome past `limits.recordEntryBytes`. Sessions pinned before protocol 15 must be recreated.
  * The Host serves protocol 15 only.
- * Protocol 14: environment manifests (D63 to D65). `/v1/environment-manifests/{name}` holds
+ * Protocol 14: environment manifests. `/v1/environment-manifests/{name}` holds
  * named, versioned definitions of a kind of Environment, saved like agents (with `If-Match` and
  * `?dryRun=true`), and `PUT /v1/environments/{id}` takes `manifest: "name"` or `"name@n"`. An
  * Environment never changes what it runs after creation: a `PUT` on an existing one may change
@@ -56,10 +56,10 @@ export { hashManifest } from "./utils/hash.js";
  * `manifest`. A manifest's `secrets` declares slots: a write sends only the value, and a name it
  * does not declare is `409 secret_not_in_manifest`. An agent manifest's `requires` is checked
  * when a session opens (`409 environment_unsuitable`). Sessions on one Environment run their
- * turns in parallel (D66), so a turn start is no longer `environment_busy` because another
+ * turns in parallel, so a turn start is no longer `environment_busy` because another
  * session's turn runs, and every egress connection is an `environment.egress` event on the
  * Environment's stream naming the turns that were running; `egress.connection` is gone from
- * session logs and traces (D67). The Host serves protocol 14 only.
+ * session logs and traces. The Host serves protocol 14 only.
  * Protocol 13: the flat agent manifest (v7), a fresh start. A manifest has no capabilities: its
  * instructions, tools, skills and MCP servers are top-level, and a skill or server from an Agent
  * Plugin carries a `plugin` label. A session's pinned manifest carries the Runtime's `runtime`
@@ -73,7 +73,7 @@ export { hashManifest } from "./utils/hash.js";
  * accept (`422 attachment_unsupported`), with no turn. After its turn a file is a reference line
  * the model reads again with `read_artifact`, which every agent now has. The Host accepts
  * protocol 11 and 12: the change is additive.
- * Protocol 11: Environments (R2d, D55, D56), a fresh start. `/v1/environments/{id}` replaces
+ * Protocol 11: Environments, a fresh start. `/v1/environments/{id}` replaces
  * `/v1/sandboxes`: an Environment is one sandbox (kind `virtual`, `pod` or `none`) with a recipe
  * that can change and one vault, written on the Runtime API
  * (`PUT /v1/environments/{id}/secrets/{name}`). Sessions name an `environment` or nothing; the
@@ -81,7 +81,7 @@ export { hashManifest } from "./utils/hash.js";
  * user and installation vaults and `/v1/tenant/vaults` are gone. Error codes, event types, the
  * scope (`environments:write`) and identity-file grants (`environments`) say Environment. An
  * older client is answered `426`.
- * Protocol 10: MCP credential custody leaves OSS (D49). The vault credential type `oauth`, the
+ * Protocol 10: MCP credential custody leaves OSS. The vault credential type `oauth`, the
  * MCP OAuth connect (`/v1/tenant/vaults/{vaultId}/oauth/start`, `/v1/oauth/callback`) and the
  * credential resolver are gone: a session's MCP servers and HTTP tools reach their credentials
  * through its attached vaults only.
@@ -90,12 +90,12 @@ export { hashManifest } from "./utils/hash.js";
  * `WWW-Authenticate: Bearer` challenge instead of the opaque 404, a token missing a scope gets
  * `error="insufficient_scope"`, and `GET /.well-known/oauth-protected-resource` names the trusted
  * issuers. Identity files lose `maxLifetime`: the issuer sets its tokens' lifetimes.
- * Protocol 8: the Runtime and Management APIs (`key_role_mismatch`), and manifest-only agents
- * (track R2): manifest v5 and workflow manifest v3, no hooks or flow functions, remote MCP
+ * Protocol 8: the Runtime and Management APIs (`key_role_mismatch`), and manifest-only agents:
+ * manifest v5 and workflow manifest v3, no hooks or flow functions, remote MCP
  * only, and no Action endpoints (`/v1/endpoints` and `/v1/actions/*` answer 404, delivery
  * tokens are gone): an agent's tools are HTTP tools, remote MCP servers, agents and the
  * Runtime's built-ins.
- * Protocol 7: open-source auth (F9 I3). Subject tokens (`POST /v1/tokens`), the access policy,
+ * Protocol 7: open-source auth. Subject tokens (`POST /v1/tokens`), the access policy,
  * revocations, browser keys (`Nylorun-Key`), the Runtime's own CORS and derived principals are gone; their
  * routes answer 404. Browsers and apps present a trusted issuer's token, servers an operator key.
  * Protocol 6: file artifacts (`/v1/artifacts/**`, Runtime-signed capability links) and user
@@ -147,7 +147,7 @@ export const PROTOCOL_FEATURES = [
    */
   "agents",
   /**
-   * Protocol 17: a queue per session (D76). A message to a busy session is queued unless it asks
+   * Protocol 17: a queue per session. A message to a busy session is queued unless it asks
    * `delivery: "reject"`, and the busy refusal is `409 session_busy`.
    */
   "session-queue",
@@ -180,14 +180,14 @@ export type ProtocolFeature = (typeof PROTOCOL_FEATURES)[number];
  * `credential-coverage`: `POST /v1/tenant/credential-coverage` (the Management API) says which
  * credential of an Environment's vault each of a saved agent's MCP servers and HTTP tools would
  * get in a session that names that Environment.
- * `tool-calls` (R5): `GET /v1/sessions/{id}/calls/tool` pages a session's tool calls from the
+ * `tool-calls`: `GET /v1/sessions/{id}/calls/tool` pages a session's tool calls from the
  * effect journal, every `tool.completed` says how its call ended (`status`, `kind`, `server`,
  * `attempts`, `durationMs`), and tool calls are delivered at least once with their effect id as
  * the key (`Idempotency-Key` for HTTP tools, `_meta["nylorun/idempotency-key"]` for MCP tools).
- * `tool-policy` (R5 step 2): `GET`/`PUT /v1/tenant/tool-policy` (the Management API) sets which
+ * `tool-policy`: `GET`/`PUT /v1/tenant/tool-policy` (the Management API) sets which
  * MCP and HTTP tool calls run, wait for a person (`ask`: the turn pauses until `approve`) or are
  * refused (`deny`: `tool.denied`), for every harness; a manifest that sets `approval` is refused.
- * `traces` (R7): `GET /v1/sessions/{id}/turns/{turnId}/trace` answers a turn's spans as OTLP JSON,
+ * `traces`: `GET /v1/sessions/{id}/turns/{turnId}/trace` answers a turn's spans as OTLP JSON,
  * the spans the Runtime posts to an OTLP collector when one is configured; a command or an AG-UI
  * or A2A request sent with a `traceparent` joins the caller's trace.
  */
@@ -289,15 +289,15 @@ export const ERROR_CODES = [
    */
   "queue_full",
   /**
-   * `POST /v1/agents/{id}/triggers/{triggerId}/resume` on an `at` trigger whose time has passed
-   * (track T4): `409`. Save a manifest version with a new time.
+   * `POST /v1/agents/{id}/triggers/{triggerId}/resume` on an `at` trigger whose time has passed:
+   * `409`. Save a manifest version with a new time.
    */
   "trigger_expired",
-  /** A signed delivery to a paused webhook trigger (D75): `409`; nothing runs. */
+  /** A signed delivery to a paused webhook trigger: `409`; nothing runs. */
   "trigger_paused",
   /**
    * A memory write whose `content_sha256` precondition no longer holds, or a path a folder or
-   * another memory already holds (track T5, D72): `409`. Read the memory again and write on top.
+   * another memory already holds: `409`. Read the memory again and write on top.
    */
   "memory_conflict",
   /** Disk work (snapshot, restore, stop, reset) while a turn runs, or a turn while a disk copy runs. */
@@ -314,9 +314,9 @@ export const ERROR_CODES = [
    */
   "agent_owner_mismatch",
   /**
-   * The session's Environment runs another harness than the one the session pinned when it
-   * opened (track R4): its id was deleted and made again with another harness, or an
-   * Environment changed in place before protocol 14 applied that change. Open a new session.
+   * The session's Agent runs another harness than the one the session pinned when it opened: an
+   * Agent's harness is fixed for its life, so its id was deleted and made again from a manifest
+   * with another harness. Open a new session.
    */
   "harness_mismatch",
   /**
@@ -330,36 +330,36 @@ export const ERROR_CODES = [
    */
   "issuer_unavailable",
   /**
-   * A definition names definition files the Runtime does not hold (track R2 M4): upload each
+   * A definition names definition files the Runtime does not hold: upload each
    * with `PUT /v1/files/sha256:<hex>` first. `details.missing` lists their hashes.
    */
   "definition_files_missing",
   /**
    * Not an HTTP answer: the code of a tool error the model sees when an MCP server or HTTP tool
-   * answered `401` (R2b C1). The vault's credential (or none) was rejected; the call is not retried.
+   * answered `401`. The vault's credential (or none) was rejected; the call is not retried.
    */
   "credential_rejected",
   /**
-   * `POST /v1/tenant/mcp/preview` could not list the server's tools (R2b C12): `502`, with
+   * `POST /v1/tenant/mcp/preview` could not list the server's tools: `502`, with
    * `details.failure` the code a tool call would have failed with (`mcp.unreachable` for an
    * address the Host refuses, a connection that failed or a server silent past 15 s;
    * `mcp.forbidden`, `mcp.status`, `mcp.error`).
    */
   "mcp_preview_failed",
   /**
-   * An Environment's credentials would be ambiguous (R2c, D56): `409` at the secret write. Two
+   * An Environment's credentials would be ambiguous: `409` at the secret write. Two
    * `environment_secret` credentials would be bound to one host, or two `bearer` or `headers`
    * credentials to one URL.
    */
   "credential_conflict",
   /**
-   * A move of an existing Agent (`PUT /v1/agents/{id}`, track T3) would change what is fixed for
-   * its life: its manifest's name, its kind, its harness or its storage (D73). `409`, with each in
+   * A move of an existing Agent (`PUT /v1/agents/{id}`) would change what is fixed for
+   * its life: its manifest's name, its kind, its harness or its storage. `409`, with each in
    * `details.fields`. Fork it into a new Agent (`POST /v1/agents/{id}/fork`) instead.
    */
   "agent_fixed_field",
   /**
-   * A secret write named a secret the Agent's manifest does not declare (D64): `409`. Add the
+   * A secret write named a secret the Agent's manifest does not declare: `409`. Add the
    * slot to the manifest's runtime section and move the Agent to the new version.
    */
   "secret_not_in_manifest",
@@ -374,7 +374,7 @@ export const ERROR_CODES = [
   /** An agent manifest some Agent was made from cannot be deleted: `409`. */
   "manifest_in_use",
   /**
-   * `If-Match` named a version that is no longer the latest (D63): `412`. Read the manifest
+   * `If-Match` named a version that is no longer the latest: `412`. Read the manifest
    * again, or save without `If-Match` (the CLI's `--if-match`, the SDK's `ifMatch`).
    */
   "manifest_changed",
@@ -393,7 +393,7 @@ export const ARTIFACT_ID_PATTERN = /^af_[0-9a-hjkmnp-tv-z]{26}$/;
 /**
  * An application key's id: an operator key's name, which names its client (e.g. `backend`).
  * `studio` is reserved for the key Studio derives from the admin key.
- * An identifier's grammar is the protocol's (B15): it crosses the Runtime API, tokens and grants
+ * An identifier's grammar is the protocol's: it crosses the Runtime API, tokens and grants
  * and means the same in every installation, so its length is a constant of protocol 15, not a
  * setting.
  */

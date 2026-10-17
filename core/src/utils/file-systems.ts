@@ -1,5 +1,5 @@
 /**
- * What the file systems a workspace lives on take (B15: constants fixed by a standard, not
+ * What the file systems a workspace lives on take (constants fixed by a standard, not
  * limits): artifact names and folder paths are written as file names and paths there, when an
  * artifact is copied into a sandbox, a folder unpacked, a skill mounted or a file downloaded.
  */
