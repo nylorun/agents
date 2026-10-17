@@ -515,17 +515,17 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
   const agentFilter =
     new URLSearchParams(location.search).get(AGENT_FILTER) || undefined;
   const openAgentId = agent?.kind === "agent" ? agent.id : agentId;
+  // The sidebar's Agent: the one the session table is filtered on, or whose page or session is open.
+  const sidebarAgentId = sessionList ? agentFilter : openAgentId;
   return (
     <SidebarProvider className="h-svh overflow-hidden">
       <AppSidebar
         connection={connection}
         tenant={tenant}
         catalog={catalog}
-        sessionsActive={sessionList}
-        agentsActive={resourceActive === "agents" || sessionId !== undefined}
+        allSessionsActive={sessionList && agentFilter === undefined}
         manifestsActive={resourceActive === "manifests"}
-        {...(openAgentId === undefined ? {} : { activeAgentId: openAgentId })}
-        {...(agent?.kind === "list" && filter.manifest !== undefined ? { activeManifest: filter.manifest } : {})}
+        {...(sidebarAgentId === undefined ? {} : { activeAgentId: sidebarAgentId })}
         {...(settingsSection ? { settingsSection } : {})}
       />
       <SidebarInset className="flex h-svh min-h-0 min-w-0 flex-col overflow-hidden">

@@ -546,9 +546,13 @@ test("the session list shows every session and filters on an Agent; an Agent's p
     await rows(2);
     await page.getByRole("link", { name: FLOW_SESSION, exact: true }).waitFor();
     await page.getByRole("link", { name: CHILD_SESSION, exact: true }).waitFor();
-    // An Agent's page lists the sessions on it; none is special.
+    // The sidebar's Agent filters the table the same way; its details open its page.
     const sidebar = page.locator("[data-sidebar=sidebar]");
-    await sidebar.locator(`a[href$="/agents/${AGENT}"]`).click();
+    await sidebar.locator(`a[href$="/sessions?agent=${AGENT}"]`).click();
+    await page.waitForURL(`${studioUrl}/tenants/${TENANT}/sessions?agent=${AGENT}`);
+    await rows(2);
+    // An Agent's page lists the sessions on it; none is special.
+    await page.getByRole("link", { name: "Agent details" }).click();
     await page.waitForURL(`${studioUrl}/tenants/${TENANT}/agents/${AGENT}`);
     await page.getByRole("heading", { name: AGENT, exact: true }).waitFor();
     await page.getByRole("tab", { name: "Sessions", exact: true }).click();
