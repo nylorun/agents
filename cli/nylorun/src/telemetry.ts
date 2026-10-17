@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { CliError } from "./errors.js";
+import { CliError, HelpRequest, isHelp } from "./errors.js";
 
 /**
  * Studio's anonymous usage analytics. Studio's dashboard reports page views,
@@ -89,6 +89,7 @@ export async function telemetryCommand(
     out(line: string): void;
   },
 ): Promise<number> {
+  if (args.some(isHelp)) throw new HelpRequest(USAGE);
   const [action = "status", ...rest] = args;
   if (rest.length || !["status", "enable", "disable"].includes(action))
     throw new CliError(USAGE, 2);

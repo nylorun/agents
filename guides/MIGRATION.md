@@ -9,6 +9,9 @@ Additive: the Runtime serves protocol 16 and 17, and Harness API 5 is unchanged.
   own messages and wants the old refusal sends `delivery: "reject"` (the SDK's
   `input(value, { delivery: "reject" })`, the CLI's `sessions send --reject-if-busy`): it is
   `409 session_busy`. A protocol 16 client's messages are `reject` unless they say otherwise.
+  AG-UI and A2A keep the refusal: a run or a task is the turn it starts, so a busy thread ends
+  the run with `RUN_ERROR` `session_busy`, and a busy context is an A2A `UnsupportedOperationError`
+  naming the task in progress.
 - **The busy refusal has a code.** `409 session_busy`, where it had none.
 - **The queue is bounded.** At most the Runtime limit `sessionQueuedMessages` (default 100) wait;
   one more is `429 queue_full`. Session reads count `queuedMessages`.
@@ -34,9 +37,16 @@ harnesses Harness API 5 only. Upgrade the Runtime, the SDKs, Studio, the CLI and
 harness together.
 
 - **Environments, their disks and vaults are gone.** Migration 0032 drops every Environment with
-  its pod, volume, disk versions and vault, as protocol 11 dropped sandboxes. Export what you need
+  its disk versions and vault, as protocol 11 dropped sandboxes. Export what you need
   from a disk before you upgrade (`nylorun environments snapshot`, then the version's zip from
   `/v1/artifacts`), and write the secrets again into the Agents you make.
+- **Delete the dropped Environments' pods.** The Runtime no longer knows them, and nothing deletes
+  them: their Sandboxes, pods and volumes stay in the Tenant's namespace. Once the new release
+  runs, and before you make pod Agents, delete them:
+  `kubectl delete sandboxes.agents.x-k8s.io,secrets -l app.kubernetes.io/managed-by=nylorun-sandboxes -n nylorun-sbx-<tenant>`
+  (`nylorun local sandbox status` names the namespace; each pod and volume goes with its Sandbox,
+  and the secrets are their join tokens). Left in place,
+  a pod Agent made with a dropped Environment's id starts on that Environment's Sandbox and volume.
 - **Sessions opened before protocol 16 are closed.** Every open session gets
   `closedReason: "protocol_16"`: a message to one is `409 session_closed`, and its history stays
   readable. Open new sessions on Agents.
@@ -219,6 +229,10 @@ only. Upgrade the Runtime, the SDKs, Studio, the CLI and any custom harness toge
 - **Our harness mounts skill folders.** It puts each skill version's files at
   `/skills/<name>@<hash>/` before each sandbox call, as before; the Runtime mounts none, so
   `POST /v1/sessions/{id}/sandbox/{tool}` on a sandbox no turn has used finds no `/skills`.
+- **An `environment_secret` reads `nylorun_managed` in the sandbox** (`ENVIRONMENT_SECRET_SENTINEL`;
+  it read `nylorun-managed`), so a CLI that refuses a token with a `-`, such as Vercel's, sends
+  its request. egress-gate sets the header whatever the CLI sent, so nothing else changes:
+  update a script that tests for the literal `nylorun-managed`.
 - **Compaction is a transcript edit.** `context.compacted` is written once per compaction, when
   the segment's transcript edit that replaced the history is recorded (it was written per
   summary call, as it returned), and has no `partial`. A compaction of an agent used as a tool
@@ -532,8 +546,9 @@ Part of protocol 14 (D66, D67).
 
 # One command: `nylo` is part of `nylorun`
 
-`nylorun` is the one command. `nylo` keeps its name for one release, and each of its commands
-exits 2 naming the `nylorun` command that replaced it. Commands other than the installation's
+`nylorun` is the one command. `nylo` keeps its name until nylorun 0.18, which removes it and the
+deprecated `@nylorun/cli`; each of its commands exits 2 naming the `nylorun` command that replaced
+it. Commands other than the installation's
 lifecycle moved into groups, each named after the API it uses, and the old spellings exit 2
 naming the new one.
 
@@ -913,9 +928,9 @@ The Runtime client, `nylo`, moved into the `nylorun` package as its second comma
 now runs a project's local Tenant (`nylorun`) and talks to the linked installation (`nylo`). The
 commands, their flags, output and exit codes are unchanged; only the messages that named
 `@nylorun/cli`, "the CLI" or "the nylorun package" now name `nylo` and nylorun. `@nylorun/cli`
-stays for one release as a forwarder: its `nylo` prints one line on stderr and runs nylorun's, so
+stays as a forwarder: its `nylo` prints one line on stderr and runs nylorun's, so
 `npx @nylorun/cli status` and `eval "$(npx @nylorun/cli env)"` keep working (stdout carries only
-the export lines). A later release removes it.
+the export lines). nylorun 0.18 removes it.
 
 | Before | Now |
 | --- | --- |

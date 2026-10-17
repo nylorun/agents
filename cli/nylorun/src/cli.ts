@@ -2,7 +2,7 @@
 import "./baseline.js";
 import { baselineEnv } from "./baseline.js";
 import { refuseNativeWindows, runCommand } from "./command.js";
-import { CliError } from "./errors.js";
+import { CliError, HelpRequest, isHelp } from "./errors.js";
 import { defaultStackDeps, stackCommand, stackUsage, studioCommand } from "./stack/index.js";
 
 const usage = `nylorun <command>
@@ -17,15 +17,16 @@ Agent manifests:
   apply [<dir>...] [--dry-run] [--if-match <n>]
                                       save the agent manifest each folder's agent.manifest.json
                                       describes, with the files it names (Runtime API)
-  migrate v8 <agent.json> [--runtime <environment-manifest.json>] [--out <dir>]
+  migrate v8 <agent.json> [--runtime <environment-manifest.json>] [--name <name>] [--out <dir>]
                                       write the three manifest files from an agent manifest v7
                                       and an environment manifest v1 (reads no Runtime)
 
 Groups, each with its own --help:
   agent-manifests  list | get | versions | rm
                                       the Tenant's agent manifests (Runtime API)
-  agents        list | get | put | fork | stop | reset | rm | snapshot | restore
-                versions | delete-version | events | secrets
+  agents        list | get | put | pin | track | restart | fork | stop | reset | rm |
+                snapshot | restore | versions | delete-version | events | secrets |
+                triggers | runs | memories
                                       the Tenant's Agents, made from saved manifests; sessions
                                       run on them (Runtime API)
   sessions      list | create | get | send | approve | respond | cancel | watch | history
@@ -196,6 +197,7 @@ async function main() {
     const [topic, ...options] = args;
     if (topic === "sandbox") {
       const usage = "Usage: nylorun doctor sandbox [--tenant <name>] [--json]";
+      if (options.some(isHelp)) throw new HelpRequest(usage);
       const tenantAt = options.indexOf("--tenant");
       const tenant = tenantAt < 0 ? undefined : options[tenantAt + 1];
       const rest = options.filter((_, index) => index !== tenantAt && index !== tenantAt + 1);
@@ -208,8 +210,9 @@ async function main() {
       });
       return;
     }
-    if (args.some((option) => option !== "--json"))
-      throw usageError("Usage: nylorun doctor [--json] | nylorun doctor sandbox [--tenant <name>] [--json]");
+    const usage = "Usage: nylorun doctor [--json] | nylorun doctor sandbox [--tenant <name>] [--json]";
+    if (args.some(isHelp)) throw new HelpRequest(usage);
+    if (args.some((option) => option !== "--json")) throw usageError(usage);
     const { doctorStack } = await import("./doctor.js");
     process.exitCode = await doctorStack({ json: args.includes("--json"), env });
     return;

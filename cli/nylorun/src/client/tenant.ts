@@ -4,7 +4,7 @@
  * exception: only the Runtime's machine does it, through `nylorun-operate` (`stack/keys.ts`).
  */
 import type { ManagementClient } from "@nylorun/admin";
-import { CliError } from "../errors.js";
+import { CliError, HelpRequest, isHelp } from "../errors.js";
 import { parseStackFlags, type StackDeps } from "../stack/commands.js";
 import { keyCommand, keyUsage } from "../stack/keys.js";
 import { printJson, printTable } from "./io.js";
@@ -126,6 +126,7 @@ async function reset(deps: StackDeps, args: readonly string[]): Promise<number> 
  * (application keys only), else on the local Tenant through `nylorun-operate`.
  */
 async function keys(deps: StackDeps, args: readonly string[]): Promise<number> {
+  if (isHelp(args[0])) throw new HelpRequest(`Usage:\n${keyUsage}`);
   if (args.includes("--tenant") || !remoteConnection(deps.env, "management"))
     return keyCommand(deps, args);
   const [verb, ...rest] = args;

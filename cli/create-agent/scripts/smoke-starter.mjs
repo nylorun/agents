@@ -121,7 +121,7 @@ try {
     await writeFile(join(project, path), content);
   }
   const manifest = JSON.parse(files["package.json"]);
-  assert.equal(manifest.scripts.dev, "tsx watch --env-file-if-exists=.env src/main.ts --dev");
+  assert.equal(manifest.scripts.dev, "tsx watch --env-file-if-exists=.env src/main.ts");
   assert.equal(manifest.scripts.start, "node dist/src/main.js");
   assert.ok(!JSON.stringify(manifest.scripts).includes("serve"));
   assert.ok(!JSON.stringify(manifest.scripts).includes("nylorun"), "no script runs nylorun");
@@ -302,8 +302,8 @@ try {
         "a login link is single-use",
       );
 
-      // 5. A source edit re-runs main.ts, which saves a new version; under `npm run dev` the Agent
-      // is made again from it, so new sessions run the edit.
+      // 5. A source edit re-runs main.ts, which saves a new version; the Agent tracks its manifest,
+      // so it moves to that version and its sessions run the edit.
       const source = join(project, "agents/assistant/agent.ts");
       const before = await readFile(source, "utf8");
       assert.ok(before.includes("You are a helpful assistant."), "the starter's instructions");

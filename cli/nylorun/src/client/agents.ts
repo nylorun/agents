@@ -10,7 +10,8 @@
  */
 import type { AgentEventType, AgentView } from "@nylorun/agents";
 import { parseAgentManifestRef } from "@nylorun/core/contracts";
-import type { StackDeps } from "../stack/commands.js";
+import { HelpRequest, isHelp } from "../errors.js";
+import { usageLinesOf, type StackDeps } from "../stack/commands.js";
 import { readSecret, readText } from "./io.js";
 import {
   integerFlag,
@@ -82,7 +83,7 @@ NYLORUN_TOKEN).
                                       what each fire came to (started, queued, skipped,
                                       failed), newest first, as JSON
   memories ls <id> [--prefix <folder>] [--limit <n>] [--cursor <c>]
-                                      its memories (track T5) by path, as JSON
+                                      its memories by path, as JSON
   memories cat <id> <path>            one memory's content
   memories put <id> <path> <file|->   write a memory whole (seed it), from a file or stdin
   memories rm <id> <path>             delete a memory, or every memory in a folder
@@ -353,6 +354,7 @@ async function events(deps: StackDeps, args: readonly string[]): Promise<number>
 
 async function secrets(deps: StackDeps, args: readonly string[]): Promise<number> {
   const [verb, ...rest] = args;
+  if (isHelp(verb)) throw new HelpRequest(usageLinesOf(agentsUsage, "secrets"));
   if (verb === "list" || verb === "ls") {
     const usage = "nylorun agents secrets list <id>";
     const flags = parseFlags(rest, {}, usage);
@@ -402,6 +404,7 @@ async function secrets(deps: StackDeps, args: readonly string[]): Promise<number
 /** `nylorun agents triggers <list|pause|resume|run> …` (track T4). */
 async function triggers(deps: StackDeps, args: readonly string[]): Promise<number> {
   const [verb, ...rest] = args;
+  if (isHelp(verb)) throw new HelpRequest(usageLinesOf(agentsUsage, "triggers"));
   if (verb === "list" || verb === "ls") {
     const usage = "nylorun agents triggers list <id>";
     const flags = parseFlags(rest, {}, usage);
@@ -449,6 +452,7 @@ async function triggers(deps: StackDeps, args: readonly string[]): Promise<numbe
 /** `nylorun agents memories <ls|cat|put|rm|versions> …` (track T5). */
 async function memories(deps: StackDeps, args: readonly string[]): Promise<number> {
   const [verb, ...rest] = args;
+  if (isHelp(verb)) throw new HelpRequest(usageLinesOf(agentsUsage, "memories"));
   const pageOf = (flags: ReturnType<typeof parseFlags>) => {
     const limit = flags.values.get("--limit");
     if (limit !== undefined && !/^[1-9]\d*$/.test(limit)) throw usageError("--limit must be a positive number.");

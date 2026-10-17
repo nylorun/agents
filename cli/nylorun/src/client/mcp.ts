@@ -9,7 +9,7 @@
  */
 import { PROTOCOL_HEADER, PROTOCOL_VERSION } from "@nylorun/core/compatibility";
 import type { McpPreview, McpPreviewTool } from "@nylorun/core/contracts";
-import { CliError } from "../errors.js";
+import { CliError, HelpRequest, isHelp } from "../errors.js";
 import { parseStackFlags, type StackDeps } from "../stack/commands.js";
 import { connect } from "./target.js";
 
@@ -182,6 +182,7 @@ function oneLine(text: string): string {
 /** `nylorun tenant mcp <inspect|connect> ...` */
 export async function mcpCommand(deps: StackDeps, args: readonly string[]): Promise<number> {
   const [sub, ...rest] = args;
+  if (isHelp(sub)) throw new HelpRequest(`Usage:\n${mcpUsage}`);
   if (sub === "inspect") return inspect(deps, rest);
   if (sub === "connect") throw usageError(MCP_CONNECT_REMOVED);
   throw usageError(`Usage:\n${mcpUsage}`);

@@ -8,3 +8,14 @@ export class CliError extends Error {
     this.name = "CliError";
   }
 }
+
+/** `--help` or `-h`, which every command and group takes. */
+export const isHelp = (arg: string | undefined): boolean => arg === "--help" || arg === "-h";
+
+/** A command's usage, asked for with `--help`: printed on stdout, exit 0. */
+export class HelpRequest extends CliError {
+  constructor(usage: string) {
+    super(usage, 0);
+    this.name = "HelpRequest";
+  }
+}
