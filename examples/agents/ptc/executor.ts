@@ -242,7 +242,7 @@ function argsType(tool: ToolDefinition): string {
 
 function zodInputSchema(tool: ToolDefinition): z.ZodType {
   if (tool.inputSchema instanceof z.ZodType) return tool.inputSchema;
-  throw new Error(`Code mode tool '${tool.name}' must use a Zod inputSchema`);
+  throw new Error(`PTC tool '${tool.name}' must use a Zod inputSchema`);
 }
 
 function jsonSchemaToTs(schema: unknown): string {

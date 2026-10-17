@@ -4,7 +4,7 @@ The default registry exports three agents from `agents/release/`: an order-looku
 
 The Runtime runs no code of this project during a session. The assistant's `lookup_order` is an HTTP tool (`http()` in [`agents/shared/orders.ts`](./agents/shared/orders.ts)): the Runtime POSTs the tool's input to the examples' tools service, [`src/tools/server.ts`](./src/tools/server.ts), and gives the model its JSON answer. The service also answers the Repo brief's `publish_brief` and the [tools catalog](./agents/shared/tools/catalog) (`calculate`, `convert`, `now`). It listens on `TOOLS_PORT` (default 3001); the agents call it at `TOOLS_URL` (default `http://localhost:3001`, which a local Tenant's Runtime reaches on this machine).
 
-The nine older demonstrations remain as source references under `agents/`, outside the release registry. Their descriptions below are historical and do not establish support in the new host. Tool Use, Subagents, Instructions, Skills, Remote MCP and the flow agents (`chain`, `switch`, `parallel`, `map`, `loop`, `ship-feature`) declare nothing the Runtime refuses. Interactions, Code Mode, Coding Agent and Interior Design run code of their own (tools with `execute`) and run only in the local engine (`@nylorun/harness/run`), as their tests do: the Runtime refuses to save them.
+The nine older demonstrations remain as source references under `agents/`, outside the release registry. Their descriptions below are historical and do not establish support in the new host. Tool Use, Subagents, Instructions, Skills, Remote MCP and the flow agents (`chain`, `switch`, `parallel`, `map`, `loop`, `ship-feature`) declare nothing the Runtime refuses. Interactions, PTC (programmatic tool calling), Coding Agent and Interior Design run code of their own (tools with `execute`) and run only in the local engine (`@nylorun/harness/run`), as their tests do: the Runtime refuses to save them.
 
 ## Install and configure
 
@@ -183,7 +183,7 @@ The creator owns the shell files listed in `.scaffold-manifest.json`, including 
 | **Interactions**    | `Ask me what to name the note, then save it.`                                                   | Studio asks a question, then asks for approval before `write_note`.                                                                                                 |
 | **Remote MCP**      | `What does the README of modelcontextprotocol/typescript-sdk say about transports?`             | The Runtime connects to DeepWiki's public MCP server by URL and calls its tools; no process of yours serves them.                                                  |
 | **Repo brief**      | `Brief me on modelcontextprotocol/typescript-sdk.` (on the Agent `repo-brief`)                 | The flow tree shows triage, the repo case, one researcher per question, both reviews, the writer and editor, and `publish_brief`; the writer's `bash` call prints `ok`. |
-| **Code Mode**       | `Calculate 100 / 4, convert that many celsius to fahrenheit, and include the current UTC time.` | One `run_code` call. The program uses `await tools.*` and returns one object (25 °C → 77 °F plus `iso`).                                                            |
+| **PTC**             | `Calculate 100 / 4, convert that many celsius to fahrenheit, and include the current UTC time.` | One `run_code` call. The program uses `await tools.*` and returns one object (25 °C → 77 °F plus `iso`).                                                            |
 | **Subagents**       | `Ask the tool-use specialist to calculate 19 * 7.`                                              | A `tool-use` call runs that agent with a fresh context; the parent reports its answer. Studio shows the delegation and the child's own tool calls. The other agents are `instructions` (format-only) and `skills` (SKILL.md). |
 | **Coding Agent**    | `Add a goodbye function next to hello and show the file.`                                       | After Codex preflight and approval, `codex exec` runs in a temporary workspace.                                                                                     |
 
@@ -191,7 +191,7 @@ If a model answers directly rather than selecting a tool, try a more explicit re
 “you must use the calculator tool.” For the clock: `What is the current UTC time? You must use the now tool.`
 The example adapter does not invent tool calls for models that skip them.
 
-For Code Mode, ask for one `run_code` call using an async function **body**, without a
+For PTC, ask for one `run_code` call using an async function **body**, without a
 function or arrow wrapper. Tool results are objects: `calculate` supplies `.value`,
 `convert` supplies `.result`, and `now` supplies `.iso`. A complete body is:
 
@@ -240,7 +240,7 @@ Start with [Instructions](./agents/instructions/agent.ts), then [Tool Use](./age
 Each piece is a plain list of tools, and sometimes instructions, that an agent adds with `.tools()` and `.instructions()`:
 
 - [tools](./agents/shared/tools/index.ts) returns the catalog as tools for `.tools(...(await tools()))`: every `*.ts` module in [agents/shared/tools/catalog](./agents/shared/tools/catalog) becomes an `http()` tool, whose code the [tools service](./agents/shared/tools/service.ts) runs.
-- [code-mode](./agents/code-mode/tools.ts) returns instructions and one tool: the same catalog becomes a generated TypeScript SDK, and only `run_code` is offered to the model. It runs the catalog's code in process, so only the local engine runs it.
+- [ptc](./agents/ptc/tools.ts) returns instructions and one tool: the same catalog becomes a generated TypeScript SDK, and only `run_code` is offered to the model. It runs the catalog's code in process, so only the local engine runs it.
 - [ask-user](./agents/interactions/ask-user.ts) pauses for a human reply.
 - [notes](./agents/interactions/notes.ts) uses an ordinary JSONL service; `write_note` has an `approval`, so each write waits for a person.
 - [skills](./agents/skills/agent.ts) is one `.skills(folder)` call: a SKILL.md catalog the Runtime serves with `load_skill`.
@@ -263,7 +263,7 @@ Tools follow the same catalog shape. Export a `tools` array from a module in [ag
 ```
 
 Drop another `*.ts` file in that folder to add a tool without changing agent code: the tools
-service serves it at `/<tool name>` once restarted. Code Mode loads the same catalog and hides
+service serves it at `/<tool name>` once restarted. PTC loads the same catalog and hides
 those native schemas; the model writes a program against `await tools.name(args)` instead.
 
 For the underlying agent model, read the concise [Harness README](../runtime/harness/README.md).
