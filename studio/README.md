@@ -104,9 +104,9 @@ when a turn ends. The header's inspector button hides the inspector and gives th
 chat the whole width; the browser remembers the choice. A chat message shows its
 time while it is hovered or focused. Each sidebar item opens the page it names:
 **Agents** opens the Agents list, and each Agent under it (with its state, and how many
-of its sessions wait on a person) opens its page; **Manifests** and **Models** are
-below them. The sidebar's header shows the Tenant and the Runtime's status, and
-selecting the Tenant opens its Overview. A session always runs on one Agent, so it
+of its sessions wait on a person) opens its page. The sidebar's header shows the Tenant
+and the Runtime's status, and selecting the Tenant opens its page (`/tenant`), which
+holds its manifests, models and the rest of its configuration. A session always runs on one Agent, so it
 starts from one: hovering an Agent in the sidebar shows a **+** that opens a new
 session on it (`PUT /v1/sessions/{id} { agent }`, owner `local-developer`), as do the
 Agent page's **New session** and the **New session** of its row's ⋯ in the Agents list.
@@ -124,8 +124,6 @@ those stay on the Agent's page. The tab names before the four tabs still open th
 place: `?inspector=agent` (or `environment`) opens Deployed, `artifacts` opens Record,
 and `tree` and `iterations` open Events' workflow views.
 
-Settings links use `/tenants/<id>/settings/overview` and `/settings/models`
-under the same Tenant prefix; a legacy `/settings` link redirects to Models.
 Tool calls show the tool by its identity: an MCP tool as `server / tool` (the server's own name
 for it), with the name the model called it by when that differs, such as
 `github / create_issue (as github__create_issue)`; any other tool by the model's name.
@@ -148,7 +146,7 @@ the Tenant's artifact limits, `/v1/tenant/artifacts`), then the message goes as 
 resend reuses the files already uploaded. In the chat, a message's files
 show their name, type and an image's thumbnail, and open the artifact.
 
-**Models** shows each connected provider's model's **Inputs** (protocol 12): what its
+The Tenant page's **Models** tab shows each connected provider's model's **Inputs** (protocol 12): what its
 catalog reads (its `inputs` less `addableInputs`) checked and fixed, and what the
 operator may add (`addableInputs`: images, PDF, Office documents, audio or video,
 as the model's API carries them) as checkboxes that call `models.setInputs()`. A type
@@ -239,23 +237,66 @@ version, or empty) and whether the secrets the new version declares are copied;
 **Check** shows the plan first (`dryRun`). The source keeps what it runs, its disk
 and its sessions.
 
-## Agent manifests
+## The Tenant
 
-`/agent-manifests` lists the Tenant's agent manifests (`GET /v1/agent-manifests`) in
+`/tenant` is the Tenant's page; the Tenant at the top of the sidebar opens it. Its
+header names the Tenant, its id, the model it runs, its sandbox and how many Agents and
+sessions it holds (`GET /v1/tenant`); its ⋯ copies the id and resets the Tenant
+(**Reset sessions…**, **Reset Agents…**, **Reset everything…**, each after a confirm:
+`POST /v1/tenant/reset { scope, activeWork: "drain" }`). One row of tabs follows, in
+the order an Agent's turn meets them (`?tab=`; it opens on **Status**):
+
+- **Status**: the Tenant's checks (store, scheduler, model, schema), what runs it
+  (harness, sandbox, event streams) and what it holds (Agents, sessions, uncertain
+  effects), each row linked to the tab that configures it.
+- **Manifests**: the agent manifests, below.
+- **Models**: the providers it has credentials for, the one it runs, and each model's
+  inputs, below.
+- **Compute**: the sandbox the Runtime chose and the backends it probed, the most an
+  Agent's runtime section may ask for (allowed hosts, resources, idle, stop grace, how
+  many Agents), where harnesses may run, and what artifacts and skills may hold
+  (`GET /v1/tenant/sandbox`, `/artifacts`, `/skills`). **Edit compute settings…**
+  saves only the parts it changes (`PUT` each).
+- **Tool policy**: the rules the Tool Gate applies to every MCP and HTTP tool call,
+  strictest first (effect, tool, manifest, when, reason; `GET /v1/tenant/tool-policy`).
+  A row opens it to edit; **Add rule** adds one; the policy is saved whole
+  (`PUT /v1/tenant/tool-policy`). A rule names a manifest, so it covers every Agent made
+  from it: an Agent's Manifest tab and a manifest beside the list note the rules on
+  each HTTP tool and MCP server, read only.
+- **Limits**: the Runtime limits by area, each beside its default (a changed one in
+  bold), searched and filtered by group and by whether it changed
+  (`GET /v1/tenant/limits`). A row opens it to edit, in its unit (`10 MiB`, `15 min`);
+  **Reset to default** drops it. Only the limits that differ from their defaults are
+  saved (`PUT /v1/tenant/limits`).
+- **Usage**: what model calls used today, this month and in all
+  (`GET /v1/tenant/usage`), and the budgets that cap them, each with what its period
+  used (`GET /v1/tenant/budgets`); a row edits one, **Add budget** adds one, and they
+  are saved whole (`PUT /v1/tenant/budgets`). `nylorun tenant calls` exports every call.
+- **Keys**: the application keys and the signing keys, read only
+  (`GET /v1/tenant/keys`, `/signing-keys`): they are made, rotated and revoked with
+  `nylorun tenant keys` and `nylorun tenant signing-keys`, so Studio cannot lock out
+  an application or end its tokens.
+
+`/settings`, `/settings/overview` and `/settings/models` open the page and its Models
+tab.
+
+### Agent manifests
+
+The **Manifests** tab lists the Tenant's agent manifests (`GET /v1/agent-manifests`) in
 single-line rows: each name with its description, latest version, the kind of Agent it
 makes (`flow · …` for a flow), how many Agents were made from it and when it was saved
 (and by whom, on hover), searched by name or description and filtered by kind, type
 (Agent or flow) and whether any Agent was made from it. A row opens the manifest beside
-the list (`?selected=<name>&version=<n>`; the list keeps its name, version, kind and
-Agents): a version picker, its description, the Agents made from it (each linked to its
-page, with the version it runs), and the version as a readable spec, its **Harness**
-section (instructions, tools or a flow's agents, skills, MCP servers, memory) then its
-**Runtime** section (compute, lifecycle, network, setup and input files, vault slots,
-triggers, limits), one line each; a line opens its part of the manifest as JSON. Its ⋯
-makes an Agent pinned to the version shown (**New Agent from v<n>**), shows the whole
-manifest as JSON, or copies its name. `/agent-manifests/<name>` opens it so too.
-Manifests are read only in Studio: edit one in its repository and save its next
-version with `nylorun apply`.
+the list (`/tenant?tab=manifests&selected=<name>&version=<n>`; the list keeps its name,
+version, kind and Agents): a version picker, its description, the Agents made from it
+(each linked to its page, with the version it runs), and the version as a readable spec,
+its **Harness** section (instructions, tools or a flow's agents, skills, MCP servers,
+memory) then its **Runtime** section (compute, lifecycle, network, setup and input
+files, vault slots, triggers, limits), one line each; a line opens its part of the
+manifest as JSON. Its ⋯ makes an Agent pinned to the version shown (**New Agent from
+v<n>**), shows the whole manifest as JSON, or copies its name. `/agent-manifests` and
+`/agent-manifests/<name>` open it so too. Manifests are read only in Studio: edit one
+in its repository and save its next version with `nylorun apply`.
 
 Old links redirect, including in embeds: `/environments/<id>` and
 `/environments?selected=<id>&tab=…` to the Agent's page, `/environments` to

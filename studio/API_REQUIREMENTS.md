@@ -45,7 +45,7 @@ link it to that Agent.
 | Disk tab: Browse a version | the artifact reads below, on the `artifactId` the versions read names |
 | Manifest tab | the version's manifest from `agentManifests.get(name, version)`; without it, the runtime, slots and limits from `GET /v1/agents/{id}`; read only. Its moves: `agents.put(id, { manifest: "name" \| "name@n" })`, `agents.restart(id, { retry? })` |
 | Activity tab, refreshed by the header's Refresh | `agents.events({ from, types? })` → `GET /v1/agents/{id}/events?from=…` (`agent.*`; `types=agent.egress` for connections) |
-| Agent manifests table, and a manifest beside it: its versions and one version as a readable spec | `agentManifests.list()`, `.versions(name)`, `.get(name, version)` → `GET /v1/agent-manifests`, `GET …/{name}/versions`, `GET …/{name}/versions/{n}` |
+| Agent manifests table (the Tenant page's Manifests tab), and a manifest beside it: its versions and one version as a readable spec | `agentManifests.list()`, `.versions(name)`, `.get(name, version)` → `GET /v1/agent-manifests`, `GET …/{name}/versions`, `GET …/{name}/versions/{n}` |
 | New session (the sidebar Agent's +, the Agent page, an Agents row's ⋯) | `createSession({ id, agent, ownerUserId })` → `PUT /v1/sessions/{id}` (the proxy sets `ownerUserId: local-developer`) |
 | Session's Manifest tab, Declared | `session.manifest()` → `GET /v1/sessions/{id}/manifest` (Host feature `session-reads`; without it, `agents.get()` and `agentManifests.get(name, version)`); `agentManifests.get(name)` for the latest version |
 | Session's Manifest tab, Deployed | `session.inspect()` (`agentId`, `manifest: { name, version }`), `agents.get()`, Management `coverage({ agentId })`, `agents.events({ types: ["agent.egress"] })` |
@@ -58,7 +58,14 @@ link it to that Agent.
 | Exported folder files and changes | `artifacts.tree()`, `.file()`, `.diff()` → version `tree`, `files/{encodedPath}`, `diff` |
 | Native streamed download | `artifacts.link({ version, file?, expiresIn: 60 })` → authenticated `POST /v1/artifacts/{id}/links`, then public `GET /v1/artifact-links/{token}` |
 | Message attachments | `artifacts.upload(file, { name, sessionId, contentType })` → `POST /v1/artifacts?name=…&sessionId=…` (the proxy keeps only those two, checks `GET /v1/sessions/{id}`, needs `Content-Length`, refuses over `maxUploadBytes` only when the server sets one, none by default, and streams the body; the Runtime holds it to the Tenant's artifact limits); then `session.inputParts([text?, …{ type: "file", artifactId, version }])` → `POST /v1/sessions/{id}/commands`; any file is accepted (protocol 15) |
-| Model inputs (Model settings) | Management `models.catalog()` → `GET /v1/tenant/models` (each model's `inputs` and `addableInputs`); `models.setInputs({ provider, model, inputs })` → `PUT /v1/tenant/models/inputs` (allowed by the proxy); a custom endpoint's `models.put({ settings: { inputs } })` |
+| Tenant page header and Status tab | Management `tenant.status()` → `GET /v1/tenant`; `settings.sandbox.get()` → `GET /v1/tenant/sandbox` for its isolation |
+| Tenant reset (the header's ⋯) | `tenant.reset({ scope: "sessions" \| "agents" \| "all", activeWork: "drain" })` → `POST /v1/tenant/reset`, after a confirm |
+| Compute tab | `settings.sandbox`, `.artifacts`, `.skills` `get()` and `put()` → `GET` and `PUT /v1/tenant/sandbox`, `/v1/tenant/artifacts`, `/v1/tenant/skills`; only the parts the form changes are put |
+| Tool policy tab, and the notes on an Agent's or manifest's tools | `toolPolicy.get()` → `GET /v1/tenant/tool-policy`; `toolPolicy.put({ rules })` → `PUT /v1/tenant/tool-policy`, the whole policy |
+| Limits tab | `settings.limits.get()` → `GET /v1/tenant/limits`; `settings.limits.put({ limits })` → `PUT /v1/tenant/limits` with the limits that differ from `RUNTIME_LIMIT_DEFAULTS` |
+| Usage tab and budgets | `models.usage({ scope, id?, period })` → `GET /v1/tenant/usage` (the Tenant's day, month and total, and each budget's period); `models.budgets.get()` and `.put({ budgets })` → `GET` and `PUT /v1/tenant/budgets`, all of them |
+| Keys tab, read only | `keys.list()` → `GET /v1/tenant/keys`; `signingKeys.list()` → `GET /v1/tenant/signing-keys`. Studio makes, rotates, revokes and deletes no key |
+| Model inputs (the Tenant page's Models tab) | Management `models.catalog()` → `GET /v1/tenant/models` (each model's `inputs` and `addableInputs`); `models.setInputs({ provider, model, inputs })` → `PUT /v1/tenant/models/inputs` (allowed by the proxy); a custom endpoint's `models.put({ settings: { inputs } })` |
 
 The proxy allows these Agent routes and nothing else under them: `GET /v1/agents`
 (with its filters and pages), `GET`, `PUT` and `DELETE /v1/agents/{id}`, `GET …/events`,
@@ -71,6 +78,13 @@ JSON body; the proxy passes its `Idempotency-Key` on), and `POST …/stop`, `…
 `GET …/versions` and `GET …/versions/{n}`, and `PUT /v1/agent-manifests/{name}`
 (`?dryRun=true` for the plan), whose `If-Match` it passes on. It no longer allows
 `/v1/environments/**` or `/v1/environment-manifests/**`.
+
+On the Management API (`/v1/tenant/**`) it allows `GET /v1/tenant` and
+`GET /v1/tenant/{model,models,providers,limits,sandbox,artifacts,skills,usage,budgets,tool-policy,keys,signing-keys}`;
+`PUT /v1/tenant/{model,model/selection,models/inputs,limits,sandbox,artifacts,skills,budgets,tool-policy}`
+and `POST /v1/tenant/reset`, same-origin with a JSON body; and the checks
+`POST /v1/tenant/mcp/preview` and `/v1/tenant/credential-coverage`. It allows no key
+write (`/v1/tenant/keys/{id}`, `/v1/tenant/signing-keys/**`), no seed and no call export.
 
 All version reads and download links name an explicit numbered version. Agent
 IDs (which may hold `/`), secret names and folder file paths remain single encoded

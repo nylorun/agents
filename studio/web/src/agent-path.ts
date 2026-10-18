@@ -51,14 +51,36 @@ export function agentPath(id: string, tab?: AgentTab): string {
 }
 
 /**
- * `/agent-manifests`, or the list with one manifest open beside it, on `version` (its latest
- * when omitted).
+ * The tabs of the Tenant's page, in the order a turn meets them: whether the Tenant is healthy,
+ * then what an Agent is made from (its manifests), what it thinks with (models), where it runs
+ * (compute), what its tool calls may do (tool policy) and how far it may go (limits), what it cost
+ * (usage and budgets), and who may call the Tenant at all (keys). It opens on its status.
+ */
+export const TENANT_TABS = ["status", "manifests", "models", "compute", "policy", "limits", "usage", "keys"] as const;
+export type TenantTab = (typeof TENANT_TABS)[number];
+
+/** The tab `?tab=` names on the Tenant's page; undefined for none or an unknown one. */
+export function tenantTabOf(value: string | null): TenantTab | undefined {
+  return TENANT_TABS.includes(value as TenantTab) ? (value as TenantTab) : undefined;
+}
+
+/** `/tenant`, opened on `tab` (its status when omitted), with `query` beside it. */
+export function tenantPath(tab?: TenantTab, query: Readonly<Record<string, string>> = {}): string {
+  const search = new URLSearchParams(tab === undefined || tab === "status" ? {} : { tab });
+  for (const [key, value] of Object.entries(query)) search.set(key, value);
+  const text = search.toString();
+  return text ? `/tenant?${text}` : "/tenant";
+}
+
+/**
+ * The agent manifests (the Tenant's Manifests tab), or the list with one manifest open beside
+ * it, on `version` (its latest when omitted).
  */
 export function manifestPath(name?: string, version?: number): string {
-  if (name === undefined) return "/agent-manifests";
-  const query = new URLSearchParams({ selected: name });
-  if (version !== undefined) query.set("version", String(version));
-  return `/agent-manifests?${query}`;
+  return tenantPath(
+    "manifests",
+    name === undefined ? {} : { selected: name, ...(version === undefined ? {} : { version: String(version) }) },
+  );
 }
 
 type Route<Kind extends string> =
@@ -87,11 +109,6 @@ export function agentRoute(pathname: string): Route<"agent"> {
   return routeOf("agents", "agent", pathname);
 }
 
-/** What `pathname` names under `/agent-manifests`: the list, one manifest, or an invalid segment. */
-export function manifestRoute(pathname: string): Route<"manifest"> {
-  return routeOf("agent-manifests", "manifest", pathname);
-}
-
 /** The tab an old `?tab=` names on an Agent's page. */
 function legacyTab(value: string | null): AgentTab | undefined {
   return agentTabOf(value);
@@ -104,7 +121,9 @@ function legacyTab(value: string | null): AgentTab | undefined {
  * - `/environments` → `/agents` (its `manifest` and `label` filters kept)
  * - `/settings/credentials?environment=<id>` and `/vault?environment=<id>` → its Vault tab
  * - those without an Environment, and `/sandboxes` → `/agents`
- * - `/agent-manifests/<name>?version=` → the manifests list with that manifest open beside it
+ * - `/settings` and `/settings/overview` → the Tenant's page, `/settings/models` → its Models tab
+ * - `/agent-manifests` → its Manifests tab, and `/agent-manifests/<name>?version=` → that tab with
+ *   the manifest open beside the list
  * - `/` and `/sessions` → `/agents`, Studio's home; `/sessions?agent=<id>` → that Agent's page,
  *   which opens on its sessions (a session always runs on one Agent, so its sessions live there)
  */
@@ -137,6 +156,9 @@ export function legacyRedirect(pathname: string, search: string): string | undef
       : withQuery("/agents", rest(["environment"]));
   }
   if (/^\/sandboxes\/?$/u.test(pathname)) return withQuery("/agents", query);
+  if (/^\/settings(?:\/overview)?\/?$/u.test(pathname)) return withQuery(tenantPath(), query);
+  if (/^\/settings\/models\/?$/u.test(pathname)) return withQuery(tenantPath("models"), query);
+  if (/^\/agent-manifests\/?$/u.test(pathname)) return withQuery(manifestPath(), query);
   const manifest = pathname.match(/^\/agent-manifests\/([^/]+)\/?$/u)?.[1];
   if (manifest !== undefined) {
     let name: string;

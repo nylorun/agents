@@ -170,19 +170,24 @@ export async function proxyRuntime(
     (path === "/v1/sessions" ||
       // A session's model usage, for its Usage tab: its totals and its model calls.
       /^\/v1\/sessions\/[^/]+(?:\/(items|events|manifest|usage|calls\/model))?$/.test(path) ||
-      path === "/v1/tenant/model" ||
-      path === "/v1/tenant/models" ||
-      path === "/v1/tenant/providers" ||
+      path === "/v1/tenant" ||
+      // The Tenant's page: its models, settings, spend, tool policy and keys (it shows no secret).
+      /^\/v1\/tenant\/(?:model|models|providers|limits|sandbox|artifacts|skills|usage|budgets|tool-policy|keys|signing-keys)$/.test(
+        path,
+      ) ||
       resourceRead ||
       capabilityRead);
   const write =
     (method === "PUT" && /^\/v1\/sessions\/[^/]+$/.test(path)) ||
     (method === "POST" && /^\/v1\/sessions\/[^/]+\/commands$/.test(path));
+  // The Tenant's settings it changes, and its reset. Its keys stay read-only: a key Studio
+  // removed or a signing key it revoked could lock out an application.
   const tenantWrite =
-    method === "PUT" &&
-    (path === "/v1/tenant/model" ||
-      path === "/v1/tenant/model/selection" ||
-      path === "/v1/tenant/models/inputs");
+    (method === "PUT" &&
+      /^\/v1\/tenant\/(?:model|model\/selection|models\/inputs|limits|sandbox|artifacts|skills|budgets|tool-policy)$/.test(
+        path,
+      )) ||
+    (method === "POST" && path === "/v1/tenant/reset");
   // A message attachment: one file into one session, streamed to the Runtime.
   const upload = method === "POST" && path === "/v1/artifacts";
   const managementCheck = isManagementCheck(method, path);

@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useId, type ReactNode } from "react";
 import { Check, ChevronDown, MoreHorizontal, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -268,6 +268,55 @@ export function CodeBlock({ children, label }: Readonly<{ children: ReactNode; l
       <pre className="max-h-96 overflow-auto rounded-md bg-muted p-3 font-mono text-xs leading-5 whitespace-pre-wrap break-all">
         {children}
       </pre>
+    </div>
+  );
+}
+
+/** A table's group: a quiet row that names the rows under it. */
+export function GroupRow({ columns, children }: Readonly<{ columns: number; children: ReactNode }>) {
+  return (
+    <tr>
+      <td colSpan={columns} className="h-8 border-b bg-muted/40 px-4 text-xs font-medium tracking-wide text-muted-foreground uppercase">
+        {children}
+      </td>
+    </tr>
+  );
+}
+
+/** A heading over one of a tab's tables, with a hint and its actions. */
+export function TableHeading({ title, hint, children }: Readonly<{ title: string; hint?: string; children?: ReactNode }>) {
+  return (
+    <div className="flex min-h-14 flex-wrap items-center gap-x-2 gap-y-1 border-b px-4 py-3">
+      <h2 className="text-sm font-semibold">{title}</h2>
+      {hint ? <span className="text-sm text-muted-foreground">{hint}</span> : null}
+      {children ? <span className="ml-auto flex items-center gap-2">{children}</span> : null}
+    </div>
+  );
+}
+
+/** A note under a tab's table. */
+export function TableNote({ children }: Readonly<{ children: ReactNode }>) {
+  return <p className="px-4 py-3 text-xs text-muted-foreground">{children}</p>;
+}
+
+/** One field of a panel's form: its label, the control (given the id to take), and a hint under it. */
+export function FormField({
+  label,
+  hint,
+  children,
+}: Readonly<{ label: string; hint?: string; children: (props: { id: string; "aria-describedby"?: string }) => ReactNode }>) {
+  const id = useId();
+  return (
+    <div className="grid gap-1 text-sm">
+      <label htmlFor={id} className="font-medium">
+        {label}
+      </label>
+      {children({ id, ...(hint ? { "aria-describedby": `${id}-hint` } : {}) })}
+      {hint ? (
+        <p id={`${id}-hint`} className="text-xs text-muted-foreground">
+          {hint}
+        </p>
+      ) : null}
     </div>
   );
 }

@@ -15,16 +15,11 @@ import { Agents } from "@/components/agents";
 import { useAgentCatalog } from "@/resources/agents";
 import { agentFilter as agentListFilter } from "@/agent-list";
 import { AgentPage } from "@/components/agent-page";
-import { AgentManifests } from "@/components/agent-manifests";
 import { SessionAgentPanel } from "@/components/session-agent";
 import { Artifacts, SessionArtifacts } from "@/components/artifacts";
 import { artifactReferences } from "@/resources/artifacts";
 import { AppSidebar } from "@/components/app-sidebar";
-import {
-  SETTINGS_SECTIONS,
-  TenantSettings,
-  settingsSection as settingsSectionOf,
-} from "@/components/tenant-settings";
+import { TenantPage } from "@/components/tenant-page";
 import { TenantOverview } from "@/components/tenant-overview";
 import { ViewErrorBoundary } from "@/components/view-error-boundary";
 import { AgentManifestPanel } from "@/components/agent-manifest-panel";
@@ -93,7 +88,6 @@ import {
   agentPath,
   agentRoute,
   legacyRedirect as legacyRedirectOf,
-  manifestRoute,
 } from "@/agent-path";
 import type { PinnedManifestState } from "@/manifest/model";
 import { ApprovalCard } from "@/components/approval-card";
@@ -216,7 +210,7 @@ const inspectorPanel = "flex min-h-0 flex-1 flex-col overflow-hidden outline-non
 /**
  * Studio serves its installation's one Tenant. `/tenants/<id>/…` is its
  * dashboard, with the router based at `/tenants/<id>` so its routes
- * (`/agents/…`, `/agent-manifests/…`, `/settings`) stay Tenant-relative. The server
+ * (`/agents/…`, `/tenant`) stay Tenant-relative. The server
  * redirects `/` there.
  */
 export default function App() {
@@ -509,22 +503,19 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
   // Old Environment, Credentials, vault and sandbox links open the Agent's page.
   const legacyRedirect = legacyRedirectOf(location.pathname, location.search);
   const agent = agentRoute(location.pathname);
-  const manifest = manifestRoute(location.pathname);
+  const tenantActive = /^\/tenant\/?$/u.test(location.pathname);
   const resourceActive =
     agent !== undefined
       ? "agents"
-      : manifest !== undefined
-        ? "manifests"
+      : tenantActive
+        ? "tenant"
         : location.pathname === "/artifacts"
           ? "artifacts"
           : undefined;
-  const settingsActive = location.pathname === "/settings" ||
-    location.pathname.startsWith("/settings/");
-  const settingsSection = settingsSectionOf(location.pathname);
-  // Each move to the Agents, an Agent's page or the manifests reads them again, so the lists
+  // Each move to the Agents, an Agent's page or the Tenant's reads them again, so the lists
   // and the sidebar follow what was made, forked or deleted.
   const catalogLocation =
-    agent === undefined && manifest === undefined ? undefined : location.pathname;
+    agent === undefined && !tenantActive ? undefined : location.pathname;
   const lastCatalogLocation = useRef(catalogLocation);
   useEffect(() => {
     const previous = lastCatalogLocation.current;
@@ -541,9 +532,8 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
         tenant={tenant}
         catalog={catalog}
         agentsActive={agent?.kind === "list"}
-        manifestsActive={resourceActive === "manifests"}
+        tenantActive={tenantActive}
         {...(sidebarAgentId === undefined ? {} : { activeAgentId: sidebarAgentId })}
-        {...(settingsSection ? { settingsSection } : {})}
       />
       <SidebarInset className="flex h-svh min-h-0 min-w-0 flex-col overflow-hidden">
         <HeaderSlotContext.Provider value={headerSlots}>
@@ -566,13 +556,11 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
           <strong className="max-w-64 shrink-0 truncate">
             {resourceActive === "agents"
               ? "Agents"
-              : resourceActive === "manifests"
-                ? "Agent manifests"
+              : resourceActive === "tenant"
+                ? "Tenant"
                 : resourceActive === "artifacts"
                   ? "Artifacts"
-                  : settingsSection
-                    ? SETTINGS_SECTIONS[settingsSection]
-                    : (agentId ?? "Nylorun Studio")}
+                  : (agentId ?? "Nylorun Studio")}
           </strong>
           )}
           <div ref={setHeaderStart} className="flex min-w-0 items-center gap-2 overflow-hidden" />
@@ -608,8 +596,6 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
             <SessionRedirect tenantId={tenant.id} sessionId={redirectSessionId} />
           ) : legacyRedirect !== undefined ? (
             <Navigate to={`${legacyRedirect}${location.hash}`} replace />
-          ) : location.pathname === "/settings" ? (
-            <Navigate to={`/settings/models${location.search}${location.hash}`} replace />
           ) : agent?.kind === "invalid" ? (
             <RouteNotFound what="agent" segment={agent.segment} />
           ) : agent?.kind === "agent" ? (
@@ -627,16 +613,15 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
             ) : (
               <Agents tenantId={tenant.id} catalog={catalog} sessions={connection.sessions} filter={filter} />
             )
-          ) : manifest?.kind === "invalid" ? (
-            <RouteNotFound what="manifest" segment={manifest.segment} />
-          ) : manifest?.kind === "list" ? (
-            <AgentManifests tenantId={tenant.id} catalog={catalog} />
+          ) : tenantActive ? (
+            <TenantPage
+              tenant={tenant}
+              catalog={catalog}
+              revision={revision}
+              onChanged={() => void refresh()}
+            />
           ) : resourceActive === "artifacts" ? (
             <Artifacts tenantId={tenant.id} />
-          ) : settingsSection ? (
-            <TenantSettings tenant={tenant} section={settingsSection} />
-          ) : settingsActive ? (
-            <Navigate to="/settings/overview" replace />
           ) : agentId && sessionId ? (
             <SessionWorkspace
               key={sessionId}
@@ -656,7 +641,7 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
 }
 
 type RouteNotFoundProps = {
-  what: "agent" | "session" | "manifest" | "page";
+  what: "agent" | "session" | "page";
   segment: string;
 };
 
@@ -669,12 +654,10 @@ function RouteNotFound({ what, segment }: RouteNotFoundProps) {
           ? "Agent not found"
           : what === "session"
             ? "Session not found"
-            : what === "manifest"
-              ? "Agent manifest not found"
-              : "Page not found"}
+            : "Page not found"}
       </h1>
       <p className="mt-2 text-muted-foreground">
-        This Tenant has no {what === "manifest" ? "agent manifest" : what === "agent" ? "Agent" : what}{" "}
+        This Tenant has no {what === "agent" ? "Agent" : what}{" "}
         <code className={code}>{segment}</code>.
       </p>
     </section>

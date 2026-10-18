@@ -1,22 +1,20 @@
 import { Link } from "react-router-dom";
 import type { AgentView } from "@nylorun/agents";
-import { Bot, Building2, Cpu, Files, LoaderCircle, Plus } from "lucide-react";
+import { Bot, Building2, LoaderCircle, Plus } from "lucide-react";
 import type { Connection } from "@/studio-types";
 import { shortTenantId, type StudioTenantInfo } from "@/config";
 import { embedded } from "@/embed/index.ts";
 import { useStartSession } from "@/components/new-session";
 import { agentsPath, manifestVersionOf, stateLabel, waitingSessions } from "@/agent-list";
-import { agentPath, manifestPath } from "@/agent-path";
+import { agentPath, tenantPath } from "@/agent-path";
 import { agentUnavailable } from "@/credential-coverage";
 import { STUDIO_OWNER } from "@/session-open";
 import type { AgentCatalog } from "@/resources/agents";
 import {
   Sidebar,
   SidebarContent,
-  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
-  SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
@@ -116,7 +114,7 @@ function TenantNavigation({
         isActive={active}
         tooltip={title + " · " + connection.status}
       >
-        <Link to="/settings/overview" title={tenant?.id}>
+        <Link to={tenantPath()} title={tenant?.id}>
           <div className="relative flex aspect-square size-8 items-center justify-center rounded-lg border bg-background">
             <Building2 className="size-4" />
             <span
@@ -148,15 +146,13 @@ function TenantNavigation({
     </SidebarMenuItem>
   );
 }
-export type SettingsSection = "overview" | "models";
 export function AppSidebar({
   connection,
   tenant,
   catalog,
   agentsActive,
   activeAgentId,
-  manifestsActive,
-  settingsSection,
+  tenantActive,
 }: Readonly<{
   connection: Connection;
   tenant?: StudioTenantInfo;
@@ -165,9 +161,8 @@ export function AppSidebar({
   agentsActive?: boolean;
   /** The Agent whose page, or one of whose sessions, is open. */
   activeAgentId?: string;
-  /** The agent manifests or one manifest's page is open. */
-  manifestsActive?: boolean;
-  settingsSection?: SettingsSection;
+  /** The Tenant's page is open: its configuration, manifests and models. */
+  tenantActive?: boolean;
 }>) {
   // By id, so a row stays put as its state changes; its dot tells the state.
   const agents = [...catalog.agents].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
@@ -201,7 +196,7 @@ export function AppSidebar({
           <TenantNavigation
             connection={connection}
             tenant={tenant}
-            active={settingsSection === "overview"}
+            active={tenantActive === true}
           />
         </SidebarMenu>
       </SidebarHeader>
@@ -250,41 +245,6 @@ export function AppSidebar({
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
-      {/* Pinned below the Agents, which scroll above it: what Agents are made from and run on. */}
-      <SidebarFooter>
-        <SidebarGroup className="p-0">
-          <SidebarGroupLabel>Configure</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={manifestsActive} tooltip="Agent manifests">
-                  <Link to={manifestPath()}>
-                    <Files />
-                    <span>Manifests</span>
-                    {catalog.status === "Ready" && !catalog.manifestsError ? (
-                      <span className="tabular-nums text-sidebar-foreground/70">
-                        ({catalog.manifests.length})
-                      </span>
-                    ) : null}
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={settingsSection === "models"}
-                  tooltip="Models"
-                >
-                  <Link to="/settings/models">
-                    <Cpu />
-                    <span>Models</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-      </SidebarFooter>
     </Sidebar>
   );
 }

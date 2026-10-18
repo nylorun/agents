@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
-import { MoreHorizontal, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -18,13 +18,15 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+  ActionMenu,
+  EmptyRow,
+  TableFrame,
+  TableToolbar,
+  cellClass,
+  headClass,
+  menuCellClass,
+  rowClass,
+} from "@/components/data-table";
 import type { ManagementModels } from "@nylorun/admin/client";
 import { createTenantManagementClient } from "@/proxy-client";
 import { listFrom } from "@/runtime-body.ts";
@@ -60,12 +62,15 @@ function ModelInputs({
   addableInputs,
   disabled,
   onToggle,
+  inline = false,
 }: Readonly<{
   name: string;
   inputs: readonly ModelInput[];
   addableInputs: readonly ModelInput[];
   disabled: boolean;
   onToggle?: (input: ModelInput, on: boolean) => void;
+  /** In a table cell: one line, with no label of its own. */
+  inline?: boolean;
 }>) {
   const shown = INPUT_LABELS.filter(
     ([input]) => inputs.includes(input) || addableInputs.includes(input),
@@ -74,9 +79,13 @@ function ModelInputs({
     <div
       role="group"
       aria-label={`${name} inputs`}
-      className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground"
+      className={
+        inline
+          ? "flex items-center gap-x-3 overflow-hidden text-xs text-muted-foreground"
+          : "mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground"
+      }
     >
-      <span className="font-medium text-foreground">Inputs</span>
+      {inline ? null : <span className="font-medium text-foreground">Inputs</span>}
       {shown.length === 0 ? <span>Text only</span> : null}
       {shown.map(([input, label]) => {
         const fixed = !onToggle || !addableInputs.includes(input);
@@ -340,6 +349,7 @@ export function ModelSettings({ tenantId }: Readonly<{ tenantId: string }>) {
         addableInputs={listed.addableInputs}
         disabled={pending}
         onToggle={(input, on) => void toggleInput(item, inputs, input, on)}
+        inline
       />
     );
   }
@@ -352,19 +362,22 @@ export function ModelSettings({ tenantId }: Readonly<{ tenantId: string }>) {
         : "Provider details";
 
   return (
-    <section className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-6 overflow-auto p-8">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold">Models</h1>
-          <p className="mt-2 text-muted-foreground">
-            {active?.configured
-              ? `Active: ${active.provider} / ${active.model}. Credentials stay in the Runtime vault.`
-              : "Connect one or more model providers. Credentials stay in the Runtime vault."}
-          </p>
-        </div>
+    <div>
+      <TableToolbar>
+        <span className="min-w-0 truncate text-sm text-muted-foreground">
+          {active?.configured ? (
+            <>
+              Runs <span className="text-foreground">{active.provider} · {active.model}</span>. Credentials stay
+              in the Runtime vault.
+            </>
+          ) : (
+            "Connect one or more model providers. Credentials stay in the Runtime vault."
+          )}
+        </span>
+        <span className="ml-auto" />
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button disabled={addable.length === 0}>
+            <Button size="sm" disabled={addable.length === 0}>
               <Plus />
               Add Provider
             </Button>
@@ -388,80 +401,58 @@ export function ModelSettings({ tenantId }: Readonly<{ tenantId: string }>) {
             ))}
           </DropdownMenuContent>
         </DropdownMenu>
-      </div>
+      </TableToolbar>
 
       {error && !panelOpen ? (
-        <p role="alert" className="text-sm text-red-600">
+        <p role="alert" className="border-b px-4 py-2 text-sm text-red-600">
           {error}
         </p>
       ) : null}
-      {saved ? <p className="text-sm text-muted-foreground">{saved}</p> : null}
+      {saved ? <p className="border-b px-4 py-2 text-sm text-muted-foreground">{saved}</p> : null}
 
-      <div className="rounded-md border">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Provider</TableHead>
-              <TableHead>Last Updated</TableHead>
-              <TableHead className="w-24 text-right">Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {providers.length === 0 ? (
-              <TableRow>
-                <TableCell
-                  colSpan={3}
-                  className="h-24 text-center text-muted-foreground"
-                >
-                  No providers configured yet.
-                </TableCell>
-              </TableRow>
-            ) : (
-              providers.map((item) => (
-                <TableRow key={item.id} data-state={item.active ? "selected" : undefined}>
-                  <TableCell>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-medium">{item.name}</span>
-                      {item.active ? <Badge variant="outline">Active</Badge> : null}
-                    </div>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {item.model}
-                      {item.authType === "oauth" ? " · OAuth" : ""}
-                    </p>
-                    {rowInputs(item)}
-                  </TableCell>
-                  <TableCell>{formatUpdated(item.lastUpdated)}</TableCell>
-                  <TableCell className="text-right">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          aria-label={`${item.name} actions`}
-                        >
-                          <MoreHorizontal />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem
-                          onSelect={() => openPanel("view", item)}
-                        >
-                          View
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onSelect={() => openPanel("update", item)}
-                        >
-                          Update credentials
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </div>
+      <TableFrame minWidth={760}>
+        <thead>
+          <tr>
+            <th className={`${headClass} w-[20%]`}>Provider</th>
+            <th className={`${headClass} w-[22%]`}>Model</th>
+            <th className={headClass}>Inputs</th>
+            <th className={`${headClass} w-44`}>Updated</th>
+            <th className={`${headClass} w-12`}>
+              <span className="sr-only">Actions</span>
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {providers.length === 0 ? <EmptyRow columns={5}>No providers configured yet.</EmptyRow> : null}
+          {providers.map((item) => (
+            <tr key={item.id} className={rowClass} data-state={item.active ? "selected" : undefined}>
+              <td className={cellClass} title={item.name}>
+                <span className="font-medium">{item.name}</span>
+                {item.active ? (
+                  <Badge variant="outline" className="ml-2">
+                    Active
+                  </Badge>
+                ) : null}
+              </td>
+              <td className={`${cellClass} font-mono text-[13px]`} title={item.model}>
+                {item.model}
+                {item.authType === "oauth" ? <span className="font-sans text-muted-foreground"> · OAuth</span> : null}
+              </td>
+              <td className={cellClass}>{rowInputs(item) ?? <span className="text-muted-foreground">—</span>}</td>
+              <td className={`${cellClass} text-muted-foreground`}>{formatUpdated(item.lastUpdated)}</td>
+              <td className={menuCellClass}>
+                <ActionMenu
+                  label={`${item.name} actions`}
+                  actions={[
+                    { label: "View", onSelect: () => openPanel("view", item) },
+                    { label: "Update credentials", onSelect: () => openPanel("update", item) },
+                  ]}
+                />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </TableFrame>
 
       <Sheet open={panelOpen} onOpenChange={setPanelOpen}>
         <SheetContent side="right" className="w-full sm:max-w-md">
@@ -650,6 +641,6 @@ export function ModelSettings({ tenantId }: Readonly<{ tenantId: string }>) {
           </form>
         </SheetContent>
       </Sheet>
-    </section>
+    </div>
   );
 }
