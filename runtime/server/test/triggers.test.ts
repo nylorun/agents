@@ -130,8 +130,9 @@ describe("an Agent's triggers", () => {
     const after = (await triggers()).find((t) => t.id === "tick");
     expect(Date.parse(after.nextRunAt)).toBeGreaterThan(Date.now());
     expect(after.lastRunAt).toEqual(expect.any(String));
-    const events = (await call("GET", "/v1/agents/cron/events?types=agent.run")).body.events;
-    expect(events.at(-1).payload).toMatchObject({ runId: run.id, triggerId: "tick", status: "started" });
+    // The live `* * * * *` schedule may start the next minute's run meanwhile, so find this one's.
+    const events = (await call("GET", "/v1/agents/cron/events?types=agent.run")).body.events as any[];
+    expect(events.find((e) => e.payload.runId === run.id)?.payload).toMatchObject({ triggerId: "tick", status: "started" });
   });
 
   it("fires once, marked late, after downtime, and computes the next run from now", async () => {
