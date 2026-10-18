@@ -5,16 +5,8 @@ import type { Connection } from "@/studio-types";
 import { shortTenantId, type StudioTenantInfo } from "@/config";
 import { embedded } from "@/embed/index.ts";
 import { useStartSession } from "@/components/new-session";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { sessionsPath } from "@/session-list";
-import { manifestVersionOf, stateLabel } from "@/agent-list";
-import { manifestPath } from "@/agent-path";
+import { agentsPath, manifestVersionOf, stateLabel, waitingSessions } from "@/agent-list";
+import { agentPath, manifestPath } from "@/agent-path";
 import { agentUnavailable } from "@/credential-coverage";
 import { STUDIO_OWNER } from "@/session-open";
 import type { AgentCatalog } from "@/resources/agents";
@@ -45,30 +37,28 @@ function stateDot(state: string): string {
         : "bg-sidebar-foreground/30";
 }
 
-/** The sessions of an Agent that wait on a person or fail, from what made its state. */
-function needsPerson(agent: AgentView): number {
-  return agent.attention.filter(
-    (item) => item.sessionId !== undefined && (item.state === "input_required" || item.state === "failing"),
-  ).length;
-}
-
-/** One Agent under Agents: it filters the session table to its sessions. */
+/**
+ * One Agent under Agents: it opens the Agent's page. Hovering it (or reaching it by keyboard)
+ * shows a + that starts a session on it: a session always runs on one Agent.
+ */
 function AgentItem({ agent, active }: Readonly<{ agent: AgentView; active: boolean }>) {
-  const waiting = needsPerson(agent);
+  const start = useStartSession();
+  const waiting = waitingSessions(agent);
+  const unavailable = agentUnavailable(agent, STUDIO_OWNER);
   // The dot and the count are seen only: the name says them too.
   const label =
     `${agent.id} · ${stateLabel(agent.state)}` +
     (waiting > 0 ? ` · ${waiting} ${waiting === 1 ? "session needs" : "sessions need"} attention` : "");
   return (
     <SidebarMenuSubItem>
-      <SidebarMenuSubButton asChild isActive={active} size="sm">
-        <Link to={sessionsPath(agent.id)} aria-label={label} title={`${label} · ${manifestVersionOf(agent)}`}>
+      <SidebarMenuSubButton asChild isActive={active} size="sm" className="pr-8">
+        <Link to={agentPath(agent.id)} aria-label={label} title={`${label} · ${manifestVersionOf(agent)}`}>
           <span className={"size-1.5 shrink-0 rounded-full " + stateDot(agent.state)} aria-hidden />
           <span className="min-w-0 flex-1 truncate font-mono text-xs">{agent.id}</span>
           {waiting > 0 ? (
             <span
               className={
-                "ml-auto shrink-0 rounded-full px-1.5 text-xs tabular-nums text-white " +
+                "ml-auto shrink-0 rounded-full px-1.5 text-xs tabular-nums text-white group-focus-within/menu-sub-item:invisible group-hover/menu-sub-item:invisible " +
                 (agent.state === "failing" ? "bg-red-500" : "bg-amber-500")
               }
               aria-hidden
@@ -78,48 +68,17 @@ function AgentItem({ agent, active }: Readonly<{ agent: AgentView; active: boole
           ) : null}
         </Link>
       </SidebarMenuSubButton>
+      <button
+        type="button"
+        aria-label={`New session on ${agent.id}`}
+        title={unavailable ?? `New session on ${agent.id}`}
+        disabled={unavailable !== undefined}
+        onClick={() => start(agent)}
+        className="absolute top-0.5 right-1 flex size-5 items-center justify-center rounded-md text-sidebar-foreground/70 opacity-0 outline-hidden group-focus-within/menu-sub-item:opacity-100 group-hover/menu-sub-item:opacity-100 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring disabled:pointer-events-none disabled:opacity-0 [&>svg]:size-3.5"
+      >
+        <Plus />
+      </button>
     </SidebarMenuSubItem>
-  );
-}
-
-/** Starts a session on the Agent picked from its menu, from any page. */
-function NewSessionItem({ agents }: Readonly<{ agents: readonly AgentView[] }>) {
-  const start = useStartSession();
-  return (
-    <SidebarMenuItem className="pt-1">
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <SidebarMenuButton
-            tooltip="New session"
-            disabled={agents.length === 0}
-            className="h-9 justify-center gap-2 px-3 font-medium bg-primary text-primary-foreground shadow-xs hover:bg-primary/90 hover:text-primary-foreground active:bg-primary/90 active:text-primary-foreground data-[state=open]:bg-primary/90 data-[state=open]:hover:bg-primary/90 data-[state=open]:hover:text-primary-foreground"
-          >
-            <Plus />
-            {/* Centred with the icon when expanded; collapsed, the icon alone. */}
-            <span className="group-data-[collapsible=icon]:hidden">New session</span>
-          </SidebarMenuButton>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent side="right" align="start" className="max-h-96 w-64 overflow-y-auto">
-          <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
-            Start a session on
-          </DropdownMenuLabel>
-          {agents.map((agent) => {
-            const unavailable = agentUnavailable(agent, STUDIO_OWNER);
-            return (
-              <DropdownMenuItem
-                key={agent.id}
-                disabled={unavailable !== undefined}
-                title={unavailable}
-                onSelect={() => start(agent)}
-              >
-                <Bot />
-                <span className="truncate font-mono text-xs">{agent.id}</span>
-              </DropdownMenuItem>
-            );
-          })}
-        </DropdownMenuContent>
-      </DropdownMenu>
-    </SidebarMenuItem>
   );
 }
 
@@ -144,7 +103,7 @@ function TenantNavigation({
   const named = tenant !== undefined && !embedded();
   const title = named ? tenant.name : "Runtime";
   return (
-    // Set apart from the brand above it (when shown) and New session below it.
+    // Set apart from the brand above it (when shown) and the Agents below it.
     <SidebarMenuItem
       className={
         "border-b border-sidebar-border py-2" +
@@ -194,7 +153,7 @@ export function AppSidebar({
   connection,
   tenant,
   catalog,
-  allSessionsActive,
+  agentsActive,
   activeAgentId,
   manifestsActive,
   settingsSection,
@@ -202,9 +161,9 @@ export function AppSidebar({
   connection: Connection;
   tenant?: StudioTenantInfo;
   catalog: AgentCatalog;
-  /** The session table is open on every Agent's sessions. */
-  allSessionsActive?: boolean;
-  /** The Agent the session table is filtered on, or whose page or session is open. */
+  /** The Agents list is open. */
+  agentsActive?: boolean;
+  /** The Agent whose page, or one of whose sessions, is open. */
   activeAgentId?: string;
   /** The agent manifests or one manifest's page is open. */
   manifestsActive?: boolean;
@@ -244,17 +203,16 @@ export function AppSidebar({
             tenant={tenant}
             active={settingsSection === "overview"}
           />
-          <NewSessionItem agents={agents} />
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>
-              {/* Agents open the session table: all of it, or each Agent's sessions. */}
+              {/* Agents opens the Agents list; each Agent opens its page, which opens on its sessions. */}
               <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={allSessionsActive} tooltip="Agents">
-                  <Link to={sessionsPath()}>
+                <SidebarMenuButton asChild isActive={agentsActive} tooltip="Agents">
+                  <Link to={agentsPath()}>
                     <Bot />
                     <span>Agents</span>
                     {catalog.status === "Ready" ? (

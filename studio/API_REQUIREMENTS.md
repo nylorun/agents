@@ -25,13 +25,13 @@ link it to that Agent.
 
 | Studio view | Public API / SDK |
 | --- | --- |
-| Agents table, sidebar groups, state, manifest, owner and label filters | `agents.list()` → `GET /v1/agents` and `agentManifests.list()` → `GET /v1/agent-manifests`, filtered, sorted and grouped in the browser as sessions are |
+| Agents table (Studio's home), the sidebar's Agents, state, manifest, owner and label filters | `agents.list()` → `GET /v1/agents` and `agentManifests.list()` → `GET /v1/agent-manifests`, filtered and sorted in the browser; each Agent's waiting sessions from its `attention` |
 | Agent page and its header | `agents.get()` → `GET /v1/agents/{id}`; `agentManifests.get(name, version)` → `GET /v1/agent-manifests/{name}/versions/{n}` for the version it runs (the Manifest tab and the Vault's uses); `agentManifests.get(name)` → `GET /v1/agent-manifests/{name}` for the latest version (**Move to v<n>**, **Fork to v<n>**) |
 | New Agent, from a manifest it tracks or a version it pins | `agentManifests.versions(name)` → `GET /v1/agent-manifests/{name}/versions`; `agents.put(id, { manifest: "name" \| "name@n", owner?, labels? })` → `PUT /v1/agents/{id}` |
 | Edit labels and owner | `agents.put(id, { manifest, labels, owner })` → `PUT /v1/agents/{id}` (its manifest as it was made: what it runs is unchanged) |
 | Fork: a new Agent from a manifest version, with this one's disk and secrets | `agents.planFork()`, `.fork()` → `POST /v1/agents/{id}/fork` (`dryRun: true` for the plan) |
 | Stop compute, Reset disk (pods), Delete Agent | `agents.stop()`, `.reset()`, `.delete()` → `POST /v1/agents/{id}/stop`, `POST …/reset`, `DELETE /v1/agents/{id}` |
-| Sessions tab | the Agent view's `sessions`, with each one's times from the session list below |
+| Sessions tab | the Agent view's `sessions`, with each one's times from the session reads below |
 | Triggers tab | `agents.triggers()` → `GET /v1/agents/{id}/triggers`; `agents.runs({ limit: 50 })` → `GET …/runs?limit=50`; each trigger's prompt from the manifest version |
 | Triggers tab: Pause, Resume, Run now | `agents.pauseTrigger()`, `.resumeTrigger()` → `POST …/triggers/{id}/pause`, `…/resume` (`{}`); `agents.runTrigger()` → `POST …/triggers/{id}/run` (no body, an `Idempotency-Key` the proxy passes on) |
 | Artifacts tab | `artifacts.list({ sessionId })` → `GET /v1/artifacts?sessionId=…` for each session on it, and the runtime's `files` |
@@ -46,10 +46,10 @@ link it to that Agent.
 | Manifest tab | the version's manifest from `agentManifests.get(name, version)`; without it, the runtime, slots and limits from `GET /v1/agents/{id}`; read only. Its moves: `agents.put(id, { manifest: "name" \| "name@n" })`, `agents.restart(id, { retry? })` |
 | Activity tab, refreshed by the header's Refresh | `agents.events({ from, types? })` → `GET /v1/agents/{id}/events?from=…` (`agent.*`; `types=agent.egress` for connections) |
 | Agent manifests, a manifest's versions and one version's sections | `agentManifests.list()`, `.versions(name)`, `.get(name, version)` → `GET /v1/agent-manifests`, `GET …/{name}/versions`, `GET …/{name}/versions/{n}` |
-| New session | `createSession({ id, agent, ownerUserId })` → `PUT /v1/sessions/{id}` (the proxy sets `ownerUserId: local-developer`) |
+| New session (the sidebar Agent's +, the Agent page, an Agents row's ⋯) | `createSession({ id, agent, ownerUserId })` → `PUT /v1/sessions/{id}` (the proxy sets `ownerUserId: local-developer`) |
 | Session's Manifest tab, Declared | `session.manifest()` → `GET /v1/sessions/{id}/manifest` (Host feature `session-reads`; without it, `agents.get()` and `agentManifests.get(name, version)`); `agentManifests.get(name)` for the latest version |
 | Session's Manifest tab, Deployed | `session.inspect()` (`agentId`, `manifest: { name, version }`), `agents.get()`, Management `coverage({ agentId })`, `agents.events({ types: ["agent.egress"] })` |
-| Session list with last activity | `sessions.page({ limit: 200, cursor })` → `GET /v1/sessions?limit=200&cursor=…`, every page, for each session's `createdAt` and `lastEventAt` (Host feature `session-reads`); without it `listSessions()` → `GET /v1/sessions`, with no times |
+| Sessions' last activity (an Agent's Sessions tab and the Agents table) | `sessions.page({ limit: 200, cursor })` → `GET /v1/sessions?limit=200&cursor=…`, every page, for each session's `createdAt` and `lastEventAt` (Host feature `session-reads`); without it `listSessions()` → `GET /v1/sessions`, with no times |
 | Session's Usage tab | `session.usage()` → `GET /v1/sessions/{id}/usage` (tokens and `costSplit` by kind, `modelTimeMs`) and `session.modelCalls({ limit: 50, cursor })` → `GET /v1/sessions/{id}/calls/model?limit=50&cursor=…` (each call's timing and `usage.costSplit`), grouped by `turnId` (Host feature `session-reads`; both allowed by the proxy, read only). A call's View event finds its `message.assistant`, `model.failed` or `context.compacted` event by `payload.effectId` among the session's loaded events |
 | Tenant artifacts table | `artifacts.page({ kind, sessionId, labels, cursor })` → `GET /v1/artifacts?limit=50&…` |
 | Session artifact list | `artifacts.list({ sessionId })` → `GET /v1/artifacts?sessionId=…` |

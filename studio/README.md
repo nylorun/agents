@@ -77,15 +77,14 @@ The dashboard calls the Runtime through
 `Nylorun-Tenant` header. No installation Runtime, admin or Tenant key ever reaches
 the browser.
 
-Studio lists the Tenant's sessions, sends text, displays completed
+Studio lists the Tenant's Agents and their sessions, sends text, displays completed
 assistant responses and tool inputs/results, restores history, observes
 canonical SSE events, and cancels a turn. Every session runs on an Agent
-(protocol 16), and none is special. **Sessions** is one table of every
-session (Agent, owner, last activity, status), newest activity first; its
-**Last activity** header sorts oldest first. Last activity is the session's last
-committed event, else when it opened; a Runtime without `session-reads` lists no
-times. The table is filtered to an Agent from its **All Agents** menu;
-`/tenants/<id>/sessions?agent=<agentId>` is the filtered list. A session's page is
+(protocol 16), and none is special, so an Agent's sessions are on its page: the
+**Sessions** tab lists them (owner, last activity, status), newest activity first.
+Last activity is the session's last committed event, else when it opened; a Runtime
+without `session-reads` shows no times. Studio opens on the Agents list; `/sessions`
+opens it too, and `/sessions?agent=<agentId>` opens that Agent's page. A session's page is
 `/agents/<agentId>/sessions/<sessionId>` (each id one percent-encoded segment);
 `/sessions/<sessionId>` finds its Agent and opens it. Each session shows chat beside
 an inspector of four tabs, one per kind of data and the same for agent and workflow
@@ -103,14 +102,15 @@ and opens on Progress.
 and writes, reasoning tokens, cost and model calls) and each model call, read again
 when a turn ends. The header's inspector button hides the inspector and gives the
 chat the whole width; the browser remembers the choice. A chat message shows its
-time while it is hovered or focused. The sidebar holds **New session** (a menu of
-the Agents, grouped by manifest, on every page), **Sessions**, **Agents** (the
-Agents grouped by the manifest each was made from, each with its state and number
-of sessions) and **Agent manifests**; its header shows the Tenant and the Runtime's
-status, and selecting the Tenant opens its Overview. **Models** is the one setting,
-at the bottom of the sidebar. **New session** opens a session on the Agent picked
-(`PUT /v1/sessions/{id} { agent }`, owner `local-developer`); an Agent whose owner
-guard names another owner cannot be picked. An Agent's page has **New session** too.
+time while it is hovered or focused. Each sidebar item opens the page it names:
+**Agents** opens the Agents list, and each Agent under it (with its state, and how many
+of its sessions wait on a person) opens its page; **Manifests** and **Models** are
+below them. The sidebar's header shows the Tenant and the Runtime's status, and
+selecting the Tenant opens its Overview. A session always runs on one Agent, so it
+starts from one: hovering an Agent in the sidebar shows a **+** that opens a new
+session on it (`PUT /v1/sessions/{id} { agent }`, owner `local-developer`), as do the
+Agent page's **New session** and the **New session** of its row's ⋯ in the Agents list.
+An Agent whose owner guard names another owner offers none.
 
 A session's **Manifest** tab, under **Deployed**, shows where it runs: its Agent (linked to its page), its
 kind, state and compute, the manifest version the session opened on beside the one
@@ -164,14 +164,16 @@ tracking it (`name`: its latest version, and each version saved later) or pinned
 (`name@n`), and moves in place: its page moves it (Move to vN, Pin, Track), restarts
 a pod on a version waiting for its next start, and retries one that failed to start.
 
-The Agents table (`/agents`, `GET /v1/agents`) lists every Agent: its id (with its
-labels), the manifest version it runs (`triage@3`, **tracks** or **pinned**), its
-owner guard, its state (`working`, `sleeping`, `input_required`, `failing`,
-`paused`; the reasons behind it in a tooltip), its sessions and its last activity.
+The Agents table (`/agents`, `GET /v1/agents`), where Studio opens, lists every Agent
+in single-line rows: its id (with its labels), the manifest version it runs
+(`triage@3`, **tracks** or **pinned**), its state (`working`, `sleeping`,
+`input_required`, `failing`, `paused`; the reasons behind it in a tooltip), its kind,
+its sessions (and how many wait on a person) and its last activity; a row opens its
+page, and its ⋯ opens it, starts a session on it or copies its id.
 Agents that need input, then those failing, come first; the rest by last activity.
 It filters by state, manifest, owner and label (`?state=`, `?manifest=<name>`,
-`?owner=<owner>` or `?owner=-` for none, repeated `?label=key=value`); a manifest
-in the sidebar or the table filters on it, and so does a label. **New Agent**
+`?owner=<owner>` or `?owner=-` for none, repeated `?label=key=value`), and its search
+by id or manifest; a manifest in the table filters on it, and so does a label. **New Agent**
 makes one from a saved manifest: the manifest, **Track the latest** or a version to
 pin, its id, owner guard (`local-developer` by default) and labels
 (`PUT /v1/agents/{id} { manifest, owner?, labels? }`). Creating it opens no session.

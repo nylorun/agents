@@ -342,11 +342,13 @@ test("a normal browser tab on loopback opens the one Tenant with no sign-in, and
       // AP19: the published loopback address needs no sign-in.
       const local = await browser.newPage();
       await local.goto(studioUrl);
-      await local.waitForURL(`${studioUrl}/tenants/${TENANT}`);
+      // The Tenant's root opens its Agents.
+      await local.waitForURL(new RegExp(`/tenants/${TENANT}(?:/agents)?$`, "u"));
       await local.getByText(AGENT).first().waitFor();
       // `/login` sends the browser to `/`, which redirects to the Tenant.
       await page.goto(url);
-      await page.waitForURL(`${studioUrl}/tenants/${TENANT}`);
+      // The Tenant's root opens its Agents.
+      await page.waitForURL(new RegExp(`/tenants/${TENANT}(?:/agents)?$`, "u"));
       await page.getByText(AGENT).first().waitFor();
       await page.getByText("orders").first().waitFor();
       assert.equal(await page.evaluate(() => document.documentElement.dataset.embed), undefined);
@@ -370,7 +372,8 @@ test("a Runtime answering {} for provider and Agent lists leaves the dashboard r
         const pageErrors: string[] = [];
         page.on("pageerror", (error) => pageErrors.push(error.message));
         await page.goto(url);
-        await page.waitForURL(`${studioUrl}/tenants/${TENANT}`);
+        // The Tenant's root opens its Agents.
+        await page.waitForURL(new RegExp(`/tenants/${TENANT}(?:/agents)?$`, "u"));
 
         // The session's model picker reports the missing lists instead of crashing.
         await page.goto(`${studioUrl}/tenants/${TENANT}/agents/${AGENT}/sessions/${SESSION}`);

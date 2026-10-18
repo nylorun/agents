@@ -494,7 +494,8 @@ async function withStudio(
     const pageErrors: string[] = [];
     page.on("pageerror", (error) => pageErrors.push(error.message));
     await page.goto(url);
-    await page.waitForURL(`${studio.url}/tenants/${TENANT}`);
+    // The Tenant's root opens its Agents.
+    await page.waitForURL(new RegExp(`/tenants/${TENANT}(?:/agents)?$`, "u"));
     await run({
       page,
       studioUrl: studio.url,
@@ -552,30 +553,20 @@ test("an agent or session segment that does not decode is not found, and the nex
   });
 });
 
-test("the session list shows every session and filters on an Agent; an Agent's page lists its sessions", async () => {
+test("Studio opens on its Agents; each opens its page, which lists its sessions", async () => {
   await withStudio(async ({ page, studioUrl }) => {
-    const rows = (count: number) =>
-      page.waitForFunction((n) => document.querySelectorAll("tbody tr").length === n, count);
-    await page.getByRole("link", { name: ALICE_SESSION, exact: true }).waitFor();
-    await rows(4);
-    await page.getByRole("button", { name: "Filter by Agent" }).click();
-    await page.getByRole("menuitemcheckbox", { name: new RegExp(`^${FLOW}`, "u") }).click();
-    await page.waitForURL(`${studioUrl}/tenants/${TENANT}/sessions?agent=${FLOW}`);
+    await page.waitForURL(`${studioUrl}/tenants/${TENANT}/agents`);
+    const sidebar = page.locator("[data-sidebar=sidebar]");
     // A flow's child session runs on the flow's Agent.
-    await rows(2);
+    await sidebar.locator(`a[href$="/agents/${FLOW}"]`).click();
+    await page.waitForURL(`${studioUrl}/tenants/${TENANT}/agents/${FLOW}`);
+    await page.getByRole("tab", { name: "Sessions", exact: true, selected: true }).waitFor();
     await page.getByRole("link", { name: FLOW_SESSION, exact: true }).waitFor();
     await page.getByRole("link", { name: CHILD_SESSION, exact: true }).waitFor();
-    // The sidebar's Agent filters the table the same way; its details open its page.
-    const sidebar = page.locator("[data-sidebar=sidebar]");
-    await sidebar.locator(`a[href$="/sessions?agent=${AGENT}"]`).click();
-    await page.waitForURL(`${studioUrl}/tenants/${TENANT}/sessions?agent=${AGENT}`);
-    await rows(2);
     // An Agent's page lists the sessions on it; none is special.
-    await page.getByRole("link", { name: "Agent details" }).click();
+    await sidebar.locator(`a[href$="/agents/${AGENT}"]`).click();
     await page.waitForURL(`${studioUrl}/tenants/${TENANT}/agents/${AGENT}`);
     await page.getByRole("heading", { name: AGENT, exact: true }).waitFor();
-    // It opens on them.
-    await page.getByRole("tab", { name: "Sessions", exact: true, selected: true }).waitFor();
     await page.getByRole("link", { name: FILES_SESSION, exact: true }).waitFor();
     await page.getByRole("link", { name: ALICE_SESSION, exact: true }).click();
     await page.waitForURL(`${studioUrl}/tenants/${TENANT}/agents/${AGENT}/sessions/${ALICE_SESSION}`);
@@ -583,31 +574,28 @@ test("the session list shows every session and filters on an Agent; an Agent's p
   });
 });
 
-test("the session list shows each session's last activity, newest first, and sorts oldest first", async () => {
+test("an Agent's sessions show each one's last activity, newest first", async () => {
   await withStudio(
-    async ({ page }) => {
+    async ({ page, studioUrl }) => {
+      await page.goto(`${studioUrl}/tenants/${TENANT}/agents/${AGENT}`);
       const order = () =>
         page.$$eval("tbody tr", (rows) => rows.map((row) => row.querySelector("td")?.textContent ?? ""));
       await page.getByRole("link", { name: ALICE_SESSION, exact: true }).waitFor();
-      await page.waitForFunction(() => document.querySelectorAll("tbody tr").length === 4);
-      assert.deepEqual(await order(), [ALICE_SESSION, FLOW_SESSION, CHILD_SESSION, FILES_SESSION]);
-      const header = page.getByRole("columnheader", { name: /Last activity/u });
-      assert.equal(await header.getAttribute("aria-sort"), "descending");
+      await page.locator("tbody tr", { hasText: FILES_SESSION }).locator("time").waitFor();
+      assert.deepEqual(await order(), [ALICE_SESSION, FILES_SESSION]);
       // A session with no events counts from when it opened.
       assert.equal(
         await page.locator("tbody tr", { hasText: FILES_SESSION }).locator("time").getAttribute("datetime"),
         SESSION_TIMES[FILES_SESSION]!.createdAt,
       );
-      await header.getByRole("button").click();
-      assert.equal(await header.getAttribute("aria-sort"), "ascending");
-      assert.deepEqual(await order(), [FILES_SESSION, CHILD_SESSION, FLOW_SESSION, ALICE_SESSION]);
     },
     true,
   );
 });
 
-test("a Runtime without session reads lists sessions with no times", async () => {
-  await withStudio(async ({ page }) => {
+test("a Runtime without session reads shows sessions with no times", async () => {
+  await withStudio(async ({ page, studioUrl }) => {
+    await page.goto(`${studioUrl}/tenants/${TENANT}/agents/${AGENT}`);
     await page.getByRole("link", { name: ALICE_SESSION, exact: true }).waitFor();
     await page.getByRole("columnheader", { name: /Last activity/u }).waitFor();
     assert.equal(await page.locator("tbody time").count(), 0);
@@ -688,13 +676,15 @@ test("a session's Usage tab is one ledger of the session, its turns and each mod
   );
 });
 
-test("New session opens a session on the Agent picked, for the local developer, and refuses one guarded for another owner", async () => {
+test("a sidebar Agent's + opens a session on it, for the local developer, and none on one guarded for another owner", async () => {
   await withStudio(async ({ page, puts, coverage }) => {
-    await page.getByRole("button", { name: "New session" }).click();
-    // Grouped by manifest; an Agent guarded for another owner cannot be picked.
-    await page.getByRole("menuitem", { name: GUARDED }).waitFor();
-    assert.equal(await page.getByRole("menuitem", { name: GUARDED }).getAttribute("aria-disabled"), "true");
-    await page.getByRole("menuitem", { name: AGENT, exact: true }).click();
+    const sidebar = page.locator("[data-sidebar=sidebar]");
+    // A session always runs on one Agent: it starts from its Agent, never from a menu of them.
+    assert.equal(await sidebar.getByRole("button", { name: "New session", exact: true }).count(), 0);
+    await sidebar.getByRole("button", { name: `New session on ${GUARDED}` }).waitFor({ state: "attached" });
+    assert.equal(await sidebar.getByRole("button", { name: `New session on ${GUARDED}` }).isDisabled(), true);
+    await sidebar.locator(`a[href$="/agents/${AGENT}"]`).hover();
+    await sidebar.getByRole("button", { name: `New session on ${AGENT}`, exact: true }).click();
     await page.getByRole("textbox", { name: "Message" }).waitFor();
     await page.waitForURL(new RegExp(`/agents/${AGENT}/sessions/[0-9a-f-]{36}$`, "u"));
     assert.equal(puts.length, 1);

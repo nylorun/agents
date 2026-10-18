@@ -145,6 +145,13 @@ export function sortAgents<T extends Pick<AgentView, "id" | "state">>(
   });
 }
 
+/** How many of the Agent's sessions wait on a person or fail, from what made its state. */
+export function waitingSessions(agent: Pick<AgentView, "attention">): number {
+  return agent.attention.filter(
+    (item) => item.sessionId !== undefined && (item.state === "input_required" || item.state === "failing"),
+  ).length;
+}
+
 /** A state as a person reads it: `Input required`. */
 export function stateLabel(state: string): string {
   const text = state.replace(/_/gu, " ");

@@ -123,7 +123,8 @@ async function withModels(run: (context: { page: Page; puts: Put[] }) => Promise
     const pageErrors: string[] = [];
     page.on("pageerror", (error) => pageErrors.push(error.message));
     await page.goto(url);
-    await page.waitForURL(`${studio.url}/tenants/${TENANT}`);
+    // The Tenant's root opens its Agents.
+    await page.waitForURL(new RegExp(`/tenants/${TENANT}(?:/agents)?$`, "u"));
     await page.goto(`${studio.url}/tenants/${TENANT}/settings/models`);
     await run({ page, puts: runtime.puts });
     assert.deepEqual(pageErrors, []);
