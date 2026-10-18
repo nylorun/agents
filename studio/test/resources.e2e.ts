@@ -69,28 +69,42 @@ async function withStudio(
 
 const encoded = encodeURIComponent(AGENT);
 
-test("Agents: the sidebar lists each Agent as a filter on the sessions, the list sorts and filters, and an Agent's page shows its secrets, events and sessions", async () => {
+test("Agents: Studio opens on the Agents list, each sidebar Agent opens its page, the list sorts and filters, and an Agent's page shows its secrets, events and sessions", async () => {
   await withStudio(async (page, base, requests) => {
     await page.goto(base);
-    await page.getByRole("heading", { name: "Sessions", exact: true }).waitFor();
-    // Agents hold compute, secrets and disk versions: no Credentials or Environments entry.
-    assert.equal(await page.getByRole("link", { name: "Credentials", exact: true }).count(), 0);
-    assert.equal(await page.getByRole("link", { name: "Environments", exact: true }).count(), 0);
+    // Studio opens on its Agents.
+    await page.waitForURL((url) => url.pathname.endsWith("/agents") && url.search === "");
+    await page.getByRole("link", { name: AGENT, exact: true }).waitFor();
+    // Agents hold compute, secrets and disk versions: no Credentials, Environments or Sessions entry.
+    for (const name of ["Credentials", "Environments", "Sessions"])
+      assert.equal(await page.getByRole("link", { name, exact: true }).count(), 0, name);
     const sidebar = page.locator("[data-sidebar=sidebar]");
-    // One row per Agent, no manifest rows: each filters the session table to its sessions.
+    assert.equal(await sidebar.getByRole("button", { name: "New session", exact: true }).count(), 0);
+    // One row per Agent, no manifest rows: each opens its page, which opens on its sessions.
     assert.equal(await sidebar.getByRole("link", { name: "analyst-box 2" }).count(), 0);
-    await sidebar.locator(`a[href$="/sessions?agent=${encoded}"]`).click();
-    await page.waitForURL(/\/sessions\?agent=team%2Fbuild$/u);
-    await page.getByRole("button", { name: "Filter by Agent" }).getByText(AGENT, { exact: true }).waitFor();
-    // Agents opens every session; Manage Agents opens the list.
+    await sidebar.locator(`a[href$="/agents/${encoded}"]`).click();
+    await page.waitForURL(/\/agents\/team%2Fbuild$/u);
+    await page.getByRole("tab", { name: "Sessions", exact: true, selected: true }).waitFor();
+    // The old session list opens the Agents, or one Agent's sessions.
+    await page.goto(base + `/sessions?agent=${encoded}`);
+    await page.waitForURL(/\/agents\/team%2Fbuild$/u);
+    await page.goto(base + "/sessions");
+    await page.waitForURL((url) => url.pathname.endsWith("/agents") && url.search === "");
+    // Agents opens the list.
+    await page.getByRole("link", { name: AGENT, exact: true }).click();
+    await page.waitForURL(/\/agents\/team%2Fbuild$/u);
     await sidebar.getByRole("link", { name: /^Agents/u }).click();
-    await page.waitForURL((url) => url.pathname.endsWith("/sessions") && url.search === "");
-    await page.getByRole("link", { name: "Manage Agents" }).click();
     await page.waitForURL((url) => url.pathname.endsWith("/agents") && url.search === "");
     await page.getByRole("link", { name: AGENT, exact: true }).waitFor();
     // The whole list, as the session list: no pages to load.
     assert.ok(requests.some((r) => r.path === "/v1/agents"));
     assert.equal(requests.filter((r) => r.path.startsWith("/v1/agents?")).length, 0);
+    // How many of an Agent's sessions wait on a person.
+    await page.locator("tbody tr", { hasText: ASKING }).getByText("1 waiting", { exact: true }).waitFor();
+    await page.getByRole("searchbox", { name: "Search Agents" }).fill("pod");
+    await page.getByRole("link", { name: AGENT, exact: true }).waitFor({ state: "detached" });
+    await page.getByText("1 of 3 Agents", { exact: true }).waitFor();
+    await page.getByRole("searchbox", { name: "Search Agents" }).fill("");
     // Input required sorts first; each row names the version it runs and whether it tracks.
     const first = page.locator("tbody tr").first();
     await first.getByRole("link", { name: ASKING, exact: true }).waitFor();
@@ -111,7 +125,7 @@ test("Agents: the sidebar lists each Agent as a filter on the sessions, the list
     await page.waitForURL(/owner=-/u);
     await page.getByRole("link", { name: ASKING, exact: true }).waitFor({ state: "detached" });
     await page.goto(base + "/agents?manifest=pod-box");
-    await page.getByText("1 total", { exact: true }).waitFor();
+    await page.getByText("1 of 3 Agents", { exact: true }).waitFor();
     await page.goto(base + "/agents");
     await page
       .locator("tbody tr", { hasText: AGENT })

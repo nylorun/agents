@@ -26,7 +26,6 @@ import {
   settingsSection as settingsSectionOf,
 } from "@/components/tenant-settings";
 import { TenantOverview } from "@/components/tenant-overview";
-import { SessionsTable } from "@/components/sessions-table";
 import { ViewErrorBoundary } from "@/components/view-error-boundary";
 import { AgentManifestPanel } from "@/components/agent-manifest-panel";
 import { EventDetails } from "@/components/event-details";
@@ -84,7 +83,7 @@ import {
   tenantHref,
   tenantScope,
 } from "@/proxy-client";
-import { AGENT_FILTER, loadSessions } from "@/session-list";
+import { loadSessions } from "@/session-list";
 import {
   STUDIO_OWNER,
   isNewSessionState,
@@ -534,19 +533,15 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
   }, [catalogLocation, reloadCatalog]);
   const filter = agentListFilter(location.search);
   const manifestVersion = Number(new URLSearchParams(location.search).get("version"));
-  const sessionList = /^\/(?:sessions\/?)?$/u.test(location.pathname);
-  const agentFilter =
-    new URLSearchParams(location.search).get(AGENT_FILTER) || undefined;
-  const openAgentId = agent?.kind === "agent" ? agent.id : agentId;
-  // The sidebar's Agent: the one the session table is filtered on, or whose page or session is open.
-  const sidebarAgentId = sessionList ? agentFilter : openAgentId;
+  // The sidebar's Agent: the one whose page or session is open.
+  const sidebarAgentId = agent?.kind === "agent" ? agent.id : agentId;
   return (
     <SidebarProvider className="h-svh overflow-hidden">
       <AppSidebar
         connection={connection}
         tenant={tenant}
         catalog={catalog}
-        allSessionsActive={sessionList && agentFilter === undefined}
+        agentsActive={agent?.kind === "list"}
         manifestsActive={resourceActive === "manifests"}
         {...(sidebarAgentId === undefined ? {} : { activeAgentId: sidebarAgentId })}
         {...(settingsSection ? { settingsSection } : {})}
@@ -580,9 +575,7 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
                   ? "Artifacts"
                   : settingsSection
                     ? SETTINGS_SECTIONS[settingsSection]
-                    : sessionList
-                      ? "Sessions"
-                      : (agentId ?? "Nylorun Studio")}
+                    : (agentId ?? "Nylorun Studio")}
           </strong>
           )}
           <div ref={setHeaderStart} className="flex min-w-0 items-center gap-2 overflow-hidden" />
@@ -632,7 +625,11 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
               onChanged={reloadCatalog}
             />
           ) : agent?.kind === "list" ? (
-            <Agents tenantId={tenant.id} catalog={catalog} sessions={connection.sessions} filter={filter} />
+            waiting ? (
+              <TenantOverview tenant={tenant} waitingForAgents />
+            ) : (
+              <Agents tenantId={tenant.id} catalog={catalog} sessions={connection.sessions} filter={filter} />
+            )
           ) : manifest?.kind === "invalid" ? (
             <RouteNotFound what="manifest" segment={manifest.segment} />
           ) : manifest?.kind === "manifest" ? (
@@ -659,17 +656,6 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
               tenantId={tenant.id}
               refresh={refresh}
             />
-          ) : sessionList ? (
-            waiting ? (
-              <TenantOverview tenant={tenant} waitingForAgents />
-            ) : (
-              <SessionsTable
-                connection={connection}
-                agents={catalog.agents}
-                manifests={catalog.manifests}
-                {...(agentFilter === undefined ? {} : { agentFilter })}
-              />
-            )
           ) : (
             <RouteNotFound what="page" segment={location.pathname} />
           )}

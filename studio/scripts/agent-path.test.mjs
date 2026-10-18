@@ -64,6 +64,14 @@ test("old Environment, Credentials, vault and sandbox links open the Agent's pag
   );
   assert.equal(legacyRedirect("/settings/credentials", ""), "/agents");
   assert.equal(legacyRedirect("/sandboxes", "?label=a%3Db"), "/agents?label=a%3Db");
-  assert.equal(legacyRedirect("/sessions", ""), undefined);
   assert.equal(legacyRedirect("/agents", ""), undefined);
+  assert.equal(legacyRedirect("/sessions/s1", ""), undefined);
+});
+
+test("Studio opens on its Agents; the session list it had before opens an Agent's sessions", () => {
+  assert.equal(legacyRedirect("/", ""), "/agents");
+  assert.equal(legacyRedirect("/", "?embed=1"), "/agents?embed=1");
+  assert.equal(legacyRedirect("/sessions", ""), "/agents");
+  assert.equal(legacyRedirect("/sessions/", "?embed=1"), "/agents?embed=1");
+  assert.equal(legacyRedirect("/sessions", "?agent=team%2Fbuild&embed=1"), "/agents/team%2Fbuild?embed=1");
 });

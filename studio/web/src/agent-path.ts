@@ -100,6 +100,8 @@ function legacyTab(value: string | null): AgentTab | undefined {
  * - `/environments` → `/agents` (its `manifest` and `label` filters kept)
  * - `/settings/credentials?environment=<id>` and `/vault?environment=<id>` → its Vault tab
  * - those without an Environment, and `/sandboxes` → `/agents`
+ * - `/` and `/sessions` → `/agents`, Studio's home; `/sessions?agent=<id>` → that Agent's page,
+ *   which opens on its sessions (a session always runs on one Agent, so its sessions live there)
  */
 export function legacyRedirect(pathname: string, search: string): string | undefined {
   const query = new URLSearchParams(search);
@@ -130,5 +132,9 @@ export function legacyRedirect(pathname: string, search: string): string | undef
       : withQuery("/agents", rest(["environment"]));
   }
   if (/^\/sandboxes\/?$/u.test(pathname)) return withQuery("/agents", query);
+  if (pathname === "/" || /^\/sessions\/?$/u.test(pathname)) {
+    const agent = query.get("agent");
+    return agent ? withQuery(agentPath(agent), rest(["agent"])) : withQuery("/agents", query);
+  }
   return undefined;
 }

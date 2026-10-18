@@ -35,15 +35,15 @@ export const sessionTone = (status: string) =>
           : "idle";
 
 /**
- * The sessions that run on the Agent (its view lists them), by last activity as the session list
- * read it: none is special (D71). A row opens the session.
+ * The sessions that run on the Agent (its view lists them), by last activity as Studio read it:
+ * none is special (D71). A row opens the session.
  */
 export function AgentSessionsTab({
   agent,
   known,
 }: {
   agent: AgentView;
-  /** The Tenant's sessions as the session list read them, with their times. */
+  /** The Tenant's sessions as Studio read them, with their times. */
   known: readonly SessionSummary[];
 }) {
   const navigate = useNavigate();

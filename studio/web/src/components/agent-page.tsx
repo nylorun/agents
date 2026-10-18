@@ -94,7 +94,7 @@ export function AgentPage({
 }: {
   tenantId: string;
   id: string;
-  /** The Tenant's sessions as the session list read them, for their last activity. */
+  /** The Tenant's sessions as Studio read them, for their last activity. */
   sessions: readonly SessionSummary[];
   /** Bumped by the header's Refresh: the page and its open tab read again. */
   revision?: number;
