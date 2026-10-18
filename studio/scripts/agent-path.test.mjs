@@ -14,8 +14,8 @@ test("an Agent's page is one percent-encoded segment, opened on a tab", () => {
   assert.equal(agentPath("team/build", "sessions"), "/agents/team%2Fbuild");
   assert.equal(agentPath("team/build", "disk"), "/agents/team%2Fbuild?tab=disk");
   assert.equal(manifestPath(), "/agent-manifests");
-  assert.equal(manifestPath("triage"), "/agent-manifests/triage");
-  assert.equal(manifestPath("triage", 3), "/agent-manifests/triage?version=3");
+  assert.equal(manifestPath("triage"), "/agent-manifests?selected=triage");
+  assert.equal(manifestPath("triage", 3), "/agent-manifests?selected=triage&version=3");
 });
 
 test("the page opens on its sessions, and the tabs it had before open where they live now", () => {
@@ -74,4 +74,14 @@ test("Studio opens on its Agents; the session list it had before opens an Agent'
   assert.equal(legacyRedirect("/sessions", ""), "/agents");
   assert.equal(legacyRedirect("/sessions/", "?embed=1"), "/agents?embed=1");
   assert.equal(legacyRedirect("/sessions", "?agent=team%2Fbuild&embed=1"), "/agents/team%2Fbuild?embed=1");
+});
+
+test("a manifest's page before opens it beside the manifests list", () => {
+  assert.equal(legacyRedirect("/agent-manifests/triage", ""), "/agent-manifests?selected=triage");
+  assert.equal(
+    legacyRedirect("/agent-manifests/triage", "?version=3&embed=1"),
+    "/agent-manifests?selected=triage&version=3&embed=1",
+  );
+  assert.equal(legacyRedirect("/agent-manifests/%E0", ""), undefined);
+  assert.equal(legacyRedirect("/agent-manifests", "?selected=triage"), undefined);
 });

@@ -241,7 +241,7 @@ test("a session's Manifest tab, under Deployed, shows where it runs: the version
   });
 });
 
-test("agent manifests are read only: names, versions, each version's two sections side by side, and the Agents made from it", async () => {
+test("agent manifests are one read-only table; a row opens the manifest beside it as a readable spec, on any version, with the Agents made from it", async () => {
   await withStudio(async (page, base, requests) => {
     await page.goto(base);
     await page.locator("[data-sidebar=sidebar]").getByRole("link", { name: /^Manifests/u }).click();
@@ -249,24 +249,54 @@ test("agent manifests are read only: names, versions, each version's two section
     const row = page.locator("tbody tr", { hasText: "analyst-box" });
     await row.getByText("v3", { exact: true }).waitFor();
     await row.getByText("Answers questions about data.", { exact: true }).waitFor();
-    await row.getByRole("link", { name: "analyst-box", exact: true }).click();
-    await page.waitForURL(/\/agent-manifests\/analyst-box$/u);
-    await page.getByRole("heading", { name: "analyst-box", exact: true }).waitFor();
-    await page.getByText("v3 (latest)", { exact: false }).waitFor();
-    await page.getByRole("heading", { name: "Harness", exact: true }).waitFor();
-    await page.getByRole("heading", { name: "Runtime", exact: true }).waitFor();
-    await page.getByText("github", { exact: true }).first().waitFor();
-    // The Agents made from it, on whichever version.
-    await page.getByRole("link", { name: AGENT, exact: true }).waitFor();
-    await page.getByRole("link", { name: ASKING, exact: true }).waitFor();
+    await page.getByText("2 manifests", { exact: true }).waitFor();
+    // Filters on top: no manifest makes a pod.
+    await page.getByRole("button", { name: "Filter by kind" }).click();
+    await page.getByRole("menuitemradio", { name: "pod" }).click();
+    await page.getByText("No manifests match these filters.", { exact: true }).waitFor();
+    await page.getByRole("button", { name: "Filter by kind" }).click();
+    await page.getByRole("menuitemradio", { name: "Any" }).click();
+    await page.getByRole("searchbox", { name: "Search manifests" }).fill("pod");
+    await page.getByText("1 of 2 manifests", { exact: true }).waitFor();
+    await page.getByRole("searchbox", { name: "Search manifests" }).fill("");
+    // A row opens the manifest beside the list, on its latest version.
+    await row.getByRole("button", { name: "analyst-box", exact: true }).click();
+    await page.waitForURL(/\/agent-manifests\?selected=analyst-box$/u);
+    const pane = page.getByRole("complementary", { name: "analyst-box" });
+    await pane.getByRole("heading", { name: "analyst-box", exact: true }).waitFor();
+    await pane.getByText(/^v3 · latest · saved /u).waitFor();
+    await pane.getByRole("heading", { name: "Harness", exact: true }).waitFor();
+    await pane.getByRole("heading", { name: "Runtime", exact: true }).waitFor();
+    await pane.getByRole("region", { name: "Instructions" }).getByText("Analyse the data.", { exact: true }).waitFor();
+    await pane
+      .getByRole("region", { name: "Triggers" })
+      .getByText("Mondays at 08:00, Europe/Berlin → Session kpi", { exact: true })
+      .waitFor();
+    // A line opens its part of the manifest.
+    const server = pane.getByRole("region", { name: "MCP servers" }).getByRole("button", { name: /^github/u });
+    await server.click();
+    assert.equal(await server.getAttribute("aria-expanded"), "true");
+    await pane.getByText('"type": "streamable-http"', { exact: false }).waitFor();
+    // The Agents made from it, on whichever version, each linked to its page.
+    await pane.getByRole("link", { name: `${AGENT} v2` }).waitFor();
+    await pane.getByRole("link", { name: `${ASKING} v3` }).waitFor();
     // Another version.
-    await page.getByRole("link", { name: /^v2/u }).click();
-    await page.waitForURL(/\/agent-manifests\/analyst-box\?version=2$/u);
-    await page.getByRole("button", { name: "New Agent from v2" }).waitFor();
+    await pane.getByRole("button", { name: "Filter by version" }).click();
+    await page.getByRole("menuitemradio", { name: "v2" }).click();
+    await page.waitForURL(/\/agent-manifests\?selected=analyst-box&version=2$/u);
+    await pane.getByText(/^v2 of 3 · saved /u).waitFor();
     assert.ok(requests.some((r) => r.path === "/v1/agent-manifests/analyst-box/versions/2"));
+    await pane.getByRole("button", { name: "analyst-box actions" }).click();
+    await page.getByRole("menuitem", { name: "New Agent from v2…" }).waitFor();
+    await page.keyboard.press("Escape");
     // Nothing edits a manifest here.
     for (const name of ["New version", "Save version", "Check"])
       assert.equal(await page.getByRole("button", { name, exact: true }).count(), 0, name);
+    await pane.getByRole("button", { name: "Close manifest" }).click();
+    await page.waitForURL(/\/agent-manifests$/u);
+    // A manifest's page before opens it beside the list.
+    await page.goto(base + "/agent-manifests/analyst-box?version=2");
+    await page.waitForURL(/\/agent-manifests\?selected=analyst-box&version=2$/u);
     await page.goto(base + "/agent-manifests/missing");
     await page.getByText(/Agent manifest not found/u).first().waitFor();
   });
@@ -275,9 +305,10 @@ test("agent manifests are read only: names, versions, each version's two section
 test("an Agent is made from a manifest version, its labels and owner edited, forked to a newer version, and deleted", async () => {
   await withStudio(
     async (page, base, requests) => {
-      // From a manifest's page: pinned to the version shown.
-      await page.goto(base + "/agent-manifests/analyst-box?version=2");
-      await page.getByRole("button", { name: "New Agent from v2" }).click();
+      // From a manifest beside the list: pinned to the version shown.
+      await page.goto(base + "/agent-manifests?selected=analyst-box&version=2");
+      await page.getByRole("button", { name: "analyst-box actions" }).click();
+      await page.getByRole("menuitem", { name: "New Agent from v2…" }).click();
       const pinned = page.getByRole("dialog", { name: "New Agent" });
       await pinned.getByRole("combobox", { name: "Version" }).locator("option", { hasText: "Pin v2" }).waitFor({ state: "attached" });
       assert.equal(await pinned.getByRole("combobox", { name: "Version" }).inputValue(), "2");

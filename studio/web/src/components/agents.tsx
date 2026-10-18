@@ -521,7 +521,7 @@ export function NewAgentSheet({
             <SheetTitle>New Agent</SheetTitle>
             <SheetDescription>
               Made from a saved agent manifest: tracking it, it runs the latest version when it is
-              made, and each version saved after it; pinned, the version picked until you move it. Write its secrets on its Secrets tab once it exists.
+              made, and each version saved after it; pinned, the version picked until you move it. Set its vault's values on its Vault tab once it exists.
             </SheetDescription>
           </SheetHeader>
           <div className="grid gap-4 px-4">

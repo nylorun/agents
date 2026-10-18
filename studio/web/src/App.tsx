@@ -15,7 +15,7 @@ import { Agents } from "@/components/agents";
 import { useAgentCatalog } from "@/resources/agents";
 import { agentFilter as agentListFilter } from "@/agent-list";
 import { AgentPage } from "@/components/agent-page";
-import { AgentManifestPage, AgentManifests } from "@/components/agent-manifests";
+import { AgentManifests } from "@/components/agent-manifests";
 import { SessionAgentPanel } from "@/components/session-agent";
 import { Artifacts, SessionArtifacts } from "@/components/artifacts";
 import { artifactReferences } from "@/resources/artifacts";
@@ -532,7 +532,6 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
     if (catalogLocation !== undefined && catalogLocation !== previous) reloadCatalog();
   }, [catalogLocation, reloadCatalog]);
   const filter = agentListFilter(location.search);
-  const manifestVersion = Number(new URLSearchParams(location.search).get("version"));
   // The sidebar's Agent: the one whose page or session is open.
   const sidebarAgentId = agent?.kind === "agent" ? agent.id : agentId;
   return (
@@ -568,9 +567,7 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
             {resourceActive === "agents"
               ? "Agents"
               : resourceActive === "manifests"
-                ? manifest?.kind === "manifest"
-                  ? "Agent manifest"
-                  : "Agent manifests"
+                ? "Agent manifests"
                 : resourceActive === "artifacts"
                   ? "Artifacts"
                   : settingsSection
@@ -632,16 +629,8 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
             )
           ) : manifest?.kind === "invalid" ? (
             <RouteNotFound what="manifest" segment={manifest.segment} />
-          ) : manifest?.kind === "manifest" ? (
-            <AgentManifestPage
-              key={manifest.id}
-              tenantId={tenant.id}
-              name={manifest.id}
-              {...(Number.isSafeInteger(manifestVersion) && manifestVersion > 0 ? { version: manifestVersion } : {})}
-              catalog={catalog}
-            />
           ) : manifest?.kind === "list" ? (
-            <AgentManifests catalog={catalog} />
+            <AgentManifests tenantId={tenant.id} catalog={catalog} />
           ) : resourceActive === "artifacts" ? (
             <Artifacts tenantId={tenant.id} />
           ) : settingsSection ? (

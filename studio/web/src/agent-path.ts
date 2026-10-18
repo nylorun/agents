@@ -50,11 +50,15 @@ export function agentPath(id: string, tab?: AgentTab): string {
   return tab === undefined || tab === "sessions" ? path : `${path}?tab=${tab}`;
 }
 
-/** `/agent-manifests`, or one manifest's page, opened on `version` (its latest when omitted). */
+/**
+ * `/agent-manifests`, or the list with one manifest open beside it, on `version` (its latest
+ * when omitted).
+ */
 export function manifestPath(name?: string, version?: number): string {
   if (name === undefined) return "/agent-manifests";
-  const path = `/agent-manifests/${encodeURIComponent(name)}`;
-  return version === undefined ? path : `${path}?version=${version}`;
+  const query = new URLSearchParams({ selected: name });
+  if (version !== undefined) query.set("version", String(version));
+  return `/agent-manifests?${query}`;
 }
 
 type Route<Kind extends string> =
@@ -100,6 +104,7 @@ function legacyTab(value: string | null): AgentTab | undefined {
  * - `/environments` → `/agents` (its `manifest` and `label` filters kept)
  * - `/settings/credentials?environment=<id>` and `/vault?environment=<id>` → its Vault tab
  * - those without an Environment, and `/sandboxes` → `/agents`
+ * - `/agent-manifests/<name>?version=` → the manifests list with that manifest open beside it
  * - `/` and `/sessions` → `/agents`, Studio's home; `/sessions?agent=<id>` → that Agent's page,
  *   which opens on its sessions (a session always runs on one Agent, so its sessions live there)
  */
@@ -132,6 +137,17 @@ export function legacyRedirect(pathname: string, search: string): string | undef
       : withQuery("/agents", rest(["environment"]));
   }
   if (/^\/sandboxes\/?$/u.test(pathname)) return withQuery("/agents", query);
+  const manifest = pathname.match(/^\/agent-manifests\/([^/]+)\/?$/u)?.[1];
+  if (manifest !== undefined) {
+    let name: string;
+    try {
+      name = decodeURIComponent(manifest);
+    } catch {
+      // Not a valid encoding: the page says the manifest is not found.
+      return undefined;
+    }
+    return withQuery(manifestPath(name), query);
+  }
   if (pathname === "/" || /^\/sessions\/?$/u.test(pathname)) {
     const agent = query.get("agent");
     return agent ? withQuery(agentPath(agent), rest(["agent"])) : withQuery("/agents", query);

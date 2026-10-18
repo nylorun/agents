@@ -45,7 +45,7 @@ link it to that Agent.
 | Disk tab: Browse a version | the artifact reads below, on the `artifactId` the versions read names |
 | Manifest tab | the version's manifest from `agentManifests.get(name, version)`; without it, the runtime, slots and limits from `GET /v1/agents/{id}`; read only. Its moves: `agents.put(id, { manifest: "name" \| "name@n" })`, `agents.restart(id, { retry? })` |
 | Activity tab, refreshed by the header's Refresh | `agents.events({ from, types? })` → `GET /v1/agents/{id}/events?from=…` (`agent.*`; `types=agent.egress` for connections) |
-| Agent manifests, a manifest's versions and one version's sections | `agentManifests.list()`, `.versions(name)`, `.get(name, version)` → `GET /v1/agent-manifests`, `GET …/{name}/versions`, `GET …/{name}/versions/{n}` |
+| Agent manifests table, and a manifest beside it: its versions and one version as a readable spec | `agentManifests.list()`, `.versions(name)`, `.get(name, version)` → `GET /v1/agent-manifests`, `GET …/{name}/versions`, `GET …/{name}/versions/{n}` |
 | New session (the sidebar Agent's +, the Agent page, an Agents row's ⋯) | `createSession({ id, agent, ownerUserId })` → `PUT /v1/sessions/{id}` (the proxy sets `ownerUserId: local-developer`) |
 | Session's Manifest tab, Declared | `session.manifest()` → `GET /v1/sessions/{id}/manifest` (Host feature `session-reads`; without it, `agents.get()` and `agentManifests.get(name, version)`); `agentManifests.get(name)` for the latest version |
 | Session's Manifest tab, Deployed | `session.inspect()` (`agentId`, `manifest: { name, version }`), `agents.get()`, Management `coverage({ agentId })`, `agents.events({ types: ["agent.egress"] })` |

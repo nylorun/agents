@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   manifestSections,
+  manifestSpec,
   scheduleText,
   slotUses,
   triggerSession,
@@ -125,4 +126,48 @@ test("without its manifest the tab still shows the runtime section from the Agen
   const sections = manifestSections({ ...agent, kind: "none", runtime: { lifecycle: {} }, slots: [] });
   assert.deepEqual(sections.map((section) => section.id), ["compute", "lifecycle", "limits"]);
   assert.equal(sections[0].rows[0].note, "fixed");
+});
+
+test("a manifest version reads as a spec from its document alone, with no Agent's state", () => {
+  const sections = manifestSpec({
+    harness,
+    runtime: {
+      kind: "pod",
+      image: "ghcr.io/acme/analyst:1",
+      lifecycle: { idle: "15m" },
+      secrets: { REPORTS_KEY: { type: "environment_secret", required: true, description: "Reports API key" } },
+      triggers: { nightly: { schedule: "0 2 * * *", session: "new", prompt: "Run" } },
+      selfWake: true,
+    },
+  });
+  assert.deepEqual(
+    sections.map((section) => section.id),
+    ["instructions", "tools", "skills", "mcp", "memory", "compute", "lifecycle", "network", "slots", "triggers"],
+  );
+  const compute = sections.find((section) => section.id === "compute").rows;
+  assert.deepEqual(compute.map((row) => [row.label, row.note]), [
+    ["Kind", "fixed"],
+    ["Image", undefined],
+    ["Resources", undefined],
+    ["Storage", "fixed"],
+  ]);
+  const slot = sections.find((section) => section.id === "slots").rows[0];
+  assert.equal(slot.value, "Sandbox secret · required");
+  assert.equal(slot.note, "Reports API key");
+  assert.deepEqual(
+    sections.find((section) => section.id === "triggers").rows.map((row) => row.value),
+    ["Every day at 02:00, UTC → A new session per run", "The agent may book its own next turn"],
+  );
+});
+
+test("a manifest with no runtime section makes a vault with no compute; a flow lists its agents", () => {
+  const sections = manifestSpec({
+    harness: { kind: "workflow", agents: { fetch: { description: "Reads the source" }, file: {} } },
+  });
+  assert.deepEqual(sections.map((section) => section.id), ["flow", "compute", "lifecycle"]);
+  assert.deepEqual(sections[0].rows.map((row) => [row.label, row.value]), [
+    ["fetch", "Reads the source"],
+    ["file", "Agent"],
+  ]);
+  assert.equal(sections[1].rows[0].value, "None: a vault with no compute");
 });
