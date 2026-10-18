@@ -241,16 +241,21 @@ and its sessions.
 
 ## Agent manifests
 
-`/agent-manifests` lists the Tenant's agent manifests (`GET /v1/agent-manifests`):
-each name with its latest version, the kind of Agent it makes, who saved it and
-how many Agents were made from it. A manifest's page (`/agent-manifests/<name>`,
-`?version=<n>`) lists its versions (with the Agents made from each), shows the
-version's **Harness** section (what runs inside the loop: harness, instructions,
-tools, skills, MCP servers or a flow's agents) beside its **Runtime** section (kind,
-image, resources, allowed hosts, lifecycle, setup, files and secret slots), each
-also as JSON, and the Agents made from the manifest. **New Agent from v<n>** makes
-an Agent pinned to that version. Manifests are read only in Studio: edit one in its
-repository and save its next version with `nylorun apply`.
+`/agent-manifests` lists the Tenant's agent manifests (`GET /v1/agent-manifests`) in
+single-line rows: each name with its description, latest version, the kind of Agent it
+makes (`flow · …` for a flow), how many Agents were made from it and when it was saved
+(and by whom, on hover), searched by name or description and filtered by kind, type
+(Agent or flow) and whether any Agent was made from it. A row opens the manifest beside
+the list (`?selected=<name>&version=<n>`; the list keeps its name, version, kind and
+Agents): a version picker, its description, the Agents made from it (each linked to its
+page, with the version it runs), and the version as a readable spec, its **Harness**
+section (instructions, tools or a flow's agents, skills, MCP servers, memory) then its
+**Runtime** section (compute, lifecycle, network, setup and input files, vault slots,
+triggers, limits), one line each; a line opens its part of the manifest as JSON. Its ⋯
+makes an Agent pinned to the version shown (**New Agent from v<n>**), shows the whole
+manifest as JSON, or copies its name. `/agent-manifests/<name>` opens it so too.
+Manifests are read only in Studio: edit one in its repository and save its next
+version with `nylorun apply`.
 
 Old links redirect, including in embeds: `/environments/<id>` and
 `/environments?selected=<id>&tab=…` to the Agent's page, `/environments` to

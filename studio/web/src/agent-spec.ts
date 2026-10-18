@@ -199,23 +199,26 @@ const sizeText = (bytes: number) =>
       ? `${Math.round(bytes / 1024 ** 2)} MiB`
       : `${Math.round(bytes / 1024)} KiB`;
 
-/**
- * The Manifest tab: the harness section (instructions, tools, skills, MCP servers, memory),
- * then the runtime section (compute, lifecycle, network, setup, vault slots, triggers, limits),
- * a section only when it holds something. `manifest` is the version's whole document; without
- * it (not read yet, or unreadable) the runtime section comes from the Agent's view alone.
- */
-export function manifestSections(agent: AgentView, manifest?: unknown): SpecSection[] {
-  const doc = isRecord(manifest) ? manifest : {};
-  const harness = isRecord(doc.harness) ? doc.harness : {};
-  const runtimeDoc = isRecord(doc.runtime) ? doc.runtime : {};
-  const view = manifestView(harness);
-  const sections: SpecSection[] = [];
-  const add = (group: SpecSection["group"], id: string, title: string, hint: string, rows: SpecRow[]) => {
-    if (rows.length) sections.push({ id, group, title, hint, rows });
-  };
-  const tools = Array.isArray(harness.tools) ? harness.tools.filter(isRecord) : [];
+type Add = (group: SpecSection["group"], id: string, title: string, hint: string, rows: SpecRow[]) => void;
 
+/** The harness section: instructions, tools, skills, MCP servers and memory, or a flow's agents. */
+function harnessSections(harness: Json, add: Add): void {
+  if (harness.kind === "workflow") {
+    const agents = isRecord(harness.agents) ? harness.agents : {};
+    add(
+      "harness",
+      "flow",
+      "Flow agents",
+      "Each step of the flow is an agent",
+      Object.entries(agents).map(([name, value]) => {
+        const description = isRecord(value) && typeof value.description === "string" ? value.description : undefined;
+        return { id: `flow:${name}`, label: name, mono: true, value: description ?? "Agent", json: value };
+      }),
+    );
+    return;
+  }
+  const view = manifestView(harness);
+  const tools = Array.isArray(harness.tools) ? harness.tools.filter(isRecord) : [];
   add(
     "harness",
     "instructions",
@@ -301,17 +304,37 @@ export function manifestSections(agent: AgentView, manifest?: unknown): SpecSect
       },
     ]);
   }
+}
 
-  const runtime = agent.runtime;
-  const pod = agent.kind === "pod";
+type Limits = {
+  artifacts?: { fileBytes?: number; totalBytes?: number };
+  skills?: { totalBytes?: number };
+  disk?: { versionBytes?: number; versionEntries?: number };
+};
+
+/** What the runtime section rows read: the Agent's runtime, or a manifest version's. */
+type RuntimeInput = {
+  kind: string;
+  runtime: Pick<AgentView["runtime"], "image" | "resources" | "storage" | "network" | "lifecycle" | "setup" | "files">;
+  /** The version's runtime section, for its triggers and self-wake. */
+  doc: Json;
+  slots: { name: string; type: string; required: boolean; set?: boolean }[];
+  limits?: Limits;
+  /** The Agent it describes: its compute state and slots' values become notes. */
+  agent?: AgentView;
+};
+
+/** The runtime section: compute, lifecycle, network, setup, vault slots, triggers and limits. */
+function runtimeSections({ kind, runtime, doc, slots, limits, agent }: RuntimeInput, add: Add): void {
+  const pod = kind === "pod";
   add("runtime", "compute", "Compute", "Where its turns run", [
     {
       id: "compute:kind",
       label: "Kind",
-      value: KIND_LABELS[agent.kind] ?? agent.kind,
-      note: agent.kind === "none" ? "fixed" : `fixed · ${agent.compute.state}`,
-      tone: agent.compute.state === "running" ? "busy" : "idle",
-      json: { kind: agent.kind },
+      value: KIND_LABELS[kind] ?? kind,
+      note: agent && kind !== "none" ? `fixed · ${agent.compute.state}` : "fixed",
+      ...(agent ? { tone: agent.compute.state === "running" ? ("busy" as const) : ("idle" as const) } : {}),
+      json: { kind },
     },
     ...(pod
       ? [
@@ -319,12 +342,12 @@ export function manifestSections(agent: AgentView, manifest?: unknown): SpecSect
             id: "compute:image",
             label: "Image",
             value: runtime.image ?? "The Tenant's",
-            ...(agent.compute.pod?.imageDigest ? { note: agent.compute.pod.imageDigest.slice(0, 19) } : {}),
+            ...(agent?.compute.pod?.imageDigest ? { note: agent.compute.pod.imageDigest.slice(0, 19) } : {}),
             json: { image: runtime.image },
           },
         ]
       : []),
-    ...(agent.kind === "none"
+    ...(kind === "none"
       ? []
       : [
           {
@@ -342,17 +365,17 @@ export function manifestSections(agent: AgentView, manifest?: unknown): SpecSect
     {
       id: "lifecycle:idle",
       label: "Idle",
-      value: runtime.lifecycle.idle ? `Stops after ${runtime.lifecycle.idle} without a turn; its files stay` : "The Tenant's",
-      json: { idle: runtime.lifecycle.idle },
+      value: runtime.lifecycle?.idle ? `Stops after ${runtime.lifecycle.idle} without a turn; its files stay` : "The Tenant's",
+      json: { idle: runtime.lifecycle?.idle },
     },
     {
       id: "lifecycle:delete",
       label: "Delete after",
-      value: runtime.lifecycle.deleteAfter ?? "Never",
-      json: { deleteAfter: runtime.lifecycle.deleteAfter ?? null },
+      value: runtime.lifecycle?.deleteAfter ?? "Never",
+      json: { deleteAfter: runtime.lifecycle?.deleteAfter ?? null },
     },
   ]);
-  if (agent.kind !== "none")
+  if (kind !== "none")
     add("runtime", "network", "Network", "Hosts the sandbox may reach", [
       {
         id: "network",
@@ -377,30 +400,35 @@ export function manifestSections(agent: AgentView, manifest?: unknown): SpecSect
     ...setup.map((command, index) => ({
       id: `setup:command:${index}`,
       label: `${files.length + index + 1}. Run`,
-      mono: false,
       value: command.command,
       note: `in ${command.cwd ?? "/workspace"} · timeout ${command.timeout ?? "10m"}`,
       json: command,
     })),
   ]);
-  const declared = isRecord(runtime.secrets) ? runtime.secrets : {};
+  const declared = isRecord(doc.secrets) ? doc.secrets : {};
   add(
     "runtime",
     "slots",
     "Vault slots",
     "Credentials its tools need",
-    agent.slots.map((slot) => ({
-      id: `slot:${slot.name}`,
-      label: slot.name,
-      mono: true,
-      value: slotTypeLabel(slot.type) + (slot.required ? " · required" : ""),
-      note: slot.set ? "Set" : "Not set",
-      tone: slot.set ? ("ok" as const) : ("warn" as const),
-      tab: "vault" as const,
-      json: { [slot.name]: declared[slot.name] ?? { type: slot.type } },
-    })),
+    slots.map((slot) => {
+      const binding = isRecord(declared[slot.name]) ? (declared[slot.name] as Json) : {};
+      return {
+        id: `slot:${slot.name}`,
+        label: slot.name,
+        mono: true,
+        value: slotTypeLabel(slot.type) + (slot.required ? " · required" : ""),
+        ...(slot.set === undefined
+          ? typeof binding.description === "string"
+            ? { note: binding.description }
+            : {}
+          : { note: slot.set ? "Set" : "Not set", tone: slot.set ? ("ok" as const) : ("warn" as const) }),
+        tab: "vault" as const,
+        json: { [slot.name]: declared[slot.name] ?? { type: slot.type } },
+      };
+    }),
   );
-  const triggers = isRecord(runtimeDoc.triggers) ? runtimeDoc.triggers : {};
+  const triggers = isRecord(doc.triggers) ? doc.triggers : {};
   add("runtime", "triggers", "Triggers", "What starts its turns with no client connected", [
     ...Object.entries(triggers)
       .filter((entry): entry is [string, Json] => isRecord(entry[1]))
@@ -417,35 +445,92 @@ export function manifestSections(agent: AgentView, manifest?: unknown): SpecSect
         tab: "triggers" as const,
         json: trigger,
       })),
-    ...(runtimeDoc.selfWake === true
+    ...(doc.selfWake === true
       ? [{ id: "trigger:wake", label: "Self-wake", value: "The agent may book its own next turn", note: "on", tab: "triggers" as const, json: { selfWake: true } }]
       : []),
   ]);
+  const artifacts = limits?.artifacts;
+  const skills = limits?.skills;
+  const disk = limits?.disk;
   add("runtime", "limits", "Limits", "The most it may hold", [
-    {
-      id: "limits:artifacts",
-      label: "Artifacts",
-      value: `${sizeText(agent.limits.artifacts.fileBytes)} a file · ${sizeText(agent.limits.artifacts.totalBytes)} in all`,
-      tab: "artifacts",
-      json: agent.limits.artifacts,
-    },
-    {
-      id: "limits:skills",
-      label: "Skills",
-      value: `${sizeText(agent.limits.skills.totalBytes)} in all`,
-      json: agent.limits.skills,
-    },
-    ...(agent.kind === "none"
-      ? []
-      : [
+    ...(artifacts?.fileBytes !== undefined && artifacts.totalBytes !== undefined
+      ? [
+          {
+            id: "limits:artifacts",
+            label: "Artifacts",
+            value: `${sizeText(artifacts.fileBytes)} a file · ${sizeText(artifacts.totalBytes)} in all`,
+            tab: "artifacts" as const,
+            json: artifacts,
+          },
+        ]
+      : []),
+    ...(skills?.totalBytes !== undefined
+      ? [{ id: "limits:skills", label: "Skills", value: `${sizeText(skills.totalBytes)} in all`, json: skills }]
+      : []),
+    ...(kind !== "none" && disk?.versionBytes !== undefined && disk.versionEntries !== undefined
+      ? [
           {
             id: "limits:disk",
             label: "Disk version",
-            value: `${sizeText(agent.limits.disk.versionBytes)} · ${agent.limits.disk.versionEntries.toLocaleString("en-US")} entries`,
+            value: `${sizeText(disk.versionBytes)} · ${disk.versionEntries.toLocaleString("en-US")} entries`,
             tab: "disk" as const,
-            json: agent.limits.disk,
+            json: disk,
           },
-        ]),
+        ]
+      : []),
   ]);
+}
+
+const collect = (): [SpecSection[], Add] => {
+  const sections: SpecSection[] = [];
+  return [sections, (group, id, title, hint, rows) => void (rows.length && sections.push({ id, group, title, hint, rows }))];
+};
+
+/**
+ * The Manifest tab: the harness section (instructions, tools, skills, MCP servers, memory),
+ * then the runtime section (compute, lifecycle, network, setup, vault slots, triggers, limits),
+ * a section only when it holds something. `manifest` is the version's whole document; without
+ * it (not read yet, or unreadable) the runtime section comes from the Agent's view alone.
+ */
+export function manifestSections(agent: AgentView, manifest?: unknown): SpecSection[] {
+  const doc = isRecord(manifest) ? manifest : {};
+  const [sections, add] = collect();
+  harnessSections(isRecord(doc.harness) ? doc.harness : {}, add);
+  runtimeSections(
+    {
+      kind: agent.kind,
+      runtime: agent.runtime,
+      doc: isRecord(doc.runtime) ? doc.runtime : {},
+      slots: agent.slots,
+      limits: agent.limits,
+      agent,
+    },
+    add,
+  );
+  return sections;
+}
+
+/**
+ * One agent manifest version as a readable spec, from its document alone: what it declares,
+ * with none of an Agent's state. Without a runtime section an Agent made from it is kind none.
+ */
+export function manifestSpec(manifest: unknown): SpecSection[] {
+  const doc = isRecord(manifest) ? manifest : {};
+  const runtime = isRecord(doc.runtime) ? doc.runtime : {};
+  const declared = isRecord(runtime.secrets) ? runtime.secrets : {};
+  const [sections, add] = collect();
+  harnessSections(isRecord(doc.harness) ? doc.harness : {}, add);
+  runtimeSections(
+    {
+      kind: typeof runtime.kind === "string" ? runtime.kind : "none",
+      runtime: runtime as RuntimeInput["runtime"],
+      doc: runtime,
+      slots: Object.entries(declared)
+        .filter((entry): entry is [string, Json] => isRecord(entry[1]))
+        .map(([name, slot]) => ({ name, type: String(slot.type ?? ""), required: slot.required === true })),
+      ...(isRecord(runtime.limits) ? { limits: runtime.limits as Limits } : {}),
+    },
+    add,
+  );
   return sections;
 }

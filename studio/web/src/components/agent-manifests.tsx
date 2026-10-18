@@ -1,135 +1,293 @@
-import { useCallback, useMemo, useState, type ReactNode } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Fragment, useCallback, useMemo, useState } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import type { AgentManifestView } from "@nylorun/agents";
-import { Check, ChevronLeft, Copy, FileJson, Plus } from "lucide-react";
+import { Lock, X } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { createTenantClient } from "@/proxy-client";
 import { useRead } from "@/resources/reads";
 import type { AgentCatalog } from "@/resources/agents";
-import { agentPath, manifestPath } from "@/agent-path";
-import { isFlowManifest, manifestNameOf } from "@/agent-list";
-import { manifestView } from "@/manifest/model";
+import { agentPath } from "@/agent-path";
+import { isFlowManifest, manifestNameOf, stateLabel } from "@/agent-list";
+import { manifestSpec } from "@/agent-spec";
+import { fullTime, shortTime } from "@/time-format";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import { ReadState } from "@/components/resource-layout";
+import { NewAgentSheet } from "@/components/agents";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { Metadata, ReadState } from "@/components/resource-layout";
-import { AgentState, NewAgentSheet, date } from "@/components/agents";
-import { Section } from "@/components/agent-page";
+  ActionMenu,
+  CodeBlock,
+  EmptyRow,
+  FilterMenu,
+  SearchBox,
+  TableFrame,
+  TableToolbar,
+  ToolbarCount,
+  cellClass,
+  countText,
+  headClass,
+  menuCellClass,
+  rowClass,
+} from "@/components/data-table";
 
 /** What runs a manifest's Agents: `virtual`, `pod`, or `none` without a runtime section. */
 const kindOf = (manifest: Pick<AgentManifestView, "manifest">) => manifest.manifest.runtime?.kind ?? "none";
 
 const EDIT_HINT =
-  "Agent manifests are read-only here: edit one in its repository and save its next version with nylorun apply.";
+  "Agent manifests are read only here: edit one in its repository and save its next version with nylorun apply.";
+
+/** An Agent's state as a dot: amber when it needs input, red when it fails, blue while it works. */
+const stateDot = (state: string) =>
+  state === "failing"
+    ? "bg-red-500"
+    : state === "input_required"
+      ? "bg-amber-500"
+      : state === "working"
+        ? "bg-sky-500"
+        : "bg-emerald-500";
+
+type Kind = "any" | "pod" | "virtual" | "none";
+type Type = "any" | "agent" | "flow";
+type Use = "any" | "used" | "unused";
 
 /**
- * The Tenant's agent manifests (protocol 16, track T2): each name with its latest version, the
- * kind of Agent it makes and how many Agents were made from it. Read only: a manifest is saved
- * from its repository (`nylorun apply`); each opens on its own page.
+ * The Tenant's agent manifests (protocol 16, track T2): one line each with its latest version,
+ * the kind of Agent it makes, how many Agents were made from it and when it was saved, searched
+ * and filtered on top. Read only: a manifest is saved from its repository (`nylorun apply`). A
+ * row opens the manifest beside the list (`?selected=<name>&version=<n>`), as a readable spec.
  */
-export function AgentManifests({ catalog }: Readonly<{ catalog: AgentCatalog }>) {
+export function AgentManifests({ tenantId, catalog }: Readonly<{ tenantId: string; catalog: AgentCatalog }>) {
+  const [query, setQuery] = useSearchParams();
+  const selected = query.get("selected") ?? undefined;
+  const asked = Number(query.get("version"));
+  const version = Number.isSafeInteger(asked) && asked > 0 ? asked : undefined;
+  const [search, setSearch] = useState("");
+  const [kind, setKind] = useState<Kind>("any");
+  const [type, setType] = useState<Type>("any");
+  const [use, setUse] = useState<Use>("any");
+  const [creating, setCreating] = useState<{ name: string; version: number }>();
   const navigate = useNavigate();
   const manifests = [...catalog.manifests].sort((a, b) => a.name.localeCompare(b.name));
   const counts = new Map<string, number>();
   for (const agent of catalog.agents)
     counts.set(manifestNameOf(agent), (counts.get(manifestNameOf(agent)) ?? 0) + 1);
-  const message = (text: ReactNode) => (
-    <TableRow>
-      <TableCell colSpan={5} className="h-28 text-center whitespace-normal text-muted-foreground">
-        {text}
-      </TableCell>
-    </TableRow>
+  const needle = search.trim().toLowerCase();
+  const shown = manifests.filter(
+    (m) =>
+      (kind === "any" || kindOf(m) === kind) &&
+      (type === "any" || (type === "flow") === isFlowManifest(m)) &&
+      (use === "any" || (use === "used") === (counts.get(m.name) ?? 0) > 0) &&
+      (needle === "" ||
+        m.name.toLowerCase().includes(needle) ||
+        (m.manifest.description ?? "").toLowerCase().includes(needle)),
   );
+  function open(name?: string, v?: number) {
+    const next = new URLSearchParams(query);
+    if (name === undefined) next.delete("selected");
+    else next.set("selected", name);
+    if (v === undefined) next.delete("version");
+    else next.set("version", String(v));
+    setQuery(next);
+  }
+  const wide = selected === undefined;
+  const columns = wide ? 7 : 5;
   return (
-    <section className="flex min-h-0 w-full flex-1 flex-col overflow-hidden">
-      <div className="flex h-12 shrink-0 items-center gap-3 border-b bg-background px-4">
-        <h1 className="text-sm font-medium">Agent manifests</h1>
-        <span className="text-xs text-muted-foreground">{manifests.length} total</span>
-        <span className="ml-auto hidden truncate text-xs text-muted-foreground md:inline">{EDIT_HINT}</span>
-      </div>
-      <ScrollArea className="min-h-0 flex-1">
-        <Table>
-          <TableHeader className="sticky top-0 z-10 bg-background">
-            <TableRow>
-              <TableHead>Agent manifest</TableHead>
-              <TableHead className="w-28">Latest</TableHead>
-              <TableHead className="w-28">Kind</TableHead>
-              <TableHead className="w-64">Saved</TableHead>
-              <TableHead className="w-24 text-right">Agents</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {catalog.status === "Loading"
-              ? message("Loading agent manifests…")
-              : catalog.manifestsError && manifests.length === 0
-                ? message(
-                    <span role="alert" className="inline-flex flex-col items-center gap-3">
-                      {catalog.manifestsError}
-                      <Button variant="outline" size="sm" onClick={catalog.reload} disabled={catalog.pending}>
-                        Retry
-                      </Button>
-                    </span>,
-                  )
-                : manifests.length === 0
-                  ? message(
-                      "No agent manifests yet. An agent manifest holds what runs inside the loop (its harness section) and what the Runtime provides around it (its runtime section). Save one with nylorun apply.",
-                    )
-                  : manifests.map((manifest) => {
-                      const href = manifestPath(manifest.name);
-                      return (
-                        <TableRow key={manifest.name} className="cursor-pointer" onClick={() => void navigate(href)}>
-                          <TableCell className="max-w-0">
-                            <Link
-                              to={href}
-                              className="inline-flex max-w-full items-center gap-2 underline-offset-4 hover:underline"
-                              onClick={(event) => event.stopPropagation()}
-                            >
-                              <FileJson className="size-4 shrink-0 text-muted-foreground" />
-                              <span className="truncate font-mono text-xs">{manifest.name}</span>
-                            </Link>
-                            {manifest.manifest.description ? (
-                              <p className="truncate text-xs text-muted-foreground">{manifest.manifest.description}</p>
-                            ) : null}
-                          </TableCell>
-                          <TableCell className="tabular-nums">v{manifest.version}</TableCell>
-                          <TableCell>
-                            <Badge variant="outline">{isFlowManifest(manifest) ? `flow · ${kindOf(manifest)}` : kindOf(manifest)}</Badge>
-                          </TableCell>
-                          <TableCell className="text-xs text-muted-foreground">
-                            {date(manifest.createdAt)} by {manifest.savedBy.actor}
-                          </TableCell>
-                          <TableCell className="text-right tabular-nums">{counts.get(manifest.name) ?? 0}</TableCell>
-                        </TableRow>
-                      );
-                    })}
-          </TableBody>
-        </Table>
-      </ScrollArea>
-    </section>
+    <div className="flex min-h-0 w-full flex-1 overflow-hidden">
+      <section
+        className={cn("min-h-0 min-w-0 flex-1 flex-col overflow-auto", wide ? "flex" : "hidden lg:flex")}
+        aria-label="Agent manifests"
+      >
+        <TableToolbar>
+          <h1 className="sr-only">Agent manifests</h1>
+          <SearchBox label="Search manifests" value={search} onChange={setSearch} />
+          <FilterMenu
+            label="Kind"
+            value={kind}
+            options={[
+              { value: "any", label: "Any" },
+              { value: "pod", label: "pod" },
+              { value: "virtual", label: "virtual" },
+              { value: "none", label: "none" },
+            ]}
+            onChange={setKind}
+          />
+          <FilterMenu
+            label="Type"
+            value={type}
+            options={[
+              { value: "any", label: "Any" },
+              { value: "agent", label: "Agent" },
+              { value: "flow", label: "Flow" },
+            ]}
+            onChange={setType}
+          />
+          <FilterMenu
+            label="Agents"
+            value={use}
+            options={[
+              { value: "any", label: "Any" },
+              { value: "used", label: "In use" },
+              { value: "unused", label: "None yet" },
+            ]}
+            onChange={setUse}
+          />
+          <ToolbarCount>{countText(shown.length, manifests.length, "manifest", "manifests")}</ToolbarCount>
+          <span
+            title={EDIT_HINT}
+            className="inline-flex h-8 shrink-0 cursor-help items-center gap-1.5 rounded-md border px-2.5 text-[13px] text-muted-foreground"
+          >
+            <Lock className="size-3.5" aria-hidden />
+            Read only · <span className="font-mono text-xs">nylorun apply</span>
+            <span className="sr-only">{EDIT_HINT}</span>
+          </span>
+        </TableToolbar>
+        <TableFrame minWidth={wide ? 900 : 480}>
+          <thead>
+            <tr>
+              <th className={`${headClass} ${wide ? "w-[22%]" : ""}`}>Manifest</th>
+              {wide ? <th className={headClass}>Description</th> : null}
+              <th className={`${headClass} w-20`}>Latest</th>
+              <th className={`${headClass} w-28`}>Kind</th>
+              <th className={`${headClass} w-20 text-right`}>Agents</th>
+              {wide ? <th className={`${headClass} w-36`}>Saved</th> : null}
+              <th className={`${headClass} w-12`}>
+                <span className="sr-only">Actions</span>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {catalog.status === "Loading" ? (
+              <EmptyRow columns={columns}>Loading agent manifests…</EmptyRow>
+            ) : catalog.manifestsError && manifests.length === 0 ? (
+              <EmptyRow columns={columns}>
+                <span role="alert" className="inline-flex flex-col items-center gap-3">
+                  {catalog.manifestsError}
+                  <Button variant="outline" size="sm" onClick={catalog.reload} disabled={catalog.pending}>
+                    Retry
+                  </Button>
+                </span>
+              </EmptyRow>
+            ) : shown.length === 0 ? (
+              <EmptyRow columns={columns}>
+                {manifests.length === 0
+                  ? "No agent manifests yet. An agent manifest holds what runs inside the loop (its harness section) and what the Runtime provides around it (its runtime section). Save one with nylorun apply."
+                  : "No manifests match these filters."}
+              </EmptyRow>
+            ) : (
+              shown.map((manifest) => {
+                const agents = counts.get(manifest.name) ?? 0;
+                return (
+                  <tr
+                    key={manifest.name}
+                    className={`${rowClass} cursor-pointer`}
+                    data-state={manifest.name === selected ? "selected" : undefined}
+                    onClick={() => open(manifest.name)}
+                  >
+                    <td className={cellClass}>
+                      <button
+                        type="button"
+                        className="max-w-full truncate font-mono text-[13px] underline-offset-4 hover:underline"
+                        aria-label={manifest.name}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          open(manifest.name);
+                        }}
+                      >
+                        {manifest.name}
+                      </button>
+                    </td>
+                    {wide ? (
+                      <td className={`${cellClass} text-muted-foreground`} title={manifest.manifest.description}>
+                        {manifest.manifest.description ?? "—"}
+                      </td>
+                    ) : null}
+                    <td className={`${cellClass} tabular-nums`}>v{manifest.version}</td>
+                    <td className={`${cellClass} text-muted-foreground`}>
+                      {isFlowManifest(manifest) ? `flow · ${kindOf(manifest)}` : kindOf(manifest)}
+                    </td>
+                    <td className={`${cellClass} text-right tabular-nums ${agents ? "" : "text-muted-foreground/60"}`}>
+                      {agents}
+                    </td>
+                    {wide ? (
+                      <td
+                        className={`${cellClass} text-muted-foreground tabular-nums`}
+                        title={`${fullTime(manifest.createdAt)} by ${manifest.savedBy.actor}`}
+                      >
+                        {shortTime(manifest.createdAt)}
+                      </td>
+                    ) : null}
+                    <td className={menuCellClass}>
+                      <ActionMenu
+                        label={`Actions for ${manifest.name}`}
+                        actions={[
+                          { label: "Open", onSelect: () => open(manifest.name) },
+                          {
+                            label: `New Agent from v${manifest.version}…`,
+                            onSelect: () => setCreating({ name: manifest.name, version: manifest.version }),
+                          },
+                          { label: "Copy name", onSelect: () => void navigator.clipboard.writeText(manifest.name) },
+                        ]}
+                      />
+                    </td>
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </TableFrame>
+      </section>
+      {selected !== undefined ? (
+        <ManifestPane
+          key={selected}
+          tenantId={tenantId}
+          name={selected}
+          {...(version === undefined ? {} : { version })}
+          catalog={catalog}
+          onVersion={(v) => open(selected, v)}
+          onCreate={(v) => setCreating({ name: selected, version: v })}
+          onClose={() => open()}
+        />
+      ) : null}
+      {creating ? (
+        <NewAgentSheet
+          tenantId={tenantId}
+          manifests={catalog.manifests}
+          manifest={creating.name}
+          version={creating.version}
+          onClose={() => setCreating(undefined)}
+          onCreated={(agent) => {
+            setCreating(undefined);
+            catalog.reload();
+            void navigate(agentPath(agent.id));
+          }}
+        />
+      ) : null}
+    </div>
   );
 }
 
 /**
- * One agent manifest's page (`/agent-manifests/<name>?version=n`): its versions, the version's
- * harness and runtime sections side by side, and the Agents made from it. A new Agent is made
- * from the version shown.
+ * One manifest beside the list: a version (its latest unless `version` names one), its
+ * description, the Agents made from it, and the version as a readable spec, its harness section
+ * then its runtime section, one line each. A line opens its part of the manifest.
  */
-export function AgentManifestPage({
+function ManifestPane({
   tenantId,
   name,
   version,
   catalog,
-}: Readonly<{ tenantId: string; name: string; version?: number; catalog: AgentCatalog }>) {
+  onVersion,
+  onCreate,
+  onClose,
+}: Readonly<{
+  tenantId: string;
+  name: string;
+  version?: number;
+  catalog: AgentCatalog;
+  onVersion: (version: number) => void;
+  onCreate: (version: number) => void;
+  onClose: () => void;
+}>) {
   const sdk = useMemo(() => createTenantClient(tenantId), [tenantId]);
-  const navigate = useNavigate();
-  const [creating, setCreating] = useState(false);
   const loadVersions = useCallback((signal: AbortSignal) => sdk.agentManifests.versions(name, { signal }), [sdk, name]);
   const versions = useRead(loadVersions);
   const loadVersion = useCallback(
@@ -138,208 +296,146 @@ export function AgentManifestPage({
   );
   const read = useRead(loadVersion);
   const shown = read.data;
+  const [open, setOpen] = useState<string>();
+  const [json, setJson] = useState(false);
   const agents = catalog.agents.filter((agent) => manifestNameOf(agent) === name);
+  const latest = versions.data?.latest;
+  const sections = shown ? manifestSpec(shown.manifest) : [];
   return (
-    <section className="min-h-0 flex-1 overflow-auto">
-      <div className="mx-auto w-full max-w-6xl space-y-4 p-4">
-        <Link
-          to={manifestPath()}
-          className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-        >
-          <ChevronLeft className="size-4" />
-          Agent manifests
-        </Link>
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0 space-y-1">
-            <h1 className="break-all font-mono text-xl font-semibold">{name}</h1>
-            {shown ? (
-              <p className="text-sm text-muted-foreground">
-                v{shown.version}
-                {versions.data && shown.version === versions.data.latest ? " (latest)" : ""} · saved{" "}
-                {date(shown.createdAt)} by {shown.savedBy.actor}
-                {shown.manifest.description ? ` · ${shown.manifest.description}` : ""}
-              </p>
-            ) : null}
-            <p className="text-xs text-muted-foreground">{EDIT_HINT}</p>
-          </div>
+    <aside
+      aria-label={name}
+      className="flex min-h-0 w-full shrink-0 flex-col border-l bg-background lg:w-[560px]"
+    >
+      <div className="flex items-center gap-1.5 border-b py-3 pr-2.5 pl-5">
+        <div className="min-w-0 flex-1">
+          <h2 className="truncate font-mono text-sm font-semibold">{name}</h2>
           {shown ? (
-            <Button onClick={() => setCreating(true)}>
-              <Plus />
-              New Agent from v{shown.version}
-            </Button>
+            <p className="truncate text-xs text-muted-foreground" title={fullTime(shown.createdAt)}>
+              v{shown.version}
+              {latest !== undefined ? (shown.version === latest ? " · latest" : ` of ${latest}`) : ""} · saved{" "}
+              {shortTime(shown.createdAt)} by {shown.savedBy.actor}
+            </p>
           ) : null}
         </div>
-        <ReadState {...read} onRetry={read.reload} />
-        <div className="grid gap-4 lg:grid-cols-[14rem_minmax(0,1fr)]">
-          <Section title="Versions">
-            <ReadState {...versions} onRetry={versions.reload} />
-            <ol className="grid gap-1">
-              {versions.data?.versions.map((v) => (
-                <li key={v.version}>
-                  <Link
-                    to={manifestPath(name, v.version)}
-                    aria-current={shown?.version === v.version ? "page" : undefined}
-                    className={
-                      "flex items-center gap-2 rounded-md px-2 py-1 text-sm hover:bg-muted " +
-                      (shown?.version === v.version ? "bg-muted font-medium" : "")
-                    }
-                  >
-                    <span className="tabular-nums">v{v.version}</span>
-                    {v.version === versions.data?.latest ? <Badge variant="outline">latest</Badge> : null}
-                    <span className="ml-auto text-xs tabular-nums text-muted-foreground" title="Agents made from it">
-                      {v.agents}
-                    </span>
-                  </Link>
-                </li>
-              ))}
-            </ol>
-          </Section>
-          {shown ? (
-            <div className="grid min-w-0 gap-4 xl:grid-cols-2">
-              <HarnessSection manifest={shown} />
-              <RuntimeSection manifest={shown} />
-            </div>
-          ) : null}
-        </div>
-        <Section title={`Agents made from ${name}`}>
-          {agents.length ? (
-            <ul className="grid gap-1 text-sm">
-              {agents.map((agent) => (
-                <li key={agent.id} className="flex flex-wrap items-center gap-2 border-b py-2">
-                  <Link className="break-all font-mono text-xs underline" to={agentPath(agent.id)}>
-                    {agent.id}
-                  </Link>
-                  <Badge variant={agent.resolvedVersion === shown?.version ? "secondary" : "outline"}>
-                    v{agent.resolvedVersion}
-                  </Badge>
-                  <span className="text-xs text-muted-foreground">
-                    {agent.tracking === "tracking" ? "tracks" : "pinned"}
-                  </span>
-                  <span className="ml-auto">
-                    <AgentState state={agent.state} />
-                  </span>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="text-sm text-muted-foreground">No Agent was made from it yet.</p>
-          )}
-        </Section>
-      </div>
-      {creating && shown ? (
-        <NewAgentSheet
-          tenantId={tenantId}
-          manifests={catalog.manifests.some((m) => m.name === name) ? catalog.manifests : [...catalog.manifests, shown]}
-          manifest={name}
-          version={shown.version}
-          onClose={() => setCreating(false)}
-          onCreated={(agent) => {
-            setCreating(false);
-            catalog.reload();
-            void navigate(agentPath(agent.id));
-          }}
-        />
-      ) : null}
-    </section>
-  );
-}
-
-/** A section's JSON, folded, to copy. */
-function SectionJson({ label, value }: Readonly<{ label: string; value: unknown }>) {
-  const json = JSON.stringify(value ?? null, null, 2);
-  const [copied, setCopied] = useState(false);
-  return (
-    <details className="text-sm">
-      <summary className="cursor-pointer text-muted-foreground">{label}, as JSON</summary>
-      <div className="relative mt-2">
-        <Button
-          variant="outline"
-          size="sm"
-          className="absolute top-2 right-2 h-7 bg-background px-2 text-xs"
-          onClick={() =>
-            void navigator.clipboard?.writeText(json).then(
-              () => setCopied(true),
-              () => setCopied(false),
-            )
+        {versions.data ? (
+          <FilterMenu
+            label="Version"
+            value={String(shown?.version ?? versions.data.latest)}
+            options={versions.data.versions.map((v) => ({
+              value: String(v.version),
+              label: `v${v.version}${v.version === versions.data!.latest ? " · latest" : ""}`,
+            }))}
+            onChange={(value) => {
+              setOpen(undefined);
+              onVersion(Number(value));
+            }}
+          />
+        ) : null}
+        <ActionMenu
+          label={`${name} actions`}
+          actions={
+            shown
+              ? [
+                  { label: `New Agent from v${shown.version}…`, onSelect: () => onCreate(shown.version) },
+                  { label: json ? "Hide JSON" : "View JSON", onSelect: () => setJson((on) => !on) },
+                  { label: "Copy name", onSelect: () => void navigator.clipboard.writeText(name) },
+                ]
+              : []
           }
-        >
-          {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
-          {copied ? "Copied" : "Copy"}
+        />
+        <Button variant="ghost" size="icon-sm" aria-label="Close manifest" title="Close" onClick={onClose}>
+          <X />
         </Button>
-        <pre
-          aria-label={`${label} JSON`}
-          className="max-h-96 overflow-auto whitespace-pre rounded-md border bg-muted/40 p-3 pr-20 font-mono text-xs"
-        >
-          {json}
-        </pre>
       </div>
-    </details>
-  );
-}
-
-const list = (items: readonly string[]) => (items.length ? items.join(", ") : "None");
-
-/** What runs inside the loop: the version's harness section. */
-function HarnessSection({ manifest }: Readonly<{ manifest: AgentManifestView }>) {
-  const harness = manifest.manifest.harness as unknown as Record<string, unknown>;
-  const flow = isFlowManifest(manifest);
-  const view = manifestView(harness);
-  const agents = flow && typeof harness.agents === "object" && harness.agents !== null ? Object.keys(harness.agents) : [];
-  return (
-    <Section title="Harness">
-      <p className="text-xs text-muted-foreground">What runs inside the agent loop.</p>
-      <Metadata
-        entries={[
-          ["Harness", typeof harness.id === "string" ? harness.id : "nylorun"],
-          ...(flow
-            ? ([["Flow agents", list(agents)]] as [string, ReactNode][])
-            : ([
-                ["Instructions", view.instructions.length],
-                ["Tools", list(view.tools.map((tool) => tool.name))],
-                ["Skills", list(view.skills.map((skill) => skill.name))],
-                ["MCP servers", list(view.mcpServers.map((server) => server.name))],
-              ] as [string, ReactNode][])),
-          ...(Array.isArray(harness.plugins) && harness.plugins.length
-            ? ([["Plugins", harness.plugins.length]] as [string, ReactNode][])
-            : []),
-        ]}
-      />
-      <SectionJson label="The harness section" value={harness} />
-    </Section>
-  );
-}
-
-/** What the Runtime provides around the loop: the version's runtime section. */
-function RuntimeSection({ manifest }: Readonly<{ manifest: AgentManifestView }>) {
-  const runtime = manifest.manifest.runtime;
-  if (!runtime)
-    return (
-      <Section title="Runtime">
-        <p className="text-sm text-muted-foreground">
-          No runtime section: an Agent made from it is kind none, a vault with no compute.
-        </p>
-      </Section>
-    );
-  return (
-    <Section title="Runtime">
-      <p className="text-xs text-muted-foreground">What the Runtime provides around the loop.</p>
-      <Metadata
-        entries={[
-          ["Kind", runtime.kind],
-          ...(runtime.kind === "pod" ? ([["Image", runtime.image ?? "The Tenant's"]] as [string, ReactNode][]) : []),
-          [
-            "Resources",
-            runtime.resources ? `${runtime.resources.cpus} CPU · ${runtime.resources.memory}` : "The Tenant's",
-          ],
-          ["Allowed hosts", list(runtime.network?.allowedHosts ?? [])],
-          ["Idle", runtime.lifecycle?.idle ?? "The Tenant's"],
-          ["Delete after", runtime.lifecycle?.deleteAfter ?? "Never"],
-          ["Setup commands", runtime.setup?.length ?? 0],
-          ["Input files", runtime.files?.length ?? 0],
-          ["Secret slots", list(Object.keys(runtime.secrets ?? {}))],
-        ]}
-      />
-      <SectionJson label="The runtime section" value={runtime} />
-    </Section>
+      <div className="min-h-0 flex-1 overflow-y-auto pb-8">
+        <ReadState {...read} onRetry={read.reload} />
+        {shown ? (
+          <>
+            <div className="space-y-3 px-5 pt-4 pb-1">
+              {shown.manifest.description ? <p className="text-sm">{shown.manifest.description}</p> : null}
+              <div className="flex flex-wrap items-center gap-1.5 text-[13px]">
+                <span className="mr-1 text-muted-foreground">Agents</span>
+                {agents.length ? (
+                  agents.map((agent) => (
+                    <Link
+                      key={agent.id}
+                      to={agentPath(agent.id)}
+                      title={`${agent.id} · ${stateLabel(agent.state)} · runs v${agent.resolvedVersion}, ${agent.tracking === "tracking" ? "tracking" : "pinned"}`}
+                      className="inline-flex h-6 max-w-full items-center gap-1.5 rounded-md border px-2 text-xs hover:bg-muted"
+                    >
+                      <span aria-hidden className={cn("size-1.5 shrink-0 rounded-full", stateDot(agent.state))} />
+                      <span className="truncate font-mono">{agent.id}</span>
+                      <span className="text-muted-foreground">v{agent.resolvedVersion}</span>
+                    </Link>
+                  ))
+                ) : (
+                  <span className="text-muted-foreground">None yet</span>
+                )}
+              </div>
+            </div>
+            {json ? (
+              <div className="px-5 pt-3">
+                <CodeBlock label="The whole manifest">{JSON.stringify(shown.manifest, null, 2)}</CodeBlock>
+              </div>
+            ) : null}
+            {sections.map((section, index) => (
+              <Fragment key={section.id}>
+                {index === 0 || sections[index - 1]!.group !== section.group ? (
+                  <div className="flex items-baseline gap-2.5 px-5 pt-5 pb-0.5">
+                    <h3 className="text-[15px] font-semibold">{section.group === "harness" ? "Harness" : "Runtime"}</h3>
+                    <span className="text-xs text-muted-foreground">
+                      {section.group === "harness" ? "What runs inside the loop" : "What the Runtime provides around it"}
+                    </span>
+                  </div>
+                ) : null}
+                <section aria-label={section.title} className="pt-3">
+                  <div className="flex items-baseline gap-2 border-b px-5 pb-1.5">
+                    <h4 className="text-[13px] font-semibold">{section.title}</h4>
+                    <span className="truncate text-xs text-muted-foreground/80">{section.hint}</span>
+                  </div>
+                  {section.rows.map((row) => {
+                    const expanded = open === row.id;
+                    return (
+                      <div key={row.id}>
+                        <button
+                          type="button"
+                          aria-expanded={expanded}
+                          onClick={() => setOpen(expanded ? undefined : row.id)}
+                          className={cn(
+                            "grid h-9 w-full grid-cols-[9.5rem_minmax(0,1fr)_auto] items-center gap-3.5 border-b border-border/60 px-5 text-left text-[13px] hover:bg-muted/50",
+                            expanded && "bg-muted",
+                          )}
+                        >
+                          <span
+                            className={cn(
+                              "truncate",
+                              row.mono ? "font-mono text-xs text-foreground" : "text-muted-foreground",
+                            )}
+                            title={row.label}
+                          >
+                            {row.label}
+                          </span>
+                          <span className="truncate" title={row.value}>
+                            {row.value}
+                          </span>
+                          <span className="max-w-40 truncate text-xs text-muted-foreground" title={row.note}>
+                            {row.note}
+                          </span>
+                        </button>
+                        {expanded ? (
+                          <pre className="border-b border-border/60 bg-muted/40 px-5 py-2.5 font-mono text-xs leading-5 whitespace-pre-wrap break-all">
+                            {typeof row.json === "string" ? row.json : JSON.stringify(row.json, null, 2)}
+                          </pre>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </section>
+              </Fragment>
+            ))}
+          </>
+        ) : null}
+      </div>
+    </aside>
   );
 }
