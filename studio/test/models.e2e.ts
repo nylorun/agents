@@ -14,6 +14,7 @@ import { fileURLToPath } from "node:url";
 import { chromium, type Browser, type Page } from "playwright";
 import { PROTOCOL_FEATURES, PROTOCOL_VERSION } from "@nylorun/agents";
 import { startStudioServer } from "../dist/server.js";
+import { tenantStatus } from "./support/tenant-status.ts";
 
 const ADMIN_KEY = "e".repeat(64);
 const TENANT = "tn_00000000000000000000000001";
@@ -50,7 +51,7 @@ async function fakeRuntime() {
       res.end(JSON.stringify(body));
     };
     if (path === "/health") return send(200, { status: "ok", protocol });
-    if (path === "/v1/tenant") return send(200, { tenant: { id: TENANT, name: "orders" } });
+    if (path === "/v1/tenant") return send(200, tenantStatus(TENANT, "orders"));
     if (path === "/v1/agents") return send(200, { agents: [] });
     if (path === "/v1/sessions") return send(200, { sessions: [] });
     if (path === "/v1/agent-manifests") return send(200, { manifests: [] });
@@ -125,7 +126,7 @@ async function withModels(run: (context: { page: Page; puts: Put[] }) => Promise
     await page.goto(url);
     // The Tenant's root opens its Agents.
     await page.waitForURL(new RegExp(`/tenants/${TENANT}(?:/agents)?$`, "u"));
-    await page.goto(`${studio.url}/tenants/${TENANT}/settings/models`);
+    await page.goto(`${studio.url}/tenants/${TENANT}/tenant?tab=models`);
     await run({ page, puts: runtime.puts });
     assert.deepEqual(pageErrors, []);
   } finally {

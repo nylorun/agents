@@ -6,16 +6,26 @@ import {
   agentTabOf,
   legacyRedirect,
   manifestPath,
-  manifestRoute,
+  tenantPath,
+  tenantTabOf,
 } from "../web/src/agent-path.ts";
 
 test("an Agent's page is one percent-encoded segment, opened on a tab", () => {
   assert.equal(agentPath("users/alice/triage"), "/agents/users%2Falice%2Ftriage");
   assert.equal(agentPath("team/build", "sessions"), "/agents/team%2Fbuild");
   assert.equal(agentPath("team/build", "disk"), "/agents/team%2Fbuild?tab=disk");
-  assert.equal(manifestPath(), "/agent-manifests");
-  assert.equal(manifestPath("triage"), "/agent-manifests?selected=triage");
-  assert.equal(manifestPath("triage", 3), "/agent-manifests?selected=triage&version=3");
+});
+
+test("the Tenant's page opens on its status; its manifests are a tab with one open beside the list", () => {
+  assert.equal(tenantPath(), "/tenant");
+  assert.equal(tenantPath("status"), "/tenant");
+  assert.equal(tenantPath("policy"), "/tenant?tab=policy");
+  assert.equal(tenantTabOf("keys"), "keys");
+  assert.equal(tenantTabOf("nope"), undefined);
+  assert.equal(tenantTabOf(null), undefined);
+  assert.equal(manifestPath(), "/tenant?tab=manifests");
+  assert.equal(manifestPath("triage"), "/tenant?tab=manifests&selected=triage");
+  assert.equal(manifestPath("triage", 3), "/tenant?tab=manifests&selected=triage&version=3");
 });
 
 test("the page opens on its sessions, and the tabs it had before open where they live now", () => {
@@ -29,7 +39,7 @@ test("the page opens on its sessions, and the tabs it had before open where they
   assert.equal(agentTabOf("nope"), undefined);
 });
 
-test("a route names the list, one Agent or manifest, or a segment that is not found", () => {
+test("a route names the list, one Agent, or a segment that is not found", () => {
   assert.deepEqual(agentRoute("/agents"), { kind: "list" });
   assert.deepEqual(agentRoute("/agents/"), { kind: "list" });
   assert.deepEqual(agentRoute("/agents/team%2Fbuild"), { kind: "agent", id: "team/build" });
@@ -37,9 +47,6 @@ test("a route names the list, one Agent or manifest, or a segment that is not fo
   // A session's page is not the Agent's.
   assert.equal(agentRoute("/agents/team%2Fbuild/sessions/s1"), undefined);
   assert.equal(agentRoute("/sessions"), undefined);
-  assert.deepEqual(manifestRoute("/agent-manifests"), { kind: "list" });
-  assert.deepEqual(manifestRoute("/agent-manifests/triage"), { kind: "manifest", id: "triage" });
-  assert.equal(manifestRoute("/agents"), undefined);
 });
 
 test("old Environment, Credentials, vault and sandbox links open the Agent's page", () => {
@@ -76,12 +83,17 @@ test("Studio opens on its Agents; the session list it had before opens an Agent'
   assert.equal(legacyRedirect("/sessions", "?agent=team%2Fbuild&embed=1"), "/agents/team%2Fbuild?embed=1");
 });
 
-test("a manifest's page before opens it beside the manifests list", () => {
-  assert.equal(legacyRedirect("/agent-manifests/triage", ""), "/agent-manifests?selected=triage");
+test("the settings and manifest pages before open the Tenant's page, on the tab they became", () => {
+  assert.equal(legacyRedirect("/settings", ""), "/tenant");
+  assert.equal(legacyRedirect("/settings/overview", "?embed=1"), "/tenant?embed=1");
+  assert.equal(legacyRedirect("/settings/models", ""), "/tenant?tab=models");
+  assert.equal(legacyRedirect("/agent-manifests", ""), "/tenant?tab=manifests");
+  assert.equal(legacyRedirect("/agent-manifests", "?selected=triage"), "/tenant?tab=manifests&selected=triage");
+  assert.equal(legacyRedirect("/agent-manifests/triage", ""), "/tenant?tab=manifests&selected=triage");
   assert.equal(
     legacyRedirect("/agent-manifests/triage", "?version=3&embed=1"),
-    "/agent-manifests?selected=triage&version=3&embed=1",
+    "/tenant?tab=manifests&selected=triage&version=3&embed=1",
   );
   assert.equal(legacyRedirect("/agent-manifests/%E0", ""), undefined);
-  assert.equal(legacyRedirect("/agent-manifests", "?selected=triage"), undefined);
+  assert.equal(legacyRedirect("/tenant", ""), undefined);
 });

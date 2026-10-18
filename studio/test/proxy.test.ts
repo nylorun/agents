@@ -315,6 +315,14 @@ test("proxy forwards Agent and agent manifest reads and same-origin writes on th
           ["GET", "/v1/sandboxes/a"],
           ["GET", "/v1/tenant/vaults"],
           ["POST", "/v1/tenant/vaults"],
+          // The Tenant's keys are read-only from Studio, and no seed or call export.
+          ["PUT", "/v1/tenant/keys/k"],
+          ["DELETE", "/v1/tenant/keys/k"],
+          ["POST", "/v1/tenant/signing-keys/rotate"],
+          ["POST", "/v1/tenant/signing-keys/k/revoke"],
+          ["PUT", "/v1/tenant/config/seed"],
+          ["GET", "/v1/tenant/calls/model"],
+          ["PUT", "/v1/tenant"],
           ["GET", "/v1/vaults"],
         ] as const)
           assert.equal((await send(method, path, method === "GET" ? undefined : {})).status, 404, `${method} ${path}`);
@@ -600,6 +608,57 @@ test("proxy forwards a same-origin model inputs change on the Management API", a
         assert.equal((await put(origin)).status, 200);
         assert.equal((await put("https://evil.example")).status, 403);
         assert.deepEqual(seen, [{ line: "PUT /v1/tenant/models/inputs", body }]);
+      } finally {
+        studio.close();
+        await once(studio, "close");
+      }
+    },
+  );
+});
+
+test("proxy reads the Tenant's page and forwards a same-origin settings change or reset", async () => {
+  const seen: string[] = [];
+  await withUpstream(
+    async (req, res) => {
+      let body = "";
+      for await (const chunk of req) body += chunk;
+      seen.push(`${req.method} ${req.url}${body ? ` ${body}` : ""}`);
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end("{}");
+    },
+    async (upstreamUrl) => {
+      const origin = "http://127.0.0.1:4161";
+      const studio = createServer((req, res) => {
+        void proxyRuntime(req, res, { origin, runtimeUrl: upstreamUrl, serverKey: "server-secret" });
+      });
+      studio.listen(0, "127.0.0.1");
+      await once(studio, "listening");
+      const address = studio.address();
+      assert.ok(address && typeof address === "object");
+      const base = `http://127.0.0.1:${address.port}/_studio/runtime`;
+      try {
+        const reads = ["", "/limits", "/sandbox", "/artifacts", "/skills", "/budgets", "/tool-policy", "/keys", "/signing-keys"];
+        for (const path of reads) assert.equal((await fetch(`${base}/v1/tenant${path}`)).status, 200, path);
+        assert.equal((await fetch(`${base}/v1/tenant/usage?scope=tenant&period=day`)).status, 200);
+        const send = (method: string, path: string, body: unknown, from = origin) =>
+          fetch(`${base}${path}`, {
+            method,
+            headers: { origin: from, "content-type": "application/json" },
+            body: JSON.stringify(body),
+          });
+        for (const path of ["/limits", "/sandbox", "/artifacts", "/skills", "/budgets", "/tool-policy"])
+          assert.equal((await send("PUT", `/v1/tenant${path}`, { requestId: "r" })).status, 200, path);
+        assert.equal((await send("POST", "/v1/tenant/reset", { scope: "sessions", activeWork: "drain" })).status, 200);
+        assert.equal((await send("POST", "/v1/tenant/reset", { scope: "all" }, "https://evil.example")).status, 403);
+        assert.equal((await send("PUT", "/v1/tenant/tool-policy", { rules: [] }, "https://evil.example")).status, 403);
+        assert.deepEqual(seen, [
+          ...reads.map((path) => `GET /v1/tenant${path}`),
+          "GET /v1/tenant/usage?scope=tenant&period=day",
+          ...["/limits", "/sandbox", "/artifacts", "/skills", "/budgets", "/tool-policy"].map(
+            (path) => `PUT /v1/tenant${path} {"requestId":"r"}`,
+          ),
+          'POST /v1/tenant/reset {"scope":"sessions","activeWork":"drain"}',
+        ]);
       } finally {
         studio.close();
         await once(studio, "close");

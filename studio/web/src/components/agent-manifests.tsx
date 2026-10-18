@@ -9,6 +9,8 @@ import type { AgentCatalog } from "@/resources/agents";
 import { agentPath } from "@/agent-path";
 import { isFlowManifest, manifestNameOf, stateLabel } from "@/agent-list";
 import { manifestSpec } from "@/agent-spec";
+import { withPolicyNotes } from "@/tenant-spec";
+import { useToolRules } from "@/resources/tool-policy";
 import { fullTime, shortTime } from "@/time-format";
 import { Button } from "@/components/ui/button";
 import { ReadState } from "@/components/resource-layout";
@@ -19,6 +21,7 @@ import {
   EmptyRow,
   FilterMenu,
   SearchBox,
+  StatusDot,
   TableFrame,
   TableToolbar,
   ToolbarCount,
@@ -97,7 +100,7 @@ export function AgentManifests({ tenantId, catalog }: Readonly<{ tenantId: strin
         aria-label="Agent manifests"
       >
         <TableToolbar>
-          <h1 className="sr-only">Agent manifests</h1>
+          <h2 className="sr-only">Agent manifests</h2>
           <SearchBox label="Search manifests" value={search} onChange={setSearch} />
           <FilterMenu
             label="Kind"
@@ -300,7 +303,9 @@ function ManifestPane({
   const [json, setJson] = useState(false);
   const agents = catalog.agents.filter((agent) => manifestNameOf(agent) === name);
   const latest = versions.data?.latest;
-  const sections = shown ? manifestSpec(shown.manifest) : [];
+  // Each tool the policy may decide calls of notes its rules, which the Tool policy tab edits.
+  const rules = useToolRules(tenantId);
+  const sections = shown ? withPolicyNotes(manifestSpec(shown.manifest), rules, name) : [];
   return (
     <aside
       aria-label={name}
@@ -419,7 +424,7 @@ function ManifestPane({
                             {row.value}
                           </span>
                           <span className="max-w-40 truncate text-xs text-muted-foreground" title={row.note}>
-                            {row.note}
+                            {row.tone && row.note ? <StatusDot tone={row.tone}>{row.note}</StatusDot> : row.note}
                           </span>
                         </button>
                         {expanded ? (

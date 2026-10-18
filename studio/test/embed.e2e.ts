@@ -14,6 +14,7 @@ import { fileURLToPath } from "node:url";
 import { chromium, webkit, type Browser, type BrowserType, type Frame, type Page } from "playwright";
 import { PROTOCOL_FEATURES, PROTOCOL_VERSION } from "@nylorun/agents";
 import { startStudioServer } from "../dist/server.js";
+import { tenantStatus } from "./support/tenant-status.ts";
 
 const ADMIN_KEY = "e".repeat(64);
 const TENANT = "tn_00000000000000000000000001";
@@ -100,7 +101,7 @@ async function fakeRuntime({ listsMissing = false } = {}) {
           },
         }),
       );
-    if (path === "/v1/tenant") return res.end(JSON.stringify({ tenant: { id: TENANT, name: "orders" } }));
+    if (path === "/v1/tenant") return res.end(JSON.stringify(tenantStatus(TENANT, "orders")));
     if (listsMissing && ["/v1/tenant/providers", "/v1/tenant/models", "/v1/agents"].includes(path ?? ""))
       return res.end(JSON.stringify({}));
     if (path === "/v1/agents") return res.end(JSON.stringify({ agents: [agent] }));
@@ -286,7 +287,7 @@ for (const [name, browserType] of [
         // refused, Studio asks the app, and carries on with a new session.
         const sessionsBefore = (await messages(page)).filter((m) => m.kind === "session").length;
         clock.offset += 61 * 60 * 1000;
-        await page.evaluate((route) => (window as any).__post("navigate", { route }), `/tenants/${TENANT}/settings`);
+        await page.evaluate((route) => (window as any).__post("navigate", { route }), `/tenants/${TENANT}/tenant`);
         await waitForMessage(page, (m) => m.kind === "token.expiring", "token.expiring");
         const deadline = Date.now() + 15_000;
         while ((await messages(page)).filter((m) => m.kind === "session").length <= sessionsBefore) {

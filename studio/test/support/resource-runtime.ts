@@ -2,7 +2,8 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
 import { createServer } from "node:http";
-import { PROTOCOL_FEATURES, PROTOCOL_VERSION } from "@nylorun/agents";
+import { PROTOCOL_FEATURES, PROTOCOL_VERSION, RUNTIME_LIMIT_DEFAULTS } from "@nylorun/agents";
+import { tenantStatus } from "./tenant-status.ts";
 
 export const TENANT = "tn_00000000000000000000000001";
 export const SESSION = "s-resource";
@@ -247,6 +248,23 @@ export async function resourceRuntime({ artifactReads = true } = {}) {
   }[] = [];
   let refreshes = 0;
   let triggerStatus = "active";
+  // The Tenant's settings, as its page reads and changes them.
+  let toolRules: unknown[] = [
+    { effect: "deny", server: "github", tool: "delete_repository", reason: "Repositories are deleted by people" },
+  ];
+  let budgets: unknown[] = [{ scope: "tenant", period: "month", limitUsd: 250 }];
+  let limitOverrides: Record<string, number> = { modelAttempts: 5 };
+  const MiB = 1024 ** 2;
+  let sandboxConfig = {
+    limits: {
+      network: ["pypi.org", "github.com"],
+      resources: { cpus: 4, memoryMiB: 8192 },
+      defaultResources: { cpus: 1, memoryMiB: 1024 },
+      idle: "15m",
+      environments: 100,
+    },
+    lifecycle: { stopGrace: "10s" },
+  };
   let memories = [
     {
       path: "conventions/release.md",
@@ -288,8 +306,7 @@ export async function resourceRuntime({ artifactReads = true } = {}) {
           ],
         },
       });
-    if (path === "/v1/tenant")
-      return send(200, { tenant: { id: TENANT, name: "Resource fixture" } });
+    if (path === "/v1/tenant") return send(200, tenantStatus(TENANT, "Resource fixture", [AGENT, ASKING, POD]));
     if (path === "/v1/agents") return send(200, { agents: [agent(AGENT), asking, pod(POD)] });
     if (path === "/v1/agent-manifests")
       return send(200, { manifests: [analystBox(3), { ...analystBox(1), name: "pod-box", manifest: { ...analystBox(1).manifest, name: "pod-box" } }] });
@@ -561,6 +578,81 @@ export async function resourceRuntime({ artifactReads = true } = {}) {
     }
     if (path.startsWith("/v1/artifacts/"))
       return send(404, { code: "not_found", message: "Artifact not found" });
+    if (path === "/v1/tenant/limits" && req.method === "PUT") {
+      limitOverrides = JSON.parse(raw).limits ?? {};
+      return send(200, { limits: { ...RUNTIME_LIMIT_DEFAULTS, ...limitOverrides } });
+    }
+    if (path === "/v1/tenant/limits") return send(200, { limits: { ...RUNTIME_LIMIT_DEFAULTS, ...limitOverrides } });
+    if (path === "/v1/tenant/sandbox") {
+      if (req.method === "PUT") {
+        const body = JSON.parse(raw);
+        const mib = (size: string) => Number.parseInt(size, 10) * (size.endsWith("GiB") ? 1024 : 1);
+        sandboxConfig = {
+          limits: {
+            ...body.limits,
+            resources: { cpus: body.limits.resources.cpus, memoryMiB: mib(body.limits.resources.memory) },
+            defaultResources: {
+              cpus: body.limits.defaultResources.cpus,
+              memoryMiB: mib(body.limits.defaultResources.memory),
+            },
+          },
+          lifecycle: body.lifecycle,
+        };
+      }
+      return send(200, {
+        preference: "auto",
+        backend: "virtual",
+        isolation: "process",
+        reason: "No container runtime: Agents run in the harness's workspace",
+        probes: [
+          { name: "virtual", available: true, isolation: "process" },
+          { name: "local", available: false, isolation: "process", reason: "Not enabled" },
+        ],
+        defaultImage: "ghcr.io/nylorun/sandbox:0.29",
+        config: sandboxConfig,
+        cluster: null,
+      });
+    }
+    if (path === "/v1/tenant/artifacts")
+      return send(200, { limits: { fileBytes: 100 * MiB, totalBytes: 10 * 1024 * MiB }, usedBytes: 12 * MiB });
+    if (path === "/v1/tenant/skills") return send(200, { limits: { totalBytes: 2 * 1024 * MiB } });
+    if (path === "/v1/tenant/usage") {
+      const period = url.searchParams.get("period") ?? "total";
+      const calls = period === "day" ? 4 : period === "month" ? 120 : 300;
+      return send(200, {
+        scope: url.searchParams.get("scope") ?? "tenant",
+        period,
+        ...(period === "total" ? {} : { since: period === "day" ? "2026-10-18T00:00:00.000Z" : "2026-10-01T00:00:00.000Z" }),
+        calls,
+        tokens: calls * 10_000,
+        costUsd: calls * 0.5,
+      });
+    }
+    if (path === "/v1/tenant/budgets") {
+      if (req.method === "PUT") budgets = JSON.parse(raw).budgets;
+      return send(200, { budgets });
+    }
+    if (path === "/v1/tenant/tool-policy") {
+      if (req.method === "PUT") toolRules = JSON.parse(raw).rules;
+      return send(200, { rules: toolRules });
+    }
+    if (path === "/v1/tenant/keys") return send(200, { keys: [{ id: "web-app", role: "application", createdAt: time }] });
+    if (path === "/v1/tenant/signing-keys")
+      return send(200, {
+        keys: [
+          {
+            id: "sk_current",
+            state: "current",
+            alg: "ES256",
+            publicKey: { kty: "EC", crv: "P-256", x: "x", y: "y", kid: "sk_current", alg: "ES256", use: "sig" },
+            createdAt: time,
+            activatedAt: time,
+            retiredAt: null,
+            revokedAt: null,
+          },
+        ],
+      });
+    if (path === "/v1/tenant/reset" && req.method === "POST") return send(200, { ok: true });
     if (path === "/v1/tenant/providers" || path === "/v1/tenant/models")
       return send(200, { providers: [] });
     if (path === "/v1/tenant/model") return send(200, { configured: false });

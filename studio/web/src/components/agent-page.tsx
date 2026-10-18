@@ -42,6 +42,7 @@ import { AgentDisk } from "@/components/agent-disk";
 import { AgentActivity } from "@/components/agent-activity";
 import { AgentVault } from "@/components/agent-vault";
 import { AgentManifestTab, type ManifestMove } from "@/components/agent-manifest-tab";
+import { useToolRules } from "@/resources/tool-policy";
 
 /** A titled block of a page. */
 export function Section({
@@ -129,6 +130,7 @@ export function AgentPage({
   );
   const latestRead = useRead(loadLatest);
   const latest = latestRead.data;
+  const rules = useToolRules(tenantId);
   const [forking, setForking] = useState(false);
   const [editing, setEditing] = useState(false);
   const [acting, setActing] = useState(false);
@@ -352,6 +354,7 @@ export function AgentPage({
               {...(latest === undefined ? {} : { latest })}
               acting={acting}
               onMove={(what) => void move(what)}
+              rules={rules}
             />
           </TabsPrimitive.Content>
         </TabsPrimitive.Root>

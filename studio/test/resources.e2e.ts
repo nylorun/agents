@@ -241,11 +241,13 @@ test("a session's Manifest tab, under Deployed, shows where it runs: the version
   });
 });
 
-test("agent manifests are one read-only table; a row opens the manifest beside it as a readable spec, on any version, with the Agents made from it", async () => {
+test("agent manifests are one read-only table on the Tenant's page; a row opens the manifest beside it as a readable spec, on any version, with the Agents made from it", async () => {
   await withStudio(async (page, base, requests) => {
     await page.goto(base);
-    await page.locator("[data-sidebar=sidebar]").getByRole("link", { name: /^Manifests/u }).click();
-    await page.waitForURL(/\/agent-manifests$/u);
+    await page.locator("[data-sidebar=sidebar]").getByRole("link", { name: /^Resource fixture/u }).click();
+    await page.waitForURL(/\/tenant$/u);
+    await page.getByRole("tab", { name: "Manifests", exact: true }).click();
+    await page.waitForURL(/\/tenant\?tab=manifests$/u);
     const row = page.locator("tbody tr", { hasText: "analyst-box" });
     await row.getByText("v3", { exact: true }).waitFor();
     await row.getByText("Answers questions about data.", { exact: true }).waitFor();
@@ -261,7 +263,7 @@ test("agent manifests are one read-only table; a row opens the manifest beside i
     await page.getByRole("searchbox", { name: "Search manifests" }).fill("");
     // A row opens the manifest beside the list, on its latest version.
     await row.getByRole("button", { name: "analyst-box", exact: true }).click();
-    await page.waitForURL(/\/agent-manifests\?selected=analyst-box$/u);
+    await page.waitForURL(/\/tenant\?tab=manifests&selected=analyst-box$/u);
     const pane = page.getByRole("complementary", { name: "analyst-box" });
     await pane.getByRole("heading", { name: "analyst-box", exact: true }).waitFor();
     await pane.getByText(/^v3 · latest · saved /u).waitFor();
@@ -274,6 +276,8 @@ test("agent manifests are one read-only table; a row opens the manifest beside i
       .waitFor();
     // A line opens its part of the manifest.
     const server = pane.getByRole("region", { name: "MCP servers" }).getByRole("button", { name: /^github/u });
+    // The tool policy rule on its server is noted beside it; it is edited on the Tool policy tab.
+    await server.getByText("Deny delete_repository: Repositories are deleted by people", { exact: false }).waitFor();
     await server.click();
     assert.equal(await server.getAttribute("aria-expanded"), "true");
     await pane.getByText('"type": "streamable-http"', { exact: false }).waitFor();
@@ -283,7 +287,7 @@ test("agent manifests are one read-only table; a row opens the manifest beside i
     // Another version.
     await pane.getByRole("button", { name: "Filter by version" }).click();
     await page.getByRole("menuitemradio", { name: "v2" }).click();
-    await page.waitForURL(/\/agent-manifests\?selected=analyst-box&version=2$/u);
+    await page.waitForURL(/\/tenant\?tab=manifests&selected=analyst-box&version=2$/u);
     await pane.getByText(/^v2 of 3 · saved /u).waitFor();
     assert.ok(requests.some((r) => r.path === "/v1/agent-manifests/analyst-box/versions/2"));
     await pane.getByRole("button", { name: "analyst-box actions" }).click();
@@ -293,10 +297,12 @@ test("agent manifests are one read-only table; a row opens the manifest beside i
     for (const name of ["New version", "Save version", "Check"])
       assert.equal(await page.getByRole("button", { name, exact: true }).count(), 0, name);
     await pane.getByRole("button", { name: "Close manifest" }).click();
-    await page.waitForURL(/\/agent-manifests$/u);
-    // A manifest's page before opens it beside the list.
+    await page.waitForURL(/\/tenant\?tab=manifests$/u);
+    // The manifests list and a manifest's page before open the Tenant's Manifests tab.
+    await page.goto(base + "/agent-manifests");
+    await page.waitForURL(/\/tenant\?tab=manifests$/u);
     await page.goto(base + "/agent-manifests/analyst-box?version=2");
-    await page.waitForURL(/\/agent-manifests\?selected=analyst-box&version=2$/u);
+    await page.waitForURL(/\/tenant\?tab=manifests&selected=analyst-box&version=2$/u);
     await page.goto(base + "/agent-manifests/missing");
     await page.getByText(/Agent manifest not found/u).first().waitFor();
   });
@@ -306,7 +312,7 @@ test("an Agent is made from a manifest version, its labels and owner edited, for
   await withStudio(
     async (page, base, requests) => {
       // From a manifest beside the list: pinned to the version shown.
-      await page.goto(base + "/agent-manifests?selected=analyst-box&version=2");
+      await page.goto(base + "/tenant?tab=manifests&selected=analyst-box&version=2");
       await page.getByRole("button", { name: "analyst-box actions" }).click();
       await page.getByRole("menuitem", { name: "New Agent from v2…" }).click();
       const pinned = page.getByRole("dialog", { name: "New Agent" });
@@ -800,4 +806,167 @@ test("an embedded artifact inspector navigates and downloads without a Studio be
     await studio.close();
     runtime.close();
   }
+});
+
+test("the Tenant's page: its header, then status, compute, tool policy, limits, usage and keys, each one table", async () => {
+  await withStudio(async (page, base, requests) => {
+    await page.goto(base + "/settings");
+    await page.waitForURL(/\/tenant$/u);
+    await page.getByRole("heading", { name: "Resource fixture", level: 1 }).waitFor();
+    await page.getByText("Open", { exact: true }).waitFor();
+    await page.getByText(TENANT, { exact: true }).first().waitFor();
+    await page.getByText("No model set", { exact: true }).first().waitFor();
+    await page.getByText("Sandbox virtual, process", { exact: true }).waitFor();
+    await page.getByText("3 Agents · 1 session", { exact: true }).waitFor();
+    // One row of tabs, in the order a turn meets them; it opens on the status.
+    assert.deepEqual(await page.getByRole("tablist", { name: "Tenant tabs" }).getByRole("tab").allTextContents(), [
+      "Status",
+      "Manifests",
+      "Models",
+      "Compute",
+      "Tool policy",
+      "Limits",
+      "Usage",
+      "Keys",
+    ]);
+    await page.getByRole("tab", { name: "Status", selected: true }).waitFor();
+    await page.getByText("All 4 checks pass", { exact: true }).waitFor();
+    const harness = page.locator("tbody tr", { hasText: "Harness" });
+    await harness.getByText("1 connected · workspace on", { exact: true }).waitFor();
+    // A row links to the tab that configures it.
+    await page.locator("tbody tr", { hasText: "Sandbox" }).getByRole("link", { name: "Compute" }).click();
+    await page.waitForURL(/\/tenant\?tab=compute$/u);
+    await page.getByRole("region", { name: "Backends found" }).getByText("Not enabled", { exact: true }).waitFor();
+    const environments = page.getByRole("region", { name: "Environments" });
+    await environments.getByText("4 CPUs · 8 GiB memory", { exact: true }).waitFor();
+    await environments.getByText("pypi.org, github.com", { exact: true }).waitFor();
+    await page.getByRole("region", { name: "Storage" }).getByText("12 MiB used", { exact: true }).waitFor();
+
+    await page.getByRole("tab", { name: "Tool policy" }).click();
+    const rule = page.locator("tbody tr", { hasText: "github · delete_repository" });
+    await rule.getByText("Deny", { exact: true }).waitFor();
+    await rule.getByText("Repositories are deleted by people", { exact: true }).waitFor();
+    await page.getByText(/the strictest rule that matches decides/u).waitFor();
+
+    await page.getByRole("tab", { name: "Limits" }).click();
+    const attempts = page.locator("tbody tr", { hasText: "modelAttempts" });
+    await attempts.getByRole("cell", { name: "5", exact: true }).waitFor();
+    await attempts.getByRole("cell", { name: "3", exact: true }).waitFor();
+    await page.getByRole("button", { name: "Filter by value" }).click();
+    await page.getByRole("menuitemradio", { name: "Changed from default" }).click();
+    await page.getByText(/^1 of \d+ limits$/u).waitFor();
+
+    await page.getByRole("tab", { name: "Usage" }).click();
+    const today = page.locator("tbody tr", { hasText: "Today" });
+    await today.getByRole("cell", { name: "$2.00", exact: true }).waitFor();
+    await today.getByRole("cell", { name: "40 K", exact: true }).waitFor();
+    const budget = page.locator("tbody tr", { hasText: "The Tenant" });
+    await budget.getByText("$60.00 · 24%", { exact: true }).waitFor();
+
+    await page.getByRole("tab", { name: "Keys" }).click();
+    await page.locator("tbody tr", { hasText: "web-app" }).getByText("application", { exact: true }).waitFor();
+    await page.locator("tbody tr", { hasText: "sk_current" }).getByText("Current", { exact: true }).waitFor();
+    // Keys are read-only here.
+    for (const name of ["New key", "Rotate…"])
+      assert.equal(await page.getByRole("button", { name, exact: true }).count(), 0, name);
+    for (const path of ["/v1/tenant", "/v1/tenant/sandbox", "/v1/tenant/tool-policy", "/v1/tenant/limits", "/v1/tenant/budgets", "/v1/tenant/keys", "/v1/tenant/signing-keys"])
+      assert.ok(requests.some((r) => r.path === path), path);
+    // Settings are on the Tenant's page; the sidebar keeps only the Agents.
+    assert.equal(await page.locator("[data-sidebar=sidebar]").getByRole("link", { name: /^(?:Manifests|Models)/u }).count(), 0);
+  });
+});
+
+test("the Tenant's tool policy, limits, budgets and compute are edited in a panel, and its ⋯ menu resets it", async () => {
+  await withStudio(
+    async (page, base, requests) => {
+      // What the last PUT to `path` sent, without the request id the client adds.
+      const put = (path: string) => {
+        const body = requests.filter((r) => r.method === "PUT" && r.path === path).at(-1)?.body as
+          | Record<string, unknown>
+          | undefined;
+        if (!body) return undefined;
+        const { requestId: _, ...rest } = body;
+        return rest;
+      };
+      await page.goto(base + "/tenant?tab=policy");
+      await page.getByRole("button", { name: "Add rule" }).click();
+      const rule = page.getByRole("dialog", { name: "New rule" });
+      await rule.getByRole("radio", { name: "Ask" }).click();
+      await rule.getByLabel("Tool").fill("pay_invoice");
+      await rule.getByLabel("Manifest").fill("analyst-box");
+      await rule.getByLabel("When").fill('{"amount": {"gt": 100}}');
+      await rule.getByLabel("Reason").fill("Payments need a person");
+      await rule.getByRole("button", { name: "Save rule" }).click();
+      await page.locator("tbody tr", { hasText: "pay_invoice" }).getByText("amount > 100", { exact: true }).waitFor();
+      assert.deepEqual(put("/v1/tenant/tool-policy"), {
+        rules: [
+          { effect: "deny", server: "github", tool: "delete_repository", reason: "Repositories are deleted by people" },
+          { effect: "ask", tool: "pay_invoice", agent: "analyst-box", when: { amount: { gt: 100 } }, reason: "Payments need a person" },
+        ],
+      });
+
+      await page.getByRole("tab", { name: "Limits" }).click();
+      await page.locator("tbody tr", { hasText: "memoryBytes" }).click();
+      const limit = page.getByRole("dialog", { name: "memoryBytes" });
+      await limit.getByLabel("Value").fill("200 KiB");
+      await limit.getByRole("button", { name: "Save" }).click();
+      await limit.waitFor({ state: "detached" });
+      assert.deepEqual(put("/v1/tenant/limits"), { limits: { modelAttempts: 5, memoryBytes: 204800 } });
+      await page.getByRole("button", { name: "Actions for modelAttempts" }).click();
+      await page.getByRole("menuitem", { name: "Reset to default" }).click();
+      await page.locator("tbody tr", { hasText: "modelAttempts" }).getByRole("cell", { name: "3", exact: true }).first().waitFor();
+      assert.deepEqual(put("/v1/tenant/limits"), { limits: { memoryBytes: 204800 } });
+
+      await page.getByRole("tab", { name: "Usage" }).click();
+      await page.getByRole("button", { name: "Add budget" }).click();
+      const budget = page.getByRole("dialog", { name: "New budget" });
+      await budget.getByLabel("Applies to").selectOption("manifest");
+      await budget.getByLabel("Manifest").fill("analyst-box");
+      await budget.getByLabel("Period").selectOption("day");
+      await budget.getByLabel("Limit in tokens").fill("2000000");
+      await budget.getByRole("button", { name: "Save budget" }).click();
+      await page.locator("tbody tr", { hasText: "Manifest analyst-box" }).getByText("2 M tokens", { exact: true }).waitFor();
+      assert.deepEqual(put("/v1/tenant/budgets"), {
+        budgets: [
+          { scope: "tenant", period: "month", limitUsd: 250 },
+          { scope: "manifest", id: "analyst-box", period: "day", limitTokens: 2000000 },
+        ],
+      });
+
+      await page.getByRole("tab", { name: "Compute" }).click();
+      await page.getByRole("button", { name: "Edit compute settings…" }).click();
+      const compute = page.getByRole("dialog", { name: "Compute settings" });
+      await compute.getByLabel("Idle").fill("30m");
+      await compute.getByLabel("Most memory").fill("16GiB");
+      await compute.getByRole("button", { name: "Save" }).click();
+      await page.getByRole("region", { name: "Environments" }).getByText("Stops after 30m without a turn", { exact: true }).waitFor();
+      assert.deepEqual(put("/v1/tenant/sandbox"), {
+        limits: {
+          network: ["pypi.org", "github.com"],
+          resources: { cpus: 4, memory: "16384MiB" },
+          defaultResources: { cpus: 1, memory: "1024MiB" },
+          idle: "30m",
+          environments: 100,
+        },
+        lifecycle: { stopGrace: "10s" },
+      });
+      // Only what changed is saved: the storage limits stay as they were.
+      assert.equal(put("/v1/tenant/artifacts"), undefined);
+
+      let confirmation = "";
+      page.once("dialog", (dialog) => {
+        confirmation = dialog.message();
+        void dialog.accept();
+      });
+      await page.getByRole("button", { name: "Tenant actions" }).click();
+      await page.getByRole("menuitem", { name: "Reset sessions…" }).click();
+      await page.getByText("Every session was deleted.", { exact: true }).waitFor();
+      assert.match(confirmation, /Every session is deleted/u);
+      const reset = requests.find((r) => r.method === "POST" && r.path === "/v1/tenant/reset");
+      const { requestId: _, ...sent } = reset?.body as Record<string, unknown>;
+      assert.deepEqual(sent, { scope: "sessions", activeWork: "drain" });
+    },
+    false,
+    true,
+  );
 });

@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import { manifestNameOf } from "@/agent-list";
 import { manifestPath } from "@/agent-path";
 import { manifestSections, type SpecRow } from "@/agent-spec";
+import { withPolicyNotes, type ToolRule } from "@/tenant-spec";
 import { Button } from "@/components/ui/button";
 import {
   ActionMenu,
@@ -40,6 +41,7 @@ export function AgentManifestTab({
   latest,
   acting,
   onMove,
+  rules = [],
 }: {
   agent: AgentView;
   /** The version's whole manifest; without it the runtime section comes from the Agent's view. */
@@ -47,12 +49,14 @@ export function AgentManifestTab({
   latest?: number;
   acting: boolean;
   onMove: (what: ManifestMove) => void;
+  /** The Tenant's tool policy: each tool it may decide calls of notes its rules. */
+  rules?: readonly ToolRule[];
 }) {
   const navigate = useNavigate();
   const [query, setQuery] = useSearchParams();
   const [open, setOpen] = useState<SpecRow | "json">();
   const name = manifestNameOf(agent);
-  const sections = manifestSections(agent, manifest);
+  const sections = withPolicyNotes(manifestSections(agent, manifest), rules, name);
   const newer = latest !== undefined && latest > agent.resolvedVersion;
   const actions: MenuAction[] = [
     ...(newer && agent.tracking === "pinned" && !agent.targetVersion
