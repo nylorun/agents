@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.30.0-beta
+
+### Minor Changes
+
+- 7ef7358: Each sidebar item opens the page it names. **Agents** opens the Agents list, where Studio now opens, and each Agent under it opens its page, which opens on its sessions. The session list is gone, since every session runs on one Agent: `/` and `/sessions` open the Agents list, and `/sessions?agent=<id>` opens that Agent's page. The sidebar's **New session** menu is replaced by a **+** that appears when you hover an Agent and starts a session on it; an Agent's page and each row's ⋯ in the Agents list start one too. The Agents list uses the Agent page's table style (single-line rows, a search, its filters, a count and a ⋯ per row), shows each Agent's kind, and shows how many of its sessions wait on a person.
+- 59e1e16: The agent manifests list is one table of single-line rows, like the Agents list and an Agent's page: each manifest's name, description, latest version, kind, Agents and when it was saved, with a search and Kind, Type and Agents filters on top. A row opens the manifest beside the list instead of on its own page (`/agent-manifests?selected=<name>&version=<n>`; `/agent-manifests/<name>` opens it so too): a version picker, the Agents made from it, and the version as a readable spec, its harness section then its runtime section, one line each, a line opening its part of the manifest. Its ⋯ makes an Agent from the version shown, shows the whole manifest as JSON, or copies its name.
+- b3fa15e: The Tenant has a page (`/tenant`), opened from the Tenant at the top of the sidebar; the sidebar's Configure section (Manifests, Models) is gone. Its header names the Tenant, its id, the model it runs, its sandbox and how many Agents and sessions it holds, and its ⋯ resets the Tenant's sessions, Agents or everything, each after a confirm. One row of tabs follows, in the order an Agent's turn meets them: **Status** (its checks, what runs it, what it holds), **Manifests** (the manifests list, with one open beside it), **Models**, **Compute** (the sandbox, the backends found, what an Agent may ask for, placement and storage, editable), **Tool policy** (the rules, strictest first, each edited in a panel), **Limits** (the Runtime limits by area beside their defaults, each editable or reset), **Usage** (model usage today, this month and in all, and the budgets, editable) and **Keys** (application and signing keys, read only). An Agent's Manifest tab and a manifest beside the list note the tool policy rules on each HTTP tool and MCP server. `/settings`, `/settings/models` and `/agent-manifests` open the page's tabs. The Studio proxy allows the Tenant's settings reads, their `PUT`s and `POST /v1/tenant/reset`; no key write.
+
 ## 0.29.0-beta
 
 ### Minor Changes

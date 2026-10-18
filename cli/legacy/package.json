@@ -1,6 +1,6 @@
 {
   "name": "@nylorun/cli",
-  "version": "0.17.1-beta",
+  "version": "0.17.2-beta",
   "type": "module",
   "license": "Apache-2.0",
   "description": "nylorun under another name: npx @nylorun/cli <command> runs npx nylorun <command>.",
@@ -30,7 +30,7 @@
     "prepack": "npm run build"
   },
   "dependencies": {
-    "nylorun": "0.18.1-beta"
+    "nylorun": "0.18.2-beta"
   },
   "devDependencies": {
     "typescript": "npm:@typescript/typescript6@^6.0.2",
