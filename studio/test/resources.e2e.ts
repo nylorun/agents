@@ -264,7 +264,7 @@ test("agent manifests are one read-only table; a row opens the manifest beside i
     await page.waitForURL(/\/agent-manifests\?selected=analyst-box$/u);
     const pane = page.getByRole("complementary", { name: "analyst-box" });
     await pane.getByRole("heading", { name: "analyst-box", exact: true }).waitFor();
-    await pane.getByText("v3 · latest", { exact: false }).waitFor();
+    await pane.getByText(/^v3 · latest · saved /u).waitFor();
     await pane.getByRole("heading", { name: "Harness", exact: true }).waitFor();
     await pane.getByRole("heading", { name: "Runtime", exact: true }).waitFor();
     await pane.getByRole("region", { name: "Instructions" }).getByText("Analyse the data.", { exact: true }).waitFor();
@@ -284,7 +284,7 @@ test("agent manifests are one read-only table; a row opens the manifest beside i
     await pane.getByRole("button", { name: "Filter by version" }).click();
     await page.getByRole("menuitemradio", { name: "v2" }).click();
     await page.waitForURL(/\/agent-manifests\?selected=analyst-box&version=2$/u);
-    await pane.getByText("v2 of 3", { exact: false }).waitFor();
+    await pane.getByText(/^v2 of 3 · saved /u).waitFor();
     assert.ok(requests.some((r) => r.path === "/v1/agent-manifests/analyst-box/versions/2"));
     await pane.getByRole("button", { name: "analyst-box actions" }).click();
     await page.getByRole("menuitem", { name: "New Agent from v2…" }).waitFor();
