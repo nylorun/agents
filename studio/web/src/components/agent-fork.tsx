@@ -36,7 +36,7 @@ function PlanSummary({ plan }: { plan: AgentForkPlan }) {
         {plan.secrets.dropped.length ? `; left behind: ${plan.secrets.dropped.join(", ")}` : ""}.
       </li>
       {plan.secrets.missing.length ? (
-        <li className="text-amber-700 dark:text-amber-400">
+        <li className="font-medium">
           Still to set before use: {plan.secrets.missing.join(", ")}.
         </li>
       ) : null}
@@ -182,7 +182,7 @@ export function ForkSheet({
             </label>
             {plan ? <PlanSummary plan={plan} /> : null}
             {error ? (
-              <p role="alert" className="break-words text-sm text-red-600">
+              <p role="alert" className="break-words text-sm text-destructive">
                 {error}
               </p>
             ) : null}

@@ -334,6 +334,17 @@ Run `npm run check --workspace @nylorun/studio` for package and unit checks, and
 `npm run test:e2e --workspace @nylorun/studio` for public-API browser fixtures
 (requires Playwright Chromium).
 
+## Design
+
+The dashboard follows [DESIGN.md](./DESIGN.md), in Google Labs' design.md format:
+shadcn/ui on the Zinc base color, zinc and white everywhere, and color only in
+charts, which take the Sage scale (`--chart-1` to `--chart-5` in
+`web/src/index.css`). State is a grey dot and a word (`web/src/lib/status.ts`):
+the darker the dot, the more it needs you. Nylorun's type ships in the image,
+with no font request to a third party: Space Grotesk for headings, DM Sans for
+text and JetBrains Mono for ids. `npx @google/design.md lint studio/DESIGN.md`
+checks the file.
+
 ## The image
 
 ```sh

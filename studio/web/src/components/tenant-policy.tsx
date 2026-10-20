@@ -96,7 +96,7 @@ export function TenantPolicy({ tenantId, manifests }: { tenantId: string; manife
         </Button>
       </TableToolbar>
       {error ? (
-        <p role="alert" className="border-b px-4 py-2 text-sm break-words text-red-600">
+        <p role="alert" className="border-b px-4 py-2 text-sm break-words text-destructive">
           {error}
         </p>
       ) : null}
@@ -317,7 +317,7 @@ function RulePanel({
           )}
         </FormField>
         {error ? (
-          <p role="alert" className="text-sm break-words text-red-600">
+          <p role="alert" className="text-sm break-words text-destructive">
             {error}
           </p>
         ) : null}

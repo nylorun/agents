@@ -186,7 +186,7 @@ export function TenantPage({
         <ActionMenu label="Tenant actions" actions={actions} bordered />
       </div>
       {actionError ? (
-        <p role="alert" className="px-4 pb-3 text-sm break-words text-red-600">
+        <p role="alert" className="px-4 pb-3 text-sm break-words text-destructive">
           {actionError}
         </p>
       ) : null}

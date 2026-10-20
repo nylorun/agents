@@ -584,7 +584,7 @@ function Workspace({ tenant }: { tenant: StudioTenantInfo }) {
           </Button>
         </header>
         {error && (
-          <p role="alert" className="shrink-0 p-4 text-red-600">
+          <p role="alert" className="shrink-0 p-4 text-destructive">
             {error}
           </p>
         )}
@@ -1038,7 +1038,7 @@ function SessionView({
 
   if (!tenantId) {
     return (
-      <p role="alert" className="p-4 text-red-600">
+      <p role="alert" className="p-4 text-destructive">
         Studio is missing a Tenant id.
       </p>
     );
@@ -1293,7 +1293,7 @@ function SessionView({
                 </p>
               )}
               {error && (
-                <p role="alert" className="text-red-600">
+                <p role="alert" className="text-destructive">
                   {error}
                 </p>
               )}

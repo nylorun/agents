@@ -31,6 +31,7 @@ import {
   menuCellClass,
   rowClass,
 } from "@/components/data-table";
+import { STATUS_DOT } from "@/lib/status";
 
 /** What runs a manifest's Agents: `virtual`, `pod`, or `none` without a runtime section. */
 const kindOf = (manifest: Pick<AgentManifestView, "manifest">) => manifest.manifest.runtime?.kind ?? "none";
@@ -38,15 +39,9 @@ const kindOf = (manifest: Pick<AgentManifestView, "manifest">) => manifest.manif
 const EDIT_HINT =
   "Agent manifests are read only here: edit one in its repository and save its next version with nylorun apply.";
 
-/** An Agent's state as a dot: amber when it needs input, red when it fails, blue while it works. */
+/** An Agent's state as a dot: darkest when it fails or needs input. */
 const stateDot = (state: string) =>
-  state === "failing"
-    ? "bg-red-500"
-    : state === "input_required"
-      ? "bg-amber-500"
-      : state === "working"
-        ? "bg-sky-500"
-        : "bg-emerald-500";
+  state === "failing" || state === "input_required" ? STATUS_DOT.attention : STATUS_DOT.running;
 
 type Kind = "any" | "pod" | "virtual" | "none";
 type Type = "any" | "agent" | "flow";

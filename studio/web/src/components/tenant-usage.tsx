@@ -93,7 +93,7 @@ export function TenantUsage({ tenantId, manifests }: { tenantId: string; manifes
         </Button>
       </TableHeading>
       {error ? (
-        <p role="alert" className="border-b px-4 py-2 text-sm break-words text-red-600">
+        <p role="alert" className="border-b px-4 py-2 text-sm break-words text-destructive">
           {error}
         </p>
       ) : null}
@@ -131,12 +131,9 @@ export function TenantUsage({ tenantId, manifests }: { tenantId: string; manifes
                   <td className={cellClass}>
                     <span className="flex items-center gap-2">
                       {budget.scope === "turn" ? null : (
-                        <span aria-hidden className="h-1.5 w-24 shrink-0 overflow-hidden rounded-full bg-muted">
+                        <span aria-hidden className="h-1.5 w-24 shrink-0 overflow-hidden rounded-full bg-chart-5">
                           <span
-                            className={cn(
-                              "block h-full",
-                              share.share > 0.8 ? "bg-red-500" : share.share > 0.6 ? "bg-amber-500" : "bg-foreground",
-                            )}
+                            className="block h-full bg-chart-2"
                             style={{ width: `${Math.min(100, Math.round(share.share * 100))}%` }}
                           />
                         </span>
@@ -319,7 +316,7 @@ function BudgetPanel({
           </FormField>
         </div>
         {error ? (
-          <p role="alert" className="text-sm break-words text-red-600">
+          <p role="alert" className="text-sm break-words text-destructive">
             {error}
           </p>
         ) : null}

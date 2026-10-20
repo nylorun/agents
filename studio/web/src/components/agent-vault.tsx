@@ -106,7 +106,7 @@ export function AgentVault({
   return (
     <div>
       {error ? (
-        <p role="alert" className="border-b px-4 py-2 text-sm break-words text-red-600">
+        <p role="alert" className="border-b px-4 py-2 text-sm break-words text-destructive">
           {error}
         </p>
       ) : null}
@@ -339,7 +339,7 @@ function SlotPanel({
             {row.type === "environment_secret" ? " Commands in the sandbox see a placeholder; the value goes only where the manifest says." : ""}
           </p>
           {error ? (
-            <p role="alert" className="text-sm break-words text-red-600">
+            <p role="alert" className="text-sm break-words text-destructive">
               {error}
             </p>
           ) : null}

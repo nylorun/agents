@@ -1,17 +1,18 @@
 import { useEffect, useState } from "react";
 import { Check, Copy } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { STATUS_DOT } from "@/lib/status";
 
 const DOT: Record<string, string> = {
-  loading: "bg-muted-foreground/50",
-  running: "bg-sky-500 animate-pulse",
-  runnable: "bg-sky-500 animate-pulse",
-  waiting: "bg-sky-500 animate-pulse",
-  paused: "bg-amber-500",
-  uncertain: "bg-amber-500",
-  failed: "bg-red-500",
-  completed: "bg-emerald-500",
-  idle: "bg-emerald-500",
+  loading: STATUS_DOT.idle,
+  running: `${STATUS_DOT.running} animate-pulse`,
+  runnable: `${STATUS_DOT.running} animate-pulse`,
+  waiting: `${STATUS_DOT.running} animate-pulse`,
+  paused: STATUS_DOT.attention,
+  uncertain: STATUS_DOT.attention,
+  failed: STATUS_DOT.attention,
+  completed: STATUS_DOT.idle,
+  idle: STATUS_DOT.idle,
 };
 
 /** A session's status as a dot and a word. */
@@ -23,7 +24,7 @@ export function SessionStatus({ status }: Readonly<{ status: string }>) {
     >
       <span
         aria-hidden
-        className={cn("size-1.5 rounded-full", DOT[status] ?? "bg-muted-foreground")}
+        className={cn("size-1.5 rounded-full", DOT[status] ?? STATUS_DOT.idle)}
       />
       {status}
     </span>

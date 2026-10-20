@@ -404,7 +404,7 @@ export function ModelSettings({ tenantId }: Readonly<{ tenantId: string }>) {
       </TableToolbar>
 
       {error && !panelOpen ? (
-        <p role="alert" className="border-b px-4 py-2 text-sm text-red-600">
+        <p role="alert" className="border-b px-4 py-2 text-sm text-destructive">
           {error}
         </p>
       ) : null}
@@ -623,7 +623,7 @@ export function ModelSettings({ tenantId }: Readonly<{ tenantId: string }>) {
               </label>
             )}
             {error && panelOpen ? (
-              <p role="alert" className="text-sm text-red-600">
+              <p role="alert" className="text-sm text-destructive">
                 {error}
               </p>
             ) : null}
