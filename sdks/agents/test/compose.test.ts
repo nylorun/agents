@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -92,6 +92,14 @@ function project(harness: Record<string, unknown> = {}, runtime: Record<string, 
 }
 
 describe("composeManifest", () => {
+  it("reads mcp.json in a folder reached through a symlink, as macOS's temporary directory is", async () => {
+    const root = project();
+    const link = join(mkdtempSync(join(tmpdir(), "nylorun-compose-link-")), "project");
+    symlinkSync(root, link, "dir");
+    const composed = await composeManifest(join(link, "agents/triage"));
+    expect(Object.keys((composed.manifest as any).harness.mcpServers)).toEqual(["linear", "github"]);
+  });
+
   it("resolves the harness, its skills, MCP servers and plugins, and a shared runtime file, into one v8 document", async () => {
     const root = project();
     const composed = await composeManifest(join(root, "agents/triage"));
