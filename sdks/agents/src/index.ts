@@ -45,6 +45,10 @@ export {
   http,
   defineSchema,
   ToolError,
+  // The harness section `agentManifests.save` makes from a built agent or flow, and the gaps the
+  // Runtime refuses between a manifest's two sections, for code that builds a manifest itself.
+  harnessSectionOf,
+  sectionGaps,
 } from "@nylorun/core/define";
 export type {
   FlowAgentBuilder,

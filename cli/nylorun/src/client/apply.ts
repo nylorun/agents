@@ -5,8 +5,8 @@
  * files they name and checks the harness file's `requires`. Each manifest is planned first
  * (a dry run: from → to, each change, warnings, errors), and saved under `If-Match` set to the
  * version the plan was made against, so a save that raced another fails (`412 manifest_changed`)
- * instead of overwriting it. A folder without an `agent.manifest.json` applies each subfolder
- * that has one (`nylorun apply agents/`).
+ * instead of overwriting it. A folder with neither an `AGENT.md` nor an `agent.manifest.json`
+ * applies each subfolder that has one (`nylorun apply agents/`).
  *
  * An agent folder (a folder with `AGENT.md`, track T6) is compiled offline first, and one that does
  * not compile sends nothing; otherwise its files go up by hash and the Runtime compiles it again

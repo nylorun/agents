@@ -77,6 +77,18 @@ Runtime makes to a service of yours (see the comment in
 tool. A code tool (`tool({ run })`) is refused when it is saved: the Runtime
 runs agents from their manifests alone.
 
+An agent can also be a folder of Markdown and JSON, with no TypeScript: its
+instructions in `AGENT.md`, and `tools/`, `mcp.json`, `skills/`, `triggers/`
+and `runtime.json` beside it as it needs them, or a flow of agents
+(`flow.json`). `nylorun` writes, checks and saves one, and talks to its Agent:
+
+```sh
+npx nylorun@beta init agents/hello --example   # AGENT.md, a tool, an MCP server and a trigger, each explained
+npx nylorun@beta check agents/hello            # compile it offline: every problem by file, line and column
+npx nylorun@beta apply agents/hello --agent    # save it and make the Agent hello (--watch: again on each change)
+npx nylorun@beta chat hello                    # send each line, print each reply
+```
+
 The SDK reads the Project link itself; set `NYLORUN_RUNTIME_URL` and
 `NYLORUN_SERVER_KEY` only to run the app outside this project.
 

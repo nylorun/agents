@@ -472,15 +472,18 @@ the secret slots, `secrets`). Its JSON Schema is
   (`virtual` or `pod`). It also refuses what the Tenant's limits do not allow, files it does not
   hold, a tool that runs your code and a tool's `approval` (the Tenant's
   [tool policy](#tool-policy) decides).
-- **Agent folders.** A manifest may be authored as a folder (track T6, format `agent-folder/1`):
+- **Agent folders.** Author a manifest as a folder (tracks T6 and T7, format `agent-folder/1`):
   `AGENT.md` (frontmatter `name` and `description`, the instructions below), `mcp.json` (Agent
   Plugins syntax; `Authorization: Bearer ${NAME}` names a `bearer` slot, derived for the server's
-  URL when `runtime.json` declares none), `runtime.json`, `skills/<name>/`, HTTP `tools/<name>.json`,
-  `triggers/<id>.md` and `files/**`, and (track T7) flows, subagents and vendored Agent Plugins.
-  Each kind of file has a JSON Schema at `https://docs.nylorun.com/schemas/agent-folder/v1/<kind>.json`
-  (`runtime`, `tool`, `mcp` and `flow`, and `agent-md` and `trigger-md` for the frontmatter),
-  exported as `@nylorun/core/schemas/agent-folder-<kind>.json`.
-  `nylorun init <name>` writes one, `nylorun check` compiles it offline and prints every problem by
+  URL when `runtime.json` declares none), `runtime.json` (which may `"extends"` a shared file),
+  `skills/<name>/`, HTTP `tools/<name>.json`, `triggers/<id>.md`, `files/**`, subagents in
+  `agents/<id>/`, a flow in `flow.json` and vendored Agent Plugins in `plugins/<name>/`; a
+  `.nyloignore` leaves files out. The [CLI's README](../cli/nylorun/README.md#agent-manifests-apply)
+  shows each. Each kind of file has a JSON Schema at
+  `https://docs.nylorun.com/schemas/agent-folder/v1/<kind>.json` (`runtime`, `tool`, `mcp` and
+  `flow`, and `agent-md` and `trigger-md` for the frontmatter), exported as
+  `@nylorun/core/schemas/agent-folder-<kind>.json`.
+  `nylorun init <path>` writes one, `nylorun check` compiles it offline and prints every problem by
   file, line and column, and `nylorun apply` (or `saveFolder` in `@nylorun/agents`) sends it by
   hash with `Content-Type: application/vnd.nylorun.folder+json`. The Runtime compiles it with the
   same compiler (`@nylorun/core/folder`; `422 folder_invalid` when it does not compile) and keeps
@@ -489,13 +492,63 @@ the secret slots, `secrets`). Its JSON Schema is
   lists the files added, removed and changed between two versions' sources. A change outside the
   agent, such as a README, answers `unchanged`. What a folder may hold is the Tenant's
   [Runtime limits](#runtime-limits) `folderFiles`, `folderBytes` and `folderTextFileBytes`.
-- **Three files.** A manifest may be authored as `agent.manifest.json`, naming a
+  `nylorun pull` writes back the folder a version was saved from, and `nylorun export --folder`
+  writes one for a version saved as JSON. The analyst above as a folder, with a skill that reads
+  `GH_TOKEN` ([Credentials for skills](#credentials-for-skills)) and a weekly trigger:
+
+  <!-- doc-test: folder analyst AGENT.md -->
+  ```markdown
+  ---
+  name: analyst
+  description: Analyses data with pandas.
+  skills:
+    github-issues:
+      secrets: [GH_TOKEN]
+  ---
+  Analyse the data you are given with pandas, and show your numbers.
+  ```
+
+  <!-- doc-test: folder analyst skills/github-issues/SKILL.md -->
+  ```markdown
+  ---
+  name: github-issues
+  description: Lists a repository's open issues with the gh CLI.
+  ---
+  Run `gh issue list --repo <owner/repo> --state open --json number,title,labels` and count the
+  issues by label.
+  ```
+
+  <!-- doc-test: folder analyst runtime.json -->
+  ```json
+  {
+    "kind": "pod",
+    "image": "python:3.13-slim",
+    "network": { "allowedHosts": ["pypi.org", "files.pythonhosted.org", "api.github.com"] },
+    "setup": [{ "command": "pip install pandas", "timeout": "10m" }],
+    "secrets": {
+      "GH_TOKEN": { "type": "environment_secret", "allowedHosts": ["api.github.com"], "required": true }
+    }
+  }
+  ```
+
+  <!-- doc-test: folder analyst triggers/weekly.md -->
+  ```markdown
+  ---
+  schedule: "0 9 * * 1"
+  timezone: Europe/London
+  session: new
+  ---
+  Summarize last week's numbers in /workspace/sales.csv in five lines.
+  ```
+- **Three files (deprecated).** A manifest may still be authored as `agent.manifest.json`, naming a
   `harness.manifest.json` (whose `credentials` maps a server or HTTP tool to its slot, and whose
   `requires` the composer checks) and a `runtime.manifest.json` that many agents may share, by
   path. `nylorun apply <dir>` and `composeManifest(dir)` in `@nylorun/agents` compose them into
   one document and upload the files they name; their JSON Schemas are
   `@nylorun/core/schemas/harness-manifest.json` and `runtime-manifest.json`, and `nylorun
-  migrate v8` writes them from a v7 agent manifest and an environment manifest.
+  migrate v8` writes them from a v7 agent manifest and an environment manifest. `apply` and
+  `composeManifest` warn on them: `nylorun migrate folder <dir>` writes the agent folder of a
+  three-file folder, offline.
 - **Secret slots.** `runtime.secrets` declares what an Agent made from it needs: each name, its
   type, its binding (`allowedHosts` and `inject`, or `url`, `via` and `identity`), whether it is
   required, and a description; never a value. The Agent's view lists each slot as set or
@@ -1576,6 +1629,7 @@ tool's input schema, without running it. An HTTP tool's other failures are `http
 Which MCP and HTTP tool calls run, wait for a person, or are refused is the Tenant's tool
 policy: yours to set, with a management key, for every agent and every harness at once.
 
+<!-- doc-test: tool-policy -->
 ```bash
 curl -X PUT "$NYLORUN_RUNTIME_URL/v1/tenant/tool-policy" \
   -H "Authorization: Bearer $NYLORUN_MANAGEMENT_KEY" -H "Content-Type: application/json" \
@@ -1622,8 +1676,10 @@ A skill that runs a CLI (`gh`, `glab`, `aws`, `curl`) on a pod Agent authenticat
 a credential whose value never enters the sandbox. Two more secret types live in the same
 Agent vault as MCP credentials; for both, the secret's name is the variable's name
 (`PUT /v1/agents/{id}/secrets/GH_TOKEN`), and a skill names the ones it reads in its `secrets`
-(a skill folder's, in its `SKILL.md` frontmatter: `secrets: [GH_TOKEN]`), which must be slots of
-these types in the manifest's runtime section:
+(in an agent folder, `AGENT.md`'s skills block: `skills: { github-issues: { secrets: [GH_TOKEN] } }`;
+`secrets: [GH_TOKEN]` in a `SKILL.md`'s frontmatter is deprecated, still read with a warning, and
+`nylorun migrate folder` moves it), which must be slots of these types in the manifest's runtime
+section:
 
 - **`environment_secret`** `{ type, value, allowedHosts, inject? }`: every command sees
   `$<name>` set to `nylorun_managed`, a fixed sentinel. When a command sends HTTPS to one of

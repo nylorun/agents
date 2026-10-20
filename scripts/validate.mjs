@@ -33,6 +33,8 @@ try {
   if (command === "check") {
     await node("scripts/check-boundaries.mjs");
     await node("scripts/check-ambient.mjs");
+    // The README and guide snippets marked <!-- doc-test: … --> (scripts/doc-tests.mjs).
+    await node("scripts/doc-tests.mjs");
     await script("format:check", "harness");
     await script("test:types", "harness");
     await script("test:types", "create-agent");

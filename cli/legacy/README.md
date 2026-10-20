@@ -17,5 +17,5 @@ npm refuses the second global install (`EEXIST`). In a project, having both is
 harmless.
 
 `nylo`, the former Runtime client, is nylorun's: it names the `nylorun` command
-that replaced each of its own and exits 2, and nylorun 0.19 removes it. See
+that replaced each of its own and exits 2, and a later release removes it. See
 [MIGRATION.md](../../guides/MIGRATION.md).

@@ -150,6 +150,8 @@ management key (`PUT /v1/tenant/tool-policy`, `admin.toolPolicy.put()` in
 journals the call, before anything is sent, and its Tool Gate runs only a call
 the journal holds running, so a harness cannot skip it.
 
+<!-- doc-test: tool-policy -->
+<!-- doc-test: typescript -->
 ```ts
 import { createAdmin } from "@nylorun/admin";
 
@@ -157,23 +159,27 @@ await createAdmin().toolPolicy.put({
   rules: [
     { effect: "ask", tool: "refund_order", reason: "Refunds need a person" },
     { effect: "deny", tool: "refund_order", when: { amount: { gt: 10_000 } } },
-    { effect: "ask", server: "github", tool: "github__delete_*" },
+    { effect: "ask", server: "github", tool: "delete_*" },
   ],
 });
 ```
 
-A rule matches a call when every selector it sets matches: `tool` (the name the
-model calls it by; `*` matches any run of characters), `server` (an MCP
+A rule matches a call when every selector it sets matches: `tool` (the tool's
+own name: an MCP tool's name on its server, such as `delete_file`, or an HTTP
+tool's declared name; `*` matches any run of characters), `server` (an MCP
 server's name), `kind` (`mcp` or `http`), `agent` (the agent that calls it) and
 `when` (fields of the call's input by dotted path, each tested with `equals`,
 `in`, `gt`, `gte`, `lt`, `lte` or `matches`). The strictest matching rule
-decides, and a call no rule matches runs:
+decides, and a call no rule matches runs. Name an MCP tool by `server` and
+`tool`, never by the name the model calls it by (`github__delete_file`): a
+harness chooses that name, and a `tool` with `__` in it is refused (`400`).
 
 - `deny`: the call is never sent; the model gets `tool.denied` with the rule's
   `reason`.
 - `ask`: the turn pauses (`turn.paused`, with the tool, its input and the
   reason). `session.approve(interactionId, true)` sends that exact call;
-  `false` fails it to the model as `tool.denied`, unsent. Nothing holds a
+  `false` fails it to the model as `tool.denied`, unsent (pass
+  `{ idempotencyKey }` as a third argument to retry an answer safely). Nothing holds a
   process while it waits, so an approval can wait a day, or a Runtime restart.
   Studio shows an approval card; AG-UI ends the run with a `tool_approval`
   interrupt.
@@ -252,7 +258,7 @@ const assistant = Agent({ id: "assistant", name: "Order assistant" })
   .skills("./assistant-skills");
 ```
 
-Each subdirectory under the catalog must contain a `SKILL.md` with YAML frontmatter (`name`, `description`) per [Agent Skills](https://agentskills.io/home). Its `secrets` (`secrets: [GH_TOKEN]`, environment variable names) are the skill's `secrets` in the harness section: the `runtime.secrets` slots its scripts read, of type `environment_secret` or `environment_variable`; a skill whose `secrets` is not such a list is skipped with a warning. Every file of a skill's folder, binary included (not `.git/`, `node_modules/`, OS files like `.DS_Store`, or `.env` and `.env.*` files, which hold secrets), is part of the definition: the manifest names each one by path and SHA-256 (`skills.<name>.files`). A skill's files may hold together at most the Tenant's skill limit (`PUT /v1/tenant/skills`, default 2 GiB); no file and no count of files has a limit of its own, and a manifest's runtime section may set a lower limit for its Agents' sessions (`runtime.limits.skills.totalBytes`). Skills need a sandbox: the runtime section's kind is `virtual` or `pod`, which the Runtime checks when the manifest is saved. `agentManifests.save` uploads the files the Runtime does not hold (`client.files`, `PUT /v1/files/sha256:<hex>`) before it saves the manifest, which the Runtime refuses while it names a file it lacks (`400 definition_files_missing`) or a skill past the Tenant's limit (`413 limit_exceeded`). `read_skill_resource` reads files of up to 10 MiB into the model's context; a larger one is used in the sandbox.
+Each subdirectory under the catalog must contain a `SKILL.md` with YAML frontmatter (`name`, `description`) per [Agent Skills](https://agentskills.io/home). Its `secrets` (`secrets: [GH_TOKEN]`, environment variable names) are the skill's `secrets` in the harness section: the `runtime.secrets` slots its scripts read, of type `environment_secret` or `environment_variable`; a skill whose `secrets` is not such a list is skipped with a warning. `secrets` is not an Agent Skills key, so it is deprecated in `SKILL.md` (still read, with a `DeprecationWarning`): an agent folder lists a skill's secrets in `AGENT.md`'s skills block (`skills: { <name>: { secrets: [GH_TOKEN] } }`). Every file of a skill's folder, binary included (not `.git/`, `node_modules/`, OS files like `.DS_Store`, or `.env` and `.env.*` files, which hold secrets), is part of the definition: the manifest names each one by path and SHA-256 (`skills.<name>.files`). A skill's files may hold together at most the Tenant's skill limit (`PUT /v1/tenant/skills`, default 2 GiB); no file and no count of files has a limit of its own, and a manifest's runtime section may set a lower limit for its Agents' sessions (`runtime.limits.skills.totalBytes`). Skills need a sandbox: the runtime section's kind is `virtual` or `pod`, which the Runtime checks when the manifest is saved. `agentManifests.save` uploads the files the Runtime does not hold (`client.files`, `PUT /v1/files/sha256:<hex>`) before it saves the manifest, which the Runtime refuses while it names a file it lacks (`400 definition_files_missing`) or a skill past the Tenant's limit (`413 limit_exceeded`). `read_skill_resource` reads files of up to 10 MiB into the model's context; a larger one is used in the sandbox.
 
 The Runtime serves the skills itself, with no call to your process. When our harness runs a turn, it adds the skill catalog to the instructions and two tools: `load_skill` returns a skill's `SKILL.md` body and the paths of its other files, and `read_skill_resource` returns a text file. A session with a sandbox also has each skill's files read-only under `/skills/<name>@<hash>/`, so the model can run a skill's scripts with `bash`.
 
@@ -301,12 +307,13 @@ await client.agents.secrets.put("users/alice/analyst", "GH_TOKEN", { value: proc
 const session = await client.createSession({ id: "alice-q3", agent: "users/alice/analyst", ownerUserId: "alice" });
 ```
 
-`agentManifests.save(input, { ifMatch, requestId })` and `plan(input, { ifMatch })` (a dry run that saves nothing) take a v8 document, what `composeManifest` read, or `{ agent, runtime?, harness?, loop?, memory?, name?, description?, metadata? }`: the SDK makes the harness section from the built agent or flow (`harnessSectionOf`, with its skills' `secrets`; `harness` is the harness's id; `memory`, `{ access?, instructions? }`, turns on an agent's memory, not a flow's) and names the manifest after the agent's id. First it uploads every file the manifest names by hash that the Runtime does not hold: the agent's skills, a flow's agents' skills, and the runtime's files (`runtimeFiles(path, contents)` hashes a `files` entry; pass its `bytes` as `files`). `If-Match` is the version you read (`0` for a new manifest). A save that changes nothing answers the latest version, `unchanged`. `get(name, version?)`, `list()`, `versions(name)` (with the Agents made from each) and `delete(name)` (refused while an Agent was made from it: `409 manifest_in_use`) read and remove them.
+`agentManifests.save(input, { ifMatch, requestId })` and `plan(input, { ifMatch })` (a dry run that saves nothing) take a v8 document, what `composeManifest` read, or `{ agent, runtime?, harness?, loop?, memory?, name?, description?, metadata? }`: the SDK makes the harness section from the built agent or flow (`harnessSectionOf`, exported for code that builds a manifest itself, with its skills' `secrets`; `harness` is the harness's id; `memory`, `{ access?, instructions? }`, turns on an agent's memory, not a flow's) and names the manifest after the agent's id. First it uploads every file the manifest names by hash that the Runtime does not hold: the agent's skills, a flow's agents' skills, and the runtime's files (`runtimeFiles(path, contents)` hashes a `files` entry; pass its `bytes` as `files`). `If-Match` is the version you read (`0` for a new manifest). A save that changes nothing answers the latest version, `unchanged`. `get(name, version?)`, `list()`, `versions(name)` (with the Agents made from each) and `delete(name)` (refused while an Agent was made from it: `409 manifest_in_use`) read and remove them.
 
 ### Agent folders: `packFolder`, `checkFolder`, `saveFolder`
 
-An agent can be a folder of Markdown and JSON (track T6): `AGENT.md` with `name`, `description` and the instructions, and beside it `mcp.json`, `runtime.json`, `skills/`, `tools/`, `triggers/` and `files/` as it needs them. `packFolder(dir)` (Node only) lists every file with its size and SHA-256, skipping `.git` and `node_modules`; `checkFolder(folder)` compiles it offline with the Runtime's compiler (`@nylorun/core/folder`) and returns `{ manifest?, diagnostics, compiler }`, each diagnostic with its file, line and column (`diagnosticLine` formats one). `agentManifests.saveFolder(folder, { ifMatch })` and `planFolder` compile it first, refuse one that does not compile (`FolderInvalidError`), upload the files the Runtime lacks and send the folder by hash; the Runtime keeps it as the version's source, which `source(name, version)` and `sourceFile(name, version, path)` read back, and `sourceDiff(name, from, to)` compares two versions' sources: the files added, removed and changed, by hash.
+An agent is best written as a folder of Markdown and JSON (tracks T6 and T7): `AGENT.md` with `name`, `description` and the instructions, and beside it `mcp.json`, `runtime.json`, `skills/`, `tools/`, `triggers/` and `files/` as it needs them. `agents/<id>/` holds subagents (each offered to the agent as a tool), `flow.json` makes the folder a flow whose stages name those agents by id, and `plugins/<name>/` vendors an Agent Plugin; [the CLI's README](../../cli/nylorun/README.md#agent-manifests-apply) shows each. `packFolder(dir)` (Node only) lists every file with its size and SHA-256, skipping `.git`, `node_modules` and what the folder's `.nyloignore` names (gitignore rules, `ignoreMatcher`), and resolves `"extends"` in `runtime.json` (the packed file is the merge, the folder's own keys winning); `checkFolder(folder)` compiles it offline with the Runtime's compiler (`@nylorun/core/folder`) and returns `{ manifest?, diagnostics, compiler }`, each diagnostic with its file, line and column (`diagnosticLine` formats one). `agentManifests.saveFolder(folder, { ifMatch })` and `planFolder` compile it first, refuse one that does not compile (`FolderInvalidError`), upload the files the Runtime lacks and send the folder by hash; the Runtime keeps it as the version's source, which `source(name, version)` and `sourceFile(name, version, path)` read back, and `sourceDiff(name, from, to)` compares two versions' sources: the files added, removed and changed, by hash. `folderOfManifest(manifest)` goes the other way: the folder that compiles back to a saved manifest (what `nylorun export --folder` writes).
 
+<!-- doc-test: typescript -->
 ```ts
 import { createClient, packFolder } from "@nylorun/agents";
 
@@ -316,9 +323,11 @@ console.log(plan.manifest, plan.diagnostics); // the compiled manifest, and e.g.
 await client.agentManifests.saveFolder(await packFolder("agents/triage"), { ifMatch: plan.from ?? 0 });
 ```
 
-### Three files: `composeManifest`
+### Three files: `composeManifest` (deprecated)
 
-A manifest can also be authored as files, so a runtime is shared by many agents and skills stay folders. `composeManifest(dir)` (Node only) reads `<dir>/agent.manifest.json` and the files it names, each path relative to the file that names it, and returns `{ manifest, files, gaps, warnings }`; `agentManifests.save` takes it as it is and uploads `files`. `npx nylorun apply <dir>` does the same from the command line.
+The three-file form is deprecated in favour of agent folders: `composeManifest` and `nylorun apply` still read it, and warn, and `npx nylorun migrate folder <dir>` writes the agent folder of a three-file folder, with its skills, offline. A folder's `runtime.json` shares a runtime between agents with `"extends"`.
+
+A manifest can be authored as three files, so a runtime is shared by many agents and skills stay folders. `composeManifest(dir)` (Node only) reads `<dir>/agent.manifest.json` and the files it names, each path relative to the file that names it, and returns `{ manifest, files, gaps, warnings }`; `agentManifests.save` takes it as it is and uploads `files`. `npx nylorun apply <dir>` does the same from the command line.
 
 ```jsonc
 // agents/triage/agent.manifest.json
@@ -413,7 +422,12 @@ the manifest, then `createSession({ agent })` and `session.input(value)`. `input
 `content` and other JSON as `data`. On the wire a flow agent is a workflow manifest v3
 (`kind: "workflow"`, `workflowSchemaVersion: 3`) that embeds the agents it runs, so one
 document and one manifest hash cover the whole flow; its agents are not listed on their own.
-In an agent manifest it is the harness section, `harness.kind: "workflow"`.
+In an agent manifest it is the harness section, `harness.kind: "workflow"`. A flow can also
+be an [agent folder](#agent-folders-packfolder-checkfolder-savefolder): `flow.json` holds the
+same node tree, naming its agents (each an `agents/<id>/` folder) by id, and the compiler
+embeds each agent where the manifest needs it
+([`examples/agents/repo-brief-folder/`](../../examples/agents/repo-brief-folder/) is the Repo
+brief flow as a folder).
 
 A flow passes data between its stages itself: the first stage gets the flow's input, and
 every later stage gets the previous stage's output. So each agent returns, through its
@@ -542,7 +556,7 @@ default release registry). Host contract:
 [HOST_CONTRACT.md](../../runtime/harness/HOST_CONTRACT.md). Vocabulary (turn loop vs
 workflow Loop): [runtime/harness/src/CONTEXT.md](../../runtime/harness/src/CONTEXT.md).
 
-Use `session.observe({ cursor, signal })` for resumable canonical events, `session.inspect()` for waiting/uncertain state, and `approve`, `respond`, or `cancel` with an explicit stable idempotency key. Retry the same semantic command with the same key. `ownerUserId` must come from trusted server authentication. Application credentials are not browser credentials; browser applications need an authorized backend. Definition authoring is browser-bundleable.
+Use `session.observe({ cursor, signal })` for resumable canonical events, `session.inspect()` for waiting/uncertain state, and `approve`, `respond` or `cancel` to answer or stop a turn. `cancel` takes an idempotency key; `approve(interactionId, approved)` and `respond(interactionId, value)` make one of their own when given none, so give them a stable one (`{ idempotencyKey }`) when you may retry. Retry the same semantic command with the same key. `ownerUserId` must come from trusted server authentication. Application credentials are not browser credentials; browser applications need an authorized backend. Definition authoring is browser-bundleable.
 
 Connection defaults follow `resolveConnection` (options → environment → Project
 link). Agents do not hash the manifest; a session pins the manifest version its Agent runs

@@ -89,6 +89,7 @@ yourself; `npm run dev` then neither builds nor rebuilds that image.
 | `npm test`                                  | Run package, tooling, and examples tests after setup (needs Docker)        |
 | `npm run check`                             | Build and run the standard repository checks                               |
 | `npm run check:stack`                       | Check generated starter contracts and built example assets                 |
+| `npm run test:docs`                         | Check the README and guide snippets marked `<!-- doc-test: … -->` (part of `check`) |
 | `npm run test:stack`                        | Smoke `nylorun up`/`down` on a temporary Tenant                            |
 | `npm run test:starter`                      | Smoke the packed starter (`nylorun start` in the project, `npm run dev`, the Tenant reset to the fixture model) on a temporary Tenant |
 | `npm run test:dev`                          | Smoke `npm run dev` on a temporary Tenant and a clean copy of `examples/`  |
@@ -106,6 +107,14 @@ preview agents and credentials are never overwritten.
 
 For focused checks: `npm run check --workspace @nylorun/runtime` (substitute another
 package). CI uses `-- --built` on root checks after setup to avoid rebuilding.
+
+Doc tests check a README's or guide's code block when an HTML comment on the line before it says
+how (`scripts/doc-tests.mjs`, against the built packages, with no Runtime):
+`<!-- doc-test: folder <name> <path> -->` writes the block as `<path>` of the agent folder
+`<name>` and compiles the folder as `nylorun check` does; `<!-- doc-test: tool-policy -->` checks
+each rule against the Runtime's tool policy schema (`tool-policy refused` for a rule shown as
+wrong); `<!-- doc-test: typescript -->` typechecks a self-contained block. Mark a snippet a reader
+would copy; a block without a marker is not checked.
 
 The Runtime's tests keep every Tenant in Postgres: each test file gets its own database,
 cloned from a template the run migrates, on the Docker test stack

@@ -1,3 +1,23 @@
+# Agent folders, complete (track T7)
+
+Additive, with two deprecations. Agent folders now hold flows (`flow.json`), subagents
+(`agents/<id>/`) and vendored Agent Plugins (`plugins/<name>/`), take a `.nyloignore` and a
+`runtime.json` that `"extends"` a shared one, and are the documented way to write an agent;
+`nylorun init <path> --example`, `apply --agent`, `apply --watch`, `chat`, `check --json`,
+`export --folder`, `migrate folder` and `pull` work with them
+([cli/nylorun/README.md](../cli/nylorun/README.md#agent-manifests-apply)).
+
+- **The three-file format is deprecated.** `agent.manifest.json` with its harness and runtime
+  files is still read, and `nylorun apply` and `composeManifest` warn. `nylorun migrate folder
+  <dir> --out <dir>` writes the agent folder, with its skills, offline; it saves the same manifest.
+- **`secrets` in `SKILL.md` is deprecated.** It is not an Agent Skills key. List a skill's secrets
+  in `AGENT.md`'s skills block (`skills: { github-issues: { secrets: [GH_TOKEN] } }`), where
+  `migrate folder` moves them; `.skills()` still reads them, with a `DeprecationWarning`.
+- **`approval` is no longer a key in a folder** (`approval_removed`): an `ask` rule of the
+  Tenant's [tool policy](./DEPLOYMENT.md#tool-policy) holds a call for a person.
+- `session.approve(id, approved)` and `session.respond(id, value)` take no options: each makes
+  its own idempotency key; pass `{ idempotencyKey }` to retry an answer safely.
+
 # Agent folders
 
 Additive. `PUT /v1/agent-manifests/{name}` also takes an agent folder by hash, with
@@ -18,7 +38,7 @@ is `npx nylorun <command>`, help, output and exit codes included. It prints no d
 | Before | Now |
 | --- | --- |
 | `npx @nylorun/cli <command>` (`nylo`: exits 2 naming the `nylorun` command) | `npx @nylorun/cli <command>` runs `nylorun <command>` |
-| `nylo` from `@nylorun/cli` in an npm script | `nylorun` (from either package); `nylo` stays in nylorun until 0.19 |
+| `nylo` from `@nylorun/cli` in an npm script | `nylorun` (from either package); nylorun still ships `nylo`, which names the `nylorun` command and exits 2, and a later release removes it |
 | `npm i -g @nylorun/cli` for `nylo` | `npm i -g nylorun` or `npm i -g @nylorun/cli`, not both: each provides `nylorun` (`EEXIST`) |
 
 # The workload token
@@ -256,12 +276,14 @@ only. Upgrade the Runtime, the SDKs, Studio, the CLI and any custom harness toge
   identity: an MCP tool's own name on its server, or an HTTP tool's declared name; the name the
   model knows it by never matches. Rewrite each rule that named a model-facing name:
 
+  <!-- doc-test: tool-policy refused -->
   ```json
   { "effect": "ask", "tool": "github__create_issue" }
   ```
 
   becomes
 
+  <!-- doc-test: tool-policy -->
   ```json
   { "effect": "ask", "server": "github", "tool": "create_issue" }
   ```
@@ -622,8 +644,8 @@ Part of protocol 14 (D66, D67).
 
 # One command: `nylo` is part of `nylorun`
 
-`nylorun` is the one command. `nylo` keeps its name until nylorun 0.19, which removes it; each of
-its commands exits 2 naming the `nylorun` command that replaced it. Commands other than the installation's
+`nylorun` is the one command. `nylo` still ships in nylorun, and a later release removes it; each
+of its commands exits 2 naming the `nylorun` command that replaced it. Commands other than the installation's
 lifecycle moved into groups, each named after the API it uses, and the old spellings exit 2
 naming the new one.
 
@@ -837,6 +859,7 @@ an MCP server or an MCP tool's settings, and `http({ approval })` and `.mcp({ â€
 
 Move each `approval: "always"` to an `ask` rule, with a management key:
 
+<!-- doc-test: tool-policy -->
 ```ts
 // Before
 Agent({ id: "support" })
@@ -853,7 +876,7 @@ import { createAdmin } from "@nylorun/admin";
 await createAdmin().toolPolicy.put({
   rules: [
     { effect: "ask", agent: "support", tool: "refund_order" },
-    { effect: "ask", agent: "support", tool: "github__create_issue" },
+    { effect: "ask", agent: "support", server: "github", tool: "create_issue" },
   ],
 });
 ```

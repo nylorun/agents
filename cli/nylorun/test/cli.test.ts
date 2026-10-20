@@ -217,13 +217,13 @@ describe("nylorun", () => {
 
 describe("nylo (part of nylorun now)", () => {
   it.each([
-    [["status"], /^nylo is part of nylorun now: nylo status is nylorun status\. nylorun 0\.19 removes nylo\.$/m],
+    [["status"], /^nylo is part of nylorun now: nylo status is nylorun status\. A later nylorun release removes nylo\.$/m],
     [["reset", "--all"], /nylo reset is nylorun tenant reset\./],
     [["access", "signing-keys", "list"], /nylo access is nylorun tenant signing-keys list\|rotate\|revoke\./],
     [["configure"], /nylo configure is nylorun tenant models set\./],
     [["doctor", "sandbox"], /nylo doctor is nylorun doctor sandbox\./],
     [["env"], /nylo env is nothing: the SDKs read the Project link themselves/],
-    [[], /^nylo is part of nylorun now: run nylorun --help\. nylorun 0\.19 removes nylo\.$/m],
+    [[], /^nylo is part of nylorun now: run nylorun --help\. A later nylorun release removes nylo\.$/m],
   ])("%j names the nylorun command (exit 2)", (args, message) => {
     const { code, stdout, stderr } = nylorun(args, {}, "dist/nylo.js");
     expect(code).toBe(2);
