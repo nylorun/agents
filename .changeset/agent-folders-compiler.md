@@ -1,5 +1,0 @@
----
-"@nylorun/core": minor
----
-
-Agent folders (track T6, D79): `@nylorun/core/folder` exports `compileAgentFolder`, which turns a folder of Markdown and JSON into agent manifest v8. It is pure, so the Runtime and `nylorun check` give one verdict: `AGENT.md` (frontmatter and instructions) and `instructions/*.md`, `runtime.json`, `mcp.json` in Agent Plugins syntax (`${NAME}` in a header names the credential; a slot `runtime.json` does not declare is derived for the server's URL), `skills/<name>/`, HTTP `tools/<name>.json` with schemas inline or by path, `triggers/<id>.md` and `files/**`. Every problem comes back in one pass, with file, line and column for parse and schema errors, and an unknown key gets a "did you mean". JSON is strict; frontmatter is YAML 1.2 core with no aliases, tags or merge keys. Flows, subagents and vendored plugins are refused for now. `folderTextPaths` names the files the compiler reads; `AGENT_FOLDER_LIMITS` holds the folder limits (2,000 files, 50 MiB, 1 MiB per Markdown or JSON file).

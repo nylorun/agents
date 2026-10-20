@@ -1,5 +1,27 @@
 # nylorun
 
+## 0.19.0-beta
+
+### Minor Changes
+
+- aaa079f: Agent folders in the SDK and the CLI (track T6). `@nylorun/agents` adds `packFolder(dir)`, which lists a folder's files with their sizes and hashes (skipping `.git` and `node_modules`, following no symbolic link), `checkFolder`, which compiles it offline with the Runtime's compiler, and `client.agentManifests.saveFolder` and `planFolder`, which upload the files the Runtime lacks and send the folder by hash; `source` and `sourceFile` read a version's folder back. `nylorun init <name>` writes a new folder's `AGENT.md`, `nylorun check [dir…]` prints every problem by file, line and column with no Runtime, and `nylorun apply` saves a folder with `AGENT.md` (`--dry-run` prints the compiled manifest). A folder that does not compile sends nothing.
+
+### Patch Changes
+
+- Pin core to the tested release.
+- Pin agents to the tested release.
+- Pin admin to the tested release.
+- Pin runtime to the tested release.
+- Pin studio to the tested release.
+- Updated dependencies [9ba6634]
+- Updated dependencies [aaa079f]
+- Updated dependencies [aaa079f]
+- Updated dependencies
+- Updated dependencies
+  - @nylorun/core@0.27.0-beta
+  - @nylorun/agents@0.27.0-beta
+  - @nylorun/admin@0.19.3-beta
+
 ## 0.18.3-beta
 
 ### Patch Changes

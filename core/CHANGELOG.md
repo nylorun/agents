@@ -1,5 +1,12 @@
 # @nylorun/core
 
+## 0.27.0-beta
+
+### Minor Changes
+
+- 9ba6634: Agent folders (track T6, D79): `@nylorun/core/folder` exports `compileAgentFolder`, which turns a folder of Markdown and JSON into agent manifest v8. It is pure, so the Runtime and `nylorun check` give one verdict: `AGENT.md` (frontmatter and instructions) and `instructions/*.md`, `runtime.json`, `mcp.json` in Agent Plugins syntax (`${NAME}` in a header names the credential; a slot `runtime.json` does not declare is derived for the server's URL), `skills/<name>/`, HTTP `tools/<name>.json` with schemas inline or by path, `triggers/<id>.md` and `files/**`. Every problem comes back in one pass, with file, line and column for parse and schema errors, and an unknown key gets a "did you mean". JSON is strict; frontmatter is YAML 1.2 core with no aliases, tags or merge keys. Flows, subagents and vendored plugins are refused for now. `folderTextPaths` names the files the compiler reads; `AGENT_FOLDER_LIMITS` holds the folder limits (2,000 files, 50 MiB, 1 MiB per Markdown or JSON file).
+- aaa079f: The Runtime saves agent folders (track T6). `PUT /v1/agent-manifests/{name}` with `Content-Type: application/vnd.nylorun.folder+json` takes a folder by hash (`PutAgentFolderRequestSchema`): the files uploaded first, the Markdown and JSON read back from the definition file store and compiled with `compileAgentFolder`. A folder that does not compile is `422 folder_invalid`, with the compiler's diagnostics by file, line and column in `details.diagnostics`. A save keeps the folder as the version's source: `AgentManifestView.source` summarises it, `GET /v1/agent-manifests/{name}/versions/{v}/source` lists its files and `.../source/files/{path}` returns one. With `?dryRun=true` the plan adds the compiled `manifest`, the `diagnostics` and the `compiler`. A folder whose manifest is unchanged saves no version, and says so (`source_not_saved`). New Host feature `agent-folders`; new error code `folder_invalid`.
+
 ## 0.26.0-beta
 
 ### Minor Changes
