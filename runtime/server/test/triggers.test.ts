@@ -125,10 +125,12 @@ describe("an Agent's triggers", () => {
         await t.putAgentTrigger({ ...row, nextFireAt: due });
       }),
     );
+    // Compared with the fire, not the read: the jittered next run may pass in between.
+    const firedAt = Date.now();
     await runtime.handle.worker!.fire!(triggerTimerKey("cron", "tick"));
     expect((await runs()).filter((r) => r.dueAt === due)).toHaveLength(1);
     const after = (await triggers()).find((t) => t.id === "tick");
-    expect(Date.parse(after.nextRunAt)).toBeGreaterThan(Date.now());
+    expect(Date.parse(after.nextRunAt)).toBeGreaterThan(firedAt);
     expect(after.lastRunAt).toEqual(expect.any(String));
     // The live `* * * * *` schedule may start the next minute's run meanwhile, so find this one's.
     const events = (await call("GET", "/v1/agents/cron/events?types=agent.run")).body.events as any[];
@@ -136,11 +138,13 @@ describe("an Agent's triggers", () => {
   });
 
   it("fires once, marked late, after downtime, and computes the next run from now", async () => {
+    const firedAt = Date.now();
     await fireDue("cron", "tick", 10 * 60_000);
     const [run] = await runs();
     expect(run).toMatchObject({ late: true, status: "started" });
     expect((await runs()).filter((r) => r.late)).toHaveLength(1);
-    expect(Date.parse((await triggers()).find((t) => t.id === "tick").nextRunAt)).toBeGreaterThan(Date.now());
+    // Compared with the fire, not the read: the jittered next run may pass in between.
+    expect(Date.parse((await triggers()).find((t) => t.id === "tick").nextRunAt)).toBeGreaterThan(firedAt);
     await idle("inbox");
   });
 
