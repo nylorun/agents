@@ -3168,7 +3168,8 @@ export const ToolCompletedPayloadSchema = z
         message: z.string(),
         /**
          * With `credential_rejected`: the MCP server, or the HTTP tool's `credential`,
-         * whose server answered `401`.
+         * whose server answered `401` (or, through a credential's `via`, whose gateway
+         * reported that the server behind it did): the integration refused the credential.
          */
         server: z.string().optional(),
         /** An MCP tool error: true when calling again may work, as for `mcp.unreachable`. */
