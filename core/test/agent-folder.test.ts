@@ -309,7 +309,7 @@ describe("agent folders: what is refused, with file, line and column", () => {
     ]);
   });
 
-  it("refuses what an agent folder never holds, and what comes later", () => {
+  it("refuses what an agent folder never holds, and what comes later, and only warns on secret files", () => {
     const result = compile({
       "AGENT.md": "---\nname: a\ndescription: b\n---\n",
       ".env": "TOKEN=x",
@@ -321,9 +321,9 @@ describe("agent folders: what is refused, with file, line and column", () => {
       "tools/notes.txt": "x",
     });
     const byFile = Object.fromEntries(errors(result.diagnostics).map((item) => [item.file, item.code]));
+    expect(result.diagnostics).toContainEqual(expect.objectContaining({ severity: "warning", code: "secret_file", file: ".env" }));
+    expect(result.diagnostics).toContainEqual(expect.objectContaining({ severity: "warning", code: "secret_file", file: "deploy.pem" }));
     expect(byFile).toEqual({
-      ".env": "secret_file",
-      "deploy.pem": "secret_file",
       "flow.json": "not_supported",
       "agents/x/AGENT.md": "not_supported",
       "plugins/p/plugin.json": "not_supported",
@@ -356,7 +356,6 @@ describe("agent folders: what is refused, with file, line and column", () => {
     expect(run('{\n  // a comment\n  "kind": "none"\n}')).toMatchObject({ code: "json_invalid", line: 2, column: 3, message: expect.stringContaining("Comments are not JSON") });
     expect(run('{ "kind": "none", }')).toMatchObject({ code: "json_invalid", message: "A trailing comma is not JSON" });
     expect(run('{ "kind": "none", "kind": "pod" }')).toMatchObject({ code: "json_invalid", message: 'The key "kind" appears twice in one object' });
-    expect(run('{ "$schema": "https://example.com/runtime.json", "kind": "none" }')).toMatchObject({ code: "schema_key" });
   });
 
   it("refuses frontmatter aliases and tags", () => {

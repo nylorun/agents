@@ -24,12 +24,16 @@ export type ParsedMarkdown =
 
 const FENCE = /^---[ \t]*$/;
 
-/** Splits `text` into its frontmatter and body, and parses the frontmatter. */
-export function parseMarkdown(text: string): ParsedMarkdown {
+/**
+ * Splits `text` into its frontmatter and body, and parses the frontmatter. CRLF line ends (a
+ * Windows checkout) are read as LF first, so lines and columns are the same either way.
+ */
+export function parseMarkdown(source: string): ParsedMarkdown {
+  const text = source.replace(/\r\n/g, "\n");
   const lines = text.split("\n");
-  if (!FENCE.test((lines[0] ?? "").replace(/\r$/, "")))
+  if (!FENCE.test(lines[0] ?? ""))
     return { ok: true, data: {}, hasFrontmatter: false, body: text, bodyLine: 1, positions: new Map() };
-  const end = lines.findIndex((line, index) => index > 0 && FENCE.test(line.replace(/\r$/, "")));
+  const end = lines.findIndex((line, index) => index > 0 && FENCE.test(line));
   if (end < 0) return { ok: false, message: "The frontmatter opened with --- is not closed by a line of ---", at: { line: 1, column: 1 } };
   const yamlText = lines.slice(1, end).join("\n");
   const body = lines.slice(end + 1).join("\n");
