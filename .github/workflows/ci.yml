@@ -458,15 +458,20 @@ jobs:
           node_image: kindest/node:v1.36.4@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed
       # The images sandbox pods use: the engine is copied from the runtime image into a
       # python:3.13-slim pod; busybox is the probe of the service suite and pod-stack.mjs.
+      # Saved for the runner's platform only: with Docker's containerd image store, a pulled
+      # multi-platform image holds this platform's layers alone, and kind's import of all
+      # platforms (kind load docker-image) fails on the others' missing digests.
       - name: Load the pod images into kind
         run: |
-          docker pull python:3.13-slim
+          platform="$(docker version --format '{{.Server.Os}}/{{.Server.Arch}}')"
+          docker pull --platform "$platform" python:3.13-slim
           images=("$NYLORUN_RUNTIME_IMAGE" python:3.13-slim)
           if [[ "${{ matrix.leg }}" == service ]]; then
-            docker pull busybox:1.37.0
+            docker pull --platform "$platform" busybox:1.37.0
             images+=(busybox:1.37.0)
           fi
-          kind load docker-image --name nylorun "${images[@]}"
+          docker save --platform "$platform" --output "$RUNNER_TEMP/pod-images.tar" "${images[@]}"
+          kind load image-archive --name nylorun "$RUNNER_TEMP/pod-images.tar"
       # S0: a container on a Compose network verifies the API server's certificate at
       # docker0's gateway, as the sandboxes service does. (The enable probe checks the
       # pod → host route and kindnet's ipBlock /32 + port enforcement.)
