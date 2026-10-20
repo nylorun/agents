@@ -67,7 +67,7 @@ export function translateFlow(
     for (const key of Object.keys(value))
       if (!known.includes(key)) {
         const found = suggest(key, known);
-        fail("unknown_key", `Unknown key '${key}'.${found ? ` Did you mean '${found}'?` : ` Known keys: ${known.join(", ")}.`}`, [...path, key], { key: true });
+        fail("unknown_key", `Unknown key '${key}'.${found ? ` Did you mean '${found}'?` : ` Known keys: ${known.join(", ")}.`}`, [...path, key], { key: true, rename: known });
       }
   };
 

@@ -2293,9 +2293,32 @@ export type PutAgentManifestRequest = z.infer<typeof PutAgentManifestRequestSche
 export const AgentManifestSavedBySchema = z.object({ actor: z.string() }).strict();
 /** One version of an agent manifest. */
 /**
+ * The edit that fixes a diagnostic, when only one edit can (track T7, `nylorun check --fix`):
+ * `rename_key` renames the key at `line` and `column` of `file` from `from` to `to`, the one known
+ * key it is close to; `crlf` makes `file`'s CRLF line ends LF; `move_skill_secrets` moves a
+ * `SKILL.md`'s `secrets` to `AGENT.md`'s `skills` block, as `skills: { <skill>: { secrets } }`.
+ */
+export const AgentFolderFixSchema = z
+  .discriminatedUnion("kind", [
+    z
+      .object({
+        kind: z.literal("rename_key"),
+        file: z.string(),
+        line: z.number().int().positive(),
+        column: z.number().int().positive(),
+        from: z.string(),
+        to: z.string(),
+      })
+      .strict(),
+    z.object({ kind: z.literal("crlf"), file: z.string() }).strict(),
+    z.object({ kind: z.literal("move_skill_secrets"), file: z.string(), skill: z.string(), secrets: z.array(z.string()) }).strict(),
+  ])
+  .meta({ id: "AgentFolderFix" });
+export type AgentFolderFix = z.infer<typeof AgentFolderFixSchema>;
+/**
  * One problem or remark about an agent folder (track T6): an `error` keeps it from compiling.
  * `file` is the path in the folder, with the line and column when known; `pointer` the field in
- * the manifest.
+ * the manifest; `fix` the edit that fixes it, when only one edit can.
  */
 export const AgentFolderDiagnosticSchema = z
   .object({
@@ -2306,6 +2329,7 @@ export const AgentFolderDiagnosticSchema = z
     line: z.number().int().positive().optional(),
     column: z.number().int().positive().optional(),
     pointer: z.string().optional(),
+    fix: AgentFolderFixSchema.optional(),
   })
   .strict()
   .meta({ id: "AgentFolderDiagnostic" });

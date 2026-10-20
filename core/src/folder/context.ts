@@ -4,7 +4,7 @@
  * and its own ways to report, read and derive. Nothing here reads a file system: like the
  * compiler, it is pure.
  */
-import type { AgentFolderDiagnostic, AgentFolderEntry, CompileAgentFolderInput, CompiledAgentFolder } from "./compile.js";
+import type { AgentFolderDiagnostic, AgentFolderEntry, AgentFolderFix, CompileAgentFolderInput, CompiledAgentFolder } from "./compile.js";
 import { parseJson, pointerOf, type Located, type Position } from "./json.js";
 
 /** A JSON Schema named by `/x` from a folder inside another: found, refused, or already reported. */
@@ -34,7 +34,11 @@ export interface FlowNamespaceLike {
 }
 
 type Severity = AgentFolderDiagnostic["severity"];
-export type ReportOptions = { key?: boolean; at?: Position; pointer?: string };
+/**
+ * `fix` is the diagnostic's fix-it; `rename` the keys an unknown key at `path` may be meant as,
+ * from which the compiler makes a `rename_key` fix when exactly one is closest.
+ */
+export type ReportOptions = { key?: boolean; at?: Position; pointer?: string; fix?: AgentFolderFix; rename?: readonly string[] };
 export type Report = (severity: Severity, code: string, message: string, file?: string, path?: readonly PropertyKey[], options?: ReportOptions) => void;
 export type Origins = [readonly PropertyKey[], { readonly file: string; readonly path: readonly PropertyKey[] }][];
 
@@ -90,7 +94,10 @@ export function foldersUnder(top: string, paths: Iterable<string>): Map<string, 
   return new Map([...folders].sort(([a], [b]) => compare(a, b)));
 }
 
-/** A diagnostic of a folder inside this one, with its path from this folder; the manifest pointer is the inner folder's, so it is left out. */
+/**
+ * A diagnostic of a folder inside this one, with its path from this folder, and its fix's; the
+ * manifest pointer is the inner folder's, so it is left out.
+ */
 export function addInner(ctx: FolderContext, prefix: string, inner: readonly AgentFolderDiagnostic[], file: (path: string) => string = (path) => prefix + path) {
   for (const item of inner) {
     const where = item.file === undefined ? (item.code === "agent_missing" ? `${prefix}AGENT.md` : prefix.replace(/\/$/, "")) : file(item.file);
@@ -100,6 +107,7 @@ export function addInner(ctx: FolderContext, prefix: string, inner: readonly Age
       message: item.message,
       file: where,
       ...(item.line === undefined ? {} : { line: item.line, column: item.column }),
+      ...(item.fix === undefined ? {} : { fix: { ...item.fix, file: file(item.fix.file) } }),
     };
     const key = JSON.stringify(moved);
     if (!ctx.diagnostics.some((existing) => JSON.stringify(existing) === key)) ctx.diagnostics.push(moved);

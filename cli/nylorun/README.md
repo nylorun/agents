@@ -54,7 +54,7 @@ nylorun doctor sandbox [--tenant <name>] [--json]   # the sandbox backend the Te
 # apply, agent-manifests, agents, sessions, artifacts: the Runtime API (an application key, or NYLORUN_TOKEN)
 # every one takes --tenant <name>, and --as <subject> [--scope <scope>]... to act for a person
 nylorun init <path> [--description <text>] [--example]   # write <path>/AGENT.md, a new agent folder named after the last segment
-nylorun check [<dir>...] [--json]  # compile each agent folder offline: every problem by file, line and column
+nylorun check [<dir>...] [--fix] [--json]  # compile each agent folder offline: every problem by file, line and column; --fix makes the fixable ones' edits
 nylorun apply [<dir>...] [--dry-run] [--if-match <n>] [--agent [<id>]] [--watch [--save]]   # plan, then save each folder (AGENT.md or agent.manifest.json), its files uploaded
 nylorun chat <agent> [--session <id>] [--message <text>]   # send each line (or --message), print each reply
 nylorun migrate v8 <agent.json> [--runtime <environment-manifest.json>] [--name <name>] [--out <dir>]   # the three files from a v7 manifest; reads no Runtime
@@ -494,6 +494,14 @@ agents/support/skills/<skill>/SKILL.md, tools/<tool>.json, triggers/<id>.md, fil
 `nylorun init support` writes the `AGENT.md`; `nylorun check agents/support`
 compiles the folder offline with the Runtime's compiler and prints every problem
 as `file:line:column severity: message`, exiting 1 when it does not compile.
+A problem one edit fixes ends `(fixable with --fix)`: an unknown key with one
+did-you-mean (`memmory` for `memory`), CRLF line ends, and `secrets` in a
+`SKILL.md`. `nylorun check --fix agents/support` makes those edits, and only
+those: it renames the key where it is, keeping every other byte; makes the line
+ends LF; and moves the secrets to `AGENT.md`'s `skills` block, as
+`nylorun migrate folder` writes it. It prints each change, then checks again. It
+leaves a file whose bytes changed since it was checked, and a `runtime.json`
+that `extends` another; without `--fix`, `check` writes nothing.
 `nylorun apply agents/support` checks it the same way (sending nothing when it
 does not compile), plans it, prints the compiler's notes (such as a slot derived
 from `mcp.json`) and saves it, uploading its files by hash; the Runtime keeps the
@@ -513,7 +521,9 @@ project (the nearest directory with `.git`) also writes `.gitattributes`
 (`* text=auto eol=lf`), ignores `.nylorun/credentials.json` in `.gitignore`, and
 maps the folder files to their JSON Schemas in `.vscode/settings.json`, merged
 into the file that is there. `check --json` prints
-`{ "folders": [{ path, ok, manifest?, diagnostics }] }` for CI. A plan's change
+`{ "folders": [{ path, ok, manifest?, diagnostics }] }` for CI, each fixable
+diagnostic with its `fix`; with `--fix`, each folder also lists what was `fixed`
+and what was `unfixed`, with why. A plan's change
 to the instructions prints their text diff. `apply --watch` checks and plans
 again on each change, and saves only with `--save` (for a development manifest:
 each save is a new version that moves the Agents tracking it).

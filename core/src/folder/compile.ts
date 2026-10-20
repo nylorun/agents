@@ -51,6 +51,7 @@ import {
   TOOL_SECRET_NAME_PATTERN,
   TriggerSchema,
   isAgentManifestName,
+  type AgentFolderFix,
   type AgentManifestV8,
 } from "../contracts.js";
 import { cronScheduleIssue, isTimeZone, timeZoneNames } from "../definition/cron.js";
@@ -61,7 +62,8 @@ import { SKILL_ENTRY, skillFilePathIssue } from "../utils/definition-files.js";
 import { parseMarkdown } from "./frontmatter.js";
 import { parseJson, pointerOf, type Located, type Position } from "./json.js";
 import { jsonSchemaIssues } from "./json-schema.js";
-import { naturalCompare, suggestion } from "./suggest.js";
+import { naturalCompare, suggestion, suggestions } from "./suggest.js";
+import type { ReportOptions } from "./context.js";
 import { folderParts, nestedTextPaths, scopedSchema, type FolderScope } from "./nested.js";
 
 /** The compiler format this version builds: a folder with no `format`, or `format: 1`. */
@@ -87,10 +89,14 @@ export interface AgentFolderEntry {
   readonly sha256: string;
 }
 
+export type { AgentFolderFix };
+
 /**
  * One problem or remark: an `error` keeps the folder from compiling; `warning`, `info` and
  * `note` do not. `file` is the folder path it is about, with the line and column when known,
- * and `pointer` the field in the manifest when it is about one.
+ * and `pointer` the field in the manifest when it is about one. `fix` is the edit that fixes it
+ * (`nylorun check --fix`), only where one edit can: an unknown key with one did-you-mean, CRLF
+ * line ends, and a `SKILL.md`'s `secrets`. It changes no manifest.
  */
 export interface AgentFolderDiagnostic {
   readonly severity: "error" | "warning" | "info" | "note";
@@ -100,6 +106,7 @@ export interface AgentFolderDiagnostic {
   readonly line?: number;
   readonly column?: number;
   readonly pointer?: string;
+  readonly fix?: AgentFolderFix;
 }
 
 export interface CompileAgentFolderInput {
@@ -328,13 +335,14 @@ export function compileAgentFolder(input: CompileAgentFolderInput, scope?: Folde
     message: string,
     file?: string,
     path?: readonly PropertyKey[],
-    options: { key?: boolean; at?: Position; pointer?: string } = {},
+    options: ReportOptions = {},
   ) => {
     let at = options.at;
     if (!at && file && path) {
       const found = locate(parsed.get(file), path);
       at = options.key ? (found?.key ?? found?.value) : found?.value;
     }
+    const fix = options.fix ?? (options.rename && file && path ? renameFix(parsed.get(file), path, options.rename) : undefined);
     diagnostics.push({
       severity,
       code,
@@ -342,9 +350,10 @@ export function compileAgentFolder(input: CompileAgentFolderInput, scope?: Folde
       ...(file === undefined ? {} : { file }),
       ...(at === undefined ? {} : { line: at.line, column: at.column }),
       ...(options.pointer === undefined ? {} : { pointer: options.pointer }),
+      ...(fix === undefined ? {} : { fix }),
     });
   };
-  const error = (code: string, message: string, file?: string, path?: readonly PropertyKey[], options: { key?: boolean; at?: Position; pointer?: string } = {}) =>
+  const error = (code: string, message: string, file?: string, path?: readonly PropertyKey[], options: ReportOptions = {}) =>
     report("error", code, message, file, path, options);
 
   // --- The entries ------------------------------------------------------------------------
@@ -407,6 +416,8 @@ export function compileAgentFolder(input: CompileAgentFolderInput, scope?: Folde
   }
 
   const decoder = new TextDecoder("utf-8", { fatal: true });
+  /** The files with CRLF line ends, noted once each. */
+  const crlf = new Set<string>();
   /** The text of a file the compiler reads, or undefined after reporting why it has none. */
   const textOf = (path: string): string | undefined => {
     const entry = byPath.get(path);
@@ -420,12 +431,19 @@ export function compileAgentFolder(input: CompileAgentFolderInput, scope?: Folde
       error("file_missing", "The compiler was not given this file's bytes", path);
       return undefined;
     }
+    let text: string;
     try {
-      return decoder.decode(bytesOf).replace(/^﻿/, "");
+      text = decoder.decode(bytesOf).replace(/^﻿/, "");
     } catch {
       error("not_utf8", "The file is not UTF-8 text", path);
       return undefined;
     }
+    // Read as LF, so nothing else changes: noted, with the fix.
+    if (text.includes("\r\n") && !crlf.has(path)) {
+      crlf.add(path);
+      report("note", "crlf", "The file has CRLF line ends, read as LF. Fix: save it with LF line ends", path, undefined, { fix: { kind: "crlf", file: path } });
+    }
+    return text;
   };
   const readJson = (path: string): Record<string, unknown> | undefined => {
     const text = textOf(path);
@@ -453,13 +471,13 @@ export function compileAgentFolder(input: CompileAgentFolderInput, scope?: Folde
     parsed.set(path, { path, positions: result.positions });
     return result;
   };
-  const warn = (code: string, message: string, file?: string, path?: readonly PropertyKey[], options: { key?: boolean; at?: Position; pointer?: string } = {}) =>
+  const warn = (code: string, message: string, file?: string, path?: readonly PropertyKey[], options: ReportOptions = {}) =>
     report("warning", code, message, file, path, options);
   const checkKeys = (file: string, value: Record<string, unknown>, known: readonly string[], path: readonly PropertyKey[] = []) => {
     for (const key of Object.keys(value))
       if (known.includes(key)) continue;
       else if (key === "approval") error("approval_removed", APPROVAL_REMOVED, file, [...path, key], { key: true });
-      else error("unknown_key", unknownKeyMessage(key, known), file, [...path, key], { key: true });
+      else error("unknown_key", unknownKeyMessage(key, known), file, [...path, key], { key: true, rename: known });
   };
   /**
    * `$schema` in a JSON file: accepted, and left out of the manifest. One that names the schema
@@ -492,6 +510,7 @@ export function compileAgentFolder(input: CompileAgentFolderInput, scope?: Folde
     for (const issue of jsonSchemaIssues(schema))
       report(issue.severity, issue.severity === "error" ? "json_schema_invalid" : "json_schema_keyword", issue.message, file, [...path, ...issue.path], {
         ...(issue.key ? { key: true } : {}),
+        ...(issue.known ? { rename: issue.known } : {}),
         ...(manifestPath ? { pointer: pointerOf([...manifestPath, ...issue.path]) } : {}),
       });
   };
@@ -854,6 +873,21 @@ export function compileAgentFolder(input: CompileAgentFolderInput, scope?: Folde
   if (Object.keys(servers).length > 0) harness.mcpServers = servers;
 
   // --- skills/ ---------------------------------------------------------------------------
+  /**
+   * The fix-it for a `SKILL.md`'s `secrets`: moved to `AGENT.md`'s skills block, as `migrate
+   * folder` writes it. Only the root agent's skills get secrets, and only a list of slot names
+   * moves, into an `AGENT.md` with frontmatter that lists none for the skill, or lists them all.
+   */
+  const movedSecrets = (file: string, skill: string, secrets: unknown): { fix?: AgentFolderFix } => {
+    if (scope || !agent?.hasFrontmatter) return {};
+    if (!Array.isArray(secrets) || !secrets.every((item): item is string => typeof item === "string" && ENVIRONMENT_NAME_PATTERN.test(item))) return {};
+    if (front.skills !== undefined && !isObject(front.skills)) return {};
+    const settings = isObject(front.skills) ? front.skills[skill] : undefined;
+    if (settings !== undefined && !isObject(settings)) return {};
+    const listed = settings?.secrets;
+    if (listed !== undefined && !(Array.isArray(listed) && secrets.every((item) => listed.includes(item)))) return {};
+    return { fix: { kind: "move_skill_secrets", file, skill, secrets: [...new Set(secrets)] } };
+  };
   const skills: Record<string, Record<string, unknown>> = {};
   const skillFolders = new Map<string, string[]>();
   for (const [path, kind] of kinds)
@@ -878,11 +912,11 @@ export function compileAgentFolder(input: CompileAgentFolderInput, scope?: Folde
           `secrets is not an Agent Skills key: which secrets a skill gets is the agent's choice. Fix: move it to ${AGENT_FILE}'s skills block, as skills: { ${folder}: { secrets: [...] } }`,
           entryPath,
           ["secrets"],
-          { key: true },
+          { key: true, ...movedSecrets(entryPath, folder, data.secrets) },
         );
         valid = false;
       } else if (!SKILL_KEYS.includes(key)) {
-        error("unknown_key", unknownKeyMessage(key, SKILL_KEYS), entryPath, [key], { key: true });
+        error("unknown_key", unknownKeyMessage(key, SKILL_KEYS), entryPath, [key], { key: true, rename: SKILL_KEYS });
         valid = false;
       }
     }
@@ -1160,6 +1194,7 @@ export function compileAgentFolder(input: CompileAgentFolderInput, scope?: Folde
       for (const key of issue.keys)
         error("unknown_key", known.length ? unknownKeyMessage(key, known) : `Unknown key '${key}'`, at?.file, at ? [...at.path, key] : undefined, {
           key: true,
+          rename: known,
           pointer: pointerOf([...full, key]),
         });
       return;
@@ -1302,6 +1337,19 @@ function locate(file: ParsedFile | undefined, path: readonly PropertyKey[]): Loc
     if (found) return found;
   }
   return undefined;
+}
+
+/**
+ * The fix-it for the unknown key at `path` of `file`: renamed to the one of `known` closest to it.
+ * None with two as close, with that key already beside it, or with no position for the key.
+ */
+function renameFix(file: ParsedFile | undefined, path: readonly PropertyKey[], known: readonly string[]): AgentFolderFix | undefined {
+  const from = path.at(-1);
+  const at = file?.positions.get(pointerOf(path))?.key;
+  if (!file || !at || typeof from !== "string") return undefined;
+  const [to, ...others] = suggestions(from, known);
+  if (to === undefined || others.length > 0 || to === from || file.positions.has(pointerOf([...path.slice(0, -1), to]))) return undefined;
+  return { kind: "rename_key", file: file.path, line: at.line, column: at.column, from, to };
 }
 
 /** The origin recorded for the longest prefix of a manifest path. */
