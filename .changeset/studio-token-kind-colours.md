@@ -2,4 +2,4 @@
 "@nylorun/studio": patch
 ---
 
-A session's Usage tab colours its token kinds light to dark across the bar: cached input in Sage dew (chart-5, with a border hairline so it reads on white), uncached input in sage (chart-3), cache writes in forest (chart-2) and output in forest-ink (chart-1).
+Chart series run light to dark, as DESIGN.md now says: chart-4, chart-3, chart-2, then chart-1. A session's Usage tab follows: cached input in Sage mist (chart-4), uncached input in sage (chart-3), cache writes in forest (chart-2) and output in forest-ink (chart-1).

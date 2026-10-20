@@ -41,11 +41,10 @@ const CALLS_PAGE = 50;
 
 /**
  * One colour per token kind, the same in the session bar, the call bars and the column heads:
- * DESIGN.md's Sage scale, light to dark across the bar. Cached input is chart-5, almost white,
- * so it carries a border hairline to read on white.
+ * DESIGN.md's series in order, light to dark across the bar.
  */
 const KIND_COLOR: Record<TokenKind, string> = {
-  cacheRead: "bg-chart-5 ring-1 ring-inset ring-border",
+  cacheRead: "bg-chart-4",
   input: "bg-chart-3",
   cacheWrite: "bg-chart-2",
   output: "bg-chart-1",
