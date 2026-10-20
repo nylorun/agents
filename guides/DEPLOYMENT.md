@@ -1220,6 +1220,14 @@ Either kind may add:
   picks the credential, and tool names and diagnostics keep the manifest's server name. It is an
   `https` URL (plain `http` only to a loopback host) with no userinfo, query string or fragment,
   and the Host's address policy applies to it.
+- **`toolPrefix`** (with `via`; Host feature `gateway-credentials`): what the gateway puts before
+  each tool name it lists, such as LiteLLM's `github-`. The Runtime takes it off, so tool names
+  (`github__create_issue`), a manifest's `tools` settings and tool policy rules name the server's
+  own tools whether or not a gateway is in between, and calls each tool by the name the gateway
+  listed. A listed tool that lacks the prefix keeps its name, and the server's discovery diagnostic
+  names it. It is the installation's routing, so it goes on the Agent's secret only: a manifest's
+  secret slot cannot name it, and a slot's value write (`{ "headers": { … }, "toolPrefix": "github-" }`)
+  adds it to a slot with `via`.
 - **`identity: { header }`**: a header that carries the session owner's subject, for a gateway
   that keeps each person's accounts ([Reaching a person's accounts](#reaching-a-persons-accounts)).
 
@@ -1235,9 +1243,9 @@ await client.agents.secrets.put("projects/acme", "tickets", {
 ```
 
 - Values are sealed with the vault key and write-only. No answer, event or log line holds one: a
-  credential is listed with its header names, `via` and identity header only.
-- A `PUT` to an existing name replaces the credential: its value, URL, `via` and identity header
-  together. The next request uses the new value.
+  credential is listed with its header names, `via`, `toolPrefix` and identity header only.
+- A `PUT` to an existing name replaces the credential: its value, URL, `via`, `toolPrefix` and
+  identity header together. The next request uses the new value.
 - One URL has at most one credential per Agent: a second `bearer` or `headers` credential
   for the same URL is `409 credential_conflict` at the write.
 - The transport's own headers (`Content-Type`, `Accept`, `Mcp-Session-Id`, …), `Idempotency-Key`
@@ -1352,6 +1360,17 @@ reached with a scoped API key. As with ToolHive, check how a call names the pers
 ```json
 { "type": "headers", "url": "https://mcp.notion.com/mcp", "via": "https://obot.internal/mcp/notion",
   "headers": { "Authorization": "Bearer <Obot API key>" } }
+```
+
+**LiteLLM** (self-hosted, MIT; 1.106.0). Its per-server endpoint `/mcp/<server>` lists every tool
+as `<server>-<tool>`, and no setting turns that off, so give the prefix. A token the provider
+revoked comes back as HTTP 200 with `auth_required` in `_meta`, which the Runtime reports as
+`credential_rejected` (above). Its custom auth decides which header names the person.
+
+```json
+{ "type": "headers", "url": "https://api.githubcopilot.com/mcp/", "via": "https://litellm.internal/mcp/github",
+  "toolPrefix": "github-", "headers": { "Authorization": "Bearer <LiteLLM key>" },
+  "identity": { "header": "<its user header>" } }
 ```
 
 **Nylorun Cloud** (hosted; untested). Its MCP gateway takes a key per installation and the

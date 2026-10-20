@@ -9,9 +9,11 @@ import { ERROR_CODES } from "../src/compatibility.js";
 import {
   ENVIRONMENT_SECRET_SENTINEL,
   AgentSecretViewSchema,
+  EnvironmentSecretSlotSchema,
   environmentSecretNameError,
   isInjectFormat,
   PutAgentSecretRequestSchema,
+  PutAgentSecretValueRequestSchema,
   renderInjectFormat,
 } from "../src/contracts.js";
 
@@ -47,6 +49,28 @@ describe("tool credentials", () => {
       expect(headers({ via }).success, via).toBe(false);
   });
 
+  it("takes a gateway's tool prefix only with via, on a secret and never on a manifest's slot", () => {
+    expect(headers({ via: "https://gateway.test/mcp/github", toolPrefix: "github-" }).success).toBe(true);
+    expect(
+      put({ type: "bearer", url: "https://vendor.test/mcp", value: "t", via: "https://gateway.test/mcp", toolPrefix: "x-" })
+        .success,
+    ).toBe(true);
+    expect(headers({ toolPrefix: "github-" }).success).toBe(false);
+    for (const toolPrefix of ["", "has space", "x".repeat(65)])
+      expect(headers({ via: "https://gateway.test/mcp", toolPrefix }).success, toolPrefix).toBe(false);
+    // How a gateway names tools is the installation's routing: a manifest stays the same with or
+    // without one, and its slot's value write adds the prefix.
+    expect(
+      EnvironmentSecretSlotSchema.safeParse({
+        type: "headers",
+        url: "https://vendor.test/mcp",
+        via: "https://gateway.test/mcp",
+        toolPrefix: "x-",
+      }).success,
+    ).toBe(false);
+    expect(PutAgentSecretValueRequestSchema.safeParse({ headers: { "x-api-key": "k" }, toolPrefix: "x-" }).success).toBe(true);
+  });
+
   it("refuses an empty map, a bad name, a repeated name and a value with a line break", () => {
     expect(headers({ headers: {} }).success).toBe(false);
     expect(headers({ headers: { "x api key": "v" } }).success).toBe(false);
@@ -62,6 +86,7 @@ describe("tool credentials", () => {
       binding: { url: "https://vendor.test/mcp" },
       headerNames: ["dd-api-key"],
       via: "https://gateway.test/mcp",
+      toolPrefix: "datadog-",
       identity: { header: "x-user-id" },
       createdAt: "2026-10-07T00:00:00.000Z",
     };
