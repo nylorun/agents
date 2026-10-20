@@ -1,4 +1,6 @@
 import { Badge } from "@/components/ui/badge";
+import { STATUS_DOT } from "@/lib/status";
+import { cn } from "@/lib/utils";
 import {
   coverageCredentialLabel,
   coverageEntryLabel,
@@ -7,10 +9,10 @@ import {
   type Coverage,
 } from "@/credential-coverage";
 
-const TONE_CLASS = {
-  ok: "border-emerald-600/40 text-emerald-700 dark:text-emerald-400",
-  warn: "border-amber-500/50 text-amber-700 dark:text-amber-400",
-  error: "border-red-600/50 text-red-600 dark:text-red-400",
+const TONE_DOT = {
+  ok: STATUS_DOT.running,
+  warn: STATUS_DOT.attention,
+  error: STATUS_DOT.attention,
 } as const;
 
 /**
@@ -33,7 +35,8 @@ export function CoverageList({ coverage }: Readonly<{ coverage: Coverage }>) {
               <span className="min-w-0 flex-1 truncate font-medium">
                 {coverageEntryLabel(entry)}
               </span>
-              <Badge variant="outline" className={TONE_CLASS[tone]}>
+              <Badge variant="outline" className="gap-1.5">
+                <span aria-hidden className={cn("size-1.5 shrink-0 rounded-full", TONE_DOT[tone])} />
                 {coverageStatusLabel(entry)}
               </Badge>
             </div>

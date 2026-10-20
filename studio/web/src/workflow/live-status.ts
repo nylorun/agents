@@ -124,19 +124,20 @@ export function liveStatusFromEvents(
   return byPath;
 }
 
+/** A node's status dot, in DESIGN.md's greys: the darker the dot, the more it needs you. */
 export function statusColor(status: NodeRunStatus): string {
   switch (status) {
     case "running":
-      return "var(--workflow-running, #2563eb)";
+      return "var(--workflow-running, var(--muted-foreground, #71717a))";
     case "completed":
-      return "var(--workflow-completed, #059669)";
+      return "var(--workflow-completed, var(--ring, #a1a1aa))";
     case "failed":
-      return "var(--workflow-failed, #dc2626)";
+      return "var(--workflow-failed, var(--foreground, #09090b))";
     case "waiting":
-      return "var(--workflow-waiting, #d97706)";
+      return "var(--workflow-waiting, var(--foreground, #09090b))";
     case "selected":
-      return "var(--workflow-selected, #7c3aed)";
+      return "var(--workflow-selected, var(--muted-foreground, #71717a))";
     default:
-      return "var(--workflow-idle, #94a3b8)";
+      return "var(--workflow-idle, var(--ring, #a1a1aa))";
   }
 }

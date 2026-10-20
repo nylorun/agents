@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { approvalTitle, calledAs, type PendingApproval } from "@/approvals";
+import { STATUS_DOT } from "@/lib/status";
+import { cn } from "@/lib/utils";
 
 /**
  * A tool call the Tool Gate holds for a person (R5 step 2): its tool by identity (`server / tool`
@@ -28,10 +30,11 @@ export function ApprovalCard(props: {
   return (
     <section
       aria-label={`Approve ${approvalTitle(approval)}`}
-      className="space-y-3 rounded-xl border border-amber-500/60 bg-amber-50/40 p-4 dark:bg-amber-950/20"
+      className="space-y-3 rounded-lg border border-ring p-4"
     >
       <div>
-        <p className="text-xs font-medium uppercase tracking-wide text-amber-700 dark:text-amber-400">
+        <p className="flex items-center gap-1.5 font-mono text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+          <span aria-hidden className={cn("size-1.5 shrink-0 rounded-full", STATUS_DOT.attention)} />
           Waiting for approval
         </p>
         <p className="mt-1 font-medium">
@@ -61,7 +64,7 @@ export function ApprovalCard(props: {
         </Button>
       </div>
       {error ? (
-        <p role="alert" className="text-sm text-red-600">
+        <p role="alert" className="text-sm text-destructive">
           {error}
         </p>
       ) : null}

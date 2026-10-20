@@ -298,7 +298,7 @@ export function AgentPage({
         ) : null}
       </div>
       {actionError ? (
-        <p role="alert" className="px-4 pb-3 text-sm break-words text-red-600">
+        <p role="alert" className="px-4 pb-3 text-sm break-words text-destructive">
           {actionError}
         </p>
       ) : null}
@@ -450,7 +450,7 @@ function EditAgentSheet({
             <Input value={owner} onChange={(event) => setOwner(event.target.value)} placeholder={STUDIO_OWNER} />
           </Field>
           {error ? (
-            <p role="alert" className="text-sm text-red-600">
+            <p role="alert" className="text-sm text-destructive">
               {error}
             </p>
           ) : null}

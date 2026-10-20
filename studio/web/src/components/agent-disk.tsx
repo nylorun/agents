@@ -136,7 +136,7 @@ export function AgentDisk({
         </p>
       ) : null}
       {error ? (
-        <p role="alert" className="border-b px-4 py-2 text-sm break-words text-red-600">
+        <p role="alert" className="border-b px-4 py-2 text-sm break-words text-destructive">
           {error}
         </p>
       ) : null}

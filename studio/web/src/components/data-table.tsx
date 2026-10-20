@@ -17,6 +17,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { STATUS_DOT } from "@/lib/status";
 
 /**
  * The parts every table on an Agent's page is made of: one toolbar (search, filter menus, a
@@ -187,18 +188,14 @@ export function EmptyRow({ columns, children }: Readonly<{ columns: number; chil
   );
 }
 
-/** A status: a small dot and a word. */
+/** A status: a small grey dot and a word (DESIGN.md: the darker the dot, the more it needs you). */
 export function StatusDot({ tone, children }: Readonly<{ tone: "ok" | "warn" | "error" | "busy" | "idle"; children: ReactNode }>) {
   const dot =
-    tone === "ok"
-      ? "bg-emerald-500"
-      : tone === "warn"
-        ? "bg-amber-500"
-        : tone === "error"
-          ? "bg-red-500"
-          : tone === "busy"
-            ? "bg-sky-500"
-            : "bg-muted-foreground/60";
+    tone === "warn" || tone === "error"
+      ? STATUS_DOT.attention
+      : tone === "idle"
+        ? STATUS_DOT.idle
+        : STATUS_DOT.running;
   return (
     <span className="inline-flex items-center gap-1.5">
       <span aria-hidden className={cn("size-1.5 shrink-0 rounded-full", dot)} />

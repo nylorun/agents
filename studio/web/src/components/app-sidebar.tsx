@@ -23,16 +23,15 @@ import {
   SidebarMenuSubButton,
   SidebarMenuSubItem,
 } from "@/components/ui/sidebar";
+import { COUNT_BADGE, STATUS_DOT } from "@/lib/status";
 
-/** The dot of an Agent's state: amber when it needs input, red when it fails. */
+/** The dot of an Agent's state: darkest when it fails or needs input. */
 function stateDot(state: string): string {
-  return state === "failing"
-    ? "bg-red-500"
-    : state === "input_required"
-      ? "bg-amber-500"
-      : state === "working"
-        ? "bg-sky-500"
-        : "bg-sidebar-foreground/30";
+  return state === "failing" || state === "input_required"
+    ? STATUS_DOT.attention
+    : state === "working"
+      ? STATUS_DOT.running
+      : STATUS_DOT.idle;
 }
 
 /**
@@ -56,8 +55,8 @@ function AgentItem({ agent, active }: Readonly<{ agent: AgentView; active: boole
           {waiting > 0 ? (
             <span
               className={
-                "ml-auto shrink-0 rounded-full px-1.5 text-xs tabular-nums text-white group-focus-within/menu-sub-item:invisible group-hover/menu-sub-item:invisible " +
-                (agent.state === "failing" ? "bg-red-500" : "bg-amber-500")
+                "ml-auto shrink-0 rounded-full px-1.5 text-xs tabular-nums group-focus-within/menu-sub-item:invisible group-hover/menu-sub-item:invisible " +
+                COUNT_BADGE
               }
               aria-hidden
             >
@@ -82,10 +81,10 @@ function AgentItem({ agent, active }: Readonly<{ agent: AgentView; active: boole
 
 function statusDotClass(status: Connection["status"]): string {
   return status === "Running"
-    ? "bg-emerald-500"
+    ? STATUS_DOT.running
     : status === "Connecting"
-      ? "bg-amber-500"
-      : "bg-muted-foreground";
+      ? `${STATUS_DOT.running} animate-pulse`
+      : STATUS_DOT.idle;
 }
 /** The Tenant and its Runtime status; opens the Tenant overview. */
 function TenantNavigation({

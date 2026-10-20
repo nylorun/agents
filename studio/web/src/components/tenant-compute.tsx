@@ -253,7 +253,7 @@ function EditCompute({
         ) : null}
         {skills ? field("skillBytes", "Skill files", "The most one skill's files may hold together.") : null}
         {error ? (
-          <p role="alert" className="text-sm break-words text-red-600">
+          <p role="alert" className="text-sm break-words text-destructive">
             {error}
           </p>
         ) : null}

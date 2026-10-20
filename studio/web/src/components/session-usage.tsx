@@ -39,12 +39,15 @@ import {
 const SESSION_READS = "session-reads";
 const CALLS_PAGE = 50;
 
-/** One colour per token kind, the same in the session bar, the call bars and the column heads. */
+/**
+ * One colour per token kind, the same in the session bar, the call bars and the column heads:
+ * DESIGN.md's Sage series, dark to light.
+ */
 const KIND_COLOR: Record<TokenKind, string> = {
-  cacheRead: "bg-sky-300",
-  input: "bg-blue-700",
-  cacheWrite: "bg-violet-400",
-  output: "bg-amber-600",
+  cacheRead: "bg-chart-1",
+  input: "bg-chart-2",
+  cacheWrite: "bg-chart-3",
+  output: "bg-chart-4",
 };
 const KIND_COLUMN: Record<TokenKind, string> = {
   cacheRead: "Cached",
@@ -80,7 +83,7 @@ function TokenBar({
   className,
 }: Readonly<{ tokens: Tokens; kinds: readonly TokenKind[]; scale: number; className?: string }>) {
   return (
-    <div aria-hidden className={cn("flex overflow-hidden rounded-[3px]", className)}>
+    <div aria-hidden className={cn("flex gap-px overflow-hidden rounded-[3px]", className)}>
       {kinds.map((kind) =>
         tokens[kind] > 0 ? (
           <span
@@ -203,7 +206,7 @@ export function SessionUsage({
     );
   if (state.kind === "failed")
     return (
-      <p role="alert" className="p-4 text-sm text-red-600">
+      <p role="alert" className="p-4 text-sm text-destructive">
         {state.message}
       </p>
     );

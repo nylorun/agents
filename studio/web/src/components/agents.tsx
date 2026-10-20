@@ -57,6 +57,7 @@ import {
 } from "@/components/data-table";
 import { useStartSession } from "@/components/new-session";
 import { agentUnavailable } from "@/credential-coverage";
+import { COUNT_BADGE, STATUS_DOT } from "@/lib/status";
 
 export const date = (value?: string) =>
   value ? new Date(value).toLocaleString() : "—";
@@ -94,13 +95,11 @@ export function AgentState({ state, title }: Readonly<{ state: string; title?: s
       </span>
     );
   const dot =
-    state === "failing"
-      ? "bg-red-500"
-      : state === "input_required"
-        ? "bg-amber-500"
-        : state === "sleeping"
-          ? "bg-emerald-500"
-          : "bg-muted-foreground";
+    state === "failing" || state === "input_required"
+      ? STATUS_DOT.attention
+      : state === "sleeping"
+        ? STATUS_DOT.running
+        : STATUS_DOT.idle;
   return (
     <span className="inline-flex items-center gap-1.5" title={title || undefined}>
       <span className={"size-1.5 shrink-0 rounded-full " + dot} />
@@ -392,12 +391,7 @@ export function Agents({
                   <td className={`${cellClass} tabular-nums`}>
                     {agent.sessions.length}
                     {waiting > 0 ? (
-                      <span
-                        className={
-                          "ml-2 rounded-full px-1.5 text-xs text-white " +
-                          (agent.state === "failing" ? "bg-red-500" : "bg-amber-500")
-                        }
-                      >
+                      <span className={"ml-2 rounded-full px-1.5 text-xs " + COUNT_BADGE}>
                         {waiting} waiting
                       </span>
                     ) : null}
@@ -582,7 +576,7 @@ export function NewAgentSheet({
               />
             </Field>
             {error ? (
-              <p role="alert" className="break-words text-sm text-red-600">
+              <p role="alert" className="break-words text-sm text-destructive">
                 {error}
               </p>
             ) : null}
