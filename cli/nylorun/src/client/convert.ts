@@ -34,8 +34,9 @@ export const exportUsage = `nylorun export --folder <name>[@<version>] [--out <d
 
 Writes the agent folder of a saved agent manifest (its latest version, or <version>), for one
 saved as JSON or from TypeScript: AGENT.md with its instructions, instructions/, tools/, mcp.json,
-triggers/ and runtime.json. It says whether the folder compiles back to the same manifest, and
-notes what it cannot write the same way. Skills' files and flows are not written: see the notes.
+triggers/ and runtime.json, subagents as agents/<name>/, and a flow as flow.json with its agents
+under agents/. It says whether the folder compiles back to the same manifest, and notes what it
+cannot write the same way. Skills' files are not in a saved manifest: see the notes.
 
   --folder                            write an agent folder (the only export there is)
   --out <dir>                         where the folder goes (default ./<name>); no file is
@@ -125,9 +126,7 @@ async function writeDecompiled(
   folder: FolderOfManifest,
   out: string,
   cwd: string,
-  what: string,
 ): Promise<number> {
-  if (folder.files.size === 0) throw new CliError(`${what} gives no agent folder:\n${folder.notes.map((note) => `  ${note}`).join("\n")}`, 1);
   const where = relative(cwd, out) || ".";
   deps.out(wroteLine(where, await writeFolder(out, folder.files, cwd)));
   for (const note of folder.notes) deps.err(`  note: ${note}`);
@@ -152,7 +151,7 @@ export async function exportCommand(deps: StackDeps, args: readonly string[]): P
   if (view.source)
     deps.err(`${name}@${view.version} was saved from a folder: nylorun pull ${name}@${view.version} writes it as it was saved.`);
   const out = resolve(cwd, flags.values.get("--out") ?? name);
-  return writeDecompiled(deps, folderOfManifest(view.manifest), out, cwd, `${name}@${view.version}`);
+  return writeDecompiled(deps, folderOfManifest(view.manifest), out, cwd);
 }
 
 /** What a three-file folder could not be composed for, as a person reads it. */
@@ -178,7 +177,7 @@ export async function migrateFolderCommand(deps: StackDeps, args: readonly strin
   // This command is what the deprecation warning names.
   for (const warning of composed.warnings.filter((item) => !item.includes("nylorun migrate folder"))) deps.err(`  warning: ${warning}`);
   for (const gap of composed.gaps) deps.err(`  fix before apply: ${gap}`);
-  return writeDecompiled(deps, folderOfManifest(composed.manifest, { files: bytes }), out, cwd, relative(cwd, dir) || ".");
+  return writeDecompiled(deps, folderOfManifest(composed.manifest, { files: bytes }), out, cwd);
 }
 
 /** The source of `name@version`, or a `CliError` that says a JSON save has none. */

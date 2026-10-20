@@ -132,20 +132,30 @@ describe("nylorun export --folder", () => {
     expect(existsSync(join(dir, "out", "shop", "tools", "alpha.json"))).toBe(true);
   });
 
-  it("refuses a flow, which the compiler does not take yet, and a call without --folder", async () => {
+  it("writes a flow as flow.json and agents/, and refuses a call without --folder", async () => {
     const dir = await temporaryDir();
     const flow = {
       manifestSchemaVersion: 8,
       name: "brief",
       description: "A flow.",
-      harness: { kind: "workflow", root: { agent: "a" }, agents: { a: { manifestSchemaVersion: 7, id: "a", instructions: ["Go."] } } },
+      harness: {
+        kind: "workflow",
+        root: { chain: [{ agent: "a" }, { agent: "b" }] },
+        agents: {
+          a: { manifestSchemaVersion: 7, id: "a", description: "Goes first.", instructions: ["Go."] },
+          b: { manifestSchemaVersion: 7, id: "b", name: "Bee", description: "Goes next.", instructions: ["Go on."] },
+        },
+      },
     } as AgentManifestV8;
     const deps = await remote(dir, (_, path) => (path === "/v1/agent-manifests/brief" ? json(view(flow)) : undefined));
-    await expect(exportCommand(deps, ["--folder", "brief"])).rejects.toMatchObject({
-      exitCode: 1,
-      message: expect.stringContaining("flows are exported once the compiler supports them"),
-    });
-    expect(existsSync(join(dir, "brief"))).toBe(false);
+    expect(await exportCommand(deps, ["--folder", "brief"])).toBe(0);
+    expect(deps.lines).toEqual(["Wrote 4 files to brief."]);
+    expect(deps.errors).toEqual([
+      `  note: agents/b/: The agent's display name "Bee" is left out: in a folder an agent's name is its id (design §3.2).`,
+      "It compiles to a different manifest: see the notes, then check it with nylorun check brief.",
+    ]);
+    expect(JSON.parse(await readFile(join(dir, "brief", "flow.json"), "utf8"))).toEqual({ chain: [{ agent: "a" }, { agent: "b" }] });
+    expect(await readFile(join(dir, "brief", "agents", "b", "AGENT.md"), "utf8")).toBe("---\nname: b\ndescription: Goes next.\n---\nGo on.\n");
     await expect(exportCommand(deps, ["brief"])).rejects.toMatchObject({ exitCode: 2 });
     await expect(exportCommand(deps, ["--folder", "brief@x"])).rejects.toMatchObject({ exitCode: 2 });
   });
