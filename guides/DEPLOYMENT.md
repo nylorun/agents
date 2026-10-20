@@ -472,6 +472,18 @@ the secret slots, `secrets`). Its JSON Schema is
   (`virtual` or `pod`). It also refuses what the Tenant's limits do not allow, files it does not
   hold, a tool that runs your code and a tool's `approval` (the Tenant's
   [tool policy](#tool-policy) decides).
+- **Agent folders.** A manifest may be authored as a folder (track T6, format `agent-folder/1`):
+  `AGENT.md` (frontmatter `name` and `description`, the instructions below), `mcp.json` (Agent
+  Plugins syntax; `Authorization: Bearer ${NAME}` names a `bearer` slot, derived for the server's
+  URL when `runtime.json` declares none), `runtime.json`, `skills/<name>/`, HTTP `tools/<name>.json`,
+  `triggers/<id>.md` and `files/**`. Flows and vendored plugins are not folders yet.
+  `nylorun init <name>` writes one, `nylorun check` compiles it offline and prints every problem by
+  file, line and column, and `nylorun apply` (or `saveFolder` in `@nylorun/agents`) sends it by
+  hash with `Content-Type: application/vnd.nylorun.folder+json`. The Runtime compiles it with the
+  same compiler (`@nylorun/core/folder`; `422 folder_invalid` when it does not compile) and keeps
+  it as the version's source: `GET /v1/agent-manifests/{name}/versions/{v}/source` lists its
+  files, and `.../source/files/{path}` returns one. A change outside the agent, such as a README,
+  answers `unchanged`.
 - **Three files.** A manifest may be authored as `agent.manifest.json`, naming a
   `harness.manifest.json` (whose `credentials` maps a server or HTTP tool to its slot, and whose
   `requires` the composer checks) and a `runtime.manifest.json` that many agents may share, by

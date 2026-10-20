@@ -21,15 +21,30 @@
  *   (`412 manifest_changed`) a save whose latest version moved since the client read it; `0` asks
  *   for a manifest that does not exist yet.
  * - **Every client is equal** (Q12): a version records who saved it (`savedBy`).
+ * - **Agent folders** (track T6, D79): the same route takes a folder by hash
+ *   (`application/vnd.nylorun.folder+json`). The Runtime reads the files the compiler needs from
+ *   the definition file store, compiles them with `@nylorun/core/folder` (a folder that does not
+ *   compile is `422 folder_invalid`, every diagnostic in `details.diagnostics`), and saves the
+ *   manifest as above, with the folder kept as the version's source (`source`, its files recorded
+ *   as the version's definition files). A folder whose manifest is unchanged saves no new
+ *   version, so its source is not saved either.
  */
+import {
+  compileAgentFolder,
+  folderTextPaths,
+  AGENT_FOLDER_LIMITS,
+  type AgentFolderDiagnostic,
+} from "@nylorun/core/folder";
 import {
   definitionFilesOf,
   type AgentManifestChange,
   type AgentManifestPlan,
+  type AgentManifestSource,
   type AgentManifestV8,
   type AgentManifestVersions,
   type AgentManifestView,
   type AgentManifestWarning,
+  type PutAgentFolderRequest,
   type PutAgentManifestRequest,
   type RuntimeSection,
   type SaveAgentManifestResponse,
@@ -44,7 +59,7 @@ import {
   sectionGaps,
 } from "@nylorun/core/define";
 import { canonical } from "../store/canonical.js";
-import type { AgentManifestRow, Environment, Tx } from "../store/types.js";
+import type { AgentManifestRow, AgentManifestSourceRecord, Environment, Tx } from "../store/types.js";
 import { resolveRecipe, type RecipeRequest } from "../sandbox/resolve.js";
 import { declaredSandboxes } from "../sandbox/share.js";
 import { httpToolTimeoutIssues } from "../gates/http-tool.js";
@@ -55,7 +70,7 @@ import { effectiveSandboxConfig, readSandboxConfig } from "../sandbox/tenant-con
 import type { AuthScope, TenantContext } from "./context.js";
 import { actorOf, fileErrors } from "./agents.js";
 import { moveAgent, planMove } from "./agent-versions.js";
-import { definitionFileIssues } from "./definition-files.js";
+import { definitionFileIssues, openDefinitionFile, readDefinitionFile } from "./definition-files.js";
 import { fail } from "./http.js";
 
 /** What a manifest's runtime section asks of an Agent's recipe, with the harness its loop names. */
@@ -99,6 +114,9 @@ function viewOf(row: AgentManifestRow, counts: Map<number, number>): AgentManife
     savedBy: row.savedBy,
     createdAt: row.createdAt,
     agents: counts.get(row.version) ?? 0,
+    ...(row.source === undefined
+      ? {}
+      : { source: { compiler: row.source.compiler, files: row.source.files, bytes: row.source.bytes } }),
   };
 }
 
@@ -309,6 +327,24 @@ export async function saveAgentManifest(
   const { requestId: _, ...manifest } = body;
   if (manifest.name !== name)
     fail(400, `The manifest is named ${manifest.name}, and the path names ${name}: they must match.`);
+  return saveManifest(ctx, name, manifest, scope, options);
+}
+
+/** What a folder save adds to a manifest save: the source to keep, and the compiler's notes. */
+interface FolderSave {
+  readonly source: AgentManifestSourceRecord;
+  readonly diagnostics: readonly AgentFolderDiagnostic[];
+  readonly compiler: string;
+}
+
+async function saveManifest(
+  ctx: TenantContext,
+  name: string,
+  manifest: AgentManifestV8,
+  scope: AuthScope,
+  options: { dryRun?: boolean; ifMatch?: number },
+  folder?: FolderSave,
+): Promise<AgentManifestPlan | SaveAgentManifestResponse> {
   const hash = agentManifestHash(manifest);
   const gaps = sectionGaps(manifest);
   return ctx.store.tx(async (t) => {
@@ -324,12 +360,34 @@ export async function saveAgentManifest(
       );
     const unchanged = latest?.hash === hash;
     const to = unchanged ? latest!.version : (latest?.version ?? 0) + 1;
+    // A folder whose manifest is unchanged keeps the latest version, and with it that version's source.
+    const notes =
+      folder === undefined
+        ? undefined
+        : unchanged && canonical(latest?.source?.entries ?? null) !== canonical(folder.source.entries)
+          ? [
+              ...folder.diagnostics,
+              {
+                severity: "note" as const,
+                code: "source_not_saved",
+                message: "Source files changed that are not part of the agent; the manifest is unchanged, so no version is saved",
+              },
+            ]
+          : folder.diagnostics;
     const counts = await t.agentsOfManifest(name);
     const checked = await errorsOf(t, manifest);
     // The version as it would be saved, for the plan of the Agents it moves.
     const row: AgentManifestRow = unchanged
       ? latest!
-      : { name, version: to, body: manifest, hash, savedBy: { actor: actorOf(scope) }, createdAt: new Date().toISOString() };
+      : {
+          name,
+          version: to,
+          body: manifest,
+          hash,
+          savedBy: { actor: actorOf(scope) },
+          createdAt: new Date().toISOString(),
+          ...(folder === undefined ? {} : { source: folder.source }),
+        };
     if (options.dryRun) {
       const errors = [...gaps, ...checked.errors];
       // A save with errors moves nothing; one that changes nothing moves no Agent either.
@@ -344,6 +402,7 @@ export async function saveAgentManifest(
         errors,
         behind: moves?.behind ?? (await agentsBehind(t, name, to)).length,
         moves: { now: moves?.now ?? 0, nextStart: moves?.nextStart ?? 0, secrets: moves?.secrets ?? 0 },
+        ...(folder === undefined ? {} : { manifest, diagnostics: [...notes!], compiler: folder.compiler }),
       };
     }
     if (gaps.length > 0)
@@ -362,16 +421,127 @@ export async function saveAgentManifest(
         details: { limitBytes: checked.limitBytes, skills: checked.oversized },
       });
     if (checked.errors.length > 0) fail(400, checked.errors.join(" "));
-    if (unchanged) return { manifest: viewOf(latest!, counts), unchanged: true, warnings: warningsOf(ctx, manifest, to, undefined) };
+    const folderNotes = notes === undefined ? {} : { diagnostics: [...notes] };
+    if (unchanged)
+      return { manifest: viewOf(latest!, counts), unchanged: true, warnings: warningsOf(ctx, manifest, to, undefined), ...folderNotes };
     await t.insertAgentManifest(row);
     // Its files by hash, skills' and runtime files' alike, for the sweep that deletes unused ones.
     const shas = new Set(definitionFilesOf(loopManifestOf(manifest)));
     for (const file of runtimeOf(manifest).files ?? []) if ("files" in file) for (const sha of Object.values(file.files)) shas.add(sha);
+    // A folder's every file too: the version keeps its source.
+    for (const entry of folder?.source.entries ?? []) shas.add(`sha256:${entry.sha256}`);
     if (shas.size > 0) await t.insertDefinitionFileUses(manifestFileOwner(name), hash, [...shas]);
     // Every Agent that tracks the manifest moves to the new version (track T3).
     const moves = await moveTracking(t, row, true);
-    return { manifest: viewOf(row, await t.agentsOfManifest(name)), unchanged: false, warnings: warningsOf(ctx, manifest, to, moves) };
+    return {
+      manifest: viewOf(row, await t.agentsOfManifest(name)),
+      unchanged: false,
+      warnings: warningsOf(ctx, manifest, to, moves),
+      ...folderNotes,
+    };
   });
+}
+
+/**
+ * `PUT /v1/agent-manifests/{name}` with an agent folder by hash (track T6): reads the files the
+ * compiler needs from the definition file store, compiles the folder (`422 folder_invalid` when
+ * it does not), then saves or plans the manifest as a JSON save does, keeping the folder as the
+ * version's source.
+ */
+export async function saveAgentFolder(
+  ctx: TenantContext,
+  name: string,
+  body: PutAgentFolderRequest,
+  scope: AuthScope,
+  options: { dryRun?: boolean; ifMatch?: number } = {},
+): Promise<AgentManifestPlan | SaveAgentManifestResponse> {
+  const entries = [...body.entries].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+  if (entries.length > AGENT_FOLDER_LIMITS.files)
+    fail(413, `An agent folder holds at most ${AGENT_FOLDER_LIMITS.files} files; this one holds ${entries.length}`, {
+      code: "limit_exceeded",
+      details: { limit: AGENT_FOLDER_LIMITS.files },
+    });
+  // Every file must be held: the version keeps them all as its source.
+  const shas = [...new Set(entries.map((entry) => `sha256:${entry.sha256}`))].sort();
+  const held = await ctx.store.tx((t) => t.heldDefinitionFiles(shas));
+  const missing = entries.filter((entry) => !held.has(`sha256:${entry.sha256}`));
+  if (missing.length > 0)
+    fail(
+      400,
+      `The folder names ${missing.length} file(s) the Runtime does not hold; upload each with PUT /v1/files/sha256:<hex> first: ${missing
+        .slice(0, 20)
+        .map((entry) => entry.path)
+        .join(", ")}`,
+      { code: "definition_files_missing", details: { missing: missing.map((entry) => `sha256:${entry.sha256}`) } },
+    );
+  for (const entry of entries)
+    if (held.get(`sha256:${entry.sha256}`) !== entry.size)
+      fail(400, `${entry.path} is listed with ${entry.size} bytes, and the Runtime holds ${held.get(`sha256:${entry.sha256}`)} for its hash`);
+  // The files the compiler reads, each at most the text file limit (it reports a larger one).
+  const files = new Map<string, Uint8Array>();
+  for (const path of folderTextPaths(entries)) {
+    const entry = entries.find((item) => item.path === path)!;
+    if (entry.size > AGENT_FOLDER_LIMITS.textFileBytes) continue;
+    const bytes = await readDefinitionFile(ctx.blobs, `sha256:${entry.sha256}`);
+    if (bytes) files.set(path, bytes);
+  }
+  const compiled = compileAgentFolder({ entries, files, name });
+  if (!compiled.manifest) {
+    const errors = compiled.diagnostics.filter((item) => item.severity === "error");
+    fail(422, `Agent folder ${name} does not compile: ${errors.length} error(s), the first: ${located(errors[0])}`, {
+      code: "folder_invalid",
+      details: { diagnostics: compiled.diagnostics },
+    });
+  }
+  const source: AgentManifestSourceRecord = {
+    compiler: compiled.compiler,
+    files: entries.length,
+    bytes: entries.reduce((sum, entry) => sum + entry.size, 0),
+    entries: entries.map((entry) => ({ path: entry.path, size: entry.size, sha256: entry.sha256 })),
+  };
+  return saveManifest(ctx, name, compiled.manifest!, scope, options, {
+    source,
+    diagnostics: compiled.diagnostics,
+    compiler: compiled.compiler,
+  });
+}
+
+/** A diagnostic as a person reads it: `file:line:column message`. */
+function located(diagnostic: AgentFolderDiagnostic | undefined): string {
+  if (!diagnostic) return "unknown";
+  const where = diagnostic.file
+    ? `${diagnostic.file}${diagnostic.line ? `:${diagnostic.line}${diagnostic.column ? `:${diagnostic.column}` : ""}` : ""} `
+    : "";
+  return `${where}${diagnostic.message}`;
+}
+
+/** The source of version `version` of manifest `name`, or a `404` for one saved as JSON. */
+async function sourceOf(ctx: TenantContext, name: string, version: number): Promise<AgentManifestSourceRecord> {
+  const row = (await ctx.store.tx((t) => t.agentManifest(name, version))) ?? notFound(name, version);
+  if (!row.source)
+    fail(404, `Version ${version} of agent manifest ${name} was saved as JSON: it has no source.`, { code: "not_found" });
+  return row.source!;
+}
+
+/** `GET /v1/agent-manifests/{name}/versions/{v}/source`: the folder a version was compiled from. */
+export async function getAgentManifestSource(ctx: TenantContext, name: string, version: number): Promise<AgentManifestSource> {
+  const source = await sourceOf(ctx, name, version);
+  return { name, version, ...source };
+}
+
+/** `GET .../versions/{v}/source/files/{path}`: one file of a version's source, streamed. */
+export async function readAgentManifestSourceFile(
+  ctx: TenantContext,
+  name: string,
+  version: number,
+  path: string,
+): Promise<{ body: ReadableStream<Uint8Array>; size: number }> {
+  const source = await sourceOf(ctx, name, version);
+  const entry = source.entries.find((item) => item.path === path);
+  if (!entry) fail(404, `Version ${version} of agent manifest ${name} has no file ${path}.`, { code: "not_found" });
+  const body = await openDefinitionFile(ctx.blobs, `sha256:${entry!.sha256}`);
+  if (!body) fail(404, `The Runtime no longer holds ${path} of version ${version} of agent manifest ${name}.`, { code: "not_found" });
+  return { body: body!, size: entry!.size };
 }
 
 /** `GET /v1/agent-manifests/{name}` (the latest) and `.../versions/{n}`. */

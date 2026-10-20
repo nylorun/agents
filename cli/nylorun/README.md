@@ -53,7 +53,9 @@ nylorun doctor sandbox [--tenant <name>] [--json]   # the sandbox backend the Te
 
 # apply, agent-manifests, agents, sessions, artifacts: the Runtime API (an application key, or NYLORUN_TOKEN)
 # every one takes --tenant <name>, and --as <subject> [--scope <scope>]... to act for a person
-nylorun apply [<dir>...] [--dry-run] [--if-match <n>]   # plan, then save each folder's agent.manifest.json, its files uploaded
+nylorun init <name> [--description <text>]   # write <name>/AGENT.md, a new agent folder
+nylorun check [<dir>...]           # compile each agent folder offline: every problem by file, line and column
+nylorun apply [<dir>...] [--dry-run] [--if-match <n>]   # plan, then save each folder (AGENT.md or agent.manifest.json), its files uploaded
 nylorun migrate v8 <agent.json> [--runtime <environment-manifest.json>] [--name <name>] [--out <dir>]   # the three files from a v7 manifest; reads no Runtime
 nylorun agent-manifests list [--json]       # name, latest version, runtime kind, harness, Agents
 nylorun agent-manifests get <name>[@<n>] | versions <name> | rm <name>
@@ -476,7 +478,25 @@ from a terminal.
 An agent runs from a saved **agent manifest** (protocol 16): one named, versioned
 document with a harness section (instructions, tools, skills, MCP servers,
 plugins) and a runtime section (kind, image, network, setup, files, secret
-slots). Author it as files, one folder per agent:
+slots). Author it as an agent folder (track T6), one folder per agent:
+
+```
+agents/support/AGENT.md        # frontmatter (name, description), then the instructions
+agents/support/mcp.json        # MCP servers; "Authorization": "Bearer ${GITHUB_TOKEN}" names a slot
+agents/support/runtime.json    # kind, network, secrets (optional)
+agents/support/skills/<skill>/SKILL.md, tools/<tool>.json, triggers/<id>.md, files/**
+```
+
+`nylorun init support` writes the `AGENT.md`; `nylorun check agents/support`
+compiles the folder offline with the Runtime's compiler and prints every problem
+as `file:line:column severity: message`, exiting 1 when it does not compile.
+`nylorun apply agents/support` checks it the same way (sending nothing when it
+does not compile), plans it, prints the compiler's notes (such as a slot derived
+from `mcp.json`) and saves it, uploading its files by hash; the Runtime keeps the
+folder as the version's source. `--dry-run` also prints the compiled manifest. A
+change only to a file outside the agent, such as a README, is `unchanged`.
+
+Or as three files:
 
 ```
 agents/triage/agent.manifest.json     # { "manifestSchemaVersion": 8, "name": "triage",

@@ -25,6 +25,8 @@ import {
   AgentManifestViewSchema,
   ListAgentManifestsResponseSchema,
   PutAgentManifestRequestSchema,
+  PutAgentFolderRequestSchema,
+  AgentManifestSourceSchema,
   PutAgentSecretValueRequestSchema,
   SaveAgentManifestResponseSchema,
   SessionListItemSchema,
@@ -147,6 +149,8 @@ export const AgentView = named("AgentView", AgentViewSchema);
 export const EnvironmentSecretSlots = named("EnvironmentSecretSlots", EnvironmentSecretSlotsSchema);
 export const AgentManifest = named("AgentManifest", AgentManifestV8Schema);
 export const PutAgentManifestRequest = named("PutAgentManifestRequest", PutAgentManifestRequestSchema);
+export const PutAgentFolderRequest = named("PutAgentFolderRequest", PutAgentFolderRequestSchema);
+export const AgentManifestSource = named("AgentManifestSource", AgentManifestSourceSchema);
 export const AgentManifestView = named("AgentManifestView", AgentManifestViewSchema);
 export const AgentManifestPlan = named("AgentManifestPlan", AgentManifestPlanSchema);
 export const SaveAgentManifestResponse = named("SaveAgentManifestResponse", SaveAgentManifestResponseSchema);

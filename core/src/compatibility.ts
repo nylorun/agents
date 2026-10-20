@@ -203,6 +203,9 @@ export type ProtocolFeature = (typeof PROTOCOL_FEATURES)[number];
  * `gateway-credentials`: a `bearer` or `headers` credential with `via`, written to an Agent's vault,
  * may name the gateway's tool prefix (`toolPrefix`), which the Runtime takes off the tools it lists
  * and puts back on each call.
+ * `agent-folders`: `PUT /v1/agent-manifests/{name}` also takes an agent folder by hash
+ * (`application/vnd.nylorun.folder+json`), compiles it with `@nylorun/core/folder` and keeps it
+ * as the version's source, read at `GET .../versions/{v}/source` and `.../source/files/{path}`.
  */
 export const OPTIONAL_HOST_FEATURES = [
   "tenant-fixture-model",
@@ -223,6 +226,7 @@ export const OPTIONAL_HOST_FEATURES = [
   /** Opt-in artifact metadata pages (`GET /v1/artifacts?limit=…`). */
   "artifact-reads",
   "gateway-credentials",
+  "agent-folders",
 ] as const;
 export type OptionalHostFeature = (typeof OPTIONAL_HOST_FEATURES)[number];
 export interface ProtocolRange {
@@ -393,6 +397,12 @@ export const ERROR_CODES = [
    * again, or save without `If-Match` (the CLI's `--if-match`, the SDK's `ifMatch`).
    */
   "manifest_changed",
+  /**
+   * An agent folder that does not compile (track T6): `422` when it is saved or planned.
+   * `details.diagnostics` names every problem, each with its file and, for parse and schema
+   * errors, its line and column.
+   */
+  "folder_invalid",
   "internal_error",
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];

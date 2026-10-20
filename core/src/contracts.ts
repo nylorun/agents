@@ -2289,6 +2289,34 @@ export type PutAgentManifestRequest = z.infer<typeof PutAgentManifestRequestSche
 /** Who saved a version: the subject a request acted for, else `application`. */
 export const AgentManifestSavedBySchema = z.object({ actor: z.string() }).strict();
 /** One version of an agent manifest. */
+/**
+ * One problem or remark about an agent folder (track T6): an `error` keeps it from compiling.
+ * `file` is the path in the folder, with the line and column when known; `pointer` the field in
+ * the manifest.
+ */
+export const AgentFolderDiagnosticSchema = z
+  .object({
+    severity: z.enum(["error", "warning", "info", "note"]),
+    code: z.string(),
+    message: z.string(),
+    file: z.string().optional(),
+    line: z.number().int().positive().optional(),
+    column: z.number().int().positive().optional(),
+    pointer: z.string().optional(),
+  })
+  .strict()
+  .meta({ id: "AgentFolderDiagnostic" });
+export type AgentFolderDiagnostic = z.infer<typeof AgentFolderDiagnosticSchema>;
+/** The folder a version was compiled from (track T6): the compiler that built it, and its size. */
+export const AgentManifestSourceSummarySchema = z
+  .object({
+    /** The compiler format, such as `agent-folder/1`. */
+    compiler: z.string(),
+    files: z.number().int().nonnegative(),
+    bytes: z.number().int().nonnegative(),
+  })
+  .strict();
+export type AgentManifestSourceSummary = z.infer<typeof AgentManifestSourceSummarySchema>;
 export const AgentManifestViewSchema = z
   .object({
     name: z.string(),
@@ -2300,8 +2328,50 @@ export const AgentManifestViewSchema = z
     createdAt: z.string(),
     /** How many Agents were made from this version. */
     agents: z.number().int().nonnegative(),
+    /** The folder it was compiled from; absent for a version saved as JSON. */
+    source: AgentManifestSourceSummarySchema.optional(),
   })
   .strict();
+/** One file of an agent folder: its path, size and SHA-256 (lowercase hex). */
+export const AgentFolderEntrySchema = z
+  .object({
+    path: z.string().min(1).max(1024),
+    size: z.number().int().nonnegative(),
+    sha256: z.string().regex(/^[0-9a-f]{64}$/, { message: "sha256 is 64 lowercase hex digits" }),
+    contentType: z.string().optional(),
+    mode: z.number().int().nonnegative().max(0o7777).optional(),
+  })
+  .strict();
+export type AgentFolderEntry = z.infer<typeof AgentFolderEntrySchema>;
+/** The media type of an agent folder sent by hash to `PUT /v1/agent-manifests/{name}`. */
+export const AGENT_FOLDER_MEDIA_TYPE = "application/vnd.nylorun.folder+json";
+/**
+ * `PUT /v1/agent-manifests/{name}` with `Content-Type: application/vnd.nylorun.folder+json`
+ * (track T6): an agent folder by hash, each file uploaded first with `PUT /v1/files/sha256:<hex>`.
+ */
+export const PutAgentFolderRequestSchema = z
+  .object({
+    requestId: RequestIdSchema.optional(),
+    format: z.literal("nylorun.folder.v2"),
+    entries: z.array(AgentFolderEntrySchema),
+  })
+  .strict();
+export type PutAgentFolderRequest = z.infer<typeof PutAgentFolderRequestSchema>;
+/** `GET /v1/agent-manifests/{name}/versions/{v}/source`: the folder a version was compiled from. */
+export const AgentManifestSourceSchema = z
+  .object({
+    name: z.string(),
+    version: z.number().int().positive(),
+    compiler: z.string(),
+    files: z.number().int().nonnegative(),
+    bytes: z.number().int().nonnegative(),
+    /** Every file, sorted by path. */
+    entries: z.array(
+      z.object({ path: z.string(), size: z.number().int().nonnegative(), sha256: z.string() }).strict(),
+    ),
+  })
+  .strict();
+export type AgentManifestSource = z.infer<typeof AgentManifestSourceSchema>;
 export type AgentManifestView = z.infer<typeof AgentManifestViewSchema>;
 /** `GET /v1/agent-manifests`: each manifest's latest version, by name. */
 export const ListAgentManifestsResponseSchema = z
@@ -2371,6 +2441,12 @@ export const AgentManifestPlanSchema = z
         secrets: z.number().int().nonnegative(),
       })
       .strict(),
+    /** An agent folder's only: the manifest it compiles to. */
+    manifest: AgentManifestV8Schema.optional(),
+    /** An agent folder's only: what the compiler noted, none of them errors. */
+    diagnostics: z.array(AgentFolderDiagnosticSchema).optional(),
+    /** An agent folder's only: the compiler format, such as `agent-folder/1`. */
+    compiler: z.string().optional(),
   })
   .strict();
 export type AgentManifestPlan = z.infer<typeof AgentManifestPlanSchema>;
@@ -2380,6 +2456,8 @@ export const SaveAgentManifestResponseSchema = z
     manifest: AgentManifestViewSchema,
     unchanged: z.boolean(),
     warnings: z.array(AgentManifestWarningSchema),
+    /** An agent folder's only: what the compiler noted, none of them errors. */
+    diagnostics: z.array(AgentFolderDiagnosticSchema).optional(),
   })
   .strict();
 export type SaveAgentManifestResponse = z.infer<typeof SaveAgentManifestResponseSchema>;

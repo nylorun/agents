@@ -33,7 +33,8 @@
         "tool-policy",
         "traces",
         "artifact-reads",
-        "gateway-credentials"
+        "gateway-credentials",
+        "agent-folders"
       ]
     },
     "description": "For developers: agent manifests, Agents, sessions (with AG-UI and A2A) and artifacts, through `@nylorun/agents`. Every Tenant serves it on its one URL, beside the Management API (`/openapi/management.json`). Every request sends `Nylorun-Protocol`. Who may call each operation is its `security` and its `x-nylorun-credentials` and `x-nylorun-scopes` (the subject scopes that reach it) fields: an application key (servers) or a trusted issuer's token (browsers and apps)."
@@ -6397,6 +6398,7 @@
               "manifest_not_found",
               "manifest_in_use",
               "manifest_changed",
+              "folder_invalid",
               "internal_error"
             ]
           },
@@ -21663,6 +21665,28 @@
                 "agents": {
                   "type": "integer",
                   "minimum": 0
+                },
+                "source": {
+                  "type": "object",
+                  "properties": {
+                    "compiler": {
+                      "type": "string"
+                    },
+                    "files": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "bytes": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  },
+                  "required": [
+                    "compiler",
+                    "files",
+                    "bytes"
+                  ],
+                  "additionalProperties": false
                 }
               },
               "required": [
@@ -22749,6 +22773,28 @@
               "agents": {
                 "type": "integer",
                 "minimum": 0
+              },
+              "source": {
+                "type": "object",
+                "properties": {
+                  "compiler": {
+                    "type": "string"
+                  },
+                  "files": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "bytes": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "required": [
+                  "compiler",
+                  "files",
+                  "bytes"
+                ],
+                "additionalProperties": false
               }
             },
             "required": [
@@ -22783,12 +22829,58 @@
               ],
               "additionalProperties": false
             }
+          },
+          "diagnostics": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentFolderDiagnostic"
+            }
           }
         },
         "required": [
           "manifest",
           "unchanged",
           "warnings"
+        ],
+        "additionalProperties": false
+      },
+      "AgentFolderDiagnostic": {
+        "type": "object",
+        "properties": {
+          "severity": {
+            "type": "string",
+            "enum": [
+              "error",
+              "warning",
+              "info",
+              "note"
+            ]
+          },
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "file": {
+            "type": "string"
+          },
+          "line": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "column": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "pointer": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "severity",
+          "code",
+          "message"
         ],
         "additionalProperties": false
       },
@@ -22898,6 +22990,18 @@
               "secrets"
             ],
             "additionalProperties": false
+          },
+          "manifest": {
+            "$ref": "#/components/schemas/AgentManifestV8"
+          },
+          "diagnostics": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentFolderDiagnostic"
+            }
+          },
+          "compiler": {
+            "type": "string"
           }
         },
         "required": [
@@ -22958,6 +23062,61 @@
         ],
         "additionalProperties": false
       },
+      "PutAgentFolderRequest": {
+        "type": "object",
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "nylorun.folder.v2"
+            ]
+          },
+          "entries": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 1024
+                },
+                "size": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "sha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "contentType": {
+                  "type": "string"
+                },
+                "mode": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 4095
+                }
+              },
+              "required": [
+                "path",
+                "size",
+                "sha256"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "format",
+          "entries"
+        ],
+        "additionalProperties": false
+      },
       "AgentManifestView": {
         "type": "object",
         "properties": {
@@ -22992,6 +23151,28 @@
           "agents": {
             "type": "integer",
             "minimum": 0
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "compiler": {
+                "type": "string"
+              },
+              "files": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "bytes": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "compiler",
+              "files",
+              "bytes"
+            ],
+            "additionalProperties": false
           }
         },
         "required": [
@@ -23062,6 +23243,62 @@
           "name",
           "latest",
           "versions"
+        ],
+        "additionalProperties": false
+      },
+      "AgentManifestSource": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "compiler": {
+            "type": "string"
+          },
+          "files": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "entries": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "size": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "sha256": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path",
+                "size",
+                "sha256"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "name",
+          "version",
+          "compiler",
+          "files",
+          "bytes",
+          "entries"
         ],
         "additionalProperties": false
       },
@@ -24792,7 +25029,7 @@
           "Agent manifests"
         ],
         "summary": "Save an agent manifest",
-        "description": "Saves the manifest as its next version, or answers the latest unchanged when nothing differs. Every Agent that tracks the manifest moves to the new version: at once, at its pod's next start for a runtime change a pod applies only when it starts, or once a required secret the version adds is set; a pinned one stays, and so does one whose kind, harness or storage the version changes (`agents_behind`). The Runtime checks the harness and runtime sections against each other: a custom harness needs a pod with an image, every credential the harness names is a declared slot of the right type, and the runtime's kind gives the loop the sandbox it needs; every gap is named in one `422 manifest_inconsistent` (`details.gaps`). `If-Match: <version>` refuses the save with `412 manifest_changed` when the latest version is no longer the one you read (`0` for a manifest that does not exist yet). With `?dryRun=true` the answer is the plan: the changes by section, every reason a save would be refused (`errors`, the gaps first), warnings, the Agents it would move (`moves`) and how many stay on older versions (`behind`); nothing is saved. Clients compose the authoring files and drop their `$schema` before they send one document.",
+        "description": "Saves the manifest as its next version, or answers the latest unchanged when nothing differs. Every Agent that tracks the manifest moves to the new version: at once, at its pod's next start for a runtime change a pod applies only when it starts, or once a required secret the version adds is set; a pinned one stays, and so does one whose kind, harness or storage the version changes (`agents_behind`). The Runtime checks the harness and runtime sections against each other: a custom harness needs a pod with an image, every credential the harness names is a declared slot of the right type, and the runtime's kind gives the loop the sandbox it needs; every gap is named in one `422 manifest_inconsistent` (`details.gaps`). `If-Match: <version>` refuses the save with `412 manifest_changed` when the latest version is no longer the one you read (`0` for a manifest that does not exist yet). With `?dryRun=true` the answer is the plan: the changes by section, every reason a save would be refused (`errors`, the gaps first), warnings, the Agents it would move (`moves`) and how many stay on older versions (`behind`); nothing is saved. Clients compose the authoring files and drop their `$schema` before they send one document. With `Content-Type: application/vnd.nylorun.folder+json` the body is an agent folder by hash instead (feature `agent-folders`): every file uploaded first with `PUT /v1/files/sha256:<hex>`, the Runtime compiles it with `@nylorun/core/folder`, a folder that does not compile is `422 folder_invalid` (`details.diagnostics`, each with its file, line and column), and the version keeps the folder as its source; the plan adds the compiled `manifest`, the compiler's `diagnostics` and `compiler`.",
         "security": [
           {
             "applicationKey": []
@@ -24868,6 +25105,11 @@
               "schema": {
                 "$ref": "#/components/schemas/PutAgentManifestRequest"
               }
+            },
+            "application/vnd.nylorun.folder+json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutAgentFolderRequest"
+              }
             }
           }
         },
@@ -24929,7 +25171,7 @@
             "description": "A skill's files hold more than the manifest's skill limit together (`limit_exceeded`)"
           },
           "422": {
-            "description": "The harness and runtime sections do not fit (`manifest_inconsistent`, `details.gaps`)"
+            "description": "The harness and runtime sections do not fit (`manifest_inconsistent`, `details.gaps`), or an agent folder does not compile (`folder_invalid`, `details.diagnostics`)"
           },
           "426": {
             "description": "`Nylorun-Protocol` missing or unsupported",
@@ -25568,6 +25810,311 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/AgentManifestView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid headers, path, body or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No credential (`credential_required`), or one the Tenant does not accept (`credential_invalid`), with a `WWW-Authenticate: Bearer` challenge",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/agent-manifests/{name}/versions/{version}/source": {
+      "get": {
+        "tags": [
+          "Agent manifests"
+        ],
+        "summary": "Get the folder a version was compiled from",
+        "description": "The agent folder the version was saved from (feature `agent-folders`): its compiler, size and every file, sorted by path. A version saved as JSON has none (`404`).",
+        "security": [
+          {
+            "applicationKey": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "application",
+          "subject"
+        ],
+        "x-nylorun-scopes": [
+          "agents:read",
+          "agents:write",
+          "agent-manifests:write"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The agent manifest's name, such as `triage`"
+            },
+            "required": true,
+            "description": "The agent manifest's name, such as `triage`",
+            "name": "name",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The version number"
+            },
+            "required": true,
+            "description": "The version number",
+            "name": "version",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `18`"
+            },
+            "required": true,
+            "description": "The protocol version, `18`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The person an application key acts for"
+            },
+            "required": false,
+            "description": "The person an application key acts for",
+            "name": "Nylorun-Subject",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The subject's space-separated scopes; required with a subject"
+            },
+            "required": false,
+            "description": "The subject's space-separated scopes; required with a subject",
+            "name": "Nylorun-Scopes",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The folder",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentManifestSource"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid headers, path, body or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No credential (`credential_required`), or one the Tenant does not accept (`credential_invalid`), with a `WWW-Authenticate: Bearer` challenge",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/agent-manifests/{name}/versions/{version}/source/files/{path}": {
+      "get": {
+        "tags": [
+          "Agent manifests"
+        ],
+        "summary": "Download one file of a version's folder",
+        "description": "Streams the file at `path` (its path in the folder, with `/` percent-encoded as `%2F`) as it was saved.",
+        "security": [
+          {
+            "applicationKey": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "application",
+          "subject"
+        ],
+        "x-nylorun-scopes": [
+          "agents:read",
+          "agents:write",
+          "agent-manifests:write"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The agent manifest's name, such as `triage`"
+            },
+            "required": true,
+            "description": "The agent manifest's name, such as `triage`",
+            "name": "name",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The version number"
+            },
+            "required": true,
+            "description": "The version number",
+            "name": "version",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The file's path in the folder, percent-encoded"
+            },
+            "required": true,
+            "description": "The file's path in the folder, percent-encoded",
+            "name": "path",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `18`"
+            },
+            "required": true,
+            "description": "The protocol version, `18`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The person an application key acts for"
+            },
+            "required": false,
+            "description": "The person an application key acts for",
+            "name": "Nylorun-Subject",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The subject's space-separated scopes; required with a subject"
+            },
+            "required": false,
+            "description": "The subject's space-separated scopes; required with a subject",
+            "name": "Nylorun-Scopes",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The file's bytes",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
                 }
               }
             }

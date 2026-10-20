@@ -1,0 +1,1 @@
+ALTER TABLE "nylorun"."agent_manifests" ADD COLUMN "source" json;

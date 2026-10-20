@@ -441,6 +441,12 @@ export const agentManifests = nylorun.table(
     /** `{ actor }`: the subject the save acted for, else `application`. */
     savedBy: jsonText().notNull(),
     createdAt: textC().notNull(),
+    /**
+     * The agent folder the version was compiled from (track T6): `{ compiler, files, bytes,
+     * entries }`, each entry `{ path, size, sha256 }` of a definition file. Null for a version
+     * saved as JSON.
+     */
+    source: jsonText(),
   },
   (t) => [primaryKey({ name: "agent_manifests_pkey", columns: [t.name, t.version] })],
 );

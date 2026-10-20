@@ -265,7 +265,16 @@ records `savedBy` and is never changed; a save moves every Agent that tracks the
 (at once, at its pod's next start, or once its required secrets are set), and a pinned one stays.
 `DELETE` removes every version, refused while an Agent names one (`409 manifest_in_use`). The engine runs a version's **loop
 manifest** (`loopManifestOf`: the harness section with the manifest's name as its id, in agent
-manifest v7's shape or workflow manifest v3's), which a session pins.
+manifest v7's shape or workflow manifest v3's), which a session pins. The same `PUT` takes an
+**agent folder** by hash (track T6, D79; `application/vnd.nylorun.folder+json`, feature
+`agent-folders`): `{format: "nylorun.folder.v2", entries: [{path, size, sha256}]}`, every file
+uploaded first. `saveAgentFolder` reads the Markdown and JSON files from the definition file store,
+compiles them with `compileAgentFolder` (`@nylorun/core/folder`; `422 folder_invalid` with
+`details.diagnostics`, each by file, line and column), and saves the manifest as above with the
+folder as the version's **source** (the `source` column: compiler, count, bytes, entries; its files
+are the version's definition files). Read it with `GET .../versions/{v}/source` and
+`.../source/files/{path}`; a version saved as JSON has none (`404`). A folder whose manifest is
+unchanged saves no version, and its source is not saved either (`source_not_saved`).
 _Avoid_: "definition" for the manifest (definitions left in protocol 16), "template".
 
 **Agent**: The live instance of one version of an agent manifest (protocol 16; an Environment from
