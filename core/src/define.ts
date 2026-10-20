@@ -260,8 +260,11 @@ export {
   runtimeOf,
   sandboxNeedOf,
   sectionGaps,
+  sectionGapsAt,
   type SandboxNeed,
+  type SectionGap,
 } from "./definition/sections.js";
+export { cronScheduleIssue, isTimeZone, timeZoneNames } from "./definition/cron.js";
 export { mediaReferenceOf, type MediaReference } from "./definition/media-reference.js";
 export type { SessionToolRef } from "./definition/from.js";
 export { schemaFromJSON } from "./definition/schema-json.js";

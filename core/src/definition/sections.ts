@@ -94,70 +94,89 @@ export function runtimeOf(manifest: Pick<AgentManifestV8, "runtime">): RuntimeSe
  * 3. The runtime's kind gives the harness the sandbox it needs (`sandboxNeedOf`).
  */
 export function sectionGaps(manifest: Pick<AgentManifestV8, "harness" | "runtime">): string[] {
+  return sectionGapsAt(manifest).map((gap) => gap.message);
+}
+
+/** One gap of `sectionGapsAt`: the manifest field it is about, and why. */
+export interface SectionGap {
+  /** The field in the manifest, such as `["harness", "tools", 0, "http", "credential"]`. */
+  readonly path: readonly (string | number)[];
+  readonly message: string;
+}
+
+/**
+ * `sectionGaps`, each with the manifest field it is about, so a caller that knows where each
+ * field came from (the agent folder compiler) can point at the file that wrote it.
+ */
+export function sectionGapsAt(manifest: Pick<AgentManifestV8, "harness" | "runtime">): SectionGap[] {
   const { harness } = manifest;
   const runtime = runtimeOf(manifest);
-  const gaps: string[] = [];
+  const gaps: SectionGap[] = [];
+  const gap = (path: readonly (string | number)[], message: string) => gaps.push({ path, message });
   const kindText = manifest.runtime === undefined ? "the manifest has no runtime section" : `the runtime is ${quoted(runtime.kind)}`;
   // 1. A custom harness runs from its pod's image.
   const harnessId = harnessIdOf(harness);
   if (harnessId !== DEFAULT_HARNESS) {
-    if (runtime.kind !== "pod") gaps.push(`harness.id ${quoted(harnessId)} needs runtime.kind "pod"; ${kindText}`);
+    if (runtime.kind !== "pod") gap(["harness", "id"], `harness.id ${quoted(harnessId)} needs runtime.kind "pod"; ${kindText}`);
     else if (runtime.image === undefined)
-      gaps.push(`harness.id ${quoted(harnessId)} needs runtime.image: a custom harness runs from its pod's image`);
+      gap(["harness", "id"], `harness.id ${quoted(harnessId)} needs runtime.image: a custom harness runs from its pod's image`);
   }
   // 2. Credentials name declared slots of the right type.
   const slots = runtime.secrets ?? {};
-  const urlSlot = (where: string, name: string, url: string, what: string): void => {
+  const urlSlot = (where: string, path: readonly (string | number)[], name: string, url: string, what: string): void => {
     const slot = slots[name];
     if (slot === undefined) {
-      gaps.push(`${where} ${quoted(name)} is not a secret slot in runtime.secrets`);
+      gap(path, `${where} ${quoted(name)} is not a secret slot in runtime.secrets`);
       return;
     }
     if (slot.type !== "bearer" && slot.type !== "headers") {
-      gaps.push(`${where} ${quoted(name)} is a slot of type ${slot.type}; ${what} needs a bearer or headers slot`);
+      gap(path, `${where} ${quoted(name)} is a slot of type ${slot.type}; ${what} needs a bearer or headers slot`);
       return;
     }
     const want = normalizeCredentialUrl(url);
     if (want === undefined || normalizeCredentialUrl(slot.url) !== want)
-      gaps.push(`${where} ${quoted(name)} is bound to ${slot.url}, not to ${what}'s URL ${url}`);
+      gap(path, `${where} ${quoted(name)} is bound to ${slot.url}, not to ${what}'s URL ${url}`);
   };
   // The Tool Gate sends an HTTP target's `credential` from the vault by that name, wherever the
   // target sits: an agent's HTTP tool, a flow's HTTP stage or HTTP verifier, or one of an
   // embedded agent's.
-  const agentTools = (tools: AgentManifest["tools"], at: string): void => {
-    for (const tool of tools ?? []) {
+  const agentTools = (tools: AgentManifest["tools"], at: string, path: readonly (string | number)[]): void => {
+    for (const [index, tool] of (tools ?? []).entries()) {
       if (tool.http?.credential !== undefined)
-        urlSlot(`${at}.tools.${tool.name}.http.credential`, tool.http.credential, tool.http.url, "an HTTP tool");
-      if (tool.agent !== undefined) embedded(tool.agent, `${at}.tools.${tool.name}.agent`);
+        urlSlot(`${at}.tools.${tool.name}.http.credential`, [...path, "tools", index, "http", "credential"], tool.http.credential, tool.http.url, "an HTTP tool");
+      if (tool.agent !== undefined) embedded(tool.agent, `${at}.tools.${tool.name}.agent`, [...path, "tools", index, "agent"]);
     }
   };
-  const flowStages = (flow: Pick<WorkflowManifest, "root" | "agents">, at: string): void => {
+  const flowStages = (flow: Pick<WorkflowManifest, "root" | "agents">, at: string, path: readonly (string | number)[]): void => {
     forEachFlowNode(flow.root, ({ node, key, role }) => {
       const http = "http" in node ? node.http : "tool" in node ? node.tool.http : undefined;
       if (http?.credential !== undefined)
         urlSlot(
           `${at}.root stage ${quoted(key)} http.credential`,
+          [...path, "root"],
           http.credential,
           http.url,
           role === "verify" ? "an HTTP verifier" : "an HTTP stage",
         );
     });
-    for (const [id, agent] of Object.entries(flow.agents)) embedded(agent, `${at}.agents.${id}`);
+    for (const [id, agent] of Object.entries(flow.agents)) embedded(agent, `${at}.agents.${id}`, [...path, "agents", id]);
   };
-  const embedded = (agent: AgentManifest | WorkflowManifest, at: string): void =>
-    "kind" in agent ? flowStages(agent, at) : agentTools(agent.tools, at);
-  if (isWorkflowHarness(harness)) flowStages(harness, "harness");
+  const embedded = (agent: AgentManifest | WorkflowManifest, at: string, path: readonly (string | number)[]): void =>
+    "kind" in agent ? flowStages(agent, at, path) : agentTools(agent.tools, at, path);
+  if (isWorkflowHarness(harness)) flowStages(harness, "harness", ["harness"]);
   else {
     for (const [key, server] of Object.entries(harness.mcpServers ?? {}))
       if (server.credential !== undefined)
-        urlSlot(`harness.mcpServers.${key}.credential`, server.credential, server.url, "an MCP server");
-    agentTools(harness.tools, "harness");
+        urlSlot(`harness.mcpServers.${key}.credential`, ["harness", "mcpServers", key, "credential"], server.credential, server.url, "an MCP server");
+    agentTools(harness.tools, "harness", ["harness"]);
     for (const [key, skill] of Object.entries(harness.skills ?? {}))
       for (const name of skill.secrets ?? []) {
         const slot = slots[name];
-        if (slot === undefined) gaps.push(`harness.skills.${key}.secrets ${quoted(name)} is not a secret slot in runtime.secrets`);
+        const path = ["harness", "skills", key, "secrets"];
+        if (slot === undefined) gap(path, `harness.skills.${key}.secrets ${quoted(name)} is not a secret slot in runtime.secrets`);
         else if (slot.type !== "environment_secret" && slot.type !== "environment_variable")
-          gaps.push(
+          gap(
+            path,
             `harness.skills.${key}.secrets ${quoted(name)} is a slot of type ${slot.type}; a skill reads environment_secret or environment_variable slots`,
           );
       }
@@ -166,7 +185,8 @@ export function sectionGaps(manifest: Pick<AgentManifestV8, "harness" | "runtime
   const need = sandboxNeedOf(harness);
   if (need === "sandbox" && !kindMeets(runtime.kind, need)) {
     const what = isWorkflowHarness(harness) ? "harness.agents carry skills, which need" : "harness.skills needs";
-    gaps.push(
+    gap(
+      ["harness", isWorkflowHarness(harness) ? "agents" : "skills"],
       manifest.runtime === undefined
         ? `${what} a sandbox; the manifest has no runtime section, so an Agent made from it has none`
         : `${what} a sandbox; runtime.kind ${quoted(runtime.kind)} has none`,
