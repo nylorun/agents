@@ -50,6 +50,7 @@ const KIND_LABELS: Record<string, string> = {
 const SLOT_TYPES: Record<string, string> = {
   bearer: "Bearer token",
   headers: "Headers",
+  workload: "Workload token",
   environment_secret: "Sandbox secret",
   environment_variable: "Variable",
 };

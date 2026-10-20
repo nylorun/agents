@@ -12923,6 +12923,9 @@
                   "server": {
                     "type": "string"
                   },
+                  "gateway": {
+                    "type": "string"
+                  },
                   "retryable": {
                     "type": "boolean"
                   }
@@ -20802,6 +20805,7 @@
                   "enum": [
                     "bearer",
                     "headers",
+                    "workload",
                     "environment_secret",
                     "environment_variable"
                   ]
@@ -20897,6 +20901,7 @@
             "enum": [
               "bearer",
               "headers",
+              "workload",
               "environment_secret",
               "environment_variable"
             ]
@@ -27676,6 +27681,53 @@
                       "type",
                       "url",
                       "headers"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "requestId": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "workload"
+                        ]
+                      },
+                      "url": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "via": {
+                        "type": "string"
+                      },
+                      "identity": {
+                        "type": "object",
+                        "properties": {
+                          "header": {
+                            "type": "string",
+                            "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$"
+                          }
+                        },
+                        "required": [
+                          "header"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "toolPrefix": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 64,
+                        "pattern": "^[\\x21-\\x7e]+$"
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "url",
+                      "via"
                     ],
                     "additionalProperties": false
                   },

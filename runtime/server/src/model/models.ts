@@ -38,7 +38,12 @@ export type Selection = Readonly<{
 export function modelsFor(
   selection: Selection,
   credentials: CredentialStore,
-  options: { environment?: boolean; authContext?: AuthContext } = {},
+  options: {
+    environment?: boolean;
+    authContext?: AuthContext;
+    /** A custom endpoint's bearer read at each request instead of a stored key: the workload token (#496). */
+    bearer?: () => Promise<string>;
+  } = {},
 ) {
   if (options.environment) {
     throw new Error(
@@ -75,6 +80,7 @@ export function modelsFor(
         apiKey: {
           name: "Custom API key",
           async resolve() {
+            if (options.bearer) return { type: "api_key" as const, auth: { apiKey: await options.bearer() } };
             const credential = await credentials.read("custom");
             if (!credential || credential.type !== "api_key") return undefined;
             const key = (credential as { key?: string }).key;

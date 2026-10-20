@@ -35,6 +35,7 @@ import { classifyAssistantError, failure } from "./classify.js";
 import { addedInputsOf, describeModel, selectionOf } from "./descriptor.js";
 import { modelsFor } from "./models.js";
 import { callHeaders, type ModelCaller } from "./call-headers.js";
+import { workloadToken, WorkloadTokenUnavailable } from "../vault/workload-token.js";
 import { NativeBlocks, nativeKindsOf, type NativeFileKind } from "./native-blocks.js";
 import { projectSecrets } from "./settings.js";
 
@@ -138,9 +139,20 @@ export function piModel(options: PiModelOptions = {}): RuntimeModelAdapter {
         "Model provider is not configured. Set it in Studio, or run nylorun tenant models set.",
         false,
       );
+    // The workload token (#496): read from its file now and at each request, never stored.
+    let workload: string | undefined;
+    if (stored.authType === "workload") {
+      try {
+        workload = await workloadToken();
+      } catch (error) {
+        if (error instanceof WorkloadTokenUnavailable) return failure("auth", error.message, false);
+        throw error;
+      }
+    }
     const secrets = [
       ...projectSecrets(root),
       ...credentialSecrets(stored.credential),
+      ...(workload === undefined ? [] : [workload]),
     ];
     const redacted = (outcome: ModelFailureOutcome): ModelFailureOutcome => ({
       ...outcome,
@@ -154,7 +166,11 @@ export function piModel(options: PiModelOptions = {}): RuntimeModelAdapter {
     const registry = modelsFor(
       selection,
       hostCredentialStore(stored, options.writeHostCredential),
-      { environment: false, authContext: noAmbientAuth },
+      {
+        environment: false,
+        authContext: noAmbientAuth,
+        ...(workload === undefined ? {} : { bearer: workloadToken }),
+      },
     );
     const found = registry.getModel(selection.provider, selection.model);
     if (!found)
@@ -633,13 +649,15 @@ function hostCredentialStore(
   write: ((credential: Credential) => void | Promise<void>) | undefined,
 ): CredentialStore {
   let current: Credential = stored.credential as Credential;
+  // A workload model stores no credential: pi-ai then asks the provider's `resolve` (`modelsFor`).
+  const stores = stored.authType !== "workload";
   return {
     async read(providerId) {
-      if (providerId !== stored.provider) return undefined;
+      if (providerId !== stored.provider || !stores) return undefined;
       return current;
     },
     async list() {
-      return [{ providerId: stored.provider, type: current.type }];
+      return stores ? [{ providerId: stored.provider, type: current.type }] : [];
     },
     async modify(providerId, fn) {
       if (providerId !== stored.provider) return fn(undefined);

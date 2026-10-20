@@ -47,6 +47,7 @@
 import { DEFAULT_SERVICE_NAME, type TraceResource } from "../traces/otlp.js";
 import { TRACE_CONTENT_KINDS, type TraceContentKind } from "../traces/map.js";
 import { isTenantId } from "@nylorun/core/compatibility";
+import { LOOPBACK_HOSTS } from "@nylorun/core/contracts";
 import { blockedAddresses, type BlockedAddress } from "../sandbox/pods/network-gate.js";
 import { HostTuningError, parseHostTuning, type HostTuning } from "../tuning.js";
 
@@ -225,6 +226,13 @@ export interface HarnessServiceConfig {
 export interface StackConfig {
   /** The Runtime services this process runs. */
   services: RuntimeServices;
+  /**
+   * `NYLORUN_WORKLOAD_TOKEN_FILE`, the file of the Runtime's workload token, which a platform
+   * rotates and the Runtime reads at each use, and `NYLORUN_WORKLOAD_TOKEN_ORIGINS`, the
+   * comma-separated origins a `workload` credential's `via` may send it to (#496,
+   * `vault/workload-token.ts`). Absent: no workload token.
+   */
+  workloadToken?: { file?: string; origins?: string[] };
   /** Present when the process runs gates. */
   gates?: GatesConfig;
   /** Present when the process runs egress. */
@@ -647,6 +655,7 @@ export function parseStackConfig(
     throw new StackConfigError("NYLORUN_HARNESS_LISTEN_PORT must differ from NYLORUN_LISTEN_PORT");
   const delivery = parseDelivery(env);
   const tenant = servesApi ? parseTenant(env) : undefined;
+  const workloadToken = parseWorkloadToken(env);
   const objectStore = parseObjectStore(env);
   const traces = services.has("core") ? parseTraces(env) : undefined;
   const removedResolverVariables = Object.keys(env)
@@ -669,6 +678,7 @@ export function parseStackConfig(
     ...(sandboxes ? { sandboxes } : {}),
     ...(delivery ? { delivery } : {}),
     ...(tenant ? { tenant } : {}),
+    ...(workloadToken ? { workloadToken } : {}),
     ...(objectStore ? { objectStore } : {}),
     ...(traces ? { traces } : {}),
     ...(tuning ? { tuning } : {}),
@@ -784,6 +794,40 @@ function parseTenant(env: EnvSnapshot): TenantSettings {
     ...(identityFile ? { identityFile } : {}),
     ...(managementKeyFile ? { managementKeyFile } : {}),
   };
+}
+
+/**
+ * `StackConfig.workloadToken` (#496): the Runtime's workload token, which the gates read for a
+ * custom model and for `workload` credentials, and the in-process Tenant does without them.
+ */
+function parseWorkloadToken(env: EnvSnapshot): StackConfig["workloadToken"] {
+  const file = read(env, "NYLORUN_WORKLOAD_TOKEN_FILE");
+  const origins = parseOrigins(read(env, "NYLORUN_WORKLOAD_TOKEN_ORIGINS"));
+  if (file === undefined && origins === undefined) return undefined;
+  return { ...(file ? { file } : {}), ...(origins ? { origins } : {}) };
+}
+
+/** `NYLORUN_WORKLOAD_TOKEN_ORIGINS`: each an `https` origin (`http` only to a loopback host). */
+function parseOrigins(raw: string | undefined): string[] | undefined {
+  if (raw === undefined) return undefined;
+  return raw
+    .split(",")
+    .map((item) => item.trim())
+    .filter((item) => item !== "")
+    .map((item) => {
+      let url: URL;
+      try {
+        url = new URL(item);
+      } catch {
+        throw new StackConfigError(`NYLORUN_WORKLOAD_TOKEN_ORIGINS: ${item} is not a URL`);
+      }
+      const loopback = url.protocol === "http:" && LOOPBACK_HOSTS.test(url.hostname);
+      if ((url.protocol !== "https:" && !loopback) || url.origin !== item.replace(/\/$/, ""))
+        throw new StackConfigError(
+          `NYLORUN_WORKLOAD_TOKEN_ORIGINS: ${item} must be an https origin, such as https://gateway.example.com`,
+        );
+      return url.origin;
+    });
 }
 
 const GATES_TOKEN = /^[0-9a-f]{64,}$/i;

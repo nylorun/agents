@@ -385,7 +385,11 @@ without an Environment sends none. OSS holds no OAuth client and asks no credent
 URL still picks it, and its **identity header** carries the session owner's subject (none for an
 `installation` session), and its **tool prefix** what the gateway puts before each tool name it
 lists (`gateway-credentials`, #494): `sdkClient` takes it off the tools it lists and puts it back
-on each call. It is set on an Agent's secret, never in a manifest. A `401` is the tool error `credential_rejected` (R2b C1, C2), and so is a
+on each call. It is set on an Agent's secret, never in a manifest. A `workload` credential holds
+no value: `sessionCredentials` adds the Runtime's **workload token** as its bearer
+(`vault/workload-token.ts`, `NYLORUN_WORKLOAD_TOKEN_FILE`, read at each use, #496), only to a `via`
+whose origin `NYLORUN_WORKLOAD_TOKEN_ORIGINS` lists; a custom model with `auth.type: "workload"`
+sends it too (`modelsFor`'s `bearer`). A `401` is the tool error `credential_rejected` (R2b C1, C2), and so is a
 gateway's answer, through `via`, that reports the server behind it answered `401` (LiteLLM's
 `_meta["litellm.ai/server_outcomes"]`, `mcp/gateway-outcomes.ts`, #495): the integration refused the
 credential, and the server's discovery is `failed`. **Credential

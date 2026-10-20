@@ -424,7 +424,8 @@
                     "type": "string",
                     "enum": [
                       "api_key",
-                      "oauth"
+                      "oauth",
+                      "workload"
                     ]
                   },
                   "baseUrl": {
@@ -1119,6 +1120,21 @@
                       "expires"
                     ],
                     "additionalProperties": {}
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "workload"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "type"
+                    ],
+                    "additionalProperties": false
                   }
                 ]
               }
@@ -2634,7 +2650,8 @@
                   "type": "string",
                   "enum": [
                     "api_key",
-                    "oauth"
+                    "oauth",
+                    "workload"
                   ]
                 },
                 "baseUrl": {
@@ -2813,7 +2830,8 @@
                 "type": "string",
                 "enum": [
                   "api_key",
-                  "oauth"
+                  "oauth",
+                  "workload"
                 ]
               },
               "baseUrl": {
@@ -3108,6 +3126,21 @@
                   "expires"
                 ],
                 "additionalProperties": {}
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "workload"
+                    ]
+                  }
+                },
+                "required": [
+                  "type"
+                ],
+                "additionalProperties": false
               }
             ]
           }

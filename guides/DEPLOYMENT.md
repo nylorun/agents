@@ -1224,12 +1224,13 @@ person with `agents:write`. `GET .../secrets` lists names, types and bindings, a
 `DELETE .../secrets/{name}` removes one. When the manifest declares the slot, send only
 `{ value }` (or `{ headers }`): the type and binding below come from the slot. A credential for a
 tool is bound to one URL, the one the manifest names, and its name is a label (1–64 letters,
-digits, `.`, `_` and `-`). It is one of two types:
+digits, `.`, `_` and `-`). It is one of three types:
 
 | `type` | Body | Sends |
 | --- | --- | --- |
 | `bearer` | `{ type: "bearer", url, value }` | `Authorization: Bearer <value>` |
 | `headers` | `{ type: "headers", url, headers: { … } }` | Every header of the map: an `x-api-key`, two keys at once (Datadog's API and application keys), or a scheme other than `Bearer` |
+| `workload` | `{ type: "workload", url, via }` | `Authorization: Bearer <the Runtime's workload token>`, to `via` only ([The workload token](#the-workload-token)). It holds no value |
 
 Either kind may add:
 
@@ -1398,6 +1399,35 @@ among these: nothing in the open-source Runtime is specific to it.
 { "type": "headers", "url": "<the server's own URL>", "via": "<the Cloud MCP gateway's URL>",
   "headers": { "x-api-key": "<installation key>" }, "identity": { "header": "<its user header>" } }
 ```
+
+#### The workload token
+
+A platform that runs Runtimes can give each installation a short-lived token and rotate it through
+a file, so its gateways trust the workload instead of a stored key (#496). Vercel's OIDC token
+(`VERCEL_OIDC_TOKEN_FILE`) is one. Point the Runtime at it:
+
+| Variable | Value |
+| --- | --- |
+| `NYLORUN_WORKLOAD_TOKEN_FILE` | The token's file. The Runtime reads it at each use and keeps nothing, so a rotation applies to the next request with no restart. A missing, unreadable or empty file fails the request with a message naming the variable; nothing is sent without the token |
+| `NYLORUN_WORKLOAD_TOKEN_ORIGINS` | The comma-separated origins the token may go to, such as `https://connections.example.com`: each `https` (`http` only to a loopback host) |
+
+Set both on every container that makes the calls: in the local stack, the `gateway` container,
+and the `runtime` container of a Runtime without the gates service. Mount the file read-only.
+
+- **Tools.** A `workload` credential (`{ type: "workload", url, via, identity?, toolPrefix? }`)
+  sends `Authorization: Bearer <token>` and, as any credential, the identity header to `via`. Its
+  writer chooses `via`, so the Runtime sends the token only when `via`'s origin is in
+  `NYLORUN_WORKLOAD_TOKEN_ORIGINS`, checked at each request; otherwise the server is `refused` at
+  discovery. A `401` from the gateway is `credential_rejected`, with `gateway` naming its origin,
+  so an expired or unrotated token shows. The gateway's report of an upstream `401` and its tool
+  prefix apply as for any credential. It cannot fill a manifest's secret slot: write it to the
+  Agent by URL, and a fork does not copy it.
+- **The model.** `PUT /v1/tenant/model` with `{ "provider": "custom", "baseUrl": "…", "auth": { "type": "workload" } }`
+  sends the token as the custom endpoint's bearer, read at each call. Only a custom endpoint takes
+  it: its `baseUrl` is the operator's, so no origin list applies.
+- The token stays in the process that makes the call. It never reaches a sandbox (the sandbox's
+  environment has no `NYLORUN_*` variable), the model, an event or a log, and is scrubbed from what
+  a server or the provider echoes, like any credential value.
 
 #### Gateways that mint something per person
 

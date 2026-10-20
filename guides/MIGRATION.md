@@ -10,6 +10,14 @@ is `npx nylorun <command>`, help, output and exit codes included. It prints no d
 | `nylo` from `@nylorun/cli` in an npm script | `nylorun` (from either package); `nylo` stays in nylorun until 0.19 |
 | `npm i -g @nylorun/cli` for `nylo` | `npm i -g nylorun` or `npm i -g @nylorun/cli`, not both: each provides `nylorun` (`EEXIST`) |
 
+# The workload token
+
+Additive. A Runtime given `NYLORUN_WORKLOAD_TOKEN_FILE` can send that rotating token as the bearer
+of a custom model (`auth: { type: "workload" }`) and of a new `workload` credential, which sends it
+to its `via` when the origin is in `NYLORUN_WORKLOAD_TOKEN_ORIGINS` (#496). A platform that wrote a
+short-lived key into the Tenant's model and every Agent's MCP secrets before each expiry can write
+the file instead. An older Runtime refuses both (`400`).
+
 # Headers for a custom model endpoint
 
 Additive. A custom endpoint's `settings` (`PUT /v1/tenant/model`) take `headers`, sent on every
