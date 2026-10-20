@@ -75,6 +75,7 @@ spacing:
   toolbar-height: 56px
   sidebar-width: 256px
   panel-width: 448px
+  panel-wide-width: 672px
 components:
   button-primary:
     backgroundColor: "{colors.primary}"
@@ -166,7 +167,7 @@ Weights are 400 for text and 600 for headings; avoid 700. Digits in columns use 
 
 ## Layout
 
-The app is a 256px sidebar and a full-width main area under a 56px header bar. A page is a header (title, a state badge, one line of facts), then one row of underline tabs, then one table with a 56px toolbar above it. Tables run edge to edge; the only inset is the 16px gutter at the start of every toolbar, cell and header. Rows are one line, 40px high: long text ends in an ellipsis and shows in full on hover. A row's detail opens in a 448px side panel on the right; a list you keep browsing opens its detail in a pane beside it.
+The app is a 256px sidebar and a full-width main area under a 56px header bar. A page is a header (title, a state badge, one line of facts), then one row of underline tabs, then one table with a 56px toolbar above it. Tables run edge to edge; the only inset is the 16px gutter at the start of every toolbar, cell and header. Rows are one line, 40px high: long text ends in an ellipsis and shows in full on hover. A row's detail or a form opens in a 448px side panel on the right; a file, payload or spec to read opens in a 672px one (`panel-wide-width`). A list you keep browsing opens its detail in a pane beside it.
 
 ## Elevation & Depth
 
@@ -183,7 +184,7 @@ Use shadcn/ui components unchanged, with Lucide icons at 16px:
 - **Button:** `default` (primary) for the one main action on a view, `outline` for secondary actions, `ghost` for icon buttons and inside rows, `destructive` only to confirm a delete. Labels are verbs in sentence case; end with "…" when the button opens a panel or a confirm.
 - **Table:** shadcn's Table with single-line rows. The first column is the thing's id or name, the last a ghost ⋯ button that opens a DropdownMenu. Destructive menu items come last, after a separator.
 - **Tabs:** one row of underline tabs per page, ordered by how the work flows. No counts, no icons, no tabs inside a tab.
-- **Sheet:** the side panel, from the right, for one row's detail or form.
+- **Sheet:** the side panel, from the right: 448px for one row's detail or a form, 672px for a file, payload or spec to read.
 - **Badge:** outline, holding a status dot and the state's word. A count of things waiting on a person is a `default` (zinc) badge.
 - **DropdownMenu:** filters ("Status: Any") and ⋯ actions.
 - **Sidebar:** shadcn's Sidebar: the brand, the Tenant, then the Agents with their status dots.

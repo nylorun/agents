@@ -95,7 +95,7 @@ export function AgentManifestPanel({
             </div>
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-base leading-tight font-semibold">{agent.name}</h2>
+                <h2 className="text-sm leading-tight font-semibold">{agent.name}</h2>
                 <Badge variant="secondary">{isWorkflow ? "Flow agent" : "Agent"}</Badge>
               </div>
               <div className="mt-1 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">

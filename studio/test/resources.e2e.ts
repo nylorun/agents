@@ -793,7 +793,7 @@ test("an embedded artifact inspector navigates and downloads without a Studio be
       download.url(),
       /\/_studio\/tenants\/[^/]+\/runtime\/v1\/artifact-links\/v1$/,
     );
-    await frame.getByRole("tab", { name: "Versions (2)", exact: true }).click();
+    await frame.getByRole("tab", { name: "Versions", exact: true }).click();
     await frame.getByRole("button", { name: "Version 2", exact: true }).click();
     await frame.getByText("Report version 2", { exact: true }).waitFor();
     assert.ok(

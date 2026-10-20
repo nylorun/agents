@@ -476,7 +476,7 @@ export function ModelSettings({ tenantId }: Readonly<{ tenantId: string }>) {
               Provider
               {panelMode === "add" ? (
                 <select
-                  className="h-9 rounded-md border bg-transparent px-3"
+                  className="h-8 rounded-md border bg-transparent px-3"
                   value={provider}
                   onChange={(event) => {
                     const next = event.target.value;
@@ -588,7 +588,7 @@ export function ModelSettings({ tenantId }: Readonly<{ tenantId: string }>) {
               <label className="grid gap-1 text-sm">
                 Model
                 <select
-                  className="h-9 rounded-md border bg-transparent px-3"
+                  className="h-8 rounded-md border bg-transparent px-3"
                   value={model}
                   onChange={(event) => setModel(event.target.value)}
                   required

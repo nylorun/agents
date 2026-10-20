@@ -81,7 +81,7 @@ export function ResourceHeader({
 }) {
   return (
     <header className="flex shrink-0 items-center gap-2 border-b px-4 py-3">
-      <h2 className="min-w-0 flex-1 break-all text-sm font-medium">{title}</h2>
+      <h2 className="min-w-0 flex-1 break-all text-sm font-semibold">{title}</h2>
       {children}
       {onClose ? (
         <Button

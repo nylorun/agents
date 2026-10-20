@@ -158,7 +158,7 @@ export function AgentTriggers({
         </p>
       ) : null}
       <TableToolbar>
-        <h2 className="text-sm font-medium">Triggers</h2>
+        <h2 className="text-sm font-semibold">Triggers</h2>
         <ToolbarCount>{countText(shown.length, shown.length, "trigger", "triggers")}</ToolbarCount>
       </TableToolbar>
       <TableFrame minWidth={760}>
@@ -205,7 +205,7 @@ export function AgentTriggers({
       </TableFrame>
       <ReadState {...triggers} onRetry={triggers.reload} />
       <TableToolbar>
-        <h2 className="mr-2 text-sm font-medium">Runs</h2>
+        <h2 className="mr-2 text-sm font-semibold">Runs</h2>
         <FilterMenu
           label="Trigger"
           value={trigger}

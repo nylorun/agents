@@ -224,7 +224,7 @@ export function SidePanel({
 }>) {
   return (
     <Sheet open onOpenChange={(open) => !open && onClose()}>
-      <SheetContent side="right" className={cn("w-full gap-0 overflow-hidden", wide ? "sm:max-w-xl" : "sm:max-w-md")}>
+      <SheetContent side="right" className={cn("w-full gap-0 overflow-hidden", wide ? "sm:max-w-2xl" : "sm:max-w-md")}>
         <SheetHeader className="flex-row items-start gap-2 border-b py-3.5 pr-12 pl-5">
           <div className="min-w-0 flex-1">
             <SheetTitle className="truncate text-sm">{title}</SheetTitle>

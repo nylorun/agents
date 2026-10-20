@@ -57,7 +57,7 @@ export function Section({
   return (
     <section className="space-y-3 rounded-lg border p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-sm font-medium">{title}</h2>
+        <h2 className="text-sm font-semibold">{title}</h2>
         {actions}
       </div>
       {children}

@@ -89,7 +89,7 @@ export function EventTable({
   return (
     <section className="flex h-full min-h-0 flex-col overflow-hidden">
       <div className="flex h-12 shrink-0 items-center gap-3 border-b bg-background px-4">
-        <h2 className="text-sm font-medium">Events</h2>
+        <h2 className="text-sm font-semibold">Events</h2>
         <span className="text-xs text-muted-foreground">
           {events.length} total
         </span>

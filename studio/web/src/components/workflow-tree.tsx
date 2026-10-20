@@ -146,7 +146,7 @@ export function WorkflowTree({
   return (
     <section className="flex h-full min-h-0 flex-col overflow-hidden">
       <div className="flex h-12 shrink-0 items-center gap-3 border-b px-4">
-        <h2 className="text-sm font-medium">Workflow tree</h2>
+        <h2 className="text-sm font-semibold">Workflow tree</h2>
         <span className="font-mono text-xs text-muted-foreground">{root.path}</span>
       </div>
       <div className="min-h-0 flex-1 overflow-auto p-2">

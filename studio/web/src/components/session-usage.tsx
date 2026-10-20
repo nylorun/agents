@@ -230,7 +230,7 @@ export function SessionUsage({
       <div className="space-y-4 p-4">
         <section aria-label="Session" className="space-y-3 rounded-lg border p-4">
           <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-            <h2 className="text-sm font-medium" title={`As of ${fullTime(totals.asOf)}`}>
+            <h2 className="text-sm font-semibold" title={`As of ${fullTime(totals.asOf)}`}>
               Session
             </h2>
             <p className="text-xs text-muted-foreground">
@@ -333,7 +333,7 @@ export function SessionUsage({
         </section>
 
         <section aria-label="Model calls" className="space-y-2">
-          <h3 className="text-sm font-medium">Model calls</h3>
+          <h3 className="text-sm font-semibold">Model calls</h3>
           {calls.length === 0 ? (
             <p className="text-sm text-muted-foreground">No model calls yet.</p>
           ) : (

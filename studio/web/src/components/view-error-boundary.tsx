@@ -45,7 +45,7 @@ export class ViewErrorBoundary extends Component<Props, State> {
         role="alert"
         className="m-4 flex shrink-0 flex-col items-start gap-3 rounded-lg border p-4"
       >
-        <h2 className="font-medium">Something went wrong in this view</h2>
+        <h2 className="text-sm font-semibold">Something went wrong in this view</h2>
         <p className="font-mono text-sm break-all text-muted-foreground">
           {this.state.message}
         </p>

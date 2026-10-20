@@ -119,7 +119,7 @@ export function ForkSheet({
   const diskValue = String(form.disk);
   return (
     <Sheet open onOpenChange={(open) => (open ? undefined : onClose())}>
-      <SheetContent className="w-full overflow-y-auto sm:max-w-xl">
+      <SheetContent className="w-full overflow-y-auto sm:max-w-md">
         <form className="flex min-h-full flex-col" onSubmit={submit}>
           <SheetHeader>
             <SheetTitle>Fork {source.id}</SheetTitle>
@@ -150,7 +150,7 @@ export function ForkSheet({
               <label className="grid gap-1 text-sm">
                 Disk
                 <select
-                  className="h-9 rounded-md border bg-background px-2"
+                  className="h-8 rounded-md border bg-background px-2"
                   value={diskValue}
                   onChange={(e) =>
                     set({
@@ -172,7 +172,7 @@ export function ForkSheet({
             <label className="grid gap-1 text-sm">
               Secrets
               <select
-                className="h-9 rounded-md border bg-background px-2"
+                className="h-8 rounded-md border bg-background px-2"
                 value={form.secrets}
                 onChange={(e) => set({ secrets: e.target.value as "copy" | "none" })}
               >
