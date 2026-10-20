@@ -383,7 +383,9 @@ without an Environment sends none. OSS holds no OAuth client and asks no credent
 (protocol 10, D49): a person's own keys go in the Environment the app maps to them. A credential is a `bearer` token or a
 `headers` map; its **via** sends the server's requests elsewhere (an MCP gateway) while the manifest's
 URL still picks it, and its **identity header** carries the session owner's subject (none for an
-`installation` session). A `401` is the tool error `credential_rejected` (R2b C1, C2), and so is a
+`installation` session), and its **tool prefix** what the gateway puts before each tool name it
+lists (`gateway-credentials`, #494): `sdkClient` takes it off the tools it lists and puts it back
+on each call. It is set on an Agent's secret, never in a manifest. A `401` is the tool error `credential_rejected` (R2b C1, C2), and so is a
 gateway's answer, through `via`, that reports the server behind it answered `401` (LiteLLM's
 `_meta["litellm.ai/server_outcomes"]`, `mcp/gateway-outcomes.ts`, #495): the integration refused the
 credential, and the server's discovery is `failed`. **Credential
@@ -704,14 +706,16 @@ workspace run in order and different sessions' at once; opening, stopping and re
 alone (`sandbox/manager.ts`).
 
 **Protocol**: Wire integer and feature set in `Nylorun-Protocol` /
-`HOST_PROTOCOL` (`PROTOCOL_VERSION = 15`; the Host serves protocol 15 only and answers
-older clients `426`; required features `studio-principal`, `artifacts`, `management-api`,
-`resource-server`, `environments`, `model-inputs`, `flat-manifest`, `environment-manifests` and
-`harness-boundary`;
+`HOST_PROTOCOL` (`PROTOCOL_VERSION = 18`; the Host serves protocol 16 to 18 and answers
+other clients `426`; required features `studio-principal`, `artifacts`, `management-api`,
+`resource-server`, `model-inputs`, `flat-manifest`, `harness-boundary`, `agents`,
+`session-queue` and `usage-by-kind`;
 optional Host features `tenant-fixture-model`, `transcript-events`, `subject-headers`,
 `ag-ui-endpoint`, `a2a-endpoint`, `sandbox-pods`, `trusted-issuers`, `session-reads`,
 `calls-export`, `credential-coverage`, `tool-calls`, `environment-setup`,
-`environment-disk-versions`, `tool-policy`, `traces` and `artifact-reads`).
+`environment-disk-versions`, `tool-policy`, `traces`, `artifact-reads` and
+`gateway-credentials`).
+Protocols 17 (the session queue) and 18 (usage by token kind) were additive.
 Protocol 16 made agents one manifest (track T2, `agents`, Harness API 5): an **agent manifest** v8
 with a harness and a runtime section, checked against each other at save, replaced agent
 definitions and environment manifests, and **Agents** (`/v1/agents/{id}`, made from a manifest

@@ -309,13 +309,23 @@ export const IDEMPOTENCY_META_KEY = "nylorun/idempotency-key";
 export interface GatewayRouting {
   /** Where the server's requests go (the credential's `via`). */
   readonly via: string;
+  /** What the gateway puts before each tool name it lists (the credential's `toolPrefix`, #494). */
+  readonly toolPrefix?: string;
 }
+
+/**
+ * Where a `tools/list` page names the tools a gateway listed without the credential's
+ * `toolPrefix` (#494): kept under their listed names, for discovery's diagnostic.
+ */
+export const UNPREFIXED_TOOLS_META_KEY = "nylorun/unprefixed-tools";
 
 /**
  * An SDK `Client` as an `McpClient`. Its answers and failures carry no credential value sent
  * with them (R2b C8), and a failed call is an `McpCallFailed` (C7). A keyed call sends its key in
  * `_meta` (R5.5). Through a `gateway`, an answer that reports the server refused the credential
- * is `CredentialRejected`, as a `401` is (#495).
+ * is `CredentialRejected`, as a `401` is (#495), and a gateway's `toolPrefix` is taken off the
+ * tools it lists and put back on the calls (#494): everything after this client names the
+ * server's own tools.
  */
 export function sdkClient(
   client: Client,
@@ -323,14 +333,44 @@ export function sdkClient(
   errorChars: number,
   gateway?: GatewayRouting,
 ): McpClient {
-  const rejected = (answer: unknown) => gateway !== undefined && gatewayAuthFailure(answer, [serverName]);
+  const prefix = gateway?.toolPrefix;
+  // The gateway may name the server by the prefix's stem (LiteLLM's `github-` for `github`).
+  const keys = prefix === undefined ? [serverName] : [serverName, prefix.replace(/[^A-Za-z0-9]+$/, "")];
+  const rejected = (answer: unknown) => gateway !== undefined && gatewayAuthFailure(answer, keys);
+  // The name the gateway listed for each tool, by the server's own name, and the names it listed
+  // without the prefix: a call sends the tool's name as the gateway listed it.
+  const listedAs = new Map<string, string>();
+  const unprefixed = new Set<string>();
+  const listedName = (name: string) =>
+    prefix === undefined || unprefixed.has(name) ? name : (listedAs.get(name) ?? `${prefix}${name}`);
+  const stripped = (page: McpToolPage): McpToolPage => {
+    if (prefix === undefined) return page;
+    const missing: string[] = [];
+    const tools = page.tools.map((tool) => {
+      if (typeof tool.name === "string" && tool.name.startsWith(prefix) && tool.name.length > prefix.length) {
+        const name = tool.name.slice(prefix.length);
+        listedAs.set(name, tool.name);
+        return { ...tool, name };
+      }
+      if (typeof tool.name === "string") {
+        unprefixed.add(tool.name);
+        missing.push(tool.name);
+      }
+      return tool;
+    });
+    return {
+      ...page,
+      tools,
+      ...(missing.length === 0 ? {} : { _meta: { ...page._meta, [UNPREFIXED_TOOLS_META_KEY]: missing } }),
+    };
+  };
   return {
     listTools: (params, options) =>
       tracked(false, async (tracker) => {
         try {
           const page = await client.listTools(params, options?.signal ? { signal: options.signal } : undefined);
           if (rejected(page)) throw new CredentialRejected(serverName, true);
-          return scrubbed(page, tracker) as McpToolPage;
+          return stripped(scrubbed(page, tracker) as McpToolPage);
         } catch (error) {
           throw scrubError(error, tracker);
         }
@@ -342,10 +382,11 @@ export function sdkClient(
       return tracked(true, async (tracker) => {
         const lost = tracker.calling!.signal;
         try {
+          const named = { ...params, name: listedName(params.name) };
           const keyed =
             options?.key === undefined
-              ? params
-              : { ...params, _meta: { [IDEMPOTENCY_META_KEY]: options.key } };
+              ? named
+              : { ...named, _meta: { [IDEMPOTENCY_META_KEY]: options.key } };
           const result = (await client.callTool(keyed, undefined, {
             signal: options?.signal ? AbortSignal.any([options.signal, lost]) : lost,
           })) as Record<string, unknown>;
@@ -416,9 +457,12 @@ export async function openMcpServer(input: {
       serverInfo: info ? (scrubbed({ ...info }, tracker) as Record<string, unknown>) : undefined,
     };
   }, { errorChars });
-  const via = initial.status === "authorized" ? initial.via : undefined;
+  const gateway: GatewayRouting | undefined =
+    initial.status === "authorized" && initial.via !== undefined
+      ? { via: initial.via, ...(initial.toolPrefix === undefined ? {} : { toolPrefix: initial.toolPrefix }) }
+      : undefined;
   return {
-    client: sdkClient(client, input.server.name, errorChars, via === undefined ? undefined : { via }),
+    client: sdkClient(client, input.server.name, errorChars, gateway),
     ...(instructions === undefined ? {} : { instructions }),
     ...(serverInfo === undefined ? {} : { serverInfo }),
     close: () => client.close(),
@@ -454,8 +498,11 @@ export async function listMcpTools(
   omitted: string[];
   disabled: number;
   unknownTools: string[];
+  /** The tools a gateway listed without the credential's `toolPrefix`, as it named them (#494). */
+  unprefixed: string[];
 }> {
   const listed: McpToolPage["tools"][number][] = [];
+  const unprefixed: string[] = [];
   let cursor: string | undefined;
   const pages = hostTuning().harness.mcpListPages;
   for (let page = 0; page < pages; page += 1) {
@@ -464,6 +511,8 @@ export async function listMcpTools(
       input.signal ? { signal: input.signal } : undefined,
     );
     listed.push(...answer.tools);
+    const missing = answer._meta?.[UNPREFIXED_TOOLS_META_KEY];
+    if (Array.isArray(missing)) unprefixed.push(...missing.filter((name): name is string => typeof name === "string"));
     cursor = answer.nextCursor;
     if (!cursor) break;
   }
@@ -498,7 +547,7 @@ export async function listMcpTools(
       ...(annotations === undefined || Object.keys(annotations).length === 0 ? {} : { annotations }),
     });
   }
-  return { tools, omitted, disabled, unknownTools };
+  return { tools, omitted, disabled, unknownTools, unprefixed };
 }
 
 /**

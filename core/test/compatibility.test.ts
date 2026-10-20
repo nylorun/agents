@@ -186,6 +186,9 @@ describe("checkCompatibility", () => {
     expect(HOST_PROTOCOL).toMatchObject({ min: 16, max: 18 });
     // Protocol 18 is additive: usage reads carry the cost by token kind and the calls' timing.
     expect(PROTOCOL_FEATURES).toContain("usage-by-kind");
+    // A gateway's tool prefix is an optional Host feature: no client requires it.
+    expect(PROTOCOL_FEATURES).not.toContain("gateway-credentials");
+    expect(HOST_PROTOCOL.features).toContain("gateway-credentials");
     expect(checkCompatibility({ version: 18, required: [...PROTOCOL_FEATURES] }, HOST_PROTOCOL)).toMatchObject({ ok: true });
     // Protocol 17 is additive: the session queue (D76), whose refusal has a code.
     expect(PROTOCOL_FEATURES).toContain("session-queue");

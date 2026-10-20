@@ -6,7 +6,7 @@
 import { RUNTIME_LIMIT_DEFAULTS } from "@nylorun/core/contracts";
 import { describe, expect, it } from "vitest";
 import { Agent } from "@nylorun/core/define";
-import { listMcpTools, type McpClient } from "../src/mcp/connect.js";
+import { listMcpTools, UNPREFIXED_TOOLS_META_KEY, type McpClient } from "../src/mcp/connect.js";
 import { McpPool } from "../src/mcp/pool.js";
 import { mcpDiscovered } from "../src/mcp/snapshot.js";
 
@@ -53,6 +53,26 @@ describe("listing a server's tools", () => {
     const listed = await listMcpTools(odd, { serverName: "files" });
     expect(listed.tools.map((tool) => tool.name)).toEqual(["a"]);
     expect(listed.omitted).toEqual(["b"]);
+  });
+});
+
+describe("a gateway's tool prefix (#494)", () => {
+  it("reports, across pages, the tools a gateway listed without the prefix", async () => {
+    const pages = [
+      { tools: [{ name: "echo", inputSchema: { type: "object" } }], nextCursor: "2" },
+      {
+        tools: [{ name: "plain", inputSchema: { type: "object" } }],
+        _meta: { [UNPREFIXED_TOOLS_META_KEY]: ["plain"] },
+      },
+    ];
+    const paged: McpClient = {
+      listTools: async (params) => pages[params?.cursor ? 1 : 0]!,
+      callTool: async () => ({ result: {} }),
+    };
+    const listed = await listMcpTools(paged, { serverName: "x" });
+    expect(listed.tools.map((tool) => tool.name)).toEqual(["echo", "plain"]);
+    expect(listed.unprefixed).toEqual(["plain"]);
+    expect((await listMcpTools(client(["echo"]), { serverName: "x" })).unprefixed).toEqual([]);
   });
 });
 

@@ -32,7 +32,8 @@
         "environment-disk-versions",
         "tool-policy",
         "traces",
-        "artifact-reads"
+        "artifact-reads",
+        "gateway-credentials"
       ]
     },
     "description": "For developers: agent manifests, Agents, sessions (with AG-UI and A2A) and artifacts, through `@nylorun/agents`. Every Tenant serves it on its one URL, beside the Management API (`/openapi/management.json`). Every request sends `Nylorun-Protocol`. Who may call each operation is its `security` and its `x-nylorun-credentials` and `x-nylorun-scopes` (the subject scopes that reach it) fields: an application key (servers) or a trusted issuer's token (browsers and apps)."
@@ -20847,6 +20848,9 @@
                 "via": {
                   "type": "string"
                 },
+                "toolPrefix": {
+                  "type": "string"
+                },
                 "identity": {
                   "type": "object",
                   "properties": {
@@ -20939,6 +20943,9 @@
           "via": {
             "type": "string"
           },
+          "toolPrefix": {
+            "type": "string"
+          },
           "identity": {
             "type": "object",
             "properties": {
@@ -20984,6 +20991,12 @@
               "type": "string",
               "minLength": 1
             }
+          },
+          "toolPrefix": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "^[\\x21-\\x7e]+$"
           }
         },
         "additionalProperties": false
@@ -27597,6 +27610,12 @@
                           "header"
                         ],
                         "additionalProperties": false
+                      },
+                      "toolPrefix": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 64,
+                        "pattern": "^[\\x21-\\x7e]+$"
                       }
                     },
                     "required": [
@@ -27645,6 +27664,12 @@
                           "header"
                         ],
                         "additionalProperties": false
+                      },
+                      "toolPrefix": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 64,
+                        "pattern": "^[\\x21-\\x7e]+$"
                       }
                     },
                     "required": [

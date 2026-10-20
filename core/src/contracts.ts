@@ -1552,10 +1552,29 @@ export const CredentialViaSchema = z.string().superRefine((value, ctx) => {
  */
 export const CredentialIdentitySchema = z.object({ header: CredentialHeaderNameSchema }).strict();
 export type CredentialIdentity = z.infer<typeof CredentialIdentitySchema>;
+/**
+ * `toolPrefix`: what the gateway at `via` puts before each tool name it lists, such as
+ * LiteLLM's `github-` (Host feature `gateway-credentials`). The Runtime lists the server's tools
+ * without it, so tool names, a manifest's `tools` settings and tool policy rules name the server's
+ * own tools, and calls a tool by the name the gateway listed. Only with `via`, and only on an
+ * Agent's secret: how a gateway names tools is the installation's routing, never a manifest's.
+ */
+export const CredentialToolPrefixSchema = z
+  .string()
+  .min(1)
+  .max(64)
+  .regex(/^[\x21-\x7e]+$/, "A tool prefix is printable ASCII with no spaces");
 /** Where a credential's requests go, and whom they name. Neither is secret. */
 const credentialRouting = {
   via: CredentialViaSchema.optional(),
   identity: CredentialIdentitySchema.optional(),
+};
+/** A `toolPrefix` names how a gateway lists tools, so it needs the gateway's `via`. */
+const prefixNeedsVia = (routing: { via?: string | undefined; toolPrefix?: string | undefined }) =>
+  routing.toolPrefix === undefined || routing.via !== undefined;
+const PREFIX_NEEDS_VIA = {
+  message: "toolPrefix needs via: it is how the gateway there names tools",
+  path: ["toolPrefix"],
 };
 /** On rotate: absent keeps the current value, `null` removes it. */
 const credentialRoutingChange = {
@@ -1685,8 +1704,10 @@ export const PutAgentSecretRequestSchema = z.discriminatedUnion("type", [
       url: z.string().min(1),
       value: z.string().min(1),
       ...credentialRouting,
+      toolPrefix: CredentialToolPrefixSchema.optional(),
     })
-    .strict(),
+    .strict()
+    .refine(prefixNeedsVia, PREFIX_NEEDS_VIA),
   z
     .object({
       requestId: RequestIdSchema.optional(),
@@ -1694,19 +1715,24 @@ export const PutAgentSecretRequestSchema = z.discriminatedUnion("type", [
       url: z.string().min(1),
       headers: CredentialHeadersSchema,
       ...credentialRouting,
+      toolPrefix: CredentialToolPrefixSchema.optional(),
     })
-    .strict(),
+    .strict()
+    .refine(prefixNeedsVia, PREFIX_NEEDS_VIA),
 ]);
 export type PutAgentSecretRequest = z.infer<typeof PutAgentSecretRequestSchema>;
 /**
  * A secret write on an Environment whose manifest declares the secret's slot: only the
- * value, `value` (or `headers` for a `headers` slot). Its type and binding come from the slot.
+ * value, `value` (or `headers` for a `headers` slot). Its type and binding come from the slot,
+ * except the gateway's `toolPrefix`, which this installation's write may add to a slot with `via`.
  */
 export const PutAgentSecretValueRequestSchema = z
   .object({
     requestId: RequestIdSchema.optional(),
     value: z.string().min(1).optional(),
     headers: CredentialHeadersSchema.optional(),
+    /** A `bearer` or `headers` slot with `via`: how the gateway there prefixes tool names. */
+    toolPrefix: CredentialToolPrefixSchema.optional(),
   })
   .strict()
   .refine((body) => (body.value === undefined) !== (body.headers === undefined), {
@@ -2566,6 +2592,8 @@ export const AgentSecretViewSchema = z
     /** A `headers` credential's header names (lower case), never their values. */
     headerNames: z.array(z.string()).optional(),
     via: z.string().optional(),
+    /** How the gateway at `via` prefixes tool names (Host feature `gateway-credentials`). */
+    toolPrefix: z.string().optional(),
     identity: CredentialIdentitySchema.optional(),
     createdAt: z.string(),
     rotatedAt: z.string().optional(),

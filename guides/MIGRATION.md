@@ -10,6 +10,27 @@ is `npx nylorun <command>`, help, output and exit codes included. It prints no d
 | `nylo` from `@nylorun/cli` in an npm script | `nylorun` (from either package); `nylo` stays in nylorun until 0.19 |
 | `npm i -g @nylorun/cli` for `nylo` | `npm i -g nylorun` or `npm i -g @nylorun/cli`, not both: each provides `nylorun` (`EEXIST`) |
 
+# A gateway's tool prefix and its reports of a `401`
+
+Additive: no protocol change. The Runtime advertises the optional Host feature
+`gateway-credentials`.
+
+- **A gateway's tool prefix.** A `bearer` or `headers` credential with `via`, written to an
+  Agent's vault, may add `toolPrefix`: what the gateway puts before each tool name it lists. For a
+  manifest's secret slot, the value write adds it (`{ "headers": { … }, "toolPrefix": "github-" }`):
+  a manifest never names it. LiteLLM lists every tool as `<server>-<tool>`, so its
+  GitHub server needs `"toolPrefix": "github-"`. The Runtime lists the server's tools without the
+  prefix and calls each by the name the gateway listed. Tool names (`github__create_issue`), a
+  manifest's `tools` settings and tool policy rules then name the server's own tools, with or
+  without a gateway. Before, they had to use the gateway's names (`github-create_issue`). Write
+  them with the server's own names when you add the prefix.
+- **Reads.** Secret views (`GET /v1/agents/{id}/secrets`) carry `toolPrefix`. An older Runtime
+  refuses a write that names it (`400`): check `/health` for `gateway-credentials` first.
+- **A gateway's report of a `401`.** Through `via`, an answer in which the gateway reports that the
+  server behind it answered `401` (LiteLLM's `auth_required` in `_meta`, with HTTP 200) is now
+  `credential_rejected` and a `failed` discovery, as a `401` is. Before, it was a server with no
+  tools, or the tool error `mcp.tool`.
+
 # Session usage by token kind (protocol 18)
 
 Additive: the Runtime serves protocol 16, 17 and 18. A protocol 16 or 17 client reads usage as

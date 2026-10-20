@@ -101,6 +101,11 @@ export class McpPool {
             ...(listed.unknownTools.length === 0
               ? []
               : [`Its tools settings name tools it does not list: ${listed.unknownTools.join(", ")}`]),
+            ...(listed.unprefixed.length === 0
+              ? []
+              : [
+                  `${listed.unprefixed.length} of its tools lack the gateway's tool prefix and keep the names it listed: ${listed.unprefixed.join(", ")}`,
+                ]),
             ...(tooLong
               ? [
                   `Its instructions are ${Buffer.byteLength(text!)} bytes, more than a record entry holds (the Runtime limit recordEntryBytes, ${input.maxInstructionBytes} bytes), and are left out`,

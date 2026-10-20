@@ -664,9 +664,11 @@ async function parseSecretRequest(
   const full = slotRequest(slot);
   if (raw !== null && typeof raw === "object" && "type" in raw) {
     const body = PutAgentSecretRequestSchema.parse(raw);
-    const { requestId: _, value: _v, headers: _h, ...binding } = body as PutAgentSecretRequest & {
+    // The gateway's tool prefix is this installation's to add (`gateway-credentials`).
+    const { requestId: _, value: _v, headers: _h, toolPrefix: _p, ...binding } = body as PutAgentSecretRequest & {
       value?: string;
       headers?: unknown;
+      toolPrefix?: string;
     };
     if (canonical(binding) !== canonical(full))
       fail(409, `Secret ${name}'s type and binding come from Agent ${id}'s manifest: send only its value ({ "value": "…" }).`, {
@@ -674,8 +676,11 @@ async function parseSecretRequest(
       });
     return body;
   }
-  const { requestId, value, headers } = PutAgentSecretValueRequestSchema.parse(raw);
-  const withId = requestId === undefined ? {} : { requestId };
+  const { requestId, value, headers, toolPrefix } = PutAgentSecretValueRequestSchema.parse(raw);
+  const withId = {
+    ...(requestId === undefined ? {} : { requestId }),
+    ...(toolPrefix === undefined ? {} : { toolPrefix }),
+  };
   if (slot.type === "headers") {
     if (headers === undefined) fail(400, `Secret ${name} is a headers credential: send { "headers": { … } }.`);
     return PutAgentSecretRequestSchema.parse({ ...withId, ...full, headers });

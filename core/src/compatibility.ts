@@ -200,6 +200,9 @@ export type ProtocolFeature = (typeof PROTOCOL_FEATURES)[number];
  * `traces`: `GET /v1/sessions/{id}/turns/{turnId}/trace` answers a turn's spans as OTLP JSON,
  * the spans the Runtime posts to an OTLP collector when one is configured; a command or an AG-UI
  * or A2A request sent with a `traceparent` joins the caller's trace.
+ * `gateway-credentials`: a `bearer` or `headers` credential with `via`, written to an Agent's vault,
+ * may name the gateway's tool prefix (`toolPrefix`), which the Runtime takes off the tools it lists
+ * and puts back on each call.
  */
 export const OPTIONAL_HOST_FEATURES = [
   "tenant-fixture-model",
@@ -219,6 +222,7 @@ export const OPTIONAL_HOST_FEATURES = [
   "traces",
   /** Opt-in artifact metadata pages (`GET /v1/artifacts?limit=…`). */
   "artifact-reads",
+  "gateway-credentials",
 ] as const;
 export type OptionalHostFeature = (typeof OPTIONAL_HOST_FEATURES)[number];
 export interface ProtocolRange {

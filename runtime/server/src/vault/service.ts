@@ -186,6 +186,8 @@ type CredentialBinding = {
   variableName?: string;
   variableValue?: string;
   via?: string;
+  /** How the gateway at `via` prefixes tool names (`gateway-credentials`). */
+  toolPrefix?: string;
   identity?: CredentialIdentity;
   /** A `headers` credential's names, lower-cased. */
   headerNames?: string[];
@@ -204,6 +206,8 @@ export type AuthorizeResult =
       headers: Record<string, string>;
       /** Where the request goes instead of `url` (a gateway), when the credential has one. */
       via?: string;
+      /** How the gateway at `via` prefixes the server's tool names, when it does. */
+      toolPrefix?: string;
       /** The header that names the session owner; `sessionCredentials` adds it. */
       identity?: CredentialIdentity;
     }
@@ -643,6 +647,7 @@ export class VaultService {
       url,
       headers,
       ...(binding.via === undefined ? {} : { via: binding.via }),
+      ...(binding.toolPrefix === undefined ? {} : { toolPrefix: binding.toolPrefix }),
       ...(binding.identity === undefined ? {} : { identity: binding.identity }),
     };
   }
@@ -1105,6 +1110,7 @@ function secretViewOf(row: UserCredentialRow): AgentSecretView {
           : { url: binding.url! },
     ...(binding.headerNames === undefined ? {} : { headerNames: binding.headerNames }),
     ...(binding.via === undefined ? {} : { via: binding.via }),
+    ...(binding.toolPrefix === undefined ? {} : { toolPrefix: binding.toolPrefix }),
     ...(binding.identity === undefined ? {} : { identity: binding.identity }),
     createdAt: row.createdAt,
     ...(row.rotatedAt ? { rotatedAt: row.rotatedAt } : {}),
@@ -1229,13 +1235,14 @@ function payloadOf(
 function bindingOf(
   url: string,
   payload: SecretPayload,
-  routing: { via?: string | null; identity?: CredentialIdentity | null },
+  routing: { via?: string | null; toolPrefix?: string | null; identity?: CredentialIdentity | null },
 ): CredentialBinding {
   const sent = payload.headers ? Object.keys(payload.headers) : ["authorization"];
   checkCredentialHeaders(sent, routing.identity ?? undefined);
   return {
     url,
     ...(routing.via ? { via: routing.via } : {}),
+    ...(routing.via && routing.toolPrefix ? { toolPrefix: routing.toolPrefix } : {}),
     ...(routing.identity ? { identity: { header: routing.identity.header.toLowerCase() } } : {}),
     ...(payload.headers ? { headerNames: sent } : {}),
   };
@@ -1353,7 +1360,12 @@ function rebind(
     if (auth === undefined) return undefined;
     const sealed = payloadOf(auth);
     const routing = slot as { url: string; via?: string | null; identity?: CredentialIdentity | null };
-    return { type, payload: sealed, binding: bindingOf(normalizeVaultUrl(routing.url), sealed, routing) };
+    // The gateway's tool prefix is the vault's, not the slot's: it stays while the slot keeps `via`.
+    return {
+      type,
+      payload: sealed,
+      binding: bindingOf(normalizeVaultUrl(routing.url), sealed, { ...routing, toolPrefix: binding.toolPrefix ?? null }),
+    };
   } catch (error) {
     if (error instanceof VaultError) return undefined;
     throw error;

@@ -14,6 +14,7 @@ import { Agent, createClient, http, type AgentsClient } from "@nylorun/agents";
 import type { ModelProvider } from "../src/core/provider.js";
 import { startTestTenant } from "./support/tenant.js";
 import { deploy, writeSecret, type AgentSource, type DeployOptions } from "./support/agents.js";
+import { setToolPolicy } from "./support/tool-policy.js";
 
 const APP = "mcp-credentials-app-key-aaaaaaaaaa";
 const API_KEY = "vendor-api-key-plaintext-1a2b3c4d";
@@ -125,6 +126,35 @@ async function revokedGateway(options: { list?: "revoked"; call?: "meta" | "text
   return { url: `${origin(server)}/mcp/github`, seen };
 }
 
+/**
+ * A gateway like LiteLLM that lists every tool of the server behind it as `x-<tool>` (#494), and
+ * one it names without the prefix. It answers a call to the name it listed, keeping each name.
+ */
+async function prefixingGateway() {
+  const called: string[] = [];
+  const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
+    if (req.method !== "POST") return void res.writeHead(405).end();
+    const chunks: Buffer[] = [];
+    for await (const chunk of req) chunks.push(chunk as Buffer);
+    const body = JSON.parse(Buffer.concat(chunks).toString()) as { method?: string; params?: { name?: string } };
+    if (body.method === "tools/call" && body.params?.name) called.push(body.params.name);
+    const mcp = new McpServer({ name: "litellm", version: "1.106.0" });
+    for (const name of ["x-echo", "x-whoami", "plain"])
+      mcp.registerTool(name, { description: name, inputSchema: { value: z.string() } }, async ({ value }) => ({
+        content: [{ type: "text", text: `${name} ${value}` }],
+      }));
+    const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+    await mcp.connect(transport);
+    res.on("close", () => {
+      void transport.close().catch(() => {});
+      void mcp.close().catch(() => {});
+    });
+    await transport.handleRequest(req, res, body);
+  });
+  await listen(server);
+  return { url: `${origin(server)}/mcp/x`, called };
+}
+
 const servers: Server[] = [];
 async function listen(server: Server) {
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -158,6 +188,9 @@ let service: Awaited<ReturnType<typeof httpService>>;
 let revokedList: Awaited<ReturnType<typeof revokedGateway>>;
 let revokedCall: Awaited<ReturnType<typeof revokedGateway>>;
 let revokedText: Awaited<ReturnType<typeof revokedGateway>>;
+let prefixing: Awaited<ReturnType<typeof prefixingGateway>>;
+/** The URL the prefixed server's manifests name; the gateway reaches it. */
+const X_URL = "https://x.test/mcp";
 /** Ada's own Agent, guarded for her sessions. */
 const ADA = "users/ada";
 
@@ -204,6 +237,7 @@ beforeAll(async () => {
     revokedGateway({ call: "meta" }),
     revokedGateway({ call: "text" }),
   ]);
+  prefixing = await prefixingGateway();
   runtime = await startTestTenant({ applicationKey: APP, modelProvider: model });
   client = createClient({ url: runtime.url, key: runtime.applicationKey, tenant: runtime.tenantId });
   const input = z.object({ orderId: z.string() });
@@ -252,6 +286,20 @@ beforeAll(async () => {
       },
     });
   }
+  // Through a gateway that prefixes tool names (#494): an allowlist of the server's own names, with
+  // the prefix on the Agent's secret; and a manifest slot's via, whose value write adds the prefix.
+  await register(
+    Agent({ id: "prefixed" }).mcp({ x: { type: "streamable-http", url: X_URL, tools: { "*": { enabled: false }, echo: { enabled: true } } } }).build(),
+    {
+      secrets: {
+        x: { type: "headers", url: X_URL, headers: { "x-gateway-key": GATEWAY_KEY }, via: prefixing.url, toolPrefix: "x-" },
+      },
+    },
+  );
+  await register(Agent({ id: "prefixed-slot" }).mcp({ x: { type: "streamable-http", url: X_URL } }).build(), {
+    runtime: { kind: "none", secrets: { x: { type: "headers", url: X_URL, via: prefixing.url } } },
+    secrets: { x: { headers: { "x-gateway-key": GATEWAY_KEY }, toolPrefix: "x-" } as never },
+  });
   // The HTTP tools name their credentials: slots of the manifest's runtime section, whose values
   // the Agent's vault holds (protocol 16).
   await register(
@@ -451,5 +499,71 @@ describe("a gateway's report of a 401 (#495)", () => {
     expect(called.completed).toEqual([
       expect.objectContaining({ error: expect.objectContaining({ code: "mcp.tool" }) }),
     ]);
+  });
+});
+
+describe("a gateway's tool prefix (#494)", () => {
+  it("lists the server's own names, applies tools settings keyed by them, and calls the name the gateway listed", async () => {
+    const result = await run("prefixed", "x__echo");
+    expect(result.status).toBe("completed");
+    expect(result.discovered).toEqual({
+      servers: [
+        expect.objectContaining({
+          serverName: "x",
+          outcome: "connected",
+          tools: 1,
+          disabled: 2,
+          message: expect.stringContaining("1 of its tools lack the gateway's tool prefix and keep the names it listed: plain"),
+        }),
+      ],
+    });
+    expect(result.discovered!.servers[0]).not.toHaveProperty("unknownTools");
+    expect(result.completed).toEqual([expect.objectContaining({ toolName: "x__echo", output: "x-echo hi" })]);
+    expect(prefixing.called).toEqual(["x-echo"]);
+  });
+
+  it("keeps a tool the settings disable by its own name from the gateway", async () => {
+    const result = await run("prefixed", "x__whoami");
+    expect(result.status).toBe("completed");
+    expect(seenByModel).toMatchObject({ status: "failed" });
+    expect(prefixing.called).not.toContain("x-whoami");
+  });
+
+  it("applies a tool policy rule that names the server's own tool, with the prefix on a slot's value", async () => {
+    await setToolPolicy(runtime, [{ effect: "deny", kind: "mcp", server: "x", tool: "whoami" }]);
+    try {
+      const denied = await run("prefixed-slot", "x__whoami");
+      expect(denied.history).toContain("tool.denied");
+      expect(prefixing.called).not.toContain("x-whoami");
+      const allowed = await run("prefixed-slot", "x__echo");
+      expect(allowed.completed).toEqual([expect.objectContaining({ toolName: "x__echo", output: "x-echo hi" })]);
+    } finally {
+      await setToolPolicy(runtime, []);
+    }
+  });
+
+  it("shows the prefix on the secret, never on the Agent's manifest slot", async () => {
+    const secrets = (agent: string) =>
+      fetch(`${runtime.url}/v1/agents/${agent}/secrets`, { headers: runtime.headers() }).then(
+        (response) => response.json() as Promise<{ secrets: Record<string, unknown>[] }>,
+      );
+    for (const agent of ["prefixed", "prefixed-slot"])
+      expect((await secrets(agent)).secrets).toContainEqual(
+        expect.objectContaining({ name: "x", via: prefixing.url, toolPrefix: "x-" }),
+      );
+    const view = await fetch(`${runtime.url}/v1/agents/prefixed-slot`, { headers: runtime.headers() }).then(
+      (response) => response.json() as Promise<{ runtime: { secrets: Record<string, Record<string, unknown>> } }>,
+    );
+    expect(view.runtime.secrets.x).toEqual({ type: "headers", url: X_URL, via: prefixing.url });
+  });
+
+  it("refuses a prefix without via", async () => {
+    const refused = await writeSecret(runtime.url, runtime.headers(), "prefixed", "nowhere", {
+      type: "headers",
+      url: "https://nowhere.test/mcp",
+      headers: { "x-api-key": "k" },
+      toolPrefix: "x-",
+    } as never);
+    expect(refused.status).toBe(400);
   });
 });
