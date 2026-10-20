@@ -522,7 +522,7 @@ export function NewAgentSheet({
             <Field label="Agent manifest">
               <select
                 aria-label="Agent manifest"
-                className="h-9 rounded-md border bg-transparent px-3"
+                className="h-8 rounded-md border bg-transparent px-3"
                 value={form.manifest}
                 onChange={(event) => set({ manifest: event.target.value, version: "" })}
               >
@@ -536,7 +536,7 @@ export function NewAgentSheet({
             <Field label="Version">
               <select
                 aria-label="Version"
-                className="h-9 rounded-md border bg-transparent px-3"
+                className="h-8 rounded-md border bg-transparent px-3"
                 value={form.version}
                 onChange={(event) => set({ version: event.target.value })}
               >

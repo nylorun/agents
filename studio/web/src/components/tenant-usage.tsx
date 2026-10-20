@@ -209,7 +209,7 @@ function UsageTable({ totals }: { totals: readonly UsageTotals[] }) {
   );
 }
 
-const selectClass = "h-9 rounded-md border bg-transparent px-3 text-sm";
+const selectClass = "h-8 rounded-md border bg-transparent px-3 text-sm";
 
 /** One budget, as a form: what it applies to, over what period, and its caps. */
 function BudgetPanel({

@@ -29,7 +29,7 @@ export function EventDetails({
     <section className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
       <header className="flex h-12 shrink-0 items-center gap-3 border-b bg-background px-4">
         <div className="min-w-0">
-          <h2 className="truncate text-sm font-medium">{eventLabel(event)}</h2>
+          <h2 className="truncate text-sm font-semibold">{eventLabel(event)}</h2>
           <p className="font-mono text-xs text-muted-foreground">
             {event.eventId.slice(0, 8)}…
           </p>
@@ -72,13 +72,13 @@ export function EventDetails({
             </Link>
           ))}
           <section className="min-w-0 max-w-full">
-            <h3 className="text-sm font-medium">Payload</h3>
+            <h3 className="text-sm font-semibold">Payload</h3>
             <pre className="mt-2 w-full max-w-full overflow-x-auto whitespace-pre-wrap break-all rounded-md bg-muted p-3 text-xs leading-5">
               {pretty(event.payload)}
             </pre>
           </section>
           <section className="min-w-0 max-w-full">
-            <h3 className="text-sm font-medium">Live event</h3>
+            <h3 className="text-sm font-semibold">Live event</h3>
             <pre className="mt-2 w-full max-w-full overflow-x-auto whitespace-pre-wrap break-all rounded-md bg-muted p-3 text-xs leading-5">
               {pretty(event)}
             </pre>
@@ -101,7 +101,7 @@ function ToolTraceSection({ payload }: Readonly<{ payload: unknown }>) {
   const trace = toolTrace(payload);
   return (
     <section className="min-w-0 max-w-full">
-      <h3 className="text-sm font-medium">Tool call</h3>
+      <h3 className="text-sm font-semibold">Tool call</h3>
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
         <span className="font-mono text-xs">
           {toolName(call)}
@@ -120,7 +120,7 @@ function McpServersSection({ payload }: Readonly<{ payload: unknown }>) {
   if (servers.length === 0) return null;
   return (
     <section className="min-w-0 max-w-full">
-      <h3 className="text-sm font-medium">MCP servers</h3>
+      <h3 className="text-sm font-semibold">MCP servers</h3>
       <ul className="mt-2 divide-y rounded-md border">
         {servers.map((server, index) => {
           const plugin = pluginLabel(server.plugin);

@@ -269,7 +269,7 @@ export function Artifacts({ tenantId }: { tenantId: string }) {
                 Kind
                 <select
                   aria-label="Kind"
-                  className="h-9 rounded-md border bg-transparent px-3"
+                  className="h-8 rounded-md border bg-transparent px-3"
                   value={kindInput}
                   onChange={(e) => setKindInput(e.target.value)}
                 >
@@ -290,7 +290,7 @@ export function Artifacts({ tenantId }: { tenantId: string }) {
                 Labels
                 <textarea
                   aria-label="Artifact labels"
-                  className="min-h-9 rounded-md border bg-background p-2 text-sm"
+                  className="min-h-8 rounded-md border bg-background p-2 text-sm"
                   value={labelInput}
                   onChange={(e) => setLabelInput(e.target.value)}
                   placeholder="purpose=input"
@@ -338,7 +338,7 @@ export function Artifacts({ tenantId }: { tenantId: string }) {
               />
             ) : (
               <div className="space-y-3 rounded border p-4 text-sm">
-                <h2 className="font-medium">Open an artifact</h2>
+                <h2 className="text-sm font-semibold">Open an artifact</h2>
                 <p className="text-muted-foreground">
                   This Runtime has no paged list of every artifact (Host
                   feature artifact-reads), so Studio lists a session's or
@@ -552,7 +552,7 @@ export function SessionArtifacts({
   return (
     <div className="min-h-0 flex-1 space-y-3 overflow-auto p-4">
       <div className="flex items-center justify-between gap-2">
-        <h2 className="text-sm font-medium">
+        <h2 className="text-sm font-semibold">
           {read.data
             ? `${artifacts.length} artifact${artifacts.length === 1 ? "" : "s"}`
             : "Artifacts"}
@@ -663,7 +663,7 @@ function ArtifactList({
   return (
     <section className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-sm font-medium break-all">{heading}</h2>
+        <h2 className="text-sm font-semibold break-all">{heading}</h2>
         <Button
           size="sm"
           variant="outline"
@@ -845,11 +845,9 @@ export function ArtifactInspector({
               value={activeTab}
               onValueChange={(value) => update({ tab: value })}
             >
-              <TabsList aria-label="Artifact tabs">
+              <TabsList variant="line" aria-label="Artifact tabs">
                 <TabsTrigger value="preview">Preview</TabsTrigger>
-                <TabsTrigger value="versions">
-                  Versions ({artifact.versions?.length ?? 0})
-                </TabsTrigger>
+                <TabsTrigger value="versions">Versions</TabsTrigger>
                 {artifact.kind === "folder" ? (
                   <TabsTrigger value="changes">Changes</TabsTrigger>
                 ) : null}
@@ -1174,7 +1172,7 @@ function FolderPreview({
       {entry ? (
         <>
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h3 className="break-all text-sm font-medium">{entry.path}</h3>
+            <h3 className="break-all text-sm font-semibold">{entry.path}</h3>
             <ArtifactDownload
               tenantId={tenantId}
               id={artifact.artifactId}
@@ -1232,7 +1230,7 @@ function FolderChanges({
     : [];
   return (
     <div className="space-y-3">
-      <h3 className="text-sm font-medium">
+      <h3 className="text-sm font-semibold">
         v{version - 1} → v{version}
       </h3>
       <ReadState

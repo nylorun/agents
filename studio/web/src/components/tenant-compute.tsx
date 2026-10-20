@@ -52,7 +52,7 @@ export function TenantCompute({ tenantId, agents }: { tenantId: string; agents?:
       {sections.map((section) => (
         <section key={section.id} aria-label={section.title}>
           <div className="flex items-baseline gap-2 px-4 pt-4 pb-1.5">
-            <h2 className="text-[13px] font-medium">{section.title}</h2>
+            <h2 className="text-sm font-semibold">{section.title}</h2>
             <span className="truncate text-xs text-muted-foreground">{section.hint}</span>
           </div>
           <ul>
