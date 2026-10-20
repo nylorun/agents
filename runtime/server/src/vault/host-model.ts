@@ -49,11 +49,14 @@ export class HostModelVault {
     const credential =
       binding.authType === "oauth"
         ? { type: "oauth" as const, ...payload.oauth }
-        : {
-            type: "api_key" as const,
-            key: payload.apiKey,
-            ...(payload.env ? { env: payload.env } : {}),
-          };
+        : binding.authType === "workload"
+          ? // The workload token is read from its file at each call (#496), never stored.
+            { type: "workload" as const }
+          : {
+              type: "api_key" as const,
+              key: payload.apiKey,
+              ...(payload.env ? { env: payload.env } : {}),
+            };
     return {
       provider: binding.provider,
       model: binding.model,

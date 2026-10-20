@@ -76,6 +76,7 @@ import { startHarnessListener, type HarnessListener } from "../harness-api/ws-se
 import { httpSandboxesClient } from "../sandbox/pods/client.js";
 import { retry } from "../retry.js";
 import { hostTuning, useHostTuning } from "../tuning.js";
+import { useWorkloadToken } from "../vault/workload-token.js";
 
 const nodeRequire = createRequire(import.meta.url);
 
@@ -249,6 +250,7 @@ export async function main(): Promise<void> {
   const stack = parseStackConfig(process.env, process.argv.slice(2));
   // Read once, before any service starts: each reads the parts it uses where it uses them.
   if (stack.tuning) useHostTuning(stack.tuning.values, stack.tuning.overrides);
+  useWorkloadToken(stack.workloadToken ?? {});
   if (stack.services.has("gates") || stack.services.has("keys") || stack.services.has("egress"))
     return runGates(stack);
   if (stack.services.has("harness")) return runHarness(stack, baselineEnvironment(process.env));

@@ -9,6 +9,7 @@
  */
 import { isSubject } from "@nylorun/core/contracts";
 import type { AuthorizeResult, VaultService } from "./service.js";
+import { workloadOriginRefused, workloadToken, WorkloadTokenUnavailable } from "./workload-token.js";
 
 /** The session a request is made for: its row, as stored. */
 export interface CredentialSession {
@@ -36,15 +37,34 @@ export async function sessionCredentials(
   session: CredentialSession,
   request: McpCredentialRequest,
 ): Promise<AuthorizeResult> {
-  const result = await vault.authorize({
+  const authorized = await vault.authorize({
     sessionId: session.id,
     ...(session.environmentId === undefined ? {} : { environmentId: session.environmentId }),
     url: request.url,
   });
+  const result =
+    authorized.status === "authorized" && authorized.workload ? await withWorkloadToken(authorized) : authorized;
   if (result.status !== "authorized" || !result.identity || !isSubject(session.ownerUserId))
     return result;
   return {
     ...result,
     headers: { ...result.headers, [result.identity.header]: session.ownerUserId },
   };
+}
+
+/**
+ * A `workload` credential's request with the Runtime's workload token as its bearer, read now
+ * (#496), or refused: when `via`'s origin is not one the operator lists, or the token cannot be
+ * read. Never sent without it.
+ */
+async function withWorkloadToken(result: Extract<AuthorizeResult, { status: "authorized" }>): Promise<AuthorizeResult> {
+  const refused = (reason: string): AuthorizeResult => ({ status: "refused", url: result.url, credentialIds: [], reason });
+  const origin = result.via === undefined ? "a workload credential needs via" : workloadOriginRefused(result.via);
+  if (origin !== undefined) return refused(origin);
+  try {
+    return { ...result, headers: { ...result.headers, authorization: `Bearer ${await workloadToken()}` } };
+  } catch (error) {
+    if (error instanceof WorkloadTokenUnavailable) return refused(error.message);
+    throw error;
+  }
 }

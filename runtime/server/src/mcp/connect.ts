@@ -113,6 +113,8 @@ export type McpToolFailure = {
   readonly retryable?: boolean;
   /** With `credential_rejected`: the server. */
   readonly server?: string;
+  /** With `credential_rejected` of the workload token: the gateway that refused it (#496). */
+  readonly gateway?: string;
   /** How many credential values the message had in it, replaced (R2b C8). */
   readonly redacted?: number;
 };
@@ -153,6 +155,8 @@ export interface McpCallFailure {
   readonly retryable: boolean;
   /** With `credential_rejected`: the server. */
   readonly server?: string;
+  /** With `credential_rejected` of the workload token: the gateway that refused it (#496). */
+  readonly gateway?: string;
   /** How many credential values the message had in it, replaced (R2b C8). */
   readonly redacted?: number;
 }
@@ -171,7 +175,7 @@ export class McpCallFailed extends Error {
   /** The failure the gate answered, as the class the loop's own call would have thrown. */
   static from(failure: McpCallFailure): McpCallFailed {
     return failure.code === "credential_rejected" && failure.server !== undefined
-      ? new CredentialRejected(failure.server, !failure.message.includes("holds none"))
+      ? new CredentialRejected(failure.server, !failure.message.includes("holds none"), undefined, failure.gateway)
       : new McpCallFailed(failure);
   }
 
@@ -184,6 +188,7 @@ export class McpCallFailed extends Error {
       message: failure.message,
       retryable: failure.retryable,
       ...(failure.server === undefined ? {} : { server: failure.server }),
+      ...(failure.gateway === undefined ? {} : { gateway: failure.gateway }),
       ...(failure.redacted ? { redacted: failure.redacted } : {}),
     };
   }
@@ -206,15 +211,20 @@ export class CredentialRejected extends McpCallFailed {
      * (RFC 9728 `resource_metadata`): a tool preview reads it (R2b C12). Never shown to the model.
      */
     readonly challenge?: string,
+    /** The gateway at `via` that refused the Runtime's workload token (#496): an expired or unrotated token. */
+    readonly gateway?: string,
   ) {
     super({
       code: "credential_rejected",
-      message: sent
-        ? `The MCP server '${server}' answered HTTP 401: it rejected the credential from the session's Agent`
-        : `The MCP server '${server}' answered HTTP 401: it needs a credential, and the session's Agent holds none for it`,
+      message: gateway
+        ? `The gateway ${gateway} answered HTTP 401 for the MCP server '${server}': it rejected the Runtime's workload token`
+        : sent
+          ? `The MCP server '${server}' answered HTTP 401: it rejected the credential from the session's Agent`
+          : `The MCP server '${server}' answered HTTP 401: it needs a credential, and the session's Agent holds none for it`,
       sent: true,
       retryable: false,
       server,
+      ...(gateway === undefined ? {} : { gateway }),
     });
     this.name = "CredentialRejected";
   }
@@ -723,6 +733,7 @@ function authorizedFetch(
         server.name,
         result.status === "authorized",
         response.headers.get("www-authenticate") ?? undefined,
+        result.status === "authorized" && result.workload ? endpoint.origin : undefined,
       );
     }
     // The server ended the connection's session: the tool never saw the request.

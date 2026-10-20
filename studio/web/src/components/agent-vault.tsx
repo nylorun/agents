@@ -252,6 +252,9 @@ function SlotPanel({
     [visible, row.reach],
     ...(row.sentAs ? ([["Sent as", row.sentAs]] as const) : []),
     ...(row.type === "bearer" ? ([["Sent as", "Authorization: Bearer {value}"]] as const) : []),
+    ...(row.type === "workload"
+      ? ([["Sent as", "Authorization: Bearer {the Runtime's workload token}, read at each request"]] as const)
+      : []),
     ["Required", row.required ? "Yes" : "No"],
   ];
   return (

@@ -233,6 +233,7 @@ export function toolCompleted(request: HostEffect, value: unknown, facts?: ToolC
     code?: unknown;
     message?: unknown;
     server?: unknown;
+    gateway?: unknown;
     retryable?: unknown;
     redacted?: unknown;
   } | null;
@@ -244,6 +245,8 @@ export function toolCompleted(request: HostEffect, value: unknown, facts?: ToolC
             message: String(outcome.message ?? ""),
             // `credential_rejected` (R2b C1): which server.
             ...(typeof outcome.server === "string" ? { server: outcome.server } : {}),
+            // And the gateway that refused the Runtime's workload token (#496).
+            ...(typeof outcome.gateway === "string" ? { gateway: outcome.gateway } : {}),
             ...(typeof outcome.retryable === "boolean" ? { retryable: outcome.retryable } : {}),
           },
         }

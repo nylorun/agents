@@ -93,6 +93,7 @@ import type {
   EnvironmentSecretInject,
   EnvironmentSecretSlot,
   AgentSecretView,
+  HostModelAuthType,
   HostModelProviderInfo,
   HostModelView,
   PutAgentSecretRequest,
@@ -129,9 +130,9 @@ export type HostModelSecret = {
   settings?: CustomModelSettings;
   /** The inputs the operator added to catalog models, by `<provider>/<model>` (protocol 12). */
   addedInputs?: Readonly<Record<string, readonly ModelInput[]>>;
-  authType: "api_key" | "oauth";
+  authType: HostModelAuthType;
   credential: {
-    type: "api_key" | "oauth";
+    type: HostModelAuthType;
     key?: string;
     env?: Record<string, string>;
     refresh?: string;
@@ -151,7 +152,7 @@ type SecretPayload = {
 };
 
 type UserCredentialRow = VaultCredentialRow & {
-  type: "bearer" | "headers" | "environment_secret" | "environment_variable";
+  type: "bearer" | "headers" | "workload" | "environment_secret" | "environment_variable";
 };
 
 /**
@@ -208,6 +209,11 @@ export type AuthorizeResult =
       via?: string;
       /** How the gateway at `via` prefixes the server's tool names, when it does. */
       toolPrefix?: string;
+      /**
+       * A `workload` credential (#496): `sessionCredentials` adds the Runtime's workload token as
+       * the bearer, on the gate side, where `via`'s origin is one the operator lists.
+       */
+      workload?: true;
       /** The header that names the session owner; `sessionCredentials` adds it. */
       identity?: CredentialIdentity;
     }
@@ -410,7 +416,8 @@ export class VaultService {
       ({ payload, binding } = environmentCredential(name, body));
     else {
       const url = normalizeVaultUrl(body.url);
-      payload = payloadOf(body);
+      // A workload credential holds no value: the bearer is the Runtime's workload token (#496).
+      payload = body.type === "workload" ? {} : payloadOf(body);
       binding = bindingOf(url, payload, body);
     }
     const kek = this.kek();
@@ -648,6 +655,7 @@ export class VaultService {
       headers,
       ...(binding.via === undefined ? {} : { via: binding.via }),
       ...(binding.toolPrefix === undefined ? {} : { toolPrefix: binding.toolPrefix }),
+      ...(row.type === "workload" ? { workload: true as const } : {}),
       ...(binding.identity === undefined ? {} : { identity: binding.identity }),
     };
   }
@@ -733,16 +741,21 @@ export class VaultService {
     return this.store.tx((t) =>
       this.replay(t, `host-model:${body.idempotencyKey}`, body, async () => {
         this.validateHostModel(body);
+        if (body.auth.type === "workload" && body.provider !== "custom")
+          throw new VaultError(400, "The workload token authenticates a custom provider only.");
         await this.ensureHostVault(t);
         const credentialId = hostModelCredentialId(body.provider);
         await this.deleteHostProviderRows(t, body.provider);
+        // The workload token is read on every call and never stored (#496).
         const payload: HostSecretPayload =
           body.auth.type === "api_key"
             ? {
                 apiKey: body.auth.key,
                 ...(body.auth.env ? { env: body.auth.env } : {}),
               }
-            : { oauth: body.auth };
+            : body.auth.type === "oauth"
+              ? { oauth: body.auth }
+              : {};
         await this.insertHostCredential(t, kek, {
           id: credentialId,
           provider: body.provider,
@@ -930,7 +943,7 @@ export class VaultService {
       model: string;
       baseUrl?: string;
       settings?: CustomModelSettings;
-      authType: "api_key" | "oauth";
+      authType: HostModelAuthType;
       payload: HostSecretPayload;
     },
   ): Promise<void> {
@@ -1078,9 +1091,11 @@ function conflictOf(
           details: { host, existing: row.name },
         });
     }
-  } else if (type === "bearer" || type === "headers") {
+  } else if (type === "bearer" || type === "headers" || type === "workload") {
     const existing = others.find(
-      (row) => (row.type === "bearer" || row.type === "headers") && credentialBinding(row).url === binding.url,
+      (row) =>
+        (row.type === "bearer" || row.type === "headers" || row.type === "workload") &&
+        credentialBinding(row).url === binding.url,
     );
     if (existing)
       throw new VaultError(409, `${existing.name} is already bound to ${binding.url}`, {
@@ -1270,6 +1285,8 @@ function sendHeaders(
   row: UserCredentialRow,
   payload: SecretPayload,
 ): Record<string, string> | undefined {
+  // Its bearer is the Runtime's workload token, which `sessionCredentials` adds.
+  if (row.type === "workload") return {};
   if (row.type === "headers")
     return payload.headers && Object.keys(payload.headers).length > 0
       ? { ...payload.headers }
@@ -1282,7 +1299,7 @@ type ModelBinding = {
   model: string;
   baseUrl?: string;
   settings?: CustomModelSettings;
-  authType: "api_key" | "oauth";
+  authType: HostModelAuthType;
 };
 
 type HostSecretPayload = {

@@ -1719,6 +1719,21 @@ export const PutAgentSecretRequestSchema = z.discriminatedUnion("type", [
     })
     .strict()
     .refine(prefixNeedsVia, PREFIX_NEEDS_VIA),
+  /**
+   * The Runtime's workload token as the bearer (#496): no value is stored. Each request reads
+   * `NYLORUN_WORKLOAD_TOKEN_FILE` and sends `Authorization: Bearer <token>` to `via` only, a
+   * gateway whose origin the operator lists in `NYLORUN_WORKLOAD_TOKEN_ORIGINS`.
+   */
+  z
+    .object({
+      requestId: RequestIdSchema.optional(),
+      type: z.literal("workload"),
+      url: z.string().min(1),
+      via: CredentialViaSchema,
+      identity: CredentialIdentitySchema.optional(),
+      toolPrefix: CredentialToolPrefixSchema.optional(),
+    })
+    .strict(),
 ]);
 export type PutAgentSecretRequest = z.infer<typeof PutAgentSecretRequestSchema>;
 /**
@@ -2535,6 +2550,13 @@ export const CustomModelSettingsSchema = z
   })
   .strict();
 export type CustomModelSettings = z.infer<typeof CustomModelSettingsSchema>;
+/**
+ * How the Runtime authenticates to the model: a stored key, a stored OAuth grant, or (a custom
+ * endpoint only) the Runtime's workload token, read from `NYLORUN_WORKLOAD_TOKEN_FILE` on every
+ * call and never stored (#496).
+ */
+export const HOST_MODEL_AUTH_TYPES = ["api_key", "oauth", "workload"] as const;
+export type HostModelAuthType = (typeof HOST_MODEL_AUTH_TYPES)[number];
 export const PutHostModelRequestSchema = z
   .object({
     ...vaultWriteBase,
@@ -2558,6 +2580,7 @@ export const PutHostModelRequestSchema = z
           expires: z.number(),
         })
         .passthrough(),
+      z.object({ type: z.literal("workload") }).strict(),
     ]),
   })
   .strict();
@@ -2568,7 +2591,7 @@ export type HostModelView =
       readonly configured: true;
       readonly provider: string;
       readonly model: string;
-      readonly authType: "api_key" | "oauth";
+      readonly authType: HostModelAuthType;
       readonly baseUrl?: string;
       readonly settings?: CustomModelSettings;
     };
@@ -2587,6 +2610,7 @@ export type HostModelProviderInfo = z.infer<typeof HostModelProviderInfoSchema>;
 export const ENVIRONMENT_SECRET_TYPES = [
   "bearer",
   "headers",
+  "workload",
   "environment_secret",
   "environment_variable",
 ] as const;
@@ -3216,6 +3240,11 @@ export const ToolCompletedPayloadSchema = z
          * reported that the server behind it did): the integration refused the credential.
          */
         server: z.string().optional(),
+        /**
+         * With `credential_rejected` of the Runtime's workload token: the origin of the gateway
+         * that refused it (#496), an expired or unrotated token.
+         */
+        gateway: z.string().optional(),
         /** An MCP tool error: true when calling again may work, as for `mcp.unreachable`. */
         retryable: z.boolean().optional(),
       })
@@ -3959,7 +3988,7 @@ export const HostModelViewSchema = z.union([
       configured: z.literal(true),
       provider: z.string(),
       model: z.string(),
-      authType: z.enum(["api_key", "oauth"]),
+      authType: z.enum(HOST_MODEL_AUTH_TYPES),
       baseUrl: z.string().optional(),
       settings: CustomModelSettingsSchema.optional(),
     })
@@ -4436,7 +4465,7 @@ export const HostModelProviderInfoSchema = z
     id: z.string(),
     name: z.string(),
     model: z.string(),
-    authType: z.enum(["api_key", "oauth"]),
+    authType: z.enum(HOST_MODEL_AUTH_TYPES),
     baseUrl: z.string().optional(),
     settings: CustomModelSettingsSchema.optional(),
     /** What the provider's selected model reads (protocol 12); absent for a model unknown here. */

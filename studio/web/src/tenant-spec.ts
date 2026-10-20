@@ -314,7 +314,8 @@ export function limitOverrides(
 
 export type StatusRow = { label: string; state: string; tone: Tone; detail: string; tab?: TenantTab };
 
-const authText = (type: string | undefined) => (type === "oauth" ? "OAuth" : type === "api_key" ? "API key" : "");
+const authText = (type: string | undefined) =>
+  type === "oauth" ? "OAuth" : type === "api_key" ? "API key" : type === "workload" ? "Workload token" : "";
 
 /** The model the Tenant calls, as one line: `openai · gpt-5.1`; undefined when none is set. */
 export function modelText(model: TenantStatus["model"]): string | undefined {
