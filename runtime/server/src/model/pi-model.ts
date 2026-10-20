@@ -34,6 +34,7 @@ import type { HostModelSecret } from "../vault/service.js";
 import { classifyAssistantError, failure } from "./classify.js";
 import { addedInputsOf, describeModel, selectionOf } from "./descriptor.js";
 import { modelsFor } from "./models.js";
+import { callHeaders, type ModelCaller } from "./call-headers.js";
 import { NativeBlocks, nativeKindsOf, type NativeFileKind } from "./native-blocks.js";
 import { projectSecrets } from "./settings.js";
 
@@ -90,6 +91,11 @@ export interface PiModelOptions {
     credential: Credential,
   ) => void | Promise<void>;
   readonly settings?: ModelCallSettings;
+  /**
+   * Who makes the call: read only when the custom endpoint has `callHeaders` (#493), whose values
+   * come from it. Without it, a call sends none of them.
+   */
+  readonly caller?: () => Promise<ModelCaller | undefined>;
 }
 
 const OPENAI_COMPATIBLE_REASONING = /^reasoning(_content|_text)?$/;
@@ -141,6 +147,10 @@ export function piModel(options: PiModelOptions = {}): RuntimeModelAdapter {
       message: String(scrub(outcome.message, secrets)),
     });
     const selection = selectionOf(stored, call.model?.id);
+    // A custom endpoint's per-call headers (#493), from the calling Agent; static ones are the model's.
+    const sources = selection.custom?.callHeaders;
+    const caller = sources && options.caller ? await options.caller() : undefined;
+    const perCall = sources && caller ? callHeaders(sources, caller) : {};
     const registry = modelsFor(
       selection,
       hostCredentialStore(stored, options.writeHostCredential),
@@ -184,6 +194,7 @@ export function piModel(options: PiModelOptions = {}): RuntimeModelAdapter {
       // The session id keys the provider's prompt cache and session affinity.
       sessionId: call.executionId,
       cacheRetention: "short" as const,
+      ...(Object.keys(perCall).length > 0 ? { headers: perCall } : {}),
       timeoutMs: settings.requestTimeoutMs,
       maxRetries: settings.providerRetries,
       maxRetryDelayMs: settings.maxRetryDelayMs,

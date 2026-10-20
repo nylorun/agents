@@ -16,6 +16,9 @@ import { artifactFiles, type FileResolver } from "../artifacts/files.js";
 import { usesFixtureModel } from "../tenant/model-setting.js";
 import { fixtureAnswer } from "./fixture-model.js";
 import type { BlobStore } from "../blob/index.js";
+import { isSubject } from "@nylorun/core/contracts";
+import type { ModelCaller } from "../model/call-headers.js";
+import type { Session } from "../tenant/context.js";
 
 export interface InProcessModelGateOptions {
   /** The Tenant's home: `piModel` redacts secrets it finds there from failure messages. */
@@ -26,6 +29,8 @@ export interface InProcessModelGateOptions {
   readonly settings?: ModelCallSettings;
   /** Reads the files a call's prompt names (protocol 6): artifacts, for model-gate. */
   readonly files?: (request: ModelGateRequest) => FileResolver;
+  /** Reads who makes a call, for a custom endpoint's per-call headers (#493). */
+  readonly caller?: (request: ModelGateRequest) => Promise<ModelCaller | undefined>;
 }
 
 /**
@@ -38,6 +43,27 @@ export function callFiles(
   blobs: BlobStore,
 ): (request: Pick<ModelGateRequest, "sessionId">) => FileResolver {
   return (request) => artifactFiles({ store, blobs, sessionId: request.sessionId });
+}
+
+/**
+ * Who makes a call, from the Tenant's store: the Agent its session runs on, with its labels, and
+ * the session's owner when it is a person. The session is the loop's own in process, and the run
+ * token's over HTTP; the request's `agentId` names the manifest's agent, not the Agent.
+ */
+export function callCaller(
+  store: SessionStore,
+): (request: Pick<ModelGateRequest, "sessionId">) => Promise<ModelCaller | undefined> {
+  return (request) =>
+    store.tx(async (t) => {
+      const session = await t.get<Session>("sessions", request.sessionId);
+      const agent = session && (await t.environment(session.agentId));
+      if (!session || !agent) return undefined;
+      return {
+        agentId: agent.id,
+        labels: agent.labels,
+        ...(isSubject(session.ownerUserId) ? { owner: session.ownerUserId } : {}),
+      };
+    });
 }
 
 /**
@@ -65,6 +91,7 @@ export function tenantModelGate(options: {
           writeHostCredential: (credential) => vault.updateHostCredential(credential),
           settings: await modelCallSettings(options.store),
           ...(options.blobs ? { files: callFiles(options.store, options.blobs) } : {}),
+          caller: callCaller(options.store),
         });
         return serve(options.store, gate, request, signal);
       }),
@@ -100,6 +127,7 @@ export function inProcessModelGate(options: InProcessModelGateOptions): ModelGat
         writeHostCredential: options.writeHostCredential,
         ...(options.settings ? { settings: options.settings } : {}),
         ...(options.files ? { files: options.files(request) } : {}),
+        ...(options.caller ? { caller: () => options.caller!(request) } : {}),
       });
       return adapter(request.call, {
         // The Runtime never journals the provider request (harness `durable.ts`), and

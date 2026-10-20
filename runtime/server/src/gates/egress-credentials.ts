@@ -22,6 +22,7 @@ import type { Duplex } from "node:stream";
 import { createSecureContext, TLSSocket } from "node:tls";
 import type { Logger } from "../tenant/types.js";
 import { hostTuning } from "../tuning.js";
+import { HOP_BY_HOP_HEADERS } from "../vault/headers.js";
 
 /** What the vault answers for one request to a host a credential may be bound to. */
 export type EgressCredentialRelease =
@@ -51,18 +52,6 @@ export interface EgressTally {
   readonly credentialIds: Set<string>;
 }
 
-/** Headers that describe one hop and are never forwarded. */
-const HOP_BY_HOP = new Set([
-  "connection",
-  "keep-alive",
-  "proxy-authenticate",
-  "proxy-authorization",
-  "proxy-connection",
-  "te",
-  "trailer",
-  "transfer-encoding",
-  "upgrade",
-]);
 
 interface Terminated {
   readonly sandboxId: string;
@@ -76,7 +65,7 @@ function forwardable(raw: readonly string[], drop?: string): Record<string, stri
   const headers: Record<string, string[]> = {};
   for (let i = 0; i + 1 < raw.length; i += 2) {
     const name = raw[i]!.toLowerCase();
-    if (HOP_BY_HOP.has(name) || name === drop) continue;
+    if (HOP_BY_HOP_HEADERS.has(name) || name === drop) continue;
     (headers[name] ??= []).push(raw[i + 1]!);
   }
   return headers;

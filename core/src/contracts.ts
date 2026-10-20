@@ -2504,10 +2504,24 @@ export type ModelInput = z.infer<typeof ModelInputSchema>;
  */
 export const CUSTOM_MODEL_SETTING_DEFAULTS = Object.freeze({ contextWindow: 32_768, maxTokens: 8_192 });
 /**
+ * Where a custom endpoint's per-call header takes its value from the call (#493): one of the
+ * calling Agent's labels (`key`, such as `org`), the Agent's id, or the session's owner when it
+ * is a person. A call whose source has no value sends no header.
+ */
+export const ModelCallHeaderSourceSchema = z.discriminatedUnion("from", [
+  z.object({ from: z.literal("agent.label"), key: z.string().min(1) }).strict(),
+  z.object({ from: z.literal("agent.id") }).strict(),
+  z.object({ from: z.literal("session.owner") }).strict(),
+]);
+export type ModelCallHeaderSource = z.infer<typeof ModelCallHeaderSourceSchema>;
+/**
  * What the Runtime cannot learn from a custom OpenAI-compatible endpoint (Model Calls §7):
  * its context window and output limit (default `CUSTOM_MODEL_SETTING_DEFAULTS`), whether it
  * reasons, what it reads (`inputs`; default text only) and pi-ai `compat` settings
- * (`thinkingFormat`, `thinkingTokenBudgetField`, `chatTemplateKwargs`, …).
+ * (`thinkingFormat`, `thinkingTokenBudgetField`, `chatTemplateKwargs`, …). `headers` are sent on
+ * every call and `callHeaders` resolved per call from the calling Agent, for a gateway that
+ * attributes or budgets each call (#493): they are settings, never secrets, and read back as such,
+ * so neither may set `authorization`.
  */
 export const CustomModelSettingsSchema = z
   .object({
@@ -2516,6 +2530,8 @@ export const CustomModelSettingsSchema = z
     reasoning: z.boolean().optional(),
     inputs: z.array(ModelInputSchema).optional(),
     compat: z.record(z.string(), z.unknown()).optional(),
+    headers: z.record(CredentialHeaderNameSchema, CredentialHeaderValueSchema).optional(),
+    callHeaders: z.record(CredentialHeaderNameSchema, ModelCallHeaderSourceSchema).optional(),
   })
   .strict();
 export type CustomModelSettings = z.infer<typeof CustomModelSettingsSchema>;

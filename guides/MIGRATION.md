@@ -10,6 +10,13 @@ is `npx nylorun <command>`, help, output and exit codes included. It prints no d
 | `nylo` from `@nylorun/cli` in an npm script | `nylorun` (from either package); `nylo` stays in nylorun until 0.19 |
 | `npm i -g @nylorun/cli` for `nylo` | `npm i -g nylorun` or `npm i -g @nylorun/cli`, not both: each provides `nylorun` (`EEXIST`) |
 
+# Headers for a custom model endpoint
+
+Additive. A custom endpoint's `settings` (`PUT /v1/tenant/model`) take `headers`, sent on every
+call, and `callHeaders`, whose values come from the calling Agent per call: a label, its id, or the
+session's owner (#493). Nothing changes for a model that sets neither. An older Runtime refuses
+them (`400`).
+
 # A gateway's tool prefix and its reports of a `401`
 
 Additive: no protocol change. The Runtime advertises the optional Host feature

@@ -112,7 +112,7 @@ import type {
 import { decryptSecret, encryptSecret, VaultCryptoError } from "./crypto.js";
 import { VaultError } from "./error.js";
 import { credentialNeeds, type CredentialNeed } from "./coverage.js";
-import { checkCredentialHeaders } from "./headers.js";
+import { checkCredentialHeaders, modelHeaderError } from "./headers.js";
 import { hostModelCatalog, inputsOfHostModel } from "../model/catalog.js";
 import { inputsError } from "../model/capabilities.js";
 import { readAddedInputs } from "../tenant/model-setting.js";
@@ -905,6 +905,7 @@ export class VaultService {
       }
       if (!["http:", "https:"].includes(url.protocol))
         throw new VaultError(400, "Base URL must be an HTTP(S) URL.");
+      checkModelHeaders(body.settings);
       return;
     }
     if (body.baseUrl)
@@ -1216,6 +1217,22 @@ export function readHostPayload(
     return JSON.parse(plaintext.toString("utf8")) as HostSecretPayload;
   } finally {
     plaintext.fill(0);
+  }
+}
+
+/**
+ * A custom endpoint's `headers` and `callHeaders` (#493): no name the model's auth or the
+ * transport sets, and each name once across both maps, whatever its case.
+ */
+function checkModelHeaders(settings: CustomModelSettings | undefined): void {
+  const names = [...Object.keys(settings?.headers ?? {}), ...Object.keys(settings?.callHeaders ?? {})];
+  const seen = new Set<string>();
+  for (const name of names) {
+    const refused = modelHeaderError(name);
+    if (refused) throw new VaultError(400, refused);
+    const lower = name.toLowerCase();
+    if (seen.has(lower)) throw new VaultError(400, `The model header ${lower} is set twice`);
+    seen.add(lower);
   }
 }
 
