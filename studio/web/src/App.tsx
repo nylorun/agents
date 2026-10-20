@@ -33,6 +33,7 @@ import { AttachmentPreview } from "@/components/attachment-preview";
 import { ToolTraceBadges } from "@/components/tool-trace";
 import type { ComposerAttachment } from "@/attachments";
 import { HeaderSlot, HeaderSlotContext } from "@/components/header-slot";
+import { ViewOption, ViewSwitch } from "@/components/view-switch";
 import { SessionIdCopy, SessionStatus } from "@/components/session-meta";
 import { Separator } from "@/components/ui/separator";
 import { useStickToBottom } from "@/hooks/use-stick-to-bottom";
@@ -183,27 +184,6 @@ function MessageTime({ value }: { value: string }) {
 const tabTrigger =
   "border-b-2 border-transparent px-0 pb-3 text-sm font-medium text-muted-foreground outline-none transition-colors hover:text-foreground data-[state=active]:border-primary data-[state=active]:text-foreground";
 
-/** A view switch inside an inspector tab: a segmented control, the active view raised. */
-function InspectorViews({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="flex h-12 shrink-0 items-center border-b px-4">
-      <TabsPrimitive.List aria-label={label} className="inline-flex gap-0.5 rounded-lg bg-muted p-0.5">
-        {children}
-      </TabsPrimitive.List>
-    </div>
-  );
-}
-
-function InspectorView({ value, children }: { value: string; children: ReactNode }) {
-  return (
-    <TabsPrimitive.Trigger
-      value={value}
-      className="rounded-md px-3 py-1 text-sm font-medium text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm"
-    >
-      {children}
-    </TabsPrimitive.Trigger>
-  );
-}
 
 const inspectorPanel = "flex min-h-0 flex-1 flex-col overflow-hidden outline-none";
 
@@ -1361,10 +1341,10 @@ function SessionView({
               onValueChange={changeManifestView}
               className="flex min-h-0 flex-1 flex-col overflow-hidden"
             >
-              <InspectorViews label="Manifest views">
-                <InspectorView value="declared">Declared</InspectorView>
-                <InspectorView value="deployed">Deployed</InspectorView>
-              </InspectorViews>
+              <ViewSwitch label="Manifest views">
+                <ViewOption value="declared">Declared</ViewOption>
+                <ViewOption value="deployed">Deployed</ViewOption>
+              </ViewSwitch>
               <TabsPrimitive.Content value="declared" className={inspectorPanel}>
                 <AgentManifestPanel agent={agent} pinned={pinned} hasSandbox={hasSandbox} />
               </TabsPrimitive.Content>
@@ -1394,11 +1374,11 @@ function SessionView({
                 onValueChange={changeEventsView}
                 className="flex min-h-0 flex-1 flex-col overflow-hidden"
               >
-                <InspectorViews label="Events views">
-                  <InspectorView value="progress">Progress</InspectorView>
-                  <InspectorView value="iterations">Iterations</InspectorView>
-                  <InspectorView value="log">Log</InspectorView>
-                </InspectorViews>
+                <ViewSwitch label="Events views">
+                  <ViewOption value="progress">Progress</ViewOption>
+                  <ViewOption value="iterations">Iterations</ViewOption>
+                  <ViewOption value="log">Log</ViewOption>
+                </ViewSwitch>
                 <TabsPrimitive.Content value="progress" className={inspectorPanel}>
                   <WorkflowTree
                     root={tree}

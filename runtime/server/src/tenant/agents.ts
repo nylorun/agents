@@ -22,7 +22,8 @@
  *   the Agent's id).
  * - **State on read.** `state` is derived when it is read, the first rule that holds: `paused`
  *   (desired `off`, track T6), `failing` (its compute failed or was lost, or a session's last
- *   turn failed), `input_required` (a session waits on a person), `working` (a turn runs),
+ *   turn failed), `input_required` (a session waits on a person, or a required secret is unset),
+ *   `working` (a turn runs),
  *   `sleeping`; `attention` names the sessions behind each that holds (`stateOf`).
  * - **Secret slots** (D64): when its manifest declares `secrets`, a secret write sends only the
  *   value, the binding comes from the slot, and a name it does not declare is
@@ -149,19 +150,24 @@ const STATE_RANK: readonly AgentState[] = ["paused", "failing", "input_required"
  * An Agent's state (protocol 16), from its desired state, its compute and its sessions, and
  * every state that holds with the session behind it (`attention`), highest first. A session waits
  * on a person while it is paused (an approval or an interaction) or uncertain, and the Agent while
- * a move waits for its required secrets (track T3); a session's last turn
- * failed while it is `failed`; a turn runs while it is `running`, `runnable` or `waiting`.
+ * a move waits for its required secrets (track T3), or a required secret of the version it runs
+ * has no value (`unsetSecrets`, track T7: a tool would fail when it is called); a session's last
+ * turn failed while it is `failed`; a turn runs while it is `running`, `runnable` or `waiting`.
  */
 export function stateOf(
   agent: Pick<Environment, "desiredState" | "pod"> &
     Partial<Pick<Environment, "targetVersion" | "appliedVersion" | "version" | "failedVersion">>,
   sessions: readonly Pick<Session, "id" | "status">[],
+  unsetSecrets: readonly string[] = [],
 ): { state: AgentState; attention: AgentAttention[] } {
   const attention: AgentAttention[] = [];
   if (agent.desiredState === "off") attention.push({ state: "paused", reason: "desired off" });
   // A move that waits for a person to set its required secrets (track T3).
   if (agent.targetVersion !== undefined && agent.appliedVersion === agent.version)
     attention.push({ state: "input_required", reason: `secret_required: version ${agent.targetVersion} waits for its required secrets` });
+  // A required secret of the version it runs, unset (track T7).
+  for (const name of unsetSecrets)
+    attention.push({ state: "input_required", reason: `secret_unset: required secret ${name} unset` });
   const pod = agent.pod;
   if (pod && (pod.observed === "failed" || pod.observed === "lost") && pod.desired !== "deleted")
     attention.push({ state: "failing", reason: `compute ${pod.observed}${pod.reason ? `: ${pod.reason}` : ""}` });
@@ -205,7 +211,7 @@ async function viewOf(
       : undefined;
   const pod = environment.pod;
   const visible = sessions.filter((session) => owner === undefined || session.ownerUserId === owner);
-  const { state, attention } = stateOf(environment, visible);
+  const { state, attention } = stateOf(environment, visible, await unsetRequiredSecrets(t, environment));
   return {
     id: environment.id,
     manifest: manifestRefOf(environment),
@@ -281,6 +287,22 @@ async function slotsAhead(t: Tx, environment: Environment): Promise<EnvironmentR
   if (environment.appliedVersion !== environment.version) return environment.recipe.secrets;
   const target = await t.agentManifest(environment.manifestName, environment.targetVersion);
   return target ? runtimeOf(target.body).secrets : environment.applied.secrets;
+}
+
+/**
+ * The required secret slots of the version `environment` runs (its applied runtime) that its vault
+ * holds no value for, by name: the Agent's attention (track T7), before a tool fails for want of
+ * one. A move waiting on the next version's secrets is its own attention item (`stateOf`).
+ */
+async function unsetRequiredSecrets(t: Tx, environment: Environment): Promise<string[]> {
+  const required = Object.entries(environment.applied.secrets ?? {}).filter(([, slot]) => slot.required === true);
+  if (required.length === 0) return [];
+  const vault = await t.vaultOfEnvironment(environment.id);
+  const rows = vault ? await t.credentialsForVault(vault.id) : [];
+  return required
+    .filter(([name, slot]) => !rows.some((row) => row.name === name && slotHolds(slot, row)))
+    .map(([name]) => name)
+    .sort();
 }
 
 /** Each secret slot `environment` declares (`slotsAhead`), and whether its vault holds a value that fills it. */

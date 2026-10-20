@@ -188,7 +188,10 @@ export function EmptyRow({ columns, children }: Readonly<{ columns: number; chil
   );
 }
 
-/** A status: a small grey dot and a word (DESIGN.md: the darker the dot, the more it needs you). */
+/**
+ * A status: a small grey dot and a word (DESIGN.md: the darker the dot, the more it needs you).
+ * Its words end in an ellipsis where there is no room, so a long note never runs over its cell.
+ */
 export function StatusDot({ tone, children }: Readonly<{ tone: "ok" | "warn" | "error" | "busy" | "idle"; children: ReactNode }>) {
   const dot =
     tone === "warn" || tone === "error"
@@ -197,9 +200,9 @@ export function StatusDot({ tone, children }: Readonly<{ tone: "ok" | "warn" | "
         ? STATUS_DOT.idle
         : STATUS_DOT.running;
   return (
-    <span className="inline-flex items-center gap-1.5">
+    <span className="inline-flex max-w-full min-w-0 items-center gap-1.5">
       <span aria-hidden className={cn("size-1.5 shrink-0 rounded-full", dot)} />
-      {children}
+      <span className="min-w-0 truncate">{children}</span>
     </span>
   );
 }

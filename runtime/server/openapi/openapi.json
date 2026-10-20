@@ -23302,6 +23302,135 @@
         ],
         "additionalProperties": false
       },
+      "AgentManifestSourceDiff": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "from": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "to": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "added": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "size": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "sha256": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path",
+                "size",
+                "sha256"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "removed": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "size": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "sha256": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path",
+                "size",
+                "sha256"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "changed": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "from": {
+                  "type": "object",
+                  "properties": {
+                    "size": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "sha256": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "size",
+                    "sha256"
+                  ],
+                  "additionalProperties": false
+                },
+                "to": {
+                  "type": "object",
+                  "properties": {
+                    "size": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "sha256": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "size",
+                    "sha256"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "path",
+                "from",
+                "to"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "unchanged": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "name",
+          "from",
+          "to",
+          "added",
+          "removed",
+          "changed",
+          "unchanged"
+        ],
+        "additionalProperties": false
+      },
       "DeleteAgentManifestResponse": {
         "type": "object",
         "properties": {
@@ -26158,6 +26287,149 @@
                 }
               }
             }
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/agent-manifests/{name}/source/diff": {
+      "get": {
+        "tags": [
+          "Agent manifests"
+        ],
+        "summary": "Compare two versions' folders",
+        "description": "The files added, removed and changed from version `from`'s source to version `to`'s, by path, a file changed when its SHA-256 differs (feature `agent-folders`). Each list is sorted by path. A version saved as JSON has no source (`404`).",
+        "security": [
+          {
+            "applicationKey": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "application",
+          "subject"
+        ],
+        "x-nylorun-scopes": [
+          "agents:read",
+          "agents:write",
+          "agent-manifests:write"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The agent manifest's name, such as `triage`"
+            },
+            "required": true,
+            "description": "The agent manifest's name, such as `triage`",
+            "name": "name",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The version to compare from"
+            },
+            "required": true,
+            "description": "The version to compare from",
+            "name": "from",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The version to compare to"
+            },
+            "required": true,
+            "description": "The version to compare to",
+            "name": "to",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `18`"
+            },
+            "required": true,
+            "description": "The protocol version, `18`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The person an application key acts for"
+            },
+            "required": false,
+            "description": "The person an application key acts for",
+            "name": "Nylorun-Subject",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The subject's space-separated scopes; required with a subject"
+            },
+            "required": false,
+            "description": "The subject's space-separated scopes; required with a subject",
+            "name": "Nylorun-Scopes",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "What changed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentManifestSourceDiff"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`from` or `to` is not a version number"
+          },
+          "401": {
+            "description": "No credential (`credential_required`), or one the Tenant does not accept (`credential_invalid`), with a `WWW-Authenticate: Bearer` challenge",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such version, or one was saved as JSON and has no source"
           },
           "426": {
             "description": "`Nylorun-Protocol` missing or unsupported",

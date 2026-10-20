@@ -53,10 +53,14 @@ nylorun doctor sandbox [--tenant <name>] [--json]   # the sandbox backend the Te
 
 # apply, agent-manifests, agents, sessions, artifacts: the Runtime API (an application key, or NYLORUN_TOKEN)
 # every one takes --tenant <name>, and --as <subject> [--scope <scope>]... to act for a person
-nylorun init <name> [--description <text>]   # write <name>/AGENT.md, a new agent folder
-nylorun check [<dir>...]           # compile each agent folder offline: every problem by file, line and column
-nylorun apply [<dir>...] [--dry-run] [--if-match <n>]   # plan, then save each folder (AGENT.md or agent.manifest.json), its files uploaded
+nylorun init <path> [--description <text>] [--example]   # write <path>/AGENT.md, a new agent folder named after the last segment
+nylorun check [<dir>...] [--json]  # compile each agent folder offline: every problem by file, line and column
+nylorun apply [<dir>...] [--dry-run] [--if-match <n>] [--agent [<id>]] [--watch [--save]]   # plan, then save each folder (AGENT.md or agent.manifest.json), its files uploaded
+nylorun chat <agent> [--session <id>] [--message <text>]   # send each line (or --message), print each reply
 nylorun migrate v8 <agent.json> [--runtime <environment-manifest.json>] [--name <name>] [--out <dir>]   # the three files from a v7 manifest; reads no Runtime
+nylorun migrate folder <dir> [--out <dir>]   # the agent folder of a three-file folder; reads no Runtime
+nylorun export --folder <name>[@<n>] [--out <dir>]   # the agent folder of a saved manifest (JSON or TypeScript)
+nylorun pull <name>[@<n>] [--out <dir>]   # the folder a version was saved from, byte for byte
 nylorun agent-manifests list [--json]       # name, latest version, runtime kind, harness, Agents
 nylorun agent-manifests get <name>[@<n>] | versions <name> | rm <name>
 nylorun agents list [--state <s>] [--manifest <name>] [--label <key=value>]... [--outdated] [--limit <n>] [--cursor <c>] [--json]   # --outdated (or --behind): moving to another manifest version
@@ -496,7 +500,41 @@ from `mcp.json`) and saves it, uploading its files by hash; the Runtime keeps th
 folder as the version's source. `--dry-run` also prints the compiled manifest. A
 change only to a file outside the agent, such as a README, is `unchanged`.
 
-Or as three files:
+The loop from an empty folder to an answer:
+
+```
+nylorun init agents/hello --example   # AGENT.md, tools/, mcp.json and triggers/, each explained in its README.md
+nylorun apply agents/hello --agent    # save it, then make the Agent hello from it (or move it to the new version)
+nylorun chat hello                    # send each line, print each reply; --message <text> sends one
+```
+
+`init <path>` names the agent after the path's last segment. The first run in a
+project (the nearest directory with `.git`) also writes `.gitattributes`
+(`* text=auto eol=lf`), ignores `.nylorun/credentials.json` in `.gitignore`, and
+maps the folder files to their JSON Schemas in `.vscode/settings.json`, merged
+into the file that is there. `check --json` prints
+`{ "folders": [{ path, ok, manifest?, diagnostics }] }` for CI. A plan's change
+to the instructions prints their text diff. `apply --watch` checks and plans
+again on each change, and saves only with `--save` (for a development manifest:
+each save is a new version that moves the Agents tracking it).
+
+`.nyloignore` in a folder names, in gitignore syntax, what packing leaves out.
+`runtime.json` may say `"extends": "../../platform/pod.runtime.json"`: `apply`
+and `check` merge that file under it (the folder's keys win, objects merge,
+arrays replace), send the merged `runtime.json`, and name the files it came from
+in `.nylorun/origin.json`.
+
+`nylorun pull support[@3] [--out <dir>]` writes back the folder a version was
+saved from, byte for byte. A version saved as JSON or from TypeScript has none:
+`nylorun export --folder support[@3] [--out <dir>]` writes its folder from the
+manifest instead (instructions as Markdown, tools, `mcp.json`, triggers and
+`runtime.json`), says whether it compiles back to the same manifest, and notes
+what it writes differently (a skill's files, which the manifest names by hash
+only, are left to copy in; flows wait for the compiler). Neither writes over a
+file with other bytes.
+
+Or as three files (deprecated: `apply` warns, and `nylorun migrate folder
+agents/triage --out <dir>` writes the agent folder, with its skills, offline):
 
 ```
 agents/triage/agent.manifest.json     # { "manifestSchemaVersion": 8, "name": "triage",

@@ -16,6 +16,7 @@ import {
   runtimeLimitsOf,
 } from "../src/contracts.js";
 import { HARNESS_MAX_PAYLOAD, TurnStartSchema } from "../src/harness-api/index.js";
+import { AGENT_FOLDER_LIMITS, compileAgentFolder, type AgentFolderLimits } from "../src/folder/index.js";
 
 describe("Runtime limits", () => {
   it("defaults to today's sizes and times, each within its ceiling", () => {
@@ -134,5 +135,29 @@ describe("Runtime limits", () => {
     };
     expect(TurnStartSchema.safeParse(start).success).toBe(false);
     expect(TurnStartSchema.safeParse({ ...start, limits: RUNTIME_LIMIT_DEFAULTS }).success).toBe(true);
+  });
+});
+
+describe("the folder limits (track T7)", () => {
+  it("default to T6's fixed values, and the compiler takes lower ones as input", () => {
+    expect({
+      files: RUNTIME_LIMIT_DEFAULTS.folderFiles,
+      totalBytes: RUNTIME_LIMIT_DEFAULTS.folderBytes,
+      textFileBytes: RUNTIME_LIMIT_DEFAULTS.folderTextFileBytes,
+    }).toEqual(AGENT_FOLDER_LIMITS);
+    const text = new TextEncoder().encode("---\nname: small\ndescription: Small.\n---\nWork.\n");
+    const entries = [
+      { path: "AGENT.md", size: text.byteLength, sha256: "0".repeat(64) },
+      { path: "README.md", size: 3, sha256: "1".repeat(64) },
+    ];
+    const files = new Map([["AGENT.md", text]]);
+    expect(compileAgentFolder({ entries, files }).manifest?.name).toBe("small");
+    const limited = (limits: Partial<AgentFolderLimits>) =>
+      compileAgentFolder({ entries, files, limits })
+        .diagnostics.filter((item) => item.code === "limit_exceeded")
+        .map((item) => item.message);
+    expect(limited({ files: 1 })).toEqual(["An agent folder holds at most 1 files; this one holds 2"]);
+    expect(limited({ totalBytes: 10 })).toEqual([`An agent folder holds at most 10 bytes; this one holds ${text.byteLength + 3}`]);
+    expect(limited({ textFileBytes: 8 })).toEqual([`A Markdown or JSON file holds at most 8 bytes; this one holds ${text.byteLength}`]);
   });
 });

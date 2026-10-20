@@ -1,7 +1,8 @@
 import { Fragment, useCallback, useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import type { AgentManifestView } from "@nylorun/agents";
-import { Lock, X } from "lucide-react";
+import { Tabs as TabsPrimitive } from "radix-ui";
+import { FolderTree, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { createTenantClient } from "@/proxy-client";
 import { useRead } from "@/resources/reads";
@@ -15,6 +16,9 @@ import { fullTime, shortTime } from "@/time-format";
 import { Button } from "@/components/ui/button";
 import { ReadState } from "@/components/resource-layout";
 import { NewAgentSheet } from "@/components/agents";
+import { UploadFolder } from "@/components/folder-upload";
+import { ManifestSource } from "@/components/manifest-source";
+import { ViewOption, ViewSwitch } from "@/components/view-switch";
 import {
   ActionMenu,
   CodeBlock,
@@ -37,7 +41,14 @@ import { STATUS_DOT } from "@/lib/status";
 const kindOf = (manifest: Pick<AgentManifestView, "manifest">) => manifest.manifest.runtime?.kind ?? "none";
 
 const EDIT_HINT =
-  "Agent manifests are read only here: edit one in its repository and save its next version with nylorun apply.";
+  "Manifests are not edited here: edit an agent's folder in its repository, then save its next version with Upload folder or nylorun apply.";
+
+/** A version saved from an agent folder (track T6), in words: its compiler and size. */
+const fromFolder = (source: NonNullable<AgentManifestView["source"]>) =>
+  `Saved from an agent folder: ${source.compiler}, ${source.files === 1 ? "1 file" : `${source.files} files`}`;
+
+/** The pane's views: the version as a readable spec, and the folder it was saved from. */
+type PaneView = "spec" | "source";
 
 /** An Agent's state as a dot: darkest when it fails or needs input. */
 const stateDot = (state: string) =>
@@ -50,14 +61,17 @@ type Use = "any" | "used" | "unused";
 /**
  * The Tenant's agent manifests (protocol 16, track T2): one line each with its latest version,
  * the kind of Agent it makes, how many Agents were made from it and when it was saved, searched
- * and filtered on top. Read only: a manifest is saved from its repository (`nylorun apply`). A
- * row opens the manifest beside the list (`?selected=<name>&version=<n>`), as a readable spec.
+ * and filtered on top. A manifest is not edited here: its folder is saved from its repository
+ * (`nylorun apply`) or uploaded (Upload folder, track T7). A row opens the manifest beside the
+ * list (`?selected=<name>&version=<n>`), as a readable spec or, with `&view=source`, the folder
+ * it was saved from.
  */
 export function AgentManifests({ tenantId, catalog }: Readonly<{ tenantId: string; catalog: AgentCatalog }>) {
   const [query, setQuery] = useSearchParams();
   const selected = query.get("selected") ?? undefined;
   const asked = Number(query.get("version"));
   const version = Number.isSafeInteger(asked) && asked > 0 ? asked : undefined;
+  const view: PaneView = query.get("view") === "source" ? "source" : "spec";
   const [search, setSearch] = useState("");
   const [kind, setKind] = useState<Kind>("any");
   const [type, setType] = useState<Type>("any");
@@ -78,12 +92,15 @@ export function AgentManifests({ tenantId, catalog }: Readonly<{ tenantId: strin
         m.name.toLowerCase().includes(needle) ||
         (m.manifest.description ?? "").toLowerCase().includes(needle)),
   );
-  function open(name?: string, v?: number) {
+  function open(name?: string, v?: number, nextView: PaneView = view) {
     const next = new URLSearchParams(query);
     if (name === undefined) next.delete("selected");
     else next.set("selected", name);
-    if (v === undefined) next.delete("version");
-    else next.set("version", String(v));
+    // Always in this order: `&version=<n>&view=source`.
+    next.delete("version");
+    next.delete("view");
+    if (v !== undefined) next.set("version", String(v));
+    if (name !== undefined && nextView === "source") next.set("view", nextView);
     setQuery(next);
   }
   const wide = selected === undefined;
@@ -91,7 +108,7 @@ export function AgentManifests({ tenantId, catalog }: Readonly<{ tenantId: strin
   return (
     <div className="flex min-h-0 w-full flex-1 overflow-hidden">
       <section
-        className={cn("min-h-0 min-w-0 flex-1 flex-col overflow-auto", wide ? "flex" : "hidden lg:flex")}
+        className={cn("min-h-0 min-w-0 flex-1 flex-col overflow-auto", wide ? "flex" : "hidden xl:flex")}
         aria-label="Agent manifests"
       >
         <TableToolbar>
@@ -129,16 +146,17 @@ export function AgentManifests({ tenantId, catalog }: Readonly<{ tenantId: strin
             onChange={setUse}
           />
           <ToolbarCount>{countText(shown.length, manifests.length, "manifest", "manifests")}</ToolbarCount>
-          <span
-            title={EDIT_HINT}
-            className="inline-flex h-8 shrink-0 cursor-help items-center gap-1.5 rounded-md border px-2.5 text-[13px] text-muted-foreground"
-          >
-            <Lock className="size-3.5" aria-hidden />
-            Read only · <span className="font-mono text-xs">nylorun apply</span>
-            <span className="sr-only">{EDIT_HINT}</span>
-          </span>
+          <UploadFolder
+            tenantId={tenantId}
+            hint={EDIT_HINT}
+            onSaved={(name, saved) => {
+              catalog.reload();
+              open(name, saved, "source");
+            }}
+          />
         </TableToolbar>
-        <TableFrame minWidth={wide ? 900 : 480}>
+        {/* Beside the pane the list fits its width: no column runs under the pane. */}
+        <TableFrame {...(wide ? { minWidth: 900 } : {})}>
           <thead>
             <tr>
               <th className={`${headClass} ${wide ? "w-[22%]" : ""}`}>Manifest</th>
@@ -167,7 +185,7 @@ export function AgentManifests({ tenantId, catalog }: Readonly<{ tenantId: strin
             ) : shown.length === 0 ? (
               <EmptyRow columns={columns}>
                 {manifests.length === 0
-                  ? "No agent manifests yet. An agent manifest holds what runs inside the loop (its harness section) and what the Runtime provides around it (its runtime section). Save one with nylorun apply."
+                  ? "No agent manifests yet. An agent manifest holds what runs inside the loop (its harness section) and what the Runtime provides around it (its runtime section). Save one from its folder with Upload folder or nylorun apply."
                   : "No manifests match these filters."}
               </EmptyRow>
             ) : (
@@ -198,7 +216,17 @@ export function AgentManifests({ tenantId, catalog }: Readonly<{ tenantId: strin
                         {manifest.manifest.description ?? "—"}
                       </td>
                     ) : null}
-                    <td className={`${cellClass} tabular-nums`}>v{manifest.version}</td>
+                    <td className={`${cellClass} tabular-nums`}>
+                      <span className="inline-flex items-center gap-1.5">
+                        <span>v{manifest.version}</span>
+                        {manifest.source ? (
+                          <span title={fromFolder(manifest.source)} className="inline-flex text-muted-foreground">
+                            <FolderTree className="size-3.5 shrink-0" aria-hidden />
+                            <span className="sr-only">from folder</span>
+                          </span>
+                        ) : null}
+                      </span>
+                    </td>
                     <td className={`${cellClass} text-muted-foreground`}>
                       {isFlowManifest(manifest) ? `flow · ${kindOf(manifest)}` : kindOf(manifest)}
                     </td>
@@ -239,8 +267,10 @@ export function AgentManifests({ tenantId, catalog }: Readonly<{ tenantId: strin
           tenantId={tenantId}
           name={selected}
           {...(version === undefined ? {} : { version })}
+          view={view}
           catalog={catalog}
           onVersion={(v) => open(selected, v)}
+          onView={(v) => open(selected, version, v)}
           onCreate={(v) => setCreating({ name: selected, version: v })}
           onClose={() => open()}
         />
@@ -265,23 +295,28 @@ export function AgentManifests({ tenantId, catalog }: Readonly<{ tenantId: strin
 
 /**
  * One manifest beside the list: a version (its latest unless `version` names one), its
- * description, the Agents made from it, and the version as a readable spec, its harness section
- * then its runtime section, one line each. A line opens its part of the manifest.
+ * description, the Agents made from it, and two views of the version: **Spec**, the version as a
+ * readable spec, its harness section then its runtime section, one line each (a line opens its
+ * part of the manifest), and **Source**, the agent folder it was saved from (track T7).
  */
 function ManifestPane({
   tenantId,
   name,
   version,
+  view,
   catalog,
   onVersion,
+  onView,
   onCreate,
   onClose,
 }: Readonly<{
   tenantId: string;
   name: string;
   version?: number;
+  view: PaneView;
   catalog: AgentCatalog;
   onVersion: (version: number) => void;
+  onView: (view: PaneView) => void;
   onCreate: (version: number) => void;
   onClose: () => void;
 }>) {
@@ -304,7 +339,7 @@ function ManifestPane({
   return (
     <aside
       aria-label={name}
-      className="flex min-h-0 w-full shrink-0 flex-col border-l bg-background lg:w-[560px]"
+      className="flex min-h-0 w-full shrink-0 flex-col border-l bg-background xl:w-[560px]"
     >
       <div className="flex items-center gap-1.5 border-b py-3 pr-2.5 pl-5">
         <div className="min-w-0 flex-1">
@@ -312,7 +347,8 @@ function ManifestPane({
           {shown ? (
             <p className="truncate text-xs text-muted-foreground" title={fullTime(shown.createdAt)}>
               v{shown.version}
-              {latest !== undefined ? (shown.version === latest ? " · latest" : ` of ${latest}`) : ""} · saved{" "}
+              {latest !== undefined ? (shown.version === latest ? " · latest" : ` of ${latest}`) : ""}
+              {shown.source ? <span title={fromFolder(shown.source)}> · from folder</span> : null} · saved{" "}
               {shortTime(shown.createdAt)} by {shown.savedBy.actor}
             </p>
           ) : null}
@@ -347,95 +383,117 @@ function ManifestPane({
           <X />
         </Button>
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto pb-8">
-        <ReadState {...read} onRetry={read.reload} />
-        {shown ? (
-          <>
-            <div className="space-y-3 px-5 pt-4 pb-1">
-              {shown.manifest.description ? <p className="text-sm">{shown.manifest.description}</p> : null}
-              <div className="flex flex-wrap items-center gap-1.5 text-[13px]">
-                <span className="mr-1 text-muted-foreground">Agents</span>
-                {agents.length ? (
-                  agents.map((agent) => (
-                    <Link
-                      key={agent.id}
-                      to={agentPath(agent.id)}
-                      title={`${agent.id} · ${stateLabel(agent.state)} · runs v${agent.resolvedVersion}, ${agent.tracking === "tracking" ? "tracking" : "pinned"}`}
-                      className="inline-flex h-6 max-w-full items-center gap-1.5 rounded-md border px-2 text-xs hover:bg-muted"
-                    >
-                      <span aria-hidden className={cn("size-1.5 shrink-0 rounded-full", stateDot(agent.state))} />
-                      <span className="truncate font-mono">{agent.id}</span>
-                      <span className="text-muted-foreground">v{agent.resolvedVersion}</span>
-                    </Link>
-                  ))
-                ) : (
-                  <span className="text-muted-foreground">None yet</span>
-                )}
+      <TabsPrimitive.Root
+        value={view}
+        onValueChange={(value) => onView(value === "source" ? "source" : "spec")}
+        className="flex min-h-0 flex-1 flex-col"
+      >
+        <ViewSwitch label="Manifest views">
+          <ViewOption value="spec">Spec</ViewOption>
+          <ViewOption value="source">Source</ViewOption>
+        </ViewSwitch>
+        <TabsPrimitive.Content value="source" className="min-h-0 flex-1 overflow-y-auto pb-8 outline-none">
+          <ReadState {...read} onRetry={read.reload} />
+          {shown ? (
+            <ManifestSource
+              key={shown.version}
+              tenantId={tenantId}
+              name={name}
+              version={shown.version}
+              {...(shown.source ? { summary: shown.source } : {})}
+            />
+          ) : null}
+        </TabsPrimitive.Content>
+        <TabsPrimitive.Content value="spec" className="min-h-0 flex-1 overflow-y-auto pb-8 outline-none">
+          <ReadState {...read} onRetry={read.reload} />
+          {shown ? (
+            <>
+              <div className="space-y-3 px-5 pt-4 pb-1">
+                {shown.manifest.description ? <p className="text-sm">{shown.manifest.description}</p> : null}
+                <div className="flex flex-wrap items-center gap-1.5 text-[13px]">
+                  <span className="mr-1 text-muted-foreground">Agents</span>
+                  {agents.length ? (
+                    agents.map((agent) => (
+                      <Link
+                        key={agent.id}
+                        to={agentPath(agent.id)}
+                        title={`${agent.id} · ${stateLabel(agent.state)} · runs v${agent.resolvedVersion}, ${agent.tracking === "tracking" ? "tracking" : "pinned"}`}
+                        className="inline-flex h-6 max-w-full items-center gap-1.5 rounded-md border px-2 text-xs hover:bg-muted"
+                      >
+                        <span aria-hidden className={cn("size-1.5 shrink-0 rounded-full", stateDot(agent.state))} />
+                        <span className="truncate font-mono">{agent.id}</span>
+                        <span className="text-muted-foreground">v{agent.resolvedVersion}</span>
+                      </Link>
+                    ))
+                  ) : (
+                    <span className="text-muted-foreground">None yet</span>
+                  )}
+                </div>
               </div>
-            </div>
-            {json ? (
-              <div className="px-5 pt-3">
-                <CodeBlock label="The whole manifest">{JSON.stringify(shown.manifest, null, 2)}</CodeBlock>
-              </div>
-            ) : null}
-            {sections.map((section, index) => (
-              <Fragment key={section.id}>
-                {index === 0 || sections[index - 1]!.group !== section.group ? (
-                  <div className="flex items-baseline gap-2.5 px-5 pt-5 pb-0.5">
-                    <h3 className="text-[15px] font-semibold">{section.group === "harness" ? "Harness" : "Runtime"}</h3>
-                    <span className="text-xs text-muted-foreground">
-                      {section.group === "harness" ? "What runs inside the loop" : "What the Runtime provides around it"}
-                    </span>
-                  </div>
-                ) : null}
-                <section aria-label={section.title} className="pt-3">
-                  <div className="flex items-baseline gap-2 border-b px-5 pb-1.5">
-                    <h4 className="text-[13px] font-semibold">{section.title}</h4>
-                    <span className="truncate text-xs text-muted-foreground/80">{section.hint}</span>
-                  </div>
-                  {section.rows.map((row) => {
-                    const expanded = open === row.id;
-                    return (
-                      <div key={row.id}>
-                        <button
-                          type="button"
-                          aria-expanded={expanded}
-                          onClick={() => setOpen(expanded ? undefined : row.id)}
-                          className={cn(
-                            "grid h-9 w-full grid-cols-[9.5rem_minmax(0,1fr)_auto] items-center gap-3.5 border-b border-border/60 px-5 text-left text-[13px] hover:bg-muted/50",
-                            expanded && "bg-muted",
-                          )}
-                        >
-                          <span
+              {json ? (
+                <div className="px-5 pt-3">
+                  <CodeBlock label="The whole manifest">{JSON.stringify(shown.manifest, null, 2)}</CodeBlock>
+                </div>
+              ) : null}
+              {sections.map((section, index) => (
+                <Fragment key={section.id}>
+                  {index === 0 || sections[index - 1]!.group !== section.group ? (
+                    <div className="flex items-baseline gap-2.5 px-5 pt-5 pb-0.5">
+                      <h3 className="text-[15px] font-semibold">{section.group === "harness" ? "Harness" : "Runtime"}</h3>
+                      <span className="text-xs text-muted-foreground">
+                        {section.group === "harness" ? "What runs inside the loop" : "What the Runtime provides around it"}
+                      </span>
+                    </div>
+                  ) : null}
+                  <section aria-label={section.title} className="pt-3">
+                    <div className="flex items-baseline gap-2 border-b px-5 pb-1.5">
+                      <h4 className="text-[13px] font-semibold">{section.title}</h4>
+                      <span className="truncate text-xs text-muted-foreground/80">{section.hint}</span>
+                    </div>
+                    {section.rows.map((row) => {
+                      const expanded = open === row.id;
+                      return (
+                        <div key={row.id}>
+                          <button
+                            type="button"
+                            aria-expanded={expanded}
+                            onClick={() => setOpen(expanded ? undefined : row.id)}
                             className={cn(
-                              "truncate",
-                              row.mono ? "font-mono text-xs text-foreground" : "text-muted-foreground",
+                              "grid h-9 w-full grid-cols-[7rem_minmax(0,1fr)_auto] items-center gap-3.5 border-b border-border/60 px-5 text-left text-[13px] hover:bg-muted/50 sm:grid-cols-[9.5rem_minmax(0,1fr)_auto]",
+                              expanded && "bg-muted",
                             )}
-                            title={row.label}
                           >
-                            {row.label}
-                          </span>
-                          <span className="truncate" title={row.value}>
-                            {row.value}
-                          </span>
-                          <span className="max-w-40 truncate text-xs text-muted-foreground" title={row.note}>
-                            {row.tone && row.note ? <StatusDot tone={row.tone}>{row.note}</StatusDot> : row.note}
-                          </span>
-                        </button>
-                        {expanded ? (
-                          <pre className="border-b border-border/60 bg-muted/40 px-5 py-2.5 font-mono text-xs leading-5 whitespace-pre-wrap break-all">
-                            {typeof row.json === "string" ? row.json : JSON.stringify(row.json, null, 2)}
-                          </pre>
-                        ) : null}
-                      </div>
-                    );
-                  })}
-                </section>
-              </Fragment>
-            ))}
-          </>
-        ) : null}
-      </div>
+                            <span
+                              className={cn(
+                                "truncate",
+                                row.mono ? "font-mono text-xs text-foreground" : "text-muted-foreground",
+                              )}
+                              title={row.label}
+                            >
+                              {row.label}
+                            </span>
+                            <span className="truncate" title={row.value}>
+                              {row.value}
+                            </span>
+                            <span className="max-w-28 truncate text-xs text-muted-foreground sm:max-w-40" title={row.note}>
+                              {row.tone && row.note ? <StatusDot tone={row.tone}>{row.note}</StatusDot> : row.note}
+                            </span>
+                          </button>
+                          {expanded ? (
+                            <pre className="border-b border-border/60 bg-muted/40 px-5 py-2.5 font-mono text-xs leading-5 whitespace-pre-wrap break-all">
+                              {typeof row.json === "string" ? row.json : JSON.stringify(row.json, null, 2)}
+                            </pre>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </section>
+                </Fragment>
+              ))}
+            </>
+          ) : null}
+        </TabsPrimitive.Content>
+      </TabsPrimitive.Root>
     </aside>
   );
 }

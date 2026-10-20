@@ -1,0 +1,8 @@
+{
+  "chain": [
+    { "agent": "triage" },
+    { "id": "route", "switch": {
+        "cases": { "repo": { "agent": "research" } },
+        "default": { "agent": "decline" } } }
+  ]
+}

@@ -54,6 +54,8 @@ triage → switch ┬ repo:    map(researcher) → parallel(overview, risks) →
 
 The writer's shell needs a sandbox, which its runtime section gives it, as for the [data analyst](#data-analyst-sandbox): open the session on the Agent `repo-brief` (in Studio, pick it); the flow's child sessions run on the same Agent. Then try `Brief me on modelcontextprotocol/typescript-sdk.` in Studio. [`test/repo-brief.test.ts`](./test/repo-brief.test.ts) runs the same turn against an in-process Runtime, with a stub model, a fake DeepWiki and the tools service.
 
+[`agents/repo-brief-folder/`](./agents/repo-brief-folder/) is the same flow as an agent folder (track T7): 23 Markdown and JSON files. [`flow.json`](./agents/repo-brief-folder/flow.json) is the top of the tree, and [`agents/research/flow.json`](./agents/repo-brief-folder/agents/research/flow.json) a sub-flow; both name their stages from the one `agents/` at the root, and the compiler nests them as the manifest needs. `npx nylorun check agents/repo-brief-folder` compiles it offline, and [`test/repo-brief-folder.test.ts`](./test/repo-brief-folder.test.ts) checks that it compiles to the manifest the TypeScript flow saves, apart from one instruction string per Markdown file and the agents' display names (a folder's `name` is its id). Its tools call the tools service at `http://localhost:3001`, `TOOLS_URL`'s default.
+
 ## Triage: an agent folder
 
 [`agents/triage/`](./agents/triage/) is an agent folder (track T6): Markdown and JSON, no TypeScript.

@@ -13,6 +13,9 @@
  *
  * It writes nothing over an existing file, reads nothing from a Runtime, and prints the gaps
  * `nylorun apply` would refuse, to fix in the files first.
+ *
+ * `nylorun migrate folder <dir>` (`convert.ts`, track T7) writes the agent folder of a three-file
+ * folder.
  */
 import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -30,6 +33,7 @@ import {
 import { harnessSectionOf, sectionGaps } from "@nylorun/core/define";
 import { CliError } from "../errors.js";
 import { parseStackFlags, type StackDeps } from "../stack/commands.js";
+import { migrateFolderCommand, migrateFolderUsage } from "./convert.js";
 import { readJson, usageError } from "./runtime.js";
 
 export const migrateUsage = `nylorun migrate v8 <agent.json> [--runtime <environment-manifest.json>] [--name <name>] [--out <dir>]
@@ -77,10 +81,12 @@ function hasSkills(loop: AgentManifest | WorkflowManifest): boolean {
 export async function migrateCommand(deps: StackDeps, args: readonly string[]): Promise<number> {
   const [version, ...rest] = args;
   if (version === "--help" || version === "-h") {
-    deps.out(migrateUsage);
+    deps.out(`${migrateUsage}\n\n${migrateFolderUsage}`);
     return 0;
   }
-  if (version !== "v8") throw usageError(version === undefined ? migrateUsage : `nylorun migrate knows v8 only.\n${migrateUsage}`);
+  if (version === "folder") return migrateFolderCommand(deps, rest);
+  if (version !== "v8")
+    throw usageError(version === undefined ? migrateUsage : `nylorun migrate knows v8 and folder only.\n${migrateUsage}\n\n${migrateFolderUsage}`);
   const flags = parseStackFlags(rest, { values: ["--runtime", "--name", "--out"] }, migrateUsage);
   if (flags.rest.length !== 1) throw usageError(`Usage: ${migrateUsage.split("\n")[0]}`);
   const cwd = deps.cwd ?? process.cwd();

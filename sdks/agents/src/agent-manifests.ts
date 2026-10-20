@@ -27,6 +27,7 @@ import {
   type AgentHarnessSection,
   type AgentManifestPlan,
   type AgentManifestSource,
+  type AgentManifestSourceDiff,
   type AgentManifestV8,
   type AgentMemorySettings,
   type AgentManifestVersions,
@@ -380,6 +381,15 @@ export class AgentManifestsClient {
       ...(options.signal ? { signal: options.signal } : {}),
     });
     return new Uint8Array(await response.arrayBuffer());
+  }
+
+  /**
+   * What changed from version `from`'s source to version `to`'s: the files added, removed and
+   * changed by path and hash. A version saved as JSON has no source (`404`).
+   */
+  async sourceDiff(name: string, from: number, to: number, options: { signal?: AbortSignal } = {}): Promise<AgentManifestSourceDiff> {
+    const query = new URLSearchParams({ from: String(from), to: String(to) });
+    return this.transport.json(`${this.path(name)}/source/diff?${query}`, "GET", undefined, options.signal);
   }
 
   /** The latest version of manifest `name`, or version `version`. */

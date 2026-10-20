@@ -286,17 +286,33 @@ The **Manifests** tab lists the Tenant's agent manifests (`GET /v1/agent-manifes
 single-line rows: each name with its description, latest version, the kind of Agent it
 makes (`flow · …` for a flow), how many Agents were made from it and when it was saved
 (and by whom, on hover), searched by name or description and filtered by kind, type
-(Agent or flow) and whether any Agent was made from it. A row opens the manifest beside
-the list (`/tenant?tab=manifests&selected=<name>&version=<n>`; the list keeps its name,
-version, kind and Agents): a version picker, its description, the Agents made from it
-(each linked to its page, with the version it runs), and the version as a readable spec,
-its **Harness** section (instructions, tools or a flow's agents, skills, MCP servers,
+(Agent or flow) and whether any Agent was made from it; a version saved from an agent
+folder is marked beside its number. A row opens the manifest beside the list
+(`/tenant?tab=manifests&selected=<name>&version=<n>`; the list keeps its name, version,
+kind and Agents, and shows beside it only where both fit): a version picker, its
+description, the Agents made from it (each linked to its page, with the version it
+runs), and two views of the version. **Spec** is the version as a readable spec, its
+**Harness** section (instructions, tools or a flow's agents, skills, MCP servers,
 memory) then its **Runtime** section (compute, lifecycle, network, setup and input
 files, vault slots, triggers, limits), one line each; a line opens its part of the
-manifest as JSON. Its ⋯ makes an Agent pinned to the version shown (**New Agent from
-v<n>**), shows the whole manifest as JSON, or copies its name. `/agent-manifests` and
-`/agent-manifests/<name>` open it so too. Manifests are read only in Studio: edit one
-in its repository and save its next version with `nylorun apply`.
+manifest as JSON. **Source** (`&view=source`) is the agent folder the version was saved
+from, read only: its files as a tree, each marked when it was added or changed since the
+version before (`source/diff`), with the removed ones last; a file opens beside it, its
+text (up to 256 KiB) or, for one that is not text, its size. A version saved as JSON has
+no source, and says so. Its ⋯ makes an Agent pinned to the version shown (**New Agent
+from v<n>**), shows the whole manifest as JSON, or copies its name. `/agent-manifests`
+and `/agent-manifests/<name>` open it so too.
+
+Manifests are not edited in Studio: edit an agent's folder in its repository, and save
+its next version with `nylorun apply` or **Upload folder…**. Upload folder picks a
+directory in the browser and leaves out `.git`, `.hg`, `.svn` and `node_modules`, as
+`nylorun apply` does. Studio hashes each file (SHA-256, WebCrypto), uploads the ones the
+Runtime does not hold (`HEAD`, then `PUT /v1/files/sha256:<hex>`), and sends the folder by
+hash for the plan (`PUT /v1/agent-manifests/{name}?dryRun=true`,
+`application/vnd.nylorun.folder+json`): what a save would change, its errors and warnings,
+and the compiler's diagnostics by file, line and column. **Save v<n>** saves it under
+`If-Match`, so a save in between is refused, and opens its Source view. The manifest takes
+the name `AGENT.md`'s frontmatter gives it, or else the directory's.
 
 Old links redirect, including in embeds: `/environments/<id>` and
 `/environments?selected=<id>&tab=…` to the Agent's page, `/environments` to

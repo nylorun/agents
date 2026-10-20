@@ -226,6 +226,7 @@ it("reads the secret slots a skill's scripts read from its SKILL.md's frontmatte
   expect(loaded.bad).toBeUndefined();
   expect(diagnostics.map((item) => item.message)).toEqual([
     "Skipped skill 'bad' because SKILL.md has secrets that are not a list of environment variable names",
+    "Skill 'open-pr': secrets in SKILL.md is deprecated (D80), since it is not an Agent Skills key: an agent folder lists a skill's secrets in AGENT.md's skills block, where nylorun migrate folder moves them. It is still read until a later release.",
   ]);
   const part = skills(root);
   expect(part.skillSecrets).toEqual({ "open-pr": ["GH_HOST", "GH_TOKEN"] });

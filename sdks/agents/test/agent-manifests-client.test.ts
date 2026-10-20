@@ -175,4 +175,13 @@ describe("client.agentManifests", () => {
     ]);
     await expect(client.agentManifests.get("no/slash")).rejects.toThrow(TypeError);
   });
+
+  it("compares two versions' sources", async () => {
+    const diff = { name: "triage", from: 1, to: 2, added: [], removed: [], changed: [], unchanged: 3 };
+    const { client, sent } = fake(() => Response.json(diff));
+    expect(await client.agentManifests.sourceDiff("triage", 1, 2)).toEqual(diff);
+    expect(sent.map(({ method, path, search }) => `${method} ${path}${search}`)).toEqual([
+      "GET /v1/agent-manifests/triage/source/diff?from=1&to=2",
+    ]);
+  });
 });

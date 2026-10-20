@@ -100,14 +100,14 @@ const SAVE_REMOVED =
  * The manifest an Agent runs, as the list prints it: `name@version`, the version it moves to
  * (track T3), and whether it tracks.
  */
-function manifestOf(agent: AgentView): string {
+export function manifestOf(agent: AgentView): string {
   const name = parseAgentManifestRef(agent.manifest)?.name ?? agent.manifest;
   const target = agent.targetVersion ? ` → ${agent.targetVersion}` : "";
   return `${name}@${agent.resolvedVersion}${target} ${agent.tracking === "tracking" ? "tracks" : "pinned"}`;
 }
 
 /** What a move left pending, for a person: the version, and what it waits for. */
-function pendingOf(agent: AgentView): string {
+export function pendingOf(agent: AgentView): string {
   if (!agent.targetVersion) return "";
   return agent.waitingFor === "secrets"
     ? `; version ${agent.targetVersion} waits for its required secrets (nylorun agents secrets put ${agent.id} <name>)`

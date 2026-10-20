@@ -192,6 +192,11 @@ const harnessLimits = {
  * - `flowConcurrency`: the most effects one flow turn runs at once; the rest wait their turn.
  * - `flowMapItems`: the most items one map stage may fan out to (`map.too-many-items` past it).
  * - `flowLoopIterations`: the most iterations one loop stage runs (`loop.too-many-iterations`).
+ *
+ * Agent folders (track T7, checked when a folder is saved, and by the compiler):
+ * - `folderFiles`: the most files one agent folder holds.
+ * - `folderBytes`: the most bytes its files hold together.
+ * - `folderTextFileBytes`: the largest Markdown or JSON file of a folder the compiler reads.
  */
 export const RuntimeLimitsSchema = z
   .object({
@@ -259,6 +264,9 @@ export const RuntimeLimitsSchema = z
     flowConcurrency: z.number().int().positive(),
     flowMapItems: z.number().int().positive(),
     flowLoopIterations: z.number().int().positive(),
+    folderFiles: z.number().int().positive(),
+    folderBytes: z.number().int().positive(),
+    folderTextFileBytes: z.number().int().positive(),
   })
   .strict();
 export type RuntimeLimits = z.infer<typeof RuntimeLimitsSchema>;
@@ -491,6 +499,13 @@ export const RUNTIME_LIMIT_CEILINGS: { readonly [K in RuntimeLimit]: Ceiling } =
   flowConcurrency: counted("effects", "running effects are counted"),
   flowMapItems: counted("entries", "items are counted"),
   flowLoopIterations: counted("iterations", "iterations are counted"),
+  folderFiles: inRequest("a folder's files", { path: "a", size: 0, sha256: "0".repeat(64) }),
+  folderBytes: counted("bytes", "the files' sizes are added up"),
+  folderTextFileBytes: {
+    value: JS_STRING_MAX_LENGTH,
+    unit: "bytes",
+    why: `the compiler reads a file as one string, of at most ${JS_STRING_MAX_LENGTH} characters`,
+  },
 };
 
 /**
@@ -570,6 +585,10 @@ export const RUNTIME_LIMIT_DEFAULTS: RuntimeLimits = Object.freeze({
   flowConcurrency: 8,
   flowMapItems: 1_000,
   flowLoopIterations: 100,
+  // T6's fixed values (`AGENT_FOLDER_LIMITS` in `@nylorun/core/folder`).
+  folderFiles: 2_000,
+  folderBytes: 50 * 1024 * 1024,
+  folderTextFileBytes: 1024 * 1024,
 });
 
 /** The Runtime limits a harness gets when the Tenant sets none. */

@@ -11,6 +11,9 @@ import {
 } from "@nylorun/core/folder";
 import type { PackedFolder } from "./folder.js";
 
+/** The agent folder of a manifest (track T7): what `nylorun export --folder` writes. */
+export { folderOfManifest, type FolderOfManifest, type FolderOfManifestOptions } from "@nylorun/core/folder";
+
 /**
  * Compiles a packed folder offline, as the Runtime will: the manifest when it compiles, and every
  * diagnostic either way. With `name`, the name it will be saved as, `AGENT.md`'s must match.

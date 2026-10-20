@@ -24,9 +24,17 @@ export interface PackedFolder {
   readonly files: ReadonlyMap<string, SkillFileSource>;
   /** What packing left out, and why (a symbolic link). */
   readonly skipped: readonly string[];
+  /**
+   * The files `runtime.json` was merged from (its `extends`, nearest first), as absolute paths;
+   * absent when it extends none.
+   */
+  readonly extended?: readonly string[];
 }
 
-/** A folder that cannot be packed: too many files, or more bytes than an agent folder holds. */
+/**
+ * A folder that cannot be packed: too many files, more bytes than an agent folder holds, or an
+ * `extends` in `runtime.json` that does not resolve.
+ */
 export class FolderError extends Error {
   constructor(
     readonly dir: string,

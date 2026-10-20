@@ -1,11 +1,12 @@
 import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { AGENT_FOLDER_MEDIA_TYPE } from "@nylorun/core/contracts";
 import { HOST_PROTOCOL } from "@nylorun/core/compatibility";
-import { FolderInvalidError, checkFolder, diagnosticLine, isAgentFolder, packFolder } from "../src/index.js";
+import { FolderError, FolderInvalidError, checkFolder, diagnosticLine, ignoreMatcher, isAgentFolder, packFolder } from "../src/index.js";
 import { AgentsClient } from "../src/client.js";
 
 const KEY = "a".repeat(64);
@@ -58,6 +59,100 @@ describe("packFolder", () => {
     expect(new TextDecoder().decode(await packed.files.get("instructions/tone.md")!.read())).toBe("Be brief.\n");
     expect(await isAgentFolder(dir)).toBe(true);
     expect(await isAgentFolder(join(dir, "instructions"))).toBe(false);
+  });
+});
+
+describe(".nyloignore", () => {
+  it("follows gitignore rules: globs, a name at any depth, anchors, directories, negation and comments", () => {
+    const ignored = ignoreMatcher(
+      ["# notes stay out", "*.log", "!keep.log", "/drafts", "build/", "docs/**/*.tmp", "\\#hash", "data/*", "!data/seed.csv", ""].join("\n"),
+    );
+    expect(ignored("a.log")).toBe(true);
+    expect(ignored("deep/x/b.log")).toBe(true);
+    expect(ignored("keep.log")).toBe(false);
+    expect(ignored("drafts", true)).toBe(true);
+    expect(ignored("drafts/one.md")).toBe(true);
+    expect(ignored("notes/drafts")).toBe(false);
+    expect(ignored("build", true)).toBe(true);
+    expect(ignored("build")).toBe(false);
+    expect(ignored("x/build/out.js")).toBe(true);
+    expect(ignored("docs/a.tmp")).toBe(true);
+    expect(ignored("docs/a/b/c.tmp")).toBe(true);
+    expect(ignored("other/a.tmp")).toBe(false);
+    expect(ignored("#hash")).toBe(true);
+    expect(ignored("# notes stay out")).toBe(false);
+    expect(ignored("data/raw.csv")).toBe(true);
+    expect(ignored("data/seed.csv")).toBe(false);
+    expect(ignoreMatcher("")("anything")).toBe(false);
+  });
+
+  it("leaves what it names out of the pack, and nothing below a directory it leaves out comes back", async () => {
+    const dir = folder({
+      "AGENT.md": AGENT,
+      ".nyloignore": "*.log\nscratch/\n!scratch/keep.md\n",
+      "notes.log": "x\n",
+      "files/run.log": "x\n",
+      "files/data.csv": "a\n",
+      "scratch/keep.md": "x\n",
+    });
+    const packed = await packFolder(dir);
+    expect(packed.entries.map((entry) => entry.path)).toEqual([".nyloignore", "AGENT.md", "files/data.csv"]);
+    expect(packed.skipped).toEqual([]);
+  });
+});
+
+describe("runtime.json extends", () => {
+  it("packs the merge, the folder's own keys winning, and names its origin; the file on disk is unchanged", async () => {
+    const repo = folder({
+      "platform/base.runtime.json": JSON.stringify({ kind: "virtual", network: { allowedHosts: ["a.example.com"], mode: "allowlist" }, limits: { turnSeconds: 60 } }),
+      "platform/pod.runtime.json": JSON.stringify({ $schema: "https://example.com/x.json", extends: "./base.runtime.json", kind: "pod", limits: { turnSeconds: 120 } }),
+      "agents/triage/AGENT.md": AGENT,
+      "agents/triage/runtime.json": JSON.stringify({ extends: "../../platform/pod.runtime.json", network: { allowedHosts: ["b.example.com"] } }),
+    });
+    const dir = join(repo, "agents", "triage");
+    const packed = await packFolder(dir);
+    const text = (path: string) => packed.files.get(path)!.read().then((data) => new TextDecoder().decode(data));
+    expect(JSON.parse(await text("runtime.json"))).toEqual({
+      kind: "pod",
+      network: { allowedHosts: ["b.example.com"], mode: "allowlist" },
+      limits: { turnSeconds: 120 },
+    });
+    expect(JSON.parse(await text(".nylorun/origin.json"))).toEqual({
+      "runtime.json": { extends: ["../../platform/pod.runtime.json", "../../platform/base.runtime.json"] },
+    });
+    const merged = await text("runtime.json");
+    expect(packed.entries.find((entry) => entry.path === "runtime.json")).toEqual({
+      path: "runtime.json",
+      size: Buffer.byteLength(merged),
+      sha256: hex(merged),
+    });
+    expect(packed.entries.map((entry) => entry.path)).toEqual([".nylorun/origin.json", "AGENT.md", "runtime.json"]);
+    expect(packed.extended).toEqual([join(repo, "platform", "pod.runtime.json"), join(repo, "platform", "base.runtime.json")]);
+    expect(JSON.parse(await readFile(join(dir, "runtime.json"), "utf8"))).toHaveProperty("extends");
+  });
+
+  it("refuses a missing file, a cycle and a file that is not a JSON object, by name", async () => {
+    const missing = folder({ "AGENT.md": AGENT, "runtime.json": '{ "extends": "../shared/none.json" }' });
+    await expect(packFolder(missing)).rejects.toThrow(FolderError);
+    await expect(packFolder(missing)).rejects.toThrow(/runtime\.json: extends \.\.\/shared\/none\.json, which does not exist/);
+    const cycle = folder({ "AGENT.md": AGENT, "runtime.json": '{ "extends": "./a.json" }', "a.json": '{ "extends": "./b.json" }', "b.json": '{ "extends": "./a.json" }' });
+    await expect(packFolder(cycle)).rejects.toThrow("runtime.json: extends makes a cycle: runtime.json → a.json → b.json → a.json");
+    const array = folder({ "AGENT.md": AGENT, "runtime.json": '{ "extends": "./a.json" }', "a.json": "[1]" });
+    await expect(packFolder(array)).rejects.toThrow("a.json, which runtime.json extends, is not a JSON object");
+    // A runtime.json that is not JSON is the compiler's to report, with its position.
+    const broken = await packFolder(folder({ "AGENT.md": AGENT, "runtime.json": '{ "extends": ' }));
+    expect(new TextDecoder().decode(await broken.files.get("runtime.json")!.read())).toBe('{ "extends": ');
+  });
+
+  it("compiles the merged runtime section offline", async () => {
+    const repo = folder({
+      "shared/runtime.json": JSON.stringify({ kind: "virtual", network: { allowedHosts: [] } }),
+      "agent/AGENT.md": AGENT,
+      "agent/runtime.json": JSON.stringify({ extends: "../shared/runtime.json" }),
+    });
+    const result = await checkFolder(await packFolder(join(repo, "agent")));
+    expect(result.diagnostics.filter((item) => item.severity === "error")).toEqual([]);
+    expect(result.manifest?.runtime).toMatchObject({ kind: "virtual", network: { allowedHosts: [] } });
   });
 });
 

@@ -257,26 +257,28 @@ export class SessionClient {
       options.signal
     );
   }
-  approve(interactionId: string, approved: boolean, options: CommandOptions) {
+  /** Approve (or deny) a held tool call. Without an idempotency key, a new one is made. */
+  approve(interactionId: string, approved: boolean, options: Partial<CommandOptions> = {}) {
     return this.command(
       {
         type: "approve",
         interactionId,
         approved,
         requestId: options.requestId ?? id(),
-        idempotencyKey: options.idempotencyKey,
+        idempotencyKey: options.idempotencyKey ?? id(),
       },
       options.signal
     );
   }
-  respond(interactionId: string, value: JsonValue, options: CommandOptions) {
+  /** Answer a question the agent asked. Without an idempotency key, a new one is made. */
+  respond(interactionId: string, value: JsonValue, options: Partial<CommandOptions> = {}) {
     return this.command(
       {
         type: "respond",
         interactionId,
         value,
         requestId: options.requestId ?? id(),
-        idempotencyKey: options.idempotencyKey,
+        idempotencyKey: options.idempotencyKey ?? id(),
       },
       options.signal
     );

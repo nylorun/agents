@@ -309,14 +309,12 @@ describe("agent folders: what is refused, with file, line and column", () => {
     ]);
   });
 
-  it("refuses what an agent folder never holds, and what comes later, and only warns on secret files", () => {
+  it("refuses what an agent folder never holds, and only warns on secret files", () => {
     const result = compile({
       "AGENT.md": "---\nname: a\ndescription: b\n---\n",
       ".env": "TOKEN=x",
       "deploy.pem": "x",
-      "flow.json": "{}",
-      "agents/x/AGENT.md": "x",
-      "plugins/p/plugin.json": "{}",
+      "agents/notes.md": "x",
       "runtime.yaml": "kind: none",
       "tools/notes.txt": "x",
     });
@@ -324,9 +322,7 @@ describe("agent folders: what is refused, with file, line and column", () => {
     expect(result.diagnostics).toContainEqual(expect.objectContaining({ severity: "warning", code: "secret_file", file: ".env" }));
     expect(result.diagnostics).toContainEqual(expect.objectContaining({ severity: "warning", code: "secret_file", file: "deploy.pem" }));
     expect(byFile).toEqual({
-      "flow.json": "not_supported",
-      "agents/x/AGENT.md": "not_supported",
-      "plugins/p/plugin.json": "not_supported",
+      "agents/notes.md": "reserved_directory",
       "runtime.yaml": "wrong_syntax",
       "tools/notes.txt": "reserved_directory",
     });

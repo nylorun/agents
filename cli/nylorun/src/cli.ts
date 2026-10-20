@@ -14,15 +14,28 @@ ${stackUsage}
                                       the sandbox backend the Tenant's Host offers
 
 Agent manifests:
-  init <name> [--description <text>]  write <name>/AGENT.md, a new agent folder
-  check [<dir>...]                    compile each agent folder offline and print every problem
+  init <path> [--description <text>] [--example]
+                                      write <path>/AGENT.md, a new agent folder named after the
+                                      path's last segment; --example adds a tool, mcp.json and a
+                                      trigger
+  check [<dir>...] [--json]           compile each agent folder offline and print every problem
                                       by file, line and column (reads no Runtime)
-  apply [<dir>...] [--dry-run] [--if-match <n>]
+  apply [<dir>...] [--dry-run] [--if-match <n>] [--agent [<id>]] [--watch [--save]]
                                       save the agent manifest each folder describes (its AGENT.md,
-                                      or its agent.manifest.json), with its files (Runtime API)
+                                      or its agent.manifest.json), with its files (Runtime API);
+                                      --agent then makes or moves the Agent; --watch plans again
+                                      on each change
+  chat <agent> [--session <id>] [--message <text>]
+                                      talk to an Agent: send each line, print each reply
   migrate v8 <agent.json> [--runtime <environment-manifest.json>] [--name <name>] [--out <dir>]
                                       write the three manifest files from an agent manifest v7
                                       and an environment manifest v1 (reads no Runtime)
+  migrate folder <dir> [--out <dir>]  write the agent folder of a three-file folder
+                                      (agent.manifest.json; reads no Runtime)
+  export --folder <name>[@<version>] [--out <dir>]
+                                      write the agent folder of a saved manifest (Runtime API)
+  pull <name>[@<version>] [--out <dir>]
+                                      write the folder a version was saved from (Runtime API)
 
 Groups, each with its own --help:
   agent-manifests  list | get | versions | rm
@@ -136,6 +149,10 @@ async function main() {
   const [command, ...args] = process.argv.slice(2);
   if (!command || command === "--help" || command === "-h")
     return void console.log(usage);
+  if (command === "--version" || command === "-v" || command === "version") {
+    const { cliVersion } = await import("./stack/versions.js");
+    return void console.log(cliVersion());
+  }
   refuseNativeWindows();
 
   if (command === "sandbox") {
@@ -182,6 +199,9 @@ async function main() {
     command === "check" ||
     command === "init" ||
     command === "migrate" ||
+    command === "export" ||
+    command === "pull" ||
+    command === "chat" ||
     command === "agent-manifests" ||
     command === "agents" ||
     command === "sessions" ||
@@ -192,6 +212,9 @@ async function main() {
       check: async () => (await import("./client/folder.js")).checkCommand,
       init: async () => (await import("./client/folder.js")).initCommand,
       migrate: async () => (await import("./client/migrate.js")).migrateCommand,
+      export: async () => (await import("./client/convert.js")).exportCommand,
+      pull: async () => (await import("./client/convert.js")).pullCommand,
+      chat: async () => (await import("./client/chat.js")).chatCommand,
       "agent-manifests": async () => (await import("./client/agent-manifests.js")).agentManifestsCommand,
       agents: async () => (await import("./client/agents.js")).agentsCommand,
       sessions: async () => (await import("./client/sessions.js")).sessionsCommand,

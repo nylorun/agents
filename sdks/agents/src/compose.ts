@@ -16,10 +16,13 @@
  *   `{ path, files }`.
  *
  * Each path is relative to the file that names it. Node only: it reads the files.
+ *
+ * Deprecated (D80): agent folders (`AGENT.md`) replace the three files, and every composed
+ * manifest carries a warning naming `nylorun migrate folder`. It is still read.
  */
 import { existsSync, statSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
-import { dirname, join, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import {
   AGENT_MANIFEST_V8_SCHEMA_VERSION,
   AgentManifestFileSchema,
@@ -226,6 +229,16 @@ function agentHarness(
 }
 
 /**
+ * The warning every three-file folder gets (D80): agent folders replace it. It is still read, and
+ * removed in a later release.
+ */
+export function threeFileDeprecation(dir: string): string {
+  const inside = relative(process.cwd(), dir);
+  const where = inside === "" ? "." : inside.startsWith("..") || isAbsolute(inside) ? dir : inside;
+  return `${AGENT_MANIFEST_FILE} (the three-file format) is deprecated: nylorun migrate folder ${where} writes it as an agent folder (AGENT.md), which saves the same manifest. It is still read until a later release.`;
+}
+
+/**
  * Composes the agent manifest in `dir` (its `agent.manifest.json`, or `options.file`): the v8
  * document to save, the bytes of every file it names by hash (skills, plugins' skills, runtime
  * files) for `client.agentManifests.save` to upload, its gaps (the harness file's `requires`
@@ -237,7 +250,7 @@ export async function composeManifest(dir: string, options: { file?: string } = 
   const base = dirname(agentFile);
   const authored = await readFileAs(agentFile, AgentManifestFileSchema, relativeTo(agentFile));
   const files = new Map<string, SkillFileSource>();
-  const warnings: string[] = [];
+  const warnings: string[] = [threeFileDeprecation(base)];
   const runtime =
     authored.runtime === undefined ? undefined : await runtimeSection(authored.runtime, base, agentFile, files, warnings);
   let harness: AgentManifestV8["harness"];

@@ -113,6 +113,7 @@ export function TenantPage({
     // The manifest open beside the list belongs to the Manifests tab.
     next.delete("selected");
     next.delete("version");
+    next.delete("view");
     if (value === "status") next.delete("tab");
     else next.set("tab", value);
     setQuery(next);

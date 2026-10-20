@@ -251,6 +251,14 @@ export const LIMIT_GROUPS: readonly { title: string; limits: Readonly<Record<str
       flowLoopIterations: "The most iterations one loop stage runs",
     },
   },
+  {
+    title: "Agent folders",
+    limits: {
+      folderFiles: "The most files one agent folder holds",
+      folderBytes: "The most bytes an agent folder's files hold together",
+      folderTextFileBytes: "The largest Markdown or JSON file of a folder",
+    },
+  },
 ];
 
 export type LimitRow = {
