@@ -189,6 +189,17 @@ describe("agent folders: flows", () => {
     expect(sectionGaps(result.manifest!)).toEqual([]);
   });
 
+  it("takes $schema in flow.json, as in every JSON file, and leaves it out of the manifest", () => {
+    const flow = (schema: string) => compile({ ...FLOW, "flow.json": FLOW["flow.json"].replace("{", `{ "$schema": "${schema}",`) });
+    const named = flow("https://docs.nylorun.com/schemas/agent-folder/v1/flow.json");
+    expect(named.diagnostics.filter((item) => item.severity === "error" || item.severity === "warning")).toEqual([]);
+    expect(named.manifest).toEqual(compile(FLOW).manifest);
+    // Another kind's schema is a warning, never a refusal.
+    const other = flow("https://docs.nylorun.com/schemas/agent-folder/v1/tool.json");
+    expect(errors(other.diagnostics)).toEqual([]);
+    expect(other.diagnostics).toContainEqual(expect.objectContaining({ severity: "warning", code: "schema_url", file: "flow.json" }));
+  });
+
   it("compiles the same flow as the TypeScript builder", () => {
     const result = compile({ ...FLOW, "AGENT.md": agentMd("brief", "Writes a brief.") });
     const agent = (id: string, description: string, text: string) => Agent({ id, description }).instructions(text);

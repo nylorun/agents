@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import { AgentManifestV8Schema, type AgentManifestV8 } from "../src/contracts.js";
+import { Agent, http } from "../src/define.js";
+import { harnessSectionOf } from "../src/definition/sections.js";
 import { hashManifest } from "../src/utils/hash.js";
 import { compileAgentFolder, folderOfManifest, folderTextPaths, type AgentFolderEntry } from "../src/folder/index.js";
 
@@ -319,6 +322,159 @@ describe("folderOfManifest: the folder compiles back to the same manifest", () =
     expect([...seeded.files.keys()].sort()).toEqual(["AGENT.md", "files/data/a.csv", "runtime.json"]);
     expect(seeded.exact).toBe(true);
   });
+
+  it("writes subagents as agents/<name>/, a flow used as a tool with its own agents/, and derives their slots at the root", () => {
+    const research = Agent({ id: "research", description: "Researches one question." })
+      .instructions("Research the question.", "## Sources\n\nCite each one.")
+      .tools(
+        http({
+          name: "search",
+          description: "Searches the web.",
+          input: { type: "object", properties: { q: { type: "string" } }, required: ["q"] },
+          url: "https://search.example.com/",
+          method: "POST",
+          credential: "SEARCH_KEY",
+        }),
+      )
+      .mcp({ docs: { type: "streamable-http", url: "https://mcp.docs.example.com/mcp", headers: { "X-Toolsets": "read" } } })
+      .output(z.object({ answer: z.string() }));
+    const step = (id: string) => Agent({ id, description: `The ${id}.` }).instructions(`Be the ${id}.`);
+    const review = Agent({ id: "review", description: "Reviews an answer." }).pipe(step("reader")).pipe(step("critic"));
+    const lead = Agent({ id: "lead", description: "Leads the work." })
+      .instructions("Lead.")
+      .tools(http({ name: "now", description: "The time.", input: { type: "object" }, url: "https://tools.example.com/now" }))
+      .subagents(research, review)
+      .build();
+    const folder = roundTrip({
+      manifestSchemaVersion: 8,
+      name: "lead",
+      description: "Leads the work.",
+      harness: harnessSectionOf(lead.manifest),
+      runtime: { kind: "none", secrets: { SEARCH_KEY: { type: "bearer", url: "https://search.example.com/", required: true } } },
+    } as AgentManifestV8);
+    expect([...folder.files.keys()]).toEqual([
+      "AGENT.md",
+      "agents/research/AGENT.md",
+      "agents/research/instructions/01-sources.md",
+      "agents/research/mcp.json",
+      "agents/research/output.schema.json",
+      "agents/research/tools/search.json",
+      "agents/review/AGENT.md",
+      "agents/review/agents/critic/AGENT.md",
+      "agents/review/agents/reader/AGENT.md",
+      "agents/review/flow.json",
+      "tools/now.json",
+    ]);
+    expect(text(folder, "agents/research/AGENT.md")).toBe(
+      "---\nname: research\ndescription: Researches one question.\noutputSchema: ./output.schema.json\n---\nResearch the question.\n",
+    );
+    expect(JSON.parse(text(folder, "agents/review/flow.json"))).toEqual({ chain: [{ agent: "reader" }, { agent: "critic" }] });
+    expect(text(folder, "agents/review/AGENT.md")).toBe("---\nname: review\ndescription: Reviews an answer.\n---\n");
+  });
+
+  it("writes a flow: flow.json, one flat agents/ for it and its sub-flow, and the tools and HTTP verifiers beside each flow.json", () => {
+    const agent = (id: string, extra: Record<string, unknown> = {}) => ({
+      manifestSchemaVersion: 7,
+      id,
+      description: `The ${id}.`,
+      instructions: [`Be the ${id}.`],
+      ...extra,
+    });
+    const textSchema = { type: "object", properties: { text: { type: "string" } }, required: ["text"] };
+    const editor = agent("editor", { outputSchema: { type: "object", properties: { pass: { type: "boolean" }, feedback: { type: "string" } }, required: ["pass"] } });
+    const manifest = {
+      manifestSchemaVersion: 8,
+      name: "brief",
+      description: "Researches a topic, then writes and publishes a brief.",
+      metadata: { team: "docs" },
+      harness: {
+        kind: "workflow",
+        inputSchema: { type: "object", properties: { topic: { type: "string" } }, required: ["topic"] },
+        outputSchema: textSchema,
+        root: {
+          chain: [
+            { agent: "triage" },
+            { id: "route", switch: { cases: { topic: { agent: "research" } }, default: { agent: "decline" } } },
+            { id: "polish", loop: { run: { agent: "writer" }, verify: { agent: "editor" }, max: 1 } },
+          ],
+        },
+        agents: {
+          triage: agent("triage", { outputSchema: { type: "object", properties: { route: { type: "string" } }, required: ["route"] } }),
+          decline: agent("decline"),
+          writer: agent("writer", { outputSchema: textSchema }),
+          editor,
+          research: {
+            kind: "workflow",
+            workflowSchemaVersion: 3,
+            id: "research",
+            description: "Researches the topic, then writes and publishes the brief.",
+            metadata: { stage: 2 },
+            outputSchema: textSchema,
+            root: {
+              chain: [
+                { id: "ask", map: { each: { agent: "researcher" } } },
+                { id: "review", parallel: { facts: { agent: "checker" }, style: { agent: "editor" } } },
+                { id: "draft", loop: { run: { agent: "writer" }, verify: { agent: "editor", id: "check" }, max: 2 } },
+                { id: "lint", loop: { run: { agent: "writer" }, verify: { http: { url: "https://cms.example.com/lint", method: "POST" } }, max: 1 } },
+                {
+                  id: "publish",
+                  tool: {
+                    name: "publish",
+                    description: "Publishes the brief.",
+                    inputSchema: textSchema,
+                    outputSchema: { type: "object", properties: { id: { type: "string" } } },
+                    http: { url: "https://cms.example.com/publish", method: "POST", credential: "CMS_TOKEN" },
+                  },
+                },
+              ],
+            },
+            agents: {
+              researcher: agent("researcher", { mcpServers: { wiki: { name: "wiki", type: "streamable-http", url: "https://mcp.wiki.example.com/mcp" } } }),
+              checker: agent("checker"),
+              writer: agent("writer", { outputSchema: textSchema }),
+              editor,
+            },
+          },
+        },
+      },
+      runtime: { kind: "none", secrets: { CMS_TOKEN: { type: "bearer", url: "https://cms.example.com/publish", required: true } } },
+    } as AgentManifestV8;
+    const folder = roundTrip(manifest);
+    expect([...folder.files.keys()]).toEqual([
+      "AGENT.md",
+      "agents/checker/AGENT.md",
+      "agents/decline/AGENT.md",
+      "agents/editor/AGENT.md",
+      "agents/editor/output.schema.json",
+      "agents/research/AGENT.md",
+      "agents/research/flow.json",
+      "agents/research/output.schema.json",
+      "agents/research/tools/publish.json",
+      "agents/research/tools/verify.json",
+      "agents/researcher/AGENT.md",
+      "agents/researcher/mcp.json",
+      "agents/triage/AGENT.md",
+      "agents/triage/output.schema.json",
+      "agents/writer/AGENT.md",
+      "agents/writer/output.schema.json",
+      "flow.json",
+      "input.schema.json",
+      "output.schema.json",
+    ]);
+    expect(text(folder, "AGENT.md")).toBe(
+      "---\nname: brief\ndescription: Researches a topic, then writes and publishes a brief.\ninputSchema: ./input.schema.json\noutputSchema: ./output.schema.json\nmetadata:\n  team: docs\n---\n",
+    );
+    expect(JSON.parse(text(folder, "agents/research/flow.json"))).toEqual({
+      chain: [
+        { id: "ask", map: { each: { agent: "researcher" } } },
+        { id: "review", parallel: { facts: { agent: "checker" }, style: { agent: "editor" } } },
+        { id: "draft", loop: { run: { agent: "writer" }, verify: { agent: "editor", id: "check" }, max: 2 } },
+        { id: "lint", loop: { run: { agent: "writer" }, verify: { tool: "verify" }, max: 1 } },
+        { id: "publish", tool: "publish" },
+      ],
+    });
+    expect(JSON.parse(text(folder, "agents/research/tools/verify.json")).http).toEqual({ url: "https://cms.example.com/lint", method: "POST" });
+  });
 });
 
 describe("folderOfManifest: what it cannot write the same way, in notes", () => {
@@ -343,19 +499,47 @@ describe("folderOfManifest: what it cannot write the same way, in notes", () => 
     expect(compile(folder.files).diagnostics.filter((item) => item.severity === "error")).toEqual([]);
   });
 
-  it("writes no files for a flow, and says flows come with the compiler", () => {
-    const folder = folderOfManifest({
+  it("names what a flow's folder cannot hold: display names, an unused agent, two agents of one id", () => {
+    const writer = { manifestSchemaVersion: 7, id: "writer", description: "Writes.", instructions: ["Write."] } as const;
+    const manifest = AgentManifestV8Schema.parse({
       manifestSchemaVersion: 8,
       name: "brief",
       description: "A flow.",
-      harness: { kind: "workflow", root: { agent: "a" }, agents: { a: { manifestSchemaVersion: 7, id: "a", instructions: ["Go."] } } },
-    } as AgentManifestV8);
-    expect(folder.files.size).toBe(0);
+      harness: {
+        kind: "workflow",
+        root: { chain: [{ agent: "writer" }, { agent: "sub" }] },
+        agents: {
+          writer: { ...writer, name: "Brief writer" },
+          spare: { manifestSchemaVersion: 7, id: "spare", description: "Never runs.", instructions: ["Wait."] },
+          sub: {
+            kind: "workflow",
+            workflowSchemaVersion: 3,
+            id: "sub",
+            description: "A sub-flow.",
+            root: { agent: "writer" },
+            agents: { writer: { ...writer, instructions: ["Write it twice."] } },
+          },
+        },
+      },
+    });
+    const folder = folderOfManifest(manifest);
     expect(folder.exact).toBe(false);
-    expect(folder.notes).toEqual([expect.stringContaining("flows are exported once the compiler supports them")]);
+    expect(folder.notes).toEqual([
+      "Agent spare is embedded, and no node names it: a folder holds only the agents its flows name, so it is left out.",
+      'agents/writer/: The agent\'s display name "Brief writer" is left out: in a folder an agent\'s name is its id (design §3.2).',
+      "agents/sub/: It embeds an agent writer that differs from the one in agents/writer/, and a flow root's agents/ holds one agent of an id: the one there is used.",
+    ]);
+    expect([...folder.files.keys()]).toEqual(["AGENT.md", "agents/sub/AGENT.md", "agents/sub/flow.json", "agents/writer/AGENT.md", "flow.json"]);
+    // It compiles all the same: without the display name and the spare, with one writer.
+    const compiled = compile(folder.files, "brief");
+    expect(compiled.diagnostics.filter((item) => item.severity === "error")).toEqual([]);
+    expect((compiled.manifest!.harness as { agents: Record<string, unknown> }).agents).toEqual({
+      writer,
+      sub: { kind: "workflow", workflowSchemaVersion: 3, id: "sub", description: "A sub-flow.", root: { agent: "writer" }, agents: { writer } },
+    });
   });
 
-  it("names each normalization: tool order, blank instructions, a missing description, a subagent tool", () => {
+  it("names each normalization: tool order, blank instructions, a missing description, a subagent tool's input", () => {
     const folder = folderOfManifest({
       manifestSchemaVersion: 8,
       name: "messy",
@@ -371,14 +555,15 @@ describe("folderOfManifest: what it cannot write the same way, in notes", () => 
     expect(folder.exact).toBe(false);
     expect(folder.notes).toEqual([
       "The manifest has no description, which AGENT.md needs: write one there (a placeholder stands in).",
-      expect.stringContaining("Tool helper is a subagent"),
-      "harness.tools are listed in file name order (alpha, zeta), as tools/ gives them.",
+      "Tool helper is a subagent, which takes { task } in a folder: its inputSchema is left out.",
+      "agents/helper/: The agent has no description, which AGENT.md needs: write one there (a placeholder stands in).",
+      "harness.tools are listed as a folder gives them (alpha, zeta, helper): tools/ by file name, then agents/ by folder name.",
       "Instruction 1 loses its leading and trailing blank lines, as Markdown files are read.",
       "Instruction 2 is blank, and a blank file gives no instruction: it is left out.",
       "Instruction 3 loses its leading and trailing blank lines and its CRLF line ends, as Markdown files are read.",
     ]);
     const compiled = compile(folder.files).manifest!;
     expect(compiled.harness).toMatchObject({ instructions: ["First.", "Second.\nLine."] });
-    expect((compiled.harness as { tools: { name: string }[] }).tools.map((tool) => tool.name)).toEqual(["alpha", "zeta"]);
+    expect((compiled.harness as { tools: { name: string }[] }).tools.map((tool) => tool.name)).toEqual(["alpha", "zeta", "helper"]);
   });
 });

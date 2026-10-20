@@ -48,12 +48,14 @@ Next:
 
 Nylorun is an open-source runtime for AI agents.
 
-- **Agents are declarative.** Define them with the
-  [Agents SDK](https://docs.nylorun.com/docs/build) from instructions,
-  [tools](https://docs.nylorun.com/docs/build/tools) and
-  [MCP servers](https://docs.nylorun.com/docs/build/mcp), and compose in one
-  line: `.pipe(researcher, analyst)`. Publish your agent and start a session
-  with the Runtime.
+- **Agents are declarative.** Write one as a folder of Markdown and JSON
+  (`npx nylorun init agents/hello`: its instructions,
+  [tools](https://docs.nylorun.com/docs/build/tools),
+  [MCP servers](https://docs.nylorun.com/docs/build/mcp), skills and triggers,
+  or a flow of agents), or define it in TypeScript with the
+  [Agents SDK](https://docs.nylorun.com/docs/build) and compose in one line:
+  `.pipe(researcher, analyst)`. Save it with `npx nylorun apply` and start a
+  session with the Runtime ([the CLI](./cli/nylorun/README.md#agent-manifests-apply)).
 - **The Runtime is a Docker Compose stack**: `runtime`, `gateway`, `harness`,
   `studio`, `postgres`, `restate`, `s2-lite` and `rustfs`. Start it with
   `npx nylorun up`; use it from Studio, the CLI, the SDKs or HTTP.
@@ -83,7 +85,7 @@ every page is also available as Markdown by appending `.md` to its URL.
 | --- | --- | --- |
 | [`@nylorun/agents`](https://www.npmjs.com/package/@nylorun/agents) | [`sdks/agents`](./sdks/agents) | Agents SDK: define agents, save them, open sessions; AG-UI and A2A handlers |
 | [`@nylorun/admin`](https://www.npmjs.com/package/@nylorun/admin) | [`sdks/admin`](./sdks/admin) | Admin SDK for the Management API: models, credential coverage, MCP previews, signing keys, application keys |
-| [`nylorun`](https://www.npmjs.com/package/nylorun) | [`cli/nylorun`](./cli/nylorun) | Runs the local Runtime (`up`, `down`, `status`, `studio`), and manages a Tenant (`environments`, `tenant`, `local`) |
+| [`nylorun`](https://www.npmjs.com/package/nylorun) | [`cli/nylorun`](./cli/nylorun) | Runs the local Runtime (`up`, `down`, `status`, `studio`), and writes, checks and saves agent folders and manages a Tenant (`init`, `check`, `apply`, `agents`, `sessions`, `tenant`, `local`) |
 | [`@nylorun/cli`](https://www.npmjs.com/package/@nylorun/cli) | [`cli/legacy`](./cli/legacy) | nylorun under another name: `npx @nylorun/cli <command>` runs `npx nylorun <command>` |
 | [`@nylorun/create-agent`](https://www.npmjs.com/package/@nylorun/create-agent) | [`cli/create-agent`](./cli/create-agent) | `npm create @nylorun/agent`: project scaffolding and compatibility pins |
 | [`@nylorun/runtime`](https://www.npmjs.com/package/@nylorun/runtime) | [`runtime/server`](./runtime/server) | The Runtime; also the `ghcr.io/nylorun/runtime` image |

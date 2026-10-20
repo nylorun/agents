@@ -14,8 +14,13 @@
  */
 import { isObject, type EmbeddedAgent, type ReportOptions } from "./context.js";
 
-const NODE_KINDS = ["agent", "tool", "chain", "switch", "parallel", "map", "loop"] as const;
+export const NODE_KINDS = ["agent", "tool", "chain", "switch", "parallel", "map", "loop"] as const;
 const NODE_KEYS = [...NODE_KINDS, "id"];
+/** The keys of `switch`, `map`, `loop` and a loop's `verify`: `schemas.ts` builds `flow.json`'s JSON Schema from them. */
+export const SWITCH_KEYS = ["cases", "default"] as const;
+export const MAP_KEYS = ["each"] as const;
+export const LOOP_KEYS = ["run", "verify", "max"] as const;
+export const VERIFY_KEYS = ["agent", "tool", "id"] as const;
 const FLOW_FILE = "flow.json";
 
 /** What a flow's leaves name: the flow root's agents and the tools beside this `flow.json`. */
@@ -62,7 +67,7 @@ export function translateFlow(
     for (const key of Object.keys(value))
       if (!known.includes(key)) {
         const found = suggest(key, known);
-        fail("unknown_key", `Unknown key '${key}'.${found ? ` Did you mean '${found}'?` : ` Known keys: ${known.join(", ")}.`}`, [...path, key], { key: true });
+        fail("unknown_key", `Unknown key '${key}'.${found ? ` Did you mean '${found}'?` : ` Known keys: ${known.join(", ")}.`}`, [...path, key], { key: true, rename: known });
       }
   };
 
@@ -160,7 +165,7 @@ export function translateFlow(
           fail("flow_invalid", "switch is { cases: { <route>: <node> }, default?: <node> }", at);
           return undefined;
         }
-        checkKeys(body, ["cases", "default"], at);
+        checkKeys(body, SWITCH_KEYS, at);
         if (!isObject(body.cases)) {
           fail("flow_invalid", "cases maps each route to the node it runs", body.cases === undefined ? at : [...at, "cases"]);
           return undefined;
@@ -183,7 +188,7 @@ export function translateFlow(
           fail("flow_invalid", "map is { each: <node> }: the node runs once per item of its input", at);
           return undefined;
         }
-        checkKeys(body, ["each"], at);
+        checkKeys(body, MAP_KEYS, at);
         const each = node(body.each, [...at, "each"]);
         return withId(each === undefined ? undefined : { map: { each } });
       }
@@ -192,7 +197,7 @@ export function translateFlow(
           fail("flow_invalid", "loop is { run: <node>, verify: { agent } or { tool }, max: <attempts> }", at);
           return undefined;
         }
-        checkKeys(body, ["run", "verify", "max"], at);
+        checkKeys(body, LOOP_KEYS, at);
         const run = body.run === undefined ? undefined : node(body.run, [...at, "run"]);
         if (body.run === undefined) fail("flow_invalid", "loop needs run: the node each attempt runs", at);
         const verify = verifier(body.verify, [...at, "verify"]);
@@ -216,7 +221,7 @@ export function translateFlow(
       fail("flow_invalid", 'An HTTP verifier is a tool file: write "verify": { "tool": "<name>" } with tools/<name>.json beside this flow.json', [...path, "http"], { key: true });
       return undefined;
     }
-    checkKeys(value, ["agent", "tool", "id"], path);
+    checkKeys(value, VERIFY_KEYS, path);
     if (("agent" in value) === ("tool" in value)) {
       fail("flow_invalid", "verify has exactly one of agent and tool", path);
       return undefined;

@@ -29,7 +29,7 @@ try {
   if (clientNodeOnly.length)
     throw new Error(`@nylorun/agents/client loaded Node-only modules: ${clientNodeOnly.join(", ")}`);
   const sdk = await import("@nylorun/agents");
-  for (const name of ["Agent", "createClient", "http"])
+  for (const name of ["Agent", "createClient", "http", "harnessSectionOf", "sectionGaps"])
     if (typeof sdk[name] !== "function")
       throw new Error(`Missing SDK export ${name}`);
   // Executors were removed in protocol 3, subject tokens and the browser client in protocol 7,

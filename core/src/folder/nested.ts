@@ -356,8 +356,7 @@ function composeFlow(ctx: FolderContext): boolean {
     if (isRoot) for (const id of namespace.ids) namespace.resolve(id);
     return true;
   }
-  if ("$schema" in flow)
-    ctx.report("error", "schema_key", "flow.json takes no $schema: the path gives the kind, and the folder its format", FLOW_FILE, ["$schema"], { key: true });
+  if ("$schema" in flow) ctx.checkSchemaUrl(FLOW_FILE, "flow", flow.$schema);
   const { $schema: _, ...tree } = flow;
   const tools = new Map<string, Record<string, unknown>>();
   for (const tool of Array.isArray(harness.tools) ? (harness.tools as Record<string, unknown>[]) : []) tools.set(String(tool.name), tool);

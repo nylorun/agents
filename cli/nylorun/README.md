@@ -54,7 +54,7 @@ nylorun doctor sandbox [--tenant <name>] [--json]   # the sandbox backend the Te
 # apply, agent-manifests, agents, sessions, artifacts: the Runtime API (an application key, or NYLORUN_TOKEN)
 # every one takes --tenant <name>, and --as <subject> [--scope <scope>]... to act for a person
 nylorun init <path> [--description <text>] [--example]   # write <path>/AGENT.md, a new agent folder named after the last segment
-nylorun check [<dir>...] [--json]  # compile each agent folder offline: every problem by file, line and column
+nylorun check [<dir>...] [--fix] [--json]  # compile each agent folder offline: every problem by file, line and column; --fix makes the fixable ones' edits
 nylorun apply [<dir>...] [--dry-run] [--if-match <n>] [--agent [<id>]] [--watch [--save]]   # plan, then save each folder (AGENT.md or agent.manifest.json), its files uploaded
 nylorun chat <agent> [--session <id>] [--message <text>]   # send each line (or --message), print each reply
 nylorun migrate v8 <agent.json> [--runtime <environment-manifest.json>] [--name <name>] [--out <dir>]   # the three files from a v7 manifest; reads no Runtime
@@ -136,8 +136,8 @@ apply`; `nylorun configure` is `nylorun tenant models set`. `nylorun dev`,
 are gone.
 
 The package's second command, `nylo`, was the Runtime client until nylorun took
-its commands. Until nylorun 0.19, which removes it, it names the `nylorun`
-command that replaced each of its own and exits 2:
+its commands. It still ships, and a later release removes it: it names the
+`nylorun` command that replaced each of its own and exits 2:
 
 | `nylo` | `nylorun` |
 | --- | --- |
@@ -482,18 +482,77 @@ from a terminal.
 An agent runs from a saved **agent manifest** (protocol 16): one named, versioned
 document with a harness section (instructions, tools, skills, MCP servers,
 plugins) and a runtime section (kind, image, network, setup, files, secret
-slots). Author it as an agent folder (track T6), one folder per agent:
+slots). Author it as an agent folder (tracks T6 and T7), one folder per agent:
 
 ```
 agents/support/AGENT.md        # frontmatter (name, description), then the instructions
 agents/support/mcp.json        # MCP servers; "Authorization": "Bearer ${GITHUB_TOKEN}" names a slot
 agents/support/runtime.json    # kind, network, secrets (optional)
 agents/support/skills/<skill>/SKILL.md, tools/<tool>.json, triggers/<id>.md, files/**
+agents/support/agents/<id>/    # a subagent, offered to support as the tool <id>
+agents/support/plugins/<name>/ # a vendored Agent Plugin: its skills and mcp.json servers
 ```
 
-`nylorun init support` writes the `AGENT.md`; `nylorun check agents/support`
+A small one, with an HTTP tool and GitHub's MCP server. `AGENT.md`:
+
+<!-- doc-test: folder support AGENT.md -->
+```markdown
+---
+name: support
+description: Answers questions about a customer's orders.
+---
+Answer questions about the customer's orders. Look an order up with lookup_order before you
+answer a question about it. When the customer reports a bug, find the matching GitHub issue.
+```
+
+`tools/lookup_order.json`, an HTTP tool named after its file. `credential` names
+the secret slot `ORDERS_TOKEN`, sent as a bearer token, never a value:
+
+<!-- doc-test: folder support tools/lookup_order.json -->
+```json
+{
+  "description": "Look up one order by its id: its status, items and total.",
+  "inputSchema": {
+    "type": "object",
+    "properties": { "orderId": { "type": "string", "description": "The order's id, such as A-1001." } },
+    "required": ["orderId"],
+    "additionalProperties": false
+  },
+  "http": { "url": "https://orders.example.com/lookup", "method": "POST", "credential": "ORDERS_TOKEN" }
+}
+```
+
+`mcp.json`, in Agent Plugins syntax; `${GITHUB_TOKEN}` names the slot the
+server authenticates with:
+
+<!-- doc-test: folder support mcp.json -->
+```json
+{
+  "mcpServers": {
+    "github": {
+      "type": "streamable-http",
+      "url": "https://api.githubcopilot.com/mcp/",
+      "headers": { "Authorization": "Bearer ${GITHUB_TOKEN}" }
+    }
+  }
+}
+```
+
+With no `runtime.json`, the compiler derives both slots (`ORDERS_TOKEN` and
+`GITHUB_TOKEN`, each bound to its URL) and says so; write their values with
+`nylorun agents secrets put support <name>`.
+
+`nylorun init agents/support` writes the `AGENT.md`; `nylorun check agents/support`
 compiles the folder offline with the Runtime's compiler and prints every problem
 as `file:line:column severity: message`, exiting 1 when it does not compile.
+A problem one edit fixes ends `(fixable with --fix)`: an unknown key with one
+did-you-mean (`memmory` for `memory`), CRLF line ends, and `secrets` in a
+`SKILL.md`. `nylorun check --fix agents/support` makes those edits, and only
+those: it renames the key where it is, keeping every other byte; makes the line
+ends LF; and moves the secrets to `AGENT.md`'s `skills` block, as
+`nylorun migrate folder` writes it. It prints each change, then checks again. It
+leaves a file whose bytes changed since it was checked, and a `runtime.json`
+that `extends` another; without `--fix`, `check` writes nothing.
 `nylorun apply agents/support` checks it the same way (sending nothing when it
 does not compile), plans it, prints the compiler's notes (such as a slot derived
 from `mcp.json`) and saves it, uploading its files by hash; the Runtime keeps the
@@ -513,7 +572,9 @@ project (the nearest directory with `.git`) also writes `.gitattributes`
 (`* text=auto eol=lf`), ignores `.nylorun/credentials.json` in `.gitignore`, and
 maps the folder files to their JSON Schemas in `.vscode/settings.json`, merged
 into the file that is there. `check --json` prints
-`{ "folders": [{ path, ok, manifest?, diagnostics }] }` for CI. A plan's change
+`{ "folders": [{ path, ok, manifest?, diagnostics }] }` for CI, each fixable
+diagnostic with its `fix`; with `--fix`, each folder also lists what was `fixed`
+and what was `unfixed`, with why. A plan's change
 to the instructions prints their text diff. `apply --watch` checks and plans
 again on each change, and saves only with `--save` (for a development manifest:
 each save is a new version that moves the Agents tracking it).
@@ -524,14 +585,57 @@ and `check` merge that file under it (the folder's keys win, objects merge,
 arrays replace), send the merged `runtime.json`, and name the files it came from
 in `.nylorun/origin.json`.
 
+A folder with `flow.json` is a flow: its stages name agents of the folder's one
+`agents/` by id (an `agents/<id>/` with a `flow.json` of its own is a sub-flow),
+`"tool": "<name>"` names `tools/<name>.json` beside the `flow.json`, and its
+`AGENT.md` has frontmatter only (and may set `inputSchema`). A two-stage chain:
+
+<!-- doc-test: folder brief AGENT.md -->
+```markdown
+---
+name: brief
+description: Researches a topic, then writes a short brief on it.
+---
+```
+
+<!-- doc-test: folder brief flow.json -->
+```json
+{ "chain": [{ "agent": "researcher" }, { "agent": "writer" }] }
+```
+
+<!-- doc-test: folder brief agents/researcher/AGENT.md -->
+```markdown
+---
+name: researcher
+description: Lists what matters about the topic.
+---
+List the five facts about the topic a newcomer most needs, each with one sentence of context.
+```
+
+<!-- doc-test: folder brief agents/writer/AGENT.md -->
+```markdown
+---
+name: writer
+description: Writes the brief.
+---
+Write a brief of at most 200 words from the facts you are given, for a reader new to the topic.
+```
+
+[`examples/agents/repo-brief-folder/`](../../examples/agents/repo-brief-folder/)
+is a whole flow as a folder: a switch, a map, a parallel stage, a loop and an HTTP
+tool stage. Without `flow.json`, each `agents/<id>/` is a subagent: the agent
+calls it as the tool `<id>` with `{ task }`, one level deep. `plugins/<name>/`
+folds a plugin's skills and `mcp.json` servers in as `.plugin()` does, and notes
+what Nylorun does not run (hooks, commands).
+
 `nylorun pull support[@3] [--out <dir>]` writes back the folder a version was
 saved from, byte for byte. A version saved as JSON or from TypeScript has none:
 `nylorun export --folder support[@3] [--out <dir>]` writes its folder from the
-manifest instead (instructions as Markdown, tools, `mcp.json`, triggers and
-`runtime.json`), says whether it compiles back to the same manifest, and notes
-what it writes differently (a skill's files, which the manifest names by hash
-only, are left to copy in; flows wait for the compiler). Neither writes over a
-file with other bytes.
+manifest instead (instructions as Markdown, tools, `mcp.json`, triggers,
+`runtime.json`, subagents as `agents/<id>/`, and a flow as `flow.json` with its
+agents), says whether it compiles back to the same manifest, and notes what it
+writes differently (a skill's files, which the manifest names by hash only, are
+left to copy in). Neither writes over a file with other bytes.
 
 Or as three files (deprecated: `apply` warns, and `nylorun migrate folder
 agents/triage --out <dir>` writes the agent folder, with its skills, offline):
@@ -557,8 +661,9 @@ against, uploading the files the Runtime does not hold (`PUT /v1/files/sha256:â€
 A manifest whose sections do not fit, or whose runtime misses what its harness
 `requires`, is an error: nothing is saved and the command exits 1. `--dry-run`
 prints the plans only; `--if-match <n>` saves only over version `n`.
-`nylorun apply agents/` applies every subfolder with an `agent.manifest.json`;
-every folder composes before anything is sent.
+`nylorun apply agents/` applies every subfolder with an `AGENT.md` (or an
+`agent.manifest.json`); every folder compiles, or composes, before anything is
+sent.
 
 `nylorun agent-manifests list` shows each manifest's latest version, runtime
 kind, harness and the Agents made from it; `get <name>[@<n>]` prints a version,
@@ -574,7 +679,8 @@ manifest's fields become the runtime file, its `harness` the harness file's `id`
 and v7's `requires` stays in the harness file for `apply` to check. With no
 environment manifest the kind is `pod` when the agent requires one, `virtual`
 when it has skills or requires a sandbox, else `none`. It overwrites no file and
-prints the gaps to fix before `apply`.
+prints the gaps to fix before `apply`. The three files are deprecated: `nylorun
+migrate folder agents/triage --out <dir>` then writes them as an agent folder.
 
 ### `local reset` or `tenant reset`
 

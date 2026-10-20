@@ -22875,6 +22875,9 @@
           },
           "pointer": {
             "type": "string"
+          },
+          "fix": {
+            "$ref": "#/components/schemas/AgentFolderFix"
           }
         },
         "required": [
@@ -22883,6 +22886,96 @@
           "message"
         ],
         "additionalProperties": false
+      },
+      "AgentFolderFix": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "rename_key"
+                ]
+              },
+              "file": {
+                "type": "string"
+              },
+              "line": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "column": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "from": {
+                "type": "string"
+              },
+              "to": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "file",
+              "line",
+              "column",
+              "from",
+              "to"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "crlf"
+                ]
+              },
+              "file": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "file"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "move_skill_secrets"
+                ]
+              },
+              "file": {
+                "type": "string"
+              },
+              "skill": {
+                "type": "string"
+              },
+              "secrets": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "kind",
+              "file",
+              "skill",
+              "secrets"
+            ],
+            "additionalProperties": false
+          }
+        ]
       },
       "AgentManifestPlan": {
         "type": "object",

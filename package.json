@@ -29,6 +29,7 @@
     "check:stack": "node scripts/validate.mjs stack",
     "test": "node scripts/validate.mjs test",
     "test:tooling": "node --test scripts/test/*.test.mjs",
+    "test:docs": "node scripts/doc-tests.mjs",
     "test:dev": "node scripts/smoke-development.mjs",
     "test:setup": "node scripts/smoke-setup.mjs",
     "test:starter": "node cli/create-agent/scripts/smoke-starter.mjs",

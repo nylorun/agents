@@ -4,8 +4,10 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { PROTOCOL_FEATURES, PROTOCOL_VERSION } from "@nylorun/core/compatibility";
 import { AGENT_FOLDER_MEDIA_TYPE } from "@nylorun/core/contracts";
+import { agentFolderJsonSchemas } from "@nylorun/core/folder";
 import { applyCommand } from "../../src/client/apply.js";
 import { checkCommand, initCommand } from "../../src/client/folder.js";
+import { schemaMappings } from "../../src/client/init.js";
 import { fakeFetch, json, temporaryDir, temporaryHome, testDeps } from "../stack/support.js";
 
 const URL_ = "http://runtime.test";
@@ -95,6 +97,13 @@ describe("nylorun init and check", () => {
     expect(third.lines).toContainEqual(expect.stringContaining(".vscode/settings.json is not plain JSON, so it was left alone"));
   });
 
+  it("maps the folder files to the JSON Schemas @nylorun/core publishes, at their $id", () => {
+    const ids = Object.values(agentFolderJsonSchemas()).map((schema) => schema.$id);
+    const urls = schemaMappings("/project", "/project/agents/hello").map((mapping) => mapping.url);
+    expect(urls).toHaveLength(4);
+    for (const url of urls) expect(ids).toContain(url);
+  });
+
   it("--example scaffolds a tool, an MCP server and a trigger that check without an error", async () => {
     const dir = await temporaryDir();
     const deps = await remote(dir);
@@ -132,6 +141,101 @@ describe("nylorun init and check", () => {
     expect(deps.errors[0]).toMatch(/^agents\/support\/runtime\.json:3:3 error: /);
     expect(deps.errors.at(-1)).toBe("agents/support: 1 error");
     await expect(checkCommand(deps, ["nowhere"])).rejects.toMatchObject({ exitCode: 2 });
+  });
+});
+
+describe("nylorun check --fix", () => {
+  const SKILL = (extra = "") => `---\nname: labels\ndescription: Pick a label.\n${extra}---\nUse the house labels.\n`;
+  /** One problem of each kind a fix-it fixes, in one folder. */
+  const FIXABLE = {
+    "support/AGENT.md": "---\nname: support\ndescription: Answers billing questions.\nmemmory: { access: read_only }   # keep this comment\n---\nAnswer questions about invoices.\n",
+    "support/triggers/daily.md": '---\r\nschedule: "0 9 * * *"\r\nsession: new\r\n---\r\nSummarise the day.\r\n',
+    "support/tools/invoice.json": '{\n  "descripton": "One invoice.",\n  "inputSchema": {"type":"object"},\n  "http": { "url": "https://billing.example.com/invoice" }\n}\n',
+    "support/skills/labels/SKILL.md": SKILL("secrets: [LABELS_TOKEN]\n"),
+    "support/runtime.json": '{ "kind": "virtual", "secrets": { "LABELS_TOKEN": { "type": "environment_secret", "allowedHosts": ["labels.example.com"] } } }\n',
+  };
+  const snapshot = async (dir: string, files: Record<string, string>) =>
+    Object.fromEntries(await Promise.all(Object.keys(files).map(async (path) => [path, await readFile(join(dir, path), "utf8")] as const)));
+
+  it("without --fix writes nothing, and marks what --fix would fix", async () => {
+    const dir = await temporaryDir();
+    await write(dir, FIXABLE);
+    const deps = await remote(dir);
+    expect(await checkCommand(deps, ["support"])).toBe(1);
+    expect(await snapshot(dir, FIXABLE)).toEqual(FIXABLE);
+    expect(deps.errors).toEqual(
+      expect.arrayContaining([
+        "support/AGENT.md:4:1 error: Unknown key 'memmory'. Did you mean 'memory'? (fixable with --fix)",
+        "support/tools/invoice.json:2:3 error: Unknown key 'descripton'. Did you mean 'description'? (fixable with --fix)",
+        expect.stringMatching(/^support\/skills\/labels\/SKILL\.md:4:1 error: secrets is not an Agent Skills key.* \(fixable with --fix\)$/),
+        "support/triggers/daily.md note: The file has CRLF line ends, read as LF. Fix: save it with LF line ends (fixable with --fix)",
+      ]),
+    );
+    const json = await remote(dir);
+    expect(await checkCommand(json, ["support", "--json"])).toBe(1);
+    const [folder] = JSON.parse(json.lines.join("\n")).folders;
+    expect(folder.fixed).toBeUndefined();
+    expect(folder.diagnostics).toContainEqual(
+      expect.objectContaining({ code: "unknown_key", fix: { kind: "rename_key", file: "AGENT.md", line: 4, column: 1, from: "memmory", to: "memory" } }),
+    );
+    expect(await snapshot(dir, FIXABLE)).toEqual(FIXABLE);
+  });
+
+  it("makes each fix, says what it changed, checks again, and finds nothing to fix the second time", async () => {
+    const dir = await temporaryDir();
+    await write(dir, FIXABLE);
+    const deps = await remote(dir);
+    expect(await checkCommand(deps, ["support", "--fix"])).toBe(0);
+    expect(deps.errors).toEqual([]);
+    expect(deps.lines).toEqual([
+      "fixed support/triggers/daily.md: CRLF line ends made LF",
+      "fixed support/AGENT.md: renamed 'memmory' to 'memory' at line 4",
+      "fixed support/tools/invoice.json: renamed 'descripton' to 'description' at line 2",
+      "fixed support/skills/labels/SKILL.md: secrets moved to AGENT.md's skills block",
+      "fixed support/AGENT.md: skills.labels.secrets: LABELS_TOKEN, from skills/labels/SKILL.md",
+      "support: ok, agent manifest support (5 files, agent-folder/1)",
+    ]);
+    const after = await snapshot(dir, FIXABLE);
+    expect(after).toEqual({
+      ...FIXABLE,
+      "support/AGENT.md":
+        "---\nname: support\ndescription: Answers billing questions.\nmemory: { access: read_only }   # keep this comment\nskills:\n  labels:\n    secrets:\n      - LABELS_TOKEN\n---\nAnswer questions about invoices.\n",
+      "support/triggers/daily.md": '---\nschedule: "0 9 * * *"\nsession: new\n---\nSummarise the day.\n',
+      "support/tools/invoice.json": FIXABLE["support/tools/invoice.json"].replace('"descripton"', '"description"'),
+      "support/skills/labels/SKILL.md": SKILL(),
+    });
+
+    const again = await remote(dir);
+    expect(await checkCommand(again, ["support", "--fix"])).toBe(0);
+    expect(again.lines).toEqual(["support: ok, agent manifest support (5 files, agent-folder/1)"]);
+    expect(await snapshot(dir, FIXABLE)).toEqual(after);
+  });
+
+  it("--json --fix reports what was fixed and what was not, and leaves a runtime.json that extends another", async () => {
+    const dir = await temporaryDir();
+    await write(dir, {
+      "support/AGENT.md": "---\nname: support\ndescription: Answers billing questions.\nmemmory: {}\n---\nAnswer.\n",
+      "support/runtime.json": '{ "extends": "../base.runtime.json", "knd": "none" }\n',
+      "base.runtime.json": '{ "secrets": {} }\n',
+    });
+    const deps = await remote(dir);
+    expect(await checkCommand(deps, ["support", "--fix", "--json"])).toBe(1);
+    const [folder] = JSON.parse(deps.lines.join("\n")).folders;
+    expect(folder.fixed).toEqual([{ file: "AGENT.md", change: "renamed 'memmory' to 'memory' at line 4" }]);
+    expect(folder.unfixed).toEqual([{ file: "runtime.json", reason: "runtime.json extends another file, and was checked merged with it: fix it by hand" }]);
+    expect(folder.diagnostics).toContainEqual(expect.objectContaining({ code: "unknown_key", file: "runtime.json", fix: expect.objectContaining({ from: "knd", to: "kind" }) }));
+    expect(await readFile(join(dir, "support", "runtime.json"), "utf8")).toBe('{ "extends": "../base.runtime.json", "knd": "none" }\n');
+  });
+
+  it("marks no fix where two keys are as close", async () => {
+    const dir = await temporaryDir();
+    const files = { "support/AGENT.md": "---\nname: support\ndescription: Answers.\ntputSchema: { type: object }\n---\nAnswer.\n" };
+    await write(dir, files);
+    const deps = await remote(dir);
+    expect(await checkCommand(deps, ["support", "--fix"])).toBe(1);
+    expect(deps.lines).toEqual([]);
+    expect(deps.errors[0]).toBe("support/AGENT.md:4:1 error: Unknown key 'tputSchema'. Did you mean 'inputSchema'?");
+    expect(await snapshot(dir, files)).toEqual(files);
   });
 });
 

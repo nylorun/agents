@@ -18,8 +18,9 @@ Agent manifests:
                                       write <path>/AGENT.md, a new agent folder named after the
                                       path's last segment; --example adds a tool, mcp.json and a
                                       trigger
-  check [<dir>...] [--json]           compile each agent folder offline and print every problem
-                                      by file, line and column (reads no Runtime)
+  check [<dir>...] [--fix] [--json]   compile each agent folder offline and print every problem
+                                      by file, line and column (reads no Runtime); --fix makes
+                                      the edits the fixable ones name
   apply [<dir>...] [--dry-run] [--if-match <n>] [--agent [<id>]] [--watch [--save]]
                                       save the agent manifest each folder describes (its AGENT.md,
                                       or its agent.manifest.json), with its files (Runtime API);

@@ -17,12 +17,16 @@
 import { z } from "zod";
 import { suggestion } from "./suggest.js";
 
-/** One problem in a schema: `path` is the pointer in the schema, `key` positions it at the key. */
+/**
+ * One problem in a schema: `path` is the pointer in the schema, `key` positions it at the key, and
+ * `known` is what an unknown keyword may be meant as, for the compiler's rename fix-it.
+ */
 export interface JsonSchemaIssue {
   readonly severity: "error" | "warning";
   readonly path: readonly PropertyKey[];
   readonly message: string;
   readonly key?: boolean;
+  readonly known?: readonly string[];
 }
 
 /** JSON Schema's seven types. */
@@ -150,7 +154,8 @@ export function jsonSchemaIssues(schema: unknown): JsonSchemaIssue[] {
       }
       if (keyword === "dependentRequired" || keyword === "$vocabulary" || keyword === "const" || keyword === "default") continue;
       const close = suggestion(keyword, KEYWORDS);
-      if (close) warn(at, `Unknown keyword '${keyword}'. Did you mean '${close}'? JSON Schema ignores a keyword it does not know`, true);
+      if (close)
+        issues.push({ severity: "warning", path: at, message: `Unknown keyword '${keyword}'. Did you mean '${close}'? JSON Schema ignores a keyword it does not know`, key: true, known: KEYWORDS });
     }
   };
 
