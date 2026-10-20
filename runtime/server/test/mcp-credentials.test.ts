@@ -75,6 +75,56 @@ async function httpService() {
   return { url: origin(server), seen };
 }
 
+/**
+ * A gateway like LiteLLM in front of a server whose token the provider revoked (#495): it answers
+ * HTTP 200 and reports the upstream `401` in the answer. `list: "revoked"` lists no tools, with
+ * `auth_required` in `_meta`; `call` fails `tools/call` with `isError`, reporting it in `_meta` or
+ * only in LiteLLM's text.
+ */
+async function revokedGateway(options: { list?: "revoked"; call?: "meta" | "text" }) {
+  const seen: Seen[] = [];
+  const outcomes = { "litellm.ai/server_outcomes": { github: { status: "auth_required", http_status: 401 } } };
+  const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
+    if (req.method !== "POST") return void res.writeHead(405).end();
+    const chunks: Buffer[] = [];
+    for await (const chunk of req) chunks.push(chunk as Buffer);
+    const body = JSON.parse(Buffer.concat(chunks).toString()) as {
+      id?: number;
+      method?: string;
+      params?: { protocolVersion?: string };
+    };
+    seen.push({ method: body.method, path: new URL(req.url ?? "/", "http://x").pathname, headers: req.headers });
+    if (body.id === undefined) return void res.writeHead(202).end();
+    const tool = { name: "echo", inputSchema: { type: "object", properties: { value: { type: "string" } } } };
+    const result =
+      body.method === "initialize"
+        ? {
+            protocolVersion: body.params?.protocolVersion,
+            capabilities: { tools: {} },
+            serverInfo: { name: "litellm", version: "1.106.0" },
+          }
+        : body.method === "tools/list"
+          ? options.list === "revoked"
+            ? { tools: [], _meta: outcomes }
+            : { tools: [tool] }
+          : body.method === "tools/call"
+            ? {
+                isError: true,
+                content: [
+                  {
+                    type: "text",
+                    text: "HTTPStatusError: Client error '401 Unauthorized' for url 'https://api.githubcopilot.com/mcp/'",
+                  },
+                ],
+                ...(options.call === "meta" ? { _meta: outcomes } : {}),
+              }
+            : {};
+    res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ jsonrpc: "2.0", id: body.id, result }));
+  });
+  await listen(server);
+  return { url: `${origin(server)}/mcp/github`, seen };
+}
+
 const servers: Server[] = [];
 async function listen(server: Server) {
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -105,6 +155,9 @@ let keyed: Awaited<ReturnType<typeof mcpServer>>;
 let rejecting: Awaited<ReturnType<typeof mcpServer>>;
 let gateway: Awaited<ReturnType<typeof mcpServer>>;
 let service: Awaited<ReturnType<typeof httpService>>;
+let revokedList: Awaited<ReturnType<typeof revokedGateway>>;
+let revokedCall: Awaited<ReturnType<typeof revokedGateway>>;
+let revokedText: Awaited<ReturnType<typeof revokedGateway>>;
 /** Ada's own Agent, guarded for her sessions. */
 const ADA = "users/ada";
 
@@ -146,6 +199,11 @@ beforeAll(async () => {
     mcpServer(),
     httpService(),
   ]);
+  [revokedList, revokedCall, revokedText] = await Promise.all([
+    revokedGateway({ list: "revoked" }),
+    revokedGateway({ call: "meta" }),
+    revokedGateway({ call: "text" }),
+  ]);
   runtime = await startTestTenant({ applicationKey: APP, modelProvider: model });
   client = createClient({ url: runtime.url, key: runtime.applicationKey, tenant: runtime.tenantId });
   const input = z.object({ orderId: z.string() });
@@ -173,6 +231,27 @@ beforeAll(async () => {
       },
     },
   });
+  // Servers behind a gateway that reports their upstream 401 with HTTP 200 (#495), and the same
+  // answers from servers reached directly, which are not read so.
+  for (const [id, gateway, via] of [
+    ["revoked-list", revokedList, true],
+    ["revoked-call", revokedCall, true],
+    ["revoked-text", revokedText, true],
+    ["direct-list", revokedList, false],
+    ["direct-call", revokedCall, false],
+  ] as const) {
+    const url = via ? "https://api.githubcopilot.com/mcp/" : gateway.url;
+    await register(Agent({ id }).mcp({ github: { type: "streamable-http", url } }).build(), {
+      secrets: {
+        github: {
+          type: "headers",
+          url,
+          headers: { "x-gateway-key": GATEWAY_KEY },
+          ...(via ? { via: gateway.url, identity: { header: "x-nylorun-identity" } } : {}),
+        },
+      },
+    });
+  }
   // The HTTP tools name their credentials: slots of the manifest's runtime section, whose values
   // the Agent's vault holds (protocol 16).
   await register(
@@ -331,5 +410,46 @@ describe("the secret routes", () => {
         response.json(),
       )) as { secrets: { name: string }[] }).secrets.map((item) => item.name),
     ).toEqual(["vendor"]);
+  });
+});
+
+describe("a gateway's report of a 401 (#495)", () => {
+  it("fails discovery when the gateway lists no tools and reports auth_required for the server", async () => {
+    const result = await run("revoked-list", "github__echo");
+    expect(result.discovered).toEqual({
+      servers: [expect.objectContaining({ serverName: "github", outcome: "failed", message: "MCP server returned 401" })],
+    });
+    expect(revokedList.seen.map((item) => item.method)).toContain("tools/list");
+  });
+
+  it("gives the model credential_rejected when the gateway reports it in a tool error's _meta", async () => {
+    const result = await run("revoked-call", "github__echo");
+    expect(result.status).toBe("completed");
+    expect(seenByModel).toMatchObject({ status: "failed", payload: { kind: "failed", code: "credential_rejected" } });
+    expect(result.completed).toEqual([
+      expect.objectContaining({
+        toolName: "github__echo",
+        error: expect.objectContaining({ code: "credential_rejected", server: "github", retryable: false }),
+      }),
+    ]);
+    expect(result.history).not.toContain(GATEWAY_KEY);
+  });
+
+  it("gives the model credential_rejected when the gateway reports it only in LiteLLM's error text", async () => {
+    const result = await run("revoked-text", "github__echo");
+    expect(result.completed).toEqual([
+      expect.objectContaining({ error: expect.objectContaining({ code: "credential_rejected", server: "github" }) }),
+    ]);
+  });
+
+  it("reads a server reached without via as before: connected with no tools, and a tool error", async () => {
+    const listed = await run("direct-list", "github__echo");
+    expect(listed.discovered).toEqual({
+      servers: [expect.objectContaining({ serverName: "github", outcome: "connected", tools: 0 })],
+    });
+    const called = await run("direct-call", "github__echo");
+    expect(called.completed).toEqual([
+      expect.objectContaining({ error: expect.objectContaining({ code: "mcp.tool" }) }),
+    ]);
   });
 });

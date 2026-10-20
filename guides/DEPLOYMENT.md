@@ -1314,7 +1314,13 @@ X-User-Id: u_7c41
   redirect a key they do not hold. Give it only the scopes your agents need, and rotate it like
   any other key (write it again into each Agent that holds it).
 - Every tool argument and result passes through the MCP gateway.
-- A `401` from the MCP gateway is `credential_rejected` to the model, and is not retried.
+- A `401` from the MCP gateway is `credential_rejected` to the model, and is not retried. So is an
+  answer in which the MCP gateway reports that the server behind it answered `401`, even when the
+  MCP gateway itself answers `200`. LiteLLM does this for a token the provider revoked: a
+  `tools/list` with no tools and `"auth_required"` for the server in
+  `_meta["litellm.ai/server_outcomes"]`, and a failed tool call whose text is `HTTPStatusError:
+  Client error '401 Unauthorized'`. The server's discovery is then `failed`, so your product can
+  ask the person to connect again. A server reached without `via` is never read this way.
 
 **What is tested.** The Runtime's tests run this shape end to end against a fake MCP gateway
 (`runtime/server/test/r2b-exit.test.ts`): the key and the identity header reach `via`, the header is
@@ -1464,7 +1470,7 @@ an MCP call, `retryable`), and `tool.completed`'s `error` records the same:
 
 | Code | When | Retryable |
 | --- | --- | --- |
-| `credential_rejected` | The MCP server, the MCP gateway or the HTTP tool's service answered `401` | No, and never retried: rotate the key, or have the person connect again at the MCP gateway |
+| `credential_rejected` | The MCP server, the MCP gateway or the HTTP tool's service answered `401`, or the MCP gateway reported that the server behind it did | No, and never retried: rotate the key, or have the person connect again at the MCP gateway |
 | `mcp.unreachable` | The call was never sent: a refused address, DNS, a refused connection, TLS | Yes |
 | `mcp.forbidden` | `403` | No |
 | `mcp.error` | A JSON-RPC error, with its code in the message | No |

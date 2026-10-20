@@ -15,6 +15,7 @@ import {
 } from "../tenant/outbound.js";
 import { credentialSecrets } from "../vault/headers.js";
 import type { AuthorizeResult } from "../vault/service.js";
+import { gatewayAuthFailure } from "./gateway-outcomes.js";
 import type { McpDiagnostic, McpToolRecord } from "./snapshot.js";
 import { hostTuning } from "../tuning.js";
 
@@ -60,6 +61,8 @@ export interface McpToolPage {
     readonly annotations?: Readonly<Record<string, unknown>>;
   }[];
   readonly nextCursor?: string;
+  /** What the server, or a gateway in front of it, says besides the tools (MCP `_meta`). */
+  readonly _meta?: Readonly<Record<string, unknown>>;
 }
 
 /**
@@ -123,7 +126,8 @@ export type McpToolOutcome =
  * How a tool call failed at the transport or the server (R2b C7), as the gate answers it:
  * - `mcp.unreachable`: never sent (address policy, DNS, refused connection, TLS, a connection
  *   that could not be opened). Calling again may work.
- * - `credential_rejected`: the server answered `401` (C1).
+ * - `credential_rejected`: the server answered `401` (C1), or the gateway of a credential's `via`
+ *   reported that the server behind it did (#495).
  * - `mcp.forbidden`: the server answered `403`.
  * - `mcp.error`: the server answered a JSON-RPC error; the message has its code.
  * - `mcp.status`: the server answered another HTTP error status, without a JSON-RPC error.
@@ -187,7 +191,8 @@ export class McpCallFailed extends Error {
 
 /**
  * A request the server answered `401` (R2b C1): it rejected the vault's credential, or wanted one
- * and got none. Never retried, since nothing the gate holds changes between tries (Q4). A tool
+ * and got none. Through a credential's `via`, also a gateway's answer reporting that the server
+ * behind it did (`gateway-outcomes.ts`, #495). Never retried, since nothing the gate holds changes between tries (Q4). A tool
  * call that meets it fails with `credential_rejected` for the model to see; at discovery it is the
  * server's `failed` diagnostic.
  */
@@ -300,17 +305,31 @@ function tracked<T>(
  */
 export const IDEMPOTENCY_META_KEY = "nylorun/idempotency-key";
 
+/** How a connection reaches its server through a gateway: the credential's routing. */
+export interface GatewayRouting {
+  /** Where the server's requests go (the credential's `via`). */
+  readonly via: string;
+}
+
 /**
  * An SDK `Client` as an `McpClient`. Its answers and failures carry no credential value sent
  * with them (R2b C8), and a failed call is an `McpCallFailed` (C7). A keyed call sends its key in
- * `_meta` (R5.5).
+ * `_meta` (R5.5). Through a `gateway`, an answer that reports the server refused the credential
+ * is `CredentialRejected`, as a `401` is (#495).
  */
-export function sdkClient(client: Client, serverName: string, errorChars: number): McpClient {
+export function sdkClient(
+  client: Client,
+  serverName: string,
+  errorChars: number,
+  gateway?: GatewayRouting,
+): McpClient {
+  const rejected = (answer: unknown) => gateway !== undefined && gatewayAuthFailure(answer, [serverName]);
   return {
     listTools: (params, options) =>
       tracked(false, async (tracker) => {
         try {
           const page = await client.listTools(params, options?.signal ? { signal: options.signal } : undefined);
+          if (rejected(page)) throw new CredentialRejected(serverName, true);
           return scrubbed(page, tracker) as McpToolPage;
         } catch (error) {
           throw scrubError(error, tracker);
@@ -333,6 +352,7 @@ export function sdkClient(client: Client, serverName: string, errorChars: number
           // An answer the stream did not count (an `sse` server answers on its event stream).
           if (Buffer.byteLength(JSON.stringify(result)) > maxResultBytes)
             throw tooLargeFailure(serverName, maxResultBytes);
+          if (result.isError === true && rejected(result)) throw new CredentialRejected(serverName, true);
           const answer = scrubValues(result, [...tracker.secrets]);
           return { result: answer.value, ...(answer.redacted > 0 ? { redacted: answer.redacted } : {}) };
         } catch (error) {
@@ -396,8 +416,9 @@ export async function openMcpServer(input: {
       serverInfo: info ? (scrubbed({ ...info }, tracker) as Record<string, unknown>) : undefined,
     };
   }, { errorChars });
+  const via = initial.status === "authorized" ? initial.via : undefined;
   return {
-    client: sdkClient(client, input.server.name, errorChars),
+    client: sdkClient(client, input.server.name, errorChars, via === undefined ? undefined : { via }),
     ...(instructions === undefined ? {} : { instructions }),
     ...(serverInfo === undefined ? {} : { serverInfo }),
     close: () => client.close(),
