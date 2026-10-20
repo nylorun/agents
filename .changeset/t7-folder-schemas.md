@@ -1,7 +1,0 @@
----
-"@nylorun/core": minor
----
-
-JSON Schemas for each kind of file in an agent folder (track T7, design §3.10), the ones `nylorun init` maps in `.vscode/settings.json` and the compiler takes in `$schema`. Each is JSON Schema 2020-12 at `https://docs.nylorun.com/schemas/agent-folder/v1/<kind>.json`, exported as `@nylorun/core/schemas/agent-folder-<kind>.json`: `runtime` (`runtime.json`, with `$schema` and `extends`, and `kind` required unless `extends` names a file that gives it), `tool` (`tools/<name>.json`), `mcp` (`mcp.json`, Agent Plugins syntax), `flow` (`flow.json`'s node tree: exactly one of `agent`, `tool`, `chain`, `switch`, `parallel`, `map` and `loop`, and `id`), and `agent-md` and `trigger-md` for the frontmatter of `AGENT.md` and `triggers/<id>.md`. `agentFolderJsonSchemas()` in `@nylorun/core/folder` gives them by kind (`AGENT_FOLDER_SCHEMA_KINDS`). They are built from what the compiler checks: its key lists name each document's properties, and a value the manifest takes as it is comes from the manifest's own schema, so an unknown key is refused where the compiler refuses it, and `loop` and `metadata` stay open. `@nylorun/core/contracts` also exports `HttpToolTargetSchema`, `McpToolSettingsSchema`, `HarnessMemorySchema` and `AGENT_MANIFEST_NAME_PATTERN`, which they are built from.
-
-`flow.json` now takes `$schema`, as every JSON file of a folder does: the compiler refused it before. A URL that names another kind of file is a warning.

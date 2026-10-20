@@ -1,5 +1,58 @@
 # nylorun
 
+## 0.20.0-beta
+
+### Minor Changes
+
+- 498d972: `nylorun check --fix` makes the edits the compiler's diagnostics carry (track T7). A diagnostic one edit fixes has a `fix` (`AgentFolderFix`, in `AgentFolderDiagnostic` and the Runtime API's): `rename_key` for an unknown key with exactly one did-you-mean (in `AGENT.md`, a trigger, a `SKILL.md`, a tool file, `runtime.json`, `mcp.json`, `flow.json` and a JSON Schema's keywords), at its line and column, and none when two keys are as close or the key it would be is already there; `crlf` for a file with CRLF line ends, which is now a `crlf` note (it is read as LF, as before); and `move_skill_secrets` for `secrets` in a root skill's `SKILL.md`, when `AGENT.md` lists none for the skill, or lists them all. Messages, manifests and hashes are unchanged. `applyFolderFixes` in `@nylorun/core/folder` makes them on text: the key token renamed with every other byte kept, LF line ends, and the secrets moved to `AGENT.md`'s `skills` block as `migrate folder` writes it, skipping (with why) a fix whose text is no longer where it was.
+
+  `nylorun check` marks each fixable problem `(fixable with --fix)` and writes nothing. `check --fix` makes the edits in the folder's files, prints each change by file, and checks again until nothing is left to fix; it leaves a file whose bytes changed since it was checked (writing nothing when one changes while it fixes), and a `runtime.json` that `extends` another. `check --json` gives each diagnostic's `fix`, and with `--fix` each folder's `fixed` and `unfixed`.
+
+- b3dad06: Agent folders convert both ways (track T7, D80). `folderOfManifest(manifest)` in `@nylorun/core/folder` (also exported by `@nylorun/agents`) writes the agent folder that compiles back to the same manifest: name, description, metadata, harness, memory, loop and server and skill settings in `AGENT.md`, the first instruction as its body and the rest as `instructions/NN-*.md`, HTTP tools as `tools/<name>.json`, subagents as `agents/<name>/`, a flow as `flow.json` (v3's node tree, naming agents by id and tools by file name) with one flat `agents/<id>/` for its agents and its sub-flows' (a sub-flow is an `agents/<id>/` with its own `flow.json`, and a tool stage or HTTP verifier a `tools/<name>.json` beside the `flow.json` that names it), MCP servers in `mcp.json` with `Bearer ${SLOT}` or `${SLOT}` for a credential, triggers as `triggers/<id>.md`, and `runtime.json` without the slots the compiler derives the same way. It checks itself by compiling the folder, says whether the hash is the same (`exact`), and notes what it writes differently. Skills are written from their bytes when given them, else as a placeholder with the files to copy in. An embedded agent's display `name` is left out with a note, since a folder names an agent by its id.
+
+  `nylorun export --folder <name>[@<version>]` writes the folder of a saved manifest, from JSON or TypeScript; `nylorun migrate folder <dir>` writes the folder of a three-file folder, offline, with its skills; `nylorun pull <name>[@<version>]` writes back the folder a version was saved from, byte for byte, and says to use `export --folder` for a version saved as JSON. None writes over a file with other bytes.
+
+  Deprecated, still read: the three-file format (`agent.manifest.json`), whose `composeManifest` and `nylorun apply` now warn and name `nylorun migrate folder`, and `secrets` in a `SKILL.md`, which the skills loader warns about (a `DeprecationWarning` from `.skills()`): an agent folder lists a skill's secrets in `AGENT.md`.
+
+- b3dad06: Both ends of the agent folder loop (track T7).
+
+  - `nylorun init <path>` names the agent after the path's last segment (`init agents/hello`). `--example` adds `tools/get_order.json`, `mcp.json` (a `Bearer ${ORDERS_MCP_TOKEN}` header) and `triggers/new-order.md`, explained in the folder's README.md, and the result passes `nylorun check`. The first run in a project (the nearest directory with `.git`) writes `.gitattributes` (`* text=auto eol=lf`), ignores `.nylorun/credentials.json` in `.gitignore`, and maps the folder files to their JSON Schemas in `.vscode/settings.json`, merged into an existing file. Its hint names `apply --agent` and `chat`.
+  - `nylorun apply --agent [<id>]` makes the Agent from the manifest after a save (or on an unchanged one), or moves it, as `nylorun agents put` does, and prints what it needs a person for.
+  - `nylorun apply --watch [--save]` checks and plans again on each change to the folders (and the files their `runtime.json` extends); it saves only with `--save`.
+  - A plan's change to the instructions prints their text diff, `-` and `+` lines.
+  - `nylorun chat <agent> [--session <id>] [--message <text>]` opens or reuses a session, sends `--message` or each line of standard input, and prints the reply as it comes.
+  - `nylorun check --json` prints `{ folders: [{ path, ok, manifest?, diagnostics }] }` for CI, with the same exit codes. `check` says "1 file", and `nylorun --version` prints the version.
+  - `packFolder` (`@nylorun/agents`) leaves out what the folder's `.nyloignore` names (gitignore rules), and resolves `extends` in `runtime.json`: the packed file is the merge, the folder's own keys winning, with `.nylorun/origin.json` naming the files it came from; a missing file or a cycle is a `FolderError`. `ignoreMatcher` is exported.
+  - `session.approve(id, approved)` and `session.respond(id, value)` take no options: each makes its own idempotency key.
+  - The Runtime's Agent view names each required secret of the version it runs that has no value, as an attention item (`secret_unset: required secret ORDERS_TOKEN unset`, state `input_required`), until it is set.
+  - The compiler's refusal of an unresolved `extends` says to resolve it before uploading.
+
+### Patch Changes
+
+- 498d972: `@nylorun/agents` exports `harnessSectionOf` and `sectionGaps` from its main entry, as its README documents: the harness section `agentManifests.save` makes from a built agent or flow, and the gaps the Runtime refuses between a manifest's two sections. Both were only in `@nylorun/agents/define` and `@nylorun/core/define`.
+
+  `nylo` no longer says nylorun 0.19 removes it, which 0.19 does not: its message ends "A later nylorun release removes nylo."
+
+- Pin core to the tested release.
+- Pin agents to the tested release.
+- Pin admin to the tested release.
+- Pin runtime to the tested release.
+- Pin studio to the tested release.
+- Updated dependencies [7bcdc85]
+- Updated dependencies [498d972]
+- Updated dependencies [498d972]
+- Updated dependencies [d23304e]
+- Updated dependencies [b3dad06]
+- Updated dependencies [b3dad06]
+- Updated dependencies [b3dad06]
+- Updated dependencies [498d972]
+- Updated dependencies [b3dad06]
+- Updated dependencies
+- Updated dependencies
+  - @nylorun/core@0.28.0-beta
+  - @nylorun/agents@0.28.0-beta
+  - @nylorun/admin@0.19.4-beta
+
 ## 0.19.0-beta
 
 ### Minor Changes
