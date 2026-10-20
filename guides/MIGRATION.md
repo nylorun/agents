@@ -1,3 +1,14 @@
+# Agent folders
+
+Additive. `PUT /v1/agent-manifests/{name}` also takes an agent folder by hash, with
+`Content-Type: application/vnd.nylorun.folder+json` (track T6). Upload every file with
+`PUT /v1/files/sha256:<hex>`, then send `{ "format": "nylorun.folder.v2", "entries": [{ "path",
+"size", "sha256" }] }`. The Runtime compiles it with `@nylorun/core/folder`, answers `422
+folder_invalid` with every diagnostic by file, line and column when it does not compile, and keeps
+the folder as the version's source: `GET .../versions/{v}/source` lists its files, and
+`.../source/files/{path}` returns one. A JSON save is unchanged. The Runtime advertises the optional
+Host feature `agent-folders`; an older Runtime refuses the media type (`415`).
+
 # `@nylorun/cli` is nylorun under another name
 
 `@nylorun/cli` is no longer deprecated, and nylorun 0.19 does not remove it. Its one command is now

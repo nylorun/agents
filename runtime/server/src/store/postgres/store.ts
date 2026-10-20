@@ -90,6 +90,7 @@ import type {
   ArtifactVersionRow,
   DefinitionFileRow,
   AgentManifestRow,
+  AgentManifestSourceRecord,
   CommitListener,
   ControlSignal,
   FollowSignalsOptions,
@@ -450,6 +451,7 @@ function agentManifestOf(row: typeof agentManifests.$inferSelect): AgentManifest
     hash: row.hash,
     savedBy: row.savedBy as AgentManifestRow["savedBy"],
     createdAt: row.createdAt,
+    ...(row.source === null || row.source === undefined ? {} : { source: row.source as AgentManifestSourceRecord }),
   };
 }
 

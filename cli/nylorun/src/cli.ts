@@ -14,9 +14,12 @@ ${stackUsage}
                                       the sandbox backend the Tenant's Host offers
 
 Agent manifests:
+  init <name> [--description <text>]  write <name>/AGENT.md, a new agent folder
+  check [<dir>...]                    compile each agent folder offline and print every problem
+                                      by file, line and column (reads no Runtime)
   apply [<dir>...] [--dry-run] [--if-match <n>]
-                                      save the agent manifest each folder's agent.manifest.json
-                                      describes, with the files it names (Runtime API)
+                                      save the agent manifest each folder describes (its AGENT.md,
+                                      or its agent.manifest.json), with its files (Runtime API)
   migrate v8 <agent.json> [--runtime <environment-manifest.json>] [--name <name>] [--out <dir>]
                                       write the three manifest files from an agent manifest v7
                                       and an environment manifest v1 (reads no Runtime)
@@ -176,6 +179,8 @@ async function main() {
   }
   if (
     command === "apply" ||
+    command === "check" ||
+    command === "init" ||
     command === "migrate" ||
     command === "agent-manifests" ||
     command === "agents" ||
@@ -184,6 +189,8 @@ async function main() {
   ) {
     const group = {
       apply: async () => (await import("./client/apply.js")).applyCommand,
+      check: async () => (await import("./client/folder.js")).checkCommand,
+      init: async () => (await import("./client/folder.js")).initCommand,
       migrate: async () => (await import("./client/migrate.js")).migrateCommand,
       "agent-manifests": async () => (await import("./client/agent-manifests.js")).agentManifestsCommand,
       agents: async () => (await import("./client/agents.js")).agentsCommand,

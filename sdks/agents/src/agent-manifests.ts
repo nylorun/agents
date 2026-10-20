@@ -13,13 +13,20 @@
  * uploads the files the manifest names by hash that the Runtime does not hold (skills, a flow's
  * agents' skills, runtime files), and refuses before sending a tool that runs your code or an
  * `approval`, as the Runtime runs agents from their manifests alone.
+ *
+ * `saveFolder` and `planFolder` take an agent folder (`packFolder`, track T6): they compile it
+ * first with the Runtime's compiler and refuse one that does not compile (`FolderInvalidError`),
+ * upload its files by hash, and send the folder, which the Runtime compiles again and keeps as the
+ * version's source.
  */
 import {
+  AGENT_FOLDER_MEDIA_TYPE,
   AGENT_MANIFEST_V8_SCHEMA_VERSION,
   AgentManifestV8Schema,
   isAgentManifestName,
   type AgentHarnessSection,
   type AgentManifestPlan,
+  type AgentManifestSource,
   type AgentManifestV8,
   type AgentMemorySettings,
   type AgentManifestVersions,
@@ -43,6 +50,7 @@ import {
   type WorkflowManifest,
 } from "@nylorun/core/define";
 import { FilesClient } from "./files.js";
+import { FolderInvalidError, type PackedFolder } from "./folder.js";
 import { id, segment, type Transport } from "./http.js";
 
 /** A built agent or flow, or anything with its id and manifest. */
@@ -317,6 +325,61 @@ export class AgentManifestsClient {
     const plan = await this.send<AgentManifestPlan>(prepared, "?dryRun=true", options);
     const errors = [...plan.errors, ...prepared.gaps.filter((gap) => !plan.errors.includes(gap))];
     return { ...plan, errors };
+  }
+
+  /**
+   * Saves an agent folder (`packFolder`) as its manifest's next version, keeping the folder as the
+   * version's source; `unchanged` when its manifest is. The folder is compiled first, and one that
+   * does not compile is refused before anything is sent (`FolderInvalidError`).
+   */
+  async saveFolder(folder: PackedFolder, options: Omit<AgentManifestSaveOptions, "files"> = {}): Promise<SaveAgentManifestResponse> {
+    return this.sendFolder<SaveAgentManifestResponse>(folder, "", options);
+  }
+
+  /** What saving an agent folder would do (`?dryRun=true`), with the compiled `manifest` and its `diagnostics`. */
+  async planFolder(folder: PackedFolder, options: Omit<AgentManifestSaveOptions, "files" | "requestId"> = {}): Promise<AgentManifestPlan> {
+    return this.sendFolder<AgentManifestPlan>(folder, "?dryRun=true", options);
+  }
+
+  private async sendFolder<T>(
+    folder: PackedFolder,
+    query: string,
+    options: Omit<AgentManifestSaveOptions, "files">,
+  ): Promise<T> {
+    const { ifMatch, signal } = options;
+    // Loaded only now: the compiler's YAML parser needs Node.
+    const { checkFolder } = await import("./folder-check.js");
+    const compiled = await checkFolder(folder);
+    if (!compiled.manifest) throw new FolderInvalidError(folder.dir, compiled.diagnostics);
+    const path = this.path(compiled.manifest.name);
+    const files = new Map(folder.entries.map((entry) => [`sha256:${entry.sha256}`, folder.files.get(entry.path)!]));
+    await new FilesClient(this.transport).ensure(files, signal ? { signal } : {});
+    const transport = ifMatch === undefined ? this.transport : this.transport.withHeaders({ "If-Match": String(ifMatch) });
+    const response = await transport.request(`${path}${query}`, {
+      method: "PUT",
+      headers: { "content-type": AGENT_FOLDER_MEDIA_TYPE },
+      body: JSON.stringify({
+        requestId: options.requestId ?? id(),
+        format: "nylorun.folder.v2",
+        entries: folder.entries.map(({ path, size, sha256 }) => ({ path, size, sha256 })),
+      }),
+      ...(signal ? { signal } : {}),
+    });
+    return (await response.json()) as T;
+  }
+
+  /** The folder version `version` of manifest `name` was saved from; a version saved as JSON has none (`404`). */
+  async source(name: string, version: number, options: { signal?: AbortSignal } = {}): Promise<AgentManifestSource> {
+    return this.transport.json(`${this.path(name)}/versions/${version}/source`, "GET", undefined, options.signal);
+  }
+
+  /** The bytes of file `path` in the folder version `version` of manifest `name` was saved from. */
+  async sourceFile(name: string, version: number, path: string, options: { signal?: AbortSignal } = {}): Promise<Uint8Array> {
+    const response = await this.transport.request(`${this.path(name)}/versions/${version}/source/files/${segment(path)}`, {
+      method: "GET",
+      ...(options.signal ? { signal: options.signal } : {}),
+    });
+    return new Uint8Array(await response.arrayBuffer());
   }
 
   /** The latest version of manifest `name`, or version `version`. */

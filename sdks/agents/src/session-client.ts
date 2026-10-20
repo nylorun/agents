@@ -498,6 +498,8 @@ export { AccessClient } from "./access.js";
 export { AgentInstancesClient, AgentMemoriesClient, AgentSecretsClient, runtimeFiles } from "./agents.js";
 export type { AgentFilter, AgentInput, AgentSecretInput, RuntimeFileBytes } from "./agents.js";
 export { AgentManifestsClient, ManifestGapsError, agentManifest, requirementGaps } from "./agent-manifests.js";
+export { AGENT_FOLDER_FILE, FolderError, FolderInvalidError, diagnosticLine } from "./folder.js";
+export type { PackedFolder } from "./folder.js";
 export type {
   AgentManifestDocument,
   AgentManifestFromAgent,

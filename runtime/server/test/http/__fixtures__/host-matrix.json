@@ -103,7 +103,8 @@
           "tool-policy",
           "traces",
           "artifact-reads",
-          "gateway-credentials"
+          "gateway-credentials",
+          "agent-folders"
         ]
       }
     },
@@ -182,7 +183,8 @@
           "tool-policy",
           "traces",
           "artifact-reads",
-          "gateway-credentials"
+          "gateway-credentials",
+          "agent-folders"
         ]
       }
     },
@@ -261,7 +263,8 @@
           "tool-policy",
           "traces",
           "artifact-reads",
-          "gateway-credentials"
+          "gateway-credentials",
+          "agent-folders"
         ]
       }
     },
@@ -340,7 +343,8 @@
           "tool-policy",
           "traces",
           "artifact-reads",
-          "gateway-credentials"
+          "gateway-credentials",
+          "agent-folders"
         ]
       }
     },
@@ -419,7 +423,8 @@
           "tool-policy",
           "traces",
           "artifact-reads",
-          "gateway-credentials"
+          "gateway-credentials",
+          "agent-folders"
         ]
       }
     },
@@ -498,7 +503,8 @@
           "tool-policy",
           "traces",
           "artifact-reads",
-          "gateway-credentials"
+          "gateway-credentials",
+          "agent-folders"
         ]
       }
     },
@@ -577,7 +583,8 @@
           "tool-policy",
           "traces",
           "artifact-reads",
-          "gateway-credentials"
+          "gateway-credentials",
+          "agent-folders"
         ]
       }
     },
@@ -656,7 +663,8 @@
           "tool-policy",
           "traces",
           "artifact-reads",
-          "gateway-credentials"
+          "gateway-credentials",
+          "agent-folders"
         ]
       }
     },
@@ -735,7 +743,8 @@
           "tool-policy",
           "traces",
           "artifact-reads",
-          "gateway-credentials"
+          "gateway-credentials",
+          "agent-folders"
         ]
       }
     },
@@ -814,7 +823,8 @@
           "tool-policy",
           "traces",
           "artifact-reads",
-          "gateway-credentials"
+          "gateway-credentials",
+          "agent-folders"
         ]
       }
     },
@@ -893,7 +903,8 @@
           "tool-policy",
           "traces",
           "artifact-reads",
-          "gateway-credentials"
+          "gateway-credentials",
+          "agent-folders"
         ]
       }
     },
@@ -972,7 +983,8 @@
           "tool-policy",
           "traces",
           "artifact-reads",
-          "gateway-credentials"
+          "gateway-credentials",
+          "agent-folders"
         ]
       }
     },
@@ -1084,7 +1096,8 @@
           "tool-policy",
           "traces",
           "artifact-reads",
-          "gateway-credentials"
+          "gateway-credentials",
+          "agent-folders"
         ]
       }
     },
@@ -1163,7 +1176,8 @@
           "tool-policy",
           "traces",
           "artifact-reads",
-          "gateway-credentials"
+          "gateway-credentials",
+          "agent-folders"
         ]
       }
     },
@@ -1242,7 +1256,8 @@
           "tool-policy",
           "traces",
           "artifact-reads",
-          "gateway-credentials"
+          "gateway-credentials",
+          "agent-folders"
         ]
       }
     },
@@ -1321,7 +1336,8 @@
           "tool-policy",
           "traces",
           "artifact-reads",
-          "gateway-credentials"
+          "gateway-credentials",
+          "agent-folders"
         ]
       }
     },
@@ -1400,7 +1416,8 @@
           "tool-policy",
           "traces",
           "artifact-reads",
-          "gateway-credentials"
+          "gateway-credentials",
+          "agent-folders"
         ]
       }
     },
@@ -1479,7 +1496,8 @@
           "tool-policy",
           "traces",
           "artifact-reads",
-          "gateway-credentials"
+          "gateway-credentials",
+          "agent-folders"
         ]
       }
     },
@@ -1558,7 +1576,8 @@
           "tool-policy",
           "traces",
           "artifact-reads",
-          "gateway-credentials"
+          "gateway-credentials",
+          "agent-folders"
         ]
       }
     },

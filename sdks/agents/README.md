@@ -303,6 +303,19 @@ const session = await client.createSession({ id: "alice-q3", agent: "users/alice
 
 `agentManifests.save(input, { ifMatch, requestId })` and `plan(input, { ifMatch })` (a dry run that saves nothing) take a v8 document, what `composeManifest` read, or `{ agent, runtime?, harness?, loop?, memory?, name?, description?, metadata? }`: the SDK makes the harness section from the built agent or flow (`harnessSectionOf`, with its skills' `secrets`; `harness` is the harness's id; `memory`, `{ access?, instructions? }`, turns on an agent's memory, not a flow's) and names the manifest after the agent's id. First it uploads every file the manifest names by hash that the Runtime does not hold: the agent's skills, a flow's agents' skills, and the runtime's files (`runtimeFiles(path, contents)` hashes a `files` entry; pass its `bytes` as `files`). `If-Match` is the version you read (`0` for a new manifest). A save that changes nothing answers the latest version, `unchanged`. `get(name, version?)`, `list()`, `versions(name)` (with the Agents made from each) and `delete(name)` (refused while an Agent was made from it: `409 manifest_in_use`) read and remove them.
 
+### Agent folders: `packFolder`, `checkFolder`, `saveFolder`
+
+An agent can be a folder of Markdown and JSON (track T6): `AGENT.md` with `name`, `description` and the instructions, and beside it `mcp.json`, `runtime.json`, `skills/`, `tools/`, `triggers/` and `files/` as it needs them. `packFolder(dir)` (Node only) lists every file with its size and SHA-256, skipping `.git` and `node_modules`; `checkFolder(folder)` compiles it offline with the Runtime's compiler (`@nylorun/core/folder`) and returns `{ manifest?, diagnostics, compiler }`, each diagnostic with its file, line and column (`diagnosticLine` formats one). `agentManifests.saveFolder(folder, { ifMatch })` and `planFolder` compile it first, refuse one that does not compile (`FolderInvalidError`), upload the files the Runtime lacks and send the folder by hash; the Runtime keeps it as the version's source, which `source(name, version)` and `sourceFile(name, version, path)` read back.
+
+```ts
+import { createClient, packFolder } from "@nylorun/agents";
+
+const client = await createClient();
+const plan = await client.agentManifests.planFolder(await packFolder("agents/triage"));
+console.log(plan.manifest, plan.diagnostics); // the compiled manifest, and e.g. the derived GITHUB_TOKEN slot
+await client.agentManifests.saveFolder(await packFolder("agents/triage"), { ifMatch: plan.from ?? 0 });
+```
+
 ### Three files: `composeManifest`
 
 A manifest can also be authored as files, so a runtime is shared by many agents and skills stay folders. `composeManifest(dir)` (Node only) reads `<dir>/agent.manifest.json` and the files it names, each path relative to the file that names it, and returns `{ manifest, files, gaps, warnings }`; `agentManifests.save` takes it as it is and uploads `files`. `npx nylorun apply <dir>` does the same from the command line.

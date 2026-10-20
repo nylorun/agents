@@ -7,34 +7,47 @@
  * version the plan was made against, so a save that raced another fails (`412 manifest_changed`)
  * instead of overwriting it. A folder without an `agent.manifest.json` applies each subfolder
  * that has one (`nylorun apply agents/`).
+ *
+ * An agent folder (a folder with `AGENT.md`, track T6) is compiled offline first, and one that does
+ * not compile sends nothing; otherwise its files go up by hash and the Runtime compiles it again
+ * and keeps it as the version's source. Its plan adds the compiler's notes, and `--dry-run` prints
+ * the compiled manifest.
  */
 import { resolve } from "node:path";
 import {
   ComposeError,
   PluginError,
   SkillsError,
+  checkFolder,
   composeManifest,
+  isAgentFolder,
   manifestFolders,
   type AgentManifestPlan,
   type ComposedManifest,
+  type PackedFolder,
+  type SaveAgentManifestResponse,
 } from "@nylorun/agents";
 import { CliError } from "../errors.js";
 import type { StackDeps } from "../stack/commands.js";
+import { agentFolders, diagnosticLines, packed } from "./folder.js";
 import { integerFlag, parseFlags, runtimeCall, runtimeClient, runtimeFlagsUsage, usageError } from "./runtime.js";
 
 export const applyUsage = `nylorun apply [<dir>...] [--dry-run] [--if-match <n>]
 
 Saves the agent manifest each folder describes (default .), through the Runtime API with an
-application key (or NYLORUN_TOKEN). A folder holds agent.manifest.json, which names its
-harness.manifest.json and runtime.manifest.json (paths relative to the file that names them);
-a folder without one applies each subfolder that has one.
+application key (or NYLORUN_TOKEN). An agent folder holds AGENT.md (nylorun init): it is checked
+offline as nylorun check does, sent by hash, and kept as the version's source. A folder may hold
+agent.manifest.json instead, which names its harness.manifest.json and runtime.manifest.json
+(paths relative to the file that names them). A folder with neither applies each subfolder that
+has one.
 
 Each manifest is planned first: the version it moves from and to, each change (section, path,
 op), warnings and errors. With no errors it is saved, its skills', plugins' and runtime files
 uploaded first, under If-Match set to the version planned against (0 for a new manifest).
 Errors, the gaps between its sections included, save nothing and exit 1.
 
-  --dry-run                           print the plans and save nothing
+  --dry-run                           print the plans, and an agent folder's compiled manifest, and
+                                      save nothing
   --if-match <n>                      save only over version n (one folder)
 
 ${runtimeFlagsUsage}`;
@@ -61,6 +74,15 @@ export function planLines(plan: AgentManifestPlan): string[] {
   ];
 }
 
+function reportSaved(deps: StackDeps, saved: SaveAgentManifestResponse, label: string): void {
+  deps.err(
+    saved.unchanged
+      ? `Agent manifest ${saved.manifest.name} is unchanged at version ${saved.manifest.version} on ${label}.`
+      : `Saved agent manifest ${saved.manifest.name} version ${saved.manifest.version} on ${label}.`,
+  );
+  for (const warning of saved.warnings) deps.err(`  warning: ${warning.message}`);
+}
+
 /** `nylorun apply [dir…] [--dry-run] [--if-match <n>]` */
 export async function applyCommand(deps: StackDeps, args: readonly string[]): Promise<number> {
   if (args[0] === "--help" || args[0] === "-h") {
@@ -73,38 +95,70 @@ export async function applyCommand(deps: StackDeps, args: readonly string[]): Pr
   const cwd = deps.cwd ?? process.cwd();
   const folders: string[] = [];
   for (const dir of flags.rest.length > 0 ? flags.rest : ["."]) {
-    const found = await manifestFolders(resolve(cwd, dir)).catch((error: unknown) => composeFailure(dir, error));
-    if (found.length === 0) throw usageError(`${dir} holds no agent.manifest.json, and no subfolder does.`);
+    const at = resolve(cwd, dir);
+    const found = (await isAgentFolder(at))
+      ? [at]
+      : [
+          ...new Set([
+            ...(await manifestFolders(at).catch((error: unknown) => composeFailure(dir, error))),
+            ...(await agentFolders(at)),
+          ]),
+        ].sort();
+    if (found.length === 0) throw usageError(`${dir} holds no AGENT.md or agent.manifest.json, and no subfolder does.`);
     folders.push(...found);
   }
   if (ifMatch !== undefined && folders.length > 1) throw usageError("--if-match takes one manifest: name one folder.");
-  // Every folder composes before anything is sent: a broken file stops the whole apply.
-  const composed: { folder: string; manifest: ComposedManifest }[] = [];
-  for (const folder of folders)
-    composed.push({ folder, manifest: await composeManifest(folder).catch((error: unknown) => composeFailure(folder, error)) });
-  const { client, connection } = await runtimeClient(deps, flags);
+  // Every folder composes, or compiles, before anything is sent: a broken file stops the whole apply.
+  const work: ({ folder: string; manifest: ComposedManifest } | { folder: string; pack: PackedFolder })[] = [];
   let blocked = false;
-  for (const { manifest } of composed) {
+  for (const folder of folders) {
+    if (await isAgentFolder(folder)) {
+      const pack = await packed(folder);
+      const compiled = await checkFolder(pack);
+      if (!compiled.manifest) {
+        for (const line of diagnosticLines(folder, cwd, compiled.diagnostics)) deps.err(line);
+        blocked = true;
+      }
+      work.push({ folder, pack });
+    } else work.push({ folder, manifest: await composeManifest(folder).catch((error: unknown) => composeFailure(folder, error)) });
+  }
+  if (blocked) {
+    deps.err("Nothing was sent: an agent folder does not compile (nylorun check).");
+    return 1;
+  }
+  const { client, connection } = await runtimeClient(deps, flags);
+  const dryRun = flags.booleans.has("--dry-run");
+  for (const item of work) {
+    const options = ifMatch === undefined ? {} : { ifMatch };
+    if ("pack" in item) {
+      const plan = await runtimeCall(() => client.agentManifests.planFolder(item.pack, options));
+      for (const line of planLines(plan)) deps.out(line);
+      for (const line of diagnosticLines(item.folder, cwd, (plan.diagnostics ?? []).filter((d) => d.severity !== "error")))
+        deps.out(`  ${line}`);
+      if (dryRun && plan.manifest) deps.out(JSON.stringify(plan.manifest, null, 2));
+      if (plan.errors.length > 0) {
+        blocked = true;
+        continue;
+      }
+      if (dryRun || plan.unchanged) continue;
+      const saved = await runtimeCall(() => client.agentManifests.saveFolder(item.pack, { ifMatch: ifMatch ?? plan.from ?? 0 }));
+      reportSaved(deps, saved, connection.label);
+      continue;
+    }
+    const { manifest } = item;
     for (const warning of manifest.warnings) deps.err(`${manifest.manifest.name}: warning: ${warning}`);
     // The plan's errors include the gaps the composer found (its sections, the harness's requires).
-    const plan = await runtimeCall(() =>
-      client.agentManifests.plan(manifest, ifMatch === undefined ? {} : { ifMatch }),
-    );
+    const plan = await runtimeCall(() => client.agentManifests.plan(manifest, options));
     for (const line of planLines(plan)) deps.out(line);
     if (plan.errors.length > 0) {
       blocked = true;
       continue;
     }
-    if (flags.booleans.has("--dry-run") || plan.unchanged) continue;
+    if (dryRun || plan.unchanged) continue;
     const saved = await runtimeCall(() =>
       client.agentManifests.save(manifest, { ifMatch: ifMatch ?? plan.from ?? 0 }),
     );
-    deps.err(
-      saved.unchanged
-        ? `Agent manifest ${saved.manifest.name} is unchanged at version ${saved.manifest.version} on ${connection.label}.`
-        : `Saved agent manifest ${saved.manifest.name} version ${saved.manifest.version} on ${connection.label}.`,
-    );
-    for (const warning of saved.warnings) deps.err(`  warning: ${warning.message}`);
+    reportSaved(deps, saved, connection.label);
   }
   if (blocked) deps.err("Nothing was saved for a manifest with errors.");
   return blocked ? 1 : 0;

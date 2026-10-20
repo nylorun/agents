@@ -276,6 +276,17 @@ export interface AgentManifestRow {
   hash: string;
   savedBy: { actor: string };
   createdAt: string;
+  /** The agent folder the version was compiled from (track T6); none for a version saved as JSON. */
+  source?: AgentManifestSourceRecord;
+}
+
+/** An agent folder as a version keeps it: its compiler, size and files, each a definition file. */
+export interface AgentManifestSourceRecord {
+  compiler: string;
+  files: number;
+  bytes: number;
+  /** Sorted by path; `sha256` is lowercase hex, the file `sha256:<hex>` in the definition file store. */
+  entries: { path: string; size: number; sha256: string }[];
 }
 
 /** A disk lease (R2d step 3): what holds the disk, since when, and until when unless renewed. */

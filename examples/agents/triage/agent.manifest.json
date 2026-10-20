@@ -1,8 +1,0 @@
-{
-  "$schema": "https://docs.nylorun.com/schemas/agent-manifest/v8.json",
-  "manifestSchemaVersion": 8,
-  "name": "triage",
-  "description": "Reads a GitHub issue and proposes a label and a priority.",
-  "harness": "./harness.manifest.json",
-  "runtime": "../../platform/virtual.runtime.json"
-}

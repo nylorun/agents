@@ -166,6 +166,8 @@ const RUNTIME_TAGS: readonly Tag[] = [
       "GET /v1/agent-manifests/{name}",
       "GET /v1/agent-manifests/{name}/versions",
       "GET /v1/agent-manifests/{name}/versions/{version}",
+      "GET /v1/agent-manifests/{name}/versions/{version}/source",
+      "GET /v1/agent-manifests/{name}/versions/{version}/source/files/{path}",
       "DELETE /v1/agent-manifests/{name}",
     ],
   },

@@ -54,20 +54,21 @@ triage → switch ┬ repo:    map(researcher) → parallel(overview, risks) →
 
 The writer's shell needs a sandbox, which its runtime section gives it, as for the [data analyst](#data-analyst-sandbox): open the session on the Agent `repo-brief` (in Studio, pick it); the flow's child sessions run on the same Agent. Then try `Brief me on modelcontextprotocol/typescript-sdk.` in Studio. [`test/repo-brief.test.ts`](./test/repo-brief.test.ts) runs the same turn against an in-process Runtime, with a stub model, a fake DeepWiki and the tools service.
 
-## Triage: an agent in three files
+## Triage: an agent folder
 
-[`agents/triage/`](./agents/triage/) is an agent authored as files, so a runtime is shared and nothing is TypeScript:
+[`agents/triage/`](./agents/triage/) is an agent folder (track T6): Markdown and JSON, no TypeScript.
 
-- [`agent.manifest.json`](./agents/triage/agent.manifest.json) names the manifest, `triage`, and its two sections by path.
-- [`harness.manifest.json`](./agents/triage/harness.manifest.json) is what runs in the loop: the instructions, and GitHub's remote MCP server, whose `credentials` entry names the slot it authenticates with, `GITHUB_TOKEN`.
-- [`platform/virtual.runtime.json`](./platform/virtual.runtime.json) is the runtime any agent here may name: a virtual workspace, and `GITHUB_TOKEN`, a `bearer` slot bound to that server's exact URL.
+- [`AGENT.md`](./agents/triage/AGENT.md) holds the agent's name, `triage`, its description, and its instructions below the frontmatter.
+- [`mcp.json`](./agents/triage/mcp.json) holds GitHub's remote MCP server. `Bearer ${GITHUB_TOKEN}` in its `Authorization` header names the secret it authenticates with: with no `runtime.json` declaring it, the compiler derives a `GITHUB_TOKEN` bearer slot bound to that server's exact URL, and says so.
+- [`README.md`](./agents/triage/README.md) is kept with the version's source and is not part of the agent: changing only it saves no new version.
 
 ```sh
-npm run triage                 # composeManifest + agentManifests.save, then the Agent triage
-npx nylorun apply agents/triage --dry-run   # the same manifest's plan, from the command line
+npm run triage                              # packFolder + agentManifests.saveFolder, then the Agent triage
+npx nylorun check agents/triage             # compile it offline: every problem by file, line and column
+npx nylorun apply agents/triage --dry-run   # the plan and the compiled manifest, from the command line
 ```
 
-`npm run triage` ([`src/triage.ts`](./src/triage.ts), [`apply.ts`](./agents/triage/apply.ts)) composes the three files into one agent manifest, saves it and makes the Agent `triage`; with `GITHUB_TOKEN` in `.env` it writes the token into the Agent's slot (else `npx nylorun agents secrets put triage GITHUB_TOKEN` with the token on standard input). Then try `Triage modelcontextprotocol/typescript-sdk#1` on the Agent `triage` in Studio. A harness file that names a slot the runtime does not declare is refused before anything is sent, with the gap named: `harness.mcpServers.github.credential "GITHUB_TOKEN" is not a secret slot in runtime.secrets`. [`test/triage.test.ts`](./test/triage.test.ts) checks both.
+`npm run triage` ([`src/triage.ts`](./src/triage.ts), [`apply.ts`](./agents/triage/apply.ts)) saves the folder, which the Runtime compiles and keeps as the version's source, and makes the Agent `triage`; with `GITHUB_TOKEN` in `.env` it writes the token into the Agent's slot (else `npx nylorun agents secrets put triage GITHUB_TOKEN` with the token on standard input). Then try `Triage modelcontextprotocol/typescript-sdk#1` on the Agent `triage` in Studio. A typo is refused before anything is sent, named by file, line and column. [`test/triage.test.ts`](./test/triage.test.ts) checks both.
 
 ## An agent in your web app (AG-UI)
 

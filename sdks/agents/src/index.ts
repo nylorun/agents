@@ -185,6 +185,10 @@ export {
   runtimeFiles,
 } from "./client.js";
 export { composeManifest, manifestFolders, ComposeError, AGENT_MANIFEST_FILE } from "./compose.js";
+export { AGENT_FOLDER_FILE, FolderError, FolderInvalidError, diagnosticLine } from "./folder.js";
+export { checkFolder } from "./folder-check.js";
+export type { PackedFolder } from "./folder.js";
+export { packFolder, isAgentFolder } from "./folder-pack.js";
 export { AccessClient } from "./access.js";
 export { resolveConnection, ConnectionError } from "./connection.js";
 export type { ResolvedConnection } from "./connection.js";

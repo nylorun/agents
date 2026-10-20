@@ -267,6 +267,13 @@
       "when": 1792238141315,
       "tag": "0037_model_usage_cost_split",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1792484344984,
+      "tag": "0038_t6_agent_manifest_source",
+      "breakpoints": true
     }
   ]
 }

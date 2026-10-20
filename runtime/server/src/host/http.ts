@@ -6,6 +6,7 @@ import {
   type ErrorCode,
   type ProtocolRange,
 } from "@nylorun/core/compatibility";
+import { AGENT_FOLDER_MEDIA_TYPE } from "@nylorun/core/contracts";
 
 export const OPAQUE_NOT_FOUND = {
   status: "rejected" as const,
@@ -169,7 +170,8 @@ export function isAllowedRequestHost(
 export function isJsonContentType(value: string | undefined): boolean {
   if (value === undefined) return false;
   const media = value.split(";")[0]!.trim().toLowerCase();
-  return media === "application/json";
+  // An agent folder by hash (track T6) is JSON too.
+  return media === "application/json" || media === AGENT_FOLDER_MEDIA_TYPE;
 }
 
 /** True when the request carries a body (Content-Length > 0 or chunked). */
