@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.31.0-beta
+
+### Minor Changes
+
+- a7b9459: Studio follows its DESIGN.md (`studio/DESIGN.md`, in Google Labs' design.md format): shadcn/ui on the Zinc base color, with zinc and white everywhere and color only in charts. Charts take the Sage scale: a session's tokens by kind run from forest to mist, and a budget's used bar is forest on a mist track. State is a grey dot and a word, darkest when something failed or waits on a person; waiting counts are zinc badges, errors are foreground text, and an approval waiting on you is outlined, not amber. Headings are in Space Grotesk, text in DM Sans and ids in JetBrains Mono, bundled with the image.
+
+### Patch Changes
+
+- fce0c9b: Headers for a custom model endpoint (#493). A custom endpoint's `settings` (`PUT /v1/tenant/model`) take `headers`, sent on every call, and `callHeaders`, whose values the Runtime resolves per call from the calling Agent: one of its labels (`{ from: "agent.label", key: "org" }`), its id (`agent.id`) or the session's owner when it is a person (`session.owner`). A source with no value sends no header. A Runtime that serves several orgs' Agents can then send each call's org (`x-nylorun-org` from the `org` label), so a model gateway attributes and budgets it while the call is made, in process and through the gates service alike. They are settings, read back by `GET /v1/tenant/model`: neither map may set `authorization`, a hop-by-hop or transport header, or `Nylorun-*`, and a name appears once across both. Studio keeps them when it saves the model.
+- 1752f42: Studio's controls take DESIGN.md's Nova sizes: buttons are 32px (small 28px, large 36px), icon buttons 32px and 28px, inputs, selects and toggles 32px. Section headings and side panel titles are `title-sm` (Space Grotesk 14px, semibold). shadcn's table heads are 36px, 13px and muted, and its rows 40px. A form opens in a 448px side panel (forking an Agent included) and a file, payload or spec to read in a 672px one, as DESIGN.md now says. The Artifacts page's tabs are underline tabs, and its Versions tab carries no count.
+- 4a563e7: The workload token (#496). A Runtime given `NYLORUN_WORKLOAD_TOKEN_FILE`, a token a platform rotates through a file, reads it at each use and keeps nothing, so a rotation applies to the next request with no restart; a missing, unreadable or empty file fails the request, naming the variable, and nothing is sent without it. A custom model with `auth: { type: "workload" }` sends it as the endpoint's bearer. A new credential type, `workload` (`{ url, via, identity?, toolPrefix? }`, no value), sends `Authorization: Bearer <token>` to its `via` only, and only when `via`'s origin is in `NYLORUN_WORKLOAD_TOKEN_ORIGINS`, since an Agent's writer chooses `via`. A gateway's `401` is `credential_rejected` with `gateway`, its origin. The token stays in the process that makes the call: never in a sandbox, the model, an event or a log. Studio shows the credential and the model's auth.
+- Pin agents to the tested release.
+- Pin admin to the tested release.
+- Updated dependencies [ab7c08a]
+- Updated dependencies
+- Updated dependencies
+  - @nylorun/agents@0.26.0-beta
+  - @nylorun/admin@0.19.2-beta
+
 ## 0.30.0-beta
 
 ### Minor Changes

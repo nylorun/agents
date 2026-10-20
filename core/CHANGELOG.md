@@ -1,5 +1,13 @@
 # @nylorun/core
 
+## 0.26.0-beta
+
+### Minor Changes
+
+- fce0c9b: Headers for a custom model endpoint (#493). A custom endpoint's `settings` (`PUT /v1/tenant/model`) take `headers`, sent on every call, and `callHeaders`, whose values the Runtime resolves per call from the calling Agent: one of its labels (`{ from: "agent.label", key: "org" }`), its id (`agent.id`) or the session's owner when it is a person (`session.owner`). A source with no value sends no header. A Runtime that serves several orgs' Agents can then send each call's org (`x-nylorun-org` from the `org` label), so a model gateway attributes and budgets it while the call is made, in process and through the gates service alike. They are settings, read back by `GET /v1/tenant/model`: neither map may set `authorization`, a hop-by-hop or transport header, or `Nylorun-*`, and a name appears once across both. Studio keeps them when it saves the model.
+- ab7c08a: A gateway's tool prefix (#494, Host feature `gateway-credentials`). A `bearer` or `headers` credential with `via`, written to an Agent's vault, may add `toolPrefix`: what the gateway at `via` puts before each tool name it lists, such as LiteLLM's `github-`. The Runtime lists the server's tools without it, so tool names (`github__create_issue`), a manifest's `tools` settings and tool policy rules name the server's own tools whether or not a gateway is in between, and calls each tool by the name the gateway listed. A listed tool that lacks the prefix keeps its name, and the server's `mcp.discovered` message names it. `toolPrefix` needs `via`, and secret views carry it. It is the installation's routing, never a manifest's: a manifest's secret slot cannot name it, and a slot's value write (`{ headers, toolPrefix }`) adds it. A fork keeps it while the new slot keeps `via`. No protocol change.
+- 4a563e7: The workload token (#496). A Runtime given `NYLORUN_WORKLOAD_TOKEN_FILE`, a token a platform rotates through a file, reads it at each use and keeps nothing, so a rotation applies to the next request with no restart; a missing, unreadable or empty file fails the request, naming the variable, and nothing is sent without it. A custom model with `auth: { type: "workload" }` sends it as the endpoint's bearer. A new credential type, `workload` (`{ url, via, identity?, toolPrefix? }`, no value), sends `Authorization: Bearer <token>` to its `via` only, and only when `via`'s origin is in `NYLORUN_WORKLOAD_TOKEN_ORIGINS`, since an Agent's writer chooses `via`. A gateway's `401` is `credential_rejected` with `gateway`, its origin. The token stays in the process that makes the call: never in a sandbox, the model, an event or a log. Studio shows the credential and the model's auth.
+
 ## 0.25.0-beta
 
 ### Minor Changes
