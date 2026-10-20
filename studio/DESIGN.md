@@ -105,11 +105,11 @@ components:
     backgroundColor: "{colors.primary}"
     height: 2px
   chart-series-1:
-    backgroundColor: "{colors.chart-2}"
+    backgroundColor: "{colors.chart-4}"
   chart-series-2:
     backgroundColor: "{colors.chart-3}"
   chart-series-3:
-    backgroundColor: "{colors.chart-4}"
+    backgroundColor: "{colors.chart-2}"
   chart-series-4:
     backgroundColor: "{colors.chart-1}"
   chart-single:
@@ -151,7 +151,7 @@ Nylorun's brand palette, split in two. Everything but charts is zinc and white, 
 - **Muted (#f4f4f5) and muted-foreground (#71717a):** a hovered or selected row, the active sidebar item, an active filter; secondary text such as column heads, timestamps, notes and inactive tabs; the running status dot and the · separator.
 - **Border (#e4e4e7):** every hairline. **Ring (#a1a1aa):** focus outlines, with shadcn's 3px halo, an active filter's border, and the idle status dot.
 - **Destructive (#09090b):** shadcn's `--destructive`, set to the foreground. A delete button looks like the primary one, and its label and the confirm dialog say what it does; an error message is foreground text that says what failed.
-- **Chart-1 to chart-5, the Sage scale:** one hue in five steps, so a chart reads as one calm accent beside the zinc. Series take chart-2 (#415d43), chart-3 (#7da182) and chart-4 (#cde0d0) in that order, forest to mist, then chart-1 (#111d13) for a fourth, and never skip one; a color follows its series, so a filter never repaints the others. A single series, such as a budget's used bar or artifact sizes, takes chart-2 (`chart-single`), the first series' color. A session's tokens by kind: cached input chart-2, uncached input chart-3, output chart-4, and cache writes, which only some providers report, chart-1. Chart-5 (#f2f8f2) is never a series: it is the track behind a bar or meter and the band behind a range (`chart-track`). A fifth series folds into "Other" in ring (#a1a1aa). Use them in charts and graphs only, never on a component, a status dot, in text, or on the logo. A meter, such as a budget nearing its limit, stays chart-2; its number says how close it is.
+- **Chart-1 to chart-5, the Sage scale:** one hue in five steps, so a chart reads as one calm accent beside the zinc. Series take chart-4 (#cde0d0), chart-3 (#7da182), chart-2 (#415d43) and chart-1 (#111d13) in that order, light to dark, and never skip one; a color follows its series, so a filter never repaints the others. A single series, such as a budget's used bar or artifact sizes, takes chart-2 (`chart-single`). Chart-5 (#f2f8f2) is never a series: it is the track behind a bar or meter and the band behind a range (`chart-track`). A fifth series folds into "Other" in ring (#a1a1aa). Use them in charts and graphs only, never on a component, a status dot, in text, or on the logo. A meter, such as a budget nearing its limit, stays chart-2; its number says how close it is.
 
 Series differ in lightness, not hue: neighbors are at least 20.9 ΔE apart, for color-blind readers too. Chart-3 and chart-4 are light on white (2.9:1 and 1.4:1), so a chart always carries a legend or labels, and a series is never told apart by color alone. Stacked fills keep a 1px white gap between segments. shadcn's `card`, `popover`, `secondary`, `accent`, `input` and `sidebar` variables keep their Zinc values.
 

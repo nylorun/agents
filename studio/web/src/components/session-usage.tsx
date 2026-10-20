@@ -41,14 +41,13 @@ const CALLS_PAGE = 50;
 
 /**
  * One colour per token kind, the same in the session bar, the call bars and the column heads:
- * DESIGN.md's Sage series, chart-2 to chart-4, and chart-1 for cache writes, which only some
- * providers report.
+ * DESIGN.md's series in order, light to dark across the bar.
  */
 const KIND_COLOR: Record<TokenKind, string> = {
-  cacheRead: "bg-chart-2",
+  cacheRead: "bg-chart-4",
   input: "bg-chart-3",
-  cacheWrite: "bg-chart-1",
-  output: "bg-chart-4",
+  cacheWrite: "bg-chart-2",
+  output: "bg-chart-1",
 };
 const KIND_COLUMN: Record<TokenKind, string> = {
   cacheRead: "Cached",
