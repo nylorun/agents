@@ -341,7 +341,8 @@ function realInside(root: string, candidate: string): string | undefined {
   if (!existsSync(candidate)) return undefined;
   try {
     const real = realpathSync(candidate);
-    return isInside(root, real) ? real : undefined;
+    // Both sides real: a package under a symlinked directory (macOS's /var → /private/var) is inside itself.
+    return isInside(realpathSync(root), real) ? real : undefined;
   } catch {
     return undefined;
   }
