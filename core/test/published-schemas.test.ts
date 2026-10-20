@@ -34,7 +34,7 @@ const PINNED: Record<string, string> = {
   "https://docs.nylorun.com/schemas/agent-folder/v1/runtime.json": "0dfc10f40e5c57fab55ae6ff48988d4f9a5835132ba590c0bb4fecdbca3487a1",
   "https://docs.nylorun.com/schemas/agent-folder/v1/tool.json": "632f25d978ae5da96ba4abd1da5647066541a63d07af1a65579e21f45dc7c1a7",
   "https://docs.nylorun.com/schemas/agent-folder/v1/mcp.json": "d470edffee6646192dc030ce68d25d020ec2f9b710e818886e1a5703f0780094",
-  "https://docs.nylorun.com/schemas/agent-folder/v1/flow.json": "68fee9ef198082a0bdc8814d5dbfa45beb766b2438713496593102be828fe9dc",
+  "https://docs.nylorun.com/schemas/agent-folder/v1/flow.json": "eb30c5bce859a38c6184b7aa36c7c4dc1ee1806f1d2a5fde423986bfb9261362",
 };
 
 /** `$id`s published before and no longer built: never published again, with any content. */

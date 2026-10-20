@@ -701,6 +701,7 @@ export function compileAgentFolder(input: CompileAgentFolderInput, scope?: Folde
     report,
     readJson,
     schemaAt,
+    checkSchemaUrl,
     deriveSlot,
     suggest: suggestion,
     compile: compileAgentFolder,

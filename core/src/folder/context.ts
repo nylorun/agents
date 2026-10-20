@@ -57,6 +57,8 @@ export interface FolderContext {
   readonly report: Report;
   readonly readJson: (path: string) => Record<string, unknown> | undefined;
   readonly schemaAt: (file: string, field: readonly PropertyKey[], value: unknown) => Record<string, unknown> | undefined;
+  /** A JSON file's `$schema`: accepted, and a warning when it names another kind's schema. */
+  readonly checkSchemaUrl: (file: string, kind: "runtime" | "tool" | "mcp" | "flow", value: unknown) => void;
   readonly deriveSlot: (
     credential: string,
     type: "bearer" | "headers",

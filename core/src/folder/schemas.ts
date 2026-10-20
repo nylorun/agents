@@ -284,6 +284,10 @@ function flow(): Json {
     Node: { oneOf: NODE_KINDS.map((kind) => ref(pascal(kind))), description: `A node: exactly one of ${NODE_KINDS.join(", ")}, and an optional id` },
   };
   for (const kind of NODE_KINDS) defs[pascal(kind)] = { type: "object", properties: { [kind]: bodies[kind], id }, required: [kind], additionalProperties: false };
+  // The file's own node may also name this schema; a node inside it may not.
+  const root: Json = {
+    oneOf: NODE_KINDS.map((kind) => ({ type: "object", properties: { $schema: SCHEMA_KEY, [kind]: bodies[kind], id }, required: [kind], additionalProperties: false })),
+  };
   defs.Verifier = {
     oneOf: [
       { type: "object", properties: { agent: verifyKeys.agent, id: verifyKeys.id }, required: ["agent"], additionalProperties: false },
@@ -294,8 +298,8 @@ function flow(): Json {
   return document(
     "flow",
     "Nylorun agent folder: flow.json",
-    "A flow's node tree (workflow manifest v3's), naming agents of the flow root's agents/ by id and tools beside the file by name. It takes no $schema: map it in the editor",
-    ref("Node"),
+    "A flow's node tree (workflow manifest v3's), naming agents of the flow root's agents/ by id and tools beside the file by name",
+    root,
     defs,
   );
 }

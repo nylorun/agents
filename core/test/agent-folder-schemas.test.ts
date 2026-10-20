@@ -161,6 +161,7 @@ Answer questions about orders.
 const PIPELINE = {
   "AGENT.md": `---\nname: pipeline\ndescription: Writes and publishes a brief.\ninputSchema:\n  type: object\n  properties:\n    topic:\n      type: string\n---\n`,
   "flow.json": JSON.stringify({
+    $schema: `${FOLDER_SCHEMAS}flow.json`,
     chain: [
       { agent: "triage" },
       { id: "route", switch: { cases: { many: { map: { each: { agent: "writer" } } } }, default: { agent: "writer" } } },
@@ -251,7 +252,7 @@ describe("agent folder JSON Schemas", () => {
       ["mcp", { servers: {} }],
       ["flow", { agent: "a", tool: "b" }],
       ["flow", { chain: [] }],
-      ["flow", { $schema: `${FOLDER_SCHEMAS}flow.json`, agent: "a" }],
+      ["flow", { chain: [{ $schema: `${FOLDER_SCHEMAS}flow.json`, agent: "a" }] }],
       ["flow", { loop: { run: { agent: "a" }, verify: { http: { url: "https://x.example.com" } }, max: 1 } }],
       ["flow", { loop: { run: { agent: "a" }, verify: { tool: "t", id: "v" }, max: 1 } }],
       ["flow", { loop: { run: { agent: "a" }, verify: { agent: "b" }, max: 0 } }],
