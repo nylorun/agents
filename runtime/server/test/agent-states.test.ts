@@ -58,6 +58,18 @@ describe("stateOf", () => {
     expect(stateOf(on, [{ id: "f", status: "failed" }]).state).toBe("failing");
   });
 
+  it("needs a person while a required secret of the version it runs is unset, each named", () => {
+    expect(stateOf(on, [{ id: "busy", status: "running" }], ["ORDERS_TOKEN", "SHOP_KEY"])).toEqual({
+      state: "input_required",
+      attention: [
+        { state: "input_required", reason: "secret_unset: required secret ORDERS_TOKEN unset" },
+        { state: "input_required", reason: "secret_unset: required secret SHOP_KEY unset" },
+        { state: "working", sessionId: "busy", reason: "running" },
+      ],
+    });
+    expect(stateOf({ ...on, pod: pod("lost") }, [], ["ORDERS_TOKEN"]).state).toBe("failing");
+  });
+
   it("is paused when its desired state is off, above everything", () => {
     expect(stateOf({ desiredState: "off", pod: pod("lost") }, [{ id: "f", status: "failed" }]).state).toBe("paused");
   });

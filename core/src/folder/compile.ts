@@ -6,7 +6,7 @@
  * problem comes back in one pass, each naming its file and, for parse and schema errors, its
  * line and column.
  *
- * Format `agent-folder/1`, agents only:
+ * Format `agent-folder/1`:
  *
  * - `AGENT.md`: frontmatter (`name`, `description`, `format`, `harness`, `outputSchema`,
  *   `mcpServers`, `skills`, `memory`, `loop`, `metadata`); the body is the instructions, then
@@ -24,6 +24,9 @@
  * - `files/**`: copied under `/workspace` when a disk is made.
  * - JSON Schema files: `output.schema.json`, `*.schema.json` and `schemas/**.json`, read when a
  *   path names them.
+ * - `agents/<id>/`, `flow.json` and `plugins/<name>/`: subagents, flows (whose `AGENT.md` takes
+ *   `inputSchema` and no body) and vendored Agent Plugins, compiled by `nested.ts`, `flow.ts` and
+ *   `plugins.ts` through the hooks marked "folder/nested.ts" below.
  *
  * `check` is the whole verdict that needs no Runtime: every schema is checked as JSON Schema and
  * as the engine reads it, a cron and a time zone as the Runtime reads them, the harness and
@@ -36,7 +39,6 @@
  * an authentication header, a token-shaped string in any header. The folder is kept byte-exact as
  * the version's source, so each warning says who can read it and where secrets usually go.
  *
- * Flows (`flow.json`, `agents/`) and vendored plugins (`plugins/`) are refused: they come later.
  * Any other file is kept with the source and noted.
  */
 import type { z } from "zod";
@@ -60,11 +62,15 @@ import { parseMarkdown } from "./frontmatter.js";
 import { parseJson, pointerOf, type Located, type Position } from "./json.js";
 import { jsonSchemaIssues } from "./json-schema.js";
 import { naturalCompare, suggestion } from "./suggest.js";
+import { folderParts, nestedTextPaths, scopedSchema, type FolderScope } from "./nested.js";
 
 /** The compiler format this version builds: a folder with no `format`, or `format: 1`. */
 export const AGENT_FOLDER_COMPILER = "agent-folder/1";
 
-/** What a folder may hold. Fixed in this version; Tenant settings come later. */
+/**
+ * What a folder may hold, unless `compileAgentFolder` is given other limits (a Tenant's Runtime
+ * limits `folderFiles`, `folderBytes` and `folderTextFileBytes`, which default to these).
+ */
 export const AGENT_FOLDER_LIMITS = Object.freeze({
   /** Files in one folder. */
   files: 2000,
@@ -102,6 +108,15 @@ export interface CompileAgentFolderInput {
   readonly files: ReadonlyMap<string, Uint8Array>;
   /** The name the manifest must have: the path's, or the folder's. */
   readonly name?: string;
+  /** What the folder may hold; each left out is `AGENT_FOLDER_LIMITS`'. */
+  readonly limits?: Partial<AgentFolderLimits>;
+}
+
+/** What a folder may hold: its files, their bytes together, and one Markdown or JSON file. */
+export interface AgentFolderLimits {
+  readonly files: number;
+  readonly totalBytes: number;
+  readonly textFileBytes: number;
 }
 
 export interface CompiledAgentFolder {
@@ -126,7 +141,7 @@ const SCHEMA_URLS = {
   flow: [`${FOLDER_SCHEMAS}flow.json`],
 } as const;
 const SKILL_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
-const AGENT_KEYS = ["name", "description", "format", "harness", "outputSchema", "mcpServers", "skills", "memory", "loop", "metadata"];
+const AGENT_KEYS = ["name", "description", "format", "harness", "inputSchema", "outputSchema", "mcpServers", "skills", "memory", "loop", "metadata"];
 const SKILL_KEYS = ["name", "description", "license", "compatibility", "metadata", "allowed-tools"];
 const TRIGGER_KEYS = ["schedule", "timezone", "at", "webhook", "session"];
 const SERVER_KEYS = ["type", "url", "headers"];
@@ -163,6 +178,9 @@ type Kind =
   | "skill"
   | "file"
   | "schema"
+  | "flow"
+  | "nested"
+  | "plugin"
   | "other";
 
 const isEnvFile = (name: string) => name === ".env" || name.startsWith(".env.");
@@ -187,6 +205,9 @@ const isPolicyFile = (path: string) => path === "tool-policy.json" || path === "
 function classify(path: string): { kind: Kind } | { error: string; code: string } {
   const segments = path.split("/");
   const base = segments.at(-1)!;
+  // A folder inside this one classifies its own paths (folder/nested.ts).
+  if ((segments[0] === "agents" || segments[0] === "plugins") && segments.length >= 3)
+    return { kind: segments[0] === "agents" ? "nested" : "plugin" };
   if (segments.includes(".git") || segments.includes("node_modules"))
     return { code: "path_refused", error: ".git/ and node_modules/ are not part of an agent folder: leave them out of the upload" };
   const top = segments[0]!;
@@ -198,15 +219,14 @@ function classify(path: string): { kind: Kind } | { error: string; code: string 
     const stem = base.replace(/\.(?:ya?ml|jsonc|json5)$/, "");
     if (stem !== base && ["runtime", "mcp", "AGENT"].includes(stem))
       return { code: "wrong_syntax", error: `Write this file as ${stem === "AGENT" ? AGENT_FILE : `${stem}.json`}: an agent folder has one syntax per kind of file` };
-    if (path === "flow.json")
-      return { code: "not_supported", error: `Flows (flow.json) are not in ${AGENT_FOLDER_COMPILER} yet: save the flow as JSON or with the TypeScript builder` };
+    if (path === "flow.json") return { kind: "flow" };
     if (base.endsWith(".schema.json")) return { kind: "schema" };
     return { kind: "other" };
   }
   if (top === "agents" || top === "plugins")
     return {
-      code: "not_supported",
-      error: `${top}/ is not in ${AGENT_FOLDER_COMPILER} yet: ${top === "agents" ? "subagents and flows" : "vendored Agent Plugins"} come in a later version`,
+      code: "reserved_directory",
+      error: top === "agents" ? "agents/ holds one folder per agent, each with its AGENT.md" : "plugins/ holds one folder per Agent Plugin, each with its plugin.json",
     };
   if (top === "instructions")
     return segments.length === 2 && base.endsWith(".md")
@@ -244,9 +264,11 @@ export function folderTextPaths(entries: readonly AgentFolderEntry[]): string[] 
       kind.kind === "tool" ||
       kind.kind === "trigger" ||
       kind.kind === "schema" ||
+      kind.kind === "flow" ||
       (kind.kind === "skill" && entry.path.split("/").length === 3 && entry.path.endsWith(`/${SKILL_ENTRY}`));
     if (textual) paths.push(entry.path);
   }
+  paths.push(...nestedTextPaths(entries, folderTextPaths));
   return paths.sort(compare);
 }
 
@@ -286,8 +308,12 @@ interface Origin {
   readonly path: readonly PropertyKey[];
 }
 
-/** Compiles an agent folder into agent manifest v8, with every diagnostic. */
-export function compileAgentFolder(input: CompileAgentFolderInput): CompiledAgentFolder {
+/**
+ * Compiles an agent folder into agent manifest v8, with every diagnostic. `scope` is internal: the
+ * compiler sets it when it compiles a folder inside another (`agents/<id>/`, a plugin's parts).
+ */
+export function compileAgentFolder(input: CompileAgentFolderInput, scope?: FolderScope): CompiledAgentFolder {
+  const limits: AgentFolderLimits = { ...AGENT_FOLDER_LIMITS, ...input.limits };
   const diagnostics: AgentFolderDiagnostic[] = [];
   const parsed = new Map<string, ParsedFile>();
   const report = (
@@ -344,10 +370,10 @@ export function compileAgentFolder(input: CompileAgentFolderInput): CompiledAgen
     byPath.set(entry.path, entry);
     bytes += entry.size;
   }
-  if (entries.length > AGENT_FOLDER_LIMITS.files)
-    error("limit_exceeded", `An agent folder holds at most ${AGENT_FOLDER_LIMITS.files} files; this one holds ${entries.length}`);
-  if (bytes > AGENT_FOLDER_LIMITS.totalBytes)
-    error("limit_exceeded", `An agent folder holds at most ${AGENT_FOLDER_LIMITS.totalBytes} bytes; this one holds ${bytes}`);
+  if (entries.length > limits.files)
+    error("limit_exceeded", `An agent folder holds at most ${limits.files} files; this one holds ${entries.length}`);
+  if (bytes > limits.totalBytes)
+    error("limit_exceeded", `An agent folder holds at most ${limits.totalBytes} bytes; this one holds ${bytes}`);
 
   const kinds = new Map<string, Kind>();
   for (const path of byPath.keys()) {
@@ -379,8 +405,8 @@ export function compileAgentFolder(input: CompileAgentFolderInput): CompiledAgen
   const textOf = (path: string): string | undefined => {
     const entry = byPath.get(path);
     if (!entry) return undefined;
-    if (entry.size > AGENT_FOLDER_LIMITS.textFileBytes) {
-      error("limit_exceeded", `A Markdown or JSON file holds at most ${AGENT_FOLDER_LIMITS.textFileBytes} bytes; this one holds ${entry.size}`, path);
+    if (entry.size > limits.textFileBytes) {
+      error("limit_exceeded", `A Markdown or JSON file holds at most ${limits.textFileBytes} bytes; this one holds ${entry.size}`, path);
       return undefined;
     }
     const bytesOf = input.files.get(path);
@@ -505,6 +531,8 @@ export function compileAgentFolder(input: CompileAgentFolderInput): CompiledAgen
       error("schema_invalid", "A schema is a JSON Schema object, or a path to a JSON Schema file", file, field);
       return undefined;
     }
+    // `/x` in a folder inside another names a file of the uploaded folder (folder/nested.ts).
+    if (scope && value.startsWith("/")) return scopedSchema(scope, value, (code, message) => error(code, message, file, field));
     const target = value.startsWith("/") ? value.slice(1) : value.replace(/^\.\//, "");
     if (target.split("/").some((segment) => segment === ".." || segment === "")) {
       error("path_outside", `${value} leaves the folder: a path names a file inside it`, file, field);
@@ -595,7 +623,8 @@ export function compileAgentFolder(input: CompileAgentFolderInput): CompiledAgen
     if (trimmed !== "") instructions.push(trimmed);
   }
   if (instructions.length > 0) harness.instructions = instructions;
-  else if (agent?.hasFrontmatter)
+  // A flow has no instructions of its own: its stages do.
+  else if (agent?.hasFrontmatter && ![...kinds.values()].includes("flow"))
     warn(
       "instructions_empty",
       `The agent has no instructions: ${AGENT_FILE}'s body is empty and instructions/ holds none, so the model gets the harness's own instructions only. Write them below the frontmatter`,
@@ -611,7 +640,7 @@ export function compileAgentFolder(input: CompileAgentFolderInput): CompiledAgen
     if (value) {
       if ("$schema" in value) checkSchemaUrl(RUNTIME_FILE, "runtime", value.$schema);
       if ("extends" in value)
-        error("not_supported", `extends is not in ${AGENT_FOLDER_COMPILER} yet: write the whole runtime section here`, RUNTIME_FILE, ["extends"], { key: true });
+        error("not_supported", "resolve extends before uploading: nylorun apply and packFolder send runtime.json merged with the file it names", RUNTIME_FILE, ["extends"], { key: true });
       const { $schema: _, extends: __, ...rest } = value;
       runtime = rest;
       origins.push([["runtime"], { file: RUNTIME_FILE, path: [] }]);
@@ -620,20 +649,25 @@ export function compileAgentFolder(input: CompileAgentFolderInput): CompiledAgen
           if (isObject(trigger)) checkSchedule(RUNTIME_FILE, ["triggers", id], trigger);
     }
   }
-  const derivedSlots = new Map<string, { slot: Record<string, unknown>; file: string; path: readonly PropertyKey[]; url: string }>();
-  /** A slot for `credential`, derived when runtime.json does not declare it. */
-  const deriveSlot = (credential: string, type: "bearer" | "headers", url: string, file: string, path: readonly PropertyKey[], header?: string) => {
+  const derivedSlots = new Map<string, { slot: Record<string, unknown>; file: string; path: readonly PropertyKey[]; url: string; at?: Position }>();
+  /**
+   * A slot for `credential`, derived when runtime.json does not declare it. `at` places it in a
+   * file of a folder inside this one; in such a folder, the slot is the uploaded folder's.
+   */
+  const deriveSlot = (credential: string, type: "bearer" | "headers", url: string, file: string, path: readonly PropertyKey[], header?: string, at?: Position) => {
+    if (scope) return scope.deriveSlot(credential, type, url, file, at ?? locate(parsed.get(file), path)?.value, header);
     const declared = isObject(runtime?.secrets) ? runtime.secrets[credential] : undefined;
     if (declared !== undefined) return;
     const existing = derivedSlots.get(credential);
     if (existing) {
       if (existing.url !== url || existing.slot.type !== type) {
-        const at = locate(parsed.get(existing.file), existing.path)?.value;
+        const first = existing.at ?? locate(parsed.get(existing.file), existing.path)?.value;
         error(
           "credential_urls",
-          `${credential} is the credential of ${existing.url} (${existing.file}${at ? `:${at.line}` : ""}) and of ${url}: a slot is bound to one URL, so give each URL its own slot`,
+          `${credential} is the credential of ${existing.url} (${existing.file}${first ? `:${first.line}` : ""}) and of ${url}: a slot is bound to one URL, so give each URL its own slot`,
           file,
           path,
+          { at },
         );
       }
       return;
@@ -644,9 +678,28 @@ export function compileAgentFolder(input: CompileAgentFolderInput): CompiledAgen
       required: true,
       ...(header ? { description: `Sets the ${header} header` } : {}),
     };
-    derivedSlots.set(credential, { slot, file, path, url });
-    report("info", "slot_derived", `A ${type} slot ${credential} is derived for ${url}`, file, path, { pointer: pointerOf(["runtime", "secrets", credential]) });
+    derivedSlots.set(credential, { slot, file, path, url, ...(at === undefined ? {} : { at }) });
+    report("info", "slot_derived", `A ${type} slot ${credential} is derived for ${url}`, file, path, { pointer: pointerOf(["runtime", "secrets", credential]), at });
   };
+  // agents/, flow.json and plugins/ (folder/nested.ts): hooked in below.
+  const parts = folderParts({
+    scope,
+    entries: byPath,
+    files: input.files,
+    kinds,
+    front,
+    agent,
+    harness,
+    origins,
+    diagnostics,
+    report,
+    readJson,
+    schemaAt,
+    deriveSlot,
+    suggest: suggestion,
+    compile: compileAgentFolder,
+    folderTextPaths,
+  });
 
   // --- mcp.json --------------------------------------------------------------------------
   const servers: Record<string, Record<string, unknown>> = {};
@@ -759,6 +812,7 @@ export function compileAgentFolder(input: CompileAgentFolderInput): CompiledAgen
         }
     }
   }
+  parts.mergeServers(servers);
   if (front.mcpServers !== undefined) {
     if (!isObject(front.mcpServers)) error("value_invalid", "mcpServers is a map of server names to this agent's settings", AGENT_FILE, ["mcpServers"]);
     else
@@ -774,8 +828,10 @@ export function compileAgentFolder(input: CompileAgentFolderInput): CompiledAgen
           error("value_invalid", "A server's settings are a map: deferred and tools", AGENT_FILE, at);
           continue;
         }
-        checkKeys(AGENT_FILE, settings, SERVER_SETTING_KEYS, at);
-        if ("credential" in settings) continue;
+        // A plugin's server takes its credential here (folder/plugins.ts).
+        const fromPlugin = parts.serverCredential(servers, key, settings, at);
+        checkKeys(AGENT_FILE, settings, fromPlugin ? [...SERVER_SETTING_KEYS, "credential"] : SERVER_SETTING_KEYS, at);
+        if ("credential" in settings && !fromPlugin) continue;
         // A tool's settings pass to the manifest as they are, so approval is refused here.
         if (isObject(settings.tools))
           for (const [tool, toolSettings] of Object.entries(settings.tools))
@@ -851,6 +907,7 @@ export function compileAgentFolder(input: CompileAgentFolderInput): CompiledAgen
     skills[skillName] = { name: skillName, description: skillDescription, files };
     origins.push([["harness", "skills", skillName], { file: entryPath, path: [] }]);
   }
+  parts.mergeSkills(skills);
   if (front.skills !== undefined) {
     if (!isObject(front.skills)) error("value_invalid", "skills is a map of skill names to this agent's settings for them", AGENT_FILE, ["skills"]);
     else
@@ -894,7 +951,7 @@ export function compileAgentFolder(input: CompileAgentFolderInput): CompiledAgen
       continue;
     }
     if ("agent" in value) {
-      error("not_supported", `A subagent as a tool is not in ${AGENT_FOLDER_COMPILER} yet`, path, ["agent"], { key: true });
+      error("tool_invalid", `A tool file declares an HTTP tool: an agent used as a tool is a folder, agents/${toolName}/, with its AGENT.md`, path, ["agent"], { key: true });
       continue;
     }
     if ("$schema" in value) checkSchemaUrl(path, "tool", value.$schema);
@@ -949,6 +1006,9 @@ export function compileAgentFolder(input: CompileAgentFolderInput): CompiledAgen
   // --- files/ ----------------------------------------------------------------------------
   const seeded: Record<string, string> = {};
   for (const [path, kind] of kinds) if (kind === "file") seeded[path.slice("files/".length)] = `sha256:${byPath.get(path)!.sha256}`;
+
+  // --- agents/, flow.json and plugins/ (folder/nested.ts) ----------------------------------
+  if (!parts.compose()) return finish(diagnostics);
 
   // --- The runtime section -----------------------------------------------------------------
   const needsRuntime = derivedSlots.size > 0 || Object.keys(triggers).length > 0 || Object.keys(seeded).length > 0;
@@ -1014,8 +1074,9 @@ export function compileAgentFolder(input: CompileAgentFolderInput): CompiledAgen
 
   // --- What the Runtime checks at save, where it needs no Tenant ---------------------------
   const hasRuntimeFile = byPath.has(RUNTIME_FILE);
-  // The harness and runtime sections against each other, at the field that asks.
-  for (const gap of sectionGapsAt(manifest)) {
+  // The harness and runtime sections against each other, at the field that asks. A nested
+  // folder has no runtime section of its own: the root checks the whole manifest it embeds.
+  for (const gap of scope ? [] : sectionGapsAt(manifest)) {
     let at = fromOrigins(gap.path);
     let fix = "";
     if (gap.path[1] === "id")

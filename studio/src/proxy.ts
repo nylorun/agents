@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { Readable } from "node:stream";
-import { PROTOCOL_HEADER, PROTOCOL_VERSION, RUNTIME_LIMIT_DEFAULTS } from "@nylorun/agents";
+import { AGENT_FOLDER_MEDIA_TYPE, PROTOCOL_HEADER, PROTOCOL_VERSION, RUNTIME_LIMIT_DEFAULTS } from "@nylorun/agents";
 
 const LOCAL_OWNER = "local-developer";
 /** What an Agent's tools would get from its vault. */
@@ -10,6 +10,11 @@ const AGENT = String.raw`/v1/agents/[^/]+`;
 /** The agent manifests (protocol 16, track T2), and one by its name. */
 const MANIFESTS = "/v1/agent-manifests";
 const MANIFEST = String.raw`/v1/agent-manifests/[^/]+`;
+/** A version's source (track T6): the folder it was saved from, and one of its files. */
+const MANIFEST_SOURCE = String.raw`${MANIFEST}/versions/[1-9]\d*/source`;
+const MANIFEST_SOURCE_FILE = String.raw`${MANIFEST_SOURCE}/files/[^/]+`;
+/** A definition file by its hash (`PUT /v1/files/sha256:<hex>`), which an agent folder names. */
+const DEFINITION_FILE = String.raw`/v1/files/sha256:[0-9a-f]{64}`;
 const matches = (pattern: string, path: string) =>
   new RegExp(`^${pattern}$`).test(path);
 
@@ -17,7 +22,8 @@ const matches = (pattern: string, path: string) =>
  * Agent reads on the Runtime API: the list (with state, manifest and label filters, and pages),
  * one Agent, its lifecycle events, its disk versions, its secrets' names, types and bindings
  * (never a value), its memories (one with its content) and their versions, and its triggers and
- * their runs; and the agent manifests, one manifest, its versions and one version.
+ * their runs; and the agent manifests, one manifest, its versions and one version, a version's
+ * source (its files, and one file) and the changes between two versions' sources.
  */
 function isAgentRead(method: string, path: string): boolean {
   return (
@@ -25,12 +31,25 @@ function isAgentRead(method: string, path: string): boolean {
     (path === "/v1/agents" ||
       matches(`${AGENT}(?:/events|/versions|/secrets(?:/[^/]+)?|/memories(?:/[^/]+)?|/memory_versions(?:/[^/]+)?|/triggers|/runs)?`, path) ||
       path === MANIFESTS ||
-      matches(`${MANIFEST}(?:/versions(?:/[1-9]\\d*)?)?`, path))
+      matches(`${MANIFEST}(?:/versions(?:/[1-9]\\d*)?)?`, path) ||
+      matches(`${MANIFEST_SOURCE}(?:/files/[^/]+)?`, path) ||
+      matches(`${MANIFEST}/source/diff`, path))
   );
 }
 
-/** Saving an agent manifest's next version (`PUT`, or its plan with `?dryRun=true`). */
+/**
+ * Saving an agent manifest's next version (`PUT`, or its plan with `?dryRun=true`), as JSON or as
+ * an agent folder by hash (`application/vnd.nylorun.folder+json`).
+ */
 const isManifestSave = (method: string, path: string) => method === "PUT" && matches(MANIFEST, path);
+
+/** The media type a JSON write is sent as: an agent folder for a manifest save that is one. */
+function jsonMediaType(method: string, path: string, contentType: string | undefined): string | undefined {
+  const media = contentType?.split(";")[0]!.trim().toLowerCase();
+  if (media === "application/json") return media;
+  if (media === AGENT_FOLDER_MEDIA_TYPE && isManifestSave(method, path)) return media;
+  return undefined;
+}
 
 /** Running a trigger once now: no body, and an `Idempotency-Key` that makes a retry the same run. */
 const isTriggerRun = (method: string, path: string) =>
@@ -164,7 +183,9 @@ export async function proxyRuntime(
     (resourceRead &&
       /^\/v1\/artifacts\/[^/]+\/versions\/(?:latest|[1-9]\d*)\/(?:content|zip|files\/[^/]+)$/.test(
         path,
-      ));
+      )) ||
+    // A file of a version's source is delivered as an artifact's is: a download, never a page.
+    (method === "GET" && matches(MANIFEST_SOURCE_FILE, path));
   const read =
     method === "GET" &&
     (path === "/v1/sessions" ||
@@ -190,6 +211,9 @@ export async function proxyRuntime(
     (method === "POST" && path === "/v1/tenant/reset");
   // A message attachment: one file into one session, streamed to the Runtime.
   const upload = method === "POST" && path === "/v1/artifacts";
+  // A folder's files by hash, for Upload folder: whether the Runtime holds one, and its upload.
+  const fileCheck = method === "HEAD" && matches(DEFINITION_FILE, path);
+  const fileUpload = method === "PUT" && matches(DEFINITION_FILE, path);
   const managementCheck = isManagementCheck(method, path);
   const agentWrite = isAgentWrite(method, path);
   if (
@@ -200,7 +224,9 @@ export async function proxyRuntime(
     !managementCheck &&
     !agentWrite &&
     !artifactLink &&
-    !upload
+    !upload &&
+    !fileCheck &&
+    !fileUpload
   )
     return fail(404, "Unsupported Studio operation");
   const requestOrigin = request.headers.origin;
@@ -210,7 +236,8 @@ export async function proxyRuntime(
       managementCheck ||
       agentWrite ||
       artifactLink ||
-      upload) &&
+      upload ||
+      fileUpload) &&
     (requestOrigin === undefined || !allowed.has(requestOrigin))
   )
     return fail(403, "Studio mutations require a same-origin request");
@@ -267,6 +294,17 @@ export async function proxyRuntime(
       "content-length": String(length),
     };
   }
+  if (fileUpload) {
+    // The Runtime holds a definition file to the Tenant's skill limit and checks its hash.
+    const declared = request.headers["content-length"];
+    if (declared === undefined || !/^\d+$/.test(declared)) {
+      request.resume();
+      return fail(411, "An upload needs a Content-Length");
+    }
+    body = Readable.toWeb(request) as ReadableStream<Uint8Array>;
+    uploadHeaders = { "content-type": "application/octet-stream", "content-length": declared };
+  }
+  let mediaType = "application/json";
   if (
     write ||
     tenantWrite ||
@@ -274,8 +312,9 @@ export async function proxyRuntime(
     managementCheck ||
     (agentWrite && method !== "DELETE" && !isTriggerRun(method, path))
   ) {
-    if (!request.headers["content-type"]?.startsWith("application/json"))
-      return fail(415, "JSON required");
+    const media = jsonMediaType(method, path, request.headers["content-type"]);
+    if (media === undefined) return fail(415, "JSON required");
+    mediaType = media;
     let most: number = RUNTIME_LIMIT_DEFAULTS.requestBodyBytes;
     let asked = false;
     let text = "";
@@ -331,7 +370,7 @@ export async function proxyRuntime(
       method,
       body,
       // A stream is sent as it is read.
-      ...(upload ? ({ duplex: "half" } as object) : {}),
+      ...(upload || fileUpload ? ({ duplex: "half" } as object) : {}),
       redirect: "error",
       signal: controller.signal,
       headers: {
@@ -339,7 +378,7 @@ export async function proxyRuntime(
           ? {}
           : { authorization: `Bearer ${options.serverKey}` }),
         [PROTOCOL_HEADER]: String(PROTOCOL_VERSION),
-        ...(typeof body === "string" ? { "content-type": "application/json" } : {}),
+        ...(typeof body === "string" ? { "content-type": mediaType } : {}),
         ...uploadHeaders,
         // A manifest save names the version it was made over (`412 manifest_changed`).
         ...(isManifestSave(method, path) && request.headers["if-match"]

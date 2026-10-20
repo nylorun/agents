@@ -106,6 +106,20 @@ export function createTenantClient(
 }
 
 /**
+ * One request to a Tenant's Runtime API through the Studio server, by its path: for what the SDK
+ * sends only from Node (an agent folder by hash) or reads whole (a file of a version's source,
+ * which a preview reads only the start of).
+ */
+export function tenantRuntimeFetch(
+  tenantId: string,
+  options?: Readonly<{ origin?: string; fetcher?: StudioFetch }>,
+): (path: string, init?: RequestInit) => Promise<Response> {
+  const fetcher = options?.fetcher ?? sessionFetch();
+  const base = (options?.origin ?? location.origin) + tenantRuntimePath(tenantId);
+  return (path, init) => fetcher(base + path, { ...init, credentials: "same-origin" });
+}
+
+/**
  * Management API client (`/v1/tenant/*`) for one Tenant through the Studio
  * server. It sends no key: an embedded session's `fetch` adds its bearer, and
  * the server adds Studio's key, which acts as itself there.

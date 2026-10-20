@@ -27,6 +27,7 @@ import {
   PutAgentManifestRequestSchema,
   PutAgentFolderRequestSchema,
   AgentManifestSourceSchema,
+  AgentManifestSourceDiffSchema,
   PutAgentSecretValueRequestSchema,
   SaveAgentManifestResponseSchema,
   SessionListItemSchema,
@@ -151,6 +152,7 @@ export const AgentManifest = named("AgentManifest", AgentManifestV8Schema);
 export const PutAgentManifestRequest = named("PutAgentManifestRequest", PutAgentManifestRequestSchema);
 export const PutAgentFolderRequest = named("PutAgentFolderRequest", PutAgentFolderRequestSchema);
 export const AgentManifestSource = named("AgentManifestSource", AgentManifestSourceSchema);
+export const AgentManifestSourceDiff = named("AgentManifestSourceDiff", AgentManifestSourceDiffSchema);
 export const AgentManifestView = named("AgentManifestView", AgentManifestViewSchema);
 export const AgentManifestPlan = named("AgentManifestPlan", AgentManifestPlanSchema);
 export const SaveAgentManifestResponse = named("SaveAgentManifestResponse", SaveAgentManifestResponseSchema);

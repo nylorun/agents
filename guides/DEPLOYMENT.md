@@ -482,8 +482,10 @@ the secret slots, `secrets`). Its JSON Schema is
   hash with `Content-Type: application/vnd.nylorun.folder+json`. The Runtime compiles it with the
   same compiler (`@nylorun/core/folder`; `422 folder_invalid` when it does not compile) and keeps
   it as the version's source: `GET /v1/agent-manifests/{name}/versions/{v}/source` lists its
-  files, and `.../source/files/{path}` returns one. A change outside the agent, such as a README,
-  answers `unchanged`.
+  files, `.../source/files/{path}` returns one, and `GET /v1/agent-manifests/{name}/source/diff?from=&to=`
+  lists the files added, removed and changed between two versions' sources. A change outside the
+  agent, such as a README, answers `unchanged`. What a folder may hold is the Tenant's
+  [Runtime limits](#runtime-limits) `folderFiles`, `folderBytes` and `folderTextFileBytes`.
 - **Three files.** A manifest may be authored as `agent.manifest.json`, naming a
   `harness.manifest.json` (whose `credentials` maps a server or HTTP tool to its slot, and whose
   `requires` the composer checks) and a `runtime.manifest.json` that many agents may share, by
@@ -869,6 +871,9 @@ What only the Runtime checks:
 | `flowConcurrency` | Effects one flow turn runs at once; the rest wait their turn | 8 | A JavaScript number |
 | `flowMapItems` | Items one map stage fans out to (`map.too-many-items` past it) | 1,000 | A JavaScript number |
 | `flowLoopIterations` | Iterations one loop stage runs (`loop.too-many-iterations` past it) | 100 | A JavaScript number |
+| `folderFiles` | Files in one agent folder, checked when it is saved (`413 limit_exceeded` past it) | 2,000 | One request body |
+| `folderBytes` | Bytes of an agent folder's files together (`413 limit_exceeded` past it) | 50 MiB | A JavaScript number |
+| `folderTextFileBytes` | One Markdown or JSON file of an agent folder the compiler reads (`422 folder_invalid` past it) | 1 MiB | One string |
 | `sessionQueuedMessages` | Messages one session's queue holds while its turn runs or waits (`429 queue_full` past it) | 100 | A JavaScript number |
 | `triggersPerAgent` | Triggers one agent manifest's `runtime.triggers` declares, checked when it is saved | 20 | One request body |
 | `triggerMinIntervalMs` | The shortest gap between two runs of one schedule, checked at save over its next fires | 60 s | A JavaScript number; floor 60 s (cron is minute grained) |

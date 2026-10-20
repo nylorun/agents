@@ -1,0 +1,8 @@
+{
+  "chain": [
+    { "id": "ask", "map": { "each": { "agent": "researcher" } } },
+    { "id": "review", "parallel": { "overview": { "agent": "overview" }, "risks": { "agent": "risks" } } },
+    { "id": "draft", "loop": { "run": { "agent": "writer" }, "verify": { "agent": "editor" }, "max": 2 } },
+    { "tool": "publish_brief" }
+  ]
+}

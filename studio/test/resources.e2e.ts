@@ -1,4 +1,8 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { chromium, type Page } from "playwright";
@@ -241,7 +245,7 @@ test("a session's Manifest tab, under Deployed, shows where it runs: the version
   });
 });
 
-test("agent manifests are one read-only table on the Tenant's page; a row opens the manifest beside it as a readable spec, on any version, with the Agents made from it", async () => {
+test("agent manifests are one table on the Tenant's page; a row opens the manifest beside it as a readable spec, on any version, with the Agents made from it", async () => {
   await withStudio(async (page, base, requests) => {
     await page.goto(base);
     await page.locator("[data-sidebar=sidebar]").getByRole("link", { name: /^Resource fixture/u }).click();
@@ -266,7 +270,7 @@ test("agent manifests are one read-only table on the Tenant's page; a row opens 
     await page.waitForURL(/\/tenant\?tab=manifests&selected=analyst-box$/u);
     const pane = page.getByRole("complementary", { name: "analyst-box" });
     await pane.getByRole("heading", { name: "analyst-box", exact: true }).waitFor();
-    await pane.getByText(/^v3 · latest · saved /u).waitFor();
+    await pane.getByText(/^v3 · latest · from folder · saved /u).waitFor();
     await pane.getByRole("heading", { name: "Harness", exact: true }).waitFor();
     await pane.getByRole("heading", { name: "Runtime", exact: true }).waitFor();
     await pane.getByRole("region", { name: "Instructions" }).getByText("Analyse the data.", { exact: true }).waitFor();
@@ -288,7 +292,7 @@ test("agent manifests are one read-only table on the Tenant's page; a row opens 
     await pane.getByRole("button", { name: "Filter by version" }).click();
     await page.getByRole("menuitemradio", { name: "v2" }).click();
     await page.waitForURL(/\/tenant\?tab=manifests&selected=analyst-box&version=2$/u);
-    await pane.getByText(/^v2 of 3 · saved /u).waitFor();
+    await pane.getByText(/^v2 of 3 · from folder · saved /u).waitFor();
     assert.ok(requests.some((r) => r.path === "/v1/agent-manifests/analyst-box/versions/2"));
     await pane.getByRole("button", { name: "analyst-box actions" }).click();
     await page.getByRole("menuitem", { name: "New Agent from v2…" }).waitFor();
@@ -306,6 +310,93 @@ test("agent manifests are one read-only table on the Tenant's page; a row opens 
     await page.goto(base + "/agent-manifests/missing");
     await page.getByText(/Agent manifest not found/u).first().waitFor();
   });
+});
+
+test("a version saved from a folder is marked, and its Source view lists its files, what changed since the version before, and opens one", async () => {
+  await withStudio(async (page, base, requests) => {
+    await page.goto(`${base}/tenant?tab=manifests`);
+    const row = page.locator("tbody tr", { hasText: "analyst-box" });
+    await row.getByText("from folder", { exact: true }).waitFor();
+    assert.equal(await page.locator("tbody tr", { hasText: "pod-box" }).getByText("from folder").count(), 0);
+    await row.getByRole("button", { name: "analyst-box", exact: true }).click();
+    const pane = page.getByRole("complementary", { name: "analyst-box" });
+    await pane.getByRole("tab", { name: "Source", exact: true }).click();
+    await page.waitForURL(/\/tenant\?tab=manifests&selected=analyst-box&view=source$/u);
+    const files = pane.getByRole("list", { name: "Files of analyst-box v3" });
+    await pane.getByText("1 changed, 1 added and 1 removed since v2", { exact: true }).waitFor();
+    await files.getByRole("button", { name: /^AGENT\.md, changed, /u }).waitFor();
+    await files.getByRole("button", { name: /^skills\/sql\/SKILL\.md, added, /u }).waitFor();
+    await files.getByText("README.md", { exact: true }).waitFor();
+    assert.ok(requests.some((r) => r.path === "/v1/agent-manifests/analyst-box/versions/3/source"));
+    assert.ok(requests.some((r) => r.path === "/v1/agent-manifests/analyst-box/source/diff?from=2&to=3"));
+    // A text file opens beside it; a binary one says so.
+    await files.getByRole("button", { name: /^AGENT\.md,/u }).click();
+    const panel = page.getByRole("dialog", { name: "AGENT.md" });
+    await panel.getByText("Analyse the data.", { exact: false }).waitFor();
+    await page.keyboard.press("Escape");
+    await files.getByRole("button", { name: /^files\/logo\.png,/u }).click();
+    await page.getByRole("dialog", { name: "files/logo.png" }).getByText(/^Not a text file \(4 B\)/u).waitFor();
+    await page.keyboard.press("Escape");
+    // A version saved as JSON has no source: nothing is read for it.
+    await pane.getByRole("button", { name: "Filter by version" }).click();
+    await page.getByRole("menuitemradio", { name: "v1" }).click();
+    await page.waitForURL(/selected=analyst-box&version=1&view=source$/u);
+    await pane.getByText(/^v1 was saved as JSON, so it has no source folder/u).waitFor();
+    assert.equal(requests.filter((r) => r.path.includes("/versions/1/source")).length, 0);
+  });
+});
+
+test("Upload folder hashes a picked folder, uploads the files the Runtime lacks, shows the plan and saves it", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "studio-upload-"));
+  const folder = join(dir, "uploaded");
+  const AGENT_MD = "---\nname: uploaded\ndescription: Uploaded from Studio.\n---\nWork.\n";
+  for (const [path, text] of [
+    ["AGENT.md", AGENT_MD],
+    ["README.md", "# Uploaded\n"],
+    [".git/HEAD", "ref: refs/heads/main\n"],
+    ["node_modules/x/index.js", "x\n"],
+  ] as const) {
+    mkdirSync(dirname(join(folder, path)), { recursive: true });
+    writeFileSync(join(folder, path), text);
+  }
+  const sha = (text: string) => createHash("sha256").update(text).digest("hex");
+  try {
+    await withStudio(
+      async (page, base, requests) => {
+        await page.goto(`${base}/tenant?tab=manifests`);
+        await page.getByRole("button", { name: "Upload folder…" }).waitFor();
+        await page.getByLabel("Agent folder").setInputFiles(folder);
+        const panel = page.getByRole("dialog", { name: "Upload uploaded" });
+        await panel.getByText("Saves uploaded v1, a new manifest", { exact: true }).waitFor();
+        await panel.getByText(/^uploaded\/ · 2 files · .* · 2 uploaded$/u).waitFor();
+        await panel.getByText('+ description  "Uploaded from Studio."', { exact: false }).waitFor();
+        await panel.getByText(/^README\.md\s*Kept with the source; not part of the agent$/u).waitFor();
+        // Each file by its hash: checked, and uploaded since the Runtime lacks it; .git and node_modules stay home.
+        const files = requests.filter((r) => r.path.startsWith("/v1/files/")).map((r) => `${r.method} ${r.path}`);
+        assert.deepEqual(files, [
+          `HEAD /v1/files/sha256:${sha(AGENT_MD)}`,
+          `PUT /v1/files/sha256:${sha(AGENT_MD)}`,
+          `HEAD /v1/files/sha256:${sha("# Uploaded\n")}`,
+          `PUT /v1/files/sha256:${sha("# Uploaded\n")}`,
+        ]);
+        const plan = requests.find((r) => r.method === "PUT" && r.path === "/v1/agent-manifests/uploaded?dryRun=true");
+        assert.deepEqual((plan?.body as { entries: unknown[] }).entries, [
+          { path: "AGENT.md", size: AGENT_MD.length, sha256: sha(AGENT_MD) },
+          { path: "README.md", size: 11, sha256: sha("# Uploaded\n") },
+        ]);
+        await panel.getByRole("button", { name: "Save v1" }).click();
+        // Saved as the plan was made: over no version yet; the manifest opens on its source.
+        await page.waitForURL(/selected=uploaded&version=1&view=source$/u);
+        const save = requests.find((r) => r.method === "PUT" && r.path === "/v1/agent-manifests/uploaded");
+        assert.equal(save?.ifMatch, "0");
+        assert.equal(await page.getByRole("dialog", { name: "Upload uploaded" }).count(), 0);
+      },
+      false,
+      true,
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("an Agent is made from a manifest version, its labels and owner edited, forked to a newer version, and deleted", async () => {

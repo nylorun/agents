@@ -113,6 +113,20 @@ const analystBox = (version: number) => ({
   savedBy: { actor: "application" },
   createdAt: time,
   agents: version === 2 ? 1 : version === 3 ? 1 : 0,
+  // v1 was saved as JSON; v2 and v3 from an agent folder (track T6).
+  ...(version === 1 ? {} : { source: { compiler: "agent-folder/1", ...sourceSize(version) } }),
+});
+/** The agent folder analyst-box v2 and v3 were saved from: v3 changed AGENT.md and added a skill. */
+export const SOURCE_AGENT_MD = "---\nname: analyst-box\ndescription: Answers questions about data.\n---\nAnalyse the data.\n";
+const sourceEntries = (version: number) => [
+  { path: "AGENT.md", size: Buffer.byteLength(SOURCE_AGENT_MD), sha256: version === 3 ? "3".repeat(64) : "2".repeat(64) },
+  { path: "files/logo.png", size: 4, sha256: "4".repeat(64) },
+  { path: "mcp.json", size: 20, sha256: "5".repeat(64) },
+  ...(version === 3 ? [{ path: "skills/sql/SKILL.md", size: 30, sha256: "6".repeat(64) }] : [{ path: "README.md", size: 9, sha256: "7".repeat(64) }]),
+];
+const sourceSize = (version: number) => ({
+  files: sourceEntries(version).length,
+  bytes: sourceEntries(version).reduce((sum, entry) => sum + entry.size, 0),
 });
 const asking = agent(ASKING, {
   manifest: "analyst-box@3",
@@ -245,6 +259,7 @@ export async function resourceRuntime({ artifactReads = true } = {}) {
     path: string;
     body: unknown;
     range?: string;
+    ifMatch?: string;
   }[] = [];
   let refreshes = 0;
   let triggerStatus = "active";
@@ -284,8 +299,10 @@ export async function resourceRuntime({ artifactReads = true } = {}) {
     requests.push({
       method: req.method!,
       path: req.url!,
-      body: raw ? JSON.parse(raw) : undefined,
+      // A definition file's bytes are not JSON.
+      body: raw ? (/json/.test(req.headers["content-type"] ?? "") ? JSON.parse(raw) : raw) : undefined,
       range: req.headers.range,
+      ...(req.headers["if-match"] === undefined ? {} : { ifMatch: String(req.headers["if-match"]) }),
     });
     const send = (status: number, body: unknown) => {
       res.writeHead(status, { "content-type": "application/json" });
@@ -322,6 +339,64 @@ export async function resourceRuntime({ artifactReads = true } = {}) {
       });
     if (/^\/v1\/agent-manifests\/analyst-box\/versions\/[1-3]$/.test(path))
       return send(200, analystBox(Number(path.split("/")[5])));
+    if (/^\/v1\/agent-manifests\/analyst-box\/versions\/[23]\/source$/.test(path)) {
+      const n = Number(path.split("/")[5]);
+      return send(200, { name: "analyst-box", version: n, compiler: "agent-folder/1", ...sourceSize(n), entries: sourceEntries(n) });
+    }
+    if (path === "/v1/agent-manifests/analyst-box/versions/3/source/files/AGENT.md") {
+      res.writeHead(200, { "content-type": "text/markdown" });
+      return res.end(SOURCE_AGENT_MD);
+    }
+    if (path === "/v1/agent-manifests/analyst-box/versions/3/source/files/files%2Flogo.png") {
+      res.writeHead(200, { "content-type": "image/png" });
+      return res.end(Buffer.from([0x89, 0x50, 0x4e, 0x00]));
+    }
+    if (path === "/v1/agent-manifests/analyst-box/source/diff") {
+      if (url.searchParams.get("from") !== "2" || url.searchParams.get("to") !== "3")
+        return send(404, { code: "not_found", message: "Version 1 of agent manifest analyst-box was saved as JSON: it has no source." });
+      const [before, after] = [sourceEntries(2), sourceEntries(3)];
+      return send(200, {
+        name: "analyst-box",
+        from: 2,
+        to: 3,
+        added: [after[3]],
+        removed: [before[3]],
+        changed: [{ path: "AGENT.md", from: { size: before[0]!.size, sha256: before[0]!.sha256 }, to: { size: after[0]!.size, sha256: after[0]!.sha256 } }],
+        unchanged: 2,
+      });
+    }
+    // Upload folder: the Runtime holds no file yet; a folder saves as `uploaded` v1.
+    if (/^\/v1\/files\/sha256:[0-9a-f]{64}$/.test(path) && req.method === "HEAD")
+      return (res.writeHead(404), res.end());
+    if (/^\/v1\/files\/sha256:[0-9a-f]{64}$/.test(path) && req.method === "PUT")
+      return send(201, { file: path.slice("/v1/files/".length), size: Buffer.byteLength(raw), contentType: "application/octet-stream" });
+    if (path === "/v1/agent-manifests/uploaded" && req.method === "PUT") {
+      assert.equal(req.headers["content-type"], "application/vnd.nylorun.folder+json");
+      const manifest = { manifestSchemaVersion: 8, name: "uploaded", description: "Uploaded from Studio.", harness: { instructions: ["Work."] } };
+      if (url.searchParams.get("dryRun") === "true")
+        return send(200, {
+          name: "uploaded",
+          from: null,
+          to: 1,
+          unchanged: false,
+          changes: [
+            { section: "manifest", path: "description", op: "add", to: "Uploaded from Studio." },
+            { section: "harness", path: "", op: "add", to: manifest.harness },
+          ],
+          warnings: [],
+          errors: [],
+          behind: 0,
+          moves: { now: 0, nextStart: 0, secrets: 0 },
+          manifest,
+          diagnostics: [{ severity: "note", code: "file_not_compiled", message: "Kept with the source; not part of the agent", file: "README.md" }],
+          compiler: "agent-folder/1",
+        });
+      return send(200, {
+        manifest: { name: "uploaded", version: 1, hash: "u1", manifest, savedBy: { actor: "studio" }, createdAt: time, agents: 0, source: { compiler: "agent-folder/1", files: 2, bytes: 60 } },
+        unchanged: false,
+        warnings: [],
+      });
+    }
     if (path.startsWith("/v1/agent-manifests/"))
       return send(404, { code: "manifest_not_found", message: "Agent manifest not found" });
     if (path === "/v1/agents/team%2Fbuild" && req.method === "GET")

@@ -42,10 +42,86 @@ describe("nylorun init and check", () => {
     expect(await initCommand(deps, ["support", "--description", "Answers billing questions."])).toBe(0);
     expect(await readFile(join(dir, "support", "AGENT.md"), "utf8")).toContain('description: "Answers billing questions."');
     expect(await checkCommand(deps, ["support"])).toBe(0);
-    expect(deps.lines.at(-1)).toBe("support: ok, agent manifest support (1 files, agent-folder/1)");
+    expect(deps.lines.at(-1)).toBe("support: ok, agent manifest support (1 file, agent-folder/1)");
     await expect(initCommand(deps, ["support"])).rejects.toMatchObject({ exitCode: 1 });
     await expect(initCommand(deps, ["-bad name"])).rejects.toMatchObject({ exitCode: 2 });
     expect(deps.fetch.requests).toEqual([]);
+  });
+
+  it("takes a path, names the agent after its last segment, and sets the project up once", async () => {
+    const dir = await temporaryDir();
+    await mkdir(join(dir, ".git"));
+    await mkdir(join(dir, ".vscode"));
+    await writeFile(join(dir, ".vscode", "settings.json"), JSON.stringify({ "editor.tabSize": 2, "json.schemas": [{ fileMatch: ["x.json"], url: "https://example.com/x.json" }] }));
+    await writeFile(join(dir, ".gitignore"), "dist");
+    const deps = await remote(join(dir, "src"));
+    await mkdir(join(dir, "src"));
+    expect(await initCommand(deps, ["../agents/hello"])).toBe(0);
+    expect(await readFile(join(dir, "agents", "hello", "AGENT.md"), "utf8")).toMatch(/^---\nname: hello\n/);
+    expect(await readFile(join(dir, ".gitattributes"), "utf8")).toBe("* text=auto eol=lf\n");
+    expect(await readFile(join(dir, ".gitignore"), "utf8")).toBe("dist\n.nylorun/credentials.json\n");
+    const base = "https://docs.nylorun.com/schemas/agent-folder/v1";
+    const settings = JSON.parse(await readFile(join(dir, ".vscode", "settings.json"), "utf8"));
+    expect(settings).toEqual({
+      "editor.tabSize": 2,
+      "json.schemas": [
+        { fileMatch: ["x.json"], url: "https://example.com/x.json" },
+        { fileMatch: ["agents/**/runtime.json"], url: `${base}/runtime.json` },
+        { fileMatch: ["agents/**/tools/*.json"], url: `${base}/tool.json` },
+        { fileMatch: ["agents/**/flow.json"], url: `${base}/flow.json` },
+        { fileMatch: ["agents/**/mcp.json", "!agents/**/plugins/**"], url: `${base}/mcp.json` },
+      ],
+    });
+    expect(deps.lines.at(-1)).toBe(
+      "Next: nylorun check ../agents/hello, then nylorun apply ../agents/hello --agent to save it and make the Agent hello, then nylorun chat hello.",
+    );
+
+    // A second folder beside it changes nothing of the project's.
+    const again = await remote(dir);
+    expect(await initCommand(again, ["agents/other"])).toBe(0);
+    expect(again.lines).toEqual([
+      "Wrote agents/other/AGENT.md.",
+      "Next: nylorun check agents/other, then nylorun apply agents/other --agent to save it and make the Agent other, then nylorun chat other.",
+    ]);
+    expect(JSON.parse(await readFile(join(dir, ".vscode", "settings.json"), "utf8"))).toEqual(settings);
+
+    // Settings that are not plain JSON are left alone, and an ignore that covers .nylorun/ is kept.
+    const other = await temporaryDir();
+    await write(other, { ".vscode/settings.json": "{\n  // comments\n}\n", ".gitignore": ".nylorun/\n" });
+    const third = await remote(other);
+    expect(await initCommand(third, ["bot"])).toBe(0);
+    expect(await readFile(join(other, ".vscode", "settings.json"), "utf8")).toBe("{\n  // comments\n}\n");
+    expect(await readFile(join(other, ".gitignore"), "utf8")).toBe(".nylorun/\n");
+    expect(third.lines).toContainEqual(expect.stringContaining(".vscode/settings.json is not plain JSON, so it was left alone"));
+  });
+
+  it("--example scaffolds a tool, an MCP server and a trigger that check without an error", async () => {
+    const dir = await temporaryDir();
+    const deps = await remote(dir);
+    expect(await initCommand(deps, ["hello", "--example"])).toBe(0);
+    expect(deps.lines[0]).toBe("Wrote hello/: AGENT.md, tools/get_order.json, mcp.json, triggers/new-order.md, README.md.");
+    expect(await readFile(join(dir, "hello", "mcp.json"), "utf8")).toContain('"Authorization": "Bearer ${ORDERS_MCP_TOKEN}"');
+    expect(await checkCommand(deps, ["hello", "--json"])).toBe(0);
+    const [report] = JSON.parse(deps.lines.at(-1)!).folders;
+    expect(report).toMatchObject({ path: "hello", ok: true, manifest: { name: "hello" } });
+    expect(report.diagnostics.filter((item: { severity: string }) => item.severity === "error" || item.severity === "warning")).toEqual([]);
+    expect(report.manifest.harness.tools).toEqual([expect.objectContaining({ name: "get_order" })]);
+    expect(Object.keys(report.manifest.runtime.secrets).sort()).toEqual(["ORDERS_MCP_TOKEN", "ORDERS_TOKEN"]);
+    expect(Object.keys(report.manifest.runtime.triggers)).toEqual(["new-order"]);
+    await expect(initCommand(deps, ["hello", "--example"])).rejects.toMatchObject({ exitCode: 1 });
+  });
+
+  it("check --json reports each folder with its diagnostics, and exits 1 when one does not compile", async () => {
+    const dir = await temporaryDir();
+    await write(dir, { "agents/support/AGENT.md": AGENT, "agents/broken/AGENT.md": "---\nname: broken\n---\nWork.\n" });
+    const deps = await remote(dir);
+    expect(await checkCommand(deps, ["agents", "--json"])).toBe(1);
+    expect(deps.errors).toEqual([]);
+    const { folders } = JSON.parse(deps.lines.join("\n"));
+    expect(folders).toEqual([
+      { path: "agents/broken", ok: false, diagnostics: [expect.objectContaining({ severity: "error", file: "AGENT.md" })] },
+      { path: "agents/support", ok: true, manifest: expect.objectContaining({ name: "support" }), diagnostics: [] },
+    ]);
   });
 
   it("prints every problem by file, line and column, and exits 1", async () => {

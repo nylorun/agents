@@ -4,7 +4,8 @@
  * moves every Agent that tracks the manifest to the new version; a pinned one stays. Reading needs `agents:read` (or a write scope), saving and deleting
  * `agent-manifests:write`, from any client (Q12). A token caller reaches none: a manifest holds
  * an agent's instructions, tools and servers. A save may send an agent folder by hash instead of
- * the manifest (track T6): the Runtime compiles it and keeps it as the version's source.
+ * the manifest (track T6): the Runtime compiles it and keeps it as the version's source, and
+ * `source/diff` compares two versions' sources (track T7).
  */
 import type { OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
@@ -18,6 +19,7 @@ import {
 import {
   AgentManifestPlan,
   AgentManifestSource,
+  AgentManifestSourceDiff,
   AgentManifestVersions,
   AgentManifestView,
   DeleteAgentManifestResponse,
@@ -31,6 +33,7 @@ import { fail } from "../../../tenant/http.js";
 import {
   agentManifestVersions,
   deleteAgentManifest,
+  diffAgentManifestSources,
   getAgentManifest,
   getAgentManifestSource,
   listAgentManifests,
@@ -264,6 +267,40 @@ export function agentManifestRoutes(api: OpenAPIHono<TenantEnv>): void {
         status: 200,
         headers: { "content-type": contentTypeFor(path), "content-length": String(file.size) },
       });
+    },
+  );
+
+  tenantRoute(
+    api,
+    READ,
+    {
+      method: "get",
+      path: "/v1/agent-manifests/{name}/source/diff",
+      tags: ["Agent manifests"],
+      summary: "Compare two versions' folders",
+      description:
+        "The files added, removed and changed from version `from`'s source to version `to`'s, by path, a file changed when its SHA-256 differs (feature `agent-folders`). Each list is sorted by path. A version saved as JSON has no source (`404`).",
+      request: {
+        params: namePath,
+        query: z.object({
+          from: z.string().meta({ description: "The version to compare from" }),
+          to: z.string().meta({ description: "The version to compare to" }),
+        }),
+      },
+      responses: {
+        200: json(AgentManifestSourceDiff, "What changed"),
+        400: { description: "`from` or `to` is not a version number" },
+        404: { description: "No such version, or one was saved as JSON and has no source" },
+      },
+    },
+    async (c) => {
+      requirePrincipal(c.get("scope"));
+      const name = nameOf(c.req.param("name"));
+      const from = Number(c.req.query("from"));
+      const to = Number(c.req.query("to"));
+      if (!Number.isInteger(from) || from < 1 || !Number.isInteger(to) || to < 1)
+        fail(400, "from and to are the versions to compare: positive integers");
+      return jsonResponse(200, await diffAgentManifestSources(c.env.tenant, name, from, to));
     },
   );
 

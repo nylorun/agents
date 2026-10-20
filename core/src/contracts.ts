@@ -2357,6 +2357,10 @@ export const PutAgentFolderRequestSchema = z
   })
   .strict();
 export type PutAgentFolderRequest = z.infer<typeof PutAgentFolderRequestSchema>;
+/** One file of a version's source: its path, size and SHA-256 (lowercase hex). */
+const AgentManifestSourceEntrySchema = z
+  .object({ path: z.string(), size: z.number().int().nonnegative(), sha256: z.string() })
+  .strict();
 /** `GET /v1/agent-manifests/{name}/versions/{v}/source`: the folder a version was compiled from. */
 export const AgentManifestSourceSchema = z
   .object({
@@ -2366,12 +2370,38 @@ export const AgentManifestSourceSchema = z
     files: z.number().int().nonnegative(),
     bytes: z.number().int().nonnegative(),
     /** Every file, sorted by path. */
-    entries: z.array(
-      z.object({ path: z.string(), size: z.number().int().nonnegative(), sha256: z.string() }).strict(),
-    ),
+    entries: z.array(AgentManifestSourceEntrySchema),
   })
   .strict();
 export type AgentManifestSource = z.infer<typeof AgentManifestSourceSchema>;
+/**
+ * `GET /v1/agent-manifests/{name}/source/diff?from=&to=` (track T7): what changed between two
+ * versions' sources, by path and SHA-256. Each list is sorted by path; `unchanged` counts the
+ * files both hold with the same bytes.
+ */
+export const AgentManifestSourceDiffSchema = z
+  .object({
+    name: z.string(),
+    from: z.number().int().positive(),
+    to: z.number().int().positive(),
+    /** Files only `to` holds. */
+    added: z.array(AgentManifestSourceEntrySchema),
+    /** Files only `from` holds. */
+    removed: z.array(AgentManifestSourceEntrySchema),
+    /** Files both hold with other bytes: each as `from` held it and as `to` does. */
+    changed: z.array(
+      z
+        .object({
+          path: z.string(),
+          from: z.object({ size: z.number().int().nonnegative(), sha256: z.string() }).strict(),
+          to: z.object({ size: z.number().int().nonnegative(), sha256: z.string() }).strict(),
+        })
+        .strict(),
+    ),
+    unchanged: z.number().int().nonnegative(),
+  })
+  .strict();
+export type AgentManifestSourceDiff = z.infer<typeof AgentManifestSourceDiffSchema>;
 export type AgentManifestView = z.infer<typeof AgentManifestViewSchema>;
 /** `GET /v1/agent-manifests`: each manifest's latest version, by name. */
 export const ListAgentManifestsResponseSchema = z

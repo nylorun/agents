@@ -27,14 +27,23 @@ export interface SkillsPart extends PartDeclaration {
  *
  * Sets `skills`: each skill's name, description and files (every file of its folder, binary
  * included, by content hash). A SKILL.md's frontmatter `secrets` (environment variable names)
- * become the skill's `secrets` in the harness section when the agent's manifest is saved. The
- * client uploads the files the Runtime lacks when it saves the agent's manifest; the Runtime adds
- * the skill catalog and serves `load_skill` / `read_skill_resource` from them.
+ * become the skill's `secrets` in the harness section when the agent's manifest is saved; that key
+ * is deprecated (D80), so it also emits a `DeprecationWarning`. The client uploads the files the
+ * Runtime lacks when it saves the agent's manifest; the Runtime adds the skill catalog and serves
+ * `load_skill` / `read_skill_resource` from them.
  */
 export function skills(directory: string): SkillsPart {
   const root = resolveSkillsRoot(directory);
   const diagnostics: SkillDiagnostic[] = [];
   const loaded = loadSkillsFromDirectory(root, diagnostics);
+  // `secrets` in SKILL.md is deprecated (D80): building or saving the agent says so.
+  for (const diagnostic of diagnostics)
+    if (diagnostic.code === "skills.skill-secrets")
+      process.emitWarning(diagnostic.message, {
+        type: "DeprecationWarning",
+        code: diagnostic.code,
+        ...(diagnostic.path === undefined ? {} : { detail: diagnostic.path }),
+      });
   const listed = Object.values(loaded);
   const id = `skills:${basename(root)}`;
   if (listed.length === 0) {

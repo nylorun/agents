@@ -8,8 +8,8 @@ agent manifest, relabelled, forked, stopped, reset and deleted, and their disk
 versions kept, restored and deleted, through their public routes. An Agent moves
 between versions of its manifest with `PUT` (and `POST .../restart`); a fork changes
 its kind, harness or storage. Agent
-manifests are read only in Studio; they are saved from their repository
-(`nylorun apply`).
+manifests are not edited in Studio: they are saved from their folder, in their
+repository (`nylorun apply`) or uploaded by hash (Upload folder, track T7).
 
 ## Artifact pages
 
@@ -46,6 +46,8 @@ link it to that Agent.
 | Manifest tab | the version's manifest from `agentManifests.get(name, version)`; without it, the runtime, slots and limits from `GET /v1/agents/{id}`; read only. Its moves: `agents.put(id, { manifest: "name" \| "name@n" })`, `agents.restart(id, { retry? })` |
 | Activity tab, refreshed by the header's Refresh | `agents.events({ from, types? })` → `GET /v1/agents/{id}/events?from=…` (`agent.*`; `types=agent.egress` for connections) |
 | Agent manifests table (the Tenant page's Manifests tab), and a manifest beside it: its versions and one version as a readable spec | `agentManifests.list()`, `.versions(name)`, `.get(name, version)` → `GET /v1/agent-manifests`, `GET …/{name}/versions`, `GET …/{name}/versions/{n}` |
+| A version's Source view and its "from folder" marker | the view's `source`; `agentManifests.source(name, n)` → `GET …/{name}/versions/{n}/source`; `agentManifests.sourceDiff(name, n - 1, n)` → `GET …/{name}/source/diff?from=&to=`; a file's first 256 KiB from `GET …/versions/{n}/source/files/{encodedPath}` |
+| Upload folder | `files.has(sha)` and `files.upload(bytes, { sha256 })` → `HEAD` and `PUT /v1/files/sha256:<hex>` for each file the Runtime lacks; then `PUT /v1/agent-manifests/{name}?dryRun=true` with `Content-Type: application/vnd.nylorun.folder+json` (the plan and the compiler's diagnostics), and the same `PUT` with `If-Match: <the plan's from, or 0>` to save |
 | New session (the sidebar Agent's +, the Agent page, an Agents row's ⋯) | `createSession({ id, agent, ownerUserId })` → `PUT /v1/sessions/{id}` (the proxy sets `ownerUserId: local-developer`) |
 | Session's Manifest tab, Declared | `session.manifest()` → `GET /v1/sessions/{id}/manifest` (Host feature `session-reads`; without it, `agents.get()` and `agentManifests.get(name, version)`); `agentManifests.get(name)` for the latest version |
 | Session's Manifest tab, Deployed | `session.inspect()` (`agentId`, `manifest: { name, version }`), `agents.get()`, Management `coverage({ agentId })`, `agents.events({ types: ["agent.egress"] })` |
@@ -75,8 +77,13 @@ The proxy allows these Agent routes and nothing else under them: `GET /v1/agents
 `POST …/triggers/{id}/pause`, `…/resume` and `…/run` (the one Agent write without a
 JSON body; the proxy passes its `Idempotency-Key` on), and `POST …/stop`, `…/reset`,
 `…/fork`, `…/snapshot` and `…/restore`; `GET /v1/agent-manifests`, `GET /v1/agent-manifests/{name}`,
-`GET …/versions` and `GET …/versions/{n}`, and `PUT /v1/agent-manifests/{name}`
-(`?dryRun=true` for the plan), whose `If-Match` it passes on. It no longer allows
+`GET …/versions` and `GET …/versions/{n}`, a version's `GET …/versions/{n}/source` and
+`…/source/files/{path}` (a file is delivered as a download, as an artifact's content is),
+`GET …/{name}/source/diff`, and `PUT /v1/agent-manifests/{name}` (`?dryRun=true` for the plan),
+as JSON or as an agent folder (`application/vnd.nylorun.folder+json`, sent on as it is), whose
+`If-Match` it passes on; and, for Upload folder, `HEAD` and same-origin `PUT
+/v1/files/sha256:<hex>` (streamed, with a `Content-Length`; the Runtime holds a file to the
+Tenant's skill limit and checks its hash). It no longer allows
 `/v1/environments/**` or `/v1/environment-manifests/**`.
 
 On the Management API (`/v1/tenant/**`) it allows `GET /v1/tenant` and
@@ -101,9 +108,9 @@ on opening Events and on explicit Refresh, accumulates by sequence, and never
 polls or attaches an Agent SSE stream. Bounded event pages would improve large
 histories, but are not a blocker for this increment.
 
-Editing an agent manifest in Studio (a v8 document with its harness and runtime
-sections, saved with `If-Match`) is deferred: the proxy allows the save, and the
-SDK's `agentManifests.plan()` and `.save()` cover it.
+Editing an agent manifest or its folder's files in Studio is deferred: a folder is
+uploaded whole (Upload folder), and the SDK's `agentManifests.plan()` and `.save()`
+cover a JSON save.
 
 Artifact version histories and folder trees are also ordinary existing reads.
 Their pagination, lifecycle controls, uploads, deletion, share UI and live

@@ -581,6 +581,110 @@ test("proxy streams a same-origin attachment upload into a session that exists, 
   );
 });
 
+test("proxy forwards Upload folder: file checks and uploads by hash, the folder's save as itself, and a version's source", async () => {
+  const seen: { line: string; body: Buffer; headers: Record<string, string | string[] | undefined> }[] = [];
+  const sha = "a".repeat(64);
+  await withUpstream(
+    async (req, res) => {
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) chunks.push(chunk as Buffer);
+      seen.push({ line: `${req.method} ${req.url}`, body: Buffer.concat(chunks), headers: { ...req.headers } });
+      if (req.url?.includes("/source/files/")) {
+        res.writeHead(200, { "content-type": "text/html", "content-length": "5" });
+        return res.end("<b>hi");
+      }
+      if (req.method === "HEAD") return (res.writeHead(404), res.end());
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end("{}");
+    },
+    async (upstreamUrl) => {
+      const origin = "http://127.0.0.1:4161";
+      const studio = createServer((req, res) => {
+        void proxyRuntime(req, res, { origin, runtimeUrl: upstreamUrl, serverKey: "server-secret" });
+      });
+      studio.listen(0, "127.0.0.1");
+      await once(studio, "listening");
+      const address = studio.address();
+      assert.ok(address && typeof address === "object");
+      const base = `http://127.0.0.1:${address.port}/_studio/runtime`;
+      try {
+        assert.equal((await fetch(`${base}/v1/files/sha256:${sha}`, { method: "HEAD" })).status, 404);
+        const put = (path: string, body: BodyInit, headers: Record<string, string> = {}, from = origin) =>
+          fetch(base + path, { method: "PUT", headers: { origin: from, ...headers }, body });
+        assert.equal((await put(`/v1/files/sha256:${sha}`, new Uint8Array([1, 2, 3]))).status, 200);
+        const folder = { requestId: "r", format: "nylorun.folder.v2", entries: [{ path: "AGENT.md", size: 3, sha256: sha }] };
+        const folderType = { "content-type": "application/vnd.nylorun.folder+json" };
+        assert.equal((await put("/v1/agent-manifests/triage?dryRun=true", JSON.stringify(folder), folderType)).status, 200);
+        assert.equal((await put("/v1/agent-manifests/triage", JSON.stringify(folder), { ...folderType, "if-match": "3" })).status, 200);
+        for (const path of [
+          "/v1/agent-manifests/triage/versions/2/source",
+          "/v1/agent-manifests/triage/source/diff?from=1&to=2",
+        ])
+          assert.equal((await fetch(base + path)).status, 200, path);
+        const file = await fetch(`${base}/v1/agent-manifests/triage/versions/2/source/files/${encodeURIComponent("docs/a.html")}`);
+        assert.equal(file.status, 200);
+        assert.equal(await file.text(), "<b>hi");
+        // A source file is a download, never a page on Studio's origin.
+        assert.match(file.headers.get("content-disposition") ?? "", /^attachment/);
+        assert.equal(file.headers.get("x-content-type-options"), "nosniff");
+        assert.deepEqual(
+          seen.map((s) => s.line),
+          [
+            `HEAD /v1/files/sha256:${sha}`,
+            `PUT /v1/files/sha256:${sha}`,
+            "PUT /v1/agent-manifests/triage?dryRun=true",
+            "PUT /v1/agent-manifests/triage",
+            "GET /v1/agent-manifests/triage/versions/2/source",
+            "GET /v1/agent-manifests/triage/source/diff?from=1&to=2",
+            "GET /v1/agent-manifests/triage/versions/2/source/files/docs%2Fa.html",
+          ],
+        );
+        assert.deepEqual([...seen[1]!.body], [1, 2, 3]);
+        assert.equal(seen[1]!.headers["content-type"], "application/octet-stream");
+        assert.equal(seen[1]!.headers["content-length"], "3");
+        assert.equal(seen[1]!.headers.authorization, "Bearer server-secret");
+        // The folder goes on as a folder, with the version it was made over.
+        assert.equal(seen[2]!.headers["content-type"], "application/vnd.nylorun.folder+json");
+        assert.deepEqual(JSON.parse(seen[3]!.body.toString()), folder);
+        assert.equal(seen[3]!.headers["if-match"], "3");
+        const count = seen.length;
+        // Refused before anything is forwarded: another origin, a hash that is none, no length, a
+        // folder anywhere but a manifest save, and no other file route.
+        assert.equal((await put(`/v1/files/sha256:${sha}`, new Uint8Array([1]), {}, "https://evil.example")).status, 403);
+        assert.equal((await put("/v1/files/sha256:abc", new Uint8Array([1]))).status, 404);
+        assert.equal((await put(`/v1/files/${sha}`, new Uint8Array([1]))).status, 404);
+        const stream = new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new Uint8Array([1]));
+            controller.close();
+          },
+        });
+        const unsized = await fetch(`${base}/v1/files/sha256:${sha}`, {
+          method: "PUT",
+          headers: { origin },
+          body: stream,
+          duplex: "half",
+        } as RequestInit);
+        assert.equal(unsized.status, 411);
+        assert.equal((await put("/v1/agents/a", JSON.stringify({ manifest: "m" }), folderType)).status, 415);
+        assert.equal((await put("/v1/agent-manifests/triage", JSON.stringify(folder), { "content-type": "text/plain" })).status, 415);
+        for (const [method, path] of [
+          ["GET", `/v1/files/sha256:${sha}`],
+          ["DELETE", `/v1/files/sha256:${sha}`],
+          ["GET", "/v1/agent-manifests/triage/versions/latest/source"],
+          ["GET", "/v1/agent-manifests/triage/source"],
+          ["PUT", "/v1/agent-manifests/triage/versions/2/source/files/a"],
+        ] as const)
+          assert.equal((await fetch(base + path, { method, headers: { origin } })).status, 404, `${method} ${path}`);
+        assert.equal(seen.length, count, "refused requests never reach the Runtime");
+      } finally {
+        studio.close();
+        await once(studio, "close");
+      }
+    },
+  );
+});
+
 test("proxy forwards a same-origin model inputs change on the Management API", async () => {
   const seen: { line: string; body: string }[] = [];
   await withUpstream(

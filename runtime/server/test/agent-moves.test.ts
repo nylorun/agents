@@ -111,6 +111,25 @@ describe("moving an Agent", () => {
     expect(plan.body.plan).toMatchObject({ applies: "refused", refusals: [{ field: "kind" }] });
   });
 
+  it("names each required secret of the version it runs that is unset, until it is set (track T7)", async () => {
+    const slots = {
+      ORDERS_TOKEN: { type: "environment_variable" as const, required: true },
+      SPARE: { type: "environment_variable" as const },
+    };
+    expect(await save("unset", "One.", { kind: "virtual", secrets: slots })).toBe(1);
+    expect((await call("PUT", agents("unset/a"), { manifest: "unset" })).body).toMatchObject({
+      state: "input_required",
+      attention: [{ state: "input_required", reason: "secret_unset: required secret ORDERS_TOKEN unset" }],
+      slots: [
+        { name: "ORDERS_TOKEN", required: true, set: false },
+        { name: "SPARE", required: false, set: false },
+      ],
+    });
+    expect((await call("GET", "/v1/agents?state=input_required")).body.agents.map((agent: { id: string }) => agent.id)).toContain("unset/a");
+    expect((await call("PUT", agents("unset/a", "/secrets/ORDERS_TOKEN"), { value: "t-1" })).status).toBe(200);
+    expect((await call("GET", agents("unset/a"))).body).toMatchObject({ state: "sleeping", attention: [] });
+  });
+
   it("waits for a required secret the version adds, and moves once it is set", async () => {
     expect(await save("keyed", "One.", { kind: "virtual" })).toBe(1);
     expect((await call("PUT", agents("keyed/a"), { manifest: "keyed@1" })).status).toBe(200);

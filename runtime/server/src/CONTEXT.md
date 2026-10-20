@@ -273,8 +273,11 @@ compiles them with `compileAgentFolder` (`@nylorun/core/folder`; `422 folder_inv
 `details.diagnostics`, each by file, line and column), and saves the manifest as above with the
 folder as the version's **source** (the `source` column: compiler, count, bytes, entries; its files
 are the version's definition files). Read it with `GET .../versions/{v}/source` and
-`.../source/files/{path}`; a version saved as JSON has none (`404`). A folder whose manifest is
-unchanged saves no version, and its source is not saved either (`source_not_saved`).
+`.../source/files/{path}`, and compare two versions' with `GET .../source/diff?from=&to=` (track T7:
+added, removed and changed paths by SHA-256); a version saved as JSON has none (`404`). A folder whose
+manifest is unchanged saves no version, and its source is not saved either (`source_not_saved`).
+What a folder may hold is the Tenant's Runtime limits `folderFiles` and `folderBytes` (`413
+limit_exceeded`) and `folderTextFileBytes`, which the compiler is given as its `limits`.
 _Avoid_: "definition" for the manifest (definitions left in protocol 16), "template".
 
 **Agent**: The live instance of one version of an agent manifest (protocol 16; an Environment from
@@ -319,7 +322,8 @@ grants, a disk copy in progress and the **owner guard** (`owner`: only that owne
 run on it; `403 agent_owner_mismatch`, the opaque `404` to a caller acting for a person) in
 `checkAgentTurn`. Its **state** is derived on read (`stateOf`): `paused` (desired `off`, track
 T6), `failing` (its compute failed or was lost, or a session's last turn failed), `input_required`
-(a session paused or uncertain, or a move waiting for its secrets), `working` (a turn runs),
+(a session paused or uncertain, a move waiting for its secrets, or a required secret of the
+version it runs unset: `secret_unset: required secret NAME unset`, track T7), `working` (a turn runs),
 `sleeping`; `attention` names the
 sessions behind each state that holds; the compute's own word is `compute.state`.
 `lifecycle.idle` (at most the Tenant's) stops a pod; `lifecycle.deleteAfter` deletes an Agent

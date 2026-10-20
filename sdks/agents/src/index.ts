@@ -116,6 +116,10 @@ export type {
   AgentManifestChange,
   AgentManifestWarning,
   AgentManifestPlan,
+  AgentManifestSource,
+  AgentManifestSourceDiff,
+  AgentManifestSourceSummary,
+  AgentFolderDiagnostic,
   AgentManifestView,
   AgentManifestVersions,
   SaveAgentManifestResponse,
@@ -135,6 +139,7 @@ export type {
 } from "@nylorun/core/contracts";
 export {
   AGENT_EVENT_TYPES,
+  AGENT_FOLDER_MEDIA_TYPE,
   AGENT_STATES,
   COMPUTE_STATES,
   RUNTIME_LIMIT_DEFAULTS,
@@ -186,9 +191,10 @@ export {
 } from "./client.js";
 export { composeManifest, manifestFolders, ComposeError, AGENT_MANIFEST_FILE } from "./compose.js";
 export { AGENT_FOLDER_FILE, FolderError, FolderInvalidError, diagnosticLine } from "./folder.js";
-export { checkFolder } from "./folder-check.js";
+export { checkFolder, folderOfManifest, type FolderOfManifest, type FolderOfManifestOptions } from "./folder-check.js";
 export type { PackedFolder } from "./folder.js";
-export { packFolder, isAgentFolder } from "./folder-pack.js";
+export { packFolder, isAgentFolder, FOLDER_IGNORE_FILE } from "./folder-pack.js";
+export { ignoreMatcher } from "./folder-ignore.js";
 export { AccessClient } from "./access.js";
 export { resolveConnection, ConnectionError } from "./connection.js";
 export type { ResolvedConnection } from "./connection.js";

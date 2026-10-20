@@ -97,7 +97,11 @@ export function createRepoBrief({ toolsUrl = TOOLS_URL, mcpUrl = DEEPWIKI_MCP_UR
     description: "Answers requests that name no repository.",
   }).instructions("You brief public GitHub repositories. Say so in one sentence and ask which repository, as owner/repo.");
 
-  const research = Agent({ id: "research", name: "Research" })
+  const research = Agent({
+    id: "research",
+    name: "Research",
+    description: "Researches the repository, then writes, checks and publishes the brief.",
+  })
     .map(researcher, { id: "ask" })
     .parallel({ overview, risks }, { id: "review" })
     .loop(writer, { verify: editor, max: 2, id: "draft" })

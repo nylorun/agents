@@ -1,0 +1,10 @@
+{
+  "description": "Return the current UTC time as an object { iso: string, unixMs: number }. Use its iso field for an ISO timestamp. Use when the user asks what time it is.",
+  "inputSchema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "properties": {},
+    "additionalProperties": false
+  },
+  "http": { "url": "http://localhost:3001/now" }
+}

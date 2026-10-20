@@ -157,7 +157,8 @@ harness writes, a count). The Runtime's own: request bodies and inline files
 `manifestDescriptionChars`, `secretDescriptionChars`), labels (`artifactLabels`,
 `labelKeyChars`, `labelValueChars`), secrets (`secretValueChars`, `secretHosts`),
 the tool policy and budgets (`toolRules`, `toolRuleFieldChars`, `toolRuleTextChars`,
-`modelBudgets`), flows (`flowConcurrency`, `flowMapItems`, `flowLoopIterations`), sessions
+`modelBudgets`), flows (`flowConcurrency`, `flowMapItems`, `flowLoopIterations`), agent folders
+(`folderFiles`, `folderBytes`, `folderTextFileBytes`), sessions
 (`sessionQueuedMessages`), triggers (`triggersPerAgent`, `triggerMinIntervalMs`,
 `triggerRunsPerHour`, `triggerJitterPercent`, `triggerJitterMaxMs`, `triggerPromptChars`,
 `triggerRunRetentionMs`, `webhookBodyBytes`, `wakeMaxAheadMs`, `wakeNoteChars`), memory (`memoryBytes`, `memoriesPerAgent`, `memoryIndexLines`, `memoryIndexBytes`), disk versions (`diskVersionEntries`, `diskVersionBytes`,

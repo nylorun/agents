@@ -27,25 +27,29 @@
  *   compile is `422 folder_invalid`, every diagnostic in `details.diagnostics`), and saves the
  *   manifest as above, with the folder kept as the version's source (`source`, its files recorded
  *   as the version's definition files). A folder whose manifest is unchanged saves no new
- *   version, so its source is not saved either.
+ *   version, so its source is not saved either. What a folder may hold is the Tenant's Runtime
+ *   limits `folderFiles`, `folderBytes` and `folderTextFileBytes` (track T7), which the compiler
+ *   is given too; `source/diff` compares two versions' sources by path and hash.
  */
 import {
   compileAgentFolder,
   folderTextPaths,
-  AGENT_FOLDER_LIMITS,
   type AgentFolderDiagnostic,
+  type AgentFolderLimits,
 } from "@nylorun/core/folder";
 import {
   definitionFilesOf,
   type AgentManifestChange,
   type AgentManifestPlan,
   type AgentManifestSource,
+  type AgentManifestSourceDiff,
   type AgentManifestV8,
   type AgentManifestVersions,
   type AgentManifestView,
   type AgentManifestWarning,
   type PutAgentFolderRequest,
   type PutAgentManifestRequest,
+  type RuntimeLimits,
   type RuntimeSection,
   type SaveAgentManifestResponse,
 } from "@nylorun/core/contracts";
@@ -456,10 +460,17 @@ export async function saveAgentFolder(
   options: { dryRun?: boolean; ifMatch?: number } = {},
 ): Promise<AgentManifestPlan | SaveAgentManifestResponse> {
   const entries = [...body.entries].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
-  if (entries.length > AGENT_FOLDER_LIMITS.files)
-    fail(413, `An agent folder holds at most ${AGENT_FOLDER_LIMITS.files} files; this one holds ${entries.length}`, {
+  const limits = folderLimitsOf(await ctx.store.tx((t) => readRuntimeLimits(t)));
+  if (entries.length > limits.files)
+    fail(413, `An agent folder holds at most ${limits.files} files (the Runtime limit folderFiles); this one holds ${entries.length}`, {
       code: "limit_exceeded",
-      details: { limit: AGENT_FOLDER_LIMITS.files },
+      details: { limit: "folderFiles", value: limits.files },
+    });
+  const bytes = entries.reduce((sum, entry) => sum + entry.size, 0);
+  if (bytes > limits.totalBytes)
+    fail(413, `An agent folder holds at most ${limits.totalBytes} bytes (the Runtime limit folderBytes); this one holds ${bytes}`, {
+      code: "limit_exceeded",
+      details: { limit: "folderBytes", value: limits.totalBytes },
     });
   // Every file must be held: the version keeps them all as its source.
   const shas = [...new Set(entries.map((entry) => `sha256:${entry.sha256}`))].sort();
@@ -481,11 +492,11 @@ export async function saveAgentFolder(
   const files = new Map<string, Uint8Array>();
   for (const path of folderTextPaths(entries)) {
     const entry = entries.find((item) => item.path === path)!;
-    if (entry.size > AGENT_FOLDER_LIMITS.textFileBytes) continue;
+    if (entry.size > limits.textFileBytes) continue;
     const bytes = await readDefinitionFile(ctx.blobs, `sha256:${entry.sha256}`);
     if (bytes) files.set(path, bytes);
   }
-  const compiled = compileAgentFolder({ entries, files, name });
+  const compiled = compileAgentFolder({ entries, files, name, limits });
   if (!compiled.manifest) {
     const errors = compiled.diagnostics.filter((item) => item.severity === "error");
     fail(422, `Agent folder ${name} does not compile: ${errors.length} error(s), the first: ${located(errors[0])}`, {
@@ -496,7 +507,7 @@ export async function saveAgentFolder(
   const source: AgentManifestSourceRecord = {
     compiler: compiled.compiler,
     files: entries.length,
-    bytes: entries.reduce((sum, entry) => sum + entry.size, 0),
+    bytes,
     entries: entries.map((entry) => ({ path: entry.path, size: entry.size, sha256: entry.sha256 })),
   };
   return saveManifest(ctx, name, compiled.manifest!, scope, options, {
@@ -504,6 +515,11 @@ export async function saveAgentFolder(
     diagnostics: compiled.diagnostics,
     compiler: compiled.compiler,
   });
+}
+
+/** What a folder may hold: the Tenant's Runtime limits, as the compiler takes them. */
+function folderLimitsOf(limits: Pick<RuntimeLimits, "folderFiles" | "folderBytes" | "folderTextFileBytes">): AgentFolderLimits {
+  return { files: limits.folderFiles, totalBytes: limits.folderBytes, textFileBytes: limits.folderTextFileBytes };
 }
 
 /** A diagnostic as a person reads it: `file:line:column message`. */
@@ -542,6 +558,39 @@ export async function readAgentManifestSourceFile(
   const body = await openDefinitionFile(ctx.blobs, `sha256:${entry!.sha256}`);
   if (!body) fail(404, `The Runtime no longer holds ${path} of version ${version} of agent manifest ${name}.`, { code: "not_found" });
   return { body: body!, size: entry!.size };
+}
+
+/**
+ * `GET /v1/agent-manifests/{name}/source/diff?from=&to=`: the files added, removed and changed
+ * (by SHA-256) from version `from`'s source to version `to`'s; a `404` when either was saved as JSON.
+ */
+export async function diffAgentManifestSources(
+  ctx: TenantContext,
+  name: string,
+  from: number,
+  to: number,
+): Promise<AgentManifestSourceDiff> {
+  const before = new Map((await sourceOf(ctx, name, from)).entries.map((entry) => [entry.path, entry]));
+  const after = (await sourceOf(ctx, name, to)).entries;
+  const diff: AgentManifestSourceDiff = { name, from, to, added: [], removed: [], changed: [], unchanged: 0 };
+  for (const entry of after) {
+    const was = before.get(entry.path);
+    before.delete(entry.path);
+    if (!was) diff.added.push(entry);
+    else if (was.sha256 === entry.sha256) diff.unchanged++;
+    else
+      diff.changed.push({
+        path: entry.path,
+        from: { size: was.size, sha256: was.sha256 },
+        to: { size: entry.size, sha256: entry.sha256 },
+      });
+  }
+  diff.removed.push(...before.values());
+  const byPath = (a: { path: string }, b: { path: string }) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
+  diff.added.sort(byPath);
+  diff.removed.sort(byPath);
+  diff.changed.sort(byPath);
+  return diff;
 }
 
 /** `GET /v1/agent-manifests/{name}` (the latest) and `.../versions/{n}`. */

@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -32,13 +32,19 @@ function nylorun(args: string[], env: Record<string, string> = {}, entry = "dist
 }
 
 describe("nylorun", () => {
+  it("--version prints the CLI's version", () => {
+    const version = (JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version: string }).version;
+    for (const flag of ["--version", "-v"]) expect(nylorun([flag])).toMatchObject({ code: 0, stdout: `${version}\n` });
+  });
+
   it("lists the installation's commands and the groups", () => {
     const { code, stdout } = nylorun(["--help"]);
     expect(code).toBe(0);
     expect(stdout).toMatch(/up\|start \[--tenant <name>\]/);
     expect(stdout).toMatch(/down\|stop/);
     expect(stdout).toMatch(/^ {2}doctor sandbox \[--tenant <name>\] \[--json\]/m);
-    expect(stdout).toMatch(/^ {2}apply \[<dir>\.\.\.\] \[--dry-run\] \[--if-match <n>\]$/m);
+    expect(stdout).toMatch(/^ {2}apply \[<dir>\.\.\.\] \[--dry-run\] \[--if-match <n>\] \[--agent \[<id>\]\] \[--watch \[--save\]\]$/m);
+    expect(stdout).toMatch(/^ {2}chat <agent> \[--session <id>\] \[--message <text>\]$/m);
     expect(stdout).toMatch(
       /^ {2}migrate v8 <agent\.json> \[--runtime <environment-manifest\.json>\] \[--name <name>\] \[--out <dir>\]$/m,
     );
@@ -67,6 +73,7 @@ describe("nylorun", () => {
   it.each([
     [["migrate", "v8"], /^Usage: nylorun migrate v8 <agent\.json>.*--name <name>/],
     [["apply", "agent"], /^Usage: nylorun apply /],
+    [["chat", "hello"], /^Usage: nylorun chat <agent> \[--session <id>\]/],
     [["agents", "get"], /^Usage: nylorun agents get <id>\n\nEvery command takes --tenant <name>/],
     [["agents", "pin", "a1"], /^Usage: nylorun agents pin <id> <version>/],
     [["agents", "secrets"], /^Usage:\n {2}secrets list <id>/],
@@ -159,7 +166,7 @@ describe("nylorun", () => {
     [["agent-manifests"], /^nylorun agent-manifests <command>/m],
     [["agent-manifests", "get", "bad name"], /is not an agent manifest's name/],
     [["migrate"], /^nylorun migrate v8 <agent\.json>/m],
-    [["migrate", "v7", "a.json"], /nylorun migrate knows v8 only/],
+    [["migrate", "v7", "a.json"], /nylorun migrate knows v8 and folder only/],
     [["sessions", "create", "--agent", "a", "--owner", "u", "--environment", "e"], /--environment was removed in protocol 16/],
     [["sessions", "nope"], /^Unknown sessions command nope\./m],
     [["artifacts"], /^nylorun artifacts <command>/m],

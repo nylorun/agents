@@ -8,6 +8,17 @@ function cliPackageJsonPath(): string {
   return join(dirname(fileURLToPath(import.meta.url)), "..", "..", "package.json");
 }
 
+/** This CLI's version, from its `package.json` (`nylorun --version`). */
+export function cliVersion(): string {
+  try {
+    const version = (JSON.parse(readFileSync(cliPackageJsonPath(), "utf8")) as { version?: unknown }).version;
+    if (typeof version === "string") return version;
+  } catch (error) {
+    throw new CliError(`Cannot read CLI package.json: ${error instanceof Error ? error.message : String(error)}`, 1);
+  }
+  throw new CliError("nylorun's package.json has no version.", 1);
+}
+
 /** An image this CLI release pins in its `package.json` `nylorun` (D7). */
 export type PinnedImage = "runtime" | "studio";
 

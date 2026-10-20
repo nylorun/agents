@@ -184,3 +184,130 @@ describe("saving an agent folder", () => {
     expect((await get("/v1/agent-manifests/plain/versions/1/source")).status).toBe(200);
   });
 });
+
+describe("saving a flow folder (track T7)", () => {
+  const md = (name: string, description: string, body = "") => `---\nname: ${name}\ndescription: ${description}\n---\n${body}`;
+  const BRIEF = {
+    "AGENT.md": md("brief", "Drafts and publishes a brief."),
+    "flow.json": `{ "chain": [{ "agent": "draft" }, { "tool": "publish" }] }`,
+    "tools/publish.json": `{ "inputSchema": { "type": "object" }, "http": { "url": "https://cms.example.com/publish", "credential": "CMS_TOKEN" } }`,
+    "agents/draft/AGENT.md": md("draft", "Drafts until the editor passes it."),
+    "agents/draft/flow.json": `{ "loop": { "run": { "agent": "writer" }, "verify": { "agent": "editor" }, "max": 2 } }`,
+    "agents/writer/AGENT.md": md("writer", "Writes.", "Write the brief.\n"),
+    "agents/editor/AGENT.md": md("editor", "Checks.", "Check the brief.\n"),
+  };
+
+  it("saves a flow whose sub-flow names agents from the root's agents/, with its HTTP stage's slot derived", async () => {
+    const saved = await saveFolder("brief", BRIEF);
+    expect(saved.status, JSON.stringify(saved.body)).toBe(200);
+    const manifest = (await get("/v1/agent-manifests/brief")).body.manifest;
+    expect(manifest.harness).toMatchObject({
+      kind: "workflow",
+      root: { chain: [{ agent: "draft" }, { tool: { name: "publish" } }] },
+      agents: { draft: { kind: "workflow", agents: { writer: { id: "writer" }, editor: { id: "editor" } } } },
+    });
+    expect(Object.keys(manifest.harness.agents)).toEqual(["draft"]);
+    expect(manifest.runtime.secrets.CMS_TOKEN).toMatchObject({ type: "bearer", url: "https://cms.example.com/publish" });
+  });
+
+  it("refuses an unknown stage by its file under the flow root, with line and column", async () => {
+    const refused = await saveFolder("brief-typo", {
+      ...BRIEF,
+      "AGENT.md": md("brief-typo", "Drafts and publishes a brief."),
+      "agents/draft/flow.json": `{ "loop": { "run": { "agent": "writter" }, "verify": { "agent": "editor" }, "max": 2 } }`,
+    });
+    expect(refused.status).toBe(422);
+    expect(refused.body.details.diagnostics).toContainEqual(
+      expect.objectContaining({ code: "agent_unknown", file: "agents/draft/flow.json", line: 1, column: 31 }),
+    );
+    expect(refused.body.message).toContain("agents/draft/flow.json:1:31");
+  });
+});
+
+describe("comparing two versions' sources (track T7)", () => {
+  it("lists the files added, removed and changed by hash, and how many stayed", async () => {
+    const first = { ...TRIAGE, "AGENT.md": TRIAGE["AGENT.md"].replace("name: triage", "name: compare") };
+    const second = {
+      "AGENT.md": first["AGENT.md"].replace("one label", "one label and one sentence on why"),
+      "mcp.json": first["mcp.json"],
+      "notes/plan.txt": "Later: a second server.\n",
+    };
+    expect((await saveFolder("compare", first)).body.manifest.version).toBe(1);
+    expect((await saveFolder("compare", second)).body.manifest.version).toBe(2);
+    const diff = await get("/v1/agent-manifests/compare/source/diff?from=1&to=2");
+    expect(diff.status, JSON.stringify(diff.body)).toBe(200);
+    const agent = (files: Record<string, string>) => folder(files).entries.find((entry) => entry.path === "AGENT.md")!;
+    expect(diff.body).toEqual({
+      name: "compare",
+      from: 1,
+      to: 2,
+      added: [folder(second).entries.find((entry) => entry.path === "notes/plan.txt")],
+      removed: [folder(first).entries.find((entry) => entry.path === "README.md")],
+      changed: [
+        {
+          path: "AGENT.md",
+          from: { size: agent(first).size, sha256: agent(first).sha256 },
+          to: { size: agent(second).size, sha256: agent(second).sha256 },
+        },
+      ],
+      unchanged: 1,
+    });
+    // Backwards is the mirror, and a version against itself changes nothing.
+    const back = (await get("/v1/agent-manifests/compare/source/diff?from=2&to=1")).body;
+    expect(back.added.map((entry: { path: string }) => entry.path)).toEqual(["README.md"]);
+    expect(back.removed.map((entry: { path: string }) => entry.path)).toEqual(["notes/plan.txt"]);
+    expect((await get("/v1/agent-manifests/compare/source/diff?from=2&to=2")).body).toMatchObject({
+      added: [],
+      removed: [],
+      changed: [],
+      unchanged: 3,
+    });
+  });
+
+  it("refuses versions that are not numbers, and a version with no source", async () => {
+    for (const query of ["from=1", "from=0&to=1", "from=a&to=1", "from=1&to=1.5"])
+      expect((await get(`/v1/agent-manifests/compare/source/diff?${query}`)).status, query).toBe(400);
+    expect((await get("/v1/agent-manifests/compare/source/diff?from=1&to=9")).status).toBe(404);
+    // plain's version 2 was saved as JSON.
+    const json = await get("/v1/agent-manifests/plain/source/diff?from=1&to=2");
+    expect(json.status).toBe(404);
+    expect(json.body.message).toContain("saved as JSON");
+  });
+});
+
+describe("the folder limits are the Tenant's (track T7)", () => {
+  const setLimits = async (limits: Record<string, number>) => {
+    const response = await fetch(`${runtime.url}/v1/tenant/limits`, {
+      method: "PUT",
+      headers: { ...runtime.managementHeaders(), "content-type": "application/json" },
+      body: JSON.stringify({ limits }),
+    });
+    expect(response.status, await response.clone().text()).toBe(200);
+  };
+
+  it("refuses a folder with more files than folderFiles with 413, and holds the compiler to folderTextFileBytes", async () => {
+    const files = { ...TRIAGE, "AGENT.md": TRIAGE["AGENT.md"].replace("name: triage", "name: limited") };
+    await setLimits({ folderFiles: 2 });
+    try {
+      for (const dryRun of [false, true]) {
+        const refused = await saveFolder("limited", files, { dryRun });
+        expect(refused.status, JSON.stringify(refused.body)).toBe(413);
+        expect(refused.body).toMatchObject({ code: "limit_exceeded", details: { limit: "folderFiles", value: 2 } });
+        expect(refused.body.message).toContain("at most 2 files");
+      }
+      await setLimits({ folderBytes: 64 });
+      const bytes = await saveFolder("limited", files);
+      expect(bytes.status).toBe(413);
+      expect(bytes.body.details).toEqual({ limit: "folderBytes", value: 64 });
+      await setLimits({ folderTextFileBytes: 64 });
+      const text = await saveFolder("limited", files);
+      expect(text.status, JSON.stringify(text.body)).toBe(422);
+      expect(text.body.details.diagnostics).toContainEqual(
+        expect.objectContaining({ severity: "error", code: "limit_exceeded", file: "AGENT.md" }),
+      );
+    } finally {
+      await setLimits({});
+    }
+    expect((await saveFolder("limited", files)).status).toBe(200);
+  });
+});

@@ -97,6 +97,11 @@ describe("composeManifest", () => {
     const composed = await composeManifest(join(root, "agents/triage"));
     expect(AgentManifestV8Schema.parse(composed.manifest)).toEqual(composed.manifest);
     expect(composed.gaps).toEqual([]);
+    // The three-file format and SKILL.md's secrets are deprecated (D80): both name migrate folder.
+    expect(composed.warnings).toEqual([
+      expect.stringMatching(/^agent\.manifest\.json \(the three-file format\) is deprecated: nylorun migrate folder \/\S*agents\/triage writes it as an agent folder/),
+      "Plugin 'github': Skill 'open-pr': secrets in SKILL.md is deprecated (D80), since it is not an Agent Skills key: an agent folder lists a skill's secrets in AGENT.md's skills block, where nylorun migrate folder moves them. It is still read until a later release.",
+    ]);
     const { harness, runtime, ...top } = composed.manifest as any;
     expect(top).toEqual({ manifestSchemaVersion: 8, name: "triage", description: "Triages issues." });
     expect(harness.instructions).toEqual(["Triage each issue."]);

@@ -77,6 +77,9 @@ async function agentFolder(root: string, harness: Record<string, unknown> = {}) 
 const SKILL = "---\nname: triage\ndescription: Triage an issue.\n---\nLabel it.\n";
 const PLAN = { name: "support", from: 2, to: 3, unchanged: false, warnings: [], errors: [], behind: 1 };
 
+/** The warning every three-file folder gets (D80), naming the command that converts it. */
+const DEPRECATED = expect.stringMatching(/^support: warning: agent\.manifest\.json \(the three-file format\) is deprecated: nylorun migrate folder /);
+
 describe("nylorun apply", () => {
   it("plans each folder's manifest, then saves it under If-Match with its files uploaded first", async () => {
     const dir = await temporaryDir();
@@ -107,9 +110,11 @@ describe("nylorun apply", () => {
     expect(deps.lines).toEqual([
       "support: version 2 → 3 (1 Agent on older versions)",
       "  harness instructions replace",
+      "    - Old.",
+      "    + Answer briefly.",
       "  warning: 1 Agent stays on version 2",
     ]);
-    expect(deps.errors).toEqual(["Saved agent manifest support version 3 on http://runtime.test."]);
+    expect(deps.errors).toEqual([DEPRECATED, "Saved agent manifest support version 3 on http://runtime.test."]);
     // The plan uploads what the Runtime lacks (files are stored by content); the save finds them held.
     expect(calls(deps)).toEqual([
       `HEAD /v1/files/${sha("echo kit\n")}`,
@@ -143,7 +148,7 @@ describe("nylorun apply", () => {
       '  error: harness.requires.sandbox "pod" needs runtime.kind "pod"; the runtime is "virtual"',
     ]);
     expect(calls(deps).filter((call) => !call.startsWith("HEAD"))).toEqual(["PUT /v1/agent-manifests/support?dryRun=true"]);
-    expect(deps.errors).toEqual(["Nothing was saved for a manifest with errors."]);
+    expect(deps.errors).toEqual([DEPRECATED, "Nothing was saved for a manifest with errors."]);
   });
 
   it("refuses a folder with no manifest, and a file that does not validate, before any request", async () => {
