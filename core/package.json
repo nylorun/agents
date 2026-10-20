@@ -30,7 +30,8 @@
     "prepack": "npm run build"
   },
   "dependencies": {
-    "@noble/hashes": "^2.4.0"
+    "@noble/hashes": "^2.4.0",
+    "yaml": "^2.9.1"
   },
   "devDependencies": {
     "@types/node": "^26.6.5",
@@ -70,6 +71,10 @@
     "./manifest-schemas": {
       "types": "./dist/manifest-schemas.d.ts",
       "import": "./dist/manifest-schemas.js"
+    },
+    "./folder": {
+      "types": "./dist/folder/index.d.ts",
+      "import": "./dist/folder/index.js"
     },
     "./schemas/agent-manifest.json": "./dist/schemas/agent-manifest.schema.json",
     "./schemas/harness-manifest.json": "./dist/schemas/harness-manifest.schema.json",

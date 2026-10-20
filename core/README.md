@@ -6,6 +6,10 @@ HTTP client, Node host or SDK dependencies.
 - `/define`: `Agent`, `tool`, the manifest, schemas and explicit local bindings.
 - `/contracts`: runtime request, event, action and response schemas.
 - `/compatibility`: protocol/definition versions and canonical manifest hashing.
+- `/folder`: agent folders. `compileAgentFolder` turns a folder of Markdown and JSON
+  (`AGENT.md`, `runtime.json`, `mcp.json`, `skills/`, `tools/`, `triggers/`, `files/`) into
+  agent manifest v8, with every diagnostic by file, line and column. Pure: the Runtime
+  compiles every folder it is sent with it, and `nylorun check` checks one offline.
 - `/transport`: what every Runtime client does on the wire: the `/health`
   compatibility probe (`checkHealth`), protocol ranges, request headers and
   response bodies. Browser-safe; `@nylorun/agents` and `@nylorun/admin` build on it.
