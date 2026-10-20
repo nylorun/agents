@@ -137,6 +137,8 @@ export function ModelSettings({ tenantId }: Readonly<{ tenantId: string }>) {
   const [reasoning, setReasoning] = useState(false);
   const [compat, setCompat] = useState("");
   const [customInputs, setCustomInputs] = useState<readonly ModelInput[]>([]);
+  // A custom endpoint's headers (#493), set through the API: the form keeps them on a save.
+  const [customHeaders, setCustomHeaders] = useState<Pick<CustomModelSettings, "headers" | "callHeaders">>({});
 
   const refresh = useCallback(async () => {
     const [next, listed, configured] = await Promise.all([
@@ -190,6 +192,10 @@ export function ModelSettings({ tenantId }: Readonly<{ tenantId: string }>) {
       setReasoning(next.settings?.reasoning ?? false);
       setCompat(next.settings?.compat ? JSON.stringify(next.settings.compat) : "");
       setCustomInputs(next.settings?.inputs ?? []);
+      setCustomHeaders({
+        ...(next.settings?.headers ? { headers: next.settings.headers } : {}),
+        ...(next.settings?.callHeaders ? { callHeaders: next.settings.callHeaders } : {}),
+      });
     } else {
       const first = addable[0];
       setProvider(first?.id ?? "custom");
@@ -200,6 +206,7 @@ export function ModelSettings({ tenantId }: Readonly<{ tenantId: string }>) {
       setReasoning(false);
       setCompat("");
       setCustomInputs([]);
+      setCustomHeaders({});
     }
     setPanelOpen(true);
   }
@@ -240,7 +247,7 @@ export function ModelSettings({ tenantId }: Readonly<{ tenantId: string }>) {
 
   /** The custom endpoint's settings from the form, or undefined when none is set. */
   function customSettings(): CustomModelSettings | undefined {
-    const settings: CustomModelSettings = {};
+    const settings: CustomModelSettings = { ...customHeaders };
     const whole = (label: string, value: string) => {
       const number = Number(value);
       if (!Number.isInteger(number) || number < 1)

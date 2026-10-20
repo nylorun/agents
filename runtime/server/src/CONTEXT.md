@@ -598,7 +598,10 @@ natively (`NATIVE_INPUTS`): images everywhere, PDFs on the Anthropic, OpenAI, Az
 APIs, Office documents on the OpenAI Responses APIs, audio and video on Google's and
 OpenAI-compatible completions. Added inputs are the Tenant setting `model.inputs` (`PUT
 /v1/tenant/models/inputs`, `tenant/model-setting.ts`) for catalog models, and a custom
-endpoint's `settings.inputs` (text only by default). One resolution serves the catalog, the
+endpoint's `settings.inputs` (text only by default). A custom endpoint's `settings.headers` go on
+every call, and its `settings.callHeaders` are resolved per call from the caller (`callCaller` in
+`gates/in-process.ts`: the session's Agent and its labels, and the owner when a person;
+`model/call-headers.ts`, #493). One resolution serves the catalog, the
 provider list, `turn.start.model` and the Model Gate (which gives pi-ai a model with an added
 image, so it is not dropped): `selectionOf` and `describeModel` (`model/descriptor.ts`), so what a
 harness is told and what the gate takes cannot disagree. A file's input is `modelInputOf(mediaType)`

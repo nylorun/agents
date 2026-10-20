@@ -9,7 +9,7 @@ import {
   streamSimple,
 } from "@earendil-works/pi-ai/api/openai-completions";
 import { builtinModels } from "@earendil-works/pi-ai/providers/all";
-import { CUSTOM_MODEL_SETTING_DEFAULTS } from "@nylorun/core/contracts";
+import { CUSTOM_MODEL_SETTING_DEFAULTS, type ModelCallHeaderSource } from "@nylorun/core/contracts";
 
 export type Selection = Readonly<{
   provider: string;
@@ -23,6 +23,10 @@ export type Selection = Readonly<{
     /** What the endpoint reads (protocol 12); text only unless it says so. */
     inputs?: readonly string[];
     compat?: Readonly<Record<string, unknown>>;
+    /** Sent on every call (#493). */
+    headers?: Readonly<Record<string, string>>;
+    /** Resolved per call from the calling Agent (`call-headers.ts`, #493). */
+    callHeaders?: Readonly<Record<string, ModelCallHeaderSource>>;
   }>;
 }>;
 
@@ -60,6 +64,7 @@ export function modelsFor(
     ...(selection.custom.compat
       ? { compat: { ...selection.custom.compat } as Model<"openai-completions">["compat"] }
       : {}),
+    ...(selection.custom.headers ? { headers: { ...selection.custom.headers } } : {}),
   };
   models.setProvider(
     createProvider({

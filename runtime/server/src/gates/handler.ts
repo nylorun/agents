@@ -8,7 +8,7 @@
 import { classifyThrown } from "../model/classify.js";
 import type { Logger } from "../tenant/types.js";
 import type { BlobStore } from "../blob/index.js";
-import { callFiles, inProcessModelGate, modelCallSettings, serve } from "./in-process.js";
+import { callCaller, callFiles, inProcessModelGate, modelCallSettings, serve } from "./in-process.js";
 import { createMeter } from "./meter.js";
 import type { ModelGate, ModelGateRequest } from "./model-gate.js";
 import { GateRefusal, type TenantVaults } from "./tenant-vaults.js";
@@ -50,6 +50,7 @@ export function createModelCallHandler(options: ModelCallHandlerOptions): ModelC
           // The Tenant's Runtime limits `model*`, read for this call.
           settings: await modelCallSettings(vault.store),
           ...(blobs ? { files: callFiles(vault.store, blobs) } : {}),
+          caller: callCaller(vault.store),
         });
         outcome = await meter.call(vault.store, call, () => serve(vault.store, gate, call, signal));
       } catch (error) {

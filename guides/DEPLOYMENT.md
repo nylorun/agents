@@ -729,6 +729,23 @@ a model credential.
   refuses a part the model cannot take (`unsupported_input`). A file goes to the model only in the
   turn that brought it;
   later turns name it by a reference line, and the model reads it again with `read_artifact`.
+- A custom endpoint behind a model gateway (LiteLLM, for example) can carry headers that are not
+  credentials (#493). `settings.headers` go on every call, and `settings.callHeaders` take their
+  value per call from the calling Agent: one of its labels (`{ "from": "agent.label", "key": "org" }`),
+  its id (`agent.id`) or the session's owner when it is a person (`session.owner`). A source with
+  no value sends no header. A Runtime that serves several orgs' Agents can then name each call's
+  org, so the gateway attributes and budgets it while the call is made:
+
+  ```json
+  { "provider": "custom", "model": "claude", "baseUrl": "https://litellm.internal/v1",
+    "auth": { "type": "api_key", "key": "<the gateway's key>" },
+    "settings": { "callHeaders": { "x-nylorun-org": { "from": "agent.label", "key": "org" } } } }
+  ```
+
+  They are settings, read back by `GET /v1/tenant/model`, never secrets: neither map may set
+  `authorization` (the auth sends it), a hop-by-hop or transport header, or `Nylorun-*`, and a
+  name appears once across both. A Runtime that serves one org needs none of this: the gateway's
+  key already names the org.
 - A Compose file you write yourself must run both containers: in a container,
   a Runtime that runs `loop` refuses to start without `NYLORUN_GATES_URL` and
   `NYLORUN_GATES_TOKEN`. A proxy between the two must allow an idle request of

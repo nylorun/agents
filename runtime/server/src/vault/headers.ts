@@ -20,6 +20,31 @@ const RESERVED_HEADERS = new Set([
   "idempotency-key",
 ]);
 
+/** Headers that describe one hop and are never forwarded or set by a credential or a setting. */
+export const HOP_BY_HOP_HEADERS: ReadonlySet<string> = new Set([
+  "connection",
+  "keep-alive",
+  "proxy-authenticate",
+  "proxy-authorization",
+  "proxy-connection",
+  "te",
+  "trailer",
+  "transfer-encoding",
+  "upgrade",
+]);
+
+/**
+ * Why a custom model endpoint's header (`settings.headers`, `settings.callHeaders`, #493) may not
+ * be `name`, or undefined when it may: the API key's `authorization`, a hop-by-hop header, a
+ * transport header or `Nylorun-*`.
+ */
+export function modelHeaderError(name: string): string | undefined {
+  const lower = name.toLowerCase();
+  if (lower === "authorization") return "A model header may not set authorization: the model's auth sends it";
+  if (HOP_BY_HOP_HEADERS.has(lower) || isReservedHeader(lower)) return `A model header may not set ${lower}`;
+  return undefined;
+}
+
 /**
  * The secret values of a credential's `headers`, as a server could echo them (R2b C8, Q16): each
  * value of at least 8 characters, and the token of a `Bearer …` value. The identity header names
