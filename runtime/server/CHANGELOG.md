@@ -1,5 +1,48 @@
 # Changelog
 
+## 0.32.0-beta
+
+### Minor Changes
+
+- b3dad06: Both ends of the agent folder loop (track T7).
+
+  - `nylorun init <path>` names the agent after the path's last segment (`init agents/hello`). `--example` adds `tools/get_order.json`, `mcp.json` (a `Bearer ${ORDERS_MCP_TOKEN}` header) and `triggers/new-order.md`, explained in the folder's README.md, and the result passes `nylorun check`. The first run in a project (the nearest directory with `.git`) writes `.gitattributes` (`* text=auto eol=lf`), ignores `.nylorun/credentials.json` in `.gitignore`, and maps the folder files to their JSON Schemas in `.vscode/settings.json`, merged into an existing file. Its hint names `apply --agent` and `chat`.
+  - `nylorun apply --agent [<id>]` makes the Agent from the manifest after a save (or on an unchanged one), or moves it, as `nylorun agents put` does, and prints what it needs a person for.
+  - `nylorun apply --watch [--save]` checks and plans again on each change to the folders (and the files their `runtime.json` extends); it saves only with `--save`.
+  - A plan's change to the instructions prints their text diff, `-` and `+` lines.
+  - `nylorun chat <agent> [--session <id>] [--message <text>]` opens or reuses a session, sends `--message` or each line of standard input, and prints the reply as it comes.
+  - `nylorun check --json` prints `{ folders: [{ path, ok, manifest?, diagnostics }] }` for CI, with the same exit codes. `check` says "1 file", and `nylorun --version` prints the version.
+  - `packFolder` (`@nylorun/agents`) leaves out what the folder's `.nyloignore` names (gitignore rules), and resolves `extends` in `runtime.json`: the packed file is the merge, the folder's own keys winning, with `.nylorun/origin.json` naming the files it came from; a missing file or a cycle is a `FolderError`. `ignoreMatcher` is exported.
+  - `session.approve(id, approved)` and `session.respond(id, value)` take no options: each makes its own idempotency key.
+  - The Runtime's Agent view names each required secret of the version it runs that has no value, as an attention item (`secret_unset: required secret ORDERS_TOKEN unset`, state `input_required`), until it is set.
+  - The compiler's refusal of an unresolved `extends` says to resolve it before uploading.
+
+- b3dad06: Compare two versions' agent folders, and set what a folder may hold per Tenant (track T7).
+
+  - **`GET /v1/agent-manifests/{name}/source/diff?from=<v>&to=<v>`** answers the files added, removed and changed (by SHA-256) from one version's source to another's, each list sorted by path, and how many stayed the same (`AgentManifestSourceDiff` in `@nylorun/core/contracts`). A version saved as JSON has no source (`404`); a `from` or `to` that is not a version number is `400`. `client.agentManifests.sourceDiff(name, from, to)` in `@nylorun/agents` calls it.
+  - **Folder limits are Tenant settings**: the Runtime limits `folderFiles` (2,000), `folderBytes` (50 MiB) and `folderTextFileBytes` (1 MiB), T6's fixed values, set with `PUT /v1/tenant/limits` like the others. A folder save with more files or bytes is `413 limit_exceeded` (`details.limit` names the limit), and the compiler holds each Markdown or JSON file to `folderTextFileBytes` (`422 folder_invalid`).
+  - `compileAgentFolder({ entries, files, name, limits })` takes the limits as an optional input (`AgentFolderLimits`); each left out is `AGENT_FOLDER_LIMITS`'.
+  - `@nylorun/agents` also exports the types `AgentManifestSource`, `AgentManifestSourceDiff`, `AgentManifestSourceSummary` and `AgentFolderDiagnostic`, and `AGENT_FOLDER_MEDIA_TYPE`.
+
+### Patch Changes
+
+- 498d972: `nylorun check --fix` makes the edits the compiler's diagnostics carry (track T7). A diagnostic one edit fixes has a `fix` (`AgentFolderFix`, in `AgentFolderDiagnostic` and the Runtime API's): `rename_key` for an unknown key with exactly one did-you-mean (in `AGENT.md`, a trigger, a `SKILL.md`, a tool file, `runtime.json`, `mcp.json`, `flow.json` and a JSON Schema's keywords), at its line and column, and none when two keys are as close or the key it would be is already there; `crlf` for a file with CRLF line ends, which is now a `crlf` note (it is read as LF, as before); and `move_skill_secrets` for `secrets` in a root skill's `SKILL.md`, when `AGENT.md` lists none for the skill, or lists them all. Messages, manifests and hashes are unchanged. `applyFolderFixes` in `@nylorun/core/folder` makes them on text: the key token renamed with every other byte kept, LF line ends, and the secrets moved to `AGENT.md`'s `skills` block as `migrate folder` writes it, skipping (with why) a fix whose text is no longer where it was.
+
+  `nylorun check` marks each fixable problem `(fixable with --fix)` and writes nothing. `check --fix` makes the edits in the folder's files, prints each change by file, and checks again until nothing is left to fix; it leaves a file whose bytes changed since it was checked (writing nothing when one changes while it fixes), and a `runtime.json` that `extends` another. `check --json` gives each diagnostic's `fix`, and with `--fix` each folder's `fixed` and `unfixed`.
+
+- Pin core to the tested release.
+- Pin harness to the tested release.
+- Updated dependencies [498d972]
+- Updated dependencies [d23304e]
+- Updated dependencies [b3dad06]
+- Updated dependencies [b3dad06]
+- Updated dependencies [b3dad06]
+- Updated dependencies [498d972]
+- Updated dependencies [b3dad06]
+- Updated dependencies
+  - @nylorun/core@0.28.0-beta
+  - @nylorun/harness@0.29.4-beta
+
 ## 0.31.0-beta
 
 ### Minor Changes
