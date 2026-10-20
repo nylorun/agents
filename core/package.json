@@ -78,7 +78,13 @@
     },
     "./schemas/agent-manifest.json": "./dist/schemas/agent-manifest.schema.json",
     "./schemas/harness-manifest.json": "./dist/schemas/harness-manifest.schema.json",
-    "./schemas/runtime-manifest.json": "./dist/schemas/runtime-manifest.schema.json"
+    "./schemas/runtime-manifest.json": "./dist/schemas/runtime-manifest.schema.json",
+    "./schemas/agent-folder-agent-md.json": "./dist/schemas/agent-folder/agent-md.schema.json",
+    "./schemas/agent-folder-trigger-md.json": "./dist/schemas/agent-folder/trigger-md.schema.json",
+    "./schemas/agent-folder-runtime.json": "./dist/schemas/agent-folder/runtime.schema.json",
+    "./schemas/agent-folder-tool.json": "./dist/schemas/agent-folder/tool.schema.json",
+    "./schemas/agent-folder-mcp.json": "./dist/schemas/agent-folder/mcp.schema.json",
+    "./schemas/agent-folder-flow.json": "./dist/schemas/agent-folder/flow.schema.json"
   },
   "peerDependencies": {
     "zod": "^4.6.7"

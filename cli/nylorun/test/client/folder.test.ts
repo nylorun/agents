@@ -4,8 +4,10 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { PROTOCOL_FEATURES, PROTOCOL_VERSION } from "@nylorun/core/compatibility";
 import { AGENT_FOLDER_MEDIA_TYPE } from "@nylorun/core/contracts";
+import { agentFolderJsonSchemas } from "@nylorun/core/folder";
 import { applyCommand } from "../../src/client/apply.js";
 import { checkCommand, initCommand } from "../../src/client/folder.js";
+import { schemaMappings } from "../../src/client/init.js";
 import { fakeFetch, json, temporaryDir, temporaryHome, testDeps } from "../stack/support.js";
 
 const URL_ = "http://runtime.test";
@@ -93,6 +95,13 @@ describe("nylorun init and check", () => {
     expect(await readFile(join(other, ".vscode", "settings.json"), "utf8")).toBe("{\n  // comments\n}\n");
     expect(await readFile(join(other, ".gitignore"), "utf8")).toBe(".nylorun/\n");
     expect(third.lines).toContainEqual(expect.stringContaining(".vscode/settings.json is not plain JSON, so it was left alone"));
+  });
+
+  it("maps the folder files to the JSON Schemas @nylorun/core publishes, at their $id", () => {
+    const ids = Object.values(agentFolderJsonSchemas()).map((schema) => schema.$id);
+    const urls = schemaMappings("/project", "/project/agents/hello").map((mapping) => mapping.url);
+    expect(urls).toHaveLength(4);
+    for (const url of urls) expect(ids).toContain(url);
   });
 
   it("--example scaffolds a tool, an MCP server and a trigger that check without an error", async () => {

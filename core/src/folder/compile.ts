@@ -132,21 +132,27 @@ const MCP_FILE = "mcp.json";
 const OUTPUT_SCHEMA_FILE = "output.schema.json";
 const WORKSPACE = "/workspace";
 const AGENT_PLUGINS_MCP_SCHEMA = "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json";
-/** The schemas a JSON file of a folder may name in `$schema`, by the kind of file. */
-const FOLDER_SCHEMAS = "https://docs.nylorun.com/schemas/agent-folder/v1/";
-const SCHEMA_URLS = {
+/**
+ * The schemas a JSON file of a folder may name in `$schema`, by the kind of file: ours first,
+ * whose documents `schemas.ts` builds from the key lists below.
+ */
+export const FOLDER_SCHEMAS = "https://docs.nylorun.com/schemas/agent-folder/v1/";
+export const SCHEMA_URLS = {
   runtime: [`${FOLDER_SCHEMAS}runtime.json`, "https://docs.nylorun.com/schemas/runtime-manifest/v1.json"],
   tool: [`${FOLDER_SCHEMAS}tool.json`],
   mcp: [`${FOLDER_SCHEMAS}mcp.json`, AGENT_PLUGINS_MCP_SCHEMA],
   flow: [`${FOLDER_SCHEMAS}flow.json`],
 } as const;
 const SKILL_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
-const AGENT_KEYS = ["name", "description", "format", "harness", "inputSchema", "outputSchema", "mcpServers", "skills", "memory", "loop", "metadata"];
+export const AGENT_KEYS = ["name", "description", "format", "harness", "inputSchema", "outputSchema", "mcpServers", "skills", "memory", "loop", "metadata"] as const;
 const SKILL_KEYS = ["name", "description", "license", "compatibility", "metadata", "allowed-tools"];
-const TRIGGER_KEYS = ["schedule", "timezone", "at", "webhook", "session"];
-const SERVER_KEYS = ["type", "url", "headers"];
-const SERVER_SETTING_KEYS = ["deferred", "tools"];
-const TOOL_KEYS = ["description", "inputSchema", "outputSchema", "http"];
+export const TRIGGER_KEYS = ["schedule", "timezone", "at", "webhook", "session"] as const;
+export const MCP_KEYS = ["$schema", "mcpServers"] as const;
+export const SERVER_KEYS = ["type", "url", "headers"] as const;
+export const SERVER_SETTING_KEYS = ["deferred", "tools"] as const;
+/** What `AGENT.md` may also set for a plugin's server, which cannot know the agent's slot names. */
+export const PLUGIN_SERVER_SETTING_KEYS = [...SERVER_SETTING_KEYS, "credential"] as const;
+export const TOOL_KEYS = ["description", "inputSchema", "outputSchema", "http"] as const;
 /** The loop settings our harness reads from `loop`: none yet. A custom harness reads its own. */
 const NYLORUN_LOOP_KEYS: readonly string[] = [];
 /** The runtime fields only a sandbox has, and the ones only a pod has. */
@@ -708,7 +714,7 @@ export function compileAgentFolder(input: CompileAgentFolderInput, scope?: Folde
     const value = readJson(MCP_FILE);
     if (value) {
       mcpRead = true;
-      checkKeys(MCP_FILE, value, ["$schema", "mcpServers"]);
+      checkKeys(MCP_FILE, value, MCP_KEYS);
       if (value.$schema !== undefined) checkSchemaUrl(MCP_FILE, "mcp", value.$schema);
       const listed = value.mcpServers;
       if (!isObject(listed)) error("mcp_invalid", "mcp.json holds mcpServers: a map of server names to servers", MCP_FILE, listed === undefined ? [] : ["mcpServers"]);
@@ -830,7 +836,7 @@ export function compileAgentFolder(input: CompileAgentFolderInput, scope?: Folde
         }
         // A plugin's server takes its credential here (folder/plugins.ts).
         const fromPlugin = parts.serverCredential(servers, key, settings, at);
-        checkKeys(AGENT_FILE, settings, fromPlugin ? [...SERVER_SETTING_KEYS, "credential"] : SERVER_SETTING_KEYS, at);
+        checkKeys(AGENT_FILE, settings, fromPlugin ? PLUGIN_SERVER_SETTING_KEYS : SERVER_SETTING_KEYS, at);
         if ("credential" in settings && !fromPlugin) continue;
         // A tool's settings pass to the manifest as they are, so approval is refused here.
         if (isObject(settings.tools))

@@ -156,6 +156,8 @@ const mcpToolSettingsSchema = z
   })
   .strict()
   .meta({ id: "McpToolSettings" });
+/** One tool's settings on an MCP server: `enabled`, `approval` and `deferred`. */
+export const McpToolSettingsSchema = mcpToolSettingsSchema;
 /** Per-tool settings keyed by the server's tool names, `"*"` for the rest. */
 const mcpServerSettings = {
   deferred: z.boolean().optional(),
@@ -257,6 +259,8 @@ const httpToolTargetSchema = z
     timeoutMs: z.number().int().positive().max(TIMER_MAX_MS).optional(),
   })
   .strict();
+/** An HTTP tool's request: its `url` (a template of the input's fields), `method`, `credential` and `timeoutMs`. */
+export const HttpToolTargetSchema = httpToolTargetSchema;
 /** A name kept for a later kind of `what` (tool, verifier), refused for now. */
 const reservedKind = (what: string) =>
   z
@@ -819,7 +823,7 @@ export type EnvironmentFile = z.infer<typeof EnvironmentFileSchema>;
  * letter or digit, such as `triage`; a version is at most 9 digits. Manifest names and Agent ids
  * are separate namespaces.
  */
-const AGENT_MANIFEST_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+export const AGENT_MANIFEST_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 export function isAgentManifestName(value: unknown): value is string {
   return typeof value === "string" && AGENT_MANIFEST_NAME_PATTERN.test(value);
 }
@@ -1854,16 +1858,15 @@ const harnessLoopField = definitionJson
  * `harness.memory`: turns the Agent's memory on. Its `access` holds in every turn,
  * whoever starts it; `instructions` follow the engine's own memory rules.
  */
-const harnessMemoryField = z
-  .strictObject({
-    access: z.enum(MEMORY_ACCESS).optional().meta({ description: "`read_write` (the default) or `read_only`" }),
-    instructions: z
-      .string()
-      .max(MEMORY_INSTRUCTIONS_MAX)
-      .optional()
-      .meta({ description: "What this agent should remember, after the engine's own memory rules" }),
-  })
-  .optional()
+export const HarnessMemorySchema = z.strictObject({
+  access: z.enum(MEMORY_ACCESS).optional().meta({ description: "`read_write` (the default) or `read_only`" }),
+  instructions: z
+    .string()
+    .max(MEMORY_INSTRUCTIONS_MAX)
+    .optional()
+    .meta({ description: "What this agent should remember, after the engine's own memory rules" }),
+});
+const harnessMemoryField = HarnessMemorySchema.optional()
   .meta({ description: "The Agent's memory: Markdown files under /memories it keeps across sessions" });
 /** Fields the harness section refuses with where they went. */
 const REMOVED_HARNESS_FIELDS: Readonly<Record<string, string>> = Object.freeze({

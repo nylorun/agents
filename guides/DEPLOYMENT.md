@@ -476,7 +476,10 @@ the secret slots, `secrets`). Its JSON Schema is
   `AGENT.md` (frontmatter `name` and `description`, the instructions below), `mcp.json` (Agent
   Plugins syntax; `Authorization: Bearer ${NAME}` names a `bearer` slot, derived for the server's
   URL when `runtime.json` declares none), `runtime.json`, `skills/<name>/`, HTTP `tools/<name>.json`,
-  `triggers/<id>.md` and `files/**`. Flows and vendored plugins are not folders yet.
+  `triggers/<id>.md` and `files/**`, and (track T7) flows, subagents and vendored Agent Plugins.
+  Each kind of file has a JSON Schema at `https://docs.nylorun.com/schemas/agent-folder/v1/<kind>.json`
+  (`runtime`, `tool`, `mcp` and `flow`, and `agent-md` and `trigger-md` for the frontmatter),
+  exported as `@nylorun/core/schemas/agent-folder-<kind>.json`.
   `nylorun init <name>` writes one, `nylorun check` compiles it offline and prints every problem by
   file, line and column, and `nylorun apply` (or `saveFolder` in `@nylorun/agents`) sends it by
   hash with `Content-Type: application/vnd.nylorun.folder+json`. The Runtime compiles it with the

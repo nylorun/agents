@@ -3,16 +3,19 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { harnessApiJsonSchema } from "../src/harness-api/json-schema.js";
 import { agentManifestJsonSchema, harnessManifestJsonSchema, runtimeManifestJsonSchema } from "../src/manifest-schemas.js";
+import { agentFolderJsonSchemas } from "../src/folder/index.js";
 
 /**
  * Every JSON Schema document the package publishes, by its `exports` path, as the build writes
- * it (`scripts/manifest-schemas.mjs`, `scripts/harness-api-schema.mjs`).
+ * it (`scripts/manifest-schemas.mjs`, `scripts/harness-api-schema.mjs`). The agent folder's are
+ * published at `agent-folder/v1/<kind>.json` and exported as `agent-folder-<kind>.json`.
  */
 const PUBLISHED: Record<string, () => Record<string, unknown>> = {
   "./schemas/agent-manifest.json": agentManifestJsonSchema,
   "./schemas/harness-manifest.json": harnessManifestJsonSchema,
   "./schemas/runtime-manifest.json": runtimeManifestJsonSchema,
   "./harness-api/schema.json": harnessApiJsonSchema,
+  ...Object.fromEntries(Object.entries(agentFolderJsonSchemas()).map(([kind, schema]) => [`./schemas/agent-folder-${kind}.json`, () => schema])),
 };
 
 /**
@@ -26,6 +29,12 @@ const PINNED: Record<string, string> = {
   "https://docs.nylorun.com/schemas/harness-manifest/v1.json": "42d387639f0a07a2204d1253a836ffa493735e5f1784b281bd84c362a06c413c",
   "https://docs.nylorun.com/schemas/runtime-manifest/v1.json": "cd7c9cba1635920921cc5400389b50c4260047bb26213b37a7facd129f2ae06d",
   "https://docs.nylorun.com/schemas/harness-api/v5.json": "3ac689e286d8bd98564037bf13e1345f1e837ed6828ac9f3be22d3667b80fba8",
+  "https://docs.nylorun.com/schemas/agent-folder/v1/agent-md.json": "c01179e0bf74dc00cdf7dcbbd35a68e33a24f9e2eabea70bb61b2571928019a8",
+  "https://docs.nylorun.com/schemas/agent-folder/v1/trigger-md.json": "bb8d8d46e8171fd93b2789d4db35effe7fb5cae62783246ad561eefb4b65c515",
+  "https://docs.nylorun.com/schemas/agent-folder/v1/runtime.json": "0dfc10f40e5c57fab55ae6ff48988d4f9a5835132ba590c0bb4fecdbca3487a1",
+  "https://docs.nylorun.com/schemas/agent-folder/v1/tool.json": "632f25d978ae5da96ba4abd1da5647066541a63d07af1a65579e21f45dc7c1a7",
+  "https://docs.nylorun.com/schemas/agent-folder/v1/mcp.json": "d470edffee6646192dc030ce68d25d020ec2f9b710e818886e1a5703f0780094",
+  "https://docs.nylorun.com/schemas/agent-folder/v1/flow.json": "68fee9ef198082a0bdc8814d5dbfa45beb766b2438713496593102be828fe9dc",
 };
 
 /** `$id`s published before and no longer built: never published again, with any content. */
