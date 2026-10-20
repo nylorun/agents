@@ -24,6 +24,7 @@ export function checkPackedConsumer(cache) {
   const require = createRequire(import.meta.url);
   const zod = pack(dirname(require.resolve("zod/package.json")));
   const hashes = pack(dirname(require.resolve("@noble/hashes/sha2.js")));
+  const yaml = pack(dirname(require.resolve("yaml/package.json")));
   const consumer = join(cache, "consumer");
   mkdirSync(consumer);
   writeFileSync(
@@ -41,6 +42,7 @@ export function checkPackedConsumer(cache) {
       core,
       zod,
       hashes,
+      yaml,
     ],
     consumer,
   );
