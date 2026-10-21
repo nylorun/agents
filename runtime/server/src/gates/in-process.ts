@@ -23,9 +23,10 @@ import type { Session } from "../tenant/context.js";
 export interface InProcessModelGateOptions {
   /** The Tenant's home: `piModel` redacts secrets it finds there from failure messages. */
   readonly root?: string;
-  readonly readHostModel: () => Promise<HostModelSecret | undefined>;
-  /** Writes back a credential pi-ai refreshed (OAuth). */
-  readonly writeHostCredential: (credential: Credential) => Promise<void>;
+  /** The host model a call uses: its session's own model (`session-model`), else the Tenant's. */
+  readonly readHostModel: (request: ModelGateRequest) => Promise<HostModelSecret | undefined>;
+  /** Writes back a credential pi-ai refreshed (OAuth) to `provider`'s, the one the call read. */
+  readonly writeHostCredential: (credential: Credential, provider: string) => Promise<void>;
   readonly settings?: ModelCallSettings;
   /** Reads the files a call's prompt names (protocol 6): artifacts, for model-gate. */
   readonly files?: (request: ModelGateRequest) => FileResolver;
@@ -87,8 +88,8 @@ export function tenantModelGate(options: {
         // The Tenant's Runtime limits `model*`, read for this call.
         const gate = inProcessModelGate({
           root: options.root,
-          readHostModel: () => vault.readHostModel(),
-          writeHostCredential: (credential) => vault.updateHostCredential(credential),
+          readHostModel: (request) => vault.readHostModel(request.sessionId),
+          writeHostCredential: (credential, provider) => vault.updateHostCredential(credential, provider),
           settings: await modelCallSettings(options.store),
           ...(options.blobs ? { files: callFiles(options.store, options.blobs) } : {}),
           caller: callCaller(options.store),
@@ -120,11 +121,17 @@ export async function serve(
 export function inProcessModelGate(options: InProcessModelGateOptions): ModelGate {
   return {
     async call(request, signal) {
-      // One adapter per call, as before the gate: it reads the host model when invoked.
+      // One adapter per call, as before the gate: it reads the host model when invoked, and a
+      // refreshed credential goes back to the provider it read.
+      let provider: string | undefined;
       const adapter = piModel({
         ...(options.root !== undefined ? { root: options.root } : {}),
-        readHostModel: options.readHostModel,
-        writeHostCredential: options.writeHostCredential,
+        readHostModel: async () => {
+          const stored = await options.readHostModel(request);
+          provider = stored?.provider;
+          return stored;
+        },
+        writeHostCredential: (credential) => options.writeHostCredential(credential, provider!),
         ...(options.settings ? { settings: options.settings } : {}),
         ...(options.files ? { files: options.files(request) } : {}),
         ...(options.caller ? { caller: () => options.caller!(request) } : {}),

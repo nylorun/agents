@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState, type FormEvent } from "react";
 import { Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { CHART_HAIRLINE } from "@/lib/chart";
 import { createTenantManagementClient } from "@/proxy-client";
 import { messageOf, useRead } from "@/resources/reads";
 import { formatCost } from "@/usage-format";
@@ -131,7 +132,7 @@ export function TenantUsage({ tenantId, manifests }: { tenantId: string; manifes
                   <td className={cellClass}>
                     <span className="flex items-center gap-2">
                       {budget.scope === "turn" ? null : (
-                        <span aria-hidden className="h-1.5 w-24 shrink-0 overflow-hidden rounded-full bg-chart-5">
+                        <span aria-hidden className={cn("h-1.5 w-24 shrink-0 overflow-hidden rounded-full bg-chart-5", CHART_HAIRLINE)}>
                           <span
                             className="block h-full bg-chart-2"
                             style={{ width: `${Math.min(100, Math.round(share.share * 100))}%` }}

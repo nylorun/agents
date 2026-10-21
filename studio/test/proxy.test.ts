@@ -456,6 +456,52 @@ test("proxy forwards an Agent's credential coverage check", async () => {
   );
 });
 
+test("proxy forwards a session's own model reads and same-origin writes, unchanged", async () => {
+  const seen: { line: string; body: string }[] = [];
+  await withUpstream(
+    async (req, res) => {
+      let body = "";
+      for await (const chunk of req) body += chunk;
+      seen.push({ line: `${req.method} ${req.url}`, body });
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end("{}");
+    },
+    async (upstreamUrl) => {
+      const origin = "http://127.0.0.1:4161";
+      const studio = createServer((req, res) => {
+        void proxyRuntime(req, res, { origin, runtimeUrl: upstreamUrl, serverKey: "server-secret" });
+      });
+      studio.listen(0, "127.0.0.1");
+      await once(studio, "listening");
+      const address = studio.address();
+      assert.ok(address && typeof address === "object");
+      const base = `http://127.0.0.1:${address.port}/_studio/runtime`;
+      const choice = JSON.stringify({ provider: "openai", model: "gpt-4o-mini" });
+      const json = { "content-type": "application/json" };
+      try {
+        assert.equal((await fetch(`${base}/v1/sessions/s1/model`)).status, 200);
+        assert.equal(
+          (await fetch(`${base}/v1/sessions/s1/model`, { method: "PUT", headers: { ...json, origin }, body: choice })).status,
+          200,
+        );
+        assert.equal((await fetch(`${base}/v1/sessions/s1/model`, { method: "DELETE", headers: { origin } })).status, 200);
+        // A write from elsewhere, and any other method, never reaches the Runtime.
+        assert.equal((await fetch(`${base}/v1/sessions/s1/model`, { method: "PUT", headers: json, body: choice })).status, 403);
+        assert.equal((await fetch(`${base}/v1/sessions/s1/model`, { method: "POST", headers: { ...json, origin }, body: choice })).status, 404);
+        assert.deepEqual(seen, [
+          { line: "GET /v1/sessions/s1/model", body: "" },
+          // Not the session's owner: the body goes as it is.
+          { line: "PUT /v1/sessions/s1/model", body: choice },
+          { line: "DELETE /v1/sessions/s1/model", body: "" },
+        ]);
+      } finally {
+        studio.close();
+        await once(studio, "close");
+      }
+    },
+  );
+});
+
 test("proxy forwards a session's pinned manifest and usage reads and nothing else under the session", async () => {
   const seen: string[] = [];
   await withUpstream(

@@ -116,6 +116,9 @@ components:
     backgroundColor: "{colors.chart-2}"
   chart-track:
     backgroundColor: "{colors.chart-5}"
+  chart-hairline:
+    backgroundColor: "{colors.chart-2}"
+    width: 1px
   divider:
     backgroundColor: "{colors.border}"
     height: 1px
@@ -153,7 +156,7 @@ Nylorun's brand palette, split in two. Everything but charts is zinc and white, 
 - **Destructive (#09090b):** shadcn's `--destructive`, set to the foreground. A delete button looks like the primary one, and its label and the confirm dialog say what it does; an error message is foreground text that says what failed.
 - **Chart-1 to chart-5, the Sage scale:** one hue in five steps, so a chart reads as one calm accent beside the zinc. Series take chart-4 (#cde0d0), chart-3 (#7da182), chart-2 (#415d43) and chart-1 (#111d13) in that order, light to dark, and never skip one; a color follows its series, so a filter never repaints the others. A single series, such as a budget's used bar or artifact sizes, takes chart-2 (`chart-single`). Chart-5 (#f2f8f2) is never a series: it is the track behind a bar or meter and the band behind a range (`chart-track`). A fifth series folds into "Other" in ring (#a1a1aa). Use them in charts and graphs only, never on a component, a status dot, in text, or on the logo. A meter, such as a budget nearing its limit, stays chart-2; its number says how close it is.
 
-Series differ in lightness, not hue: neighbors are at least 20.9 ΔE apart, for color-blind readers too. Chart-3 and chart-4 are light on white (2.9:1 and 1.4:1), so a chart always carries a legend or labels, and a series is never told apart by color alone. Stacked fills keep a 1px white gap between segments. shadcn's `card`, `popover`, `secondary`, `accent`, `input` and `sidebar` variables keep their Zinc values.
+Series differ in lightness, not hue: neighbors are at least 20.9 ΔE apart, for color-blind readers too. A chart always carries a legend or labels, and a series is never told apart by color alone. Every fill under 3:1 on white, chart-3, chart-4, chart-5 and ring (2.9:1, 1.4:1, 1.1:1 and 2.6:1), carries a 1px chart-2 hairline inside its edge (`chart-hairline`), on a segment, a swatch, a track or a band alike, so its shape reads at 3:1 at any size; it is drawn inset and changes no size. Chart-2 and chart-1 need none. Stacked fills keep a 1px white gap between segments, and share a bar's width by proportion after the gaps, so no segment is clipped. shadcn's `card`, `popover`, `secondary`, `accent`, `input` and `sidebar` variables keep their Zinc values.
 
 ## Typography
 

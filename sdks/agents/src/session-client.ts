@@ -8,6 +8,8 @@ import { z } from "zod";
 import { SCOPES_HEADER, SUBJECT_HEADER } from "@nylorun/core/compatibility";
 import {
   SessionManifestViewSchema,
+  SessionModelViewSchema,
+  type SessionModelChoice,
   SessionUsageTotalsSchema,
   ModelCallsPageSchema,
   ToolCallsPageSchema,
@@ -298,6 +300,38 @@ export class SessionClient {
     await this.transport.requireFeature("session-reads", options.signal);
     return SessionManifestViewSchema.parse(
       await this.transport.json(`${this.path}/manifest`, "GET", undefined, options.signal),
+    );
+  }
+  /**
+   * The model the session's next turn uses (Host feature `session-model`): its own while its
+   * provider is connected, else the Tenant's.
+   */
+  async model(options: { signal?: AbortSignal } = {}) {
+    await this.transport.requireFeature("session-model", options.signal);
+    return SessionModelViewSchema.parse(
+      await this.transport.json(`${this.path}/model`, "GET", undefined, options.signal),
+    );
+  }
+  /**
+   * Chooses one of a connected provider's models for this session's turns; the Tenant's model and
+   * other sessions' stay as they are. Refused while a turn runs or waits (`409 session_busy`).
+   */
+  async setModel(choice: SessionModelChoice, options: { signal?: AbortSignal } = {}) {
+    await this.transport.requireFeature("session-model", options.signal);
+    return SessionModelViewSchema.parse(
+      await this.transport.json(
+        `${this.path}/model`,
+        "PUT",
+        { provider: choice.provider, model: choice.model },
+        options.signal,
+      ),
+    );
+  }
+  /** Clears the session's own model: its next turns use the Tenant's. */
+  async clearModel(options: { signal?: AbortSignal } = {}) {
+    await this.transport.requireFeature("session-model", options.signal);
+    return SessionModelViewSchema.parse(
+      await this.transport.json(`${this.path}/model`, "DELETE", undefined, options.signal),
     );
   }
   async usage(options: { turnId?: string; signal?: AbortSignal } = {}) {

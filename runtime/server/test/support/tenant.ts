@@ -457,8 +457,8 @@ export async function startTestGate(options: {
         tenantId: options.tenantId,
         store: options.store,
         root: options.root,
-        readHostModel: () => options.vault.readHostModel(),
-        writeHostCredential: (credential) => options.vault.updateHostCredential(credential),
+        readHostModel: (sessionId) => options.vault.readHostModel(sessionId),
+        writeHostCredential: (credential, provider) => options.vault.updateHostCredential(credential, provider),
         session,
         authorizeMcp,
         keys: () => {

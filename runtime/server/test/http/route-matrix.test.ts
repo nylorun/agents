@@ -208,6 +208,10 @@ function tenantOperations(): Operation[] {
     { method: "GET", path: "/v1/sessions/s1/items" },
     { method: "GET", path: "/v1/sessions/s1/events" },
     { method: "POST", path: "/v1/sessions/s1/sandbox/bash", body: INVALID },
+    // A session's own model (feature `session-model`): the write fails validation, the clear names no session.
+    { method: "GET", path: "/v1/sessions/s1/model" },
+    { method: "PUT", path: "/v1/sessions/s1/model", body: INVALID },
+    { method: "DELETE", path: "/v1/sessions/missing/model" },
     // Agents (protocol 16; Environments from protocol 11): writes fail validation or name ids
     // that do not exist.
     { method: "GET", path: "/v1/agents" },

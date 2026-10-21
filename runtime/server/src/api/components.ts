@@ -6,6 +6,8 @@
  */
 import { z } from "zod";
 import {
+  PutSessionModelRequestSchema,
+  SessionModelViewSchema,
   QueuedResponseSchema,
   TriggerListSchema,
   MemoryListSchema,
@@ -216,6 +218,8 @@ export const WebhookAcceptedResponse = named("WebhookAcceptedResponse", WebhookA
 export const ListSessionsResponse = named("ListSessionsResponse", ListSessionsResponseSchema);
 export const PutSessionRequest = named("PutSessionRequest", PutSessionRequestSchema);
 export const SessionView = named("SessionView", SessionViewSchema);
+export const PutSessionModelRequest = named("PutSessionModelRequest", PutSessionModelRequestSchema);
+export const SessionModelView = named("SessionModelView", SessionModelViewSchema);
 export const LiveEvent = named("LiveEvent", LiveEventSchema);
 
 /** `environment.state` → `EnvironmentStateEvent`. */
