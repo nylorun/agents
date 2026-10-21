@@ -161,7 +161,7 @@ export async function startSegment(
   // The model an agent's harness decides files by, read outside the session's transaction.
   const model =
     options.harness && !isWorkflowManifest(opened.current.manifest)
-      ? await currentModelDescriptor(ctx)
+      ? await currentModelDescriptor(ctx, opened.current.model)
       : undefined;
   const started = model ? { ...opened, model } : opened;
   // One history (P0.3): the engine resumes from the transcript folded from the record.

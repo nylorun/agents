@@ -4130,6 +4130,48 @@ export const HostModelViewSchema = z.union([
     .strict(),
 ]);
 
+/**
+ * A session's own model (Host feature `session-model`): one of a connected provider's models,
+ * used by the session's turns in place of the Tenant's model. Choosing one changes nothing else:
+ * not the Tenant's model, nor another session's.
+ */
+export const SessionModelChoiceSchema = z
+  .object({
+    provider: z.string().min(1),
+    model: z.string().min(1),
+  })
+  .strict();
+export type SessionModelChoice = z.infer<typeof SessionModelChoiceSchema>;
+
+/** `PUT /v1/sessions/{id}/model`: the model the session's next turns use. */
+export const PutSessionModelRequestSchema = SessionModelChoiceSchema;
+export type PutSessionModelRequest = z.infer<typeof PutSessionModelRequestSchema>;
+
+/**
+ * The model a session's next turn uses: its own (`source: "session"`) while its provider is
+ * connected, else the Tenant's (`source: "tenant"`). `choice` is what the session chose, kept
+ * while its provider is disconnected.
+ */
+export const SessionModelViewSchema = z.union([
+  z
+    .object({
+      configured: z.literal(false),
+      choice: SessionModelChoiceSchema.optional(),
+    })
+    .strict(),
+  z
+    .object({
+      configured: z.literal(true),
+      source: z.enum(["session", "tenant"]),
+      provider: z.string(),
+      model: z.string(),
+      baseUrl: z.string().optional(),
+      choice: SessionModelChoiceSchema.optional(),
+    })
+    .strict(),
+]);
+export type SessionModelView = z.infer<typeof SessionModelViewSchema>;
+
 export const TenantStatusSchema = z
   .object({
     tenant: TenantEnvelopeSchema,

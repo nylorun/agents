@@ -78,6 +78,8 @@ export type {
   SessionManifestView,
   HistoryPage,
   SessionUsageTotals,
+  SessionModelChoice,
+  SessionModelView,
   CostSplit,
   ModelCall,
   ModelCallsPage,

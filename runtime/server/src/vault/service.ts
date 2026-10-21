@@ -39,7 +39,8 @@
  * coverage(manifest: AgentManifest | WorkflowManifest, request: CredentialCoverageRequest): Promise<CredentialCoverage>
  *
  * // Host model credential: each opens its own transaction.
- * getHostModel(): Promise<HostModelView>
+ * getHostModel(choice?: SessionModelChoice): Promise<HostModelView>
+ * getSessionModel(choice?: SessionModelChoice): Promise<SessionModelView>
  * listHostProviders(): Promise<{ providers: HostModelProviderInfo[] }>
  * putHostModel(body: PutHostModelRequest): Promise<HostModelView>
  * selectHostModel(body: SelectHostModelRequest): Promise<HostModelView>
@@ -96,6 +97,8 @@ import type {
   HostModelAuthType,
   HostModelProviderInfo,
   HostModelView,
+  SessionModelChoice,
+  SessionModelView,
   PutAgentSecretRequest,
   PutHostModelRequest,
   CustomModelSettings,
@@ -701,8 +704,29 @@ export class VaultService {
 
   // --- host model ----------------------------------------------------------------
 
-  async getHostModel(): Promise<HostModelView> {
-    return this.store.tx((t) => this.hostModelView(t));
+  /**
+   * The Tenant's model, or the model a session's turns use (`choice`, its own, while its provider
+   * is connected).
+   */
+  async getHostModel(choice?: SessionModelChoice): Promise<HostModelView> {
+    return this.store.tx((t) => this.hostModelView(t, choice));
+  }
+
+  /** The model a session's next turn uses, and where it comes from (Host feature `session-model`). */
+  async getSessionModel(choice?: SessionModelChoice): Promise<SessionModelView> {
+    return this.store.tx(async (t) => {
+      const found = await hostCredentialRowOf(t, choice);
+      const kept = choice ? { choice } : {};
+      if (!found) return { configured: false, ...kept };
+      return {
+        configured: true,
+        source: found.source,
+        provider: found.binding.provider,
+        model: found.binding.model,
+        ...(found.binding.baseUrl ? { baseUrl: found.binding.baseUrl } : {}),
+        ...kept,
+      };
+    });
   }
 
   async listHostProviders(): Promise<{ providers: HostModelProviderInfo[] }> {
@@ -973,10 +997,10 @@ export class VaultService {
     });
   }
 
-  private async hostModelView(t: Tx): Promise<HostModelView> {
-    const row = await activeHostCredentialRow(t);
-    if (!row) return { configured: false };
-    const binding = modelBinding(row);
+  private async hostModelView(t: Tx, choice?: SessionModelChoice): Promise<HostModelView> {
+    const found = await hostCredentialRowOf(t, choice);
+    if (!found) return { configured: false };
+    const { binding } = found;
     return {
       configured: true,
       provider: binding.provider,
@@ -1204,6 +1228,23 @@ export async function activeProviderId(t: Tx): Promise<string | undefined> {
   const legacy = rows.find((row) => row.id === HOST_MODEL_ID);
   if (legacy) return modelBinding(legacy).provider;
   return modelBinding(rows[0]!).provider;
+}
+
+/**
+ * The host model credential row a session's calls use (ciphertext), in `t`, with the binding
+ * they call: its own model (`choice`) on its provider's row while that provider is connected,
+ * else the Tenant's active one. `row`'s own binding seals its secret (`readHostPayload`).
+ */
+export async function hostCredentialRowOf(
+  t: Tx,
+  choice: SessionModelChoice | undefined,
+): Promise<
+  { row: VaultCredentialRow; binding: ModelBinding; source: "session" | "tenant" } | undefined
+> {
+  const chosen = choice && (await hostCredentialRowFor(t, choice.provider));
+  if (chosen) return { row: chosen, binding: { ...modelBinding(chosen), model: choice.model }, source: "session" };
+  const row = await activeHostCredentialRow(t);
+  return row && { row, binding: modelBinding(row), source: "tenant" };
 }
 
 /** The active host model credential row (ciphertext), in `t`. */

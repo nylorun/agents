@@ -85,6 +85,7 @@ function AttachmentChip({
  */
 export function SessionComposer({
   tenantId,
+  sessionId,
   agentName,
   value,
   onChange,
@@ -98,6 +99,8 @@ export function SessionComposer({
   onRemove,
 }: Readonly<{
   tenantId: string;
+  /** The session the message box writes to; its model is the picker's. */
+  sessionId: string;
   agentName: string;
   value: string;
   onChange: (value: string) => void;
@@ -300,7 +303,9 @@ export function SessionComposer({
       </div>
       <SessionModelPicker
         tenantId={tenantId}
-        disabled={disabled}
+        sessionId={sessionId}
+        // A turn calls one model: the session's changes between turns.
+        disabled={disabled || sending}
         className="mt-1"
       />
     </form>

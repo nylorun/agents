@@ -633,8 +633,24 @@ endpoint's settings apply), or the fixture model's (`provider: "fixture"`, every
 custom window) when the Tenant uses it; none when no model is configured. `startSegment` reads it
 outside the session's transaction for an agent's turn, never a flow's; it is a snapshot, so a
 model switched mid-turn may refuse a part the harness chose for the old one (`unsupported_input`).
-The A2A card's input modes and MCP deferral's window read it too.
+The A2A card's input modes and MCP deferral's window read it too. A session's own model is
+described in its place (**Session model**).
 _Avoid_: a harness guessing what the model reads.
+
+**Session model**: A session's own model (Host feature `session-model`): one of a connected
+provider's models, kept on the session (`Session.model`, `{provider, model}`) and chosen with
+`PUT /v1/sessions/{id}/model`, cleared with `DELETE` (`tenant/session-model.ts`), by the
+application only (its key, or for a subject; a trusted issuer's token reads it but is refused a
+change, since the model sets the cost). Its turns'
+calls use it in place of the Tenant's active model: the Model Gate reads it at each call
+(`HostModelVault.readHostModel(sessionId)`, through `hostCredentialRowOf` in `vault/service.ts`),
+on the provider's own row with the model swapped, so the row's binding still seals its secret and
+a refreshed OAuth credential is written back to that provider. `turn.start.model` describes it,
+and the usage ledger records the model called. The Tenant's model and every other session's stay
+as they are. It names a connected provider and a model its catalog lists (any model for
+`custom`), and changes only while no turn runs or waits (`409 session_busy`); while its provider
+is disconnected the session uses the Tenant's model again (`source: "tenant"`, `choice` kept).
+_Avoid_: changing the Tenant's model from a session; switching a turn's model mid-turn.
 
 The **reference line**, the **file view** and the structured answer are the harness's
 (`runtime/harness/src/CONTEXT.md`).
@@ -733,8 +749,8 @@ other clients `426`; required features `studio-principal`, `artifacts`, `managem
 optional Host features `tenant-fixture-model`, `transcript-events`, `subject-headers`,
 `ag-ui-endpoint`, `a2a-endpoint`, `sandbox-pods`, `trusted-issuers`, `session-reads`,
 `calls-export`, `credential-coverage`, `tool-calls`, `environment-setup`,
-`environment-disk-versions`, `tool-policy`, `traces`, `artifact-reads` and
-`gateway-credentials`).
+`environment-disk-versions`, `tool-policy`, `traces`, `artifact-reads`,
+`gateway-credentials`, `agent-folders` and `session-model`).
 Protocols 17 (the session queue) and 18 (usage by token kind) were additive.
 Protocol 16 made agents one manifest (track T2, `agents`, Harness API 5): an **agent manifest** v8
 with a harness and a runtime section, checked against each other at save, replaced agent

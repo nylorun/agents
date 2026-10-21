@@ -704,6 +704,49 @@ describe("VaultService host model", () => {
       expect(Buffer.from(row.ciphertext).includes(Buffer.from(secret))).toBe(false);
   });
 
+  it("writes a refreshed credential back to the provider it was read for", async () => {
+    const { vault, hostModel } = await setup();
+    const openaiModel =
+      hostModelCatalog().providers.find((provider) => provider.id === "openai")?.models[0]?.id ?? "gpt-4o-mini";
+    await vault.putHostModel({
+      requestId: "back-1",
+      idempotencyKey: "back-1",
+      provider: "openai",
+      model: openaiModel,
+      auth: { type: "api_key", key: "openai-key" },
+    });
+    await vault.putHostModel({
+      requestId: "back-2",
+      idempotencyKey: "back-2",
+      provider: "custom",
+      model: "fixture",
+      baseUrl: "https://models.example.test/v1",
+      auth: { type: "api_key", key: "custom-key" },
+    });
+    // A session's own model on OpenAI, while the Tenant's is the custom endpoint.
+    await hostModel.updateHostCredential({ type: "api_key", key: "openai-key-new" }, "openai");
+    expect((await hostModel.readHostModel())?.credential).toEqual({ type: "api_key", key: "custom-key" });
+    expect(await vault.getHostModel({ provider: "openai", model: openaiModel })).toMatchObject({
+      provider: "openai",
+      model: openaiModel,
+    });
+    await vault.selectHostModel({
+      requestId: "back-3",
+      idempotencyKey: "back-3",
+      provider: "openai",
+      model: openaiModel,
+    });
+    expect((await hostModel.readHostModel())?.credential).toEqual({ type: "api_key", key: "openai-key-new" });
+    // A session whose provider is not connected uses the Tenant's model.
+    expect(await vault.getSessionModel({ provider: "anthropic", model: "x" })).toEqual({
+      configured: true,
+      source: "tenant",
+      provider: "openai",
+      model: openaiModel,
+      choice: { provider: "anthropic", model: "x" },
+    });
+  });
+
   it("keeps a custom endpoint's model settings, also across a model selection", async () => {
     const { vault, hostModel } = await setup();
     const settings = {

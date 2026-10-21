@@ -18,6 +18,7 @@ import type { SessionHistory } from "./history.js";
 import { DEFAULT_HARNESS, agentGranted } from "@nylorun/core/contracts";
 import type {
   IssuerScope,
+  SessionModelChoice,
   SubjectScope,
   TenantEnvelope,
 } from "@nylorun/core/contracts";
@@ -144,6 +145,11 @@ export interface Session {
    * Tenant-wide ones beside the session's own. Absent until a message names a file.
    */
   fileArtifacts?: string[];
+  /**
+   * The session's own model (Host feature `session-model`): its turns' model calls use it in
+   * place of the Tenant's while its provider is connected. Absent: the Tenant's model.
+   */
+  model?: SessionModelChoice;
 }
 
 export type AuthScope =

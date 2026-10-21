@@ -206,6 +206,9 @@ export type ProtocolFeature = (typeof PROTOCOL_FEATURES)[number];
  * `agent-folders`: `PUT /v1/agent-manifests/{name}` also takes an agent folder by hash
  * (`application/vnd.nylorun.folder+json`), compiles it with `@nylorun/core/folder` and keeps it
  * as the version's source, read at `GET .../versions/{v}/source` and `.../source/files/{path}`.
+ * `session-model`: `GET`, `PUT` and `DELETE /v1/sessions/{id}/model` read, choose and clear a
+ * session's own model, one of a connected provider's, which its turns use in place of the
+ * Tenant's; the Tenant's model does not change.
  */
 export const OPTIONAL_HOST_FEATURES = [
   "tenant-fixture-model",
@@ -227,6 +230,7 @@ export const OPTIONAL_HOST_FEATURES = [
   "artifact-reads",
   "gateway-credentials",
   "agent-folders",
+  "session-model",
 ] as const;
 export type OptionalHostFeature = (typeof OPTIONAL_HOST_FEATURES)[number];
 export interface ProtocolRange {

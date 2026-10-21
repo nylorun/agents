@@ -1296,6 +1296,7 @@ function SessionView({
           </div>
           <SessionComposer
             tenantId={tenantId}
+            sessionId={sessionId}
             agentName={agent.name}
             value={content}
             onChange={setContent}

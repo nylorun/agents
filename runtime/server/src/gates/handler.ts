@@ -45,8 +45,8 @@ export function createModelCallHandler(options: ModelCallHandlerOptions): ModelC
         request = call;
         const gate = inProcessModelGate({
           root: vault.root,
-          readHostModel: () => vault.readHostModel(),
-          writeHostCredential: (credential) => vault.writeHostCredential(credential),
+          readHostModel: (request) => vault.readHostModel(request.sessionId),
+          writeHostCredential: (credential, provider) => vault.writeHostCredential(credential, provider),
           // The Tenant's Runtime limits `model*`, read for this call.
           settings: await modelCallSettings(vault.store),
           ...(blobs ? { files: callFiles(vault.store, blobs) } : {}),

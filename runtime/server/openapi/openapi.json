@@ -34,7 +34,8 @@
         "traces",
         "artifact-reads",
         "gateway-credentials",
-        "agent-folders"
+        "agent-folders",
+        "session-model"
       ]
     },
     "description": "For developers: agent manifests, Agents, sessions (with AG-UI and A2A) and artifacts, through `@nylorun/agents`. Every Tenant serves it on its one URL, beside the Management API (`/openapi/management.json`). Every request sends `Nylorun-Protocol`. Who may call each operation is its `security` and its `x-nylorun-credentials` and `x-nylorun-scopes` (the subject scopes that reach it) fields: an application key (servers) or a trusted issuer's token (browsers and apps)."
@@ -8864,6 +8865,113 @@
           "requestId",
           "agent",
           "ownerUserId"
+        ],
+        "additionalProperties": false
+      },
+      "SessionModelView": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "configured": {
+                "type": "boolean",
+                "enum": [
+                  false
+                ]
+              },
+              "choice": {
+                "type": "object",
+                "properties": {
+                  "provider": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "model": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "provider",
+                  "model"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "configured"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "configured": {
+                "type": "boolean",
+                "enum": [
+                  true
+                ]
+              },
+              "source": {
+                "type": "string",
+                "enum": [
+                  "session",
+                  "tenant"
+                ]
+              },
+              "provider": {
+                "type": "string"
+              },
+              "model": {
+                "type": "string"
+              },
+              "baseUrl": {
+                "type": "string"
+              },
+              "choice": {
+                "type": "object",
+                "properties": {
+                  "provider": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "model": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "provider",
+                  "model"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "configured",
+              "source",
+              "provider",
+              "model"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "PutSessionModelRequest": {
+        "type": "object",
+        "properties": {
+          "provider": {
+            "type": "string",
+            "minLength": 1
+          },
+          "model": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "provider",
+          "model"
         ],
         "additionalProperties": false
       },
@@ -32792,6 +32900,410 @@
                 }
               }
             }
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/sessions/{sessionId}/model": {
+      "get": {
+        "tags": [
+          "Sessions API"
+        ],
+        "summary": "Get a session's model",
+        "description": "The model the session's next turn uses (feature `session-model`): its own (`source: \"session\"`) while its provider is connected, else the Tenant's (`source: \"tenant\"`). `choice` is the session's own model, kept while its provider is disconnected.",
+        "security": [
+          {
+            "applicationKey": []
+          },
+          {
+            "issuerToken": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "application",
+          "subject",
+          "token"
+        ],
+        "x-nylorun-scopes": [
+          "sessions:own"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "sessionId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `18`"
+            },
+            "required": true,
+            "description": "The protocol version, `18`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The person an application key acts for"
+            },
+            "required": false,
+            "description": "The person an application key acts for",
+            "name": "Nylorun-Subject",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The subject's space-separated scopes; required with a subject"
+            },
+            "required": false,
+            "description": "The subject's space-separated scopes; required with a subject",
+            "name": "Nylorun-Scopes",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The session's model",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionModelView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid headers, path, body or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No credential (`credential_required`), one the Tenant does not accept (`credential_invalid`), a token that expired (`token_expired`), or a token whose issuer's keys cannot be fetched now (`issuer_unavailable`). `WWW-Authenticate: Bearer` names the protected resource metadata (`resource_metadata`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Sessions API"
+        ],
+        "summary": "Choose a session's model",
+        "description": "Chooses one of a connected provider's models for the session's turns (feature `session-model`), in place of the Tenant's model. The Tenant's model and every other session's stay as they are. Only the application sets it, for itself or for a subject: a trusted issuer's token is refused. A turn calls one model, so the choice changes only while no turn runs or waits (`409 session_busy`). A provider that is not connected, or a model its catalog does not list, is `422 request_rejected`.",
+        "security": [
+          {
+            "applicationKey": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "application",
+          "subject"
+        ],
+        "x-nylorun-scopes": [
+          "sessions:own"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "sessionId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `18`"
+            },
+            "required": true,
+            "description": "The protocol version, `18`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The person an application key acts for"
+            },
+            "required": false,
+            "description": "The person an application key acts for",
+            "name": "Nylorun-Subject",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The subject's space-separated scopes; required with a subject"
+            },
+            "required": false,
+            "description": "The subject's space-separated scopes; required with a subject",
+            "name": "Nylorun-Scopes",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutSessionModelRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The session's model",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionModelView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid headers, path, body or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No credential (`credential_required`), or one the Tenant does not accept (`credential_invalid`), with a `WWW-Authenticate: Bearer` challenge",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A trusted issuer's token (`scope_required`)"
+          },
+          "404": {
+            "description": "Not found (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A turn is running or waits (`session_busy`)"
+          },
+          "422": {
+            "description": "The provider is not connected, or the model is not one of its models"
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Sessions API"
+        ],
+        "summary": "Clear a session's model",
+        "description": "Clears the session's own model (feature `session-model`): its next turns use the Tenant's model. Refused while a turn runs or waits (`409 session_busy`).",
+        "security": [
+          {
+            "applicationKey": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "application",
+          "subject"
+        ],
+        "x-nylorun-scopes": [
+          "sessions:own"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "sessionId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `18`"
+            },
+            "required": true,
+            "description": "The protocol version, `18`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The person an application key acts for"
+            },
+            "required": false,
+            "description": "The person an application key acts for",
+            "name": "Nylorun-Subject",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The subject's space-separated scopes; required with a subject"
+            },
+            "required": false,
+            "description": "The subject's space-separated scopes; required with a subject",
+            "name": "Nylorun-Scopes",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The session's model",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionModelView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid headers, path, body or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No credential (`credential_required`), or one the Tenant does not accept (`credential_invalid`), with a `WWW-Authenticate: Bearer` challenge",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A trusted issuer's token (`scope_required`)"
+          },
+          "404": {
+            "description": "Not found (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A turn is running or waits (`session_busy`)"
           },
           "426": {
             "description": "`Nylorun-Protocol` missing or unsupported",

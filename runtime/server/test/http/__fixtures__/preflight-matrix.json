@@ -67,6 +67,18 @@
     "status": 204,
     "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
+  "GET /v1/sessions/s1/model": {
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
+  },
+  "PUT /v1/sessions/s1/model": {
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
+  },
+  "DELETE /v1/sessions/missing/model": {
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
+  },
   "GET /v1/agents": {
     "status": 204,
     "allow": "GET, POST, PUT, DELETE, OPTIONS"

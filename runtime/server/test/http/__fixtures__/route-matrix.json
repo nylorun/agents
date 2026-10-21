@@ -1100,6 +1100,205 @@
       "message": "A management key reaches only the Management API (/v1/tenant/*)"
     }
   },
+  "GET /v1/sessions/s1/model": {
+    "none": {
+      "status": 401,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_required",
+      "message": "A bearer credential is required"
+    },
+    "wrong": {
+      "status": 401,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_invalid",
+      "message": "The credential is not valid here"
+    },
+    "application": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "application-browser": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "origin_rejected",
+      "message": "Application keys are not accepted from browsers"
+    },
+    "subject": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "Scope sessions:own required",
+      "details": {
+        "scopes": [
+          "sessions:own"
+        ]
+      }
+    },
+    "token": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "token-browser": {
+      "status": 200,
+      "contentType": "application/json"
+    },
+    "management": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    }
+  },
+  "PUT /v1/sessions/s1/model": {
+    "none": {
+      "status": 401,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_required",
+      "message": "A bearer credential is required"
+    },
+    "wrong": {
+      "status": 401,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_invalid",
+      "message": "The credential is not valid here"
+    },
+    "application": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
+    },
+    "application-browser": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "origin_rejected",
+      "message": "Application keys are not accepted from browsers"
+    },
+    "subject": {
+      "status": 400,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "[\n  {\n    \"expected\": \"object\",\n    \"code\": \"invalid_type\",\n    \"path\": [],\n    \"message\": \"Invalid input: expected object, received array\"\n  }\n]"
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "Scope sessions:own required",
+      "details": {
+        "scopes": [
+          "sessions:own"
+        ]
+      }
+    },
+    "token": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "A token caller cannot choose a session's model"
+    },
+    "token-browser": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "A token caller cannot choose a session's model"
+    },
+    "management": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    }
+  },
+  "DELETE /v1/sessions/missing/model": {
+    "none": {
+      "status": 401,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_required",
+      "message": "A bearer credential is required"
+    },
+    "wrong": {
+      "status": 401,
+      "contentType": "application/json",
+      "wwwAuthenticate": "Bearer error=\"invalid_token\", resource_metadata=\"<runtime>/.well-known/oauth-protected-resource\"",
+      "code": "credential_invalid",
+      "message": "The credential is not valid here"
+    },
+    "application": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Session not found"
+    },
+    "application-browser": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "origin_rejected",
+      "message": "Application keys are not accepted from browsers"
+    },
+    "subject": {
+      "status": 404,
+      "contentType": "application/json",
+      "code": "request_rejected",
+      "message": "Session not found"
+    },
+    "subject-read": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "Scope sessions:own required",
+      "details": {
+        "scopes": [
+          "sessions:own"
+        ]
+      }
+    },
+    "token": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "A token caller cannot choose a session's model"
+    },
+    "token-browser": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "scope_required",
+      "message": "A token caller cannot choose a session's model"
+    },
+    "management": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    },
+    "management-subject": {
+      "status": 403,
+      "contentType": "application/json",
+      "code": "key_role_mismatch",
+      "message": "A management key reaches only the Management API (/v1/tenant/*)"
+    }
+  },
   "GET /v1/agents": {
     "none": {
       "status": 401,

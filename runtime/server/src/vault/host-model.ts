@@ -7,11 +7,14 @@
  * Decryption runs after the read commits; the key is resolved before the write's transaction.
  */
 import type { SessionStore } from "../store/types.js";
+import type { Session } from "../tenant/context.js";
 import { readAddedInputs } from "../tenant/model-setting.js";
 import { encryptSecret } from "./crypto.js";
 import { VaultError } from "./error.js";
 import {
   activeHostCredentialRow,
+  hostCredentialRowFor,
+  hostCredentialRowOf,
   HOST_VAULT_ID,
   hostModelAad,
   modelBinding,
@@ -35,17 +38,22 @@ export class HostModelVault {
   }
 
   /**
-   * Reads the active host model secret, with the inputs the operator added to catalog models
-   * (protocol 12). Decrypts after the read commits.
+   * Reads the host model secret a call uses, with the inputs the operator added to catalog
+   * models (protocol 12): the session's own model while its provider is connected (Host feature
+   * `session-model`), else the Tenant's active one. Decrypts after the read commits.
    */
-  async readHostModel(): Promise<HostModelSecret | undefined> {
-    const { row, addedInputs } = await this.store.tx(async (t) => ({
-      row: await activeHostCredentialRow(t),
-      addedInputs: await readAddedInputs(t),
-    }));
-    if (!row) return undefined;
-    const binding = modelBinding(row);
-    const payload = readHostPayload(this.kek(), row, binding);
+  async readHostModel(sessionId?: string): Promise<HostModelSecret | undefined> {
+    const { found, addedInputs } = await this.store.tx(async (t) => {
+      const session = sessionId === undefined ? undefined : await t.get<Session>("sessions", sessionId);
+      return {
+        found: await hostCredentialRowOf(t, session?.model),
+        addedInputs: await readAddedInputs(t),
+      };
+    });
+    if (!found) return undefined;
+    const { row, binding } = found;
+    // The row's own binding seals its secret; a session's model only changes what is called.
+    const payload = readHostPayload(this.kek(), row, modelBinding(row));
     const credential =
       binding.authType === "oauth"
         ? { type: "oauth" as const, ...payload.oauth }
@@ -68,7 +76,10 @@ export class HostModelVault {
     };
   }
 
-  /** Replaces the active host model's secret, keeping its binding. */
+  /**
+   * Replaces a host model's secret, keeping its binding: `provider`'s, the one the refreshed
+   * credential was read for, else the active one's.
+   */
   async updateHostCredential(credential: {
     type: "api_key" | "oauth";
     key?: string;
@@ -76,10 +87,11 @@ export class HostModelVault {
     refresh?: string;
     access?: string;
     expires?: number;
-  }): Promise<void> {
+  }, provider?: string): Promise<void> {
     const kek = this.kek();
     await this.store.tx(async (t) => {
-      const row = await activeHostCredentialRow(t);
+      const row =
+        provider === undefined ? await activeHostCredentialRow(t) : await hostCredentialRowFor(t, provider);
       if (!row) throw new VaultError(404, "Model provider is not configured");
       const binding = modelBinding(row);
       const payload =

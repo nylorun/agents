@@ -189,8 +189,8 @@ export async function proxyRuntime(
   const read =
     method === "GET" &&
     (path === "/v1/sessions" ||
-      // A session's model usage, for its Usage tab: its totals and its model calls.
-      /^\/v1\/sessions\/[^/]+(?:\/(items|events|manifest|usage|calls\/model))?$/.test(path) ||
+      // A session's model usage, for its Usage tab: its totals and its model calls; and its model.
+      /^\/v1\/sessions\/[^/]+(?:\/(items|events|manifest|usage|calls\/model|model))?$/.test(path) ||
       path === "/v1/tenant" ||
       // The Tenant's page: its models, settings, spend, tool policy and keys (it shows no secret).
       /^\/v1\/tenant\/(?:model|models|providers|limits|sandbox|artifacts|skills|usage|budgets|tool-policy|keys|signing-keys)$/.test(
@@ -201,6 +201,9 @@ export async function proxyRuntime(
   const write =
     (method === "PUT" && /^\/v1\/sessions\/[^/]+$/.test(path)) ||
     (method === "POST" && /^\/v1\/sessions\/[^/]+\/commands$/.test(path));
+  // A session's own model (`session-model`): chosen or cleared for that session only.
+  const sessionModelWrite =
+    (method === "PUT" || method === "DELETE") && /^\/v1\/sessions\/[^/]+\/model$/.test(path);
   // The Tenant's settings it changes, and its reset. Its keys stay read-only: a key Studio
   // removed or a signing key it revoked could lock out an application.
   const tenantWrite =
@@ -220,6 +223,7 @@ export async function proxyRuntime(
     !health &&
     !read &&
     !write &&
+    !sessionModelWrite &&
     !tenantWrite &&
     !managementCheck &&
     !agentWrite &&
@@ -232,6 +236,7 @@ export async function proxyRuntime(
   const requestOrigin = request.headers.origin;
   if (
     (write ||
+      sessionModelWrite ||
       tenantWrite ||
       managementCheck ||
       agentWrite ||
@@ -307,6 +312,7 @@ export async function proxyRuntime(
   let mediaType = "application/json";
   if (
     write ||
+    (sessionModelWrite && method === "PUT") ||
     tenantWrite ||
     artifactLink ||
     managementCheck ||

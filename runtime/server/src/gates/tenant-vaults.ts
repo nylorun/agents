@@ -33,9 +33,10 @@ export interface TenantVault {
   readonly store: SessionStore;
   /** The Tenant's home: secrets found there are redacted from failure messages. */
   readonly root: string;
-  readHostModel(): Promise<HostModelSecret | undefined>;
-  /** Writes back a credential pi-ai refreshed (OAuth). */
-  writeHostCredential(credential: Credential): Promise<void>;
+  /** The host model a call uses: its session's own model (`session-model`), else the Tenant's. */
+  readHostModel(sessionId?: string): Promise<HostModelSecret | undefined>;
+  /** Writes back a credential pi-ai refreshed (OAuth) to `provider`'s, else the active one's. */
+  writeHostCredential(credential: Credential, provider?: string): Promise<void>;
   /** A session, for the remote MCP servers and HTTP tools its pinned manifest declares. */
   session(sessionId: string): Promise<Session | undefined>;
   /**
@@ -110,8 +111,8 @@ export function createTenantVaults(options: TenantVaultsOptions): TenantVaults {
       tenantId,
       store,
       root: paths.home,
-      readHostModel: () => vault.readHostModel(),
-      writeHostCredential: (credential) => vault.updateHostCredential(credential),
+      readHostModel: (sessionId) => vault.readHostModel(sessionId),
+      writeHostCredential: (credential, provider) => vault.updateHostCredential(credential, provider),
       session,
       authorizeMcp: (sessionId, request) =>
         authorizeSessionMcp(credentials, session, sessionId, request),

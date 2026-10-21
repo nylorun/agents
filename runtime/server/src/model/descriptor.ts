@@ -12,6 +12,7 @@ import {
   type CustomModelSettings,
   type HostModelView,
   type ModelInput,
+  type SessionModelChoice,
 } from "@nylorun/core/contracts";
 import type { ModelDescriptor } from "@nylorun/core/harness-api";
 import type { SessionStore } from "../store/types.js";
@@ -103,18 +104,22 @@ export function hostModelDescriptor(
 
 /**
  * The model the Tenant's turns use now: the fixture model's descriptor when the Tenant uses it,
- * else its active model's; undefined when none is configured (a test's scripted provider, say).
+ * else a session's own model's (`choice`, while its provider is connected), else its active
+ * model's; undefined when none is configured (a test's scripted provider, say).
  */
-export async function currentModelDescriptor(ctx: {
-  readonly store: SessionStore;
-  readonly vault: { getHostModel(): Promise<HostModelView> };
-}): Promise<ModelDescriptor | undefined> {
+export async function currentModelDescriptor(
+  ctx: {
+    readonly store: SessionStore;
+    readonly vault: { getHostModel(choice?: SessionModelChoice): Promise<HostModelView> };
+  },
+  choice?: SessionModelChoice,
+): Promise<ModelDescriptor | undefined> {
   const { fixture, added } = await ctx.store.tx(async (t) => ({
     fixture: await usesFixtureModel(t),
     added: await readAddedInputs(t),
   }));
   if (fixture) return FIXTURE_DESCRIPTOR;
-  const view = await ctx.vault.getHostModel();
+  const view = await ctx.vault.getHostModel(choice);
   return view.configured ? hostModelDescriptor(view, added) : undefined;
 }
 

@@ -154,7 +154,7 @@ const usageNumbers = (input: number, output: number) => ({
   costUsd: 0.0123,
 });
 
-async function fakeRuntime(sessionReads = false) {
+async function fakeRuntime(sessionReads = false, sessionModel = false) {
   const sessions = new Map<string, { creation: Creation; items: unknown[] }>([
     [
       ALICE_SESSION,
@@ -225,6 +225,15 @@ async function fakeRuntime(sessionReads = false) {
   });
   const puts: { id: string; body: Creation }[] = [];
   const coverage: string[] = [];
+  /** Every model write Studio sends: a session's (`session-model`) or the Tenant's. */
+  const modelWrites: string[] = [];
+  const sessionModels = new Map<string, { provider: string; model: string }>();
+  const sessionModelView = (id: string) => {
+    const choice = sessionModels.get(id);
+    return choice
+      ? { configured: true, source: "session", ...choice, choice }
+      : { configured: true, source: "tenant", provider: "openai", model: "gpt-test" };
+  };
   const agentOf = (id: string) => String(sessions.get(id)!.creation.agent);
   const manifestOf = (agentId: string) => (agentId === FLOW ? "shipping" : "orders");
   const view = (id: string) => {
@@ -257,7 +266,11 @@ async function fakeRuntime(sessionReads = false) {
   const protocol = {
     min: PROTOCOL_VERSION,
     max: PROTOCOL_VERSION,
-    features: [...PROTOCOL_FEATURES, ...(sessionReads ? ["session-reads"] : [])],
+    features: [
+      ...PROTOCOL_FEATURES,
+      ...(sessionReads ? ["session-reads"] : []),
+      ...(sessionModel ? ["session-model"] : []),
+    ],
   };
   const server = createServer(async (req, res) => {
     const chunks: Buffer[] = [];
@@ -397,6 +410,19 @@ async function fakeRuntime(sessionReads = false) {
       res.writeHead(200, { "content-type": stored.contentType, "content-length": String(stored.bytes.length) });
       return res.end(stored.bytes);
     }
+    const modelMatch = /^\/v1\/sessions\/([^/]+)\/model$/u.exec(path);
+    if (sessionModel && modelMatch) {
+      const id = decodeURIComponent(modelMatch[1]!);
+      if (req.method === "PUT") {
+        modelWrites.push(`PUT ${path} ${raw}`);
+        sessionModels.set(id, JSON.parse(raw) as { provider: string; model: string });
+      } else if (req.method === "DELETE") {
+        modelWrites.push(`DELETE ${path}`);
+        sessionModels.delete(id);
+      }
+      return send(200, sessionModelView(id));
+    }
+    if (req.method === "PUT" && path.startsWith("/v1/tenant/model")) modelWrites.push(`PUT ${path}`);
     const commandMatch = /^\/v1\/sessions\/([^/]+)\/commands$/u.exec(path);
     if (req.method === "POST" && commandMatch) {
       const body = JSON.parse(raw) as Record<string, any>;
@@ -449,7 +475,18 @@ async function fakeRuntime(sessionReads = false) {
         providers: [{ id: "openai", name: "OpenAI", model: "gpt-test", active: true, inputs: ["text", "image", "pdf"] }],
       });
     if (path === "/v1/tenant/models")
-      return send(200, { providers: [{ id: "openai", name: "OpenAI", models: [{ id: "gpt-test", name: "GPT Test" }] }] });
+      return send(200, {
+        providers: [
+          {
+            id: "openai",
+            name: "OpenAI",
+            models: [
+              { id: "gpt-test", name: "GPT Test" },
+              { id: "gpt-fast", name: "GPT Fast" },
+            ],
+          },
+        ],
+      });
     if (path === "/v1/tenant/model") return send(200, { configured: false });
     send(200, {});
   });
@@ -460,6 +497,7 @@ async function fakeRuntime(sessionReads = false) {
     coverage,
     uploads,
     commands,
+    modelWrites,
     close: () => (server.closeAllConnections(), server.close()),
   };
 }
@@ -472,10 +510,12 @@ async function withStudio(
     coverage: string[];
     uploads: Upload[];
     commands: Command[];
+    modelWrites: string[];
   }) => Promise<void>,
   sessionReads = false,
+  sessionModel = false,
 ) {
-  const runtime = await fakeRuntime(sessionReads);
+  const runtime = await fakeRuntime(sessionReads, sessionModel);
   const studio = await startStudioServer({
     runtimeUrl: runtime.url,
     adminKey: ADMIN_KEY,
@@ -503,6 +543,7 @@ async function withStudio(
       coverage: runtime.coverage,
       uploads: runtime.uploads,
       commands: runtime.commands,
+      modelWrites: runtime.modelWrites,
     });
     assert.deepEqual(pageErrors, []);
   } finally {
@@ -674,6 +715,46 @@ test("a session's Usage tab is one ledger of the session, its turns and each mod
     },
     true,
   );
+});
+
+test("the composer's model picker sets the model of this session only, never the Tenant's", async () => {
+  await withStudio(
+    async ({ page, studioUrl, modelWrites }) => {
+      await page.goto(`${studioUrl}/tenants/${TENANT}/agents/${AGENT}/sessions/${ALICE_SESSION}`);
+      const trigger = page.getByRole("button", { name: "This session's model" });
+      await trigger.getByText("Tenant model").waitFor();
+      assert.match((await trigger.textContent()) ?? "", /GPT Test.*OpenAI/u);
+      await trigger.click();
+      // The search box keeps what is typed: no menu typeahead takes the keys.
+      const search = page.getByRole("textbox", { name: "Search models" });
+      await search.pressSequentially("fast");
+      assert.equal(await search.inputValue(), "fast");
+      await page.getByRole("menuitem", { name: /GPT Fast/u }).click();
+      await page.getByRole("menu").waitFor({ state: "detached" });
+      assert.match((await trigger.textContent()) ?? "", /GPT Fast/u);
+      assert.doesNotMatch((await trigger.textContent()) ?? "", /Tenant model/u);
+      // Back to the Tenant model: the session's choice is cleared.
+      await trigger.click();
+      await page.getByRole("menuitem", { name: /Tenant model/u }).click();
+      await trigger.getByText("Tenant model").waitFor();
+      assert.deepEqual(modelWrites, [
+        `PUT /v1/sessions/${ALICE_SESSION}/model {"provider":"openai","model":"gpt-fast"}`,
+        `DELETE /v1/sessions/${ALICE_SESSION}/model`,
+      ]);
+    },
+    false,
+    true,
+  );
+});
+
+test("a Runtime without session-model shows no model picker", async () => {
+  await withStudio(async ({ page, studioUrl, modelWrites }) => {
+    await page.goto(`${studioUrl}/tenants/${TENANT}/agents/${AGENT}/sessions/${ALICE_SESSION}`);
+    await page.getByRole("textbox").first().waitFor();
+    await page.getByRole("button", { name: "Send" }).waitFor();
+    assert.equal(await page.getByRole("button", { name: "This session's model" }).count(), 0);
+    assert.deepEqual(modelWrites, []);
+  });
 });
 
 test("a sidebar Agent's + opens a session on it, for the local developer, and none on one guarded for another owner", async () => {

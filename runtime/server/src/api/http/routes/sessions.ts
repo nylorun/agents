@@ -9,6 +9,7 @@ import { RESPONSE_ALREADY_SENT } from "@hono/node-server/utils/response";
 import { z } from "zod";
 import { PROTOCOL_HEADER } from "@nylorun/core/compatibility";
 import {
+  PutSessionModelRequestSchema,
   PutSessionRequestSchema,
   SessionCommandSchema,
 } from "@nylorun/core/contracts";
@@ -21,10 +22,12 @@ import {
   SessionPage,
   HistoryPage,
   SessionEvent,
+  PutSessionModelRequest,
   PutSessionRequest,
   SandboxToolOutcome,
   SessionCommand,
   SessionItemsResponse,
+  SessionModelView,
   SessionView,
   StreamClosedFrame,
 } from "../../components.js";
@@ -36,6 +39,7 @@ import { fail } from "../../../tenant/http.js";
 import { agentGrantsOf, sandboxRouteDeps } from "../../../tenant/agents.js";
 import { readHistory, requestCursor, streamHolderOf, streamSessionEvents } from "../../../tenant/session-streams.js";
 import { listSessions, putSession, sessionView } from "../../../tenant/sessions.js";
+import { chooseSessionModel, readSessionModel } from "../../../tenant/session-model.js";
 import type { TenantEnv } from "../app.js";
 import { readJson } from "../body.js";
 import { TraceHeaders, tenantRoute, type RouteAccess } from "../define.js";
@@ -46,6 +50,18 @@ const OWN_SESSIONS: RouteAccess = {
   credentials: ["application", "subject", "token"],
   scopes: ["sessions:own"],
 };
+/**
+ * A session's own model costs what its model costs: the application chooses it (for a subject
+ * too), never a token a person's browser holds.
+ */
+const APP_SESSIONS: RouteAccess = {
+  credentials: ["application", "subject"],
+  scopes: ["sessions:own"],
+};
+function refuseToken(scope: { kind: string }): void {
+  if (scope.kind === "token")
+    fail(403, "A token caller cannot choose a session's model", { code: "scope_required" });
+}
 
 const json = (schema: z.ZodType, description: string) => ({
   description,
@@ -200,6 +216,81 @@ export function sessionRoutes(api: OpenAPIHono<TenantEnv>): void {
       return jsonResponse(
         200,
         await ctx.store.tx(async (t) => sessionView(t, await sessionOf(t, id, accessOf(scope)))),
+      );
+    },
+  );
+
+  tenantRoute(
+    api,
+    OWN_SESSIONS,
+    {
+      method: "get",
+      path: "/v1/sessions/{sessionId}/model",
+      tags: ["Sessions"],
+      summary: "Get a session's model",
+      description:
+        "The model the session's next turn uses (feature `session-model`): its own (`source: \"session\"`) while its provider is connected, else the Tenant's (`source: \"tenant\"`). `choice` is the session's own model, kept while its provider is disconnected.",
+      request: { params: sessionId },
+      responses: { 200: json(SessionModelView, "The session's model") },
+    },
+    async (c) => {
+      const scope = c.get("scope");
+      return jsonResponse(200, await readSessionModel(c.env.tenant, c.req.param("sessionId")!, accessOf(scope)));
+    },
+  );
+
+  tenantRoute(
+    api,
+    APP_SESSIONS,
+    {
+      method: "put",
+      path: "/v1/sessions/{sessionId}/model",
+      tags: ["Sessions"],
+      summary: "Choose a session's model",
+      description:
+        "Chooses one of a connected provider's models for the session's turns (feature `session-model`), in place of the Tenant's model. The Tenant's model and every other session's stay as they are. Only the application sets it, for itself or for a subject: a trusted issuer's token is refused. A turn calls one model, so the choice changes only while no turn runs or waits (`409 session_busy`). A provider that is not connected, or a model its catalog does not list, is `422 request_rejected`.",
+      request: { params: sessionId, body: body(PutSessionModelRequest) },
+      responses: {
+        200: json(SessionModelView, "The session's model"),
+        403: { description: "A trusted issuer's token (`scope_required`)" },
+        409: { description: "A turn is running or waits (`session_busy`)" },
+        422: { description: "The provider is not connected, or the model is not one of its models" },
+      },
+    },
+    async (c) => {
+      const scope = c.get("scope");
+      refuseToken(scope);
+      const choice = PutSessionModelRequestSchema.parse(await readJson(c));
+      return jsonResponse(
+        200,
+        await chooseSessionModel(c.env.tenant, c.req.param("sessionId")!, choice, accessOf(scope)),
+      );
+    },
+  );
+
+  tenantRoute(
+    api,
+    APP_SESSIONS,
+    {
+      method: "delete",
+      path: "/v1/sessions/{sessionId}/model",
+      tags: ["Sessions"],
+      summary: "Clear a session's model",
+      description:
+        "Clears the session's own model (feature `session-model`): its next turns use the Tenant's model. Refused while a turn runs or waits (`409 session_busy`).",
+      request: { params: sessionId },
+      responses: {
+        200: json(SessionModelView, "The session's model"),
+        403: { description: "A trusted issuer's token (`scope_required`)" },
+        409: { description: "A turn is running or waits (`session_busy`)" },
+      },
+    },
+    async (c) => {
+      const scope = c.get("scope");
+      refuseToken(scope);
+      return jsonResponse(
+        200,
+        await chooseSessionModel(c.env.tenant, c.req.param("sessionId")!, undefined, accessOf(scope)),
       );
     },
   );

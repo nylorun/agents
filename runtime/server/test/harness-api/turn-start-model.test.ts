@@ -42,7 +42,10 @@ async function call(runtime: Started, method: string, path: string, body?: unkno
 const LOOP = { temperature: 0.2, planner: { steps: 3 } };
 
 /** A Runtime with a harness the test drives, session s1 on Agent env-acme; the turn.start of its first turn. */
-async function firstTurn(setup: (runtime: Started) => Promise<void> = async () => {}): Promise<TurnStart> {
+async function firstTurn(
+  setup: (runtime: Started) => Promise<void> = async () => {},
+  opened: (runtime: Started) => Promise<void> = async () => {},
+): Promise<TurnStart> {
   const runtime = await boot({ harness: "remote", vaultKek: Buffer.alloc(32, 9) });
   cleanups.push(() => runtime.close());
   await setup(runtime);
@@ -52,6 +55,7 @@ async function firstTurn(setup: (runtime: Started) => Promise<void> = async () =
   expect((await call(runtime, "PUT", "/v1/sessions/s1", { requestId: "s1", agent: "env-acme", ownerUserId: "u" })).status).toBe(
     200
   );
+  await opened(runtime);
   const leased = acme.request("lease", {});
   const sent = await call(runtime, "POST", "/v1/sessions/s1/commands", {
     type: "message",
@@ -92,6 +96,34 @@ it("carries the vault model's descriptor, with the operator's additions", async 
     maxOutputTokens: 2_000,
     reasoning: false,
   });
+});
+
+it("carries the session's own model's descriptor (session-model)", async () => {
+  const input = await firstTurn(
+    async (runtime) => {
+      const put = await call(
+        runtime,
+        "PUT",
+        "/v1/tenant/model",
+        {
+          requestId: "model-1",
+          idempotencyKey: "model-1",
+          provider: "custom",
+          model: "tenant-model",
+          baseUrl: "https://provider.invalid/v1",
+          settings: { contextWindow: 64_000, maxTokens: 2_000 },
+          auth: { type: "api_key", key: "turn-start-provider-key" },
+        },
+        management(runtime)
+      );
+      expect(put.status, JSON.stringify(put.body)).toBe(200);
+    },
+    async (runtime) => {
+      const chosen = await call(runtime, "PUT", "/v1/sessions/s1/model", { provider: "custom", model: "session-model" });
+      expect(chosen.status, JSON.stringify(chosen.body)).toBe(200);
+    }
+  );
+  expect(input.model).toMatchObject({ provider: "custom", id: "session-model", contextWindow: 64_000 });
 });
 
 it("carries no descriptor when the Tenant has no model", async () => {
