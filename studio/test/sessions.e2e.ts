@@ -855,6 +855,22 @@ test("a flow agent's Agent page shows its stages as a diagram atop its Manifest 
   });
 });
 
+test("a session's Declared view lays out its pinned manifest as the Agent page does: harness rows that open their JSON", async () => {
+  await withStudio(async ({ page, studioUrl, puts }) => {
+    await page.goto(`${studioUrl}/tenants/${TENANT}/agents/${AGENT}/sessions/${ALICE_SESSION}?inspector=manifest`);
+    await page.getByRole("heading", { name: "Harness", exact: true }).waitFor();
+    const instructions = page.getByRole("region", { name: "Instructions", exact: true });
+    const row = instructions.getByRole("button", { name: /Answer about orders\./u });
+    assert.equal(await row.getAttribute("aria-expanded"), "false");
+    await row.click();
+    assert.equal(await row.getAttribute("aria-expanded"), "true");
+    await instructions.locator("pre", { hasText: "Answer about orders." }).waitFor();
+    // A session's manifest is its harness: where it runs is the Deployed view's.
+    assert.equal(await page.getByRole("heading", { name: "Runtime", exact: true }).count(), 0);
+    assert.deepEqual(puts, []);
+  }, true);
+});
+
 test("files attached to a message are uploaded into the session, then sent as its file parts", async () => {
   await withStudio(async ({ page, studioUrl, uploads, commands }) => {
     await page.goto(`${studioUrl}/tenants/${TENANT}/agents/${AGENT}/sessions/${ALICE_SESSION}`);

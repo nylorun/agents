@@ -178,21 +178,6 @@ export function manifestView(manifest: unknown): ManifestView {
   };
 }
 
-/**
- * Which skills and servers to show: all, the agent's own (`own`: no plugin), or one plugin's
- * (named as `pluginText` reads it).
- */
-export type PluginFilter = "all" | "own" | string;
-
-export function byPlugin<T extends { plugin?: PluginLabel }>(
-  items: readonly T[],
-  filter: PluginFilter,
-): T[] {
-  if (filter === "all") return [...items];
-  if (filter === "own") return items.filter((item) => item.plugin === undefined);
-  return items.filter((item) => item.plugin !== undefined && pluginText(item.plugin) === filter);
-}
-
 /** The first 12 characters of a manifest hash, enough to tell versions apart. */
 export function shortHash(hash: string): string {
   return hash.slice(0, 12);
@@ -238,27 +223,4 @@ export function isOutdated(
     state.latest !== undefined &&
     state.latest > state.version.version
   );
-}
-
-/** One schema field as a TypeScript-like member: `orderId: string`, `note?: string`. */
-export function fieldText(field: SchemaField): string {
-  return field.name ? `${field.name}${field.required ? "" : "?"}: ${field.type}` : field.type;
-}
-
-export type ManifestStats = {
-  tools: number;
-  subagents: number;
-  skills: number;
-  mcpServers: number;
-};
-
-/** Totals for the overview: the author's tools, not the ones the Runtime adds. */
-export function manifestStats(view: ManifestView): ManifestStats {
-  return {
-    tools: view.tools.filter((tool) => tool.kind === "code" || tool.kind === "http").length,
-    subagents: view.tools.filter((tool) => tool.kind === "subagent" || tool.kind === "flow-subagent")
-      .length,
-    skills: view.skills.length,
-    mcpServers: view.mcpServers.length,
-  };
 }

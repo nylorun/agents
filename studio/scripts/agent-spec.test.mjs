@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  flowOf,
+  harnessSpec,
   manifestSections,
   manifestSpec,
   scheduleText,
@@ -170,4 +172,28 @@ test("a manifest with no runtime section makes a vault with no compute; a flow l
     ["file", "Agent"],
   ]);
   assert.equal(sections[1].rows[0].value, "None: a vault with no compute");
+});
+
+test("a session's spec is its harness, with notes of plugin and approval, and the sandbox when it has one", () => {
+  const pinned = {
+    skills: { ship: { description: "How to ship", files: { "SKILL.md": "x" }, plugin: { name: "shipping", version: "1.2.0" } } },
+    mcpServers: { shop: { url: "https://shop.acme.dev/mcp", approval: "always", plugin: { name: "shop" }, credential: "SHOP" } },
+  };
+  const sections = harnessSpec(pinned, { sandbox: true });
+  assert.ok(sections.every((section) => section.group === "harness"));
+  const byId = Object.fromEntries(sections.map((section) => [section.id, section]));
+  assert.equal(byId.skills.rows[0].note, "from shipping 1.2.0");
+  assert.equal(byId.mcp.rows[0].note, "from shop · each call waits for approval · uses SHOP");
+  assert.deepEqual(sections.at(-1).rows.map((row) => [row.label, row.value]), [
+    ["Tools", "bash, read, write, edit, grep, glob"],
+  ]);
+  assert.equal(harnessSpec(pinned).some((section) => section.id === "sandbox"), false);
+});
+
+test("a flow agent's harness is its stages to draw; any other agent's is not", () => {
+  const flow = { kind: "workflow", workflowSchemaVersion: 3, root: { agent: "fetch" }, agents: { fetch: {} } };
+  assert.equal(flowOf(flow, "research/digest")?.id, "research/digest");
+  assert.equal(flowOf({ ...flow, id: "digest" }, "research/digest")?.id, "digest");
+  assert.equal(flowOf(harness, "research/analyst"), undefined);
+  assert.equal(flowOf(undefined, "x"), undefined);
 });

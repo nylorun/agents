@@ -1,46 +1,15 @@
-import { Fragment, useRef, useState, type ReactNode } from "react";
-import {
-  BookOpen,
-  Bot,
-  Braces,
-  Check,
-  Copy,
-  Info,
-  LayoutList,
-  Plug,
-  Terminal,
-  Workflow,
-  Wrench,
-  type LucideIcon,
-} from "lucide-react";
+import { useRef, useState } from "react";
+import { Bot, Braces, Check, Copy, Info, LayoutList, Workflow, type LucideIcon } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Separator } from "@/components/ui/separator";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { PluginBadge } from "@/components/tool-trace";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { cn } from "@/lib/utils";
-import {
-  SANDBOX_TOOLS,
-  byPlugin,
-  isOutdated,
-  manifestStats,
-  manifestView,
-  pluginText,
-  shortHash,
-  fieldText,
-  type ManifestView,
-  type PinnedManifestState,
-  type PluginFilter,
-  type PluginLabel,
-  type ToolView,
-} from "@/manifest/model";
+import { flowOf, harnessSpec } from "@/agent-spec";
+import { ManifestSpec } from "@/components/manifest-spec";
+import { isOutdated, manifestView, shortHash, type PinnedManifestState } from "@/manifest/model";
 import type { AgentManifest } from "@/studio-types";
-import { FlowDiagram } from "@/components/flow-diagram";
-import { isWorkflowManifest } from "@/workflow";
 
 /** A segmented control: the active view is raised on the muted track. */
 const SEGMENT =
@@ -69,7 +38,8 @@ function ViewToggle({
 
 /**
  * A session's Manifest tab, Declared view: the loop manifest it pinned (`pinned`), named by its agent manifest
- * and version, laid out or as JSON, and whether its Agent has a sandbox.
+ * and version, as JSON or laid out as the Agent and Tenant pages lay out a manifest (`ManifestSpec`):
+ * its harness, a flow agent's stages drawn atop it, and the sandbox's tools when its Agent has one.
  */
 export function AgentManifestPanel({
   agent,
@@ -83,13 +53,11 @@ export function AgentManifestPanel({
   const isWorkflow =
     agent.kind === "workflow" || (manifest as { kind?: unknown }).kind === "workflow";
   const view = manifestView(manifest);
-  const stats = manifestStats(view);
-  // The session's Agent says whether it has a sandbox: its loop manifest holds none (protocol 15).
-  const sandboxOn = hasSandbox;
+  const version = pinned.kind === "pinned" || pinned.kind === "agent" ? pinned.version : undefined;
   return (
     // Radix sizes the viewport's child as a table, which grows to the longest line.
     <ScrollArea className="h-full [&_[data-slot=scroll-area-viewport]>div]:block!">
-      <div className="space-y-5 p-4">
+      <div className="space-y-4 p-4">
         <header className="space-y-2">
           <div className="flex items-start gap-3">
             <div className="flex size-9 shrink-0 items-center justify-center rounded-lg border bg-muted">
@@ -124,73 +92,19 @@ export function AgentManifestPanel({
           <VersionAlert pinned={pinned} />
         </header>
 
-        {mode === "json" ? (
-          <ManifestJson manifest={manifest} />
-        ) : isWorkflow ? (
-          isWorkflowManifest(manifest) ? (
-            <FlowDiagram manifest={manifest} />
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              A flow agent's stages are on the Events tab, under Progress.
-            </p>
-          )
-        ) : (
-          <>
-            <div className="grid grid-cols-3 gap-2">
-              <Stat icon={Wrench} value={stats.tools} label="Tools" />
-              <Stat icon={Bot} value={stats.subagents} label="Subagents" />
-              <Stat icon={BookOpen} value={stats.skills} label="Skills" />
-              <Stat icon={Plug} value={stats.mcpServers} label="MCP servers" />
-              <Stat
-                icon={Terminal}
-                value={sandboxOn ? "On" : "Off"}
-                label="Sandbox"
-                muted={!sandboxOn}
-              />
-            </div>
-
-            <ManifestSections view={view} hasSandbox={hasSandbox} />
-          </>
-        )}
+        {mode === "json" ? <ManifestJson manifest={manifest} /> : null}
       </div>
+      {mode === "layout" ? (
+        <div className="pb-4">
+          <ManifestSpec
+            sections={harnessSpec(manifest, { sandbox: hasSandbox && !isWorkflow })}
+            flow={flowOf(manifest, agent.name)}
+            flowHint={version ? `as v${version.version} declares them` : "as the session's manifest declares them"}
+            detail="inline"
+          />
+        </div>
+      ) : null}
     </ScrollArea>
-  );
-}
-
-function Section({
-  title,
-  hint,
-  children,
-}: Readonly<{ title: string; hint: string; children: ReactNode }>) {
-  return (
-    <section className="space-y-2">
-      <Separator />
-      <div className="pt-2">
-        <h3 className="text-sm font-semibold">{title}</h3>
-        <p className="text-xs text-muted-foreground">{hint}</p>
-      </div>
-      {children}
-    </section>
-  );
-}
-
-function Stat({
-  icon: Icon,
-  value,
-  label,
-  muted,
-}: Readonly<{ icon: LucideIcon; value: number | string; label: string; muted?: boolean }>) {
-  const empty = muted || value === 0;
-  return (
-    <Card className={cn("gap-0.5 px-3 py-2 shadow-none", empty && "bg-muted/40")}>
-      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-        <Icon className="size-3.5" />
-        {label}
-      </div>
-      <div className={cn("text-lg leading-tight font-semibold", empty && "text-muted-foreground")}>
-        {value}
-      </div>
-    </Card>
   );
 }
 
@@ -250,233 +164,6 @@ function VersionAlert({ pinned }: Readonly<{ pinned: PinnedManifestState }>) {
   return null;
 }
 
-/** The agent's parts, flat: instructions, tools, skills, MCP servers, then its sandbox's tools. */
-function ManifestSections({
-  view,
-  hasSandbox,
-}: Readonly<{ view: ManifestView; hasSandbox: boolean }>) {
-  const [filter, setFilter] = useState<PluginFilter>("all");
-  const skills = byPlugin(view.skills, filter);
-  const servers = byPlugin(view.mcpServers, filter);
-  return (
-    <>
-      <Section title="Instructions" hint="The agent's own, in order.">
-        {view.instructions.length ? (
-          <Instructions instructions={view.instructions} label={false} />
-        ) : (
-          <p className="text-sm text-muted-foreground">None</p>
-        )}
-      </Section>
-
-      <Section title="Tools" hint="The Runtime makes an HTTP tool's request and runs an agent tool; it runs no code tool.">
-        {view.tools.length ? (
-          <ul className="divide-y rounded-md border">
-            {view.tools.map((tool) => (
-              <ToolRow key={tool.name} tool={tool} />
-            ))}
-          </ul>
-        ) : (
-          <p className="text-sm text-muted-foreground">None</p>
-        )}
-      </Section>
-
-      {view.plugins.length ? (
-        <PluginFilterBar plugins={view.plugins} value={filter} onChange={setFilter} />
-      ) : null}
-
-      <Section title="Skills" hint="Loaded on demand with load_skill.">
-        {skills.length ? (
-          <ul className="divide-y rounded-md border">
-            {skills.map((skill) => (
-              <li key={skill.name} className="px-3 py-2">
-                <div className="flex items-center gap-2">
-                  <span className="font-mono text-[13px] font-medium">{skill.name}</span>
-                  {skill.plugin ? <PluginBadge plugin={skill.plugin} /> : null}
-                </div>
-                {skill.description ? (
-                  <p className="text-xs text-muted-foreground">{skill.description}</p>
-                ) : null}
-                {skill.files.length ? (
-                  <ul className="mt-1 font-mono text-[11px] text-muted-foreground">
-                    {skill.files.map((path) => (
-                      <li key={path}>{path}</li>
-                    ))}
-                  </ul>
-                ) : null}
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="text-sm text-muted-foreground">None</p>
-        )}
-      </Section>
-
-      <Section title="MCP servers" hint="Their tools are discovered on the first turn.">
-        {servers.length ? (
-          <ul className="divide-y rounded-md border">
-            {servers.map((server) => (
-              <li key={server.name} className="space-y-0.5 px-3 py-2">
-                <div className="flex items-center gap-2">
-                  <span className="font-mono text-[13px] font-medium">{server.name}</span>
-                  {server.plugin ? <PluginBadge plugin={server.plugin} /> : null}
-                  {server.approval ? <Badge variant="outline">approval</Badge> : null}
-                </div>
-                {server.url ? (
-                  <p className="font-mono text-[11.5px] break-all text-muted-foreground">
-                    {server.url}
-                  </p>
-                ) : null}
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="text-sm text-muted-foreground">None</p>
-        )}
-      </Section>
-
-      {hasSandbox ? <SandboxSection /> : null}
-    </>
-  );
-}
-
-/** Narrows the skills and servers to the agent's own or one plugin's. */
-function PluginFilterBar({
-  plugins,
-  value,
-  onChange,
-}: Readonly<{ plugins: readonly PluginLabel[]; value: PluginFilter; onChange: (value: PluginFilter) => void }>) {
-  return (
-    <div className="flex flex-wrap items-center gap-2 pt-2">
-      <span className="text-xs text-muted-foreground">Skills and servers from</span>
-      <ToggleGroup
-        type="single"
-        size="sm"
-        value={value}
-        onValueChange={(next) => {
-          if (next) onChange(next);
-        }}
-        aria-label="Filter by plugin"
-        className="flex-wrap gap-0.5 rounded-lg bg-muted p-0.5"
-      >
-        <ToggleGroupItem value="all" className={FILTER}>
-          All
-        </ToggleGroupItem>
-        <ToggleGroupItem value="own" className={FILTER}>
-          Own
-        </ToggleGroupItem>
-        {plugins.map((plugin) => (
-          <ToggleGroupItem key={pluginText(plugin)} value={pluginText(plugin)} className={FILTER}>
-            {pluginText(plugin)}
-          </ToggleGroupItem>
-        ))}
-      </ToggleGroup>
-    </div>
-  );
-}
-
-const FILTER =
-  "h-6 rounded-md! px-2 text-xs text-muted-foreground hover:bg-transparent data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm!";
-
-function Group({
-  icon: Icon,
-  title,
-  note,
-  children,
-}: Readonly<{ icon: LucideIcon; title: string; note: string; children: ReactNode }>) {
-  return (
-    <div className="space-y-1.5">
-      <div className="flex items-center gap-1.5 text-xs">
-        <Icon className="size-3.5 text-muted-foreground" />
-        <span className="font-medium">{title}</span>
-        <span className="text-muted-foreground">— {note}</span>
-      </div>
-      {children}
-    </div>
-  );
-}
-
-/** Instructions fold after a few lines; skill catalogs and plugins make them long. */
-function Instructions({
-  instructions,
-  label = true,
-}: Readonly<{ instructions: readonly string[]; label?: boolean }>) {
-  const [open, setOpen] = useState(false);
-  const text = instructions.join("\n\n");
-  const long = text.split("\n").length > 4 || text.length > 320;
-  return (
-    <div className="space-y-1">
-      {label ? <div className="text-xs font-medium">Instructions</div> : null}
-      <div className="rounded-md border-l-2 bg-muted/50 px-3 py-2">
-        <p
-          className={cn(
-            "text-xs leading-relaxed whitespace-pre-wrap break-words",
-            long && !open && "line-clamp-4",
-          )}
-        >
-          {text}
-        </p>
-      </div>
-      {long ? (
-        <Button
-          variant="link"
-          size="sm"
-          className="h-auto p-0 text-xs text-muted-foreground"
-          onClick={() => setOpen(!open)}
-        >
-          {open ? "Show less" : "Show all"}
-        </Button>
-      ) : null}
-    </div>
-  );
-}
-
-function ToolRow({ tool }: Readonly<{ tool: ToolView }>) {
-  return (
-    <li className="space-y-1.5 px-3 py-2.5">
-      <div className="flex items-center gap-2">
-        <code className="font-mono text-[13px] font-medium">{tool.name}</code>
-        <ToolKindBadge tool={tool} />
-        {tool.approval ? <Badge variant="outline">approval</Badge> : null}
-      </div>
-      {tool.http ? (
-        <p className="font-mono text-[11.5px] break-all text-muted-foreground">
-          {tool.http.method} {tool.http.url}
-        </p>
-      ) : null}
-      {tool.description ? (
-        <p className="text-xs text-muted-foreground">{tool.description}</p>
-      ) : null}
-      <TypeBlock tool={tool} />
-    </li>
-  );
-}
-
-/** A tool's input and output as TypeScript-like members, one per line. */
-function TypeBlock({ tool }: Readonly<{ tool: ToolView }>) {
-  const rows: [string, ToolView["input"]][] = [["input", tool.input]];
-  if (tool.output) rows.push(["output", tool.output]);
-  return (
-    <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 rounded-md bg-muted px-2.5 py-2 font-mono text-[11.5px] leading-5">
-      {rows.map(([label, fields]) => (
-        <Fragment key={label}>
-          <span className="text-muted-foreground select-none">{label}</span>
-          <span className="min-w-0 break-words">
-            {fields.length === 0 ? (
-              <span className="text-muted-foreground">none</span>
-            ) : (
-              fields.map((field) => (
-                <span key={field.name || field.type} className="block">
-                  {fieldText(field)}
-                </span>
-              ))
-            )}
-          </span>
-        </Fragment>
-      ))}
-    </div>
-  );
-}
-
 /** The manifest exactly as the Runtime returned it. */
 function ManifestJson({ manifest }: Readonly<{ manifest: unknown }>) {
   const [copy, setCopy] = useState<"idle" | "copied" | "selected">("idle");
@@ -511,53 +198,5 @@ function ManifestJson({ manifest }: Readonly<{ manifest: unknown }>) {
         {json}
       </pre>
     </div>
-  );
-}
-
-function ToolKindBadge({ tool }: Readonly<{ tool: ToolView }>) {
-  if (tool.kind === "http")
-    return (
-      <Badge variant="outline" className="font-normal">
-        HTTP
-      </Badge>
-    );
-  if (tool.kind === "subagent")
-    return (
-      <Badge variant="outline" className="gap-1 font-normal">
-        <Bot className="size-3" />
-        agent
-      </Badge>
-    );
-  if (tool.kind === "flow-subagent")
-    return (
-      <Badge variant="outline" className="gap-1 font-normal">
-        <Workflow className="size-3" />
-        flow agent
-      </Badge>
-    );
-  if (tool.kind === "code")
-    return (
-      <Badge variant="secondary" className="gap-1 font-normal">
-        <Wrench className="size-3" />
-        code
-      </Badge>
-    );
-  return null;
-}
-
-/** The session's Agent has a sandbox: the harness offers its tools with the agent's. */
-function SandboxSection() {
-  return (
-    <Section title="Sandbox" hint="The session's Agent has a sandbox; the harness offers these tools.">
-      <Group icon={Terminal} title="Sandbox tools" note={`on the session's persistent /workspace`}>
-        <div className="flex flex-wrap gap-1">
-          {SANDBOX_TOOLS.map((name) => (
-            <Badge key={name} variant="outline" className="font-mono">
-              {name}
-            </Badge>
-          ))}
-        </div>
-      </Group>
-    </Section>
   );
 }

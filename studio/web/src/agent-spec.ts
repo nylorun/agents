@@ -7,7 +7,8 @@
  */
 import type { AgentSecretView, AgentView } from "@nylorun/agents";
 import type { AgentTab } from "@/agent-path";
-import { manifestView } from "./manifest/model.ts";
+import { SANDBOX_TOOLS, manifestView, pluginText, type PluginLabel } from "./manifest/model.ts";
+import { isWorkflowManifest, type WorkflowManifest } from "./workflow/types.ts";
 
 type Json = Record<string, unknown>;
 const isRecord = (value: unknown): value is Json =>
@@ -202,6 +203,14 @@ const sizeText = (bytes: number) =>
 
 type Add = (group: SpecSection["group"], id: string, title: string, hint: string, rows: SpecRow[]) => void;
 
+/** A row's quiet notes, joined: the plugin that brought it first, then what it uses. */
+function notes(...parts: (string | false | undefined)[]): { note?: string } {
+  const kept = parts.filter((part): part is string => Boolean(part));
+  return kept.length ? { note: kept.join(" · ") } : {};
+}
+
+const fromPlugin = (plugin: PluginLabel | undefined) => plugin && `from ${pluginText(plugin)}`;
+
 /** The harness section: instructions, tools, skills, MCP servers and memory, or a flow's agents. */
 function harnessSections(harness: Json, add: Add): void {
   if (harness.kind === "workflow") {
@@ -269,7 +278,8 @@ function harnessSections(harness: Json, add: Add): void {
         label: skill.name,
         mono: true,
         value: skill.description ?? skill.files.join(", "),
-        ...(reads.length ? { note: `reads ${reads.join(", ")}`, tab: "vault" as const } : {}),
+        ...notes(fromPlugin(skill.plugin), reads.length > 0 && `reads ${reads.join(", ")}`),
+        ...(reads.length ? { tab: "vault" as const } : {}),
         json: skills[skill.name] ?? skill,
       };
     }),
@@ -287,7 +297,12 @@ function harnessSections(harness: Json, add: Add): void {
         label: server.name,
         mono: true,
         value: server.url ?? "—",
-        ...(typeof raw.credential === "string" ? { note: `uses ${raw.credential}`, tab: "vault" as const } : {}),
+        ...notes(
+          fromPlugin(server.plugin),
+          server.approval && "each call waits for approval",
+          typeof raw.credential === "string" && `uses ${raw.credential}`,
+        ),
+        ...(typeof raw.credential === "string" ? { tab: "vault" as const } : {}),
         json: raw,
       };
     }),
@@ -509,6 +524,30 @@ export function manifestSections(agent: AgentView, manifest?: unknown): SpecSect
     add,
   );
   return sections;
+}
+
+/**
+ * A session's manifest as a readable spec: the harness section it pinned (its runtime is the
+ * Deployed view's), with the sandbox tools the harness adds when its Agent has a sandbox.
+ */
+export function harnessSpec(harness: unknown, options: { sandbox?: boolean } = {}): SpecSection[] {
+  const [sections, add] = collect();
+  harnessSections(isRecord(harness) ? harness : {}, add);
+  if (options.sandbox)
+    add("harness", "sandbox", "Sandbox", "The session's Agent has one; the harness offers its tools", [
+      { id: "sandbox:tools", label: "Tools", value: SANDBOX_TOOLS.join(", "), note: "on /workspace", json: SANDBOX_TOOLS },
+    ]);
+  return sections;
+}
+
+/**
+ * A flow agent's harness section as a workflow manifest, to draw its stages: undefined for any
+ * other agent. A harness with no id takes `id`, its manifest's name.
+ */
+export function flowOf(harness: unknown, id: string): WorkflowManifest | undefined {
+  if (!isRecord(harness)) return undefined;
+  const flow = { id, ...harness };
+  return isWorkflowManifest(flow) ? flow : undefined;
 }
 
 /**

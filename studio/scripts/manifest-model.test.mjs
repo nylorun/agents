@@ -1,14 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  byPlugin,
   isOutdated,
-  manifestStats,
   manifestView,
   pluginText,
   schemaFields,
   schemaType,
-  fieldText,
 } from "../web/src/manifest/model.ts";
 
 const objectSchema = (properties, required = Object.keys(properties)) => ({
@@ -88,13 +85,9 @@ test("tools say where they run", () => {
   );
 });
 
-test("plugins are listed once each, and skills and servers filter by plugin", () => {
+test("plugins are listed once each", () => {
   const view = manifestView(concierge);
   assert.deepEqual(view.plugins.map(pluginText), ["shipping 1.2.0", "docs"]);
-  assert.deepEqual(byPlugin(view.skills, "all").map((s) => s.name), ["refund", "ship"]);
-  assert.deepEqual(byPlugin(view.skills, "own").map((s) => s.name), ["refund"]);
-  assert.deepEqual(byPlugin(view.mcpServers, "shipping 1.2.0").map((s) => s.name), ["carriers"]);
-  assert.deepEqual(byPlugin(view.mcpServers, "own").map((s) => s.name), ["inventory"]);
 });
 
 test("a manifest's runtime block is not shown: the harness adds its tools (protocol 15)", () => {
@@ -142,21 +135,6 @@ test("malformed manifests render as empty", () => {
   assert.deepEqual(manifestView({ tools: "nope", skills: [], mcpServers: "x" }), empty);
 });
 
-test("fields read as TypeScript members", () => {
-  assert.equal(fieldText({ name: "orderId", type: "string", required: true }), "orderId: string");
-  assert.equal(fieldText({ name: "note", type: "string", required: false }), "note?: string");
-  assert.equal(fieldText({ name: "", type: "boolean", required: true }), "boolean");
-});
-
-test("the overview counts what the agent can do", () => {
-  assert.deepEqual(manifestStats(manifestView(concierge)), {
-    tools: 1,
-    subagents: 2,
-    skills: 2,
-    mcpServers: 3,
-  });
-});
-
 test("HTTP tools show their request and static approval; MCP servers their approval", () => {
   const view = manifestView({
     tools: [
@@ -184,5 +162,4 @@ test("HTTP tools show their request and static approval; MCP servers their appro
     view.mcpServers.filter((server) => server.approval).map((server) => server.name),
     ["shop"],
   );
-  assert.equal(manifestStats(view).tools, 2);
 });
