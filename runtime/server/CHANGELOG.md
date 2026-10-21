@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.33.0-beta
+
+### Minor Changes
+
+- 95f98f1: A model can use the Host's own identity (ADR-71, Host feature `model-host-identity`). `PUT /v1/tenant/model` takes `auth: { type: "host_identity", project, location }` for `google-vertex`. It keeps no secret, and the model gate calls Agent Platform with the Host's Google Application Default Credentials: on Google Cloud, the attached service account from the metadata server. It's off unless the operator lists the provider in `NYLORUN_MODEL_HOST_IDENTITY` on the process that runs the gates, which `nylorun start` passes from its shell to the `gateway` container. Every Tenant on that Host may use it. `nylorun tenant models set --provider google-vertex --model <id> --host-identity --project <id> --location <location>` sets it with no key.
+- d99b3ac: A session can have its own model (optional Host feature `session-model`). `PUT /v1/sessions/{id}/model` chooses one of a connected provider's models for that session's turns, `DELETE` clears it, and `GET` answers the model the next turn uses (`source: "session"` or `"tenant"`). The Tenant's model and every other session's stay as they are. The Model Gate calls the session's model on its provider's credential (a refreshed OAuth credential is written back to that provider), `turn.start.model` describes it, and the usage ledger records it. A choice names a connected provider and a model its catalog lists, is set by the application only (a trusted issuer's token can read it, not change it), and is refused while a turn runs or waits (`409 session_busy`); while its provider is disconnected the session uses the Tenant's model. The SDK adds `session.model()`, `setModel({ provider, model })` and `clearModel()`.
+
+  Studio's model picker under the message box now sets the model of that session only, instead of the Tenant's: "Tenant model" clears the session's choice, the picker is locked while a turn runs, it groups models by provider, and its search keeps what is typed. A Runtime without `session-model` shows no picker.
+
+### Patch Changes
+
+- 683de1a: The model catalog comes from pi-ai 1.3.0, which adds Gemini 4 Argon: `google-vertex/gemini-4-argon` on Google's Agent Platform (Vertex AI) and `google/gemini-4-argon` on the Gemini API, with a 1,048,576-token context and thinking. `nylorun tenant models set --provider google-vertex --model gemini-4-argon` takes a Google Cloud API key for the Agent Platform API; the Runtime still reads no ambient Google credentials.
+- Pin core to the tested release.
+- Pin harness to the tested release.
+- Updated dependencies [95f98f1]
+- Updated dependencies [d99b3ac]
+- Updated dependencies
+  - @nylorun/core@0.29.0-beta
+  - @nylorun/harness@0.29.5-beta
+
 ## 0.32.0-beta
 
 ### Minor Changes

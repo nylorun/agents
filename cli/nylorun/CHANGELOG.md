@@ -1,5 +1,27 @@
 # nylorun
 
+## 0.21.0-beta
+
+### Minor Changes
+
+- 95f98f1: A model can use the Host's own identity (ADR-71, Host feature `model-host-identity`). `PUT /v1/tenant/model` takes `auth: { type: "host_identity", project, location }` for `google-vertex`. It keeps no secret, and the model gate calls Agent Platform with the Host's Google Application Default Credentials: on Google Cloud, the attached service account from the metadata server. It's off unless the operator lists the provider in `NYLORUN_MODEL_HOST_IDENTITY` on the process that runs the gates, which `nylorun start` passes from its shell to the `gateway` container. Every Tenant on that Host may use it. `nylorun tenant models set --provider google-vertex --model <id> --host-identity --project <id> --location <location>` sets it with no key.
+
+### Patch Changes
+
+- 683de1a: The model catalog comes from pi-ai 1.3.0, which adds Gemini 4 Argon: `google-vertex/gemini-4-argon` on Google's Agent Platform (Vertex AI) and `google/gemini-4-argon` on the Gemini API, with a 1,048,576-token context and thinking. `nylorun tenant models set --provider google-vertex --model gemini-4-argon` takes a Google Cloud API key for the Agent Platform API; the Runtime still reads no ambient Google credentials.
+- Pin core to the tested release.
+- Pin agents to the tested release.
+- Pin admin to the tested release.
+- Pin runtime to the tested release.
+- Pin studio to the tested release.
+- Updated dependencies [95f98f1]
+- Updated dependencies [d99b3ac]
+- Updated dependencies
+- Updated dependencies
+  - @nylorun/core@0.29.0-beta
+  - @nylorun/agents@0.29.0-beta
+  - @nylorun/admin@0.19.5-beta
+
 ## 0.20.0-beta
 
 ### Minor Changes

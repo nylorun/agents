@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.33.0-beta
+
+### Minor Changes
+
+- 1359cee: A flow agent's Manifest tab (Declared, Layout) draws its stages as a diagram, top to bottom, as its manifest declares them: a chain as a sequence, a switch as a decision with an edge per case, a parallel as a fork with an edge per branch, a map over one stage as a stack, a loop as its body and verifier with a dotted retry edge, an embedded flow agent as a box of its own stages, and HTTP stages with their method and host. It has a legend, counts the agent and tool stages, and "Copy Mermaid" copies the diagram's Mermaid text (zinc `classDef`s included). Mermaid loads only when a flow is shown, in strict mode. DESIGN.md adds that a diagram is not a chart: it is zinc and white, flat, with no Sage.
+- e54037d: One manifest layout on all three pages. A session's Manifest tab (Declared), an Agent page's Manifest tab and the Tenant's Manifests pane now share one component: the harness, then (on the Agent and Tenant pages) the runtime, each item one line with a quiet note, and a flow agent's stages drawn as a diagram atop its harness, so the Tenant's Manifests pane draws a flow too. A line opens its part of the manifest in a side panel on the Agent page and below it in the narrower session and Tenant panes. The session's Declared view moves from cards and counts to these lines: a skill or MCP server notes the plugin that brought it and whether each call waits for approval, a tool's schemas are in its line's JSON, and an Agent with a sandbox lists the sandbox's tools.
+- d99b3ac: A session can have its own model (optional Host feature `session-model`). `PUT /v1/sessions/{id}/model` chooses one of a connected provider's models for that session's turns, `DELETE` clears it, and `GET` answers the model the next turn uses (`source: "session"` or `"tenant"`). The Tenant's model and every other session's stay as they are. The Model Gate calls the session's model on its provider's credential (a refreshed OAuth credential is written back to that provider), `turn.start.model` describes it, and the usage ledger records it. A choice names a connected provider and a model its catalog lists, is set by the application only (a trusted issuer's token can read it, not change it), and is refused while a turn runs or waits (`409 session_busy`); while its provider is disconnected the session uses the Tenant's model. The SDK adds `session.model()`, `setModel({ provider, model })` and `clearModel()`.
+
+  Studio's model picker under the message box now sets the model of that session only, instead of the Tenant's: "Tenant model" clears the session's choice, the picker is locked while a turn runs, it groups models by provider, and its search keeps what is typed. A Runtime without `session-model` shows no picker.
+
+### Patch Changes
+
+- b85ae8c: A flow agent's Agent page draws its stages as a diagram too: the Manifest tab's harness opens with a Flow section (the same Mermaid diagram, legend, stage counts and "Copy Mermaid" as a session's Manifest tab), above the flow's agents, with its own entry in the section nav.
+- d99b3ac: A session's Usage tab names the model of each call, and of a turn when its calls used one (several are counted, named on hover); its bars share their width by proportion after the 1px gaps, so the output segment is no longer clipped; the session summary is a plain section, not a card around a table; its cells are 14px; and it loads as skeleton rows. DESIGN.md gains one rule, with no exception: a chart fill under 3:1 on white (chart-3, chart-4, chart-5 and ring) carries a 1px chart-2 hairline inside its edge (`chart-hairline`), so the cached and uncached segments and swatches and the budget's track now show their shape. The composer's model picker says what each model reads, links to the Tenant page's Models tab, and reads the providers again each time it opens.
+- Pin agents to the tested release.
+- Pin admin to the tested release.
+- Updated dependencies [d99b3ac]
+- Updated dependencies
+- Updated dependencies
+  - @nylorun/agents@0.29.0-beta
+  - @nylorun/admin@0.19.5-beta
+
 ## 0.32.0-beta
 
 ### Minor Changes
