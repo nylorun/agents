@@ -244,6 +244,35 @@ describe("nylorun status and tenant on a remote installation", { timeout: 20_000
     expect(none.requests).toEqual([]);
   });
 
+  it("tenant models set --host-identity sends the project and location and no key (ADR-71)", async () => {
+    const host = await runtime();
+    const result = await nylorun(
+      [
+        "tenant", "models", "set", "--provider", "google-vertex", "--model", "gemini-4-argon",
+        "--host-identity", "--project", "nylorun-bot-beta", "--location", "global",
+      ],
+      host.url,
+    );
+    expect(result.code).toBe(0);
+    const put = host.requests.find((r) => r.url === "/v1/tenant/model");
+    expect(put?.body).toMatchObject({
+      provider: "google-vertex",
+      model: "gemini-4-argon",
+      auth: { type: "host_identity", project: "nylorun-bot-beta", location: "global" },
+    });
+    // Without the project, or with a base URL: a usage error, and nothing is sent.
+    const none = await runtime();
+    for (const args of [
+      ["--provider", "google-vertex", "--model", "gemini-4-argon", "--host-identity", "--location", "global"],
+      ["--provider", "google-vertex", "--model", "m", "--project", "p", "--location", "global"],
+      ["--provider", "google-vertex", "--model", "m", "--host-identity", "--project", "p", "--location", "l", "--base-url", "https://x"],
+    ]) {
+      const refused = await nylorun(["tenant", "models", "set", ...args], none.url);
+      expect(refused.code).toBe(2);
+    }
+    expect(none.requests).toEqual([]);
+  });
+
   it("tenant budgets put - reads the body from stdin", async () => {
     const host = await runtime();
     const budgets = [{ scope: "tenant", period: "month", limitUsd: 50 }];

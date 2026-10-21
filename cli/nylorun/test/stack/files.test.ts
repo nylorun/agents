@@ -73,6 +73,12 @@ describe("compose.yaml", () => {
     }
   });
 
+  it("passes the Host identity's providers from the shell to the gateway only (ADR-71)", () => {
+    const gateway = compose.slice(compose.indexOf("  gateway:"), compose.indexOf("  runtime:"));
+    expect(gateway).toContain("NYLORUN_MODEL_HOST_IDENTITY: ${NYLORUN_MODEL_HOST_IDENTITY:-}");
+    expect(compose.slice(compose.indexOf("  runtime:"))).not.toContain("NYLORUN_MODEL_HOST_IDENTITY");
+  });
+
   it("initialises Postgres with C collation", () => {
     expect(compose).toContain('POSTGRES_INITDB_ARGS: "--locale=C"');
   });

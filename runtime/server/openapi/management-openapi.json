@@ -35,7 +35,8 @@
         "artifact-reads",
         "gateway-credentials",
         "agent-folders",
-        "session-model"
+        "session-model",
+        "model-host-identity"
       ]
     },
     "description": "For operators: the Tenant's models, vaults, signing keys, settings and application keys, at `/v1/tenant/*` on the Tenant's URL, through `@nylorun/admin`. Every operation takes a management key, acting as itself: never for a subject and never from a browser. Management keys are issued only on the Tenant's machine (`nylorun tenant keys put <id> --management`) or from `NYLORUN_MANAGEMENT_KEY_FILE`."
@@ -428,7 +429,8 @@
                     "enum": [
                       "api_key",
                       "oauth",
-                      "workload"
+                      "workload",
+                      "host_identity"
                     ]
                   },
                   "baseUrl": {
@@ -1136,6 +1138,31 @@
                     },
                     "required": [
                       "type"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "host_identity"
+                        ]
+                      },
+                      "project": {
+                        "type": "string",
+                        "pattern": "^[a-z][a-z0-9-]{4,28}[a-z0-9]$"
+                      },
+                      "location": {
+                        "type": "string",
+                        "pattern": "^[a-z][a-z0-9-]*$"
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "project",
+                      "location"
                     ],
                     "additionalProperties": false
                   }
@@ -2681,7 +2708,8 @@
                   "enum": [
                     "api_key",
                     "oauth",
-                    "workload"
+                    "workload",
+                    "host_identity"
                   ]
                 },
                 "baseUrl": {
@@ -2861,7 +2889,8 @@
                 "enum": [
                   "api_key",
                   "oauth",
-                  "workload"
+                  "workload",
+                  "host_identity"
                 ]
               },
               "baseUrl": {
@@ -3169,6 +3198,31 @@
                 },
                 "required": [
                   "type"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "host_identity"
+                    ]
+                  },
+                  "project": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9-]{4,28}[a-z0-9]$"
+                  },
+                  "location": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9-]*$"
+                  }
+                },
+                "required": [
+                  "type",
+                  "project",
+                  "location"
                 ],
                 "additionalProperties": false
               }

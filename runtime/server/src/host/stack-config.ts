@@ -50,6 +50,7 @@ import { isTenantId } from "@nylorun/core/compatibility";
 import { LOOPBACK_HOSTS } from "@nylorun/core/contracts";
 import { blockedAddresses, type BlockedAddress } from "../sandbox/pods/network-gate.js";
 import { HostTuningError, parseHostTuning, type HostTuning } from "../tuning.js";
+import { HOST_IDENTITY_PROVIDERS } from "../vault/host-identity.js";
 
 /** A Runtime service this release has. */
 export type RuntimeService = "core" | "loop" | "gates" | "keys" | "egress" | "harness";
@@ -233,6 +234,11 @@ export interface StackConfig {
    * `vault/workload-token.ts`). Absent: no workload token.
    */
   workloadToken?: { file?: string; origins?: string[] };
+  /**
+   * `NYLORUN_MODEL_HOST_IDENTITY`: the comma-separated providers whose models may use the Host's
+   * own identity (ADR-71, `vault/host-identity.ts`). Absent: none.
+   */
+  modelHostIdentity?: string[];
   /** Present when the process runs gates. */
   gates?: GatesConfig;
   /** Present when the process runs egress. */
@@ -656,6 +662,7 @@ export function parseStackConfig(
   const delivery = parseDelivery(env);
   const tenant = servesApi ? parseTenant(env) : undefined;
   const workloadToken = parseWorkloadToken(env);
+  const modelHostIdentity = parseModelHostIdentity(env);
   const objectStore = parseObjectStore(env);
   const traces = services.has("core") ? parseTraces(env) : undefined;
   const removedResolverVariables = Object.keys(env)
@@ -679,6 +686,7 @@ export function parseStackConfig(
     ...(delivery ? { delivery } : {}),
     ...(tenant ? { tenant } : {}),
     ...(workloadToken ? { workloadToken } : {}),
+    ...(modelHostIdentity ? { modelHostIdentity } : {}),
     ...(objectStore ? { objectStore } : {}),
     ...(traces ? { traces } : {}),
     ...(tuning ? { tuning } : {}),
@@ -805,6 +813,20 @@ function parseWorkloadToken(env: EnvSnapshot): StackConfig["workloadToken"] {
   const origins = parseOrigins(read(env, "NYLORUN_WORKLOAD_TOKEN_ORIGINS"));
   if (file === undefined && origins === undefined) return undefined;
   return { ...(file ? { file } : {}), ...(origins ? { origins } : {}) };
+}
+
+/** `StackConfig.modelHostIdentity` (ADR-71): each a provider that can use the Host's identity. */
+function parseModelHostIdentity(env: EnvSnapshot): StackConfig["modelHostIdentity"] {
+  const raw = read(env, "NYLORUN_MODEL_HOST_IDENTITY");
+  if (raw === undefined) return undefined;
+  const providers = [...new Set(raw.split(",").map((item) => item.trim()).filter((item) => item !== ""))];
+  for (const provider of providers) {
+    if (!(HOST_IDENTITY_PROVIDERS as readonly string[]).includes(provider))
+      throw new StackConfigError(
+        `NYLORUN_MODEL_HOST_IDENTITY: ${provider} can't use the Host's identity (only ${HOST_IDENTITY_PROVIDERS.join(", ")})`,
+      );
+  }
+  return providers.length ? providers : undefined;
 }
 
 /** `NYLORUN_WORKLOAD_TOKEN_ORIGINS`: each an `https` origin (`http` only to a loopback host). */

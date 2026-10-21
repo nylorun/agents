@@ -637,6 +637,18 @@ The A2A card's input modes and MCP deferral's window read it too. A session's ow
 described in its place (**Session model**).
 _Avoid_: a harness guessing what the model reads.
 
+**Host identity**: A model credential of type `host_identity` (Host feature
+`model-host-identity`, ADR-71), for `google-vertex` only. It keeps no secret, only the Google
+Cloud project and location (`env`). The Model Gate calls Agent Platform with the Host's Google
+Application Default Credentials, which Google's client library finds at each call (on Google Cloud,
+the metadata server's service account): pi-ai gets `VERTEX_ADC_MARKER` in place of a key and the
+project and location as the call's `env` (`vault/host-identity.ts`, `model/pi-model.ts`). The
+one ambient read the Model Gate allows. Off unless the operator lists the provider in
+`NYLORUN_MODEL_HOST_IDENTITY` on the gates' process (`gateway` under `nylorun start`): `PUT
+/v1/tenant/model` refuses it with `400`, and a stored one fails each call with `auth`. Every Tenant
+on the Host may use it.
+_Avoid_: a service account key in the vault; an ambient credential for any other provider.
+
 **Session model**: A session's own model (Host feature `session-model`): one of a connected
 provider's models, kept on the session (`Session.model`, `{provider, model}`) and chosen with
 `PUT /v1/sessions/{id}/model`, cleared with `DELETE` (`tenant/session-model.ts`), by the
@@ -750,7 +762,7 @@ optional Host features `tenant-fixture-model`, `transcript-events`, `subject-hea
 `ag-ui-endpoint`, `a2a-endpoint`, `sandbox-pods`, `trusted-issuers`, `session-reads`,
 `calls-export`, `credential-coverage`, `tool-calls`, `environment-setup`,
 `environment-disk-versions`, `tool-policy`, `traces`, `artifact-reads`,
-`gateway-credentials`, `agent-folders` and `session-model`).
+`gateway-credentials`, `agent-folders`, `session-model` and `model-host-identity`).
 Protocols 17 (the session queue) and 18 (usage by token kind) were additive.
 Protocol 16 made agents one manifest (track T2, `agents`, Harness API 5): an **agent manifest** v8
 with a harness and a runtime section, checked against each other at save, replaced agent

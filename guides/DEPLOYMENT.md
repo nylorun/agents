@@ -1498,6 +1498,40 @@ and the `runtime` container of a Runtime without the gates service. Mount the fi
 - **The model.** `PUT /v1/tenant/model` with `{ "provider": "custom", "baseUrl": "…", "auth": { "type": "workload" } }`
   sends the token as the custom endpoint's bearer, read at each call. Only a custom endpoint takes
   it: its `baseUrl` is the operator's, so no origin list applies.
+
+#### The Host's identity (Google)
+
+A Runtime on Google Cloud can call Gemini on Agent Platform (Vertex AI) with its own identity, the
+attached service account, instead of a stored API key ([ADR-71](https://github.com/nylorun/factory/blob/main/decisions/engine/2026-10-21-model-host-identity.md)).
+That suits an organization whose policy forbids API keys. Lend it, as the operator, on the process
+that runs the gates:
+
+| Variable | Value |
+| --- | --- |
+| `NYLORUN_MODEL_HOST_IDENTITY` | The comma-separated providers whose models may use the Host's identity. Only `google-vertex` today. Unset: none, and a `host_identity` credential is refused |
+
+`nylorun start` passes it from its shell to the `gateway` container. Then set the model, with no
+key:
+
+```sh
+NYLORUN_MODEL_HOST_IDENTITY=google-vertex nylorun start
+nylorun tenant models set --provider google-vertex --model gemini-4-argon \
+  --host-identity --project <project id> --location global
+```
+
+That is `PUT /v1/tenant/model` with `"auth": { "type": "host_identity", "project": "…",
+"location": "…" }`.
+
+- **What it keeps.** No secret: only the project the calls go to and bill, and their location.
+- **How it calls.** At each call, Google's client library finds the Host's Application Default
+  Credentials: the file in `GOOGLE_APPLICATION_CREDENTIALS`, gcloud's application default
+  credentials, or, on Google Cloud, the metadata server's service account. Grant that account
+  `roles/aiplatform.user` in the project. It is the only credential the model gate finds outside
+  the vault.
+- **Who may use it.** Every Tenant on the Host. Lend it only on a Host that serves one
+  organization.
+- **When it's taken away.** Unset the variable and restart: each call on a stored `host_identity`
+  model fails with `auth`, naming the variable.
 - The token stays in the process that makes the call. It never reaches a sandbox (the sandbox's
   environment has no `NYLORUN_*` variable), the model, an event or a log, and is scrubbed from what
   a server or the provider echoes, like any credential value.

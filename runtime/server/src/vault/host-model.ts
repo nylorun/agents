@@ -60,7 +60,10 @@ export class HostModelVault {
         : binding.authType === "workload"
           ? // The workload token is read from its file at each call (#496), never stored.
             { type: "workload" as const }
-          : {
+          : binding.authType === "host_identity"
+            ? // The Host's identity is found at each call (ADR-71): only where the calls go is kept.
+              { type: "host_identity" as const, ...(payload.env ? { env: payload.env } : {}) }
+            : {
               type: "api_key" as const,
               key: payload.apiKey,
               ...(payload.env ? { env: payload.env } : {}),

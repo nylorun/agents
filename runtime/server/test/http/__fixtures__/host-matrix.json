@@ -105,7 +105,8 @@
           "artifact-reads",
           "gateway-credentials",
           "agent-folders",
-          "session-model"
+          "session-model",
+          "model-host-identity"
         ]
       }
     },
@@ -186,7 +187,8 @@
           "artifact-reads",
           "gateway-credentials",
           "agent-folders",
-          "session-model"
+          "session-model",
+          "model-host-identity"
         ]
       }
     },
@@ -267,7 +269,8 @@
           "artifact-reads",
           "gateway-credentials",
           "agent-folders",
-          "session-model"
+          "session-model",
+          "model-host-identity"
         ]
       }
     },
@@ -348,7 +351,8 @@
           "artifact-reads",
           "gateway-credentials",
           "agent-folders",
-          "session-model"
+          "session-model",
+          "model-host-identity"
         ]
       }
     },
@@ -429,7 +433,8 @@
           "artifact-reads",
           "gateway-credentials",
           "agent-folders",
-          "session-model"
+          "session-model",
+          "model-host-identity"
         ]
       }
     },
@@ -510,7 +515,8 @@
           "artifact-reads",
           "gateway-credentials",
           "agent-folders",
-          "session-model"
+          "session-model",
+          "model-host-identity"
         ]
       }
     },
@@ -591,7 +597,8 @@
           "artifact-reads",
           "gateway-credentials",
           "agent-folders",
-          "session-model"
+          "session-model",
+          "model-host-identity"
         ]
       }
     },
@@ -672,7 +679,8 @@
           "artifact-reads",
           "gateway-credentials",
           "agent-folders",
-          "session-model"
+          "session-model",
+          "model-host-identity"
         ]
       }
     },
@@ -753,7 +761,8 @@
           "artifact-reads",
           "gateway-credentials",
           "agent-folders",
-          "session-model"
+          "session-model",
+          "model-host-identity"
         ]
       }
     },
@@ -834,7 +843,8 @@
           "artifact-reads",
           "gateway-credentials",
           "agent-folders",
-          "session-model"
+          "session-model",
+          "model-host-identity"
         ]
       }
     },
@@ -915,7 +925,8 @@
           "artifact-reads",
           "gateway-credentials",
           "agent-folders",
-          "session-model"
+          "session-model",
+          "model-host-identity"
         ]
       }
     },
@@ -996,7 +1007,8 @@
           "artifact-reads",
           "gateway-credentials",
           "agent-folders",
-          "session-model"
+          "session-model",
+          "model-host-identity"
         ]
       }
     },
@@ -1110,7 +1122,8 @@
           "artifact-reads",
           "gateway-credentials",
           "agent-folders",
-          "session-model"
+          "session-model",
+          "model-host-identity"
         ]
       }
     },
@@ -1191,7 +1204,8 @@
           "artifact-reads",
           "gateway-credentials",
           "agent-folders",
-          "session-model"
+          "session-model",
+          "model-host-identity"
         ]
       }
     },
@@ -1272,7 +1286,8 @@
           "artifact-reads",
           "gateway-credentials",
           "agent-folders",
-          "session-model"
+          "session-model",
+          "model-host-identity"
         ]
       }
     },
@@ -1353,7 +1368,8 @@
           "artifact-reads",
           "gateway-credentials",
           "agent-folders",
-          "session-model"
+          "session-model",
+          "model-host-identity"
         ]
       }
     },
@@ -1434,7 +1450,8 @@
           "artifact-reads",
           "gateway-credentials",
           "agent-folders",
-          "session-model"
+          "session-model",
+          "model-host-identity"
         ]
       }
     },
@@ -1515,7 +1532,8 @@
           "artifact-reads",
           "gateway-credentials",
           "agent-folders",
-          "session-model"
+          "session-model",
+          "model-host-identity"
         ]
       }
     },
@@ -1596,7 +1614,8 @@
           "artifact-reads",
           "gateway-credentials",
           "agent-folders",
-          "session-model"
+          "session-model",
+          "model-host-identity"
         ]
       }
     },

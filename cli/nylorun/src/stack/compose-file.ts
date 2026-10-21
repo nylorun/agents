@@ -194,7 +194,11 @@ ${healthcheck("rustfs")}    restart: unless-stopped
       # MCP servers and HTTP tools on this machine: \`localhost\` in their URLs means the Docker host.
       NYLORUN_ENDPOINT_LOOPBACK: docker-host
       # Host tuning (timings, retries, internal sizes; JSON): from the shell that runs \`nylorun start\`.
-      NYLORUN_TUNING: \${NYLORUN_TUNING:-}${sandboxes ? SANDBOXES_GATEWAY_ENV : ""}
+      NYLORUN_TUNING: \${NYLORUN_TUNING:-}
+      # Providers whose models may call with this machine's own identity, such as google-vertex
+      # with Google's Application Default Credentials (ADR-71): from the shell that runs
+      # \`nylorun start\`. Empty: none. Every Tenant on this Host may use it.
+      NYLORUN_MODEL_HOST_IDENTITY: \${NYLORUN_MODEL_HOST_IDENTITY:-}${sandboxes ? SANDBOXES_GATEWAY_ENV : ""}
     extra_hosts:
       host.docker.internal: host-gateway # model servers, MCP servers and HTTP tools on this machine
     volumes:
