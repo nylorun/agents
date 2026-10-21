@@ -839,6 +839,22 @@ test("a flow agent's Manifest tab draws its stages as a diagram, with a legend a
   }, true);
 });
 
+test("a flow agent's Agent page shows its stages as a diagram atop its Manifest tab's harness", async () => {
+  await withStudio(async ({ page, studioUrl, puts }) => {
+    await page.goto(`${studioUrl}/tenants/${TENANT}/agents/${FLOW}?tab=manifest`);
+    const flow = page.getByRole("region", { name: "Flow", exact: true });
+    const diagram = flow.getByRole("img", { name: "The flow's stages as a diagram" });
+    await diagram.waitFor();
+    for (const label of ["Start", CHILD_AGENT, "End"]) await diagram.getByText(label, { exact: true }).waitFor();
+    await flow.getByText("Its stages, top to bottom, as v1 declares them", { exact: true }).waitFor();
+    await flow.getByRole("button", { name: "Copy Mermaid" }).waitFor();
+    // The section nav leads to it, above the flow's agents.
+    const nav = page.getByRole("navigation", { name: "Manifest sections" });
+    assert.deepEqual((await nav.getByRole("link").allTextContents()).slice(0, 2), ["Flow", "Flow agents"]);
+    assert.deepEqual(puts, []);
+  });
+});
+
 test("files attached to a message are uploaded into the session, then sent as its file parts", async () => {
   await withStudio(async ({ page, studioUrl, uploads, commands }) => {
     await page.goto(`${studioUrl}/tenants/${TENANT}/agents/${AGENT}/sessions/${ALICE_SESSION}`);
