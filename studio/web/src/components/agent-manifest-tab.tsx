@@ -7,6 +7,8 @@ import { manifestPath } from "@/agent-path";
 import { manifestSections, type SpecRow } from "@/agent-spec";
 import { withPolicyNotes, type ToolRule } from "@/tenant-spec";
 import { Button } from "@/components/ui/button";
+import { FlowDiagram } from "@/components/flow-diagram";
+import { isWorkflowManifest, type WorkflowManifest } from "@/workflow";
 import {
   ActionMenu,
   CodeBlock,
@@ -18,6 +20,17 @@ import {
 
 /** A move within its manifest (track T3), or applying a pending version. */
 export type ManifestMove = "move" | "track" | "pin" | "restart" | "retry";
+
+/** A flow agent's harness section, as a workflow manifest; it takes the manifest's name for an id. */
+function flowOf(manifest: unknown, name: string): WorkflowManifest | undefined {
+  const harness = (manifest as { harness?: unknown } | undefined)?.harness;
+  if (!harness || typeof harness !== "object") return undefined;
+  const flow = { id: name, ...harness };
+  return isWorkflowManifest(flow) ? flow : undefined;
+}
+
+/** The anchor of a flow's diagram; `spec-flow` is its agents' section. */
+const STAGES = "spec-stages";
 
 const TAB_NAMES: Record<string, string> = {
   vault: "Vault",
@@ -57,6 +70,7 @@ export function AgentManifestTab({
   const [open, setOpen] = useState<SpecRow | "json">();
   const name = manifestNameOf(agent);
   const sections = withPolicyNotes(manifestSections(agent, manifest), rules, name);
+  const flow = flowOf(manifest, name);
   const newer = latest !== undefined && latest > agent.resolvedVersion;
   const actions: MenuAction[] = [
     ...(newer && agent.tracking === "pinned" && !agent.targetVersion
@@ -109,9 +123,21 @@ export function AgentManifestTab({
       <div className="flex">
         <nav aria-label="Manifest sections" className="sticky top-0 hidden w-48 shrink-0 self-start border-r py-4 md:block">
           {groups.map((g) =>
-            g.sections.length ? (
+            g.sections.length || (flow && g.group === "harness") ? (
               <div key={g.group} className="mb-4">
                 <p className="px-4 pb-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">{g.title}</p>
+                {flow && g.group === "harness" ? (
+                  <a
+                    href={`#${STAGES}`}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      document.getElementById(STAGES)?.scrollIntoView({ block: "start" });
+                    }}
+                    className="block truncate px-4 py-1 text-sm text-muted-foreground hover:text-foreground"
+                  >
+                    Flow
+                  </a>
+                ) : null}
                 {g.sections.map((section) => (
                   <a
                     key={section.id}
@@ -131,12 +157,20 @@ export function AgentManifestTab({
         </nav>
         <div className="min-w-0 flex-1">
           {groups.map((g) =>
-            g.sections.length ? (
+            g.sections.length || (flow && g.group === "harness") ? (
               <div key={g.group}>
                 <div className="flex items-baseline gap-2 border-b bg-muted/40 px-4 py-2">
                   <h2 className="text-sm font-semibold">{g.title}</h2>
                   <span className="text-xs text-muted-foreground">{g.hint}</span>
                 </div>
+                {flow && g.group === "harness" ? (
+                  <FlowDiagram
+                    manifest={flow}
+                    variant="spec"
+                    id={STAGES}
+                    hint={`Its stages, top to bottom, as v${agent.resolvedVersion} declares them`}
+                  />
+                ) : null}
                 {g.sections.map((section) => (
                   <section key={section.id} id={`spec-${section.id}`} aria-label={section.title} className="scroll-mt-2">
                     <div className="flex items-baseline gap-2 px-4 pt-4 pb-1.5">

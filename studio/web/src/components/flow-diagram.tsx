@@ -68,9 +68,16 @@ function plural(count: number, one: string, many: string): string {
 
 /**
  * A flow agent's stages as a diagram (Mermaid), top to bottom as its manifest declares them,
- * with a legend and the Mermaid text to copy. A run's progress stays on the Events tab.
+ * with a legend and the Mermaid text to copy. A run's progress stays on the Events tab. In a
+ * session's Manifest tab (`panel`) it follows the panel's sections; on an Agent's Manifest tab
+ * (`spec`) it is one of the spec's sections, `id` its anchor, and `hint` names the version.
  */
-export function FlowDiagram({ manifest }: Readonly<{ manifest: WorkflowManifest }>) {
+export function FlowDiagram({
+  manifest,
+  variant = "panel",
+  id: anchor,
+  hint,
+}: Readonly<{ manifest: WorkflowManifest; variant?: "panel" | "spec"; id?: string; hint?: string }>) {
   const text = useMemo(() => mermaidFromManifest(manifest), [manifest]);
   const counts = useMemo(() => flowStageCounts(manifest), [manifest]);
   // Mermaid names the SVG's elements after this id, so it is unique and a valid selector.
@@ -112,21 +119,14 @@ export function FlowDiagram({ manifest }: Readonly<{ manifest: WorkflowManifest 
     );
   };
 
-  return (
-    <section aria-label="Flow" className="space-y-3">
-      <Separator />
-      <div className="flex items-start gap-3 pt-2">
-        <div className="min-w-0 flex-1">
-          <h3 className="text-sm font-semibold">Flow</h3>
-          <p className="text-xs text-muted-foreground">
-            Its stages, top to bottom, as the manifest declares them. A run's progress is on the Events tab.
-          </p>
-        </div>
-        <Button variant="outline" size="sm" className="shrink-0" onClick={copyText}>
-          {copy === "copied" ? <Check /> : <Copy />}
-          {copy === "copied" ? "Copied" : "Copy Mermaid"}
-        </Button>
-      </div>
+  const copyButton = (
+    <Button variant="outline" size="sm" className="shrink-0" onClick={copyText}>
+      {copy === "copied" ? <Check /> : <Copy />}
+      {copy === "copied" ? "Copied" : "Copy Mermaid"}
+    </Button>
+  );
+  const body = (
+    <>
       <ul aria-label="Legend" className="flex flex-wrap gap-x-4 gap-y-1.5 text-xs text-muted-foreground">
         {LEGEND.map(([shape, label]) => (
           <li key={label} className="inline-flex items-center gap-1.5">
@@ -168,7 +168,36 @@ export function FlowDiagram({ manifest }: Readonly<{ manifest: WorkflowManifest 
       <p className="text-xs text-muted-foreground">
         {plural(counts.agents, "agent stage", "agent stages")} and {plural(counts.tools, "tool stage", "tool stages")} · a
         stage is named by its id, else its agent or tool.
+        {variant === "spec" ? " A session's run of it is on its Events tab." : ""}
       </p>
+    </>
+  );
+
+  if (variant === "spec")
+    return (
+      <section id={anchor} aria-label="Flow" className="scroll-mt-2">
+        <div className="flex items-center gap-2 border-b px-4 pt-4 pb-1.5">
+          <h3 className="text-[13px] font-medium">Flow</h3>
+          <span className="truncate text-xs text-muted-foreground">{hint ?? "Its stages, top to bottom"}</span>
+          <span className="ml-auto" />
+          {copyButton}
+        </div>
+        <div className="space-y-3 px-4 py-3">{body}</div>
+      </section>
+    );
+  return (
+    <section aria-label="Flow" className="space-y-3">
+      <Separator />
+      <div className="flex items-start gap-3 pt-2">
+        <div className="min-w-0 flex-1">
+          <h3 className="text-sm font-semibold">Flow</h3>
+          <p className="text-xs text-muted-foreground">
+            Its stages, top to bottom, as the manifest declares them. A run's progress is on the Events tab.
+          </p>
+        </div>
+        {copyButton}
+      </div>
+      {body}
     </section>
   );
 }
