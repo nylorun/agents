@@ -39,6 +39,8 @@ import {
   type ToolView,
 } from "@/manifest/model";
 import type { AgentManifest } from "@/studio-types";
+import { FlowDiagram } from "@/components/flow-diagram";
+import { isWorkflowManifest } from "@/workflow";
 
 /** A segmented control: the active view is raised on the muted track. */
 const SEGMENT =
@@ -125,9 +127,13 @@ export function AgentManifestPanel({
         {mode === "json" ? (
           <ManifestJson manifest={manifest} />
         ) : isWorkflow ? (
-          <p className="text-sm text-muted-foreground">
-            A flow agent's stages are on the Events tab, under Progress.
-          </p>
+          isWorkflowManifest(manifest) ? (
+            <FlowDiagram manifest={manifest} />
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              A flow agent's stages are on the Events tab, under Progress.
+            </p>
+          )
         ) : (
           <>
             <div className="grid grid-cols-3 gap-2">

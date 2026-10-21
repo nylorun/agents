@@ -820,6 +820,25 @@ test("a flow node in the Workflow tree opens its child session, which runs on th
   }, true);
 });
 
+test("a flow agent's Manifest tab draws its stages as a diagram, with a legend and its Mermaid", async () => {
+  await withStudio(async ({ page, studioUrl, puts }) => {
+    await page.goto(`${studioUrl}/tenants/${TENANT}/agents/${FLOW}/sessions/${FLOW_SESSION}?inspector=manifest`);
+    const flow = page.getByRole("region", { name: "Flow" });
+    const diagram = flow.getByRole("img", { name: "The flow's stages as a diagram" });
+    await diagram.waitFor();
+    // Start, the flow's one stage (its embedded agent), End: drawn by Mermaid, zinc and flat.
+    for (const label of ["Start", CHILD_AGENT, "End"]) await diagram.getByText(label, { exact: true }).waitFor();
+    assert.equal(await diagram.locator("svg").count(), 1);
+    assert.deepEqual(
+      await flow.getByRole("list", { name: "Legend" }).getByRole("listitem").allTextContents(),
+      ["Agent", "Tool or HTTP stage", "Switch: one case", "Parallel: every branch", "For each item", "Retry"],
+    );
+    await flow.getByText("1 agent stage and 0 tool stages", { exact: false }).waitFor();
+    await flow.getByRole("button", { name: "Copy Mermaid" }).waitFor();
+    assert.deepEqual(puts, []);
+  }, true);
+});
+
 test("files attached to a message are uploaded into the session, then sent as its file parts", async () => {
   await withStudio(async ({ page, studioUrl, uploads, commands }) => {
     await page.goto(`${studioUrl}/tenants/${TENANT}/agents/${AGENT}/sessions/${ALICE_SESSION}`);
