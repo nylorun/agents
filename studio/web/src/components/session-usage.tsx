@@ -18,6 +18,7 @@ import {
   type Tokens,
 } from "@/usage-ledger";
 import { cn } from "@/lib/utils";
+import { CHART_HAIRLINE } from "@/lib/chart";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -27,6 +28,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
   TableBody,
@@ -41,11 +43,12 @@ const CALLS_PAGE = 50;
 
 /**
  * One colour per token kind, the same in the session bar, the call bars and the column heads:
- * DESIGN.md's series in order, light to dark across the bar.
+ * DESIGN.md's series in order, light to dark across the bar. Chart-4 and chart-3 are under 3:1 on
+ * white, so they carry the chart hairline (`CHART_HAIRLINE`).
  */
 const KIND_COLOR: Record<TokenKind, string> = {
-  cacheRead: "bg-chart-4",
-  input: "bg-chart-3",
+  cacheRead: cn("bg-chart-4", CHART_HAIRLINE),
+  input: cn("bg-chart-3", CHART_HAIRLINE),
   cacheWrite: "bg-chart-2",
   output: "bg-chart-1",
 };
@@ -75,29 +78,64 @@ function Swatch({ kind }: Readonly<{ kind: TokenKind }>) {
   return <span aria-hidden className={cn("inline-block size-2.5 shrink-0 rounded-[2px]", KIND_COLOR[kind])} />;
 }
 
-/** Tokens by kind as one stacked bar, `scale` tokens wide. */
+/**
+ * Tokens by kind as one stacked bar, as wide as its share of `scale` tokens. The segments share
+ * that width by flex proportion, after their 1px gaps, so none is clipped.
+ */
 function TokenBar({
   tokens,
   kinds,
   scale,
   className,
 }: Readonly<{ tokens: Tokens; kinds: readonly TokenKind[]; scale: number; className?: string }>) {
+  const total = kinds.reduce((sum, kind) => sum + tokens[kind], 0);
   return (
-    <div aria-hidden className={cn("flex gap-px overflow-hidden rounded-[3px]", className)}>
-      {kinds.map((kind) =>
-        tokens[kind] > 0 ? (
-          <span
-            key={kind}
-            className={cn("block min-w-px", KIND_COLOR[kind])}
-            style={{ width: `${scale > 0 ? (tokens[kind] / scale) * 100 : 0}%` }}
-          />
-        ) : null,
-      )}
+    <div aria-hidden className={cn("flex", className)}>
+      <div
+        className="flex h-full gap-px overflow-hidden rounded-[3px]"
+        style={{ width: `${scale > 0 ? Math.min(1, total / scale) * 100 : 0}%` }}
+      >
+        {kinds.map((kind) =>
+          tokens[kind] > 0 ? (
+            <span
+              key={kind}
+              className={cn("block h-full min-w-px", KIND_COLOR[kind])}
+              style={{ flex: `${tokens[kind]} 1 0` }}
+            />
+          ) : null,
+        )}
+      </div>
     </div>
   );
 }
 
-const numberCell = "text-right text-xs tabular-nums";
+/** The models a turn's calls used: one by name, several by count. */
+function turnModels(calls: readonly CallRow<ModelCall>[]): { label: string; title: string } {
+  const models = [...new Set(calls.map(({ call }) => call.model).filter(Boolean))];
+  if (models.length <= 1) return { label: models[0] ?? "—", title: models[0] ?? "" };
+  return { label: `${models.length} models`, title: models.join(", ") };
+}
+
+/** While the ledger loads: its summary and a few call rows, as grey bars. */
+function UsageSkeleton() {
+  return (
+    <div aria-busy="true" aria-label="Loading usage" className="space-y-4 p-4">
+      <Skeleton className="h-4 w-24" />
+      <Skeleton className="h-3.5 w-full" />
+      <div className="max-w-xl space-y-2">
+        {[0, 1, 2, 3].map((row) => (
+          <Skeleton key={row} className="h-5 w-full" />
+        ))}
+      </div>
+      <Skeleton className="mt-6 h-4 w-28" />
+      {[0, 1, 2].map((row) => (
+        <Skeleton key={row} className="h-8 w-full" />
+      ))}
+    </div>
+  );
+}
+
+const numberCell = "text-right tabular-nums";
 
 /** The ledger columns every row shares: tokens by kind, total, time and cost. */
 function LedgerCells({
@@ -196,8 +234,7 @@ export function SessionUsage({
     return ids.size;
   }, [calls, events]);
 
-  if (state.kind === "loading")
-    return <p className="p-4 text-sm text-muted-foreground">Loading usage…</p>;
+  if (state.kind === "loading") return <UsageSkeleton />;
   if (state.kind === "unsupported")
     return (
       <p className="p-4 text-sm text-muted-foreground">
@@ -228,7 +265,7 @@ export function SessionUsage({
   return (
     <ScrollArea className="min-h-0 flex-1">
       <div className="space-y-4 p-4">
-        <section aria-label="Session" className="space-y-3 rounded-lg border p-4">
+        <section aria-label="Session" className="space-y-3">
           <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
             <h2 className="text-sm font-semibold" title={`As of ${fullTime(totals.asOf)}`}>
               Session
@@ -267,7 +304,7 @@ export function SessionUsage({
             scale={ledger.totalTokens}
             className="h-3.5"
           />
-          <table className="w-full max-w-xl text-xs">
+          <table className="w-full max-w-xl text-sm">
             <thead>
               <tr className="border-b text-muted-foreground">
                 <th scope="col" className="py-1.5 text-left font-normal">
@@ -315,9 +352,9 @@ export function SessionUsage({
               ) : null}
               <tr className="border-t border-foreground font-semibold">
                 <th scope="row" className="pt-2 text-left">Total</th>
-                <td className="pt-2 text-right text-sm">{formatTokens(ledger.totalTokens)}</td>
+                <td className="pt-2 text-right">{formatTokens(ledger.totalTokens)}</td>
                 <td />
-                <td className="pt-2 text-right text-sm">{cost(ledger.totalCost)}</td>
+                <td className="pt-2 text-right">{cost(ledger.totalCost)}</td>
                 <td />
               </tr>
             </tbody>
@@ -342,6 +379,7 @@ export function SessionUsage({
                 <TableRow>
                   <TableHead>Call</TableHead>
                   <TableHead>Start</TableHead>
+                  <TableHead>Model</TableHead>
                   <TableHead className="w-full min-w-20">
                     <span className="sr-only">Tokens</span>
                   </TableHead>
@@ -364,10 +402,11 @@ export function SessionUsage({
               <TableBody>
                 {turns.map((turn) => {
                   const open = !collapsed.has(turn.turnId);
+                  const used = turnModels(turn.calls);
                   return (
                     <Fragment key={turn.turnId}>
                       <TableRow className="bg-muted/50 font-medium hover:bg-muted/50">
-                        <TableCell className="whitespace-nowrap text-xs">
+                        <TableCell className="whitespace-nowrap">
                           <button
                             type="button"
                             aria-expanded={open}
@@ -379,12 +418,15 @@ export function SessionUsage({
                             Turn {turn.number}
                           </button>
                         </TableCell>
-                        <TableCell className="whitespace-nowrap text-xs font-normal tabular-nums text-muted-foreground">
+                        <TableCell className="whitespace-nowrap font-normal tabular-nums text-muted-foreground">
                           <time dateTime={turn.start} title={fullTime(turn.start)}>
                             {shortTime(turn.start)}
                           </time>
                         </TableCell>
-                        <TableCell className="text-xs font-normal text-muted-foreground">
+                        <TableCell className="max-w-48 truncate font-mono text-[13px] font-normal" title={used.title || undefined}>
+                          {used.label}
+                        </TableCell>
+                        <TableCell className="font-normal text-muted-foreground">
                           {turn.calls.length} {turn.calls.length === 1 ? "call" : "calls"}
                         </TableCell>
                         <LedgerCells row={turn} kinds={kinds} cost={cost} />
@@ -439,16 +481,19 @@ function CallLine({
   const model = [call.provider, call.model].filter(Boolean).join(" · ");
   return (
     <TableRow className="group">
-      <TableCell className="whitespace-nowrap text-xs tabular-nums">
-        <span className="inline-flex items-center gap-1.5 pl-5" title={model || undefined}>
+      <TableCell className="whitespace-nowrap tabular-nums">
+        <span className="inline-flex items-center gap-1.5 pl-5">
           #{row.number}
           {call.usage?.duplicate ? <Badge variant="outline">duplicate</Badge> : null}
         </span>
       </TableCell>
-      <TableCell className="whitespace-nowrap text-xs tabular-nums text-muted-foreground">
+      <TableCell className="whitespace-nowrap tabular-nums text-muted-foreground">
         <time dateTime={row.start} title={fullTime(row.start)}>
           {shortTime(row.start)}
         </time>
+      </TableCell>
+      <TableCell className="max-w-48 truncate font-mono text-[13px] text-muted-foreground" title={model || undefined}>
+        {call.model || "—"}
       </TableCell>
       <TableCell>
         <TokenBar tokens={row.tokens} kinds={kinds} scale={scale} className="h-2 max-w-56" />
@@ -456,7 +501,7 @@ function CallLine({
       {row.recorded ? (
         <LedgerCells row={row} kinds={kinds} cost={cost} />
       ) : (
-        <TableCell colSpan={kinds.length + 3} className="text-right text-xs text-muted-foreground">
+        <TableCell colSpan={kinds.length + 3} className="text-right text-muted-foreground">
           No usage recorded
         </TableCell>
       )}

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type KeyboardEvent } from "react";
+import { Link } from "react-router-dom";
 import { Check, ChevronDown, LoaderCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -15,6 +16,7 @@ import type { ManagementModels } from "@nylorun/admin/client";
 import type { SessionModelView } from "@nylorun/agents";
 import { createTenantClient, createTenantManagementClient } from "@/proxy-client";
 import { listFrom } from "@/runtime-body.ts";
+import { tenantPath } from "@/agent-path";
 
 type HostModelProviderInfo = Awaited<
   ReturnType<ManagementModels["providers"]>
@@ -27,6 +29,8 @@ type ModelOption = {
   providerName: string;
   modelId: string;
   modelName: string;
+  /** What the model reads (protocol 12); absent from an older Runtime. */
+  inputs?: readonly string[];
 };
 
 /** The Host feature the picker needs: a session's own model. */
@@ -34,6 +38,21 @@ const SESSION_MODEL = "session-model";
 
 function optionKey(providerId: string, modelId: string): string {
   return `${providerId}\0${modelId}`;
+}
+
+const INPUT_NAMES: Readonly<Record<string, string>> = {
+  image: "images",
+  pdf: "PDFs",
+  office: "Office files",
+  audio: "audio",
+  video: "video",
+};
+
+/** What a model reads besides text, for its menu item: attachments depend on it. */
+function readsText(inputs: readonly string[] | undefined): string | undefined {
+  if (!inputs) return undefined;
+  const files = inputs.filter((input) => input !== "text").map((input) => INPUT_NAMES[input] ?? input);
+  return files.length === 0 ? "Text only" : `Reads ${files.join(", ")}`;
 }
 
 /** Keys the menu acts on; every other key types into the search box, never Radix's typeahead. */
@@ -109,22 +128,25 @@ export function SessionModelPicker({
     const catalogById = new Map(catalog.map((item) => [item.id, item]));
     return providers.map((provider) => {
       const listed = catalogById.get(provider.id);
-      const listedModels: ReadonlyArray<{ id: string; name: string }> =
+      const listedModels: ReadonlyArray<{ id: string; name: string; inputs?: readonly string[] }> =
         listed && Array.isArray(listed.models) && listed.models.length > 0
           ? listed.models
           : [{ id: provider.model, name: provider.model }];
       return {
         id: provider.id,
         name: provider.name,
-        options: listedModels.map(
-          (model): ModelOption => ({
+        options: listedModels.map((model): ModelOption => {
+          // The provider reports its selected model's inputs, overrides included; the catalog, each model's.
+          const inputs = (provider.model === model.id ? provider.inputs : undefined) ?? model.inputs;
+          return {
             key: optionKey(provider.id, model.id),
             providerId: provider.id,
             providerName: provider.name,
             modelId: model.id,
             modelName: model.name,
-          }),
-        ),
+            ...(inputs ? { inputs } : {}),
+          };
+        }),
       };
     });
   }, [catalog, providers]);
@@ -209,6 +231,11 @@ export function SessionModelPicker({
         onOpenChange={(next) => {
           setOpen(next);
           if (!next) setQuery("");
+          // Read again on each open: a provider connected on the Tenant page shows without a reload.
+          else
+            void refresh().catch((cause: unknown) =>
+              setError(cause instanceof Error ? cause.message : String(cause)),
+            );
         }}
       >
         <DropdownMenuTrigger asChild>
@@ -292,7 +319,12 @@ export function SessionModelPicker({
                         void choose(option);
                       }}
                     >
-                      <span className="min-w-0 truncate">{option.modelName}</span>
+                      <span className="flex min-w-0 flex-col">
+                        <span className="truncate">{option.modelName}</span>
+                        {readsText(option.inputs) ? (
+                          <span className="truncate text-xs text-muted-foreground">{readsText(option.inputs)}</span>
+                        ) : null}
+                      </span>
                       <Check
                         className={cn("size-3.5 shrink-0", option.key === selectedKey ? "opacity-100" : "opacity-0")}
                         aria-hidden
@@ -304,13 +336,21 @@ export function SessionModelPicker({
             )}
           </div>
           <p className="border-t px-3 py-2 text-xs text-muted-foreground">
-            Applies to this session only. The Tenant model is set on the Tenant page.
+            Applies to this session only. The Tenant model is set on the{" "}
+            <Link to={tenantPath("models")} className="underline underline-offset-4 hover:text-foreground">
+              Tenant page
+            </Link>
+            .
           </p>
         </DropdownMenuContent>
       </DropdownMenu>
       {empty ? (
         <span className="truncate text-xs text-muted-foreground">
-          Connect a provider on the Tenant page's Models tab.
+          Connect a provider on the{" "}
+          <Link to={tenantPath("models")} className="underline underline-offset-4 hover:text-foreground">
+            Tenant page's Models tab
+          </Link>
+          .
         </span>
       ) : null}
       {stale && !error ? (

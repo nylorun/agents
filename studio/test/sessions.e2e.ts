@@ -703,8 +703,10 @@ test("a session's Usage tab is one ledger of the session, its turns and each mod
       // The turn, then its call, with the same columns.
       const calls = panel.getByRole("region", { name: "Model calls" }).locator("tbody tr");
       assert.equal(await calls.count(), 2);
-      assert.match((await calls.nth(0).textContent()) ?? "", /Turn 1.*1 call.*200.*1,234.*567.*2,001.*4\.2s.*\$0\.0123/u);
-      assert.match((await calls.nth(1).textContent()) ?? "", /#1.*200.*1,234.*567.*2,001.*4\.2s.*\$0\.0123/u);
+      assert.match((await calls.nth(0).textContent()) ?? "", /Turn 1.*gpt-test.*1 call.*200.*1,234.*567.*2,001.*4\.2s.*\$0\.0123/u);
+      assert.match((await calls.nth(1).textContent()) ?? "", /#1.*gpt-test.*200.*1,234.*567.*2,001.*4\.2s.*\$0\.0123/u);
+      // The call's model in its own column, with its provider on hover.
+      assert.equal(await calls.nth(1).getByRole("cell", { name: "gpt-test" }).getAttribute("title"), "openai · gpt-test");
       // Its menu opens the call's event in the Events tab.
       await calls.nth(1).hover();
       await page.getByRole("button", { name: "More options for call 1" }).click();
@@ -725,6 +727,9 @@ test("the composer's model picker sets the model of this session only, never the
       await trigger.getByText("Tenant model").waitFor();
       assert.match((await trigger.textContent()) ?? "", /GPT Test.*OpenAI/u);
       await trigger.click();
+      // Each model says what it reads; the Tenant model is set on the Tenant page.
+      await page.getByRole("menuitem", { name: /GPT Test.*Reads images, PDFs/u }).waitFor();
+      assert.equal(await page.getByRole("link", { name: "Tenant page" }).getAttribute("href"), `/tenants/${TENANT}/tenant?tab=models`);
       // The search box keeps what is typed: no menu typeahead takes the keys.
       const search = page.getByRole("textbox", { name: "Search models" });
       await search.pressSequentially("fast");
