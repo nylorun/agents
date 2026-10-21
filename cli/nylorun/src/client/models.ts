@@ -1,7 +1,8 @@
 /**
  * `nylorun tenant models | usage | calls`: the Tenant's model, what its model calls used, and the
  * calls themselves, through the Management API. `models set` signs in with pi-ai (loaded only
- * there) at a terminal; with `--provider` and `--model` it takes an API key piped in instead,
+ * there) at a terminal; with `--provider` and `--model` it takes an API key piped in instead, or
+ * with `--host-identity` the Host's own Google identity (ADR-71),
  * for CI. A key is never an argument.
  */
 import { randomUUID } from "node:crypto";
@@ -21,6 +22,9 @@ export const modelsUsage = `  models catalog [--tenant <name>] [--json]
   models set [--tenant <name>]        sign in to a model provider and set the Tenant's model
   models set --provider <id> --model <id> [--base-url <url>] [--tenant <name>]
                                       the same with an API key piped in on stdin (CI)
+  models set --provider google-vertex --model <id> --host-identity --project <id> --location <location> [--tenant <name>]
+                                      the same with the Host's Google identity, no key: on a Host
+                                      whose operator sets NYLORUN_MODEL_HOST_IDENTITY
   models select <provider> [--model <id>] [--tenant <name>]
                                       use a provider that has a credential (default: its model)`;
 
@@ -81,22 +85,45 @@ async function read(deps: StackDeps, verb: string, args: readonly string[]): Pro
 }
 
 const SET_USAGE =
-  "nylorun tenant models set [--tenant <name>] | nylorun tenant models set --provider <id> --model <id> [--base-url <url>] [--tenant <name>]";
+  "nylorun tenant models set [--tenant <name>] | nylorun tenant models set --provider <id> --model <id> [--base-url <url>] [--tenant <name>] | nylorun tenant models set --provider google-vertex --model <id> --host-identity --project <id> --location <location> [--tenant <name>]";
 
 /**
  * `models set`: at a terminal, the sign-in prompts; with `--provider` and `--model`, the API key
- * on stdin, set as `PUT /v1/tenant/model` with an `api_key` credential (OAuth needs the prompts).
+ * on stdin, set as `PUT /v1/tenant/model` with an `api_key` credential (OAuth needs the prompts),
+ * or with `--host-identity` a `host_identity` credential: no key, only `--project` and `--location`.
  */
 async function set(deps: StackDeps, args: readonly string[]): Promise<number> {
   const flags = parseStackFlags(
     args,
-    { values: ["--tenant", "--provider", "--model", "--base-url"] },
+    {
+      values: ["--tenant", "--provider", "--model", "--base-url", "--project", "--location"],
+      booleans: ["--host-identity"],
+    },
     SET_USAGE,
   );
   if (flags.rest.length) throw usageError(`Usage: ${SET_USAGE}`);
   const provider = flags.values.get("--provider");
   const model = flags.values.get("--model");
   const baseUrl = flags.values.get("--base-url");
+  const project = flags.values.get("--project");
+  const location = flags.values.get("--location");
+  const hostIdentity = flags.booleans.has("--host-identity");
+  if (hostIdentity || project !== undefined || location !== undefined) {
+    if (!hostIdentity || provider === undefined || model === undefined || !project || !location)
+      throw usageError(
+        `Pass --host-identity with --provider, --model, --project and --location. Usage: ${SET_USAGE}`,
+      );
+    if (baseUrl !== undefined) throw usageError("--host-identity takes no --base-url");
+    const admin = await client(deps, flags.values.get("--tenant"));
+    const view = await admin.models.put({
+      idempotencyKey: randomUUID(),
+      provider,
+      model,
+      auth: { type: "host_identity", project, location },
+    });
+    deps.out(describe(view));
+    return 0;
+  }
   if (provider !== undefined || model !== undefined || baseUrl !== undefined) {
     if (provider === undefined || model === undefined)
       throw usageError(`Pass both --provider and --model. Usage: ${SET_USAGE}`);

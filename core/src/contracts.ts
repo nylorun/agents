@@ -2686,11 +2686,13 @@ export const CustomModelSettingsSchema = z
   .strict();
 export type CustomModelSettings = z.infer<typeof CustomModelSettingsSchema>;
 /**
- * How the Runtime authenticates to the model: a stored key, a stored OAuth grant, or (a custom
+ * How the Runtime authenticates to the model: a stored key, a stored OAuth grant, (a custom
  * endpoint only) the Runtime's workload token, read from `NYLORUN_WORKLOAD_TOKEN_FILE` on every
- * call and never stored (#496).
+ * call and never stored (#496), or (`google-vertex` only, Host feature `model-host-identity`) the
+ * Host's own identity: Google's Application Default Credentials, found at each call and never
+ * stored, on a Host whose operator lends it with `NYLORUN_MODEL_HOST_IDENTITY` (ADR-71).
  */
-export const HOST_MODEL_AUTH_TYPES = ["api_key", "oauth", "workload"] as const;
+export const HOST_MODEL_AUTH_TYPES = ["api_key", "oauth", "workload", "host_identity"] as const;
 export type HostModelAuthType = (typeof HOST_MODEL_AUTH_TYPES)[number];
 export const PutHostModelRequestSchema = z
   .object({
@@ -2716,6 +2718,15 @@ export const PutHostModelRequestSchema = z
         })
         .passthrough(),
       z.object({ type: z.literal("workload") }).strict(),
+      z
+        .object({
+          type: z.literal("host_identity"),
+          /** The Google Cloud project the calls go to and bill. */
+          project: z.string().regex(/^[a-z][a-z0-9-]{4,28}[a-z0-9]$/, "a Google Cloud project id"),
+          /** Where they run: a region such as `us-central1`, or `global`. */
+          location: z.string().regex(/^[a-z][a-z0-9-]*$/, "a Google Cloud location"),
+        })
+        .strict(),
     ]),
   })
   .strict();

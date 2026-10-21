@@ -121,6 +121,7 @@ import { hostModelCatalog, inputsOfHostModel } from "../model/catalog.js";
 import { inputsError } from "../model/capabilities.js";
 import { readAddedInputs } from "../tenant/model-setting.js";
 import { normalizeVaultUrl } from "./url.js";
+import { hostIdentityEnv, hostIdentityRefused } from "./host-identity.js";
 
 export const HOST_VAULT_ID = "host";
 const HOST_MODEL_ID = "host-model";
@@ -767,10 +768,15 @@ export class VaultService {
         this.validateHostModel(body);
         if (body.auth.type === "workload" && body.provider !== "custom")
           throw new VaultError(400, "The workload token authenticates a custom provider only.");
+        if (body.auth.type === "host_identity") {
+          const refused = hostIdentityRefused(body.provider);
+          if (refused) throw new VaultError(400, refused);
+        }
         await this.ensureHostVault(t);
         const credentialId = hostModelCredentialId(body.provider);
         await this.deleteHostProviderRows(t, body.provider);
-        // The workload token is read on every call and never stored (#496).
+        // The workload token is read on every call and never stored (#496); the Host's identity
+        // too (ADR-71), which keeps only where its calls go.
         const payload: HostSecretPayload =
           body.auth.type === "api_key"
             ? {
@@ -779,7 +785,9 @@ export class VaultService {
               }
             : body.auth.type === "oauth"
               ? { oauth: body.auth }
-              : {};
+              : body.auth.type === "host_identity"
+                ? { env: hostIdentityEnv(body.auth.project, body.auth.location) }
+                : {};
         await this.insertHostCredential(t, kek, {
           id: credentialId,
           provider: body.provider,

@@ -35,6 +35,7 @@ import { classifyAssistantError, failure } from "./classify.js";
 import { addedInputsOf, describeModel, selectionOf } from "./descriptor.js";
 import { modelsFor } from "./models.js";
 import { callHeaders, type ModelCaller } from "./call-headers.js";
+import { hostIdentityRefused, VERTEX_ADC_MARKER } from "../vault/host-identity.js";
 import { workloadToken, WorkloadTokenUnavailable } from "../vault/workload-token.js";
 import { NativeBlocks, nativeKindsOf, type NativeFileKind } from "./native-blocks.js";
 import { projectSecrets } from "./settings.js";
@@ -149,6 +150,11 @@ export function piModel(options: PiModelOptions = {}): RuntimeModelAdapter {
         throw error;
       }
     }
+    // The Host's identity (ADR-71): only while its operator still lends it.
+    if (stored.authType === "host_identity") {
+      const refused = hostIdentityRefused(stored.provider);
+      if (refused) return failure("auth", refused, false);
+    }
     const secrets = [
       ...projectSecrets(root),
       ...credentialSecrets(stored.credential),
@@ -211,6 +217,8 @@ export function piModel(options: PiModelOptions = {}): RuntimeModelAdapter {
       sessionId: call.executionId,
       cacheRetention: "short" as const,
       ...(Object.keys(perCall).length > 0 ? { headers: perCall } : {}),
+      // With the Host's identity: where Agent Platform runs the call (ADR-71).
+      ...(stored.authType === "host_identity" && stored.credential.env ? { env: stored.credential.env } : {}),
       timeoutMs: settings.requestTimeoutMs,
       maxRetries: settings.providerRetries,
       maxRetryDelayMs: settings.maxRetryDelayMs,
@@ -648,7 +656,12 @@ function hostCredentialStore(
   stored: HostModelSecret,
   write: ((credential: Credential) => void | Promise<void>) | undefined,
 ): CredentialStore {
-  let current: Credential = stored.credential as Credential;
+  // The Host's identity (ADR-71): pi-ai's Vertex AI client uses Application Default Credentials
+  // for this marker in place of a key.
+  let current: Credential =
+    stored.authType === "host_identity"
+      ? ({ type: "api_key", key: VERTEX_ADC_MARKER } as Credential)
+      : (stored.credential as Credential);
   // A workload model stores no credential: pi-ai then asks the provider's `resolve` (`modelsFor`).
   const stores = stored.authType !== "workload";
   return {
@@ -676,6 +689,8 @@ function hostCredentialStore(
 }
 
 function credentialSecrets(credential: HostModelSecret["credential"]): string[] {
+  // The Host's identity keeps no secret: its project and location stay readable in messages.
+  if (credential.type === "host_identity") return [];
   const values = [credential.key, credential.access, credential.refresh];
   if (credential.env)
     values.push(...Object.values(credential.env));

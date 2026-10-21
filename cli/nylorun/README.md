@@ -102,6 +102,7 @@ nylorun tenant signing-keys list|rotate [--force]|revoke <kid> [--tenant <name>]
 nylorun tenant models catalog|providers|get [--tenant <name>] [--json]   # the models the Runtime knows, the providers with a credential, the Tenant's model
 nylorun tenant models set [--tenant <name>]           # sign in to a model provider and set the Tenant's model
 nylorun tenant models set --provider <id> --model <id> [--base-url <url>] [--tenant <name>]   # the same, with an API key piped in on stdin (CI)
+nylorun tenant models set --provider google-vertex --model <id> --host-identity --project <id> --location <location>   # the Host's Google identity, no key
 nylorun tenant models select <provider> [--model <id>] [--tenant <name>]   # use another provider that has a credential
 nylorun tenant usage [--scope tenant|manifest|turn] [--id <id>] [--period day|month|total] [--tenant <name>]   # calls, tokens and cost (JSON); manifest: the Agents made from agent manifest <id>
 nylorun tenant calls [--after <cursor>] [--limit <n>] [--tenant <name>]   # every recorded model call as NDJSON, until caught up
@@ -715,6 +716,15 @@ providers need the prompts.
 
 ```sh
 printenv OPENAI_API_KEY | nylorun tenant models set --provider openai --model gpt-5
+```
+
+On a Host whose operator lends its identity (`NYLORUN_MODEL_HOST_IDENTITY=google-vertex`),
+`--host-identity` with `--project` and `--location` sets a `google-vertex` model with no key: the
+Runtime calls Agent Platform with the Host's Google Application Default Credentials.
+
+```sh
+nylorun tenant models set --provider google-vertex --model gemini-4-argon \
+  --host-identity --project my-project --location global
 ```
 
 `nylorun tenant models select <provider>` switches to another provider that

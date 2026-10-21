@@ -209,6 +209,9 @@ export type ProtocolFeature = (typeof PROTOCOL_FEATURES)[number];
  * `session-model`: `GET`, `PUT` and `DELETE /v1/sessions/{id}/model` read, choose and clear a
  * session's own model, one of a connected provider's, which its turns use in place of the
  * Tenant's; the Tenant's model does not change.
+ * `model-host-identity`: `PUT /v1/tenant/model` takes `auth: { type: "host_identity", project,
+ * location }` for `google-vertex`: the model gate calls Agent Platform with the Host's Google
+ * Application Default Credentials, when the Host's operator lends them (`NYLORUN_MODEL_HOST_IDENTITY`).
  */
 export const OPTIONAL_HOST_FEATURES = [
   "tenant-fixture-model",
@@ -231,6 +234,7 @@ export const OPTIONAL_HOST_FEATURES = [
   "gateway-credentials",
   "agent-folders",
   "session-model",
+  "model-host-identity",
 ] as const;
 export type OptionalHostFeature = (typeof OPTIONAL_HOST_FEATURES)[number];
 export interface ProtocolRange {
