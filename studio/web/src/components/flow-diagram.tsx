@@ -1,7 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { Check, Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Separator } from "@/components/ui/separator";
+import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
 import { flowStageCounts, mermaidFromManifest, type WorkflowManifest } from "@/workflow";
 
@@ -68,16 +68,16 @@ function plural(count: number, one: string, many: string): string {
 
 /**
  * A flow agent's stages as a diagram (Mermaid), top to bottom as its manifest declares them,
- * with a legend and the Mermaid text to copy. A run's progress stays on the Events tab. In a
- * session's Manifest tab (`panel`) it follows the panel's sections; on an Agent's Manifest tab
- * (`spec`) it is one of the spec's sections, `id` its anchor, and `hint` names the version.
+ * with a legend and the Mermaid text to copy: the Flow section of a manifest's spec
+ * (`ManifestSpec`), `id` its anchor and `hint` the version it draws. A run's progress stays on
+ * the session's Events tab.
  */
 export function FlowDiagram({
   manifest,
-  variant = "panel",
   id: anchor,
-  hint,
-}: Readonly<{ manifest: WorkflowManifest; variant?: "panel" | "spec"; id?: string; hint?: string }>) {
+  hint = "Its stages, top to bottom, as the manifest declares them",
+  gutter = "px-4",
+}: Readonly<{ manifest: WorkflowManifest; id?: string; hint?: string; gutter?: "px-4" | "px-5" }>) {
   const text = useMemo(() => mermaidFromManifest(manifest), [manifest]);
   const counts = useMemo(() => flowStageCounts(manifest), [manifest]);
   // Mermaid names the SVG's elements after this id, so it is unique and a valid selector.
@@ -167,37 +167,20 @@ export function FlowDiagram({
       ) : null}
       <p className="text-xs text-muted-foreground">
         {plural(counts.agents, "agent stage", "agent stages")} and {plural(counts.tools, "tool stage", "tool stages")} · a
-        stage is named by its id, else its agent or tool.
-        {variant === "spec" ? " A session's run of it is on its Events tab." : ""}
+        stage is named by its id, else its agent or tool. A run's progress is on its session's Events tab.
       </p>
     </>
   );
 
-  if (variant === "spec")
-    return (
-      <section id={anchor} aria-label="Flow" className="scroll-mt-2">
-        <div className="flex items-center gap-2 border-b px-4 pt-4 pb-1.5">
-          <h3 className="text-[13px] font-medium">Flow</h3>
-          <span className="truncate text-xs text-muted-foreground">{hint ?? "Its stages, top to bottom"}</span>
-          <span className="ml-auto" />
-          {copyButton}
-        </div>
-        <div className="space-y-3 px-4 py-3">{body}</div>
-      </section>
-    );
   return (
-    <section aria-label="Flow" className="space-y-3">
-      <Separator />
-      <div className="flex items-start gap-3 pt-2">
-        <div className="min-w-0 flex-1">
-          <h3 className="text-sm font-semibold">Flow</h3>
-          <p className="text-xs text-muted-foreground">
-            Its stages, top to bottom, as the manifest declares them. A run's progress is on the Events tab.
-          </p>
-        </div>
+    <section id={anchor} aria-label="Flow" className="scroll-mt-2">
+      <div className={cn("flex items-center gap-2 border-b pt-4 pb-1.5", gutter)}>
+        <h3 className="text-[13px] font-medium">Flow</h3>
+        <span className="truncate text-xs text-muted-foreground">{hint}</span>
+        <span className="ml-auto" />
         {copyButton}
       </div>
-      {body}
+      <div className={cn("space-y-3 py-3", gutter)}>{body}</div>
     </section>
   );
 }

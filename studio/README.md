@@ -94,7 +94,9 @@ and `?view=` its view. **Manifest** has two views. **Declared** shows the loop
 manifest the session pinned when it opened (`GET /v1/sessions/{id}/manifest`, Host
 feature `session-reads`; without it, the harness section of the version its Agent
 runs), named `name@version`, and says when the manifest has a newer version: an
-Agent keeps its version, and moves by a fork. **Deployed** shows where it runs (below).
+Agent keeps its version, and moves by a fork. It lays the manifest out as the Agent and
+Tenant pages do, one line per item (a line opens its JSON below it), with a flow agent's
+stages drawn atop it and, when its Agent has a sandbox, the sandbox's tools. **Deployed** shows where it runs (below).
 **Record** lists the session's artifacts (outputs and uploads). **Events** is the session's
 event log; a workflow session adds **Progress** (its tree, live) and **Iterations**,
 and opens on Progress.
@@ -293,7 +295,7 @@ kind and Agents, and shows beside it only where both fit): a version picker, its
 description, the Agents made from it (each linked to its page, with the version it
 runs), and two views of the version. **Spec** is the version as a readable spec, its
 **Harness** section (instructions, tools or a flow's agents, skills, MCP servers,
-memory) then its **Runtime** section (compute, lifecycle, network, setup and input
+memory; a flow's stages drawn as a diagram first) then its **Runtime** section (compute, lifecycle, network, setup and input
 files, vault slots, triggers, limits), one line each; a line opens its part of the
 manifest as JSON. **Source** (`&view=source`) is the agent folder the version was saved
 from, read only: its files as a tree, each marked when it was added or changed since the

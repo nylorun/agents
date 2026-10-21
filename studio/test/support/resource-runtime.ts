@@ -90,6 +90,25 @@ const agent = (id: string, fields: Record<string, unknown> = {}) => ({
   updatedAt: time,
   ...fields,
 });
+/** A flow agent's manifest, saved once: its harness is a workflow (not in the list, opened by name). */
+const digest = {
+  name: "digest",
+  version: 1,
+  hash: "d1",
+  manifest: {
+    manifestSchemaVersion: 8,
+    name: "digest",
+    harness: {
+      kind: "workflow",
+      workflowSchemaVersion: 3,
+      root: { chain: [{ agent: "fetch" }, { tool: { name: "file_report" } }] },
+      agents: { fetch: { manifestSchemaVersion: 7, id: "fetch", instructions: ["Read the source."] } },
+    },
+  },
+  savedBy: { actor: "application" },
+  createdAt: time,
+  agents: 0,
+};
 /** A saved agent manifest's versions: v3 is the latest. */
 const analystBox = (version: number) => ({
   name: "analyst-box",
@@ -328,6 +347,11 @@ export async function resourceRuntime({ artifactReads = true } = {}) {
     if (path === "/v1/agent-manifests")
       return send(200, { manifests: [analystBox(3), { ...analystBox(1), name: "pod-box", manifest: { ...analystBox(1).manifest, name: "pod-box" } }] });
     if (path === "/v1/agent-manifests/analyst-box") return send(200, analystBox(3));
+    if (path === "/v1/agent-manifests/digest" || path === "/v1/agent-manifests/digest/versions/1") return send(200, digest);
+    if (path === "/v1/agent-manifests/digest/versions") {
+      const { manifest: _, name: __, ...rest } = digest;
+      return send(200, { name: "digest", latest: 1, versions: [rest] });
+    }
     if (path === "/v1/agent-manifests/analyst-box/versions")
       return send(200, {
         name: "analyst-box",

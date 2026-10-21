@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import type { AgentManifestView } from "@nylorun/agents";
 import { Tabs as TabsPrimitive } from "radix-ui";
@@ -9,7 +9,8 @@ import { useRead } from "@/resources/reads";
 import type { AgentCatalog } from "@/resources/agents";
 import { agentPath } from "@/agent-path";
 import { isFlowManifest, manifestNameOf, stateLabel } from "@/agent-list";
-import { manifestSpec } from "@/agent-spec";
+import { flowOf, manifestSpec } from "@/agent-spec";
+import { ManifestSpec } from "@/components/manifest-spec";
 import { withPolicyNotes } from "@/tenant-spec";
 import { useToolRules } from "@/resources/tool-policy";
 import { fullTime, shortTime } from "@/time-format";
@@ -25,7 +26,6 @@ import {
   EmptyRow,
   FilterMenu,
   SearchBox,
-  StatusDot,
   TableFrame,
   TableToolbar,
   ToolbarCount,
@@ -329,13 +329,13 @@ function ManifestPane({
   );
   const read = useRead(loadVersion);
   const shown = read.data;
-  const [open, setOpen] = useState<string>();
   const [json, setJson] = useState(false);
   const agents = catalog.agents.filter((agent) => manifestNameOf(agent) === name);
   const latest = versions.data?.latest;
   // Each tool the policy may decide calls of notes its rules, which the Tool policy tab edits.
   const rules = useToolRules(tenantId);
   const sections = shown ? withPolicyNotes(manifestSpec(shown.manifest), rules, name) : [];
+  const flow = shown ? flowOf((shown.manifest as { harness?: unknown }).harness, name) : undefined;
   return (
     <aside
       aria-label={name}
@@ -362,7 +362,6 @@ function ManifestPane({
               label: `v${v.version}${v.version === versions.data!.latest ? " · latest" : ""}`,
             }))}
             onChange={(value) => {
-              setOpen(undefined);
               onVersion(Number(value));
             }}
           />
@@ -435,61 +434,16 @@ function ManifestPane({
                   <CodeBlock label="The whole manifest">{JSON.stringify(shown.manifest, null, 2)}</CodeBlock>
                 </div>
               ) : null}
-              {sections.map((section, index) => (
-                <Fragment key={section.id}>
-                  {index === 0 || sections[index - 1]!.group !== section.group ? (
-                    <div className="flex items-baseline gap-2.5 px-5 pt-5 pb-0.5">
-                      <h3 className="text-[15px] font-semibold">{section.group === "harness" ? "Harness" : "Runtime"}</h3>
-                      <span className="text-xs text-muted-foreground">
-                        {section.group === "harness" ? "What runs inside the loop" : "What the Runtime provides around it"}
-                      </span>
-                    </div>
-                  ) : null}
-                  <section aria-label={section.title} className="pt-3">
-                    <div className="flex items-baseline gap-2 border-b px-5 pb-1.5">
-                      <h4 className="text-[13px] font-semibold">{section.title}</h4>
-                      <span className="truncate text-xs text-muted-foreground/80">{section.hint}</span>
-                    </div>
-                    {section.rows.map((row) => {
-                      const expanded = open === row.id;
-                      return (
-                        <div key={row.id}>
-                          <button
-                            type="button"
-                            aria-expanded={expanded}
-                            onClick={() => setOpen(expanded ? undefined : row.id)}
-                            className={cn(
-                              "grid h-9 w-full grid-cols-[7rem_minmax(0,1fr)_auto] items-center gap-3.5 border-b border-border/60 px-5 text-left text-[13px] hover:bg-muted/50 sm:grid-cols-[9.5rem_minmax(0,1fr)_auto]",
-                              expanded && "bg-muted",
-                            )}
-                          >
-                            <span
-                              className={cn(
-                                "truncate",
-                                row.mono ? "font-mono text-xs text-foreground" : "text-muted-foreground",
-                              )}
-                              title={row.label}
-                            >
-                              {row.label}
-                            </span>
-                            <span className="truncate" title={row.value}>
-                              {row.value}
-                            </span>
-                            <span className="max-w-28 truncate text-xs text-muted-foreground sm:max-w-40" title={row.note}>
-                              {row.tone && row.note ? <StatusDot tone={row.tone}>{row.note}</StatusDot> : row.note}
-                            </span>
-                          </button>
-                          {expanded ? (
-                            <pre className="border-b border-border/60 bg-muted/40 px-5 py-2.5 font-mono text-xs leading-5 whitespace-pre-wrap break-all">
-                              {typeof row.json === "string" ? row.json : JSON.stringify(row.json, null, 2)}
-                            </pre>
-                          ) : null}
-                        </div>
-                      );
-                    })}
-                  </section>
-                </Fragment>
-              ))}
+              <div className="pt-3">
+                <ManifestSpec
+                  // A version's rows are its own: none stays open across versions.
+                  key={shown.version}
+                  sections={sections}
+                  {...(flow ? { flow, flowHint: `as v${shown.version} declares them` } : {})}
+                  detail="inline"
+                  gutter="px-5"
+                />
+              </div>
             </>
           ) : null}
         </TabsPrimitive.Content>

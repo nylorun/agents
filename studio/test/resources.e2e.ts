@@ -245,6 +245,20 @@ test("a session's Manifest tab, under Deployed, shows where it runs: the version
   });
 });
 
+test("a flow agent's manifest on the Tenant's Manifests tab draws its stages atop its harness", async () => {
+  await withStudio(async (page, base) => {
+    await page.goto(base + "/tenant?tab=manifests&selected=digest");
+    const flow = page.getByRole("region", { name: "Flow", exact: true });
+    const diagram = flow.getByRole("img", { name: "The flow's stages as a diagram" });
+    await diagram.waitFor();
+    for (const label of ["Start", "fetch", "file_report", "End"]) await diagram.getByText(label, { exact: true }).waitFor();
+    await flow.getByText("Its stages, top to bottom, as v1 declares them", { exact: true }).waitFor();
+    await flow.getByText("1 agent stage and 1 tool stage", { exact: false }).waitFor();
+    // The flow's agents follow, one line each, as on the Agent page.
+    await page.getByRole("region", { name: "Flow agents", exact: true }).getByRole("button", { name: /fetch/u }).waitFor();
+  });
+});
+
 test("agent manifests are one table on the Tenant's page; a row opens the manifest beside it as a readable spec, on any version, with the Agents made from it", async () => {
   await withStudio(async (page, base, requests) => {
     await page.goto(base);
