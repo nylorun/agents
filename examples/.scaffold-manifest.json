@@ -1,12 +1,12 @@
 {
   "version": 1,
-  "creatorVersion": "0.16.7-beta",
+  "creatorVersion": "0.16.8-beta",
   "compatibility": {
-    "harness": "0.29.4-beta",
-    "runtime": "0.32.0-beta",
-    "agents": "0.28.0-beta",
-    "admin": "0.19.4-beta",
-    "core": "0.28.0-beta"
+    "harness": "0.29.5-beta",
+    "runtime": "0.33.0-beta",
+    "agents": "0.29.0-beta",
+    "admin": "0.19.5-beta",
+    "core": "0.29.0-beta"
   },
   "templateHash": "2018f692ce3ee88d18f8039044e46db9d373bbc640c50299ecd0c490b4344f8e",
   "files": {
