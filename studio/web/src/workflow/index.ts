@@ -13,6 +13,7 @@ export {
   type WorkflowTreeNode,
 } from "./types.ts";
 export { treeFromManifest, expandMapItems } from "./manifest-tree.ts";
+export { flowStageCounts, mermaidFromManifest } from "./mermaid.ts";
 export { liveStatusFromEvents, statusColor } from "./live-status.ts";
 export {
   linksFromEvents,

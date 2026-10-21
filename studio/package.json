@@ -52,6 +52,7 @@
     "clsx": "^2.1.1",
     "dayjs": "^1.11.23",
     "lucide-react": "^1.56.0",
+    "mermaid": "^12.2.0",
     "playwright": "^1.64.0",
     "radix-ui": "^1.8.1",
     "react": "^19.3.0",
