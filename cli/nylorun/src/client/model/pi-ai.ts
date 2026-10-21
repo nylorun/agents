@@ -11,7 +11,7 @@ import { CliError } from "../../errors.js";
  * The pi-ai `nylorun tenant models set` loads; nylorun's devDependency has the same version
  * (scripts/check-package.mjs).
  */
-export const PI_AI_VERSION = "1.2.0";
+export const PI_AI_VERSION = "1.3.0";
 const PI_AI = "@earendil-works/pi-ai";
 
 /** What `nylorun tenant models set` uses of pi-ai: its provider registry and login flows. */
