@@ -101,6 +101,22 @@ describe("installCluster", () => {
     expect(d.kubectl.inContext("docker-desktop").some((c) => c.args[0] === "apply")).toBe(false);
   });
 
+  it("publishes the probe on --probe-ports instead of two free ports (a VPC firewall)", async () => {
+    const kubectl = healthyCluster();
+    const d = await deps(kubectl);
+    await installCluster(d, {
+      context: "gke",
+      tenant: "shop",
+      hostAddress: "10.10.0.10",
+      probePorts: { allowed: 50000, denied: 8794 },
+      prePull: [],
+      ports: PORTS,
+    });
+    const listener = d.docker.calls.find((c) => c[0] === "run")!;
+    expect(listener).toEqual(expect.arrayContaining(["--publish", "10.10.0.10:50000:8080", "--publish", "10.10.0.10:8794:8081"]));
+    expect(kubectl.calls.some((c) => c.args.at(-1) === "http://10.10.0.10:8794/")).toBe(true);
+  });
+
   it("uses --host-address instead of resolving host.docker.internal (kind on Linux)", async () => {
     const kubectl = healthyCluster();
     const d = await deps(kubectl);

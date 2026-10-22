@@ -16,8 +16,9 @@ import { cliTuning } from "../tuning.js";
  *   to `<host>/32` on one port), must reach the allowed host port and nothing else: not the
  *   peer pod, not another port on the host.
  *
- * The host ports are served by a temporary busybox container published on the bind address.
- * The namespace and the container are always removed.
+ * The host ports are served by a temporary busybox container published on the bind address: two
+ * free ports, or `--probe-ports` where a firewall in front of the host (a cloud VPC's) opens only
+ * named ports to the pods. The namespace and the container are always removed.
  */
 
 export interface ProbeDeps {
@@ -56,6 +57,22 @@ export function assertIPv4(value: string, option: string): string {
   return value;
 }
 
+/** The probe's two host ports. */
+export interface ProbePorts {
+  /** The port the probe's policy allows. */
+  allowed: number;
+  /** The port it denies. */
+  denied: number;
+}
+
+/** `--probe-ports <allowed>,<denied>`: two different TCP ports. */
+export function parseProbePorts(value: string): ProbePorts {
+  const ports = value.split(",").map((part) => Number(part.trim()));
+  if (ports.length !== 2 || !ports.every((port) => Number.isInteger(port) && port > 0 && port < 65536) || ports[0] === ports[1])
+    throw new CliError(`--probe-ports must be two different TCP ports, <allowed>,<denied>: ${value}`, 2);
+  return { allowed: ports[0]!, denied: ports[1]! };
+}
+
 /** The last IPv4 address `nslookup` prints for the name (the first is the DNS server). */
 export function parseNslookup(output: string): string | undefined {
   const answer = output.split(/Name:\s*\S+/).slice(1).join("\n");
@@ -80,7 +97,7 @@ async function reaches(kube: Kube, namespace: string, pod: string, address: stri
 
 export async function runProbe(
   deps: ProbeDeps,
-  options: { hostAddress?: string; bindAddress?: string; prePull?: readonly string[] },
+  options: { hostAddress?: string; bindAddress?: string; probePorts?: ProbePorts; prePull?: readonly string[] },
 ): Promise<ProbeResult> {
   const { kube, docker } = deps;
   const suffix = randomBytes(3).toString("hex");
@@ -113,9 +130,15 @@ export async function runProbe(
         );
     }
     const bindAddress = options.bindAddress ?? defaultBind(kube.context, hostAddress);
-    const allowed = await deps.ports.pickFree();
-    let denied = await deps.ports.pickFree();
-    if (denied === allowed) denied = await deps.ports.pickFree();
+    let allowed: number;
+    let denied: number;
+    if (options.probePorts) {
+      ({ allowed, denied } = options.probePorts);
+    } else {
+      allowed = await deps.ports.pickFree();
+      denied = await deps.ports.pickFree();
+      if (denied === allowed) denied = await deps.ports.pickFree();
+    }
 
     const started = await docker.run([
       "run", "--detach", "--rm", "--name", listener, "--label", "dev.nylorun.probe=true",

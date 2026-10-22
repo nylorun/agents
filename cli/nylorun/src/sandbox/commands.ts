@@ -36,10 +36,10 @@ import {
   tenantNamespace,
   TOKEN_SECRET,
 } from "./manifests.js";
-import { assertIPv4, runProbe } from "./probe.js";
+import { assertIPv4, parseProbePorts, runProbe, type ProbePorts } from "./probe.js";
 import { cliTuning } from "../tuning.js";
 
-export const sandboxUsage = `  sandbox enable --context <name> [--tenant <name>] [--host-address <ip>] [--bind-address <ip>] [--no-pull]
+export const sandboxUsage = `  sandbox enable --context <name> [--tenant <name>] [--host-address <ip>] [--bind-address <ip>] [--probe-ports <allowed>,<denied>] [--no-pull]
                                       run the Tenant's sandboxes as pods on that kubeconfig context (agent-sandbox ${CONTROLLER_VERSION})
   sandbox disable [--tenant <name>] [--delete-namespace]
                                       stop the sandboxes service and forget the cluster
@@ -47,7 +47,7 @@ export const sandboxUsage = `  sandbox enable --context <name> [--tenant <name>]
                                       the cluster, the sandboxes service's readiness and what it reports`;
 
 const ENABLE_USAGE =
-  "nylorun local sandbox enable --context <name> [--tenant <name>] [--host-address <ip>] [--bind-address <ip>] [--no-pull]";
+  "nylorun local sandbox enable --context <name> [--tenant <name>] [--host-address <ip>] [--bind-address <ip>] [--probe-ports <allowed>,<denied>] [--no-pull]";
 
 /** The default workload image (D36), pre-pulled with the Runtime image. */
 export const DEFAULT_SANDBOX_IMAGE = "python:3.13-slim";
@@ -190,6 +190,7 @@ export async function installCluster(
     tenant: string;
     hostAddress?: string;
     bindAddress?: string;
+    probePorts?: ProbePorts;
     prePull: readonly string[];
     ports: { harness: number; gates: number; egress: number };
   },
@@ -227,6 +228,7 @@ export async function installCluster(
     {
       ...(input.hostAddress ? { hostAddress: input.hostAddress } : {}),
       ...(input.bindAddress ? { bindAddress: input.bindAddress } : {}),
+      ...(input.probePorts ? { probePorts: input.probePorts } : {}),
       prePull: input.prePull,
     },
   );
@@ -257,7 +259,7 @@ async function enable(deps: SandboxDeps, args: readonly string[]): Promise<numbe
   const { stack } = deps;
   const flags = parseStackFlags(
     args,
-    { booleans: ["--no-pull"], values: ["--context", "--tenant", "--host-address", "--bind-address"] },
+    { booleans: ["--no-pull"], values: ["--context", "--tenant", "--host-address", "--bind-address", "--probe-ports"] },
     ENABLE_USAGE,
   );
   if (flags.rest.length) throw usageError(`Usage: ${ENABLE_USAGE}`);
@@ -270,6 +272,8 @@ async function enable(deps: SandboxDeps, args: readonly string[]): Promise<numbe
   const bindAddress = flags.values.get("--bind-address");
   if (hostAddress) assertIPv4(hostAddress, "--host-address");
   if (bindAddress) assertIPv4(bindAddress, "--bind-address");
+  const probePortsFlag = flags.values.get("--probe-ports");
+  const probePorts = probePortsFlag === undefined ? undefined : parseProbePorts(probePortsFlag);
   const name = flags.values.get("--tenant");
   const tenant = await selectTenant(stack, name === undefined ? {} : { name });
   await dockerPreflight(stack.docker);
@@ -290,12 +294,17 @@ async function enable(deps: SandboxDeps, args: readonly string[]): Promise<numbe
     gates: await pick(PREFERRED_PORTS.gates, persisted?.gatesPort),
     egress: await pick(PREFERRED_PORTS.egress, persisted?.egressPort),
   };
+  if (probePorts && [probePorts.allowed, probePorts.denied].some((port) => taken.has(port)))
+    throw usageError(
+      `--probe-ports ${probePortsFlag} overlaps the sandbox ports ${ports.harness}, ${ports.gates} and ${ports.egress}; pick two others.`,
+    );
   const images = stackImages(stack.env, { runtime: stack.runtimeVersion, studio: stack.studioVersion });
   const installed = await installCluster(deps, {
     context,
     tenant: tenant.name,
     ...(hostAddress ? { hostAddress } : {}),
     ...(bindAddress ? { bindAddress } : {}),
+    ...(probePorts ? { probePorts } : {}),
     prePull: flags.booleans.has("--no-pull") ? [] : [DEFAULT_SANDBOX_IMAGE, images.runtime],
     ports,
   });

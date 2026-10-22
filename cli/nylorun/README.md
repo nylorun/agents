@@ -117,7 +117,7 @@ nylorun local ls [--json]          # the Tenants on this machine, with their sta
 nylorun local delete <tenant> --yes   # remove a Tenant: containers, volumes, Host root and vault key
 nylorun local logs [service] [--tenant <name>] [-f] [--tail <n>]   # postgres, restate, s2-lite, rustfs, gateway, runtime, harness, studio, sandboxes
 nylorun local reset [--tenant <name>] [--yes]   # delete the Tenant's volumes, Tenant directory and vault key; the next start creates it anew
-nylorun local sandbox enable --context <name> [--tenant <name>] [--host-address <ip>] [--bind-address <ip>] [--no-pull]
+nylorun local sandbox enable --context <name> [--tenant <name>] [--host-address <ip>] [--bind-address <ip>] [--probe-ports <allowed>,<denied>] [--no-pull]
 nylorun local sandbox disable [--tenant <name>] [--delete-namespace]
 nylorun local sandbox status [--tenant <name>] [--json]   # pods on a Kubernetes context (see Sandboxes)
 nylorun local telemetry [status|enable|disable]   # Studio's anonymous usage analytics
@@ -428,6 +428,10 @@ with a probe that the cluster enforces NetworkPolicy (and refuses it otherwise),
 lets pods reach only three ports on the Docker host, and adds the `sandboxes`
 service to the Tenant: the one container holding the cluster credentials
 (`<Host root>/sandboxes/`). On kind under Linux, pass `--host-address 172.17.0.1`.
+The probe publishes two free ports on the Docker host. Behind a firewall that
+opens only named ports to the pods, such as a cloud VPC's, pass two of them with
+`--probe-ports <allowed>,<denied>`. Open both, so that only NetworkPolicy can
+block the denied one.
 `nylorun local sandbox disable` removes the service (`--delete-namespace` also deletes
 the namespace and every sandbox in it). Sessions run in a pod when their
 Agent's manifest has `runtime.kind` `pod`.
