@@ -75,7 +75,7 @@ export const DEFAULT_CLI_TUNING = deepFreeze({
     kubectlMarginMs: 20_000,
     /** Downloading the agent-sandbox manifest. */
     manifestDownloadMs: 60_000,
-    /** `kubectl wait` for the CRD, and `rollout status` of the controller, in seconds. */
+    /** How long the CRD may take to be Established, and `rollout status` of the controller, in seconds. */
     crdWaitSeconds: 60,
     rolloutWaitSeconds: 180,
     /** How long to wait for the service account's token Secret. */

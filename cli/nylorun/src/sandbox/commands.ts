@@ -94,6 +94,7 @@ async function readKubeconfig(k: Kube): Promise<{ server: string; caData: string
 
 interface Crd {
   spec?: { versions?: { name?: string; served?: boolean }[] };
+  status?: { conditions?: { type?: string; status?: string }[] };
 }
 interface Deployment {
   spec?: { template?: { spec?: { containers?: { image?: string }[] } } };
@@ -103,7 +104,7 @@ interface Deployment {
  * agent-sandbox: install the pinned release when absent; accept it when the pinned version
  * serves v1beta1; refuse anything else. Never upgrades or uninstalls.
  */
-async function ensureController(k: Kube, fetch: FetchLike, err: (line: string) => void): Promise<void> {
+async function ensureController(k: Kube, fetch: FetchLike, err: (line: string) => void, pollMs: number): Promise<void> {
   const crd = await k.getJson<Crd>(["crd", SANDBOX_CRD]);
   if (crd) {
     if (!crd.spec?.versions?.some((v) => v.name === SANDBOX_API_VERSION && v.served))
@@ -129,13 +130,29 @@ async function ensureController(k: Kube, fetch: FetchLike, err: (line: string) =
   if (digest !== CONTROLLER_SHA256)
     throw new CliError(`${CONTROLLER_URL} has sha256 ${digest}, not the pinned ${CONTROLLER_SHA256}; not applying it.`, 1);
   await k.check("Installing agent-sandbox", ["apply", "--server-side", "-f", "-"], { input: manifest });
-  await k.check("Waiting for the Sandbox CRD", ["wait", "--for=condition=Established", `crd/${SANDBOX_CRD}`, `--timeout=${cliTuning().sandbox.crdWaitSeconds}s`]);
+  await waitForCrd(k, pollMs);
   const tuning = cliTuning().sandbox;
   await k.check(
     "Waiting for the agent-sandbox controller",
     ["rollout", "status", `deployment/${CONTROLLER_DEPLOYMENT}`, "-n", CONTROLLER_NAMESPACE, `--timeout=${tuning.rolloutWaitSeconds}s`],
     { timeoutMs: tuning.rolloutWaitSeconds * 1000 + tuning.kubectlMarginMs },
   );
+}
+
+/**
+ * Waits until the Sandbox CRD is Established. Polled, not `kubectl wait`: a CRD the API server has
+ * not given any conditions yet makes `kubectl wait --for=condition` fail at once instead of waiting
+ * (seen on GKE right after the apply).
+ */
+export async function waitForCrd(k: Kube, pollMs: number): Promise<void> {
+  const deadline = Date.now() + cliTuning().sandbox.crdWaitSeconds * 1000;
+  for (;;) {
+    const crd = await k.getJson<Crd>(["crd", SANDBOX_CRD]);
+    if (crd?.status?.conditions?.some((c) => c.type === "Established" && c.status === "True")) return;
+    if (Date.now() > deadline)
+      throw new CliError(`The ${SANDBOX_CRD} CRD in ${k.context} was not Established within ${cliTuning().sandbox.crdWaitSeconds}s.`, 6);
+    await new Promise((resolve) => setTimeout(resolve, pollMs));
+  }
 }
 
 interface Namespace {
@@ -187,7 +204,7 @@ export async function installCluster(
   } catch (error) {
     throw new CliError(`Context ${input.context}: ${error instanceof Error ? error.message : String(error)}`, 6);
   }
-  await ensureController(k, deps.fetch ?? stack.fetch, stack.err);
+  await ensureController(k, deps.fetch ?? stack.fetch, stack.err, pollMs);
 
   const namespace = tenantNamespace(input.tenant);
   const existing = await k.getJson<Namespace>(["namespace", namespace]);

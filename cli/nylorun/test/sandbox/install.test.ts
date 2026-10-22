@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { apiRoute } from "../../src/sandbox/cluster-file.js";
-import { installCluster } from "../../src/sandbox/commands.js";
+import { installCluster, waitForCrd } from "../../src/sandbox/commands.js";
+import { kube } from "../../src/sandbox/kubectl.js";
 import { CONTROLLER_URL, networkPolicy, tenantManifests, tenantNamespace } from "../../src/sandbox/manifests.js";
 import { defaultBind, parseNslookup } from "../../src/sandbox/probe.js";
 import { fakeDocker, fakeFetch, temporaryHome, testDeps } from "../stack/support.js";
-import { healthyCluster, NSLOOKUP } from "./support.js";
+import { fakeKubectl, healthyCluster, NSLOOKUP, ok } from "./support.js";
 
 const PORTS = { harness: 8790, gates: 8791, egress: 8792 };
 
@@ -106,6 +107,20 @@ describe("installCluster", () => {
     const result = await install(d, { hostAddress: "172.17.0.1", context: "kind-nylorun" });
     expect(kubectl.calls.some((c) => c.args.includes("nslookup"))).toBe(false);
     expect(result.cluster).toMatchObject({ hostAddress: "172.17.0.1", bindAddress: "172.17.0.1" });
+  });
+});
+
+describe("waitForCrd", () => {
+  it("waits through a CRD with no conditions yet, as GKE answers right after the apply", async () => {
+    const answers = [
+      ok({ spec: {} }),
+      ok({ spec: {}, status: { conditions: [{ type: "NamesAccepted", status: "True" }] } }),
+      ok({ spec: {}, status: { conditions: [{ type: "Established", status: "True" }] } }),
+    ];
+    const kubectl = fakeKubectl((args) => (args.slice(2).join(" ") === "get crd sandboxes.agents.x-k8s.io -o json" ? answers.shift() : undefined));
+    await waitForCrd(kube(kubectl, "gke"), 1);
+    expect(answers).toEqual([]);
+    expect(kubectl.calls.some((c) => c.args.includes("wait"))).toBe(false);
   });
 });
 
