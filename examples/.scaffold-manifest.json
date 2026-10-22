@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "creatorVersion": "0.16.8-beta",
+  "creatorVersion": "0.16.9-beta",
   "compatibility": {
     "harness": "0.29.5-beta",
     "runtime": "0.33.0-beta",
