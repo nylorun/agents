@@ -1,5 +1,15 @@
 # nylorun
 
+## 0.22.0-beta
+
+### Minor Changes
+
+- 77902da: `nylorun local sandbox enable --probe-ports <allowed>,<denied>` publishes the NetworkPolicy probe's listener on those two host ports instead of two free ones. A firewall in front of the Docker host that opens only named ports to the pods, such as a cloud VPC's, can then open them; without it, the probe's random ports never reach the host and `enable` refuses the cluster. The ports must differ from each other and from the sandbox ports.
+
+### Patch Changes
+
+- 41b5741: `nylorun local sandbox enable` waits for a newly installed agent-sandbox CRD by polling its `Established` condition. It used `kubectl wait --for=condition=Established`, which fails at once, with ".status.conditions accessor error", when the API server has not yet given the CRD any conditions; GKE answers that way right after the apply.
+
 ## 0.21.0-beta
 
 ### Minor Changes
