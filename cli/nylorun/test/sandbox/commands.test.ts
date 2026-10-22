@@ -54,6 +54,15 @@ describe("nylorun local sandbox", () => {
     await expect(runSandboxCommand(["enable", "--context", "docker-desktop", "--host-address", "host"], deps)).rejects.toThrow(
       /--host-address must be an IPv4 address/,
     );
+    for (const value of ["8793", "8793,8793", "8793,70000", "a,b"])
+      await expect(runSandboxCommand(["enable", "--context", "docker-desktop", "--probe-ports", value], deps)).rejects.toMatchObject({
+        exitCode: 2,
+        message: expect.stringMatching(/--probe-ports must be two different TCP ports/),
+      });
+    await expect(runSandboxCommand(["enable", "--context", "docker-desktop", "--probe-ports", "8790,8793"], deps)).rejects.toMatchObject({
+      exitCode: 2,
+      message: expect.stringMatching(/overlaps the sandbox ports 8790, 8791 and 8792/),
+    });
     await expect(runSandboxCommand(["frobnicate"], deps)).rejects.toMatchObject({ exitCode: 2 });
   });
 
