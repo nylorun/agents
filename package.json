@@ -65,11 +65,11 @@
     "semver": "^7.7.4"
   },
   "dependencies": {
-    "@ag-ui/client": "^1.0.2",
-    "@scalar/openapi-parser": "^0.29.13",
+    "@ag-ui/client": "^1.0.3",
+    "@scalar/openapi-parser": "^0.29.14",
     "@types/node": "^26.6.5",
     "@vitejs/plugin-react": "^6.1.2",
-    "lucide-react": "^1.58.0",
+    "lucide-react": "^1.60.0",
     "radix-ui": "^1.8.1",
     "vite": "^8.3.4",
     "vitest": "^5.0.5"
