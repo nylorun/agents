@@ -11,7 +11,7 @@
     "nylorun": "file:../cli/nylorun",
     "@nylorun/admin": "file:../sdks/admin",
     "vitest": "^4.1.11",
-    "@ag-ui/client": "1.0.0",
+    "@ag-ui/client": "1.0.3",
     "postgres": "^3.4.9"
   },
   "scripts": {
