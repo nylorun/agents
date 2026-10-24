@@ -87,6 +87,7 @@ describe("with a trusted issuer's token", () => {
     expect(result.status).toBe(200);
     const types = result.events.map((e) => e.type);
     expect(types[0]).toBe("RUN_STARTED");
+    expect(result.events[0].protocolVersion).toBe("1.0");
     expect(types.at(-1)).toBe("RUN_FINISHED");
     expect(types).toContain("TEXT_MESSAGE_CONTENT");
     const history = await fetch(
@@ -99,6 +100,18 @@ describe("with a trusted issuer's token", () => {
     // The thread's session is the one every path names.
     const session = await tenant.call("GET", `/v1/sessions/${sessionIdFor("app:uma", "bot", "u1")}`);
     expect(session.body).toMatchObject({ agentId: "bot", ownerUserId: "app:uma" });
+  });
+
+  it("takes a client before AG-UI 1.0, which sends null for optional fields", async () => {
+    const token = await mint("app:old");
+    const result = await run(
+      tenant.runtime.url,
+      "bot",
+      input("old1", "m1", { state: null, forwardedProps: null, parentRunId: null }),
+      bearer(token)
+    );
+    expect(result.status, result.text).toBe(200);
+    expect(result.events.map((e) => e.type).at(-1)).toBe("RUN_FINISHED");
   });
 
   it("answers an empty history for a thread that never ran and another person's thread", async () => {

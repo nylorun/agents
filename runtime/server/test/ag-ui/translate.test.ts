@@ -159,6 +159,15 @@ describe("RunTranslator", () => {
     ]);
   });
 
+  it("declares the protocol version on RUN_STARTED, as AG-UI 1.0 requires", () => {
+    expect(new RunTranslator("t1", "r1").started()).toEqual({
+      type: "RUN_STARTED",
+      threadId: "t1",
+      runId: "r1",
+      protocolVersion: "1.0",
+    });
+  });
+
   it("maps both turn.failed shapes to RUN_ERROR", () => {
     const t = new RunTranslator("t1", "r1");
     expect(
