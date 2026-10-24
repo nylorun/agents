@@ -3,7 +3,7 @@
  * model call's `invocationId`, a tool call is the model's `callId`, a tool result is
  * `<callId>:result`, so live runs and `messagesFromEvents` agree.
  */
-import { EventType, type BaseEvent, type Interrupt } from "@ag-ui/core";
+import { EventType, PROTOCOL_VERSION, type BaseEvent, type Interrupt } from "@ag-ui/core";
 import {
   isEmptyAssistantMessage,
   parseTranscriptEvent,
@@ -199,6 +199,8 @@ export class RunTranslator {
       type: EventType.RUN_STARTED,
       threadId: this.threadId,
       runId: this.runId,
+      // AG-UI 1.0 producers declare the version; the SDKs do not fill it in.
+      protocolVersion: PROTOCOL_VERSION,
     } as BaseEvent;
   }
 

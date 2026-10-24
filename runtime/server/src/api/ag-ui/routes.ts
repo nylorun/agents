@@ -24,6 +24,7 @@ import { randomUUID } from "node:crypto";
 import type { ServerResponse } from "node:http";
 import {
   EventType,
+  omitOptionalNulls,
   type BaseEvent,
   type ContentPart,
   type Message,
@@ -396,7 +397,9 @@ export async function startRun(
   /** The request's trace context (R7.4): the turn the run starts joins the caller's trace. */
   trace?: TraceContext
 ): Promise<void> {
-  const parsed = RunAgentInputSchema.safeParse(body);
+  // Clients before AG-UI 1.0 send `null` for optional fields (`forwardedProps`,
+  // `tools[].parameters`, `resume[].payload`, a media part's `metadata`), which 1.0 refuses.
+  const parsed = RunAgentInputSchema.safeParse(omitOptionalNulls(body, "RunAgentInput"));
   if (!parsed.success)
     return fail(400, "Invalid RunAgentInput", { code: "invalid_request" });
   const input = parsed.data as RunAgentInput;
