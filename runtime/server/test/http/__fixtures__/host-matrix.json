@@ -106,7 +106,8 @@
           "gateway-credentials",
           "agent-folders",
           "session-model",
-          "model-host-identity"
+          "model-host-identity",
+          "credential-provider"
         ]
       }
     },
@@ -188,7 +189,8 @@
           "gateway-credentials",
           "agent-folders",
           "session-model",
-          "model-host-identity"
+          "model-host-identity",
+          "credential-provider"
         ]
       }
     },
@@ -270,7 +272,8 @@
           "gateway-credentials",
           "agent-folders",
           "session-model",
-          "model-host-identity"
+          "model-host-identity",
+          "credential-provider"
         ]
       }
     },
@@ -352,7 +355,8 @@
           "gateway-credentials",
           "agent-folders",
           "session-model",
-          "model-host-identity"
+          "model-host-identity",
+          "credential-provider"
         ]
       }
     },
@@ -434,7 +438,8 @@
           "gateway-credentials",
           "agent-folders",
           "session-model",
-          "model-host-identity"
+          "model-host-identity",
+          "credential-provider"
         ]
       }
     },
@@ -516,7 +521,8 @@
           "gateway-credentials",
           "agent-folders",
           "session-model",
-          "model-host-identity"
+          "model-host-identity",
+          "credential-provider"
         ]
       }
     },
@@ -598,7 +604,8 @@
           "gateway-credentials",
           "agent-folders",
           "session-model",
-          "model-host-identity"
+          "model-host-identity",
+          "credential-provider"
         ]
       }
     },
@@ -680,7 +687,8 @@
           "gateway-credentials",
           "agent-folders",
           "session-model",
-          "model-host-identity"
+          "model-host-identity",
+          "credential-provider"
         ]
       }
     },
@@ -762,7 +770,8 @@
           "gateway-credentials",
           "agent-folders",
           "session-model",
-          "model-host-identity"
+          "model-host-identity",
+          "credential-provider"
         ]
       }
     },
@@ -844,7 +853,8 @@
           "gateway-credentials",
           "agent-folders",
           "session-model",
-          "model-host-identity"
+          "model-host-identity",
+          "credential-provider"
         ]
       }
     },
@@ -926,7 +936,8 @@
           "gateway-credentials",
           "agent-folders",
           "session-model",
-          "model-host-identity"
+          "model-host-identity",
+          "credential-provider"
         ]
       }
     },
@@ -1008,7 +1019,8 @@
           "gateway-credentials",
           "agent-folders",
           "session-model",
-          "model-host-identity"
+          "model-host-identity",
+          "credential-provider"
         ]
       }
     },
@@ -1123,7 +1135,8 @@
           "gateway-credentials",
           "agent-folders",
           "session-model",
-          "model-host-identity"
+          "model-host-identity",
+          "credential-provider"
         ]
       }
     },
@@ -1205,7 +1218,8 @@
           "gateway-credentials",
           "agent-folders",
           "session-model",
-          "model-host-identity"
+          "model-host-identity",
+          "credential-provider"
         ]
       }
     },
@@ -1287,7 +1301,8 @@
           "gateway-credentials",
           "agent-folders",
           "session-model",
-          "model-host-identity"
+          "model-host-identity",
+          "credential-provider"
         ]
       }
     },
@@ -1369,7 +1384,8 @@
           "gateway-credentials",
           "agent-folders",
           "session-model",
-          "model-host-identity"
+          "model-host-identity",
+          "credential-provider"
         ]
       }
     },
@@ -1451,7 +1467,8 @@
           "gateway-credentials",
           "agent-folders",
           "session-model",
-          "model-host-identity"
+          "model-host-identity",
+          "credential-provider"
         ]
       }
     },
@@ -1533,7 +1550,8 @@
           "gateway-credentials",
           "agent-folders",
           "session-model",
-          "model-host-identity"
+          "model-host-identity",
+          "credential-provider"
         ]
       }
     },
@@ -1615,7 +1633,8 @@
           "gateway-credentials",
           "agent-folders",
           "session-model",
-          "model-host-identity"
+          "model-host-identity",
+          "credential-provider"
         ]
       }
     },

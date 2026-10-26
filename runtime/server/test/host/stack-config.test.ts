@@ -672,6 +672,37 @@ describe("the Host's Tenant", () => {
   });
 });
 
+describe("NYLORUN_CREDENTIAL_PROVIDER_* (CP-E)", () => {
+  const provider = {
+    NYLORUN_CREDENTIAL_PROVIDER_URL: "http://172.17.0.1:18793/edge/provider/",
+    NYLORUN_CREDENTIAL_PROVIDER_TOKEN: "t".repeat(32),
+  };
+  const gateway = { NYLORUN_GATES_TOKEN: "a".repeat(64), NYLORUN_GATES_ALLOWED_HOSTS: "gateway:4100" };
+
+  it("is read by egress-gate and core, without the trailing slash, and by no other service", () => {
+    const expected = { url: "http://172.17.0.1:18793/edge/provider", token: "t".repeat(32) };
+    expect(parseStackConfig(provider, []).credentialProvider).toEqual(expected);
+    expect(parseStackConfig({ ...gateway, ...provider }, ["--service", "gates,keys,egress"]).credentialProvider).toEqual(expected);
+    expect(parseStackConfig({ ...gateway, ...provider }, ["--service", "gates,keys"]).credentialProvider).toBeUndefined();
+    expect(parseStackConfig({}, []).credentialProvider).toBeUndefined();
+    expect(
+      parseStackConfig({ NYLORUN_CREDENTIAL_PROVIDER_URL: "", NYLORUN_CREDENTIAL_PROVIDER_TOKEN: "" }, []).credentialProvider,
+    ).toBeUndefined();
+  });
+
+  it("needs both settings, an http or https base URL without credentials, and a token", () => {
+    const parse = (env: Record<string, string>) => () => parseStackConfig(env, []);
+    expect(parse({ NYLORUN_CREDENTIAL_PROVIDER_URL: provider.NYLORUN_CREDENTIAL_PROVIDER_URL })).toThrow(
+      /NYLORUN_CREDENTIAL_PROVIDER_TOKEN is required/,
+    );
+    expect(parse({ NYLORUN_CREDENTIAL_PROVIDER_TOKEN: "t".repeat(32) })).toThrow(/without NYLORUN_CREDENTIAL_PROVIDER_URL/);
+    for (const url of ["ftp://provider/x", "http://user:pass@provider/x", "https://provider/x?token=1", "not a url"])
+      expect(parse({ ...provider, NYLORUN_CREDENTIAL_PROVIDER_URL: url }), url).toThrow(StackConfigError);
+    expect(parse({ ...provider, NYLORUN_CREDENTIAL_PROVIDER_TOKEN: "short" })).toThrow(/at least 16/);
+    expect(parse({ ...provider, NYLORUN_CREDENTIAL_PROVIDER_TOKEN: "has a space in it, long enough" })).toThrow(/no spaces/);
+  });
+});
+
 describe("NYLORUN_OBJECT_STORE_*", () => {
   const store = {
     NYLORUN_OBJECT_STORE_ENDPOINT: "http://rustfs:9000/",

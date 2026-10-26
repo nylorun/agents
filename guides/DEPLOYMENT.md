@@ -1167,6 +1167,10 @@ below the run token's, the host token's longer than `harness.podRenewMs`, and
 | `egress.requestTimeoutMs` | 15 s | The proxy listener's request timeout |
 | `egress.credentialsHeadersTimeoutMs` | 60 s | The header timeout of a tunnel whose TLS the gate terminates for a bound secret |
 | `egress.credentialsMaxSockets` | 8 | The upstream sockets one such tunnel opens at once |
+| `credentialProvider.cacheMs` | 15 s | How long an Agent's answer from the [credential provider](#an-outside-credential-provider) (its hosts, or its variables) is reused (0 allowed) |
+| `credentialProvider.retryMs` | 5 s | How long a failed answer (nothing) is reused before the provider is asked again (0 allowed) |
+| `credentialProvider.timeoutMs` | 3 s | How long one `hosts` or `environment` call to the provider may take |
+| `credentialProvider.cacheEntries` | 4096 | How many Agents' answers are kept |
 
 ### Sandbox pods, harnesses and traces
 
@@ -1749,6 +1753,40 @@ only: a virtual one gets the variables but no header. A refused release is a `50
 an `egress_credential_refused` line in the gateway's log, never a session event. Write, replace
 and delete them in Studio (type **Secret** or **Variable**), with
 `client.agents.secrets` in `@nylorun/agents`, or on the Runtime API.
+
+### An outside credential provider
+
+A platform that keeps people's keys itself, outside the Runtime, can hand them to egress-gate
+instead of writing them into Agents' vaults (Host feature `credential-provider`). The Host's
+operator names it on `nylorun start`:
+
+| Setting | What it sets |
+| --- | --- |
+| `NYLORUN_CREDENTIAL_PROVIDER_URL` | The provider's base URL, `http` or `https`, such as `http://172.17.0.1:18793/edge/provider` |
+| `NYLORUN_CREDENTIAL_PROVIDER_TOKEN` | The bearer the provider accepts: at least 16 printable characters |
+
+`nylorun start` passes both from its shell to the `gateway` container (egress-gate) and the
+`runtime` container (each segment's variables). For a pod Agent with an owner guard (`owner`),
+the Runtime then calls, each with `Authorization: Bearer <token>`:
+
+| Call | Body | Answer |
+| --- | --- | --- |
+| `POST <url>/v1/hosts` | `{ "agentId", "owner" }` | `{ "hosts": [...] }`: exact host names the owner's keys are bound to |
+| `POST <url>/v1/environment` | `{ "agentId", "owner" }` | `{ "variables": [...] }`: the variables each command sees as `nylorun_managed` |
+| `ANY <url>/v1/forward/<path and query>` | One request of the sandbox's | The upstream's answer, streamed |
+
+A host the provider lists passes the sandbox's allowlist on port 443, inside the Tenant's egress
+ceiling (`limits.network` of `environments.config`, when the Tenant sets one). egress-gate
+terminates TLS for it as for a bound secret and sends each request to the forward route with the
+sandbox's own headers, its `Authorization` or inject header included (the provider replaces it),
+less `host` and any `nylorun-provider-*`, plus `nylorun-provider-host` (the host),
+`nylorun-provider-agent`, `nylorun-provider-owner` and `nylorun-provider-token` (the provider's
+token, kept apart from the sandbox's own `Authorization`). The provider sends it on to
+`https://<host>/<path>`. The Runtime never sees a value. A secret of the Agent's vault bound to the
+same host wins, and a vault variable of the same name stays. Answers are kept per Agent for
+`credentialProvider.cacheMs`. An Agent with no owner is never asked about. A provider that fails
+answers nothing, so its hosts are refused as before (`host_not_allowed`), logged once as
+`credential_provider_failed`.
 
 ## The harness: agent turns, MCP servers and workspaces
 

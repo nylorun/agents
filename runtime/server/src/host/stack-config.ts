@@ -42,7 +42,9 @@
  * their source (`OTEL_SERVICE_NAME`, `OTEL_RESOURCE_ATTRIBUTES`) and which content they carry
  * (`NYLORUN_TRACE_CONTENT`, or all of it with `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=true`).
  * So is the Host tuning (`NYLORUN_TUNING`, `tuning.ts`), for every service: its timings,
- * retries and internal sizes.
+ * retries and internal sizes. So is the outside credential provider
+ * (`NYLORUN_CREDENTIAL_PROVIDER_URL`, `NYLORUN_CREDENTIAL_PROVIDER_TOKEN`), for egress-gate and
+ * a process running core or loop (`gates/credential-provider.ts`).
  */
 import { DEFAULT_SERVICE_NAME, type TraceResource } from "../traces/otlp.js";
 import { TRACE_CONTENT_KINDS, type TraceContentKind } from "../traces/map.js";
@@ -239,6 +241,12 @@ export interface StackConfig {
    * own identity (ADR-71, `vault/host-identity.ts`). Absent: none.
    */
   modelHostIdentity?: string[];
+  /**
+   * `NYLORUN_CREDENTIAL_PROVIDER_URL` and `NYLORUN_CREDENTIAL_PROVIDER_TOKEN`, for a process running
+   * egress, core or loop (Host feature `credential-provider`): the outside service egress-gate
+   * hands an Agent owner's connected hosts to, and core asks for their variables. Absent: none.
+   */
+  credentialProvider?: { url: string; token: string };
   /** Present when the process runs gates. */
   gates?: GatesConfig;
   /** Present when the process runs egress. */
@@ -663,6 +671,7 @@ export function parseStackConfig(
   const tenant = servesApi ? parseTenant(env) : undefined;
   const workloadToken = parseWorkloadToken(env);
   const modelHostIdentity = parseModelHostIdentity(env);
+  const credentialProvider = servesApi || services.has("egress") ? parseCredentialProvider(env) : undefined;
   const objectStore = parseObjectStore(env);
   const traces = services.has("core") ? parseTraces(env) : undefined;
   const removedResolverVariables = Object.keys(env)
@@ -687,6 +696,7 @@ export function parseStackConfig(
     ...(tenant ? { tenant } : {}),
     ...(workloadToken ? { workloadToken } : {}),
     ...(modelHostIdentity ? { modelHostIdentity } : {}),
+    ...(credentialProvider ? { credentialProvider } : {}),
     ...(objectStore ? { objectStore } : {}),
     ...(traces ? { traces } : {}),
     ...(tuning ? { tuning } : {}),
@@ -827,6 +837,40 @@ function parseModelHostIdentity(env: EnvSnapshot): StackConfig["modelHostIdentit
       );
   }
   return providers.length ? providers : undefined;
+}
+
+/**
+ * `StackConfig.credentialProvider`: the provider's `http` or `https` base URL (no credentials,
+ * query or fragment; `http` is for a provider on the Docker bridge or the machine itself) and its
+ * token, each required with the other.
+ */
+function parseCredentialProvider(env: EnvSnapshot): StackConfig["credentialProvider"] {
+  const raw = read(env, "NYLORUN_CREDENTIAL_PROVIDER_URL");
+  const token = read(env, "NYLORUN_CREDENTIAL_PROVIDER_TOKEN");
+  if (raw === undefined && token === undefined) return undefined;
+  if (raw === undefined)
+    throw new StackConfigError(
+      "NYLORUN_CREDENTIAL_PROVIDER_TOKEN is set without NYLORUN_CREDENTIAL_PROVIDER_URL: set the provider's base URL, such as http://172.17.0.1:18793/edge/provider",
+    );
+  if (token === undefined)
+    throw new StackConfigError(
+      "NYLORUN_CREDENTIAL_PROVIDER_TOKEN is required with NYLORUN_CREDENTIAL_PROVIDER_URL: the bearer the provider accepts",
+    );
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new StackConfigError(`NYLORUN_CREDENTIAL_PROVIDER_URL is not a URL: ${raw}`);
+  }
+  if ((url.protocol !== "http:" && url.protocol !== "https:") || url.username || url.password || url.search || url.hash)
+    throw new StackConfigError(
+      "NYLORUN_CREDENTIAL_PROVIDER_URL must be an http or https base URL with no credentials, query or fragment, such as http://172.17.0.1:18793/edge/provider",
+    );
+  if (token.length < 16 || !/^[\x21-\x7e]+$/.test(token))
+    throw new StackConfigError(
+      "NYLORUN_CREDENTIAL_PROVIDER_TOKEN must be at least 16 printable characters with no spaces",
+    );
+  return { url: `${url.origin}${url.pathname}`.replace(/\/+$/, ""), token };
 }
 
 /** `NYLORUN_WORKLOAD_TOKEN_ORIGINS`: each an `https` origin (`http` only to a loopback host). */
