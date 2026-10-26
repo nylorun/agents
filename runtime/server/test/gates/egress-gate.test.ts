@@ -27,6 +27,7 @@ import type { TenantVault, TenantVaults } from "../../src/gates/tenant-vaults.js
 import type { Environment, SandboxPodState } from "../../src/store/types.js";
 import { recordedRows } from "../support/record.js";
 import { testTenantPool } from "../support/store.js";
+import { writeSandboxConfig } from "../../src/sandbox/tenant-config.js";
 
 let runs: RunFixture;
 let echo: TcpServer;
@@ -658,6 +659,48 @@ describe("egress-gate helpers", () => {
     expect(await store.live("egress-pod-pending")).toEqual({ epoch: 4, podUid: "pod-7", allow: ["a.example.com"] });
     for (const id of ["egress-pod-deleted", "egress-pod-lost", "egress-virtual", "egress-unknown"])
       expect(await store.live(id), id).toBeUndefined();
+  });
+
+  it("reads an owned pod Agent's owner, and the Tenant's egress ceiling once it sets one (CP-E)", async () => {
+    const now = new Date().toISOString();
+    await runs.store.tx(async (t) => {
+      await t.createEnvironment(
+        {
+          id: "egress-owned",
+          kind: "pod",
+          labels: {},
+          recipe: { harness: "nylorun", lifecycle: {}, network: { allowedHosts: ["a.example.com"] } },
+          applied: { harness: "nylorun", lifecycle: {}, network: { allowedHosts: ["a.example.com"] } },
+          version: 1,
+          appliedVersion: 1,
+          ownerUserId: "u:org:ada",
+          lastUsedAt: now,
+          createdAt: now,
+          updatedAt: now,
+          manifestName: "bot",
+          manifestVersion: 1,
+          manifestRef: "tracking",
+          manifestHash: "sha256:test",
+          desiredState: "on",
+          pod: { k8sName: "sbx-o-g0", volumeGen: 0, desired: "running", observed: "running", podUid: "pod-8", hostEpoch: 2, rev: 1 },
+        },
+        100,
+      );
+    });
+    const store = storeEgressSandboxes(runs.store);
+    // No ceiling of the Tenant's own: none is read into the answer.
+    expect(await store.live("egress-owned")).toEqual({ epoch: 2, podUid: "pod-8", allow: ["a.example.com"], owner: "u:org:ada" });
+    await runs.store.tx((t) => writeSandboxConfig(t, { limits: { network: ["*.example.com", "api.vercel.com"] } }));
+    expect(await store.live("egress-owned")).toEqual({
+      epoch: 2,
+      podUid: "pod-8",
+      allow: ["a.example.com"],
+      owner: "u:org:ada",
+      ceiling: ["*.example.com", "api.vercel.com"],
+    });
+    // An Agent with no owner is never asked about, so its ceiling is not read.
+    expect(await store.live("egress-pod")).toEqual({ epoch: 4, podUid: "pod-7", allow: ["*.example.com"] });
+    await runs.store.tx((t) => writeSandboxConfig(t, {}));
   });
 
   it("refuses a token of another pod at the sandbox's epoch", async () => {

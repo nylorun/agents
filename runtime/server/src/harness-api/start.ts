@@ -4,8 +4,13 @@
  * outcomes are read; then the transcript is folded from the record (P0.3). `buildTurnStart`
  * turns that into the run's `turn.start`: the checkpoint goes without its transcript, which the
  * harness holds at the fold's cursor or reads once.
+ *
+ * A pod Agent's sandbox variables are its vault's (R2c), then, with an outside credential
+ * provider (`gates/credential-provider.ts`) and an owner on the Agent, each variable the provider
+ * names for that owner, set to the stand-in `nylorun_managed` and never over a vault variable.
+ * The provider is asked after the transaction, and one that fails adds nothing.
  */
-import { harnessLimitsOf, type LiveEvent } from "@nylorun/core/contracts";
+import { ENVIRONMENT_SECRET_SENTINEL, harnessLimitsOf, type LiveEvent } from "@nylorun/core/contracts";
 import type {
   ModelDescriptor,
   RecordedOutcome,
@@ -108,6 +113,8 @@ export async function startSegment(
   const id = lease.sessionId;
   // Read before the transaction: the first read of the Tenant may create the key.
   const key = options.harness ? await traceKey(ctx.store) : undefined;
+  // The pod Agent and its owner the credential provider is asked about, once the transaction ends.
+  let providerAsk: { agentId: string; owner: string } | undefined;
   const opened = await ownedTx<Omit<SegmentStart, "transcript" | "cursor" | "model">, Session>(
     ctx.store,
     id,
@@ -129,6 +136,10 @@ export async function startSegment(
       const workspace = sandboxWorkspaceOf(current);
       const resource = workspace.environmentId === undefined ? undefined : await t.environment(workspace.environmentId);
       const environment = await ctx.vault.environmentVariables(t, current.environmentId);
+      providerAsk =
+        ctx.credentialProvider && resource?.kind === "pod" && resource.ownerUserId
+          ? { agentId: resource.id, owner: resource.ownerUserId }
+          : undefined;
       const sandbox = {
         ...workspace,
         ...(Object.keys(environment).length > 0 ? { environment } : {}),
@@ -163,7 +174,8 @@ export async function startSegment(
     options.harness && !isWorkflowManifest(opened.current.manifest)
       ? await currentModelDescriptor(ctx, opened.current.model)
       : undefined;
-  const started = model ? { ...opened, model } : opened;
+  const provided = await withProviderVariables(ctx, opened, providerAsk);
+  const started = model ? { ...provided, model } : provided;
   // One history (P0.3): the engine resumes from the transcript folded from the record.
   const { current } = started;
   const cp = current.checkpoint as DurableCheckpoint | undefined;
@@ -177,6 +189,24 @@ export async function startSegment(
   const { transcript, cursor } = await foldSession(ctx, current);
   checkParity(id, transcript, transcriptOf(cp.state));
   return { ...started, transcript, cursor };
+}
+
+/**
+ * `opened` with the credential provider's variables for `ask` added to its sandbox's environment
+ * as the stand-in, under the vault's own; `opened` itself when there are none.
+ */
+async function withProviderVariables<T extends Pick<SegmentStart, "sandbox">>(
+  ctx: TenantContext,
+  opened: T,
+  ask: { agentId: string; owner: string } | undefined,
+): Promise<T> {
+  if (!ask || !ctx.credentialProvider) return opened;
+  const names = await ctx.credentialProvider.environment(ask.agentId, ask.owner);
+  const vault = opened.sandbox.environment ?? {};
+  const added = names.filter((name) => !Object.hasOwn(vault, name));
+  if (added.length === 0) return opened;
+  const environment = { ...Object.fromEntries(added.map((name) => [name, ENVIRONMENT_SECRET_SENTINEL])), ...vault };
+  return { ...opened, sandbox: { ...opened.sandbox, environment } };
 }
 
 /** The run's `turn.start`. */

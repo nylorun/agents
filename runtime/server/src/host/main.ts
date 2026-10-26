@@ -74,6 +74,7 @@ import { createRunGrants } from "../tenant/run-grants.js";
 import { runHarness } from "../harness/main.js";
 import { startHarnessListener, type HarnessListener } from "../harness-api/ws-server.js";
 import { httpSandboxesClient } from "../sandbox/pods/client.js";
+import { createCredentialProvider } from "../gates/credential-provider.js";
 import { retry } from "../retry.js";
 import { hostTuning, useHostTuning } from "../tuning.js";
 import { useHostIdentity } from "../vault/host-identity.js";
@@ -202,6 +203,7 @@ async function runGates(stack: StackConfig): Promise<void> {
     ...(stack.packing ? { packing: stack.packing } : {}),
     endpoints: describeEndpoints(stack.endpoints),
     objectStore: stack.objectStore ? "s3" : "none",
+    ...(stack.credentialProvider ? { credentialProvider: stack.credentialProvider.url } : {}),
   });
   warnRemovedSettings(stack, logger);
   const database = createDatabase(stack);
@@ -222,7 +224,13 @@ async function runGates(stack: StackConfig): Promise<void> {
       logger.info("gates_ready", { url: server.url });
     }
     if (stack.egress) {
-      const egress = await startEgress({ egress: stack.egress, database, hostRoot: resolveHostRoot(), logger });
+      const egress = await startEgress({
+        egress: stack.egress,
+        database,
+        hostRoot: resolveHostRoot(),
+        logger,
+        ...(stack.credentialProvider ? { credentialProvider: stack.credentialProvider } : {}),
+      });
       servers.push(egress);
       logger.info("egress_ready", { url: egress.url });
     }
@@ -312,6 +320,7 @@ export async function main(): Promise<void> {
     endpoints: describeEndpoints(stack.endpoints),
     objectStore: stack.objectStore ? "s3" : "fs",
     traces: stack.traces?.export ? "otlp" : "off",
+    ...(stack.credentialProvider ? { credentialProvider: stack.credentialProvider.url } : {}),
   });
   const infra = createInfra(stack, { logger });
   const database = infra.database;
@@ -418,6 +427,10 @@ export async function main(): Promise<void> {
         harnessImage: stack.sandboxes.harnessImage,
       }
     : undefined;
+  // The outside credential provider: each pod Agent segment's variables it names (CP-E).
+  const credentialProvider = stack.credentialProvider
+    ? createCredentialProvider(stack.credentialProvider, { logger })
+    : undefined;
   const tenantSettings = stack.tenant ?? { name: "default" };
   const module = createTenantModule({
     open: createPostgresTenantOpener({
@@ -446,6 +459,7 @@ export async function main(): Promise<void> {
           ...(blobs ? { blobs } : {}),
           ...(stack.harnessMode === "remote" ? { harness: "remote" as const } : {}),
           ...(pods ? { pods } : {}),
+          ...(credentialProvider ? { credentialProvider } : {}),
           ...(stack.traces
             ? { traces: { resource: stack.traces.resource, content: new Set(stack.traces.content) } }
             : {}),

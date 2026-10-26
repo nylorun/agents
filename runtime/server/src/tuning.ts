@@ -401,6 +401,20 @@ export const HostTuningSchema = z
       /** The upstream sockets one such tunnel opens at once. */
       credentialsMaxSockets: count(8),
     }),
+    /**
+     * The outside credential provider (`NYLORUN_CREDENTIAL_PROVIDER_URL`), which egress-gate asks
+     * for an Agent's connected hosts and core for its variables (`gates/credential-provider.ts`).
+     */
+    credentialProvider: group({
+      /** How long an Agent's answer (hosts, or variables) is reused. */
+      cacheMs: ms(15_000, 0),
+      /** How long a failed answer (nothing) is reused before the provider is asked again. */
+      retryMs: ms(5_000, 0),
+      /** How long one `hosts` or `environment` call may take. */
+      timeoutMs: ms(3_000),
+      /** How many Agents' answers are kept. */
+      cacheEntries: count(4_096),
+    }),
     /** Sandbox pods through the sandboxes service (F7.2). */
     pods: group({
       /** How long a pod may take to be ready before its start fails. */

@@ -5,7 +5,9 @@
  * secrets; a pod
  * turn's commands see each `environment_secret` as `nylorun_managed` and each
  * `environment_variable` as its value; the vault releases the real header only for a bound host,
- * read afresh after a rotation. egress-gate's use of the release is `gates/egress-credentials`.
+ * read afresh after a rotation. With an outside credential provider (CP-E), the variables it names
+ * for the Agent's owner are the stand-in too, never over the vault's own. egress-gate's use of the
+ * release is `gates/egress-credentials`, and of the provider `gates/egress-provider`.
  */
 import { providerModelGate } from "../../src/gates/provider-gate.js";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -24,6 +26,7 @@ import { fakeSandboxes, type FakeSandboxes } from "../support/fake-sandboxes.js"
 import { withTestSessionStore } from "../support/store.js";
 import { startTestTenant } from "../support/tenant.js";
 import { manifestOf, saveManifest } from "../support/agents.js";
+import type { CredentialProvider } from "../../src/gates/credential-provider.js";
 
 const APP = "skill-credentials-app-key-aaaaaaaaaa";
 const KEK = Buffer.alloc(32, 5).toString("base64");
@@ -43,10 +46,23 @@ const podModel: ModelProvider = async (effect) => {
   const prompt = (effect.input as { prompt?: { kind?: string }[] }).prompt ?? [];
   if (prompt.at(-1)?.kind === "tool-result") return { output: [{ type: "text", text: "done" }] };
   return {
-    output: [{ type: "tool-call", id: `call-${effect.turnId}`, name: "bash", args: { command: 'echo "$GH_TOKEN $REGION" > env.txt' } }],
+    output: [{ type: "tool-call", id: `call-${effect.turnId}`, name: "bash", args: { command: 'echo "$GH_TOKEN $REGION $VERCEL_TOKEN" > env.txt' } }],
   };
 };
 const coreModel: ModelProvider = async () => ({ output: [{ type: "text", text: "core" }] });
+
+/** The outside credential provider (CP-E): it names VERCEL_TOKEN, and REGION, which the vault sets. */
+const providerAsks: { agentId: string; owner: string | undefined }[] = [];
+const provider: CredentialProvider = {
+  url: "http://provider.test",
+  async environment(agentId, owner) {
+    providerAsks.push({ agentId, owner });
+    return owner === "app:ada" ? ["VERCEL_TOKEN", "REGION"] : [];
+  },
+  hosts: async () => [],
+  forwardUrl: (path) => new URL(`http://provider.test/v1/forward${path}`),
+  forwardHeaders: () => ({}),
+};
 
 async function call(method: string, path: string, body?: unknown): Promise<{ status: number; body: any }> {
   const response = await fetch(`${runtime.url}${path}`, {
@@ -100,6 +116,7 @@ beforeAll(async () => {
     modelProvider: coreModel,
     sandbox: { backend: "virtual" },
     pods: { client: fake, harnessImage: "nylorun-runtime:test" },
+    credentialProvider: provider,
   });
   tenantId = runtime.handle.envelope.id;
   listener = await startHarnessListener({
@@ -203,7 +220,9 @@ describe("credentials for skills (R2c)", { timeout: 90_000 }, () => {
       const done = await until("settles", async () => (await call("GET", "/v1/sessions/creds-ada")).body, (body) =>
         ["completed", "failed", "cancelled"].includes(body.status), 60_000);
       expect(done.status).toBe("completed");
-      expect(await readFile(join(workspace, "env.txt"), "utf8")).toBe("nylorun_managed eu-west-1\n");
+      // The vault's secret and variable, and the provider's variable as the stand-in (CP-E).
+      expect(await readFile(join(workspace, "env.txt"), "utf8")).toBe("nylorun_managed eu-west-1 nylorun_managed\n");
+      expect(providerAsks).toContainEqual({ agentId: ENV, owner: "app:ada" });
       const history = await call("GET", "/v1/sessions/creds-ada/history");
       expect(JSON.stringify(history.body)).not.toContain(SECRET);
     } finally {

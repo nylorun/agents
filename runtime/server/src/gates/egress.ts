@@ -11,17 +11,21 @@
  * 2. its sandbox is live and its host epoch and pod are the token's (`EgressSandboxes.live`),
  *    else 407;
  * 3. the port is 443 or 80, the target is a host name and no IP literal, and it matches the spec's
- *    `network.allow` exactly or by `*.suffix`, else 403;
+ *    `network.allow` exactly or by `*.suffix`, or (443 only) the outside credential provider lists
+ *    it for the Agent's owner and the Tenant's egress ceiling holds it, else 403;
  * 4. the sandbox has fewer than `maxPerSandbox` tunnels open, else 429;
  * 5. the name resolves, and to at least one address that is not private, loopback, link-local
  *    (cloud metadata included), multicast or reserved, else 502 or 403;
  * 6. the gate connects to that checked address (never to the name again) and pipes.
  *
- * A tunnel is opaque bytes, with one exception (R2c, D50): port 443 of a host that an
+ * A tunnel is opaque bytes, with two exceptions. First (R2c, D50): port 443 of a host that an
  * `environment_secret` of a live session on the sandbox is bound to. There the gate terminates
  * TLS and sets the credential's header on every request (`egress-credentials.ts`), still sending
- * only to the checked address. Every other host gets the tunnel. Any other request
- * (an absolute-form plain HTTP request included) is answered 405. Refusals are logged; the token
+ * only to the checked address. Second, port 443 of a host the credential provider lists
+ * (`credential-provider.ts`) and no secret binds: terminated the same way, its requests are handed
+ * to the provider's forward route, which adds the key; the vault's binding wins where both apply.
+ * Every other host gets the tunnel. Any other request (an absolute-form plain HTTP request
+ * included) is answered 405. Refusals are logged; the token
  * never is. Tunnels close after `idleMs` without traffic in either direction.
  *
  * Every connection to a named host on a live token is recorded once (R7.3, D67), when it closes
@@ -44,6 +48,9 @@ import { isSandboxHostPattern } from "@nylorun/core/define";
 import type { EgressTokenVerdict } from "../sandbox/egress-token.js";
 import type { SessionStore } from "../store/types.js";
 import { isPrivateAddress } from "../tenant/outbound.js";
+import { readSandboxConfig } from "../sandbox/tenant-config.js";
+import { withinCeiling } from "../sandbox/resolve.js";
+import type { CredentialProvider } from "./credential-provider.js";
 import type { Logger } from "../tenant/types.js";
 import { bindListener } from "../host/http.js";
 import { hostTuning } from "../tuning.js";
@@ -57,10 +64,19 @@ import {
 /**
  * What egress-gate reads of a sandbox: its current host epoch, the pod that joined at it, and
  * its spec's `network.allow`; `undefined` when it is gone, deleted, lost, expired or not a pod.
+ * For an Agent with an owner guard, also the owner and the Tenant's egress ceiling
+ * (`environments.config`'s `limits.network`) when the Tenant sets one: what the credential
+ * provider is asked about and kept inside.
  */
 export interface EgressSandboxes {
   live(sandboxId: string): Promise<
-    | { readonly epoch: number; readonly podUid?: string; readonly allow: readonly string[] }
+    | {
+        readonly epoch: number;
+        readonly podUid?: string;
+        readonly allow: readonly string[];
+        readonly owner?: string;
+        readonly ceiling?: readonly string[];
+      }
     | undefined
   >;
 }
@@ -110,6 +126,11 @@ export interface StartEgressGateOptions {
   readonly credentials?: EgressCredentials;
   /** Where connections are recorded (R7.3). None: they are only logged. */
   readonly record?: EgressRecord;
+  /**
+   * The outside credential provider (`NYLORUN_CREDENTIAL_PROVIDER_URL`): the hosts it lists for an
+   * Agent's owner pass on 443 and are handed to it. Needs `credentials` (the leaf). None: off.
+   */
+  readonly provider?: CredentialProvider;
 }
 
 export interface EgressGate {
@@ -310,8 +331,29 @@ export async function startEgressGate(options: StartEgressGateOptions): Promise<
   }
 
   const terminator = options.credentials
-    ? credentialTerminator({ credentials: options.credentials, logger, idleMs })
+    ? credentialTerminator({
+        credentials: options.credentials,
+        logger,
+        idleMs,
+        ...(options.provider ? { provider: options.provider } : {}),
+      })
     : undefined;
+  const provider = terminator ? options.provider : undefined;
+
+  /**
+   * Whether the credential provider lists `host` for the sandbox's owner, inside the Tenant's
+   * ceiling: only on 443, where the gate terminates TLS, and never for an Agent without an owner.
+   */
+  async function providerLists(
+    sandboxId: string,
+    sandbox: { readonly owner?: string; readonly ceiling?: readonly string[] },
+    host: string,
+    port: number,
+  ): Promise<boolean> {
+    if (!provider || port !== 443 || sandbox.owner === undefined) return false;
+    if (sandbox.ceiling && !withinCeiling(host, sandbox.ceiling)) return false;
+    return (await provider.hosts(sandboxId, sandbox.owner)).includes(host);
+  }
   const open = new Map<string, Set<Duplex>>();
   const tunnels = new Set<Duplex>();
   /** Each connection's record, once its Environment and target are known. */
@@ -352,7 +394,9 @@ export async function startEgressGate(options: StartEgressGateOptions): Promise<
       return refuse(403, "port_refused", { sandboxId }, `port ${port} is not allowed; tunnels open to 443 or 80 only`);
     if (isIP(host.replace(/^\[|\]$/g, "")) !== 0 || !isSandboxHostPattern(host) || host.startsWith("*."))
       return refuse(403, "not_a_host_name", { sandboxId }, `${host} is not a host name; IP literals are refused`);
-    if (!egressAllows(host, sandbox.allow))
+    // A host the provider lists goes to it, even one the spec allows, unless the vault binds it.
+    const provided = await providerLists(sandboxId, sandbox, host, port);
+    if (!provided && !egressAllows(host, sandbox.allow))
       return refuse(403, "host_not_allowed", { sandboxId }, `${host} is not in this sandbox's network.allow`);
     // The turns running on the Environment as the connection opens: the read starts as the
     // name resolves, and the 200 does not wait for it.
@@ -387,6 +431,19 @@ export async function startEgressGate(options: StartEgressGateOptions): Promise<
       const tally: EgressTally = { requests: 0, credentialIds: new Set() };
       client.once("close", () => record.closed(tally));
       return terminator.terminate(client, { sandboxId, host, addresses: allowed, tally });
+    }
+    if (terminator && provided && sandbox.owner !== undefined) {
+      record.credentialBound = true;
+      if (head.length > 0) return refuse(403, "early_data", { sandboxId }, "wait for the CONNECT answer before sending");
+      const tally: EgressTally = { requests: 0, credentialIds: new Set() };
+      client.once("close", () => record.closed(tally));
+      return terminator.terminate(client, {
+        sandboxId,
+        host,
+        addresses: allowed,
+        tally,
+        provider: { agentId: sandboxId, owner: sandbox.owner },
+      });
     }
     const upstream = await dialFirst(allowed.map((entry) => entry.address), port);
     if (!upstream) return refuse(502, "connect_failed", { sandboxId }, `could not connect to ${host}:${port}`);
@@ -472,6 +529,7 @@ export async function startEgressGate(options: StartEgressGateOptions): Promise<
         server.close(() => resolve());
         for (const tunnel of tunnels) tunnel.destroy();
         server.closeAllConnections();
+        terminator?.close();
       });
       return closing;
     },
@@ -481,21 +539,29 @@ export async function startEgressGate(options: StartEgressGateOptions): Promise<
 /**
  * `EgressSandboxes` over the Tenant's `sandbox_resources` (one indexed read): a pod sandbox's
  * host epoch, the pod that joined at it and its spec's allowlist; nothing for a virtual
- * Environment, or one deleted or lost, as `staleHost` judges a host token.
+ * Environment, or one deleted or lost, as `staleHost` judges a host token. An Agent with an
+ * owner guard also gets its owner and, when the Tenant sets one, its egress ceiling (one more
+ * read, of the Tenant's `environments.config`).
  */
 export function storeEgressSandboxes(store: SessionStore): EgressSandboxes {
   return {
     async live(sandboxId) {
-      const sandbox = await store.tx((t) => t.environment(sandboxId));
-      const pod = sandbox?.pod;
-      if (!sandbox || sandbox.kind !== "pod" || !pod) return undefined;
-      if (pod.desired === "deleted" || pod.observed === "lost") return undefined;
-      return {
-        epoch: pod.hostEpoch,
-        ...(pod.podUid ? { podUid: pod.podUid } : {}),
-        // The applied allowlist: a recipe change writes it at once (Q8).
-        allow: sandbox.applied.network?.allowedHosts ?? [],
-      };
+      return store.tx(async (t) => {
+        const sandbox = await t.environment(sandboxId);
+        const pod = sandbox?.pod;
+        if (!sandbox || sandbox.kind !== "pod" || !pod) return undefined;
+        if (pod.desired === "deleted" || pod.observed === "lost") return undefined;
+        const owner = sandbox.ownerUserId;
+        const ceiling = owner === undefined ? undefined : (await readSandboxConfig(t)).limits?.network;
+        return {
+          epoch: pod.hostEpoch,
+          ...(pod.podUid ? { podUid: pod.podUid } : {}),
+          // The applied allowlist: a recipe change writes it at once (Q8).
+          allow: sandbox.applied.network?.allowedHosts ?? [],
+          ...(owner === undefined ? {} : { owner }),
+          ...(ceiling === undefined ? {} : { ceiling }),
+        };
+      });
     },
   };
 }

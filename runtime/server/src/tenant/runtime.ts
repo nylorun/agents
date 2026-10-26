@@ -104,6 +104,7 @@ import { fireTimer } from "./triggers.js";
 import type { TenantPods } from "./context.js";
 import type { TraceOptions } from "../traces/options.js";
 import { hostTuning } from "../tuning.js";
+import type { CredentialProvider } from "../gates/credential-provider.js";
 
 /** TENANTS-CCR: test/injection hooks until TenantConfig gains them. */
 export type TenantOpenHooks = {
@@ -174,6 +175,11 @@ export type TenantOpenHooks = {
    * pods copy the engine from. Without it, kind `pod` is `agent_unavailable`.
    */
   pods?: TenantPods;
+  /**
+   * The outside credential provider (`NYLORUN_CREDENTIAL_PROVIDER_*`): a pod Agent's segments set
+   * the variables it names for the Agent's owner to the stand-in, under the vault's own.
+   */
+  credentialProvider?: CredentialProvider;
   /** How the trace route makes spans (R7.5): the Host's `OTEL_*` resource and content opt-ins. */
   traces?: TraceOptions;
 } & OpenedTenant;
@@ -418,6 +424,7 @@ export class TenantRuntime implements TenantHandle {
         },
         abortLocal: (sessionId, turnId) => abortLocal(ctx, sessionId, "cancel", turnId),
         ...(hooks.pods ? { pods: hooks.pods } : {}),
+        ...(hooks.credentialProvider ? { credentialProvider: hooks.credentialProvider } : {}),
         sandboxSignal: async (sandboxId, signal) => {
           if (ctx.closing || ctx.closed) return false;
           await execution.sandbox?.(config.tenantId, sandboxId, signal);
