@@ -42,6 +42,7 @@ import {
 } from "../gates/egress.js";
 import { verifyEgressToken, type EgressTokenKeyCache } from "../sandbox/egress-token.js";
 import { leafKeyPair } from "../keys/x509.js";
+import { createCredentialProvider, type CredentialProviderSettings } from "../gates/credential-provider.js";
 import { hostTuning } from "../tuning.js";
 
 export interface StartGatesOptions {
@@ -229,12 +230,18 @@ export interface StartEgressOptions {
   readonly vaults?: TenantVaults;
   /** Replaces how sandboxes are read, and the gate's limits and hooks (tests). */
   readonly gate?: Partial<Omit<StartEgressGateOptions, "listen" | "logger" | "verify">>;
+  /**
+   * The outside credential provider (`NYLORUN_CREDENTIAL_PROVIDER_*`, Host feature
+   * `credential-provider`): the hosts it lists for an Agent's owner are handed to it.
+   */
+  readonly credentialProvider?: CredentialProviderSettings;
 }
 
 /**
  * egress-gate (`--service egress`, F7.2): pods' CONNECT proxy, verifying egress tokens against the
  * Tenant's public keys and reading its sandboxes from the same database as the gates, where it
- * also records each connection (R7.3).
+ * also records each connection (R7.3). With a credential provider, the hosts it lists for an
+ * Agent's owner are terminated and handed to it.
  */
 export async function startEgress(options: StartEgressOptions): Promise<EgressGate> {
   const { database } = options;
@@ -269,6 +276,9 @@ export async function startEgress(options: StartEgressOptions): Promise<EgressGa
         return { key: pair.privateKey, cert };
       },
     },
+    ...(options.credentialProvider
+      ? { provider: createCredentialProvider(options.credentialProvider, { logger: options.logger }) }
+      : {}),
     ...options.gate,
   });
 }
