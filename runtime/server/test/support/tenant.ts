@@ -89,6 +89,8 @@ export type StartTestTenantOptions = Partial<TenantConfig> & {
   harnessTap?: TenantOpenHooks["harnessTap"];
   /** Sandbox pods (F7.2): the sandboxes service, e.g. `test/support/fake-sandboxes.ts`. */
   pods?: TenantOpenHooks["pods"];
+  /** The outside credential provider (`TenantOpenHooks.credentialProvider`, CP-E). */
+  credentialProvider?: TenantOpenHooks["credentialProvider"];
   /** How the trace route makes spans (`TenantOpenHooks.traces`, R7.5). */
   traces?: TenantOpenHooks["traces"];
   /** Wraps the Tenant's `fs` Object store (to watch what it is asked to store). */
@@ -242,6 +244,7 @@ export async function startTestTenant(
     harness: options.harness ?? testHarnessMode(),
     ...(options.harnessTap ? { harnessTap: options.harnessTap } : {}),
     ...(options.pods ? { pods: options.pods } : {}),
+    ...(options.credentialProvider ? { credentialProvider: options.credentialProvider } : {}),
     ...(options.traces ? { traces: options.traces } : {}),
     ...(options.wrapBlobs
       ? { blobs: options.wrapBlobs(createFsBlobStore({ root: paths.blobs })) }

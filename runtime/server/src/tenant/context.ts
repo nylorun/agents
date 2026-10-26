@@ -37,6 +37,7 @@ import type { McpDiagnostic, McpSnapshot } from "../mcp/snapshot.js";
 import type { HarnessApiServer } from "../harness-api/server.js";
 import type { WorkspacePort } from "../harness-api/workspace.js";
 import type { SandboxesClient } from "../sandbox/pods/client.js";
+import type { CredentialProvider } from "../gates/credential-provider.js";
 import type { SandboxSignal } from "../execution/types.js";
 import type { TenantConfig } from "./types.js";
 import type { SessionStreams } from "./session-streams.js";
@@ -287,6 +288,11 @@ export interface TenantContext {
    * Absent without a cluster (`nylorun local sandbox enable`): kind `pod` is `agent_unavailable`.
    */
   readonly pods?: TenantPods;
+  /**
+   * The outside credential provider (`gates/credential-provider.ts`): the variables a pod Agent's
+   * segments set to the stand-in for its owner. Absent: none.
+   */
+  readonly credentialProvider?: CredentialProvider;
   /**
    * Seam: reconcile a pod sandbox, or arm one of its timers (`DurableExecution.sandbox`),
    * outside any tx. What a transaction causes goes through `t.signalSandbox` instead, which
