@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.34.0-beta
+
+### Minor Changes
+
+- 2ef610b: An outside credential provider for the egress gate (Host feature `credential-provider`; no protocol change). A Host's operator names a service that holds people's keys with `NYLORUN_CREDENTIAL_PROVIDER_URL` and `NYLORUN_CREDENTIAL_PROVIDER_TOKEN`, which `nylorun start` passes from its shell to the `gateway` and `runtime` containers. For a pod Agent with an owner, egress-gate asks the provider (`POST /v1/hosts`, with the Agent and its owner) which hosts the owner connected, lets them through on 443 inside the Tenant's egress ceiling, terminates TLS for them and hands each request to `<url>/v1/forward/<path>` with the sandbox's own headers plus `nylorun-provider-host`, `nylorun-provider-agent`, `nylorun-provider-owner` and `nylorun-provider-token`; the provider adds the key and sends it on, so the Runtime never sees a value. Each segment's sandbox sees the variables the provider names (`POST /v1/environment`) as `nylorun_managed`, under the vault's own. A secret in the Agent's vault bound to the same host still wins. Answers are cached per Agent for 15 s (Host tuning `credentialProvider.*`); an Agent with no owner is never asked about, and a provider that fails answers nothing, so its hosts are refused as before.
+
+### Patch Changes
+
+- 145dc06: The AG-UI endpoint follows AG-UI 1.0 more closely, on `@ag-ui/core` 1.0.3. `RUN_STARTED` now declares `protocolVersion: "1.0"`, which 1.0 asks every producer to set. A run from a client older than 1.0, which sends `null` for optional fields such as `forwardedProps`, `parentRunId`, `tools[].parameters`, `resume[].payload` or a media part's `metadata`, is now accepted, with those fields treated as absent; it used to be refused with `400 Invalid RunAgentInput`.
+- Pin core to the tested release.
+- Pin harness to the tested release.
+- Updated dependencies [2ef610b]
+- Updated dependencies
+  - @nylorun/core@0.30.0-beta
+  - @nylorun/harness@0.29.6-beta
+
 ## 0.33.0-beta
 
 ### Minor Changes

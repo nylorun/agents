@@ -1,6 +1,6 @@
 {
   "name": "nylorun",
-  "version": "0.22.0-beta",
+  "version": "0.23.0-beta",
   "type": "module",
   "license": "Apache-2.0",
   "description": "Set up and run local Nylorun Tenants (Runtime and Studio) with Docker Compose, and act on a Tenant through its Runtime and Management APIs",
@@ -30,9 +30,9 @@
     "prepack": "npm run build"
   },
   "dependencies": {
-    "@nylorun/admin": "0.19.5-beta",
-    "@nylorun/agents": "0.29.0-beta",
-    "@nylorun/core": "0.29.0-beta"
+    "@nylorun/admin": "0.19.6-beta",
+    "@nylorun/agents": "0.29.1-beta",
+    "@nylorun/core": "0.30.0-beta"
   },
   "devDependencies": {
     "@earendil-works/pi-ai": "1.3.0",
@@ -46,7 +46,7 @@
     "nylo": "dist/nylo.js"
   },
   "nylorun": {
-    "runtime": "0.33.0-beta",
-    "studio": "0.33.0-beta"
+    "runtime": "0.34.0-beta",
+    "studio": "0.33.1-beta"
   }
 }
