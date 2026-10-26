@@ -79,6 +79,16 @@ describe("compose.yaml", () => {
     expect(compose.slice(compose.indexOf("  runtime:"))).not.toContain("NYLORUN_MODEL_HOST_IDENTITY");
   });
 
+  it("passes the credential provider's URL and token from the shell to the gateway and the runtime (CP-E)", () => {
+    const gateway = compose.slice(compose.indexOf("  gateway:"), compose.indexOf("  runtime:"));
+    const runtime = compose.slice(compose.indexOf("  runtime:"), compose.indexOf("  studio:"));
+    for (const block of [gateway, runtime]) {
+      expect(block).toContain("NYLORUN_CREDENTIAL_PROVIDER_URL: ${NYLORUN_CREDENTIAL_PROVIDER_URL:-}");
+      expect(block).toContain("NYLORUN_CREDENTIAL_PROVIDER_TOKEN: ${NYLORUN_CREDENTIAL_PROVIDER_TOKEN:-}");
+    }
+    expect(compose.slice(compose.indexOf("  studio:"))).not.toContain("NYLORUN_CREDENTIAL_PROVIDER");
+  });
+
   it("initialises Postgres with C collation", () => {
     expect(compose).toContain('POSTGRES_INITDB_ARGS: "--locale=C"');
   });

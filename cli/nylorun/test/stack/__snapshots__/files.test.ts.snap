@@ -165,6 +165,10 @@ services:
       # with Google's Application Default Credentials (ADR-71): from the shell that runs
       # \`nylorun start\`. Empty: none. Every Tenant on this Host may use it.
       NYLORUN_MODEL_HOST_IDENTITY: \${NYLORUN_MODEL_HOST_IDENTITY:-}
+      # An outside credential provider egress-gate hands an Agent owner's connected hosts to, and
+      # its bearer: from the shell that runs \`nylorun start\`. Empty: none.
+      NYLORUN_CREDENTIAL_PROVIDER_URL: \${NYLORUN_CREDENTIAL_PROVIDER_URL:-}
+      NYLORUN_CREDENTIAL_PROVIDER_TOKEN: \${NYLORUN_CREDENTIAL_PROVIDER_TOKEN:-}
     extra_hosts:
       host.docker.internal: host-gateway # model servers, MCP servers and HTTP tools on this machine
     volumes:
@@ -242,6 +246,10 @@ services:
       # Host tuning (timings, retries, internal sizes; JSON): from the shell that runs \`nylorun start\`.
       # Sandbox pods get its harness and engine groups from the runtime.
       NYLORUN_TUNING: \${NYLORUN_TUNING:-}
+      # The outside credential provider, which names the variables a pod Agent's sessions see as
+      # nylorun_managed: from the shell that runs \`nylorun start\`, as for the gateway. Empty: none.
+      NYLORUN_CREDENTIAL_PROVIDER_URL: \${NYLORUN_CREDENTIAL_PROVIDER_URL:-}
+      NYLORUN_CREDENTIAL_PROVIDER_TOKEN: \${NYLORUN_CREDENTIAL_PROVIDER_TOKEN:-}
     extra_hosts:
       host.docker.internal: host-gateway # the Docker host, also on Linux Docker Engine
     volumes:

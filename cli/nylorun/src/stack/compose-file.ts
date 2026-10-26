@@ -198,7 +198,11 @@ ${healthcheck("rustfs")}    restart: unless-stopped
       # Providers whose models may call with this machine's own identity, such as google-vertex
       # with Google's Application Default Credentials (ADR-71): from the shell that runs
       # \`nylorun start\`. Empty: none. Every Tenant on this Host may use it.
-      NYLORUN_MODEL_HOST_IDENTITY: \${NYLORUN_MODEL_HOST_IDENTITY:-}${sandboxes ? SANDBOXES_GATEWAY_ENV : ""}
+      NYLORUN_MODEL_HOST_IDENTITY: \${NYLORUN_MODEL_HOST_IDENTITY:-}
+      # An outside credential provider egress-gate hands an Agent owner's connected hosts to, and
+      # its bearer: from the shell that runs \`nylorun start\`. Empty: none.
+      NYLORUN_CREDENTIAL_PROVIDER_URL: \${NYLORUN_CREDENTIAL_PROVIDER_URL:-}
+      NYLORUN_CREDENTIAL_PROVIDER_TOKEN: \${NYLORUN_CREDENTIAL_PROVIDER_TOKEN:-}${sandboxes ? SANDBOXES_GATEWAY_ENV : ""}
     extra_hosts:
       host.docker.internal: host-gateway # model servers, MCP servers and HTTP tools on this machine
     volumes:
@@ -272,7 +276,11 @@ ${healthcheck("gateway")}    restart: unless-stopped
       NYLORUN_TRACE_CONTENT: \${NYLORUN_TRACE_CONTENT:-}
       # Host tuning (timings, retries, internal sizes; JSON): from the shell that runs \`nylorun start\`.
       # Sandbox pods get its harness and engine groups from the runtime.
-      NYLORUN_TUNING: \${NYLORUN_TUNING:-}${sandboxes ? SANDBOXES_RUNTIME_ENV : ""}${identity ? IDENTITY_RUNTIME_ENV : ""}
+      NYLORUN_TUNING: \${NYLORUN_TUNING:-}
+      # The outside credential provider, which names the variables a pod Agent's sessions see as
+      # nylorun_managed: from the shell that runs \`nylorun start\`, as for the gateway. Empty: none.
+      NYLORUN_CREDENTIAL_PROVIDER_URL: \${NYLORUN_CREDENTIAL_PROVIDER_URL:-}
+      NYLORUN_CREDENTIAL_PROVIDER_TOKEN: \${NYLORUN_CREDENTIAL_PROVIDER_TOKEN:-}${sandboxes ? SANDBOXES_RUNTIME_ENV : ""}${identity ? IDENTITY_RUNTIME_ENV : ""}
     extra_hosts:
       host.docker.internal: host-gateway # the Docker host, also on Linux Docker Engine
     volumes:
