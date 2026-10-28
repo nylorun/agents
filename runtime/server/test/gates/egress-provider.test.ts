@@ -1,12 +1,13 @@
 /**
  * egress-gate and the outside credential provider (v0.25 CP-E, `gates/credential-provider.ts`):
- * for an Agent with an owner, a host the provider lists passes the allowlist on 443 (inside the
- * Tenant's egress ceiling), is terminated with a leaf of the egress CA, and each of its requests
- * goes to the provider's forward route with the sandbox's own headers and the engine's provider
- * headers; the Runtime never holds a value. A host it doesn't list is refused as before, an Agent
- * with no owner is never asked about, a provider that is down answers nothing, and the vault's
- * binding wins for a host it binds. The provider is a local HTTP server; every name "resolves" to
- * 127.0.0.1, which the address hook lets through.
+ * for an Agent with an owner, a host the provider lists, exactly or by a `*.suffix` (v0.26 TM-E1),
+ * passes the allowlist on 443 (inside the Tenant's egress ceiling), is terminated with a leaf of
+ * the egress CA, and each of its requests goes to the provider's forward route with the sandbox's
+ * own headers and the engine's provider headers; the Runtime never holds a value. A host it doesn't
+ * list is refused as before, an Agent with no owner is never asked about, a provider that is down
+ * answers nothing, and the vault's binding wins for a host it binds. Its environment answer gives
+ * each variable the stand-in, a stand-in of its own or a plain value (TM-E2). The provider is a
+ * local HTTP server; every name "resolves" to 127.0.0.1, which the address hook lets through.
  */
 import { once } from "node:events";
 import { createServer as createHttpServer, type IncomingHttpHeaders, type Server as HttpServer } from "node:http";
@@ -44,7 +45,7 @@ let echoPort: number;
 
 /** What the provider lists now, and what it received. */
 let listed: string[] = [];
-let variables: string[] = [];
+let variables: unknown[] = [];
 const calls: { url: string; headers: IncomingHttpHeaders; body: string }[] = [];
 /** Requests the upstream (the vault's path) received. */
 const upstreamReceived: { url: string | undefined; headers: IncomingHttpHeaders }[] = [];
@@ -254,6 +255,50 @@ describe("egress-gate and the credential provider (CP-E)", () => {
     expect(logs).toContainEqual({ message: "egress_terminated", fields: { sandboxId: "sbx_1", host: "api.vercel.test", via: "provider" } });
   });
 
+  it("keeps a `*.suffix` host and matches it as network.allow does, dropping IPs and bad patterns (TM-E1)", async () => {
+    listed = ["*.GoogleAPIs.com", "*.googleapis.com.", "10.0.0.1", "*.10.0.0.1", "*.com", "*.", "**.x.com", "a..b.com", "[::1]", "api.vercel.test"];
+    const client = createCredentialProvider({ url: providerUrl, token: TOKEN }, { logger });
+    expect(await client.hosts("sbx_1", OWNER)).toEqual(["*.googleapis.com", "api.vercel.test"]);
+    calls.length = 0;
+
+    const written: EgressConnection[] = [];
+    const proxy = await gate({}, { written });
+    for (const host of ["run.googleapis.com", "a.b.googleapis.com"]) {
+      const { status, socket } = await connectThrough(proxy, `${host}:443`);
+      expect(status, host).toBe(200);
+      const secure = await tlsThrough(socket, host);
+      const sent = await send(secure, host, "/v2/services", { authorization: "Bearer nylorun_managed" });
+      expect(JSON.parse(sent.body)).toMatchObject({ forwarded: "/edge/provider/v1/forward/v2/services" });
+      secure.destroy();
+    }
+    // The forward route is told the host the sandbox addressed, never the pattern.
+    expect(forwards().map((call) => call.headers[PROVIDER_HEADERS.host])).toEqual(["run.googleapis.com", "a.b.googleapis.com"]);
+    // The suffix itself isn't matched, nor a name that only ends in it, nor port 80.
+    expect((await connectThrough(proxy, "googleapis.com:443")).status).toBe(403);
+    expect((await connectThrough(proxy, "evilgoogleapis.com:443")).status).toBe(403);
+    expect((await connectThrough(proxy, "run.googleapis.com:80")).status).toBe(403);
+    // A listed IP literal never passes.
+    expect((await connectThrough(proxy, "10.0.0.1:443")).status).toBe(403);
+    // The gate asked once, within the cache.
+    expect(hostCalls()).toHaveLength(1);
+  });
+
+  it("keeps a `*.suffix` host inside the Tenant's egress ceiling", async () => {
+    listed = ["*.googleapis.com"];
+    const proxy = await gate({ ceiling: ["run.googleapis.com", "plain.test"] });
+    expect((await connectThrough(proxy, "run.googleapis.com:443")).status).toBe(200);
+    expect((await connectThrough(proxy, "compute.googleapis.com:443")).status).toBe(403);
+  });
+
+  it("lets the vault's binding win for a host a `*.suffix` covers", async () => {
+    listed = ["*.vercel.test"];
+    vault.set("api.vercel.test", { status: "released", header: "Authorization", value: "Bearer from-vault", credentialId: "cred_1" });
+    const proxy = await gate();
+    const secure = await tlsThrough((await connectThrough(proxy, "api.vercel.test:443")).socket, "api.vercel.test");
+    expect((await send(secure, "api.vercel.test", "/v9/projects", { authorization: "Bearer nylorun_managed" })).body).toBe("from upstream");
+    expect(forwards()).toHaveLength(0);
+  });
+
   it("refuses a host the provider doesn't list and the spec doesn't allow, and asks once per Agent within the cache", async () => {
     listed = ["api.vercel.test"];
     const proxy = await gate();
@@ -330,14 +375,66 @@ describe("egress-gate and the credential provider (CP-E)", () => {
   it("names the variables an Agent's owner connected, valid names only, cached per Agent", async () => {
     variables = ["VERCEL_TOKEN", "LINEAR_API_KEY", "not a name", "VERCEL_TOKEN"];
     const client = createCredentialProvider({ url: providerUrl, token: TOKEN }, { logger });
-    expect(await client.environment("sbx_1", OWNER)).toEqual(["VERCEL_TOKEN", "LINEAR_API_KEY"]);
+    const named = [
+      { name: "VERCEL_TOKEN", value: "nylorun_managed" },
+      { name: "LINEAR_API_KEY", value: "nylorun_managed" },
+    ];
+    expect(await client.environment("sbx_1", OWNER)).toEqual(named);
     variables = [];
-    expect(await client.environment("sbx_1", OWNER)).toEqual(["VERCEL_TOKEN", "LINEAR_API_KEY"]);
+    expect(await client.environment("sbx_1", OWNER)).toEqual(named);
     expect(await client.environment("sbx_2", OWNER)).toEqual([]);
     const asked = calls.filter((call) => call.url === "/edge/provider/v1/environment");
     expect(asked.map((call) => JSON.parse(call.body))).toEqual([
       { agentId: "sbx_1", owner: OWNER },
       { agentId: "sbx_2", owner: OWNER },
+    ]);
+  });
+
+  it("gives each variable its stand-in or plain value, and drops entries it can't read (TM-E2)", async () => {
+    variables = [
+      "LINEAR_API_KEY",
+      { name: "STRIPE_API_KEY", standIn: "sk_live_nylorun_managed" },
+      { name: "VERCEL_TEAM", value: "team_ada" },
+      { name: "ATLASSIAN_SITE", value: "ada.atlassian.net/wiki?x=1 & y" },
+      // The first entry for a name wins, whatever its shape.
+      { name: "LINEAR_API_KEY", value: "plain" },
+      { name: "VERCEL_TEAM", standIn: "other" },
+      // Dropped: no name, a bad name, neither or both, an empty, long, multi-line or control value.
+      { standIn: "nylorun_x" },
+      { name: "not a name", value: "x" },
+      { name: "NEITHER" },
+      { name: "BOTH", standIn: "a", value: "b" },
+      { name: "EMPTY", value: "" },
+      { name: "LONG", value: "x".repeat(1025) },
+      { name: "LINES", value: "a\nb" },
+      { name: "RETURN", standIn: "a\rb" },
+      { name: "NUL", value: "a\u0000b" },
+      { name: "SEPARATOR", value: "a\u2028b" },
+      { name: "NUMBER", value: 42 },
+      { name: "NULL", standIn: null },
+      ["ARRAY"],
+      null,
+      7,
+      { name: "MAX", value: "y".repeat(1024) },
+      { name: "UNICODE", value: "Zürich 東京" },
+    ];
+    const client = createCredentialProvider({ url: providerUrl, token: TOKEN }, { logger });
+    expect(await client.environment("sbx_1", OWNER)).toEqual([
+      { name: "LINEAR_API_KEY", value: "nylorun_managed" },
+      { name: "STRIPE_API_KEY", value: "sk_live_nylorun_managed" },
+      { name: "VERCEL_TEAM", value: "team_ada" },
+      { name: "ATLASSIAN_SITE", value: "ada.atlassian.net/wiki?x=1 & y" },
+      { name: "MAX", value: "y".repeat(1024) },
+      { name: "UNICODE", value: "Zürich 東京" },
+    ]);
+  });
+
+  it("still reads an older provider's names-only answer as the stand-in", async () => {
+    variables = ["VERCEL_TOKEN", "GH_TOKEN"];
+    const client = createCredentialProvider({ url: providerUrl, token: TOKEN }, { logger });
+    expect(await client.environment("sbx_1", OWNER)).toEqual([
+      { name: "VERCEL_TOKEN", value: "nylorun_managed" },
+      { name: "GH_TOKEN", value: "nylorun_managed" },
     ]);
   });
 });

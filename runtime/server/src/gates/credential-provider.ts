@@ -6,11 +6,19 @@
  * here runs.
  *
  * Three calls, each with `Authorization: Bearer <token>`:
- * - `POST <url>/v1/hosts` `{ agentId, owner }` → `{ hosts: string[] }`: the exact host names the
- *   owner's keys are bound to. egress-gate lets a pod Agent's sandbox reach them (inside the
- *   Tenant's egress ceiling), terminates TLS for them on 443 and hands each request on;
- * - `POST <url>/v1/environment` `{ agentId, owner }` → `{ variables: string[] }`: the variables
- *   each of a pod Agent's segments sets to the stand-in `nylorun_managed`, under the vault's own;
+ * - `POST <url>/v1/hosts` `{ agentId, owner }` → `{ hosts: string[] }`: the hosts the owner's keys
+ *   are bound to, each an exact host name or a `*.<suffix>` pattern (`*.googleapis.com`, v0.26
+ *   TM-E1). A pattern matches as `network.allow`'s do: `run.googleapis.com` and
+ *   `a.b.googleapis.com`, never `googleapis.com` itself. An IP literal or a malformed entry is
+ *   dropped. egress-gate lets a pod Agent's sandbox reach them (inside the Tenant's egress
+ *   ceiling), terminates TLS for them on 443 and hands each request on;
+ * - `POST <url>/v1/environment` `{ agentId, owner }` → `{ variables: Entry[] }`: the variables each
+ *   of a pod Agent's segments sets, under the vault's own (v0.26 TM-E2). An entry is a name (`"X"`,
+ *   set to the stand-in `nylorun_managed`, as before v0.26), `{ name, standIn }` (set to that
+ *   stand-in, shaped like the vendor's keys) or `{ name, value }` (set to that plain value, a
+ *   setting beside a key and never a secret). A `standIn` or `value` is 1 to 1,024 printable
+ *   characters, with no control character or line break; an entry with anything else, or a name
+ *   a shell can't set, is dropped, and the first entry for a name wins;
  * - `ANY <url>/v1/forward/<path and query>`: one request of the sandbox's, with its headers as it
  *   sent them (its own `Authorization` or inject header included, which the provider replaces),
  *   plus `nylorun-provider-host`, `-agent`, `-owner` and, in place of a bearer the sandbox's own
@@ -23,6 +31,7 @@
  * answers nothing, kept for `retryMs`, so the gate refuses what it refused before; it is logged
  * once until a call succeeds again. The token is never logged.
  */
+import { ENVIRONMENT_SECRET_SENTINEL } from "@nylorun/core/contracts";
 import { isSandboxHostPattern } from "@nylorun/core/define";
 import type { Logger } from "../tenant/types.js";
 import { hostTuning } from "../tuning.js";
@@ -48,6 +57,16 @@ const ANSWER_MAX = 256;
 /** A variable name a shell can set. */
 const VARIABLE = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/;
 
+/** A stand-in or plain value: 1 to 1,024 printable characters, no control character or line break. */
+const VALUE = /^[^\p{Cc}\p{Cs}\p{Zl}\p{Zp}]{1,1024}$/u;
+
+/** One variable a pod Agent's segments set: its name and the value the sandbox sees. */
+export interface ProviderVariable {
+  readonly name: string;
+  /** The stand-in (`nylorun_managed` unless the provider names another) or a plain value. */
+  readonly value: string;
+}
+
 /** Where the provider is and its token (`StackConfig.credentialProvider`). */
 export interface CredentialProviderSettings {
   /** `NYLORUN_CREDENTIAL_PROVIDER_URL`, without a trailing slash. */
@@ -59,9 +78,15 @@ export interface CredentialProviderSettings {
 export interface CredentialProvider {
   /** The provider's base URL, without a trailing slash. */
   readonly url: string;
-  /** The variables to set to the stand-in for `agentId`'s sessions; none without an owner. */
-  environment(agentId: string, owner: string | undefined): Promise<readonly string[]>;
-  /** The exact host names `owner`'s keys are bound to (lowercase); none without an owner. */
+  /**
+   * The variables `agentId`'s sessions set, each with its stand-in or plain value; none without
+   * an owner.
+   */
+  environment(agentId: string, owner: string | undefined): Promise<readonly ProviderVariable[]>;
+  /**
+   * The hosts `owner`'s keys are bound to (lowercase): exact names and `*.<suffix>` patterns, to
+   * match as `network.allow`'s do (`egressAllows`); none without an owner.
+   */
   hosts(agentId: string, owner: string | undefined): Promise<readonly string[]>;
   /** Where one request to `path` (origin form, `/v2/projects?x=1`) is handed. */
   forwardUrl(path: string): URL;
@@ -82,13 +107,13 @@ export function createCredentialProvider(
   const url = settings.url.replace(/\/+$/, "");
   const { logger } = options;
   const fetchImpl = options.fetch ?? fetch;
-  const cache = new Map<string, { readonly until: number; readonly value: readonly string[] }>();
-  const pending = new Map<string, Promise<readonly string[]>>();
+  const cache = new Map<string, { readonly until: number; readonly value: readonly unknown[] }>();
+  const pending = new Map<string, Promise<readonly unknown[]>>();
   /** The calls failing now: each is logged once, until one succeeds. */
   const failing = new Set<Call>();
 
   /** What a call answers: the list, and whether it failed. */
-  type Answer = { readonly ok: boolean; readonly value: readonly string[] };
+  type Answer = { readonly ok: boolean; readonly value: readonly unknown[] };
 
   function fail(call: Call, agentId: string, reason: string, fields: Record<string, unknown> = {}): Answer {
     if (!failing.has(call)) {
@@ -126,15 +151,10 @@ export function createCredentialProvider(
     const list = (body as Record<string, unknown> | null)?.[call === "hosts" ? "hosts" : "variables"];
     if (!Array.isArray(list)) return fail(call, agentId, "shape");
     if (failing.delete(call)) logger.info("credential_provider_recovered", { call });
-    const items = list.filter((item): item is string => typeof item === "string").slice(0, ANSWER_MAX);
-    const value =
-      call === "hosts"
-        ? [...new Set(items.map((host) => host.toLowerCase().replace(/\.$/, "")).filter(isExactHost))]
-        : [...new Set(items.filter((name) => VARIABLE.test(name)))];
-    return { ok: true, value };
+    return { ok: true, value: call === "hosts" ? hostsOf(list) : variablesOf(list) };
   }
 
-  function answer(call: Call, agentId: string, owner: string | undefined): Promise<readonly string[]> {
+  function answer(call: Call, agentId: string, owner: string | undefined): Promise<readonly unknown[]> {
     if (owner === undefined || owner === "") return Promise.resolve([]);
     const key = `${call}\u0000${agentId}\u0000${owner}`;
     const cached = cache.get(key);
@@ -159,8 +179,8 @@ export function createCredentialProvider(
 
   return {
     url,
-    environment: (agentId, owner) => answer("environment", agentId, owner),
-    hosts: (agentId, owner) => answer("hosts", agentId, owner),
+    environment: (agentId, owner) => answer("environment", agentId, owner) as Promise<readonly ProviderVariable[]>,
+    hosts: (agentId, owner) => answer("hosts", agentId, owner) as Promise<readonly string[]>,
     forwardUrl: (path) => new URL(`${url}/v1/forward${path.startsWith("/") ? path : `/${path}`}`),
     forwardHeaders: ({ host, agentId, owner }) => ({
       [PROVIDER_HEADERS.host]: host,
@@ -171,7 +191,37 @@ export function createCredentialProvider(
   };
 }
 
-/** An exact host name (no `*.` pattern, no IP literal), as egress-gate serves. */
-function isExactHost(host: string): boolean {
-  return !host.startsWith("*.") && isSandboxHostPattern(host);
+/**
+ * The hosts of a `/v1/hosts` answer: exact host names and `*.<suffix>` patterns, lowercase, without
+ * a trailing root dot, once each; an IP literal or a malformed entry is dropped.
+ */
+function hostsOf(list: readonly unknown[]): readonly string[] {
+  const items = list.filter((item): item is string => typeof item === "string").slice(0, ANSWER_MAX);
+  return [...new Set(items.map((host) => host.toLowerCase().replace(/\.$/, "")).filter(isSandboxHostPattern))];
+}
+
+/**
+ * The variables of a `/v1/environment` answer, each with the value the sandbox sees: a bare name is
+ * the stand-in `nylorun_managed`, `{ name, standIn }` that stand-in, `{ name, value }` that value.
+ * Any other entry is dropped, and the first entry for a name wins.
+ */
+function variablesOf(list: readonly unknown[]): readonly ProviderVariable[] {
+  const variables = new Map<string, ProviderVariable>();
+  for (const item of list) {
+    if (variables.size >= ANSWER_MAX) break;
+    const variable = variableOf(item);
+    if (variable && !variables.has(variable.name)) variables.set(variable.name, variable);
+  }
+  return [...variables.values()];
+}
+
+function variableOf(item: unknown): ProviderVariable | undefined {
+  if (typeof item === "string") return VARIABLE.test(item) ? { name: item, value: ENVIRONMENT_SECRET_SENTINEL } : undefined;
+  if (typeof item !== "object" || item === null || Array.isArray(item)) return undefined;
+  const { name, standIn, value } = item as Record<string, unknown>;
+  if (typeof name !== "string" || !VARIABLE.test(name)) return undefined;
+  // Exactly one of the two: an entry naming both, or neither, is not one the engine can read.
+  if ((standIn === undefined) === (value === undefined)) return undefined;
+  const set = standIn ?? value;
+  return typeof set === "string" && VALUE.test(set) ? { name, value: set } : undefined;
 }

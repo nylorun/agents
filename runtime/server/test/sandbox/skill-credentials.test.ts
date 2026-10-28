@@ -6,7 +6,8 @@
  * turn's commands see each `environment_secret` as `nylorun_managed` and each
  * `environment_variable` as its value; the vault releases the real header only for a bound host,
  * read afresh after a rotation. With an outside credential provider (CP-E), the variables it names
- * for the Agent's owner are the stand-in too, never over the vault's own. egress-gate's use of the
+ * for the Agent's owner are set to the value it gives (a stand-in or a plain value, TM-E2), never
+ * over the vault's own. egress-gate's use of the
  * release is `gates/egress-credentials`, and of the provider `gates/egress-provider`.
  */
 import { providerModelGate } from "../../src/gates/provider-gate.js";
@@ -46,18 +47,29 @@ const podModel: ModelProvider = async (effect) => {
   const prompt = (effect.input as { prompt?: { kind?: string }[] }).prompt ?? [];
   if (prompt.at(-1)?.kind === "tool-result") return { output: [{ type: "text", text: "done" }] };
   return {
-    output: [{ type: "tool-call", id: `call-${effect.turnId}`, name: "bash", args: { command: 'echo "$GH_TOKEN $REGION $VERCEL_TOKEN" > env.txt' } }],
+    output: [{ type: "tool-call", id: `call-${effect.turnId}`, name: "bash", args: { command: 'echo "$GH_TOKEN $REGION $VERCEL_TOKEN $STRIPE_API_KEY $VERCEL_TEAM" > env.txt' } }],
   };
 };
 const coreModel: ModelProvider = async () => ({ output: [{ type: "text", text: "core" }] });
 
-/** The outside credential provider (CP-E): it names VERCEL_TOKEN, and REGION, which the vault sets. */
+/**
+ * The outside credential provider (CP-E): it names VERCEL_TOKEN (the stand-in), STRIPE_API_KEY
+ * with a stand-in of its own and VERCEL_TEAM with a plain value (TM-E2), and REGION, which the
+ * vault sets.
+ */
 const providerAsks: { agentId: string; owner: string | undefined }[] = [];
 const provider: CredentialProvider = {
   url: "http://provider.test",
   async environment(agentId, owner) {
     providerAsks.push({ agentId, owner });
-    return owner === "app:ada" ? ["VERCEL_TOKEN", "REGION"] : [];
+    return owner === "app:ada"
+      ? [
+          { name: "VERCEL_TOKEN", value: "nylorun_managed" },
+          { name: "STRIPE_API_KEY", value: "sk_test_nylorun_managed" },
+          { name: "VERCEL_TEAM", value: "team_ada" },
+          { name: "REGION", value: "us-east-1" },
+        ]
+      : [];
   },
   hosts: async () => [],
   forwardUrl: (path) => new URL(`http://provider.test/v1/forward${path}`),
@@ -220,8 +232,11 @@ describe("credentials for skills (R2c)", { timeout: 90_000 }, () => {
       const done = await until("settles", async () => (await call("GET", "/v1/sessions/creds-ada")).body, (body) =>
         ["completed", "failed", "cancelled"].includes(body.status), 60_000);
       expect(done.status).toBe("completed");
-      // The vault's secret and variable, and the provider's variable as the stand-in (CP-E).
-      expect(await readFile(join(workspace, "env.txt"), "utf8")).toBe("nylorun_managed eu-west-1 nylorun_managed\n");
+      // The vault's secret and variable, and the provider's variables as the stand-in, its own
+      // stand-in and a plain value (CP-E, TM-E2), never over the vault's REGION.
+      expect(await readFile(join(workspace, "env.txt"), "utf8")).toBe(
+        "nylorun_managed eu-west-1 nylorun_managed sk_test_nylorun_managed team_ada\n",
+      );
       expect(providerAsks).toContainEqual({ agentId: ENV, owner: "app:ada" });
       const history = await call("GET", "/v1/sessions/creds-ada/history");
       expect(JSON.stringify(history.body)).not.toContain(SECRET);
