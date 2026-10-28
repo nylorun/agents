@@ -1771,8 +1771,8 @@ the Runtime then calls, each with `Authorization: Bearer <token>`:
 
 | Call | Body | Answer |
 | --- | --- | --- |
-| `POST <url>/v1/hosts` | `{ "agentId", "owner" }` | `{ "hosts": [...] }`: exact host names the owner's keys are bound to |
-| `POST <url>/v1/environment` | `{ "agentId", "owner" }` | `{ "variables": [...] }`: the variables each command sees as `nylorun_managed` |
+| `POST <url>/v1/hosts` | `{ "agentId", "owner" }` | `{ "hosts": [...] }`: the hosts the owner's keys are bound to, each an exact host name or a `*.<suffix>` pattern such as `*.googleapis.com` |
+| `POST <url>/v1/environment` | `{ "agentId", "owner" }` | `{ "variables": [...] }`: the variables each command sees, each a name (set to `nylorun_managed`), `{ "name", "standIn" }` (set to that stand-in) or `{ "name", "value" }` (set to that plain value) |
 | `ANY <url>/v1/forward/<path and query>` | One request of the sandbox's | The upstream's answer, streamed |
 
 A host the provider lists passes the sandbox's allowlist on port 443, inside the Tenant's egress
@@ -1787,6 +1787,15 @@ same host wins, and a vault variable of the same name stays. Answers are kept pe
 `credentialProvider.cacheMs`. An Agent with no owner is never asked about. A provider that fails
 answers nothing, so its hosts are refused as before (`host_not_allowed`), logged once as
 `credential_provider_failed`.
+
+A `*.<suffix>` host matches as one in `network.allow` does: `*.googleapis.com` holds
+`run.googleapis.com` and `a.b.googleapis.com`, never `googleapis.com` itself, and the forward
+route's `nylorun-provider-host` is the host the sandbox addressed, never the pattern. An IP literal
+or a malformed entry is dropped. A variable's `standIn` or `value` is 1 to 1,024 printable
+characters with no control character or line break; an entry with anything else, or a name a shell
+can't set, is dropped, and the first entry for a name wins. A `value` is set as it is, for a
+setting beside a key (a team or a site), never a secret: the sandbox sees it. A names-only answer
+from an older provider still works.
 
 ## The harness: agent turns, MCP servers and workspaces
 

@@ -7,10 +7,11 @@
  *
  * A pod Agent's sandbox variables are its vault's (R2c), then, with an outside credential
  * provider (`gates/credential-provider.ts`) and an owner on the Agent, each variable the provider
- * names for that owner, set to the stand-in `nylorun_managed` and never over a vault variable.
+ * names for that owner, set to the value it gives (the stand-in `nylorun_managed`, a stand-in of
+ * its own or a plain value) and never over a vault variable.
  * The provider is asked after the transaction, and one that fails adds nothing.
  */
-import { ENVIRONMENT_SECRET_SENTINEL, harnessLimitsOf, type LiveEvent } from "@nylorun/core/contracts";
+import { harnessLimitsOf, type LiveEvent } from "@nylorun/core/contracts";
 import type {
   ModelDescriptor,
   RecordedOutcome,
@@ -192,8 +193,9 @@ export async function startSegment(
 }
 
 /**
- * `opened` with the credential provider's variables for `ask` added to its sandbox's environment
- * as the stand-in, under the vault's own; `opened` itself when there are none.
+ * `opened` with the credential provider's variables for `ask` added to its sandbox's environment,
+ * each with the value the provider gives (a stand-in or a plain value), under the vault's own;
+ * `opened` itself when there are none.
  */
 async function withProviderVariables<T extends Pick<SegmentStart, "sandbox">>(
   ctx: TenantContext,
@@ -201,11 +203,11 @@ async function withProviderVariables<T extends Pick<SegmentStart, "sandbox">>(
   ask: { agentId: string; owner: string } | undefined,
 ): Promise<T> {
   if (!ask || !ctx.credentialProvider) return opened;
-  const names = await ctx.credentialProvider.environment(ask.agentId, ask.owner);
+  const variables = await ctx.credentialProvider.environment(ask.agentId, ask.owner);
   const vault = opened.sandbox.environment ?? {};
-  const added = names.filter((name) => !Object.hasOwn(vault, name));
+  const added = variables.filter(({ name }) => !Object.hasOwn(vault, name));
   if (added.length === 0) return opened;
-  const environment = { ...Object.fromEntries(added.map((name) => [name, ENVIRONMENT_SECRET_SENTINEL])), ...vault };
+  const environment = { ...Object.fromEntries(added.map(({ name, value }) => [name, value])), ...vault };
   return { ...opened, sandbox: { ...opened.sandbox, environment } };
 }
 

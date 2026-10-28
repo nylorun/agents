@@ -12,7 +12,8 @@
  *    else 407;
  * 3. the port is 443 or 80, the target is a host name and no IP literal, and it matches the spec's
  *    `network.allow` exactly or by `*.suffix`, or (443 only) the outside credential provider lists
- *    it for the Agent's owner and the Tenant's egress ceiling holds it, else 403;
+ *    it for the Agent's owner, exactly or by `*.suffix` likewise, and the Tenant's egress ceiling
+ *    holds it, else 403;
  * 4. the sandbox has fewer than `maxPerSandbox` tunnels open, else 429;
  * 5. the name resolves, and to at least one address that is not private, loopback, link-local
  *    (cloud metadata included), multicast or reserved, else 502 or 403;
@@ -341,8 +342,10 @@ export async function startEgressGate(options: StartEgressGateOptions): Promise<
   const provider = terminator ? options.provider : undefined;
 
   /**
-   * Whether the credential provider lists `host` for the sandbox's owner, inside the Tenant's
-   * ceiling: only on 443, where the gate terminates TLS, and never for an Agent without an owner.
+   * Whether the credential provider lists `host` for the sandbox's owner, exactly or by a
+   * `*.suffix` pattern (`*.x.com` holds `a.x.com` and `b.a.x.com`, not `x.com`), inside the
+   * Tenant's ceiling: only on 443, where the gate terminates TLS, and never for an Agent without an
+   * owner. The request still names the host the sandbox addressed (`nylorun-provider-host`).
    */
   async function providerLists(
     sandboxId: string,
@@ -352,7 +355,8 @@ export async function startEgressGate(options: StartEgressGateOptions): Promise<
   ): Promise<boolean> {
     if (!provider || port !== 443 || sandbox.owner === undefined) return false;
     if (sandbox.ceiling && !withinCeiling(host, sandbox.ceiling)) return false;
-    return (await provider.hosts(sandboxId, sandbox.owner)).includes(host);
+    // An exact name or a `*.suffix` pattern, matched as `network.allow`'s are (v0.26 TM-E1).
+    return egressAllows(host, await provider.hosts(sandboxId, sandbox.owner));
   }
   const open = new Map<string, Set<Duplex>>();
   const tunnels = new Set<Duplex>();

@@ -214,8 +214,9 @@ export type ProtocolFeature = (typeof PROTOCOL_FEATURES)[number];
  * Application Default Credentials, when the Host's operator lends them (`NYLORUN_MODEL_HOST_IDENTITY`).
  * `credential-provider`: egress-gate can hand a pod Agent's requests to an outside credential
  * provider the Host's operator names (`NYLORUN_CREDENTIAL_PROVIDER_URL`), which adds the Agent
- * owner's keys: the hosts it lists pass the allowlist on 443, and each segment's sandbox sees the
- * variables it names as `nylorun_managed`. No route changes.
+ * owner's keys: the hosts it lists (exact, or `*.suffix`) pass the allowlist on 443, and each
+ * segment's sandbox sees the variables it names, as `nylorun_managed`, a stand-in it names or a
+ * plain value. No route changes.
  */
 export const OPTIONAL_HOST_FEATURES = [
   "tenant-fixture-model",
