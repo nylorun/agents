@@ -1,5 +1,11 @@
 # nylorun
 
+## 0.23.1-beta
+
+### Patch Changes
+
+- Pin runtime to the tested release.
+
 ## 0.23.0-beta
 
 ### Minor Changes
