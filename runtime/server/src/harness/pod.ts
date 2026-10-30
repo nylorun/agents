@@ -237,6 +237,9 @@ export function podHost(
         http_proxy: proxy,
         NO_PROXY: "localhost,127.0.0.1",
         no_proxy: "localhost,127.0.0.1",
+        // Node's fetch (and corepack's pnpm and yarn) use the proxy only with this set; the engine
+        // drops `*_PROXY` names from the image's own environment, so it comes from here (ADR-92 §10).
+        NODE_USE_ENV_PROXY: "1",
       };
     },
     get epoch() {

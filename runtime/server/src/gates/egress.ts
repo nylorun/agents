@@ -19,6 +19,10 @@
  *    (cloud metadata included), multicast or reserved, else 502 or 403;
  * 6. the gate connects to that checked address (never to the name again) and pipes.
  *
+ * On port 443 the tunnel waits for the client's TLS ClientHello and refuses it, closing the tunnel,
+ * when its server name (SNI) isn't the CONNECT host, is missing, or the bytes aren't TLS (ADR-92
+ * §11): a tunnel to an allowed host can't ask a shared front end for another one.
+ *
  * A tunnel is opaque bytes, with two exceptions. First (R2c, D50): port 443 of a host that an
  * `environment_secret` of a live session on the sandbox is bound to. There the gate terminates
  * TLS and sets the credential's header on every request (`egress-credentials.ts`), still sending
@@ -54,6 +58,7 @@ import { withinCeiling } from "../sandbox/resolve.js";
 import type { CredentialProvider } from "./credential-provider.js";
 import type { Logger } from "../tenant/types.js";
 import { bindListener } from "../host/http.js";
+import { MAX_HELLO_BYTES, readClientHello } from "./client-hello.js";
 import { hostTuning } from "../tuning.js";
 import {
   CONNECT_ESTABLISHED,
@@ -117,6 +122,8 @@ export interface StartEgressGateOptions {
   readonly cacheMs?: number;
   /** How long the gate waits for the upstream connection. Default `egress.connectTimeoutMs`. */
   readonly connectTimeoutMs?: number;
+  /** How long a 443 tunnel waits for the client's ClientHello. Default 15 s. */
+  readonly helloMs?: number;
   /** Tests replace name resolution. */
   readonly lookup?: (host: string) => Promise<readonly { address: string; family: number }[]>;
   /** Tests replace which resolved addresses are refused. Default `isEgressBlocked`. */
@@ -468,9 +475,60 @@ export async function startEgressGate(options: StartEgressGateOptions): Promise<
       record.closed();
     });
     client.write(CONNECT_ESTABLISHED);
-    if (head.length > 0) upstream.write(head);
+    if (port === 443) {
+      // The server name the client asks for must be the host it was allowed (ADR-92 §11).
+      const hello = await clientHello(client, head, options.helloMs ?? 15_000);
+      if (hello.serverName !== host.toLowerCase()) {
+        const reason = hello.serverName === undefined ? `sni_${hello.problem ?? "missing"}` : "sni_mismatch";
+        logger.warn("egress_refused", { status: 403, reason, sandboxId, host, port, ...(hello.serverName ? { serverName: hello.serverName } : {}) });
+        record.refused(403, reason);
+        close();
+        return;
+      }
+      upstream.write(hello.bytes);
+    } else if (head.length > 0) upstream.write(head);
     upstream.pipe(client);
     client.pipe(upstream);
+  }
+
+  /**
+   * The client's first bytes on a tunnel, up to the end of its ClientHello, and the server name in
+   * it. The client is paused afterwards, so the bytes stay in order for the pipe.
+   */
+  function clientHello(
+    client: Duplex,
+    head: Buffer,
+    timeoutMs: number,
+  ): Promise<{ readonly bytes: Buffer; readonly serverName?: string; readonly problem?: string }> {
+    return new Promise((resolve) => {
+      let bytes = head;
+      let done = false;
+      const finish = (result: { serverName?: string; problem?: string }) => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        client.off("data", onData);
+        client.off("close", onClose);
+        client.pause();
+        resolve({ bytes, ...result });
+      };
+      const check = () => {
+        const read = readClientHello(bytes);
+        if (read.status === "complete") finish(read.serverName ? { serverName: read.serverName } : { problem: "missing" });
+        else if (read.status === "invalid") finish({ problem: "invalid" });
+        else if (bytes.length > MAX_HELLO_BYTES) finish({ problem: "invalid" });
+      };
+      const onData = (chunk: Buffer) => {
+        bytes = Buffer.concat([bytes, chunk]);
+        check();
+      };
+      const onClose = () => finish({ problem: "missing" });
+      const timer = setTimeout(() => finish({ problem: "timeout" }), timeoutMs);
+      timer.unref?.();
+      client.on("data", onData);
+      client.once("close", onClose);
+      if (bytes.length > 0) check();
+    });
   }
 
   /** Connects to the first of `addresses` that answers within the connect timeout. */

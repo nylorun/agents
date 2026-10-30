@@ -28,6 +28,7 @@ import { createCertificateAuthority, issueLeafCertificate, leafKeyPair } from ".
 import { mintEgressToken, verifyEgressToken, type EgressTokenKeyCache } from "../../src/sandbox/egress-token.js";
 import { DEFAULT_HOST_TUNING, hostTuningOf, useHostTuning } from "../../src/tuning.js";
 import { runFixture, type RunFixture } from "../support/run-tokens.js";
+import { clientHelloFor } from "../support/tls-hello.js";
 
 const TOKEN = "provider-token-0123456789abcdef";
 const OWNER = "u:org_1:user_ada";
@@ -100,6 +101,21 @@ async function gate(
 }
 
 const sockets: Socket[] = [];
+/** Reads exactly `count` bytes from `socket`. */
+function readBytes(socket: Socket, count: number): Promise<Buffer> {
+  return new Promise((resolve) => {
+    let got = Buffer.alloc(0);
+    const onData = (chunk: Buffer) => {
+      got = Buffer.concat([got, chunk]);
+      if (got.length >= count) {
+        socket.off("data", onData);
+        resolve(got);
+      }
+    };
+    socket.on("data", onData);
+  });
+}
+
 async function connectThrough(proxy: EgressGate, target: string): Promise<{ status: number; socket: Socket }> {
   const raw = (await mintEgressToken({ keys: runs.keys }, { tenantId: runs.tenantId, sandboxId: "sbx_1", epoch: 1, podUid: "pod-1" })).token;
   const socket = connect({ host: "127.0.0.1", port: Number(new URL(proxy.url).port) });
@@ -307,8 +323,9 @@ describe("egress-gate and the credential provider (CP-E)", () => {
     // A host the spec allows still tunnels, and the second CONNECT reuses the provider's answer.
     const { status, socket } = await connectThrough(proxy, "plain.test:443");
     expect(status).toBe(200);
-    socket.write("opaque");
-    expect(((await once(socket, "data")) as [Buffer])[0].toString()).toBe("opaque");
+    const sent = Buffer.concat([await clientHelloFor("plain.test"), Buffer.from("opaque")]);
+    socket.write(sent);
+    expect((await readBytes(socket, sent.length)).equals(sent)).toBe(true);
     expect(hostCalls()).toHaveLength(1);
     expect(forwards()).toHaveLength(0);
   });

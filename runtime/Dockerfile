@@ -17,8 +17,10 @@
 # image for stdio MCP servers.
 #
 # tini is installed for sandbox pods (F7.2): they copy /usr/bin/tini-static, node
-# and /app from this image into the pod and run the engine under it as PID 1
-# (`tini -g -- node .../runtime/server/dist/host/main.js --service harness`), so any glibc workload image can host it.
+# and /engine from this image into the pod and run the engine under it as PID 1
+# (`tini -g -- node /nylo/engine/harness.mjs --service harness`), so any glibc workload image can host it.
+# /engine is the pod's engine bundled into one script plus the one native addon it loads
+# (ADR-92 §5): 12 files instead of /app's ~30,000, which every pod start used to copy.
 
 ARG NODE_IMAGE=node:24-bookworm-slim
 
@@ -53,11 +55,12 @@ COPY core/scripts core/scripts
 COPY runtime/harness/tsconfig.json runtime/harness/
 COPY runtime/harness/src runtime/harness/src
 COPY runtime/server/tsconfig.json runtime/server/
-COPY runtime/server/scripts/build-openapi.mjs runtime/server/scripts/copy-migrations.mjs runtime/server/scripts/
+COPY runtime/server/scripts/build-openapi.mjs runtime/server/scripts/copy-migrations.mjs runtime/server/scripts/bundle-harness.mjs runtime/server/scripts/
 COPY runtime/server/src runtime/server/src
 RUN npm run build --workspace core \
  && npm run build --workspace runtime/harness \
- && npm run build --workspace runtime/server
+ && npm run build --workspace runtime/server \
+ && node runtime/server/scripts/bundle-harness.mjs /engine
 
 # Install scripts run here: optional native addons (zstd, lzma for the virtual
 # shell) fetch prebuilt binaries. When one cannot, npm drops that optional
@@ -89,6 +92,11 @@ COPY --from=deps /app/runtime/server/package.json runtime/server/
 COPY --from=build /app/core/dist core/dist
 COPY --from=build /app/runtime/harness/dist runtime/harness/dist
 COPY --from=build /app/runtime/server/dist runtime/server/dist
+# The bundled pod engine and its zstd addon, built for this image's platform (the deps stage).
+# npm drops the optional addon where it can't build it; the engine then reports zstd unsupported.
+COPY --from=build /engine/harness.mjs /engine/harness.mjs
+RUN mkdir -p /engine/node_modules/@mongodb-js \
+ && if [ -d node_modules/@mongodb-js/zstd ]; then cp -a node_modules/@mongodb-js/zstd /engine/node_modules/@mongodb-js/; fi
 # The Host root is bind-mounted here. It is world-writable only so that an
 # arbitrary compose `user:` can start without a mount; the mount replaces it.
 RUN mkdir -p /nylorun /workspaces && chmod 1777 /nylorun /workspaces

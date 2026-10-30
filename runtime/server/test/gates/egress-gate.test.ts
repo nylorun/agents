@@ -26,6 +26,7 @@ import { startEgress } from "../../src/host/gates.js";
 import type { TenantVault, TenantVaults } from "../../src/gates/tenant-vaults.js";
 import type { Environment, SandboxPodState } from "../../src/store/types.js";
 import { recordedRows } from "../support/record.js";
+import { clientHelloFor } from "../support/tls-hello.js";
 import { testTenantPool } from "../support/store.js";
 import { writeSandboxConfig } from "../../src/sandbox/tenant-config.js";
 
@@ -93,6 +94,8 @@ interface Answer {
   status: number;
   head: string;
   socket: Socket;
+  /** The ClientHello bytes `tunnel` sent on an open 443 tunnel; 0 otherwise. */
+  helloBytes?: number;
 }
 
 /** Sends `request` to the gate and reads the answer's head. */
@@ -118,13 +121,41 @@ function send(proxy: EgressGate, request: string): Promise<Answer> {
 }
 
 const sockets: Socket[] = [];
-async function tunnel(proxy: EgressGate, target: string, authorization?: string): Promise<Answer> {
+/**
+ * Opens a tunnel. On an open 443 tunnel it then sends a ClientHello naming the target, as a TLS
+ * client does, and reads the echo server's copy back, so the tunnel is past the gate's SNI check
+ * (ADR-92 §11). `serverName` overrides the name sent; `null` sends none.
+ */
+async function tunnel(proxy: EgressGate, target: string, authorization?: string, serverName?: string | null): Promise<Answer> {
   const answer = await send(
     proxy,
     `CONNECT ${target} HTTP/1.1\r\nHost: ${target}\r\n${authorization ? `Proxy-Authorization: ${authorization}\r\n` : ""}\r\n`,
   );
   sockets.push(answer.socket);
+  const [host, port] = [target.slice(0, target.lastIndexOf(":")), target.slice(target.lastIndexOf(":") + 1)];
+  if (answer.status === 200 && port === "443") {
+    const hello = await clientHelloFor(serverName === null ? undefined : (serverName ?? host.replace(/\.$/, "")));
+    answer.socket.write(hello);
+    answer.helloBytes = hello.length;
+    if (serverName === undefined) await readBytes(answer.socket, hello.length);
+  }
   return answer;
+}
+
+/** Reads exactly `count` bytes from `socket`. */
+function readBytes(socket: Socket, count: number): Promise<Buffer> {
+  return new Promise((resolve) => {
+    let got = Buffer.alloc(0);
+    const onData = (chunk: Buffer) => {
+      got = Buffer.concat([got, chunk]);
+      if (got.length >= count) {
+        socket.off("data", onData);
+        if (got.length > count) socket.unshift(got.subarray(count));
+        resolve(got.subarray(0, count));
+      }
+    };
+    socket.on("data", onData);
+  });
 }
 
 /** Writes `text` through an open tunnel and reads it back from the echo server. */
@@ -198,6 +229,41 @@ describe("egress-gate", () => {
       message: "egress_refused",
       fields: { status: 403, reason: "host_not_allowed", host: "other.test", port: 443, sandboxId: "sbx_1" },
     });
+  });
+
+  it("closes a 443 tunnel whose ClientHello names another host, or none, or isn't TLS (ADR-92 §11)", async () => {
+    sandboxes.set("sbx_1", { epoch: 1, allow: ["allowed.test", "*.wild.test"] });
+    const proxy = await gate({ helloMs: 2_000 });
+    const raw = await token();
+    const refusals = () => logs.filter((entry) => entry.message === "egress_refused").map((entry) => entry.fields?.reason);
+
+    // Fronting: CONNECT to an allowed host, then ask the front end for another one.
+    const fronted = await tunnel(proxy, "allowed.test:443", basic(raw), "evil.test");
+    expect(fronted.status).toBe(200);
+    await closed(fronted.socket);
+    // No server name at all.
+    const nameless = await tunnel(proxy, "allowed.test:443", basic(raw), null);
+    await closed(nameless.socket);
+    // Not TLS.
+    const plain = await send(proxy, `CONNECT allowed.test:443 HTTP/1.1\r\nHost: allowed.test:443\r\nProxy-Authorization: ${basic(raw)}\r\n\r\n`);
+    sockets.push(plain.socket);
+    plain.socket.write("GET / HTTP/1.1\r\nHost: evil.test\r\n\r\n");
+    await closed(plain.socket);
+    // Nothing sent before the wait ends.
+    const silent = await send(proxy, `CONNECT allowed.test:443 HTTP/1.1\r\nHost: allowed.test:443\r\nProxy-Authorization: ${basic(raw)}\r\n\r\n`);
+    sockets.push(silent.socket);
+    await closed(silent.socket);
+    expect(refusals()).toEqual(["sni_mismatch", "sni_missing", "sni_invalid", "sni_timeout"]);
+    expect(logs.find((entry) => entry.fields?.reason === "sni_mismatch")?.fields).toMatchObject({ host: "allowed.test", serverName: "evil.test", port: 443 });
+
+    // The name it was allowed, any case, and a *.suffix host, pass.
+    const exact = await tunnel(proxy, "allowed.test:443", basic(raw));
+    expect(await roundTrip(exact.socket, "ping")).toBe("ping");
+    const wild = await tunnel(proxy, "a.wild.test:443", basic(raw));
+    expect(await roundTrip(wild.socket, "ping")).toBe("ping");
+    // Port 80 carries no TLS: no check.
+    const http = await tunnel(proxy, "allowed.test:80", basic(raw));
+    expect(await roundTrip(http.socket, "GET / HTTP/1.1\r\n\r\n")).toBe("GET / HTTP/1.1\r\n\r\n");
   });
 
   it("refuses ports other than 443 and 80", async () => {
@@ -484,8 +550,9 @@ describe("egress-gate events (R7.3, D67)", () => {
         outcome: "allowed",
         mode: "tunnel",
         credentialBound: false,
-        bytesUp: 9,
-        bytesDown: 9,
+        // "ping" and "hello", after the ClientHello the gate checked and the echo returned.
+        bytesUp: 9 + open.helloBytes!,
+        bytesDown: 9 + open.helloBytes!,
         runningTurns: [
           { sessionId: "egress-held-s", turnId: "turn-1" },
           { sessionId: "egress-held-t", turnId: "turn-9" },
