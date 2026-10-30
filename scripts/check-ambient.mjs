@@ -5,10 +5,11 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const root = fileURLToPath(new URL("../", import.meta.url));
 
 /**
- * The process entries may read ambient process/OS state: the Host (`host/main.ts`) and the
- * operator command (`host/operate.ts`). Nothing else under runtime/server/src may.
+ * The process entries may read ambient process/OS state: the Host (`host/main.ts`), the pod's
+ * bundled engine (`host/harness-entry.ts`) and the operator command (`host/operate.ts`). Nothing
+ * else under runtime/server/src may.
  */
-const AMBIENT_ALLOWLIST = new Set(["host/main.ts", "host/operate.ts"]);
+const AMBIENT_ALLOWLIST = new Set(["host/main.ts", "host/harness-entry.ts", "host/operate.ts"]);
 
 const AMBIENT_PATTERN =
   /process\.env|process\.cwd\s*\(|\bhomedir\s*\(|\btmpdir\s*\(/g;
@@ -61,7 +62,7 @@ export function checkAmbient(options = {}) {
     if (!ambientAllowed) {
       for (const match of collectMatches(source, AMBIENT_PATTERN)) {
         violations.push(
-          `${rel}:${match.line}: ambient ${match.text} (allowed only in host/main.ts and host/operate.ts)`,
+          `${rel}:${match.line}: ambient ${match.text} (allowed only in the process entries: host/main.ts, host/harness-entry.ts, host/operate.ts)`,
         );
       }
     }

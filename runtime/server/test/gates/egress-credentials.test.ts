@@ -22,6 +22,7 @@ import {
 import { createCertificateAuthority, issueLeafCertificate, leafKeyPair } from "../../src/keys/x509.js";
 import { mintEgressToken, verifyEgressToken, type EgressTokenKeyCache } from "../../src/sandbox/egress-token.js";
 import { runFixture, type RunFixture } from "../support/run-tokens.js";
+import { clientHelloFor } from "../support/tls-hello.js";
 
 const egressCa = createCertificateAuthority({ commonName: "Nylorun egress CA (test)" });
 const upstreamCa = createCertificateAuthority({ commonName: "Upstream CA (test)" });
@@ -80,6 +81,21 @@ async function gate(overrides: Partial<EgressCredentials> = {}, record?: EgressR
 
 const sockets: Socket[] = [];
 /** Opens a CONNECT tunnel to `target` and answers the gate's status and the socket. */
+/** Reads exactly `count` bytes from `socket`. */
+function readBytes(socket: Socket, count: number): Promise<Buffer> {
+  return new Promise((resolve) => {
+    let got = Buffer.alloc(0);
+    const onData = (chunk: Buffer) => {
+      got = Buffer.concat([got, chunk]);
+      if (got.length >= count) {
+        socket.off("data", onData);
+        resolve(got);
+      }
+    };
+    socket.on("data", onData);
+  });
+}
+
 async function connectThrough(proxy: EgressGate, target: string): Promise<{ status: number; socket: Socket }> {
   const raw = (await mintEgressToken({ keys: runs.keys }, { tenantId: runs.tenantId, sandboxId: "sbx_1", epoch: 1, podUid: "pod-1" })).token;
   const socket = connect({ host: "127.0.0.1", port: Number(new URL(proxy.url).port) });
@@ -206,9 +222,11 @@ describe("egress-gate credentials (R2c)", () => {
     const proxy = await gate();
     const { status, socket } = await connectThrough(proxy, "plain.test:443");
     expect(status).toBe(200);
-    socket.write("opaque bytes");
-    const [chunk] = (await once(socket, "data")) as [Buffer];
-    expect(chunk.toString()).toBe("opaque bytes");
+    // A TLS client's hello naming the host (the gate checks it, ADR-92 §11), then any bytes:
+    // the tunnel carries both untouched.
+    const sent = Buffer.concat([await clientHelloFor("plain.test"), Buffer.from("opaque bytes")]);
+    socket.write(sent);
+    expect((await readBytes(socket, sent.length)).equals(sent)).toBe(true);
     expect(releases).toBe(0);
   });
 

@@ -143,6 +143,8 @@ describe("credentials for skills in a pod (R2c)", () => {
       for (const name of ["SSL_CERT_FILE", "NODE_EXTRA_CA_CERTS", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE", "GIT_SSL_CAINFO", "AWS_CA_BUNDLE"])
         expect(env[name]).toBe(caBundleFile);
       expect(env.HTTPS_PROXY).toBe("http://nylorun:e@egress:4200");
+      // Node's fetch, pnpm and yarn reach the gate only with this (ADR-92 §10).
+      expect(env.NODE_USE_ENV_PROXY).toBe("1");
     } finally {
       host.stop();
     }

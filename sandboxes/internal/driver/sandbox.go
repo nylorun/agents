@@ -240,10 +240,21 @@ const (
 )
 
 // EngineCommand runs the copied engine under tini as PID 1 (signals reach the whole group).
+// /nylo/entry.mjs is the link EngineCopy makes to the engine it copied.
 var EngineCommand = []string{
 	"/nylo/tini-static", "-g", "--",
-	"/nylo/node", "/nylo/app/runtime/server/dist/host/main.js", "--service", "harness",
+	"/nylo/node", "/nylo/entry.mjs", "--service", "harness",
 }
+
+// EngineCopy copies tini, node and the engine from the Runtime image into /nylo and links
+// /nylo/entry.mjs to it: the bundled engine (/engine, 12 files) when the image has it, else the
+// Runtime's /app (about 30,000 files), for an older Runtime image pinned by hand (ADR-92 §5).
+var EngineCopy = []string{"/bin/sh", "-c", "set -e; " +
+	"if [ -f /engine/harness.mjs ]; then " +
+	"cp -a /usr/bin/tini-static /usr/local/bin/node /engine /nylo/ && ln -s engine/harness.mjs /nylo/entry.mjs; " +
+	"else " +
+	"cp -a /usr/bin/tini-static /usr/local/bin/node /app /nylo/ && ln -s app/runtime/server/dist/host/main.js /nylo/entry.mjs; " +
+	"fi"}
 
 // Render is the Sandbox for spec (normalized) in namespace. The pod shape is decided here only.
 func Render(namespace, name string, spec Spec, urls PodURLs) *unstructured.Unstructured {
@@ -293,15 +304,18 @@ func Render(namespace, name string, spec Spec, urls PodURLs) *unstructured.Unstr
 		"enableServiceLinks":            false,
 		"terminationGracePeriodSeconds": spec.StopGraceSeconds,
 		"securityContext": map[string]any{
-			"runAsNonRoot":   true,
-			"runAsUser":      uid,
-			"runAsGroup":     uid,
-			"fsGroup":        uid,
-			"seccompProfile": map[string]any{"type": "RuntimeDefault"},
+			"runAsNonRoot": true,
+			"runAsUser":    uid,
+			"runAsGroup":   uid,
+			"fsGroup":      uid,
+			// Own the disk once, not every file at every mount: a home full of installs and
+			// repositories took 15 to 21 s per mount with the default (ADR-92 §6).
+			"fsGroupChangePolicy": "OnRootMismatch",
+			"seccompProfile":      map[string]any{"type": "RuntimeDefault"},
 		},
 	}
 	if spec.HarnessImage != "" {
-		// The engine (node, tini and the Runtime's /app) is copied from the Runtime image into
+		// The engine (node, tini and the bundled engine, or the Runtime's /app) is copied from the Runtime image into
 		// an emptyDir, read-only in the workload: any glibc image can host the harness.
 		// kindnet applies a new pod's NetworkPolicy asynchronously (egress seen open for ~1 s
 		// after start): the engine must not trust the network before it applies (8b).
@@ -310,7 +324,7 @@ func Render(namespace, name string, spec Spec, urls PodURLs) *unstructured.Unstr
 		podSpec["initContainers"] = []any{map[string]any{
 			"name":            "nylo-copy",
 			"image":           spec.HarnessImage,
-			"command":         []any{"cp", "-a", "/usr/bin/tini-static", "/usr/local/bin/node", "/app", "/nylo/"},
+			"command":         strings2any(EngineCopy),
 			"securityContext": hardened(),
 			"resources": map[string]any{
 				"requests": map[string]any{"cpu": "50m", "memory": "64Mi"},

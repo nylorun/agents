@@ -30,7 +30,7 @@
               "-g",
               "--",
               "/nylo/node",
-              "/nylo/app/runtime/server/dist/host/main.js",
+              "/nylo/entry.mjs",
               "--service",
               "harness"
             ],
@@ -134,12 +134,9 @@
         "initContainers": [
           {
             "command": [
-              "cp",
-              "-a",
-              "/usr/bin/tini-static",
-              "/usr/local/bin/node",
-              "/app",
-              "/nylo/"
+              "/bin/sh",
+              "-c",
+              "set -e; if [ -f /engine/harness.mjs ]; then cp -a /usr/bin/tini-static /usr/local/bin/node /engine /nylo/ \u0026\u0026 ln -s engine/harness.mjs /nylo/entry.mjs; else cp -a /usr/bin/tini-static /usr/local/bin/node /app /nylo/ \u0026\u0026 ln -s app/runtime/server/dist/host/main.js /nylo/entry.mjs; fi"
             ],
             "image": "ghcr.io/nylorun/runtime:0.16.0",
             "name": "nylo-copy",
@@ -172,6 +169,7 @@
         ],
         "securityContext": {
           "fsGroup": 1000,
+          "fsGroupChangePolicy": "OnRootMismatch",
           "runAsGroup": 1000,
           "runAsNonRoot": true,
           "runAsUser": 1000,

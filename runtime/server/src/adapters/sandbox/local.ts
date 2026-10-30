@@ -36,6 +36,25 @@ export interface LocalBackendOptions {
   readonly env: Readonly<Record<string, string | undefined>>;
   /** The engine's `/harness` on the same volume, a disk root of its versions (R2d step 3). */
   readonly harnessRoot?: string;
+  /** The shell commands run under; default `/bin/bash` where the image has it, else `/bin/sh`. */
+  readonly shell?: string;
+}
+
+/**
+ * The shell the `bash` tool's commands run under: bash, as the tool says, where the image has it;
+ * `/bin/sh` (dash on Debian and Ubuntu) only in an image without it (ADR-92 §10).
+ */
+export function commandShell(exists: (path: string) => boolean = executable): string {
+  return exists("/bin/bash") ? "/bin/bash" : "/bin/sh";
+}
+
+function executable(path: string): boolean {
+  try {
+    accessSync(path, constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** This process's environment without the engine's own variables. */
@@ -75,16 +94,17 @@ function collector() {
 }
 
 /**
- * How the pod runs a command: `/bin/sh -c` in its own process group, with the base environment,
- * the request's variables and the proxy of the moment. The sandbox tools and the disk's setup
- * (`harness/setup.ts`) both run commands this way.
+ * How the pod runs a command: `bash -c` (`sh -c` in an image without bash) in its own process
+ * group, with the base environment, the request's variables and the proxy of the moment. The
+ * sandbox tools and the disk's setup (`harness/setup.ts`) both run commands this way.
  */
 export function localExec(options: LocalBackendOptions): (request: ExecRequest, signal: AbortSignal) => Promise<ExecResult> {
   const env = baseEnv(options.env, options.workspace ?? SANDBOX_WORKSPACE);
+  const shell = options.shell ?? commandShell();
   return (request: ExecRequest, signal: AbortSignal): Promise<ExecResult> =>
     new Promise((resolve, reject) => {
       if (signal.aborted) return reject(signal.reason ?? new Error("Turn cancelled"));
-      const child = spawn("/bin/sh", ["-c", request.command], {
+      const child = spawn(shell, ["-c", request.command], {
         cwd: request.cwd,
         env: { ...env, ...(request.env ?? {}), ...(options.proxyEnv?.() ?? {}) },
         stdio: ["ignore", "pipe", "pipe"],

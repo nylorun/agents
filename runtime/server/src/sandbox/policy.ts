@@ -13,21 +13,29 @@ export const DEFAULT_SANDBOX_MEMORY_MIB = 1024;
 /** The default of the Tenant's Environment setting `limits.idle` (`environments.config`, D36). */
 export const DEFAULT_SANDBOX_IDLE = "15m";
 
-/** Package registries and code hosts. Concrete names so every backend can express them. */
+/** Package registries, toolchain downloads and code hosts. Concrete names so every backend can express them. */
 export const DEV_PRESET_HOSTS: readonly string[] = Object.freeze([
-  // npm and yarn
+  // npm and yarn; Node's own downloads, including node-gyp's headers for native modules
   "registry.npmjs.org",
   "registry.yarnpkg.com",
-  // Python
+  "nodejs.org",
+  // Python; uv's Python builds
   "pypi.org",
   "files.pythonhosted.org",
-  // Rust
+  "releases.astral.sh",
+  // Rust and rustup
   "crates.io",
   "index.crates.io",
   "static.crates.io",
-  // Go
+  "static.rust-lang.org",
+  "sh.rustup.rs",
+  // Go, and Go's toolchain downloads
   "proxy.golang.org",
   "sum.golang.org",
+  "dl.google.com",
+  // mise: its version lists, and the signatures it checks on GitHub releases
+  "mise-versions.jdx.dev",
+  "tuf-repo-cdn.sigstore.dev",
   // Debian and Ubuntu package mirrors
   "deb.debian.org",
   "security.debian.org",
@@ -39,6 +47,8 @@ export const DEV_PRESET_HOSTS: readonly string[] = Object.freeze([
   "api.github.com",
   "codeload.github.com",
   "objects.githubusercontent.com",
+  // GitHub's release downloads redirect here
+  "release-assets.githubusercontent.com",
   "raw.githubusercontent.com",
   "gitlab.com",
 ]);
