@@ -30,6 +30,7 @@ import { STACK_ENABLED, stackEndpoints } from "./stack/endpoints.js";
 import { deploy, openSession } from "./support/agents.js";
 import { openTestSessionStore, testTenantPool } from "./support/store.js";
 import { startTestTenant } from "./support/tenant.js";
+import { clientHelloFor } from "./support/tls-hello.js";
 import {
   confirmedOf,
   currentLsn,
@@ -125,8 +126,12 @@ async function hookServer(): Promise<string> {
   return `http://127.0.0.1:${(server.address() as AddressInfo).port}/hook`;
 }
 
-/** Opens one tunnel through egress-gate to `releases.test:443` (an echo server), and closes it. */
+/**
+ * Opens one tunnel through egress-gate to `releases.test:443` (an echo server), sends a TLS
+ * ClientHello for that host, as the gate requires on 443 (ADR-92 §11), and closes it.
+ */
 async function tunnelOnce(gate: EgressGate): Promise<void> {
+  const hello = await clientHelloFor("releases.test");
   const socket: Socket = connect({ host: "127.0.0.1", port: Number(new URL(gate.url).port) });
   await new Promise<void>((resolve, reject) => {
     let head = "";
@@ -136,7 +141,7 @@ async function tunnelOnce(gate: EgressGate): Promise<void> {
       socket.off("data", onData);
       if (!head.startsWith("HTTP/1.1 200")) return reject(new Error(head));
       socket.once("data", () => resolve());
-      socket.write("ping");
+      socket.write(hello);
     };
     socket.on("data", onData);
     socket.once("error", reject);
