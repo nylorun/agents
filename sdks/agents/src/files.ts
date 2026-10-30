@@ -41,8 +41,8 @@ export class FilesClient {
   }
 
   /**
-   * Uploads one file, at most 2 GiB. The Runtime checks its bytes hash to `sha256` (default:
-   * their hash) and keeps a file it already holds as it is.
+   * Uploads one file, at most the Tenant's skill limit (2 GiB by default). The Runtime checks its
+   * bytes hash to `sha256` (default: their hash) and keeps a file it already holds as it is.
    */
   async upload(
     bytes: Uint8Array,
@@ -57,14 +57,48 @@ export class FilesClient {
     return (await response.json()) as DefinitionFileView;
   }
 
-  /** Uploads each of `files` the Runtime does not hold yet. */
+  /**
+   * Uploads one file from a stream, so a large file never sits in memory (ADR-93). `sha256` is
+   * required: the bytes aren't read before they are sent. The Runtime refuses a body with another
+   * hash and stores nothing.
+   */
+  async uploadStream(
+    stream: ReadableStream<Uint8Array>,
+    options: { sha256: string; signal?: AbortSignal },
+  ): Promise<DefinitionFileView> {
+    const response = await this.transport.request(pathOf(options.sha256), {
+      method: "PUT",
+      body: stream as BodyInit,
+      headers: { "content-type": "application/octet-stream" },
+      // Node's fetch sends a stream body only half-duplex.
+      duplex: "half",
+      ...(options.signal ? { signal: options.signal } : {}),
+    } as RequestInit);
+    return (await response.json()) as DefinitionFileView;
+  }
+
+  /**
+   * Uploads each of `files` the Runtime does not hold yet: from its `stream()` when the source has
+   * one, else from `read()`.
+   */
   async ensure(
     files: ReadonlyMap<string, SkillFileSource>,
     options: { signal?: AbortSignal } = {},
   ): Promise<void> {
     for (const [sha256, source] of files) {
       if (await this.has(sha256, options)) continue;
-      await this.upload(await source.read(), { sha256, ...options });
+      if (!source.stream) {
+        await this.upload(await source.read(), { sha256, ...options });
+        continue;
+      }
+      try {
+        await this.uploadStream(source.stream(), { sha256, ...options });
+      } catch (error) {
+        // The transport doesn't resend a stream: once more with a new one after an expired token
+        // or a protocol check, which the transport has handled for the next request.
+        if (!(error instanceof RuntimeError) || (error.status !== 401 && error.status !== 426)) throw error;
+        await this.uploadStream(source.stream(), { sha256, ...options });
+      }
     }
   }
 }

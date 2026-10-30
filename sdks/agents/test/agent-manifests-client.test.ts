@@ -157,6 +157,50 @@ describe("client.agentManifests", () => {
     expect(sent.at(-1)!.ifMatch).toBe("2");
   });
 
+  it("streams a file whose source has stream(), and sends a new stream after an expired token", async () => {
+    const sha256 = `sha256:${"a".repeat(64)}`;
+    let opened = 0;
+    const chunk = new Uint8Array(1024 * 1024);
+    const source = {
+      size: 4 * chunk.length,
+      read: async () => {
+        throw new Error("read() holds the whole file; stream() should be used");
+      },
+      stream: () => {
+        opened += 1;
+        let left = 4;
+        return new ReadableStream<Uint8Array>({
+          pull(controller) {
+            if (left-- > 0) controller.enqueue(chunk);
+            else controller.close();
+          },
+        });
+      },
+    };
+    const received: number[] = [];
+    let puts = 0;
+    const client = new AgentsClient({
+      url: RUNTIME,
+      key: KEY,
+      fetch: async (input, init) => {
+        const url = new URL(String(input));
+        if (url.pathname === "/health") return Response.json({ status: "ok", protocol: HOST_PROTOCOL });
+        if (init?.method === "HEAD") return new Response(null, { status: 404 });
+        expect(init?.body).toBeInstanceOf(ReadableStream);
+        expect((init as { duplex?: string }).duplex).toBe("half");
+        puts += 1;
+        let bytes = 0;
+        for await (const part of init!.body as unknown as AsyncIterable<Uint8Array>) bytes += part.length;
+        received.push(bytes);
+        if (puts === 1) return Response.json({ code: "token_expired", message: "Expired." }, { status: 401 });
+        return Response.json({ sha256, size: bytes }, { status: 201 });
+      },
+    });
+    await client.files.ensure(new Map([[sha256, source]]));
+    expect(opened).toBe(2);
+    expect(received).toEqual([source.size, source.size]);
+  });
+
   it("reads, lists, versions and deletes manifests", async () => {
     const { client, sent } = fake((_method, path) =>
       path === "/v1/agent-manifests" ? Response.json({ manifests: [{ name: "triage" }] }) : Response.json({ name: "triage" }),

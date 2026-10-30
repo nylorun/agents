@@ -199,20 +199,24 @@ export class Transport {
       headers: await this.authHeaders(init),
       redirect: "error",
     });
+    // A stream body can't be sent twice: its caller sends a new one (FilesClient.ensure).
+    const resendable = !(typeof ReadableStream !== "undefined" && init.body instanceof ReadableStream);
     // An expired token: get a new one and try once more.
     if (response.status === 401 && this.token && !options.retried401) {
       const body = (await response.clone().json().catch(() => undefined)) as
         | { code?: unknown }
         | undefined;
       if (body?.code === "token_expired") {
-        await response.body?.cancel().catch(() => {});
         this.token.invalidate();
-        return this.request(path, init, { ...options, retried401: true });
+        if (resendable) {
+          await response.body?.cancel().catch(() => {});
+          return this.request(path, init, { ...options, retried401: true });
+        }
       }
     }
     if (response.status === 426) {
       this.clearCompatibilityCache();
-      if (!options.retried426) {
+      if (!options.retried426 && resendable) {
         await this.ensureCompatible(
           init.signal === null ? undefined : init.signal,
         );
