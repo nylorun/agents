@@ -1,12 +1,15 @@
 import { useMemo, useState } from "react";
 import dayjs from "dayjs";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, Download } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -24,6 +27,11 @@ import {
   eventSummary,
   type StudioEvent,
 } from "@/event-presentation";
+import {
+  eventExport,
+  eventExportName,
+  type EventExportFormat,
+} from "@/event-export";
 
 const ROOT = "root";
 
@@ -31,12 +39,25 @@ function time(value: string): string {
   return dayjs(value).format("HH:mm:ss");
 }
 
+function download(name: string, text: string, contentType: string): void {
+  const url = URL.createObjectURL(new Blob([text], { type: contentType }));
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = name;
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
 export function EventTable({
   events,
+  sessionId,
   selected,
   onSelect,
 }: Readonly<{
   events: readonly StudioEvent[];
+  sessionId?: string;
   selected?: StudioEvent;
   onSelect: (event: StudioEvent) => void;
 }>) {
@@ -85,6 +106,11 @@ export function EventTable({
         ? undefined
         : next;
     });
+  };
+  // Exports the rows the filters show, in the table's order.
+  const exportEvents = (format: EventExportFormat): void => {
+    const { text, contentType } = eventExport(visibleEvents, format);
+    download(eventExportName(sessionId, format), text, contentType);
   };
   return (
     <section className="flex h-full min-h-0 flex-col overflow-hidden">
@@ -147,6 +173,32 @@ export function EventTable({
                 </DropdownMenuCheckboxItem>
               ))
             )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Export events"
+              title="Export events"
+              disabled={visibleEvents.length === 0}
+            >
+              <Download />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-56">
+            <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+              Export {visibleEvents.length}{" "}
+              {visibleEvents.length === 1 ? "event" : "events"}
+            </DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={() => exportEvents("json")}>
+              JSON
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => exportEvents("csv")}>
+              CSV
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>

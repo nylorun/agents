@@ -25,6 +25,7 @@ import { ViewErrorBoundary } from "@/components/view-error-boundary";
 import { AgentManifestPanel } from "@/components/agent-manifest-panel";
 import { EventDetails } from "@/components/event-details";
 import { EventTable } from "@/components/event-table";
+import { MessageActions } from "@/components/message-actions";
 import { IterationTimeline } from "@/components/iteration-timeline";
 import { SessionComposer } from "@/components/session-composer";
 import { SessionUsage } from "@/components/session-usage";
@@ -179,6 +180,38 @@ function MessageTime({ value }: { value: string }) {
       {shortTime(value)}
     </time>
   );
+}
+
+/** A chat message's author, then its time and ⋯ menu, shown on hover or focus. */
+function MessageHeader({
+  label,
+  time,
+  text,
+  onViewEvent,
+}: Readonly<{ label: string; time: string; text: string; onViewEvent: () => void }>) {
+  return (
+    <div className="mb-1 flex items-center justify-between gap-2 text-xs text-muted-foreground">
+      {label}
+      <span className="flex items-center gap-1.5">
+        <MessageTime value={time} />
+        <MessageActions label={label} text={text} onViewEvent={onViewEvent} />
+      </span>
+    </div>
+  );
+}
+
+/** A person's message as text: its content, then its text parts. */
+function messageText(payload: Readonly<Record<string, unknown>>): string {
+  const parts = Array.isArray(payload.parts)
+    ? payload.parts.flatMap((part: unknown) =>
+        typeof part === "object" &&
+        part !== null &&
+        (part as { type?: unknown }).type === "text"
+          ? [String((part as { text?: unknown }).text)]
+          : [],
+      )
+    : [];
+  return [String(payload.content ?? ""), ...parts].filter((entry) => entry !== "").join("\n\n");
 }
 
 const tabTrigger =
@@ -1045,6 +1078,12 @@ function SessionView({
     );
     if (nextTab !== "events") setDetailsOpen(false);
   };
+  // A chat message's "View event": its row in the Events tab, with the inspector shown.
+  const viewEvent = (event: StudioEvent): void => {
+    if (!inspectorShown) toggleInspector();
+    changeTab("events");
+    openEvent(event);
+  };
   const changeManifestView = (value: string): void => {
     setManifestView(value as ManifestTabView);
     showInspector("manifest", value);
@@ -1069,7 +1108,7 @@ function SessionView({
 
   // Newest-first in the Events table; chat stays chronological.
   const chatEvents = chronological;
-  const eventLog = <EventTable events={events} selected={selectedEvent} onSelect={openEvent} />;
+  const eventLog = <EventTable events={events} sessionId={sessionId} selected={selectedEvent} onSelect={openEvent} />;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -1108,8 +1147,9 @@ function SessionView({
               <PanelRight />
             </Button>
           </HeaderSlot>
-          <div ref={chatScroller} className="min-h-0 flex-1 overflow-auto">
-            <div ref={chatContent} className="space-y-4 p-4">
+          <div ref={chatScroller} className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
+            {/* Long unbroken text (paths, ids, URLs) wraps instead of widening the chat. */}
+            <div ref={chatContent} className="min-w-0 space-y-4 break-words p-4">
               {chatEvents.map((event) => {
                 const payload = event.payload as Record<string, unknown>;
                 const references = artifactReferences(event);
@@ -1138,11 +1178,15 @@ function SessionView({
                       key={event.eventId}
                       className="group ml-8 rounded-xl bg-muted p-4"
                     >
-                      <p className="mb-1 flex items-baseline justify-between gap-2 text-xs text-muted-foreground">
-                        You
-                        <MessageTime value={event.time} />
-                      </p>
-                      {String(payload.content ?? "")}
+                      <MessageHeader
+                        label="You"
+                        time={event.time}
+                        text={messageText(payload)}
+                        onViewEvent={() => viewEvent(event)}
+                      />
+                      {payload.content ? (
+                        <p className="whitespace-pre-wrap">{String(payload.content)}</p>
+                      ) : null}
                       {Array.isArray(payload.parts)
                         ? payload.parts.map((part, i) =>
                             typeof part === "object" &&
@@ -1175,10 +1219,16 @@ function SessionView({
                       key={event.eventId}
                       className="group mr-8 rounded-xl border p-4"
                     >
-                      <p className="mb-1 flex items-baseline justify-between gap-2 text-xs text-muted-foreground">
-                        Assistant
-                        <MessageTime value={event.time} />
-                      </p>
+                      <MessageHeader
+                        label="Assistant"
+                        time={event.time}
+                        text={
+                          typeof payload.output === "string"
+                            ? payload.output
+                            : pretty(payload.output)
+                        }
+                        onViewEvent={() => viewEvent(event)}
+                      />
                       {typeof payload.output === "string" ? (
                         <Markdown>{payload.output}</Markdown>
                       ) : (
@@ -1245,7 +1295,7 @@ function SessionView({
                   return (
                     <p
                       key={event.eventId}
-                      className="text-sm text-muted-foreground"
+                      className="whitespace-pre-wrap text-sm text-muted-foreground"
                     >
                       {event.type}: {pretty(payload)}
                     </p>

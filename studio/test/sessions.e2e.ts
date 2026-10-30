@@ -10,6 +10,7 @@
  */
 import assert from "node:assert/strict";
 import { once } from "node:events";
+import { readFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -656,6 +657,65 @@ test("a session's inspector hides and shows, and stays as it was left", async ()
     assert.equal(await page.getByRole("tab", { name: "Events", exact: true }).count(), 0);
     await page.getByRole("button", { name: "Show inspector" }).click();
     await page.getByRole("tab", { name: "Events", exact: true }).waitFor();
+  });
+});
+
+test("the Events tab exports the events its filters show, as JSON or CSV, named for the session", async () => {
+  await withStudio(async ({ page, studioUrl }) => {
+    await page.goto(`${studioUrl}/tenants/${TENANT}/agents/${AGENT}/sessions/${ALICE_SESSION}?inspector=events`);
+    await page.getByText("3 total", { exact: true }).waitFor();
+    const shown = await page.locator("tbody tr").count();
+    assert.equal(shown, 3);
+
+    await page.getByRole("button", { name: "Export events" }).click();
+    const [json] = await Promise.all([
+      page.waitForEvent("download"),
+      page.getByRole("menuitem", { name: "JSON", exact: true }).click(),
+    ]);
+    assert.equal(json.suggestedFilename(), `events-${ALICE_SESSION}.json`);
+    const exported = JSON.parse(await readFile(await json.path(), "utf8")) as { sessionId: string }[];
+    assert.equal(exported.length, shown);
+    assert.ok(exported.every((entry) => entry.sessionId === ALICE_SESSION));
+
+    await page.getByRole("button", { name: "Export events" }).click();
+    const [csv] = await Promise.all([
+      page.waitForEvent("download"),
+      page.getByRole("menuitem", { name: "CSV", exact: true }).click(),
+    ]);
+    assert.equal(csv.suggestedFilename(), `events-${ALICE_SESSION}.csv`);
+    const lines = (await readFile(await csv.path(), "utf8")).trimEnd().split("\r\n");
+    assert.equal(lines[0], "time,type,label,summary,delivery,eventId,turnId");
+    assert.equal(lines.length, shown + 1);
+  });
+});
+
+test("a chat message's ⋯ menu shows on hover, copies its text and opens its event", async () => {
+  await withStudio(async ({ page, studioUrl }) => {
+    await page.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin: studioUrl });
+    await page.goto(`${studioUrl}/tenants/${TENANT}/agents/${AGENT}/sessions/${ALICE_SESSION}`);
+    const message = page.locator("article", { hasText: "Order 42 ships today." });
+    const menu = message.getByRole("button", { name: "Assistant message options" });
+    await menu.waitFor();
+    const opacity = () => menu.evaluate((element) => getComputedStyle(element).opacity);
+    await page.mouse.move(0, 0);
+    assert.equal(await opacity(), "0");
+    await message.hover();
+    await page.waitForFunction(
+      (element) => getComputedStyle(element!).opacity === "1",
+      await menu.elementHandle(),
+    );
+
+    await menu.click();
+    await page.getByRole("menuitem", { name: "Copy text" }).click();
+    await message.getByRole("button", { name: "Copied" }).waitFor();
+    assert.equal(await page.evaluate(() => navigator.clipboard.readText()), "Order 42 ships today.");
+
+    await page.locator("article", { hasText: "Where is order 42?" }).hover();
+    await page.getByRole("button", { name: "You message options" }).click();
+    // The copy's menu may still be animating closed.
+    await page.locator("[role=menu][data-state=open]").getByRole("menuitem", { name: "View event" }).click();
+    await page.getByRole("tab", { name: "Events", exact: true, selected: true }).waitFor();
+    await page.locator("tbody tr[data-state=selected]", { hasText: "Where is order 42?" }).waitFor();
   });
 });
 
