@@ -215,6 +215,33 @@ describe("PUT and HEAD /v1/files/{file}", () => {
     expect(sha256(new Uint8Array(await new Response(held!.body).arrayBuffer()))).toBe(sha256(streamedBytes));
   });
 
+  it("takes the SDK's streamed upload of a file it never holds whole (ADR-93)", async () => {
+    const runtime = await boot();
+    // 64 MiB of one repeated chunk, made as it is read: the source has no bytes to hand over.
+    const chunk = new Uint8Array(1024 * 1024).fill(3);
+    const hash = createHash("sha256");
+    for (let i = 0; i < 64; i += 1) hash.update(chunk);
+    const file = `sha256:${hash.digest("hex")}`;
+    const source = {
+      size: 64 * chunk.byteLength,
+      read: async (): Promise<Uint8Array> => {
+        throw new Error("read() isn't used when the source streams");
+      },
+      stream: () => {
+        let left = 64;
+        return new ReadableStream<Uint8Array>({
+          pull(controller) {
+            if (left-- > 0) controller.enqueue(chunk);
+            else controller.close();
+          },
+        });
+      },
+    };
+    const client = new AgentsClient({ url: runtime.url, key: APP });
+    await client.files.ensure(new Map([[file, source]]));
+    expect((await head(runtime, file)).status).toBe(200);
+  });
+
   it("takes an application key only", async () => {
     const runtime = await boot();
     const file = sha256(LABELS);
