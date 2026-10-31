@@ -89,6 +89,7 @@ import type {
   PrincipalRow,
   ToolCrossingRow,
   QueuedMessageRow,
+  A2aPushConfigRow,
   AgentTriggerRow,
   TriggerRunRow,
   MemoryRow,
@@ -391,6 +392,7 @@ export type {
   ModelUsageWrite,
   ToolCrossingRow,
   QueuedMessageRow,
+  A2aPushConfigRow,
   AgentTriggerRow,
   TriggerRunRow,
   MemoryRow,
@@ -506,13 +508,27 @@ export interface SessionStore {
 export type OutboxWake = Wake & { dedupeKey: string };
 
 /**
+ * One A2A push as the outbox delivers it (`Tx.enqueuePush`): the config it goes to (by session,
+ * task and config id) and the exact body. `id` is its Standard Webhooks `webhook-id`.
+ */
+export interface OutboxPush {
+  id: string;
+  sessionId: string;
+  taskId: string;
+  configId: string;
+  body: string;
+}
+
+/**
  * What a committed transaction asked of Durable Session Execution, as the outbox delivers it:
  * a wake (`Tx.wake`), or a pod sandbox's reconcile or timer (`Tx.signalSandbox`; a reconcile
- * carries its idempotency key, `signal:<row id>`).
+ * carries its idempotency key, `signal:<row id>`). Or an A2A push to a caller's URL (`push`,
+ * `Tx.enqueuePush`), which the Tenant sends itself (`api/a2a/push.ts`).
  */
 export type OutboxRequest =
   | { kind: "wake"; sessionId: string; wake: OutboxWake }
-  | { kind: "sandbox"; sandboxId: string; signal: SandboxSignal };
+  | { kind: "sandbox"; sandboxId: string; signal: SandboxSignal }
+  | { kind: "push"; push: OutboxPush };
 
 /**
  * Hands an outbox request to Durable Session Execution (`SessionStore.deliverTo`). Resolving
@@ -679,6 +695,33 @@ export interface Tx {
    * outbox, with when it was parked, for an operator to send again or delete.
    */
   failOutbox(row: OutboxRef, retry: { retryInMs: number; park: boolean }): Promise<void>;
+
+  // --- A2A push (Host feature `a2a-profile-v2`) --------------------------------
+
+  /** Adds or replaces a task's push config (its `createdAt` and `doneAt` start again). */
+  putPushConfig(row: Omit<A2aPushConfigRow, "createdAt" | "doneAt"> & { doneAt?: Date | null }): Promise<void>;
+  /** One push config of a task. */
+  pushConfig(sessionId: string, taskId: string, configId: string): Promise<A2aPushConfigRow | undefined>;
+  /** A task's push configs, by config id, after `after`, at most `limit`. */
+  pushConfigs(sessionId: string, taskId: string, options?: { after?: string; limit?: number }): Promise<A2aPushConfigRow[]>;
+  /** Deletes a task's push config; whether it was there. */
+  deletePushConfig(sessionId: string, taskId: string, configId: string): Promise<boolean>;
+  /** A session's push configs still following their task (no `doneAt`); with `lock`, locked. */
+  activePushConfigs(sessionId: string, options?: { lock?: boolean }): Promise<A2aPushConfigRow[]>;
+  /** Sessions with a push config still following its task, by id, after `after`, at most `limit`. */
+  pushSessions(limit: number, after?: string): Promise<string[]>;
+  /** Moves a push config on: the turn it follows, the next event it reads, and whether it is done. */
+  advancePushConfig(
+    key: { sessionId: string; taskId: string; configId: string },
+    change: { turnId: string; nextSeq: number; traceId: string | null; done: boolean },
+  ): Promise<void>;
+  /** Deletes push configs done before `before`; how many. */
+  prunePushConfigs(before: Date): Promise<number>;
+  /**
+   * Writes an A2A push to the outbox (kind `push`), delivered after commit as a wake is, and by
+   * the sweep with backoff until it is delivered or too old.
+   */
+  enqueuePush(push: Omit<OutboxPush, "id">): Promise<void>;
 
   // --- ownership (§10.6) ---------------------------------------------------
 

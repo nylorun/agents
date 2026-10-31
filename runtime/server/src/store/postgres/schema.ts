@@ -8,7 +8,7 @@
  *   principals, vaults and credentials, signing keys, settings, the model usage
  *   ledger, the model budgets, the Tool Gate's crossings, file artifacts with their versions,
  *   the agents and their manifests, the definition files those manifests name, the control
- *   bus's signals and the wake outbox.
+ *   bus's signals, the wake outbox, and A2A push configs with their outbox.
  * - `nylorun_streams` holds the record (Durable Streams §6): `session_events`,
  *   `session_log_heads` and the relay's `relay_slots`. The relay's publication is custom SQL
  *   (`drizzle/0002_stream_relay.sql`).
@@ -902,6 +902,68 @@ export const sandboxSignals = nylorun.table(
   ],
 );
 
+/**
+ * A2A push notification configs (Host feature `a2a-profile-v2`): where a task's updates go, one
+ * row per task and config id (`taskId`: the A2A id its caller knows, a queued message's own until
+ * a turn takes it; `turnId`: the turn it follows). The push translator (`api/a2a/push.ts`) reads
+ * the session's events from `nextSeq` on and writes each update as an `a2a_pushes` row in one
+ * transaction; `doneAt` is set once the task's turn ended, and the row is deleted after the
+ * Host tuning's `a2a.pushConfigRetentionMs`. `extensions` are the profile extensions the caller
+ * activated when it gave the config; `baseUrl` is the Runtime's URL as that caller reached it,
+ * for file URLs; `traceId` is `telemetry/v1`'s.
+ */
+export const a2aPushConfigs = nylorun.table(
+  "a2a_push_configs",
+  {
+    sessionId: textC().notNull(),
+    taskId: textC().notNull(),
+    configId: textC().notNull(),
+    contextId: text().notNull(),
+    turnId: textC().notNull(),
+    url: text().notNull(),
+    token: text(),
+    authentication: jsonText(),
+    baseUrl: text().notNull(),
+    extensions: jsonText().notNull(),
+    traceId: text(),
+    nextSeq: bigint({ mode: "number" }).notNull(),
+    createdAt: timestamp({ withTimezone: true, mode: "date" })
+      .notNull()
+      .default(sql`clock_timestamp()`),
+    doneAt: timestamp({ withTimezone: true, mode: "date" }),
+  },
+  (t) => [
+    primaryKey({ name: "a2a_push_configs_pkey", columns: [t.sessionId, t.taskId, t.configId] }),
+    index("a2a_push_configs_done_at").on(t.doneAt),
+  ],
+);
+
+/**
+ * The push outbox (outbox kind `push`): one row per A2A update a push config is owed, its body
+ * the exact JSON sent (a `StreamResponse`), delivered after commit and by the Tenant sweep as the
+ * other outbox rows are (`attempts`, `retry_at`, `parked_at`). The row id is the Standard
+ * Webhooks `webhook-id`, the same on every attempt. A row whose config is gone, or that kept
+ * failing for the Host tuning's `a2a.pushMaxAgeMs` (24 hours), is deleted: the change feed
+ * covers what it would have said.
+ */
+export const a2aPushes = nylorun.table(
+  "a2a_pushes",
+  {
+    id: textC().primaryKey(),
+    sessionId: textC().notNull(),
+    taskId: textC().notNull(),
+    configId: textC().notNull(),
+    body: text().notNull(),
+    createdAt: timestamp({ withTimezone: true, mode: "date" })
+      .notNull()
+      .default(sql`clock_timestamp()`),
+    attempts: integer().notNull().default(0),
+    retryAt: timestamp({ withTimezone: true, mode: "date" }),
+    parkedAt: timestamp({ withTimezone: true, mode: "date" }),
+  },
+  (t) => [index("a2a_pushes_created_at").on(t.createdAt)],
+);
+
 // ---------------------------------------------------------------------------
 // nylorun_streams: the record
 
@@ -965,6 +1027,8 @@ export type ModelUsageRow = typeof modelUsage.$inferSelect;
 export type ModelBudgetRow = typeof modelBudgets.$inferSelect;
 export type ToolCrossingRow = typeof toolCrossings.$inferSelect;
 export type QueuedMessageRow = typeof sessionQueue.$inferSelect;
+export type A2aPushConfigRow = typeof a2aPushConfigs.$inferSelect;
+export type A2aPushRow = typeof a2aPushes.$inferSelect;
 export type AgentTriggerRow = typeof agentTriggers.$inferSelect;
 export type TriggerRunRow = typeof triggerRuns.$inferSelect;
 export type MemoryRow = typeof memories.$inferSelect;
