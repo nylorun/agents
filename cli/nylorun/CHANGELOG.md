@@ -1,5 +1,30 @@
 # nylorun
 
+## 0.24.0-beta
+
+### Minor Changes
+
+- d48b6ef: `nylorun start` passes `NYLORUN_A2A_PUSH_SECRET` and `NYLORUN_A2A_PUSH_ALLOW_HOSTS` to the Runtime, so a Tenant's agents can send A2A push notifications (profile v2).
+
+### Patch Changes
+
+- Pin core to the tested release.
+- Pin agents to the tested release.
+- Pin admin to the tested release.
+- Pin runtime to the tested release.
+- Pin studio to the tested release.
+- Updated dependencies [d48b6ef]
+- Updated dependencies [d48b6ef]
+- Updated dependencies [d48b6ef]
+- Updated dependencies [d48b6ef]
+- Updated dependencies [d48b6ef]
+- Updated dependencies [d48b6ef]
+- Updated dependencies
+- Updated dependencies
+  - @nylorun/core@0.32.0-beta
+  - @nylorun/agents@0.31.0-beta
+  - @nylorun/admin@0.19.8-beta
+
 ## 0.23.3-beta
 
 ### Patch Changes

@@ -1,5 +1,54 @@
 # Changelog
 
+## 0.37.0-beta
+
+### Minor Changes
+
+- d48b6ef: The A2A endpoint serves the Nylorun A2A profile v2 (Host feature `a2a-profile-v2`, Engine R1).
+
+  - **Push notifications.** The four push config methods and `configuration.taskPushNotificationConfig` in `SendMessage`. Each task update is POSTed as one A2A `StreamResponse`, at least once, with `X-A2A-Notification-Token` and Standard Webhooks signatures (`webhook-id`, `webhook-timestamp`, `webhook-signature`) made with the new Runtime config `a2a.push.secret` (`NYLORUN_A2A_PUSH_SECRET`, `whsec_…`). Private hosts must be listed in `a2a.push.allowHosts` (`NYLORUN_A2A_PUSH_ALLOW_HOSTS`, `host:port` or `host:*`). Failed pushes are retried with backoff for 24 hours (Host tuning `a2a.pushRetry`, `a2a.pushMaxAgeMs`), then dropped. Configs and pushes live in two new tables (migration 0039).
+  - **Queued follow-ups.** A message to a busy context is queued and answered with the task that takes it (`TASK_STATE_SUBMITTED`); `metadata.delivery: "reject"` keeps `UnsupportedOperationError` with reason `CONTEXT_BUSY`.
+  - **Interactions.** Approvals and connection asks are `AUTH_REQUIRED`, questions `INPUT_REQUIRED`, shown under `interactions/v1`; an answer on the same task (`{ interactionId, approved }` or `{ interactionId, value }`) maps to `approve` or `respond`, with the caller as `approvedBy`. Text never approves.
+  - **Progress, telemetry, effects.** `plan.updated` events become `progress/v1`; the terminal status carries `telemetry/v1` (totals and trace id); an uncertain effect `effects/v1`.
+  - **Files.** `url` parts are fetched and stored like `raw` ones; the files a task writes are artifacts whose `url` points at the new `GET /v1/a2a/files/{artifactId}/versions/{version}`, served only to the same subject, with `files/v1`.
+  - **Extensions and card.** `A2A-Extensions` activates the five extensions and is echoed; data of the others is left out. The card lists the Runtime's JSON-RPC interface (A2A 1.0), `streaming: false`, `pushNotifications`, and the five extensions (`required: false`).
+  - ProtoJSON's original field names (`task_id`) are accepted in A2A params.
+
+- d48b6ef: An agent manifest names the model its agent runs on (Host feature `agent-model`).
+
+  - **`harness.model`**: `<provider>/<model>`, such as `anthropic/claude-sonnet-4-5` (the provider's id, a `/`, then the model's id, which may hold a `/`; at most 200 characters). In an agent folder it is `model:` in `AGENT.md`'s frontmatter; the compiler refuses any other shape (`value_invalid`) and a `model` in an agent under `agents/`, which runs on the root agent's. `harness.manifest.json` takes it too, and the composer keeps it.
+  - **A new session starts on it.** A session opened on a version that names a model gets it as its own model (`GET /v1/sessions/{id}/model` answers `source: "session"`), as `PUT /v1/sessions/{id}/model` would choose it, when the provider is connected and its catalog lists the model. Otherwise the session has none and the Tenant's model applies; nothing fails. Sessions opened by the A2A server and by triggers get it too. An explicit choice still replaces it, and an open session keeps its model across versions.
+  - `agentModelChoice` and `AgentModelSchema` in `@nylorun/core/contracts`.
+  - The JSON Schema documents that gained the field are published at new ids: `agent-manifest/v8.1.json`, `harness-manifest/v1.1.json` and `agent-folder/v1/agent-md.1.json`; the old ids are retired. `manifestSchemaVersion` stays 8.
+
+- d48b6ef: An agent keeps a durable plan (A2A profile v2, `progress/v1`; A2A-E10).
+
+  - **`plan.updated`**, a new durable session event: `{ steps: [{ label, state, note? }] }`, the agent's whole plan each time, never a diff. `state` is `pending`, `active`, `done`, `blocked` or `skipped`; at most 20 steps, labels of at most 120 and notes of at most 280 characters (`PLAN_LIMITS`, `PLAN_STEP_STATES`, `PlanUpdatedPayloadSchema` in `@nylorun/core/contracts`). The Runtime records and serves it like any public event, with the harness as its writer (evidence `claimed`), and the OpenAPI document lists it.
+  - **`update_plan`**, a built-in tool of our engine, off by default. A version opts in with `harness.loop.plan: true` (in an agent folder, `loop: { plan: true }` in `AGENT.md`'s frontmatter); the session's root agent then gets the tool, unless it declares its own tool of that name. A call takes `{ steps: [...] }`, cuts long labels and notes (ending in `…`) and steps past 20 rather than refusing them, claims one `plan.updated` and answers `Plan updated`. A malformed plan is a failed result the model sees.
+  - **Harness API**: `plan.updated` is a claim a harness may make (`HARNESS_CLAIMS`), additive within v5. The JSON Schema document is now published as `https://docs.nylorun.com/schemas/harness-api/v5.1.json`; `v5.json` is retired.
+  - The agent folder compiler takes `loop.plan` (true or false) and suggests it for a close typo.
+
+- d48b6ef: The Runtime keeps a turn index and serves it as a change feed (Host feature `turns`, A2A-E1 to E3).
+
+  - **The turn index.** Every turn has a row: its session, Agent, status (`running`, `paused`, `completed`, `failed`, `cancelled`), start, end, last change, totals and, for an A2A context, its context and task id. It is written in the same transaction as the event that changes the turn, so it always agrees with the session's log. Migration `0041_turn_index_backfill` indexes the turns already recorded when the Runtime first starts on this version.
+  - **`GET /v1/turns`** pages the turns in the order they changed: pass the page's `cursor` as `changedAfter` to read on (a turn comes again each time it changes, and the cursor comes back even when nothing changed), `limit` up to 500 (default 100). `sessionId` reads one session's turns, oldest first. An application key reads the whole Tenant; acting for a person, only their sessions' turns. A client that missed pushes catches up with one call per interval.
+  - **A2A `ListTasks`** is served: the caller's tasks with the Agent, latest status change first, filtered by `contextId`, `status` and `statusTimestampAfter`, paged with `pageSize` (up to 100, default 50) and `pageToken`, with `totalSize`; each task as `GetTask` answers it (interaction, `progress/v1` and `telemetry/v1` metadata), with history only for `historyLength` and artifacts only for `includeArtifacts`. A paused task is `AUTH_REQUIRED` for an approval or a connection and `INPUT_REQUIRED` for a question, and the `status` filter agrees. `GetTask`, `CancelTask`, replies and push configs find a task (a queued message's id too, once a turn took it) through the index and read only that turn's events.
+  - **A2A contexts are listable.** The session of a context now carries `info.a2a` (`contextId` and the subject); a context opened by an earlier version gets it with its next message. Its session id is still the one-way hash of the subject, Agent and context.
+  - `@nylorun/core` adds `TurnSummarySchema`, `TurnChangesPageSchema` and `TURN_STATUSES`.
+
+### Patch Changes
+
+- Pin core to the tested release.
+- Pin harness to the tested release.
+- Updated dependencies [d48b6ef]
+- Updated dependencies [d48b6ef]
+- Updated dependencies [d48b6ef]
+- Updated dependencies [d48b6ef]
+- Updated dependencies [d48b6ef]
+- Updated dependencies
+  - @nylorun/core@0.32.0-beta
+  - @nylorun/harness@0.30.0-beta
+
 ## 0.36.1-beta
 
 ### Patch Changes
