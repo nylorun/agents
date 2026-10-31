@@ -1,9 +1,11 @@
 /**
  * The A2A endpoint (Host feature `a2a-endpoint`): `POST /v1/a2a/agents/:agent` answers A2A 1.0
  * JSON-RPC for one subject, and `GET /v1/a2a/agents/:agent/card` returns the agent's card
- * without interfaces. v1 serves `SendMessage` (blocking, or `returnImmediately`), `GetTask`
- * and `CancelTask`; every other operation answers with the error the specification defines
- * for it (docs: `implementation/a2a-implementation.md`).
+ * without interfaces. v1 serves `SendMessage` (blocking, or `returnImmediately`), `GetTask`,
+ * `ListTasks` and `CancelTask`; every other operation answers with the error the specification
+ * defines for it (docs: `implementation/a2a-implementation.md`). Tasks are found through the
+ * turn index (Host feature `turns`, `list.ts`): a context's session carries `info.a2a`, and a
+ * task's events are read from its turn's first event, never the whole history.
  *
  * Every task operation goes through the session contract as the caller: `command` with the
  * caller's scope (limits and owner checks apply), sessions derived from the caller's own
@@ -30,6 +32,7 @@ import {
   type InboundPart,
 } from "../inbound-files.js";
 import { agentCard, inputModesFor, type CardDefinition } from "./card.js";
+import { listTasks, parseListParams, turnEventsOf } from "./list.js";
 import {
   A2aError,
   a2aFail,
@@ -65,7 +68,7 @@ import {
 } from "../../tenant/context.js";
 import { agentGrantsOf, liveEnvironment } from "../../tenant/agents.js";
 import { HttpError, fail } from "../../tenant/http.js";
-import { observeSession, readHistory } from "../../tenant/session-streams.js";
+import { observeSession } from "../../tenant/session-streams.js";
 import { putSession } from "../../tenant/sessions.js";
 import { readRuntimeLimits } from "../../tenant/runtime-limits.js";
 import type { TraceContext } from "../../traces/ids.js";
@@ -161,7 +164,7 @@ async function operation(
     case "CancelTask":
       return cancelTask(caller, parseTaskParams(request.params).id);
     case "ListTasks":
-      return a2aFail("unsupportedOperation", "ListTasks is not supported by this agent yet");
+      return listTasks(caller, parseListParams(request.params));
     case "SendStreamingMessage":
     case "SubscribeToTask":
       return a2aFail(
@@ -217,14 +220,13 @@ async function contextSession(
   }
 }
 
-/** The events of one turn, in stream order. */
+/** The events of one turn, in stream order, found through the turn index. */
 async function turnEvents(
   ctx: TenantContext,
   sessionId: string,
   turnId: string
 ): Promise<LiveEvent[]> {
-  const { items } = await readHistory(ctx, sessionId, undefined, undefined);
-  return items.filter((event) => event.turnId === turnId);
+  return turnEventsOf(ctx, sessionId, turnId);
 }
 
 async function ownedTask(
@@ -276,10 +278,26 @@ async function run(
   }
 }
 
-/** Opens the caller's session for a context: created when missing, never changed after. */
-async function openContext(caller: Caller, sessionId: string): Promise<Session> {
+/**
+ * Opens the caller's session for a context: created when missing, with `info.a2a` naming the
+ * context and the subject, so the turn index can list its tasks (`ListTasks`); the session id
+ * stays the one-way `contextSessionId`. A context opened before `info.a2a` gets it now, for the
+ * turns it starts from here on. Nothing else changes after.
+ */
+async function openContext(caller: Caller, sessionId: string, contextId: string): Promise<Session> {
+  const a2a = { contextId, subject: caller.access.owner };
   const existing = await contextSession(caller, sessionId);
-  if (existing) return existing;
+  if (existing) {
+    if (existing.info?.a2a?.contextId === contextId) return existing;
+    return caller.ctx.store.tx(async (t) => {
+      const session = (await t.lockSession<Session>(sessionId))!;
+      if (session.info?.a2a?.contextId !== contextId) {
+        session.info = { ...(session.info ?? {}), a2a };
+        await t.put("sessions", sessionId, session);
+      }
+      return session;
+    });
+  }
   return putSession(
     caller.ctx,
     sessionId,
@@ -287,6 +305,7 @@ async function openContext(caller: Caller, sessionId: string): Promise<Session> 
       requestId: randomUUID(),
       agent: caller.agentId,
       ownerUserId: caller.access.owner,
+      info: { a2a },
     },
     caller.access,
     agentGrantsOf(caller.scope) === undefined ? {} : { agentGrants: agentGrantsOf(caller.scope)! }
@@ -362,7 +381,7 @@ async function sendMessage(
     contextId =
       send.contextId ?? newContextId(caller.access.owner, caller.agentId, send.messageId);
     sessionId = contextSessionId(caller.access.owner, caller.agentId, contextId);
-    await openContext(caller, sessionId);
+    await openContext(caller, sessionId, contextId);
     const context = contextId;
     const { body, stored } = await messageBody(caller, sessionId, idempotencyKey, send.input);
     accepted = await run(

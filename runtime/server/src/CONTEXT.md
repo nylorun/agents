@@ -897,8 +897,10 @@ JSON-RPC) and `GET /v1/a2a/agents/:agent/card` (feature `a2a-endpoint`,
 `sessions:own`; an application key without one is `400 subject_required`. An
 A2A **context** is one session per subject, agent and `contextId`; an A2A
 **task** is one turn, named `t1.<base64url context>.<turnId>` and always
-resolved within the caller's own sessions. `SendMessage`, `GetTask` and
-`CancelTask` work; the rest answer with the A2A error for them. A message is
+resolved within the caller's own sessions. `SendMessage`, `GetTask`, `ListTasks`
+and `CancelTask` work; the rest answer with the A2A error for them. A context's
+session carries `info.a2a` (`contextId`, subject), which makes its tasks listable
+through the **turn index**. A message is
 text, one data part, or text and `raw` files (**inbound files**); a reply to a
 task takes text or data only. The card's `defaultInputModes` are text, JSON and
 the media types the Tenant's model reads now (`inputModesFor` in `api/a2a/card.ts`).
@@ -911,6 +913,19 @@ forwards the JSON-RPC body to the A2A endpoint with the application key. It
 publishes the Agent Card with its own URL and security schemes. The Runtime
 stays private.
 _Avoid_: "A2A proxy"; parsing A2A messages in the app server.
+
+**Turn index** (Host feature `turns`, A2A design §9): One row per turn in `nylorun.turns`
+(`store/postgres/turns.ts`): its session, Agent, owner, A2A context, status (`running`, `paused`,
+`completed`, `failed`, `cancelled`), start, end, last change (`changedAt`), end-fact `totals`, and
+the seqs of its first and last lifecycle events. `Tx.event` writes it in the transaction of each
+event that changes the turn (`command.message`, `command.approve`, `command.respond`, `turn.*`),
+so it agrees with the log; migration `0040_turn_index_backfill` indexed the turns recorded before
+it. Each change stamps the row with its transaction id: `GET /v1/turns` is the change feed in that
+order, read only below every open transaction (`pg_snapshot_xmin`, as the model call export), so a
+change never lands behind a client's cursor. A2A `ListTasks`, `GetTask` and `CancelTask` find
+turns through it (`api/a2a/list.ts`) and read a turn's events from its first seq, never the whole
+history.
+_Avoid_: "run list"; scanning a session's history to find a turn.
 
 **Session queue** (protocol 17, track T4, D76): Messages that arrived while a session's turn ran or
 waited (`runnable`, `running`, `waiting`, `paused`, `uncertain`), in order, in the `session_queue`
