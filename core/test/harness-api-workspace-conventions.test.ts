@@ -78,4 +78,12 @@ describe("artifact.write in folder mode", () => {
     expect(HARNESS_CLAIMS).toContain("artifact.export.skipped");
     expect(HARNESS_CLAIMS).toContain("artifact.export.failed");
   });
+
+  it("lets a harness claim the agent's plan", () => {
+    expect(HARNESS_CLAIMS).toContain("plan.updated");
+    const params = harnessRequests.event.params;
+    const claim = { runId: "r", sessionId: "s", turnId: "t", type: "plan.updated", payload: { steps: [] } };
+    expect(params.safeParse(claim).success).toBe(true);
+    expect(params.safeParse({ ...claim, type: "plan.changed" }).success).toBe(false);
+  });
 });

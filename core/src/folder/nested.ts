@@ -204,6 +204,7 @@ function nestedChecks(ctx: FolderContext): void {
     harness: `${what} runs in the harness of the agent that holds it: set harness in the root's AGENT.md`,
     memory: `memory is the root agent's: ${what} keeps none of its own`,
     loop: `loop settings are the root agent's: ${what} has none of its own`,
+    model: `model is the root agent's: ${what} runs in the root agent's session, on its model`,
   };
   for (const [key, message] of Object.entries(keys)) if (ctx.front[key] !== undefined) refuse(message, AGENT_FILE, [key]);
   // Agent manifest v7, which embeds an agent, has no place for a credential or a skill's secrets.
@@ -328,7 +329,7 @@ function composeFlow(ctx: FolderContext): boolean {
       );
     }
   }
-  for (const key of ["mcpServers", "skills", "memory"])
+  for (const key of ["mcpServers", "skills", "memory", "model"])
     if (front[key] !== undefined) refuse(`${key} is an agent's: set it in the AGENT.md of the agent under agents/ that needs it`, AGENT_FILE, [key]);
   const inputSchema = front.inputSchema === undefined ? undefined : ctx.schemaAt(AGENT_FILE, ["inputSchema"], front.inputSchema);
 

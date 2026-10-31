@@ -307,6 +307,12 @@ export interface StackConfig {
     privateAddresses?: "allow" | "refuse";
     allowHttp?: boolean;
   };
+  /**
+   * The A2A server's push notifications (Runtime config `a2a`): `NYLORUN_A2A_PUSH_SECRET`
+   * (`a2a.push.secret`, `whsec_<base64>`) signs them, and `NYLORUN_A2A_PUSH_ALLOW_HOSTS`
+   * (`a2a.push.allowHosts`, comma-separated `host:port`s) names the private hosts they may reach.
+   */
+  a2a?: { push?: { secret?: string; allowHosts?: string[] } };
   /** Present when the process runs core or loop: who its Tenant is on first start. */
   tenant?: TenantSettings;
   /**
@@ -668,6 +674,7 @@ export function parseStackConfig(
   if (harnessListener && listen?.port === harnessListener.listen.port)
     throw new StackConfigError("NYLORUN_HARNESS_LISTEN_PORT must differ from NYLORUN_LISTEN_PORT");
   const delivery = parseDelivery(env);
+  const a2a = parseA2a(env);
   const tenant = servesApi ? parseTenant(env) : undefined;
   const workloadToken = parseWorkloadToken(env);
   const modelHostIdentity = parseModelHostIdentity(env);
@@ -693,6 +700,7 @@ export function parseStackConfig(
     ...(harnessListener ? { harnessListener } : {}),
     ...(sandboxes ? { sandboxes } : {}),
     ...(delivery ? { delivery } : {}),
+    ...(a2a ? { a2a } : {}),
     ...(tenant ? { tenant } : {}),
     ...(workloadToken ? { workloadToken } : {}),
     ...(modelHostIdentity ? { modelHostIdentity } : {}),
@@ -1102,6 +1110,37 @@ function parseDelivery(env: Readonly<Record<string, string | undefined>>): Stack
     ...(privateAddresses ? { privateAddresses } : {}),
     ...(http ? { allowHttp: http === "allow" } : {}),
   };
+}
+
+/** `StackConfig.a2a` from `NYLORUN_A2A_PUSH_*`, or `undefined` when none is set. */
+function parseA2a(env: Readonly<Record<string, string | undefined>>): StackConfig["a2a"] {
+  const secret = read(env, "NYLORUN_A2A_PUSH_SECRET");
+  if (secret !== undefined) {
+    const key = secret.startsWith("whsec_") ? Buffer.from(secret.slice(6), "base64") : undefined;
+    if (!key || key.length < 24 || !/^[A-Za-z0-9+/]+={0,2}$/.test(secret.slice(6)))
+      throw new StackConfigError(
+        "NYLORUN_A2A_PUSH_SECRET must be a Standard Webhooks secret: whsec_ and the base64 of at least 24 bytes"
+      );
+  }
+  const hosts = read(env, "NYLORUN_A2A_PUSH_ALLOW_HOSTS");
+  const allowHosts = hosts === undefined ? undefined : parseAllowHosts(hosts);
+  if (secret === undefined && allowHosts === undefined) return undefined;
+  return { push: { ...(secret !== undefined ? { secret } : {}), ...(allowHosts ? { allowHosts } : {}) } };
+}
+
+/**
+ * `host:port` entries, comma-separated; a host may be a name, an IPv4 or a bracketed IPv6 address,
+ * and the port `*` for any port (a test receiver on a port it picks).
+ */
+export function parseAllowHosts(value: string): string[] {
+  const entries = value
+    .split(",")
+    .map((entry) => entry.trim().toLowerCase())
+    .filter((entry) => entry !== "");
+  for (const entry of entries)
+    if (!/^(\[[0-9a-f:.]+\]|[a-z0-9.-]+):(\d{1,5}|\*)$/.test(entry) || Number(entry.slice(entry.lastIndexOf(":") + 1)) > 65535)
+      throw new StackConfigError(`NYLORUN_A2A_PUSH_ALLOW_HOSTS entries must be host:port, not ${entry}`);
+  return entries;
 }
 
 /** Endpoint summary for logs: which endpoints are set, never their values. */

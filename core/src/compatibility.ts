@@ -224,6 +224,13 @@ export const OPTIONAL_HOST_FEATURES = [
   "subject-headers",
   "ag-ui-endpoint",
   "a2a-endpoint",
+  /**
+   * The Nylorun A2A profile v2 on `a2a-endpoint`: queued follow-ups, push notification configs
+   * (signed with Standard Webhooks), `url` file parts in and out (`GET /v1/a2a/files/…`), and
+   * the five extensions activated with `A2A-Extensions` (interactions, effects, progress,
+   * telemetry, files); the card lists the Runtime's JSON-RPC interface.
+   */
+  "a2a-profile-v2",
   "sandbox-pods",
   "trusted-issuers",
   "session-reads",
@@ -241,6 +248,19 @@ export const OPTIONAL_HOST_FEATURES = [
   "session-model",
   "model-host-identity",
   "credential-provider",
+  /**
+   * The turn index: `GET /v1/turns` pages the turns a caller may see in the order they changed
+   * (`changedAfter`, the cursor it returned), or one session's (`sessionId`), each with its
+   * status, times, totals and A2A context and task; an application key sees the whole Tenant, a
+   * subject its own sessions'. The A2A endpoint answers `ListTasks` from it.
+   */
+  "turns",
+  /**
+   * An agent manifest's `harness.model` (`model: <provider>/<model>` in `AGENT.md`): a session
+   * opened on a version that names one starts with it as its own model (`session-model`), when
+   * its provider is connected and lists it; otherwise the Tenant's model applies.
+   */
+  "agent-model",
 ] as const;
 export type OptionalHostFeature = (typeof OPTIONAL_HOST_FEATURES)[number];
 export interface ProtocolRange {

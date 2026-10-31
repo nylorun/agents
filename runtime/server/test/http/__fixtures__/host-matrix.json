@@ -92,6 +92,7 @@
           "subject-headers",
           "ag-ui-endpoint",
           "a2a-endpoint",
+          "a2a-profile-v2",
           "sandbox-pods",
           "trusted-issuers",
           "session-reads",
@@ -107,7 +108,9 @@
           "agent-folders",
           "session-model",
           "model-host-identity",
-          "credential-provider"
+          "credential-provider",
+          "turns",
+          "agent-model"
         ]
       }
     },
@@ -175,6 +178,7 @@
           "subject-headers",
           "ag-ui-endpoint",
           "a2a-endpoint",
+          "a2a-profile-v2",
           "sandbox-pods",
           "trusted-issuers",
           "session-reads",
@@ -190,7 +194,9 @@
           "agent-folders",
           "session-model",
           "model-host-identity",
-          "credential-provider"
+          "credential-provider",
+          "turns",
+          "agent-model"
         ]
       }
     },
@@ -258,6 +264,7 @@
           "subject-headers",
           "ag-ui-endpoint",
           "a2a-endpoint",
+          "a2a-profile-v2",
           "sandbox-pods",
           "trusted-issuers",
           "session-reads",
@@ -273,7 +280,9 @@
           "agent-folders",
           "session-model",
           "model-host-identity",
-          "credential-provider"
+          "credential-provider",
+          "turns",
+          "agent-model"
         ]
       }
     },
@@ -341,6 +350,7 @@
           "subject-headers",
           "ag-ui-endpoint",
           "a2a-endpoint",
+          "a2a-profile-v2",
           "sandbox-pods",
           "trusted-issuers",
           "session-reads",
@@ -356,7 +366,9 @@
           "agent-folders",
           "session-model",
           "model-host-identity",
-          "credential-provider"
+          "credential-provider",
+          "turns",
+          "agent-model"
         ]
       }
     },
@@ -424,6 +436,7 @@
           "subject-headers",
           "ag-ui-endpoint",
           "a2a-endpoint",
+          "a2a-profile-v2",
           "sandbox-pods",
           "trusted-issuers",
           "session-reads",
@@ -439,7 +452,9 @@
           "agent-folders",
           "session-model",
           "model-host-identity",
-          "credential-provider"
+          "credential-provider",
+          "turns",
+          "agent-model"
         ]
       }
     },
@@ -507,6 +522,7 @@
           "subject-headers",
           "ag-ui-endpoint",
           "a2a-endpoint",
+          "a2a-profile-v2",
           "sandbox-pods",
           "trusted-issuers",
           "session-reads",
@@ -522,7 +538,9 @@
           "agent-folders",
           "session-model",
           "model-host-identity",
-          "credential-provider"
+          "credential-provider",
+          "turns",
+          "agent-model"
         ]
       }
     },
@@ -590,6 +608,7 @@
           "subject-headers",
           "ag-ui-endpoint",
           "a2a-endpoint",
+          "a2a-profile-v2",
           "sandbox-pods",
           "trusted-issuers",
           "session-reads",
@@ -605,7 +624,9 @@
           "agent-folders",
           "session-model",
           "model-host-identity",
-          "credential-provider"
+          "credential-provider",
+          "turns",
+          "agent-model"
         ]
       }
     },
@@ -673,6 +694,7 @@
           "subject-headers",
           "ag-ui-endpoint",
           "a2a-endpoint",
+          "a2a-profile-v2",
           "sandbox-pods",
           "trusted-issuers",
           "session-reads",
@@ -688,7 +710,9 @@
           "agent-folders",
           "session-model",
           "model-host-identity",
-          "credential-provider"
+          "credential-provider",
+          "turns",
+          "agent-model"
         ]
       }
     },
@@ -756,6 +780,7 @@
           "subject-headers",
           "ag-ui-endpoint",
           "a2a-endpoint",
+          "a2a-profile-v2",
           "sandbox-pods",
           "trusted-issuers",
           "session-reads",
@@ -771,7 +796,9 @@
           "agent-folders",
           "session-model",
           "model-host-identity",
-          "credential-provider"
+          "credential-provider",
+          "turns",
+          "agent-model"
         ]
       }
     },
@@ -839,6 +866,7 @@
           "subject-headers",
           "ag-ui-endpoint",
           "a2a-endpoint",
+          "a2a-profile-v2",
           "sandbox-pods",
           "trusted-issuers",
           "session-reads",
@@ -854,7 +882,9 @@
           "agent-folders",
           "session-model",
           "model-host-identity",
-          "credential-provider"
+          "credential-provider",
+          "turns",
+          "agent-model"
         ]
       }
     },
@@ -922,6 +952,7 @@
           "subject-headers",
           "ag-ui-endpoint",
           "a2a-endpoint",
+          "a2a-profile-v2",
           "sandbox-pods",
           "trusted-issuers",
           "session-reads",
@@ -937,7 +968,9 @@
           "agent-folders",
           "session-model",
           "model-host-identity",
-          "credential-provider"
+          "credential-provider",
+          "turns",
+          "agent-model"
         ]
       }
     },
@@ -1005,6 +1038,7 @@
           "subject-headers",
           "ag-ui-endpoint",
           "a2a-endpoint",
+          "a2a-profile-v2",
           "sandbox-pods",
           "trusted-issuers",
           "session-reads",
@@ -1020,7 +1054,9 @@
           "agent-folders",
           "session-model",
           "model-host-identity",
-          "credential-provider"
+          "credential-provider",
+          "turns",
+          "agent-model"
         ]
       }
     },
@@ -1121,6 +1157,7 @@
           "subject-headers",
           "ag-ui-endpoint",
           "a2a-endpoint",
+          "a2a-profile-v2",
           "sandbox-pods",
           "trusted-issuers",
           "session-reads",
@@ -1136,7 +1173,9 @@
           "agent-folders",
           "session-model",
           "model-host-identity",
-          "credential-provider"
+          "credential-provider",
+          "turns",
+          "agent-model"
         ]
       }
     },
@@ -1204,6 +1243,7 @@
           "subject-headers",
           "ag-ui-endpoint",
           "a2a-endpoint",
+          "a2a-profile-v2",
           "sandbox-pods",
           "trusted-issuers",
           "session-reads",
@@ -1219,7 +1259,9 @@
           "agent-folders",
           "session-model",
           "model-host-identity",
-          "credential-provider"
+          "credential-provider",
+          "turns",
+          "agent-model"
         ]
       }
     },
@@ -1287,6 +1329,7 @@
           "subject-headers",
           "ag-ui-endpoint",
           "a2a-endpoint",
+          "a2a-profile-v2",
           "sandbox-pods",
           "trusted-issuers",
           "session-reads",
@@ -1302,7 +1345,9 @@
           "agent-folders",
           "session-model",
           "model-host-identity",
-          "credential-provider"
+          "credential-provider",
+          "turns",
+          "agent-model"
         ]
       }
     },
@@ -1370,6 +1415,7 @@
           "subject-headers",
           "ag-ui-endpoint",
           "a2a-endpoint",
+          "a2a-profile-v2",
           "sandbox-pods",
           "trusted-issuers",
           "session-reads",
@@ -1385,7 +1431,9 @@
           "agent-folders",
           "session-model",
           "model-host-identity",
-          "credential-provider"
+          "credential-provider",
+          "turns",
+          "agent-model"
         ]
       }
     },
@@ -1453,6 +1501,7 @@
           "subject-headers",
           "ag-ui-endpoint",
           "a2a-endpoint",
+          "a2a-profile-v2",
           "sandbox-pods",
           "trusted-issuers",
           "session-reads",
@@ -1468,7 +1517,9 @@
           "agent-folders",
           "session-model",
           "model-host-identity",
-          "credential-provider"
+          "credential-provider",
+          "turns",
+          "agent-model"
         ]
       }
     },
@@ -1536,6 +1587,7 @@
           "subject-headers",
           "ag-ui-endpoint",
           "a2a-endpoint",
+          "a2a-profile-v2",
           "sandbox-pods",
           "trusted-issuers",
           "session-reads",
@@ -1551,7 +1603,9 @@
           "agent-folders",
           "session-model",
           "model-host-identity",
-          "credential-provider"
+          "credential-provider",
+          "turns",
+          "agent-model"
         ]
       }
     },
@@ -1619,6 +1673,7 @@
           "subject-headers",
           "ag-ui-endpoint",
           "a2a-endpoint",
+          "a2a-profile-v2",
           "sandbox-pods",
           "trusted-issuers",
           "session-reads",
@@ -1634,7 +1689,9 @@
           "agent-folders",
           "session-model",
           "model-host-identity",
-          "credential-provider"
+          "credential-provider",
+          "turns",
+          "agent-model"
         ]
       }
     },

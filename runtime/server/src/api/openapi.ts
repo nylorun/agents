@@ -254,6 +254,7 @@ const RUNTIME_TAGS: readonly Tag[] = [
       "GET /v1/sessions/{sessionId}/calls/tool",
       "GET /v1/sessions/{sessionId}/turns/{turnId}/trace",
       "POST /v1/sessions/{sessionId}/sandbox/{tool}",
+      "GET /v1/turns",
     ],
   },
   {
@@ -272,8 +273,12 @@ const RUNTIME_TAGS: readonly Tag[] = [
     name: "A2A",
     group: "Sessions",
     description:
-      "The same sessions through Agent2Agent: a context is one session per subject, Agent and `contextId`, and a task is one turn; every caller's session runs on the Agent's disk and vault, so an app that serves several audiences makes an Agent for each. The card is how an A2A client finds the Agent.",
-    operations: ["GET /v1/a2a/agents/{agentId}/card", "POST /v1/a2a/agents/{agentId}"],
+      "The same sessions through Agent2Agent (A2A 1.0, JSON-RPC) under the Nylorun profile v2: a context is one session per subject, Agent and `contextId`, and a task is one turn; every caller's session runs on the Agent's disk and vault, so an app that serves several audiences makes an Agent for each. The card is how an A2A client finds the Agent; push notifications carry a task's updates to the caller, and the files a task writes are downloaded from `/v1/a2a/files/…` by the same subject.",
+    operations: [
+      "GET /v1/a2a/agents/{agentId}/card",
+      "POST /v1/a2a/agents/{agentId}",
+      "GET /v1/a2a/files/{artifactId}/versions/{version}",
+    ],
   },
   {
     name: "Artifacts",

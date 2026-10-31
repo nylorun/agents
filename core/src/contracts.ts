@@ -1868,6 +1868,27 @@ export const HarnessMemorySchema = z.strictObject({
 });
 const harnessMemoryField = HarnessMemorySchema.optional()
   .meta({ description: "The Agent's memory: Markdown files under /memories it keeps across sessions" });
+/**
+ * `harness.model` (Host feature `agent-model`): the model the agent runs on, `<provider>/<model>`
+ * (the provider's id, then its model's id, which may itself hold `/`). A session opened on a
+ * version that names one starts with it as its own model (`Session.model`), when the provider is
+ * connected and lists the model; otherwise the Tenant's model applies. A later
+ * `PUT /v1/sessions/{id}/model` still chooses another.
+ */
+export const AGENT_MODEL_PATTERN = /^[A-Za-z0-9._-]+\/\S+$/;
+export const AGENT_MODEL_MAX_CHARS = 200;
+export const AgentModelSchema = z
+  .string()
+  .max(AGENT_MODEL_MAX_CHARS)
+  .regex(AGENT_MODEL_PATTERN, "model is <provider>/<model>, such as anthropic/claude-sonnet-4-5")
+  .meta({ description: "The model the agent runs on: <provider>/<model>, such as anthropic/claude-sonnet-4-5" });
+/** `harness.model` as a session's model choice: the provider before the first `/`, the model after. */
+export function agentModelChoice(value: string): { provider: string; model: string } | undefined {
+  if (value.length > AGENT_MODEL_MAX_CHARS || !AGENT_MODEL_PATTERN.test(value)) return undefined;
+  const slash = value.indexOf("/");
+  return { provider: value.slice(0, slash), model: value.slice(slash + 1) };
+}
+const harnessModelField = AgentModelSchema.optional();
 /** Fields the harness section refuses with where they went. */
 const REMOVED_HARNESS_FIELDS: Readonly<Record<string, string>> = Object.freeze({
   requires:
@@ -1890,6 +1911,7 @@ const agentHarnessObject = z
       outputSchema: definitionJson.optional(),
       loop: harnessLoopField,
       memory: harnessMemoryField,
+      model: harnessModelField,
       functions: z.unknown().optional().meta({ description: "Reserved: Functions are not available yet" }),
     },
     { error: removedFieldError(REMOVED_HARNESS_FIELDS) },
@@ -2242,6 +2264,7 @@ export const HarnessManifestFileSchema = z
     outputSchema: definitionJson.optional(),
     loop: harnessLoopField,
     memory: harnessMemoryField,
+    model: harnessModelField,
     /** MCP server or HTTP tool name → the `runtime.secrets` slot it authenticates with. */
     credentials: z.record(z.string().min(1), z.string().min(1)).optional(),
     /** What this harness needs of any runtime it is combined with; checked by the composer only. */
@@ -3480,6 +3503,29 @@ export const WakeBookedPayloadSchema = z
   .object({ at: z.string(), note: z.string(), effectId: z.string(), replaced: z.boolean() })
   .passthrough();
 export const WakeCancelledPayloadSchema = z.object({ effectId: z.string() }).passthrough();
+/** The states of a plan step (`plan.updated`). */
+export const PLAN_STEP_STATES = ["pending", "active", "done", "blocked", "skipped"] as const;
+export type PlanStepState = (typeof PLAN_STEP_STATES)[number];
+/** The most steps one plan holds, and the most characters (UTF-16 units) of a label and a note. */
+export const PLAN_LIMITS = Object.freeze({ steps: 20, labelChars: 120, noteChars: 280 });
+/** One step of an agent's plan: a short label, its state, and an optional note. */
+export const PlanStepSchema = z
+  .object({
+    label: z.string().min(1).max(PLAN_LIMITS.labelChars),
+    state: z.enum(PLAN_STEP_STATES),
+    note: z.string().max(PLAN_LIMITS.noteChars).optional(),
+  })
+  .passthrough();
+export type PlanStep = z.infer<typeof PlanStepSchema>;
+/**
+ * `plan.updated`: the agent's whole plan, as its last `update_plan` call left it (our engine's
+ * built-in tool, which a version opts into with `harness.loop.plan`), never a diff. Our harness
+ * claims it. Labels and notes are the agent's short text, never tool arguments or results; the A2A
+ * server serves the latest under `progress/v1`.
+ */
+export const PlanUpdatedPayloadSchema = z
+  .object({ steps: z.array(PlanStepSchema).max(PLAN_LIMITS.steps) })
+  .passthrough();
 /** `queue.taken` (protocol 17): the turn that started with the queued messages, in order. */
 export const QueueTakenPayloadSchema = z
   .object({ turnId: z.string(), queuedMessageIds: z.array(z.string()).min(1) })
@@ -3811,6 +3857,7 @@ export const EVENT_CATALOG = {
   "delegation.started": { payload: DelegationPayloadSchema, source: "loop", version: 1 },
   "delegation.completed": { payload: DelegationPayloadSchema, source: "loop", version: 1 },
   "mcp.discovered": { payload: McpDiscoveredPayloadSchema, source: "loop", version: 1 },
+  "plan.updated": { payload: PlanUpdatedPayloadSchema, source: "loop", version: 1 },
   "environment.state": { payload: EnvironmentStatePayloadSchema, source: "loop", version: 1 },
   "environment.exec": { payload: EnvironmentExecPayloadSchema, source: "loop", version: 1 },
   "agent.attached": { payload: AgentAttachedPayloadSchema, source: "api", version: 1 },
@@ -5534,6 +5581,51 @@ export const ModelCallExportPageSchema = z
   })
   .strict();
 export type ModelCallExportPage = z.infer<typeof ModelCallExportPageSchema>;
+/**
+ * A turn's status in the turn index (Host feature `turns`): `running` from its first
+ * `command.message` and again after an answer, `paused` while it waits for a person, then one of
+ * the three ends.
+ */
+export const TURN_STATUSES = ["running", "paused", "completed", "failed", "cancelled"] as const;
+export const TurnStatusSchema = z.enum(TURN_STATUSES);
+export type TurnStatus = z.infer<typeof TurnStatusSchema>;
+/**
+ * One turn as the turn index keeps it (Host feature `turns`), written in the transaction of the
+ * event that changed it, so it agrees with the session's log. `totals` are the turn's end facts
+ * (null until it ends, or for a turn that ended before the Runtime recorded them); `a2a` names the
+ * A2A context and task when the session is an A2A context.
+ */
+export const TurnSummarySchema = z
+  .object({
+    turnId: z.string(),
+    sessionId: z.string(),
+    agentId: z.string(),
+    status: TurnStatusSchema,
+    startedAt: z.string(),
+    endedAt: z.string().nullable(),
+    /** When its status last changed (the event's time). */
+    changedAt: z.string(),
+    totals: z
+      .object({
+        steps: z.number().int().nonnegative(),
+        tokens: z.number().int().nonnegative(),
+        costUsd: z.number().nonnegative(),
+      })
+      .strict()
+      .nullable(),
+    a2a: z.object({ contextId: z.string(), taskId: z.string() }).strict().nullable(),
+  })
+  .strict();
+export type TurnSummary = z.infer<typeof TurnSummarySchema>;
+/**
+ * A page of the turn change feed (`GET /v1/turns`), in the order the turns changed: a turn
+ * appears again each time it changes. Pass `cursor` as `changedAfter` to read on; it is returned
+ * even when `turns` is empty. `hasMore`: another page is ready now.
+ */
+export const TurnChangesPageSchema = z
+  .object({ turns: z.array(TurnSummarySchema), cursor: z.string(), hasMore: z.boolean() })
+  .strict();
+export type TurnChangesPage = z.infer<typeof TurnChangesPageSchema>;
 /**
  * One tool call of a session, read from the effect journal: what ran, with what input,
  * how many sends, and how it ended. `invoking` while it runs. `uncertain` only for a call

@@ -73,6 +73,10 @@ try {
     typeof a2a.toNodeListener !== "function"
   )
     throw new Error("Missing @nylorun/agents/a2a exports");
+  // The A2A client is on the subpath and the root.
+  for (const name of ["createA2aClient", "verifyA2aPush", "listTurnChanges", "readProgress"])
+    if (typeof a2a[name] !== "function" || sdk[name] !== a2a[name])
+      throw new Error(`Missing A2A client export ${name}`);
   const protocols = loaded.filter((url) => /[/\\]@(?:ag-ui|a2a-js)[/\\]/.test(url));
   if (protocols.length)
     throw new Error(`A2A entry loaded protocol packages: ${protocols.join(", ")}`);

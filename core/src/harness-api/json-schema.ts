@@ -69,6 +69,13 @@ export function harnessApiSchemas(): Record<string, z.ZodType> {
   return out;
 }
 
+/**
+ * The revision of v5's document: the claims a harness may make grew within v5 (`plan.updated`,
+ * additive: core accepts more, and a v5 harness that claims none of it is unchanged), and a
+ * published `$id` names one document for good.
+ */
+const SCHEMA_REVISION = 1;
+
 /** The JSON Schema document of the Harness API (draft 2020-12). */
 export function harnessApiJsonSchema(): Record<string, unknown> {
   const $defs: Record<string, unknown> = {};
@@ -81,7 +88,7 @@ export function harnessApiJsonSchema(): Record<string, unknown> {
   }
   return {
     $schema: "https://json-schema.org/draft/2020-12/schema",
-    $id: `https://docs.nylorun.com/schemas/harness-api/v${HARNESS_API_VERSION}.json`,
+    $id: `https://docs.nylorun.com/schemas/harness-api/v${HARNESS_API_VERSION}.${SCHEMA_REVISION}.json`,
     title: `Nylorun Harness API ${HARNESS_API_VERSION}`,
     $defs,
   };

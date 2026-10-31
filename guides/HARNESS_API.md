@@ -95,7 +95,13 @@ Which token:
 - `definition` (optional): `{name, version}`, the agent manifest version the session pinned, for
   your records.
 - `loop` (optional): the harness section's `loop`, your own settings, which the Runtime passes on
-  without reading. Ours reads none yet.
+  without reading. Ours reads `plan`: `true` offers the root agent `update_plan`, whose calls it
+  claims as `plan.updated` (§4b); and `connections`: `true` offers it `request_connection`
+  (`{app, reason}`), a `harness` tool whose first call's outcome is `interaction-required` with
+  `interaction: {kind: "response", prompt: "Connect <app>: <reason>", metadata: {kind:
+  "connection", app, reason}}`, so the turn pauses on it like any interaction (§7); answered
+  with `respond`, the call runs again in the next segment and reads the value
+  (`true` or `{connected: true}`: `Connected: <app>`; anything else `Not connected: <app>`).
 - `memory` (`TurnMemorySchema`, optional; track T5): present when the version the session runs
   sets `harness.memory`. `access` (`read_write` or `read_only`, the same in every turn),
   `instructions` (the agent's own, after yours), and `index`: one line per memory, newest first,
@@ -325,6 +331,9 @@ by file:
 - Our engine's outputs folder writes one at each completed turn's end, keyed `outputs:<turnId>`,
   and claims `artifact.export.skipped` (`{name, reason, message, limit?, path?}`) or
   `artifact.export.failed` (`{name, message}`) with `event` when it stores nothing.
+- Our engine's `update_plan` claims `plan.updated` (`{steps: [{label, state, note?}]}`, the whole
+  plan, at most 20 steps, labels of 120 and notes of 280 characters) with `event`, for the run's
+  turn.
 
 Errors:
 
@@ -537,7 +546,9 @@ There are three numbers:
 v5's schemas are strict, and v5 is frozen: a change to a message is a new version. Core speaks
 one version: a harness that says `api: 4` is refused.
 
-Protocol 17 added one input shape within v5: `checkpoint.input` `{kind: "messages"}` (§3).
+Protocol 17 added one input shape within v5: `checkpoint.input` `{kind: "messages"}` (§3). One
+claim came within v5 too: `plan.updated` (§4b), which core accepts and no v5 harness must make;
+the JSON Schema document that has it is published as `harness-api/v5.1.json`.
 
 What v5 changed (protocol 16, agents from one manifest):
 

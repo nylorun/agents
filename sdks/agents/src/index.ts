@@ -220,3 +220,6 @@ export { McpError } from "./mcp/index.js";
 export type { McpServerSpec } from "./mcp/index.js";
 
 export type { SessionPageOptions } from "./reads.js";
+// The A2A client (`@nylorun/agents/a2a` also has the gateway handler).
+export * from "./a2a/client-api.js";
+export type * as A2a from "./a2a/types.js";

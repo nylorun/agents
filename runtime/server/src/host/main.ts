@@ -334,6 +334,7 @@ export async function main(): Promise<void> {
     ...(stack.delivery ? { delivery: stack.delivery } : {}),
     ...(issuers ? { issuers } : {}),
     ...(stack.publicUrl ? { publicUrl: stack.publicUrl } : {}),
+    ...(stack.a2a ? { a2a: stack.a2a } : {}),
   });
 
   // The process's Durable Session Execution: Restate when its endpoints are set, else the

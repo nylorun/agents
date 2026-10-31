@@ -45,6 +45,7 @@ import {
   sessions,
   sessionEvents,
   tenantSettings,
+  turns,
   type ModelUsageRow,
 } from "./schema.js";
 
@@ -58,7 +59,7 @@ const sessionFields = {
   createdAt: sessions.createdAt,
 };
 /** Rows whose Agent id an Agent grant (`*`, an id, or a `p/*` prefix) reaches; none reach nothing. */
-function grantsWhere(column: typeof sessions.agentId, grants: readonly string[]): SQL {
+function grantsWhere(column: typeof sessions.agentId | typeof turns.agentId, grants: readonly string[]): SQL {
   if (grants.includes("*")) return sql`true`;
   if (grants.length === 0) return sql`false`;
   return or(
@@ -164,6 +165,21 @@ function publicToolCall(body: ToolRowBody): ToolCall {
     settledAt: body.settledAt ?? null,
     durationMs: toolCallDuration(body) ?? null,
   };
+}
+/** The change feed's cursor key: the last row's `[txid, sessionId, turnId]`. */
+function turnChangeKey(key: (string | null)[] | undefined): [string, string, string] | undefined {
+  if (key === undefined) return undefined;
+  const [txid, sessionId, turnId] = key;
+  if (
+    key.length !== 3 ||
+    typeof txid !== "string" ||
+    typeof sessionId !== "string" ||
+    typeof turnId !== "string" ||
+    !/^\d{1,20}$/.test(txid) ||
+    BigInt(txid) > 18446744073709551615n
+  )
+    return fail(400, "Invalid cursor key", { code: "cursor_invalid" });
+  return [txid, sessionId, turnId];
 }
 function keyOf(
   key: (string | null)[] | undefined,
@@ -455,6 +471,39 @@ export function createPostgresReadStore(source: PostgresClient, tenantId: string
           .where(and(eq(sessionEvents.sessionId, id), sql`${sessionEvents.body}->>'turnId' = ${turnId}`))
           .orderBy(asc(sessionEvents.seq));
         return rows.map((row) => row.body as LiveEvent);
+      }),
+    turnChanges: (filters, page, access) =>
+      read(async (tx) => {
+        if (filters.sessionId !== undefined) await requireSession(tx, filters.sessionId, access);
+        const cursor = readCursor(tenantId, "turns", { sessionId: filters.sessionId ?? null });
+        const key = turnChangeKey(cursor.decode(page.changedAfter));
+        const rows = await tx
+          .select()
+          .from(turns)
+          .where(
+            and(
+              // Below every transaction still running: one that commits later sorts after.
+              sql`${turns.txid} < pg_snapshot_xmin(pg_current_snapshot())`,
+              key
+                ? sql`(${turns.txid}, ${turns.sessionId}, ${turns.turnId}) > (${key[0]}::xid8, ${key[1]}, ${key[2]})`
+                : undefined,
+              filters.sessionId === undefined ? undefined : eq(turns.sessionId, filters.sessionId),
+              access.owner === undefined ? undefined : eq(turns.ownerUserId, access.owner),
+              access.agents === undefined ? undefined : grantsWhere(turns.agentId, access.agents),
+            ),
+          )
+          .orderBy(asc(turns.txid), asc(turns.sessionId), asc(turns.turnId))
+          .limit(page.limit + 1);
+        const items = rows.slice(0, page.limit);
+        const last = items.at(-1);
+        return {
+          turns: items,
+          // Echoed when nothing changed; a first read starts before every row.
+          cursor: last
+            ? cursor.encode([last.txid, last.sessionId, last.turnId])
+            : (page.changedAfter ?? cursor.encode(["0", "", ""])),
+          hasMore: rows.length > page.limit,
+        };
       }),
     exportModel: (after, limit) =>
       read(async (tx) => {

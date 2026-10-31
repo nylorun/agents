@@ -324,6 +324,52 @@ describe("agent folders: messages in the compiler's own words", () => {
     expect(warnings(custom.diagnostics)).toEqual([]);
   });
 
+  it("takes loop.plan, which offers the agent update_plan, as true or false", () => {
+    const plan = compile({ "AGENT.md": "---\nname: shop\ndescription: Orders.\nloop: { plan: true }\n---\nGo.\n" });
+    expect(plan.diagnostics).toEqual([]);
+    expect(plan.manifest!.harness).toMatchObject({ loop: { plan: true } });
+    const off = compile({ "AGENT.md": "---\nname: shop\ndescription: Orders.\nloop: { plan: false }\n---\nGo.\n" });
+    expect(off.diagnostics).toEqual([]);
+    const bad = compile({ "AGENT.md": "---\nname: shop\ndescription: Orders.\nloop: { plan: yes please }\n---\nGo.\n" });
+    expect(errors(bad.diagnostics)).toEqual([expect.objectContaining({ code: "value_invalid", file: "AGENT.md", message: "loop.plan is true or false: true offers the agent update_plan" })]);
+    const both = compile({ "AGENT.md": "---\nname: shop\ndescription: Orders.\nloop: { plan: true, connections: true }\n---\nGo.\n" });
+    expect(both.diagnostics).toEqual([]);
+    expect(both.manifest!.harness).toMatchObject({ loop: { plan: true, connections: true } });
+    const badConnections = compile({ "AGENT.md": "---\nname: shop\ndescription: Orders.\nloop: { connections: 1 }\n---\nGo.\n" });
+    expect(errors(badConnections.diagnostics)).toEqual([expect.objectContaining({ code: "value_invalid", message: "loop.connections is true or false: true offers the agent request_connection" })]);
+    const typo = compile({ "AGENT.md": "---\nname: shop\ndescription: Orders.\nloop: { plans: true }\n---\nGo.\n" });
+    expect(warnings(typo.diagnostics)).toEqual([expect.objectContaining({ code: "loop_key", message: expect.stringContaining("Did you mean 'plan'?") })]);
+  });
+
+  it("takes model as <provider>/<model> into harness.model, and refuses any other shape", () => {
+    const named = compile({ "AGENT.md": "---\nname: shop\ndescription: Orders.\nmodel: anthropic/claude-sonnet-4-5\n---\nGo.\n" });
+    expect(named.diagnostics).toEqual([]);
+    expect(named.manifest!.harness).toMatchObject({ model: "anthropic/claude-sonnet-4-5" });
+    // The model's id may hold a '/' of its own.
+    const routed = compile({ "AGENT.md": "---\nname: shop\ndescription: Orders.\nmodel: openrouter/google/gemini-2.5-pro\n---\nGo.\n" });
+    expect(routed.manifest!.harness).toMatchObject({ model: "openrouter/google/gemini-2.5-pro" });
+    expect(compile({ "AGENT.md": AGENT }).manifest!.harness).not.toHaveProperty("model");
+    for (const bad of ["claude-sonnet-4-5", "anthropic/", "/claude", "anthropic/claude sonnet", "an thropic/claude", "{ provider: anthropic }", "3"]) {
+      const result = compile({ "AGENT.md": `---\nname: shop\ndescription: Orders.\nmodel: ${bad}\n---\nGo.\n` });
+      expect(result.manifest, bad).toBeUndefined();
+      expect(errors(result.diagnostics), bad).toEqual([
+        expect.objectContaining({ code: "value_invalid", file: "AGENT.md", line: 4, message: expect.stringMatching(/^model is <provider>\/<model>, such as anthropic\/claude-sonnet-4-5/) }),
+      ]);
+    }
+    const long = compile({ "AGENT.md": `---\nname: shop\ndescription: Orders.\nmodel: a/${"m".repeat(200)}\n---\nGo.\n` });
+    expect(errors(long.diagnostics)).toHaveLength(1);
+  });
+
+  it("refuses model in an agent under agents/: it runs on the root agent's", () => {
+    const result = compile({
+      "AGENT.md": AGENT,
+      "agents/helper/AGENT.md": "---\nname: helper\ndescription: Helps.\nmodel: anthropic/claude-haiku-4-5\n---\nHelp.\n",
+    });
+    expect(errors(result.diagnostics)).toEqual([
+      expect.objectContaining({ code: "nested_refused", file: "agents/helper/AGENT.md", message: expect.stringContaining("model is the root agent's") }),
+    ]);
+  });
+
   it("warns on an agent with no instructions, and compiles it", () => {
     const result = compile({ "AGENT.md": "---\nname: shop\ndescription: Orders.\n---\n\n" });
     expect(result.manifest).toBeDefined();

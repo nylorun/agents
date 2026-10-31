@@ -1,8 +1,11 @@
 /**
  * The Agent Card of one Agent, from its manifest version: its id as the name, the manifest's
- * description and one skill, never its instructions, tools or MCP servers. The Runtime does not know where callers reach it, so
- * `supportedInterfaces` is empty: whoever publishes the card (the gateway in v1) adds its own
- * URL, provider and security schemes.
+ * description and one skill, never its instructions, tools or MCP servers. Its one interface is
+ * the Runtime's own JSON-RPC endpoint (A2A 1.0) at the URL the caller reached, or
+ * `NYLORUN_PUBLIC_URL`; a gateway that publishes the card (the SDK's) lists its own URL,
+ * provider and security schemes instead. Capabilities (profile v2 §3): no streaming, push
+ * notifications when the Runtime has a push secret, no extended card, and the profile's five
+ * extensions, all optional.
  */
 
 export interface CardDefinition {
@@ -13,6 +16,8 @@ export interface CardDefinition {
 
 import type { ModelInput } from "@nylorun/core/contracts";
 import { MODEL_IMAGE_TYPES } from "@nylorun/core/contracts";
+import { cardExtensions } from "./extensions.js";
+import { A2A_VERSION } from "./protocol.js";
 
 const MODES = ["text/plain", "application/json"];
 
@@ -44,7 +49,8 @@ export function inputModesFor(inputs: readonly ModelInput[] | undefined): string
 export function agentCard(
   agentId: string,
   definition: CardDefinition,
-  inputModes: readonly string[] = MODES
+  inputModes: readonly string[] = MODES,
+  serving: { url?: string; pushNotifications?: boolean } = {}
 ): Record<string, unknown> {
   const { manifest } = definition;
   const name = typeof manifest.name === "string" && manifest.name !== "" ? manifest.name : agentId;
@@ -55,9 +61,16 @@ export function agentCard(
   return {
     name,
     description,
-    supportedInterfaces: [],
+    supportedInterfaces: serving.url
+      ? [{ url: serving.url, protocolBinding: "JSONRPC", protocolVersion: A2A_VERSION }]
+      : [],
     version: definition.version,
-    capabilities: { streaming: false, pushNotifications: false, extendedAgentCard: false },
+    capabilities: {
+      streaming: false,
+      pushNotifications: serving.pushNotifications === true,
+      extendedAgentCard: false,
+      extensions: cardExtensions(),
+    },
     defaultInputModes: [...inputModes],
     defaultOutputModes: MODES,
     skills: [{ id: agentId, name, description, tags: [] }],

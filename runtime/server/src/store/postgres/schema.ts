@@ -8,7 +8,7 @@
  *   principals, vaults and credentials, signing keys, settings, the model usage
  *   ledger, the model budgets, the Tool Gate's crossings, file artifacts with their versions,
  *   the agents and their manifests, the definition files those manifests name, the control
- *   bus's signals and the wake outbox.
+ *   bus's signals, the wake outbox, and A2A push configs with their outbox.
  * - `nylorun_streams` holds the record (Durable Streams §6): `session_events`,
  *   `session_log_heads` and the relay's `relay_slots`. The relay's publication is custom SQL
  *   (`drizzle/0002_stream_relay.sql`).
@@ -649,6 +649,51 @@ export const modelBudgets = nylorun.table(
 );
 
 /**
+ * The turn index (A2A design §9, Host feature `turns`): one row per turn, written by `Tx.event`
+ * in the transaction of each event that changes the turn (`store/postgres/turns.ts`), so it
+ * agrees with the session's log. The session's Agent, owner and A2A context are copied in when
+ * the turn starts. `txid` is the transaction that last changed the row: the change feed reads
+ * rows in its order, only below every transaction still running (`pg_snapshot_xmin`), as the
+ * model call export does. `firstSeq` and `lastSeq` bound the turn's lifecycle events in the log.
+ */
+export const turns = nylorun.table(
+  "turns",
+  {
+    sessionId: textC().notNull(),
+    turnId: textC().notNull(),
+    agentId: textC().notNull(),
+    /** The session owner (`ownerUserId`); null for an application's own session. */
+    ownerUserId: textC(),
+    /** `info.a2a.contextId` of an A2A context's session. */
+    a2aContextId: textC(),
+    status: text({ enum: ["running", "paused", "completed", "failed", "cancelled"] }).notNull(),
+    /** ISO times: of the turn's first event, its end, and its last status change. */
+    startedAt: textC().notNull(),
+    endedAt: textC(),
+    changedAt: textC().notNull(),
+    /** The end facts' `totals` (`{steps, tokens, costUsd}`), once it ended with them. */
+    totals: jsonText(),
+    /**
+     * While `paused`: what its first open interaction asks for, as profile v2 names it
+     * (`question`, `approval` or `connection`); null otherwise.
+     */
+    waitingFor: text({ enum: ["question", "approval", "connection"] }),
+    /** The queued messages it took (protocol 17): their A2A task ids name it too. */
+    queuedMessageIds: text().array().notNull().default(sql`'{}'`),
+    firstSeq: bigint({ mode: "number" }).notNull(),
+    lastSeq: bigint({ mode: "number" }).notNull(),
+    txid: xid8().notNull().default(sql`pg_current_xact_id()`),
+  },
+  (t) => [
+    primaryKey({ name: "turns_pkey", columns: [t.sessionId, t.turnId] }),
+    index("turns_turn").on(t.turnId),
+    index("turns_changes").on(t.txid, t.sessionId, t.turnId),
+    index("turns_owner_changes").on(t.ownerUserId, t.txid),
+    index("turns_owner_agent").on(t.ownerUserId, t.agentId, t.changedAt),
+  ],
+);
+
+/**
  * Each session's queue (protocol 17, D76): messages that arrived while its turn ran or waited, in
  * order (`seq`), until a turn takes them. A row holds the command as sent, the turn input its
  * message gives the engine (file parts pinned when it was queued), and who sent it.
@@ -902,6 +947,68 @@ export const sandboxSignals = nylorun.table(
   ],
 );
 
+/**
+ * A2A push notification configs (Host feature `a2a-profile-v2`): where a task's updates go, one
+ * row per task and config id (`taskId`: the A2A id its caller knows, a queued message's own until
+ * a turn takes it; `turnId`: the turn it follows). The push translator (`api/a2a/push.ts`) reads
+ * the session's events from `nextSeq` on and writes each update as an `a2a_pushes` row in one
+ * transaction; `doneAt` is set once the task's turn ended, and the row is deleted after the
+ * Host tuning's `a2a.pushConfigRetentionMs`. `extensions` are the profile extensions the caller
+ * activated when it gave the config; `baseUrl` is the Runtime's URL as that caller reached it,
+ * for file URLs; `traceId` is `telemetry/v1`'s.
+ */
+export const a2aPushConfigs = nylorun.table(
+  "a2a_push_configs",
+  {
+    sessionId: textC().notNull(),
+    taskId: textC().notNull(),
+    configId: textC().notNull(),
+    contextId: text().notNull(),
+    turnId: textC().notNull(),
+    url: text().notNull(),
+    token: text(),
+    authentication: jsonText(),
+    baseUrl: text().notNull(),
+    extensions: jsonText().notNull(),
+    traceId: text(),
+    nextSeq: bigint({ mode: "number" }).notNull(),
+    createdAt: timestamp({ withTimezone: true, mode: "date" })
+      .notNull()
+      .default(sql`clock_timestamp()`),
+    doneAt: timestamp({ withTimezone: true, mode: "date" }),
+  },
+  (t) => [
+    primaryKey({ name: "a2a_push_configs_pkey", columns: [t.sessionId, t.taskId, t.configId] }),
+    index("a2a_push_configs_done_at").on(t.doneAt),
+  ],
+);
+
+/**
+ * The push outbox (outbox kind `push`): one row per A2A update a push config is owed, its body
+ * the exact JSON sent (a `StreamResponse`), delivered after commit and by the Tenant sweep as the
+ * other outbox rows are (`attempts`, `retry_at`, `parked_at`). The row id is the Standard
+ * Webhooks `webhook-id`, the same on every attempt. A row whose config is gone, or that kept
+ * failing for the Host tuning's `a2a.pushMaxAgeMs` (24 hours), is deleted: the change feed
+ * covers what it would have said.
+ */
+export const a2aPushes = nylorun.table(
+  "a2a_pushes",
+  {
+    id: textC().primaryKey(),
+    sessionId: textC().notNull(),
+    taskId: textC().notNull(),
+    configId: textC().notNull(),
+    body: text().notNull(),
+    createdAt: timestamp({ withTimezone: true, mode: "date" })
+      .notNull()
+      .default(sql`clock_timestamp()`),
+    attempts: integer().notNull().default(0),
+    retryAt: timestamp({ withTimezone: true, mode: "date" }),
+    parkedAt: timestamp({ withTimezone: true, mode: "date" }),
+  },
+  (t) => [index("a2a_pushes_created_at").on(t.createdAt)],
+);
+
 // ---------------------------------------------------------------------------
 // nylorun_streams: the record
 
@@ -965,6 +1072,9 @@ export type ModelUsageRow = typeof modelUsage.$inferSelect;
 export type ModelBudgetRow = typeof modelBudgets.$inferSelect;
 export type ToolCrossingRow = typeof toolCrossings.$inferSelect;
 export type QueuedMessageRow = typeof sessionQueue.$inferSelect;
+export type TurnRow = typeof turns.$inferSelect;
+export type A2aPushConfigRow = typeof a2aPushConfigs.$inferSelect;
+export type A2aPushRow = typeof a2aPushes.$inferSelect;
 export type AgentTriggerRow = typeof agentTriggers.$inferSelect;
 export type TriggerRunRow = typeof triggerRuns.$inferSelect;
 export type MemoryRow = typeof memories.$inferSelect;

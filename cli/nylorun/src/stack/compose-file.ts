@@ -245,6 +245,11 @@ ${healthcheck("gateway")}    restart: unless-stopped
       # The URL clients use: webhook URLs and the OAuth resource. Behind a reverse proxy, its URL
       # (\`NYLORUN_PUBLIC_URL=https://runtime.example.com nylorun start\`).
       NYLORUN_PUBLIC_URL: \${NYLORUN_PUBLIC_URL:-http://localhost:\${NYLORUN_PORT}}
+      # A2A push notifications (profile v2): the installation's Standard Webhooks secret
+      # (\`whsec_…\`; without it the agents' cards say pushNotifications false), and the private
+      # \`host:port\`s pushes may reach, comma-separated.
+      NYLORUN_A2A_PUSH_SECRET: \${NYLORUN_A2A_PUSH_SECRET:-}
+      NYLORUN_A2A_PUSH_ALLOW_HOSTS: \${NYLORUN_A2A_PUSH_ALLOW_HOSTS:-}
       NYLORUN_DATABASE_URL: postgres://nylorun:\${NYLORUN_POSTGRES_PASSWORD}@postgres:5432/nylorun
       NYLORUN_RESTATE_INGRESS_URL: http://restate:8080
       NYLORUN_RESTATE_ADMIN_URL: http://restate:9070

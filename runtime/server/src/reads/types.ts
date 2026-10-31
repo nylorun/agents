@@ -10,6 +10,7 @@ import type {
   SessionUsageTotals,
   LiveEvent,
 } from "@nylorun/core/contracts";
+import type { TurnRow } from "../store/types.js";
 
 export type ReadAccess = { owner?: string; agents?: readonly string[] };
 export type SessionFilters = {
@@ -20,6 +21,8 @@ export type SessionFilters = {
   ownerUserId?: string;
 };
 export type PageOptions = { limit: number; cursor?: string };
+/** A page of the turn change feed: rows in the order they changed, and where to read on. */
+export type TurnChangeRows = { turns: TurnRow[]; cursor: string; hasMore: boolean };
 export type ArtifactFilters = {
   sessionId?: string;
   kind?: ArtifactKind;
@@ -50,5 +53,16 @@ export interface ReadStore {
    * for a turn the session never had.
    */
   turnEvents(id: string, turnId: string, access: ReadAccess): Promise<LiveEvent[]>;
+  /**
+   * The turn index's change feed (Host feature `turns`): the turns `access` reaches (of one
+   * session with `sessionId`), in the order their transactions changed them, after `changedAfter`
+   * (a cursor it returned). Only changes below every transaction still running are read, so a
+   * change committed later never lands behind the cursor.
+   */
+  turnChanges(
+    filters: { sessionId?: string },
+    page: { limit: number; changedAfter?: string },
+    access: ReadAccess,
+  ): Promise<TurnChangeRows>;
   close(): Promise<void>;
 }

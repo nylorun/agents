@@ -142,6 +142,27 @@ session's MCP tools, with their text before the MCP tools' own, not hashed). Eac
 seam; `tool_search` over the run's MCP tools). An author tool of the same name fails the turn
 (`agentFrom`, `agent.build-failed`).
 
+**Plan**: The agent's own list of steps, each a label, a state (`pending`, `active`, `done`,
+`blocked`, `skipped`) and an optional note (A2A profile v2, `progress/v1`; `tools/plan.ts`). Our
+engine offers `update_plan` (a `harness` tool, after the agent's other engine tools) to the
+session's root agent when the version the session runs sets `harness.loop.plan: true`
+(`turn.start.loop.plan`; `loop: { plan: true }` in `AGENT.md`), unless the agent has its own tool of
+that name. Each call takes the whole plan, cuts it to `PLAN_LIMITS` (20 steps, labels of 120 and
+notes of 280 characters, ending in `…`) rather than refusing it, claims one durable `plan.updated`
+over the Harness API's `event`, and answers `Plan updated`. A malformed plan, or a claim the
+Runtime refuses, is a failed outcome the model sees; a replayed call claims nothing again.
+
+**Connection request**: The agent asks whoever gave it the task to connect an app it needs (A2A
+profile v2, `interactions/v1` kind `connection`; `tools/connection.ts`). Our engine offers
+`request_connection` (`{app, reason}`, a `harness` tool, after `update_plan`) to the session's
+root agent when the version sets `harness.loop.connections: true` (`loop: { connections: true }`
+in `AGENT.md`), unless the agent has its own tool of that name. A first call's outcome is
+`interaction-required`: kind `response`, prompt `Connect <app>: <reason>`, `metadata: {kind:
+"connection", app, reason}` (app cut at 80 and reason at 280 characters), which the session's
+waits carry. A `respond` runs the call again in the next segment with the answer in
+`context.resume`: `true` or `{connected: true}` answers `Connected: <app>`, anything else
+`Not connected: <app>`. A replayed call answers its recorded outcome.
+
 **Effect target**: What runs a tool effect, by identity (`HostEffect.target`, protocol 15):
 `{kind: "mcp", server, tool}` (`tool` the server's own name), `{kind: "http", tool}` (the
 declared name), `{kind: "sandbox"}` or `{kind: "harness"}`; `platform` is gone. Core routes,

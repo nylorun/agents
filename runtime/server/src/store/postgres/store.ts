@@ -123,6 +123,8 @@ import type {
   ModelUsageTotals,
   StoredSession,
   QueuedMessageRow,
+  A2aPushConfigRow,
+  OutboxPush,
   AgentTriggerRow,
   TriggerRunRow,
   MemoryRow,
@@ -146,6 +148,7 @@ import { database, driverError, type Database, type Transaction } from "./db.js"
 import { expectedSchemaVersion, readSchemaVersion } from "./migrate.js";
 import { hostTuning } from "../../tuning.js";
 import { createPostgresRecordReader } from "./record.js";
+import { indexTurn, listTurns, turnOfQueuedMessage, turnRow, type TurnListQuery } from "./turns.js";
 import { postgresAgentRecordWriter, postgresRecordWriter } from "./record-writer.js";
 import {
   artifacts,
@@ -167,6 +170,8 @@ import {
   sessionLogHeads,
   sessions,
   sessionQueue,
+  a2aPushConfigs,
+  a2aPushes,
   agentTriggers,
   triggerRuns,
   memories,
@@ -176,6 +181,8 @@ import {
   signingKeys,
   tenant,
   tenantSettings,
+  turns,
+  type TurnRow,
   vaultAudit,
   vaultCredentials,
   vaultIdempotency,
@@ -490,7 +497,17 @@ const SIGNING_KEY_STAMP: Partial<
 /** The audit columns a row has (`ord` only orders them). */
 const { ord: _ord, ...AUDIT } = getTableColumns(vaultAudit);
 
-const SESSION_TABLES = [sessions, commands, effects, links, wakes, sessionQueue];
+const SESSION_TABLES = [
+  sessions,
+  commands,
+  effects,
+  links,
+  wakes,
+  sessionQueue,
+  turns,
+  a2aPushConfigs,
+  a2aPushes,
+];
 
 /**
  * The outbox's tables, by the kind of request each holds. Their delivery columns (`id`,
@@ -499,7 +516,13 @@ const SESSION_TABLES = [sessions, commands, effects, links, wakes, sessionQueue]
 const OUTBOX = {
   wake: wakes,
   sandbox: sandboxSignals as unknown as typeof wakes,
+  push: a2aPushes as unknown as typeof wakes,
 } as const satisfies Record<OutboxRef["kind"], unknown>;
+
+/** A push outbox row as it is delivered. */
+function outboxPush(row: { id: string; sessionId: string; taskId: string; configId: string; body: string }): OutboxPush {
+  return { id: row.id, sessionId: row.sessionId, taskId: row.taskId, configId: row.configId, body: row.body };
+}
 
 /** A wake outbox row as it is delivered: its own dedupe key, or one made from the row id. */
 function outboxWake(id: string, reason: WakeReason, dedupeKey: string | null): OutboxWake {
@@ -626,9 +649,28 @@ class PostgresTx implements Tx {
       ...(writer ? { writer } : {}),
       maxEntryBytes: await this.maxEntryBytes(),
     });
+    // The turn index changes with the log, in this transaction (Host feature `turns`).
+    await indexTurn(db, event);
     this.events.push(event);
     this.generations.push(generation);
     return structuredClone(event);
+  }
+
+  // --- turn index ----------------------------------------------------------
+
+  async turn(sessionId: string, turnId: string): Promise<TurnRow | undefined> {
+    this.check();
+    return turnRow(this.db, sessionId, turnId);
+  }
+
+  async turnOfQueuedMessage(sessionId: string, queuedMessageId: string): Promise<TurnRow | undefined> {
+    this.check();
+    return turnOfQueuedMessage(this.db, sessionId, queuedMessageId);
+  }
+
+  async listTurns(query: TurnListQuery): Promise<{ turns: TurnRow[]; total: number }> {
+    this.check();
+    return listTurns(this.db, query);
   }
 
   // --- wake outbox ---------------------------------------------------------
@@ -683,7 +725,7 @@ class PostgresTx implements Tx {
       .where(and(isNull(sandboxSignals.parkedAt), lte(signal.due, now)))
       .orderBy(signal.due, sandboxSignals.id)
       .limit(limit);
-    const rows = [
+    const rows: (PendingRequest & { due: number })[] = [
       ...wakeRows.map((row) => ({
         kind: "wake" as const,
         id: row.id,
@@ -705,13 +747,30 @@ class PostgresTx implements Tx {
         due: row.dueSeconds,
       })),
     ];
+    const push = DUE(OUTBOX.push, graceMs);
+    const pushRows = await this.db
+      .select({ ...getTableColumns(a2aPushes), dueSeconds: push.dueSeconds })
+      .from(a2aPushes)
+      .where(and(isNull(a2aPushes.parkedAt), lte(push.due, now)))
+      .orderBy(push.due, a2aPushes.id)
+      .limit(limit);
+    rows.push(
+      ...pushRows.map((row) => ({
+        kind: "push" as const,
+        id: row.id,
+        request: { kind: "push" as const, push: outboxPush(row) },
+        createdAt: row.createdAt.toISOString(),
+        attempts: row.attempts,
+        due: row.dueSeconds,
+      })),
+    );
     rows.sort((a, b) => a.due - b.due || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
     return rows.slice(0, limit).map(({ due: _due, ...row }) => row);
   }
 
   async deleteOutbox(rows: readonly OutboxRef[]): Promise<void> {
     this.check();
-    for (const kind of ["wake", "sandbox"] as const) {
+    for (const kind of ["wake", "sandbox", "push"] as const) {
       const ids = rows.filter((row) => row.kind === kind).map((row) => row.id);
       if (ids.length > 0) await this.db.delete(OUTBOX[kind]).where(inArray(OUTBOX[kind].id, ids));
     }
@@ -729,6 +788,138 @@ class PostgresTx implements Tx {
         ...(retry.park ? { parkedAt: sql`clock_timestamp()` } : {}),
       })
       .where(eq(table.id, row.id));
+  }
+
+  // --- A2A push (Host feature `a2a-profile-v2`) ---------------------------------
+
+  async putPushConfig(
+    row: Omit<A2aPushConfigRow, "createdAt" | "doneAt"> & { doneAt?: Date | null },
+  ): Promise<void> {
+    this.check();
+    const { sessionId: _s, taskId: _t, configId: _c, ...set } = row;
+    await this.db
+      .insert(a2aPushConfigs)
+      .values({ ...row, doneAt: row.doneAt ?? null })
+      .onConflictDoUpdate({
+        target: [a2aPushConfigs.sessionId, a2aPushConfigs.taskId, a2aPushConfigs.configId],
+        set: { ...set, doneAt: row.doneAt ?? null, createdAt: sql`clock_timestamp()` },
+      });
+  }
+
+  async pushConfig(sessionId: string, taskId: string, configId: string): Promise<A2aPushConfigRow | undefined> {
+    this.check();
+    const [row] = await this.db
+      .select()
+      .from(a2aPushConfigs)
+      .where(
+        and(
+          eq(a2aPushConfigs.sessionId, sessionId),
+          eq(a2aPushConfigs.taskId, taskId),
+          eq(a2aPushConfigs.configId, configId),
+        ),
+      );
+    return row;
+  }
+
+  async pushConfigs(
+    sessionId: string,
+    taskId: string,
+    options: { after?: string; limit?: number } = {},
+  ): Promise<A2aPushConfigRow[]> {
+    this.check();
+    const query = this.db
+      .select()
+      .from(a2aPushConfigs)
+      .where(
+        and(
+          eq(a2aPushConfigs.sessionId, sessionId),
+          eq(a2aPushConfigs.taskId, taskId),
+          options.after === undefined ? undefined : gt(a2aPushConfigs.configId, options.after),
+        ),
+      )
+      .orderBy(a2aPushConfigs.configId)
+      .$dynamic();
+    return options.limit === undefined ? query : query.limit(options.limit);
+  }
+
+  async deletePushConfig(sessionId: string, taskId: string, configId: string): Promise<boolean> {
+    this.check();
+    const deleted = await this.db
+      .delete(a2aPushConfigs)
+      .where(
+        and(
+          eq(a2aPushConfigs.sessionId, sessionId),
+          eq(a2aPushConfigs.taskId, taskId),
+          eq(a2aPushConfigs.configId, configId),
+        ),
+      )
+      .returning({ id: a2aPushConfigs.configId });
+    return deleted.length > 0;
+  }
+
+  async activePushConfigs(sessionId: string, options: { lock?: boolean } = {}): Promise<A2aPushConfigRow[]> {
+    this.check();
+    const query = this.db
+      .select()
+      .from(a2aPushConfigs)
+      .where(and(eq(a2aPushConfigs.sessionId, sessionId), isNull(a2aPushConfigs.doneAt)))
+      .orderBy(a2aPushConfigs.taskId, a2aPushConfigs.configId)
+      .$dynamic();
+    return options.lock ? query.for("update") : query;
+  }
+
+  async pushSessions(limit: number, after?: string): Promise<string[]> {
+    this.check();
+    const rows = await this.db
+      .selectDistinct({ sessionId: a2aPushConfigs.sessionId })
+      .from(a2aPushConfigs)
+      .where(
+        and(
+          isNull(a2aPushConfigs.doneAt),
+          after === undefined ? undefined : gt(a2aPushConfigs.sessionId, after),
+        ),
+      )
+      .orderBy(a2aPushConfigs.sessionId)
+      .limit(limit);
+    return rows.map((row) => row.sessionId);
+  }
+
+  async advancePushConfig(
+    key: { sessionId: string; taskId: string; configId: string },
+    change: { turnId: string; nextSeq: number; traceId: string | null; done: boolean },
+  ): Promise<void> {
+    this.check();
+    await this.db
+      .update(a2aPushConfigs)
+      .set({
+        turnId: change.turnId,
+        nextSeq: change.nextSeq,
+        traceId: change.traceId,
+        ...(change.done ? { doneAt: sql`clock_timestamp()` } : {}),
+      })
+      .where(
+        and(
+          eq(a2aPushConfigs.sessionId, key.sessionId),
+          eq(a2aPushConfigs.taskId, key.taskId),
+          eq(a2aPushConfigs.configId, key.configId),
+        ),
+      );
+  }
+
+  async prunePushConfigs(before: Date): Promise<number> {
+    this.check();
+    const deleted = await this.db
+      .delete(a2aPushConfigs)
+      .where(lt(a2aPushConfigs.doneAt, before))
+      .returning({ id: a2aPushConfigs.configId });
+    return deleted.length;
+  }
+
+  async enqueuePush(push: Omit<OutboxPush, "id">): Promise<void> {
+    this.check();
+    const id = `push_${randomUUID()}`;
+    await this.db.insert(a2aPushes).values({ id, ...push });
+    this.outbox.push({ kind: "push", id, request: { kind: "push", push: { id, ...push } } });
   }
 
   // --- ownership -----------------------------------------------------------
