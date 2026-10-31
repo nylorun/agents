@@ -1,0 +1,30 @@
+# A2A TCK failures the Runtime's example agent is known to have (A2A-E18).
+#
+# `.github/workflows/a2a-tck.yml` fails only on a failure not listed here
+# (`tck/compare.mjs`). One `<classname>::<name>` per line, as the TCK's JUnit report names it.
+# Seeded against a2aproject/a2a-tck at the commit the workflow pins, JSON-RPC only.
+
+# Scenario agents: the TCK's own SUTs act on the message id's prefix (`tck-artifact-*`,
+# `tck-message-response`). The example agent is a Nylorun agent with a scripted model that
+# completes every task with "Hello from TCK"; it writes no such artifacts and never answers with a
+# bare message (a Nylorun task is always a task).
+tests.compatibility.core_operations.test_artifacts.TestTextArtifact::test_task_has_text_artifact[jsonrpc]
+tests.compatibility.core_operations.test_artifacts.TestFileArtifact::test_task_has_file_artifact[jsonrpc]
+tests.compatibility.core_operations.test_artifacts.TestFileUrlArtifact::test_task_has_file_url_artifact[jsonrpc]
+tests.compatibility.core_operations.test_artifacts.TestDataArtifact::test_task_has_data_artifact[jsonrpc]
+tests.compatibility.core_operations.test_artifacts.TestMessageResponse::test_returns_message_with_text_part[jsonrpc]
+
+# ListTasks: served by the turn index (A2A-E1 to E3), merged separately. Remove these once it is.
+tests.compatibility.core_operations.test_requirements::test_must_requirement[CORE-LIST-001-jsonrpc]
+tests.compatibility.core_operations.test_requirements::test_must_requirement[CORE-LIST-002-jsonrpc]
+tests.compatibility.core_operations.test_requirements::test_must_requirement[CORE-LIST-003-jsonrpc]
+tests.compatibility.core_operations.test_requirements::test_must_requirement[CORE-LIST-004-jsonrpc]
+tests.compatibility.core_operations.test_requirements::test_must_requirement[CORE-LIST-005-jsonrpc]
+
+# The TCK sends one message id per scenario prefix for a whole run (`tck_id`), so these send a
+# message id already used for a different message. The Runtime keys a message by its id (a retry
+# replays the first task), and answers a reuse with different content as InvalidParamsError.
+tests.compatibility.core_operations.test_requirements::test_must_requirement[CORE-EXECUTION-MODE-001-jsonrpc]
+tests.compatibility.core_operations.test_requirements::test_must_requirement[CORE-EXECUTION-MODE-002-jsonrpc]
+tests.compatibility.core_operations.test_requirements::test_must_requirement[CORE-MULTI-001a-jsonrpc]
+tests.compatibility.core_operations.test_requirements::test_must_requirement[CORE-MULTI-003-jsonrpc]

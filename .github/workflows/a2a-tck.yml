@@ -1,0 +1,105 @@
+name: A2A TCK
+# A2A 1.0 conformance on the JSON-RPC binding (A2A-E18): the official A2A TCK
+# (github.com/a2aproject/a2a-tck) against an example agent the Runtime publishes over A2A
+# (runtime/server/test/a2a/tck/serve.tck.ts, on the test stack's Postgres). The run fails only on
+# a failure not in runtime/server/test/a2a/tck-known-failures.txt; its reports are kept as an
+# artifact, and published with each release's conformance statement
+# (docs.nylorun.com/a2a/conformance).
+#
+# Runs on main, on manual runs, and on PRs that change the A2A server, its tests or this
+# workflow. Locally (Python 3.11+ and uv):
+#
+#   npm run test:stack:up -w @nylorun/runtime
+#   (cd runtime/server && NYLORUN_A2A_TCK=1 NYLORUN_A2A_TCK_PORT=9999 npx vitest run --config vitest.tck.config.ts) &
+#   git clone https://github.com/a2aproject/a2a-tck && cd a2a-tck && git checkout "$TCK_REF"
+#   uv venv && uv pip install -e . && .venv/bin/python run_tck.py --sut-host http://localhost:9999
+#   node ../runtime/server/test/a2a/tck/compare.mjs reports/junitreport.xml ../runtime/server/test/a2a/tck-known-failures.txt
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - runtime/server/src/api/a2a/**
+      - runtime/server/src/tenant/commands.ts
+      - runtime/server/test/a2a/**
+      - runtime/server/vitest.tck.config.ts
+      - .github/workflows/a2a-tck.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: a2a-tck-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+env:
+  # The TCK commit the known failures were seeded against. Moving it is a change to review:
+  # run it, then update the list.
+  TCK_REPOSITORY: a2aproject/a2a-tck
+  TCK_REF: d4d6fae7887f88ef607fb461c13e3b0e1802f19b
+  SUT_PORT: "9999"
+jobs:
+  tck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm install --global npm@11.15.0
+      - run: npm ci
+      # Workspaces run in flag order: keep dependency order.
+      - run: npm run build --workspace @nylorun/core --workspace @nylorun/agents --workspace @nylorun/admin --workspace @nylorun/harness --workspace @nylorun/runtime
+      - name: Start the test stack
+        run: npm run test:stack:up --workspace @nylorun/runtime
+      - name: Serve the example agent
+        working-directory: runtime/server
+        env:
+          NYLORUN_A2A_TCK: "1"
+          NYLORUN_A2A_TCK_PORT: ${{ env.SUT_PORT }}
+          NYLORUN_A2A_TCK_READY: ${{ runner.temp }}/sut-ready
+        run: |
+          nohup npx vitest run --config vitest.tck.config.ts > "$RUNNER_TEMP/sut.log" 2>&1 &
+          for _ in $(seq 1 180); do
+            [[ -s "$NYLORUN_A2A_TCK_READY" ]] && break
+            sleep 1
+          done
+          if [[ ! -s "$NYLORUN_A2A_TCK_READY" ]]; then
+            cat "$RUNNER_TEMP/sut.log"
+            echo "::error::The example agent did not start"
+            exit 1
+          fi
+          curl -fsS "http://localhost:$SUT_PORT/.well-known/agent-card.json"
+      - uses: actions/checkout@v6
+        with:
+          repository: ${{ env.TCK_REPOSITORY }}
+          ref: ${{ env.TCK_REF }}
+          path: a2a-tck
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v6
+      - name: Install the TCK
+        working-directory: a2a-tck
+        run: |
+          uv venv --python 3.12
+          uv pip install -e .
+      - name: Run the TCK
+        id: tck
+        working-directory: a2a-tck
+        # Its exit code counts known failures too: compare.mjs decides.
+        continue-on-error: true
+        run: .venv/bin/python run_tck.py --sut-host "http://localhost:$SUT_PORT" -v
+      - name: Fail on failures not on the known list
+        run: node runtime/server/test/a2a/tck/compare.mjs a2a-tck/reports/junitreport.xml runtime/server/test/a2a/tck-known-failures.txt
+      - name: Keep the reports
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: a2a-tck-results
+          path: |
+            a2a-tck/reports/
+            ${{ runner.temp }}/sut.log
+          if-no-files-found: warn
+      - name: Stop the test stack
+        if: always()
+        run: npm run test:stack:down --workspace @nylorun/runtime
