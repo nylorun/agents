@@ -224,9 +224,27 @@ export function parseEnvelope(
     request: {
       id: safeId,
       method: body.method,
-      params: (body.params as Record<string, unknown> | undefined) ?? {},
+      params: protoJsonKeys((body.params as Record<string, unknown> | undefined) ?? {}) as Record<string, unknown>,
     },
   };
+}
+
+/**
+ * Params with ProtoJSON's original field names (`task_id`, `return_immediately`) read as their
+ * lowerCamel JSON names, as ProtoJSON parsers must accept both. A part's `data` and any
+ * `metadata` are the caller's own values and keep their keys.
+ */
+function protoJsonKeys(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(protoJsonKeys);
+  if (!isObject(value)) return value;
+  const out: Record<string, unknown> = {};
+  for (const [key, child] of Object.entries(value)) {
+    const name = key.includes("_") ? key.replace(/_([a-z0-9])/g, (_, c: string) => c.toUpperCase()) : key;
+    // The lowerCamel name wins when a client sends both.
+    if (name !== key && Object.hasOwn(value, name)) continue;
+    out[name] = name === "data" || name === "metadata" ? child : protoJsonKeys(child);
+  }
+  return out;
 }
 
 /** `A2A-Version` as Major.Minor; empty means 0.3 (spec §3.6.2). */

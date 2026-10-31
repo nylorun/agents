@@ -124,6 +124,25 @@ describe("A2A-Version", () => {
   });
 });
 
+describe("ProtoJSON field names", () => {
+  it("reads original proto names as their JSON names, but never inside data or metadata", () => {
+    const parsed = parseEnvelope(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "CreateTaskPushNotificationConfig",
+        params: { task_id: "t", push_url: "x", metadata: { a_b: 1 }, parts: [{ data: { c_d: 2 } }] },
+      })
+    );
+    expect(parsed.ok && parsed.request.params).toEqual({
+      taskId: "t",
+      pushUrl: "x",
+      metadata: { a_b: 1 },
+      parts: [{ data: { c_d: 2 } }],
+    });
+  });
+});
+
 describe("SendMessage params", () => {
   it("joins text parts", () => {
     expect(

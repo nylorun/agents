@@ -101,7 +101,7 @@ export interface A2aConfig {
     secret?: string;
     /**
      * `a2a.push.allowHosts` (`NYLORUN_A2A_PUSH_ALLOW_HOSTS`, comma-separated): the `host:port`s
-     * a push, or a file `url` part the Runtime fetches, may reach although they are private,
+     * (`host:*` for any port) a push, or a file `url` part the Runtime fetches, may reach although they are private,
      * loopback or link-local (a receiver on the Docker bridge). Every other URL of those is
      * refused, whatever `delivery.privateAddresses` says.
      */

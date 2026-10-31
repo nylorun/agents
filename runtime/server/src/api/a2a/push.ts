@@ -22,8 +22,8 @@
  *   the installation's `whsec_` secret, Runtime config `a2a.push.secret`, over
  *   `<id>.<timestamp>.<body>`).
  * - **Where pushes go**: through `guardedFetch` under the Host's delivery policy, except that a
- *   private, loopback or link-local address is refused unless its `host:port` is in Runtime
- *   config `a2a.push.allowHosts`. File `url` parts the Runtime fetches follow the same rule.
+ *   private, loopback or link-local address is refused unless its `host:port` (or `host:*`, any
+ *   port) is in Runtime config `a2a.push.allowHosts`. File `url` parts the Runtime fetches follow the same rule.
  */
 import type { LiveEvent } from "@nylorun/core/contracts";
 import { signWebhook, webhookKeyOf } from "../../keys/webhooks.js";
@@ -67,7 +67,9 @@ function hostPort(url: URL): string {
  * policy, with private addresses refused unless `url`'s `host:port` is in `a2a.push.allowHosts`.
  */
 export function pushPolicy(ctx: Pick<TenantContext, "config">, target: string): OutboundPolicy {
-  const allowed = (ctx.config.a2a?.push?.allowHosts ?? []).includes(hostPort(new URL(target)));
+  const url = new URL(target);
+  const hosts = ctx.config.a2a?.push?.allowHosts ?? [];
+  const allowed = hosts.includes(hostPort(url)) || hosts.includes(`${url.hostname.toLowerCase()}:*`);
   return { ...(ctx.config.delivery ?? {}), privateAddresses: allowed ? "allow" : "refuse" };
 }
 

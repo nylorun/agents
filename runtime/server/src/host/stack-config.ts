@@ -1128,14 +1128,17 @@ function parseA2a(env: Readonly<Record<string, string | undefined>>): StackConfi
   return { push: { ...(secret !== undefined ? { secret } : {}), ...(allowHosts ? { allowHosts } : {}) } };
 }
 
-/** `host:port` entries, comma-separated; a host may be a name, an IPv4 or a bracketed IPv6 address. */
+/**
+ * `host:port` entries, comma-separated; a host may be a name, an IPv4 or a bracketed IPv6 address,
+ * and the port `*` for any port (a test receiver on a port it picks).
+ */
 export function parseAllowHosts(value: string): string[] {
   const entries = value
     .split(",")
     .map((entry) => entry.trim().toLowerCase())
     .filter((entry) => entry !== "");
   for (const entry of entries)
-    if (!/^(\[[0-9a-f:.]+\]|[a-z0-9.-]+):\d{1,5}$/.test(entry) || Number(entry.slice(entry.lastIndexOf(":") + 1)) > 65535)
+    if (!/^(\[[0-9a-f:.]+\]|[a-z0-9.-]+):(\d{1,5}|\*)$/.test(entry) || Number(entry.slice(entry.lastIndexOf(":") + 1)) > 65535)
       throw new StackConfigError(`NYLORUN_A2A_PUSH_ALLOW_HOSTS entries must be host:port, not ${entry}`);
   return entries;
 }

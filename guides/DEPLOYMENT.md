@@ -116,7 +116,7 @@ Every Agent is served over A2A 1.0 (JSON-RPC) at `POST /v1/a2a/agents/{agentId}`
   | Variable | Runtime config | What it does |
   | --- | --- | --- |
   | `NYLORUN_A2A_PUSH_SECRET` | `a2a.push.secret` | The installation's Standard Webhooks secret, `whsec_` and the base64 of at least 24 bytes, that signs every push. Receivers verify with it. Unset: no push notifications (`pushNotifications: false`) |
-  | `NYLORUN_A2A_PUSH_ALLOW_HOSTS` | `a2a.push.allowHosts` | Comma-separated `host:port`s a push, or a file `url` part the Runtime fetches, may reach although they are private, loopback or link-local, such as a receiver on the Docker bridge (`172.17.0.1:18787`). Every other private address is refused, whatever `NYLORUN_ENDPOINT_PRIVATE` says |
+  | `NYLORUN_A2A_PUSH_ALLOW_HOSTS` | `a2a.push.allowHosts` | Comma-separated `host:port`s (`host:*` for any port) a push, or a file `url` part the Runtime fetches, may reach although they are private, loopback or link-local, such as a receiver on the Docker bridge (`172.17.0.1:18787`). Every other private address is refused, whatever `NYLORUN_ENDPOINT_PRIVATE` says |
 
   Keep the secret in your secret store, as you keep the other `NYLORUN_*` secrets.
 - **Files.** A message's `url` file parts are fetched (within `inlineFileBytes`, under the same

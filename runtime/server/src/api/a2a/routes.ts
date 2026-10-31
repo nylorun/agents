@@ -856,8 +856,8 @@ async function deletePushConfig(caller: Caller, params: Record<string, unknown>)
   requirePush(caller);
   const ref = parsePushConfigRef(params);
   const owned = await ownedTask(caller, ref.taskId, 0);
-  const deleted = await caller.ctx.store.tx((t) => t.deletePushConfig(owned.sessionId, owned.task.id, ref.id));
-  if (!deleted) a2aFail("taskNotFound", "Push notification config not found", { taskId: ref.taskId, id: ref.id });
+  // Idempotent: a config already gone is deleted.
+  await caller.ctx.store.tx((t) => t.deletePushConfig(owned.sessionId, owned.task.id, ref.id));
   return {};
 }
 
