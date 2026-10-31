@@ -255,6 +255,12 @@ export const OPTIONAL_HOST_FEATURES = [
    * subject its own sessions'. The A2A endpoint answers `ListTasks` from it.
    */
   "turns",
+  /**
+   * An agent manifest's `harness.model` (`model: <provider>/<model>` in `AGENT.md`): a session
+   * opened on a version that names one starts with it as its own model (`session-model`), when
+   * its provider is connected and lists it; otherwise the Tenant's model applies.
+   */
+  "agent-model",
 ] as const;
 export type OptionalHostFeature = (typeof OPTIONAL_HOST_FEATURES)[number];
 export interface ProtocolRange {

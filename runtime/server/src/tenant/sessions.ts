@@ -22,6 +22,7 @@ import {
 } from "./context.js";
 import { fail } from "./http.js";
 import { definitionFileIssues } from "./definition-files.js";
+import { agentModelOf } from "./session-model.js";
 import { limitsInForce, readTenantLimits } from "./limits.js";
 
 /** A session's creation identity: everything but the request id. */
@@ -67,7 +68,8 @@ export async function listSessions(
  * the session's, with the spec of what the Agent runs pinned now, and the Agent's vault holds the
  * session's credentials. It pins the manifest version the Agent runs (`definition`), as the loop
  * manifest that version's harness section makes, and the harness that section names (`pinOf`);
- * a turn's first segment pins the version the Agent runs then (`repinTurn`).
+ * a turn's first segment pins the version the Agent runs then (`repinTurn`). When that version
+ * names a model the Tenant can use (`harness.model`), the session starts with it as its own.
  */
 export async function putSession(
   ctx: TenantContext,
@@ -127,12 +129,15 @@ export async function openSessionIn(
     opaque,
   });
   // The version the Agent runs, both sections (T3): its loop manifest, harness and sandbox spec.
-  const { pin } = await pinOf(t, agent);
+  const { pin, version } = await pinOf(t, agent);
   await checkSkillLimit(t, pin.manifest, agent);
   const config = await readSandboxConfig(t);
   // Placement (D38, D52): where this session's harness may run, decided now and kept.
   checkPlacement(config, agent.kind, pin.harness);
   if (agent.kind === "pod") await requirePods(ctx.pods, `Agent ${agent.id}`);
+  // The model the version names (`harness.model`, Host feature `agent-model`) is the new
+  // session's own, as `chooseSessionModel` would make it, when the Tenant can use it now.
+  const model = await agentModelOf(t, version.body.harness as { readonly model?: unknown });
   const created: Session = {
     id,
     agentId: agent.id,
@@ -149,6 +154,7 @@ export async function openSessionIn(
     environmentId: agent.id,
     environmentVersion: agent.version,
     ...(pin.sandbox === undefined ? {} : { sandbox: pin.sandbox }),
+    ...(model === undefined ? {} : { model }),
   };
   await t.put("sessions", id, created);
   await recordAttachment(t, id, agent.id);

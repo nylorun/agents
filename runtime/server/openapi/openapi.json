@@ -39,7 +39,8 @@
         "session-model",
         "model-host-identity",
         "credential-provider",
-        "turns"
+        "turns",
+        "agent-model"
       ]
     },
     "description": "For developers: agent manifests, Agents, sessions (with AG-UI and A2A) and artifacts, through `@nylorun/agents`. Every Tenant serves it on its one URL, beside the Management API (`/openapi/management.json`). Every request sends `Nylorun-Protocol`. Who may call each operation is its `security` and its `x-nylorun-credentials` and `x-nylorun-scopes` (the subject scopes that reach it) fields: an application key (servers) or a trusted issuer's token (browsers and apps)."
@@ -22680,6 +22681,12 @@
             },
             "additionalProperties": false,
             "description": "The Agent's memory: Markdown files under /memories it keeps across sessions"
+          },
+          "model": {
+            "type": "string",
+            "maxLength": 200,
+            "pattern": "^[A-Za-z0-9._-]+\\/\\S+$",
+            "description": "The model the agent runs on: <provider>/<model>, such as anthropic/claude-sonnet-4-5"
           },
           "functions": {
             "description": "Reserved: Functions are not available yet"

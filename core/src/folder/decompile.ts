@@ -6,9 +6,9 @@
  *
  * Each manifest field goes where the compiler reads it:
  *
- * - `name`, `description`, `metadata`, `harness.id`, `memory`, `loop`, and this agent's server and
- *   skill settings: `AGENT.md` frontmatter. `harness.outputSchema`: `output.schema.json`, named by
- *   `outputSchema`.
+ * - `name`, `description`, `metadata`, `harness.id`, `memory`, `loop`, `model`, and this agent's
+ *   server and skill settings: `AGENT.md` frontmatter. `harness.outputSchema`:
+ *   `output.schema.json`, named by `outputSchema`.
  * - `harness.instructions`: the first as `AGENT.md`'s body, each other as
  *   `instructions/NN-<slug>.md`, zero-padded so path order and natural order agree.
  * - HTTP tools: `tools/<name>.json`, their schemas inline.
@@ -176,6 +176,7 @@ interface AgentFields {
   readonly outputSchema?: unknown;
   readonly memory?: unknown;
   readonly loop?: unknown;
+  readonly model?: unknown;
 }
 
 /** The harness fields a flow folder writes: a v8 workflow harness's, or an embedded v3's. */
@@ -351,6 +352,7 @@ function writeAgent(writer: Writer, place: Place, identity: Identity, harness: A
   if (harness.skills !== undefined && Object.keys(harness.skills).length === 0) note("harness.skills is an empty map: it is left out.");
 
   if (harness.memory !== undefined) front.memory = harness.memory;
+  if (harness.model !== undefined) front.model = harness.model;
   if (harness.loop !== undefined) {
     if (isObject(harness.loop)) front.loop = harness.loop;
     else note("harness.loop is not a map, which AGENT.md needs: it is left out.");

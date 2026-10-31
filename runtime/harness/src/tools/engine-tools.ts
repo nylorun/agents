@@ -8,8 +8,9 @@
  *   the artifact notes;
  * - tools: the six sandbox tools; the skill tools; `save_artifact`; `read_artifact`;
  *   `schedule_wake` when the session's version sets `runtime.selfWake` (track T4); `memory`
- *   when it sets `harness.memory` (track T5); and `update_plan` for the root agent when it sets
- *   `harness.loop.plan` (A2A profile v2).
+ *   when it sets `harness.memory` (track T5); and, for the root agent, `update_plan` when it sets
+ *   `harness.loop.plan` and `request_connection` when it sets `harness.loop.connections` (A2A
+ *   profile v2).
  *
  * They come after the agent's own and before the session's MCP tools (`mcpToolSet`), and are
  * not hashed.
@@ -23,6 +24,7 @@ import { skillCatalogText, skillFolderNote, skillTools } from "./skills.js";
 import { wakeTool } from "./wake.js";
 import { memoryTool } from "./memory.js";
 import { planTool, UPDATE_PLAN_TOOL } from "./plan.js";
+import { connectionTool, REQUEST_CONNECTION_TOOL } from "./connection.js";
 import type { McpToolConfig } from "./mcp.js";
 import type { ToolResultConfig } from "./results.js";
 import type { OutputsConfig } from "./outputs.js";
@@ -53,8 +55,9 @@ export interface EngineTools {
  * Our engine's tools and text for `agent`, in a session on Agent `runsOn` (`turn.start.agent`)
  * with its memory (`turn.start.memory`). `memory.root` is false for an agent used as a tool,
  * which may only view memory. `plan` offers `update_plan`: true for the session's root agent when
- * the version sets `harness.loop.plan` (`turn.start.loop.plan`); an agent whose own tools name
- * one `update_plan` keeps its own.
+ * the version sets `harness.loop.plan` (`turn.start.loop.plan`); `connections` offers
+ * `request_connection` alike (`harness.loop.connections`). An agent whose own tools name one of
+ * them keeps its own.
  */
 export function engineToolsFor(
   agent: Pick<AgentManifest, "skills" | "tools">,
@@ -62,6 +65,7 @@ export function engineToolsFor(
   options: Pick<EngineToolOptions, "artifactPageBytes" | "sandboxTools" | "skillReadBytes">,
   memory?: Pick<TurnMemory, "access" | "instructions"> & { readonly root: boolean },
   plan = false,
+  connections = false,
 ): EngineTools {
   const skills = Object.values(agent.skills ?? {});
   const workspace = runsOn?.sandbox?.workspace;
@@ -80,9 +84,12 @@ export function engineToolsFor(
   const remember = memory ? memoryTool(memory, memory.root) : undefined;
   if (remember) instructions.push(remember.instructions);
   // The agent's plan (A2A profile v2, `progress/v1`).
-  const planning =
-    plan && !(agent.tools ?? []).some((tool) => tool.name === UPDATE_PLAN_TOOL) ? planTool() : undefined;
+  const own = (name: string) => (agent.tools ?? []).some((tool) => tool.name === name);
+  const planning = plan && !own(UPDATE_PLAN_TOOL) ? planTool() : undefined;
   if (planning) instructions.push(planning.instructions);
+  // The apps the agent asks to have connected (A2A profile v2, `interactions/v1` kind `connection`).
+  const connecting = connections && !own(REQUEST_CONNECTION_TOOL) ? connectionTool() : undefined;
+  if (connecting) instructions.push(connecting.instructions);
   return {
     tools: [
       ...(sandboxed ? sandboxTools(options.sandboxTools, workspace) : []),
@@ -91,6 +98,7 @@ export function engineToolsFor(
       ...(wake ? [wake.tool] : []),
       ...(remember ? [remember.tool] : []),
       ...(planning ? [planning.tool] : []),
+      ...(connecting ? [connecting.tool] : []),
     ],
     instructions,
   };

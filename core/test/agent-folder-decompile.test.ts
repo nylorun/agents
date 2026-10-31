@@ -234,9 +234,11 @@ describe("folderOfManifest: the folder compiles back to the same manifest", () =
         outputSchema: { type: "object", properties: { title: { type: "string" } }, required: ["title"] },
         memory: { access: "read_only", instructions: "Remember the house style." },
         loop: { maxTurns: 8, model: "fast" },
+        model: "openrouter/anthropic/claude-sonnet-4-5",
         instructions: ["# Writer\n\nWrite the brief."],
       },
     });
+    expect(text(folder, "AGENT.md")).toContain("model: openrouter/anthropic/claude-sonnet-4-5\n");
     expect(text(folder, "AGENT.md")).toContain("outputSchema: ./output.schema.json\n");
     expect(JSON.parse(text(folder, "output.schema.json"))).toEqual({ type: "object", properties: { title: { type: "string" } }, required: ["title"] });
   });

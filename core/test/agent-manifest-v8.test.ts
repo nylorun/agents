@@ -5,6 +5,7 @@ import {
   HarnessManifestFileSchema,
   RuntimeManifestFileSchema,
   RuntimeSectionSchema,
+  agentModelChoice,
   parseAgentManifestRef,
   type AgentManifestV8,
 } from "../src/contracts.js";
@@ -302,9 +303,22 @@ describe("authoring files", () => {
     expect(RuntimeManifestFileSchema.parse({ $schema: "x", kind: "pod" })).toEqual({ $schema: "x", kind: "pod" });
   });
 
+  it("takes harness.model as <provider>/<model>, read as a session's model choice", () => {
+    const base = { manifestSchemaVersion: 8, name: "coder", description: "Codes." } as const;
+    expect(AgentManifestV8Schema.safeParse({ ...base, harness: { model: "anthropic/claude-sonnet-4-5" } }).success).toBe(true);
+    for (const model of ["claude", "anthropic/", "a b/c", "a/b c", `a/${"m".repeat(200)}`, 3])
+      expect(AgentManifestV8Schema.safeParse({ ...base, harness: { model } }).success, String(model)).toBe(false);
+    expect(HarnessManifestFileSchema.safeParse({ model: "google/gemini-2.5-pro" }).success).toBe(true);
+    expect(agentModelChoice("anthropic/claude-sonnet-4-5")).toEqual({ provider: "anthropic", model: "claude-sonnet-4-5" });
+    expect(agentModelChoice("openrouter/google/gemini-2.5-pro")).toEqual({ provider: "openrouter", model: "google/gemini-2.5-pro" });
+    expect(agentModelChoice("claude")).toBeUndefined();
+    // The Runtime reads it; the engine's loop manifest never carries it.
+    expect(loopManifestOf({ ...base, harness: { model: "anthropic/claude-sonnet-4-5", instructions: ["Code."] } })).not.toHaveProperty("model");
+  });
+
   it("publishes the three files as JSON Schema documents", () => {
-    expect(agentManifestJsonSchema().$id).toBe("https://docs.nylorun.com/schemas/agent-manifest/v8.json");
-    expect(harnessManifestJsonSchema().$id).toBe("https://docs.nylorun.com/schemas/harness-manifest/v1.json");
+    expect(agentManifestJsonSchema().$id).toBe("https://docs.nylorun.com/schemas/agent-manifest/v8.1.json");
+    expect(harnessManifestJsonSchema().$id).toBe("https://docs.nylorun.com/schemas/harness-manifest/v1.1.json");
     const runtime = runtimeManifestJsonSchema();
     expect(runtime.$id).toBe("https://docs.nylorun.com/schemas/runtime-manifest/v1.json");
     expect(Object.keys(runtime.properties as object)).toEqual(expect.arrayContaining(["$schema", "kind", "secrets"]));

@@ -169,3 +169,41 @@ it("refuses a change while the session's turn runs", async () => {
   expect(await settled("s1")).toBe("completed");
   expect((await call("PUT", "/v1/sessions/s1/model", { provider: "custom", model: "session-model" })).status).toBe(200);
 });
+
+it("starts a new session on the model its Agent's version names, when the Tenant can use it (agent-model)", async () => {
+  const called = stubProvider();
+  const { runtime, call, turn, settled } = await boot();
+  const bot = Agent({ id: "coder", name: "Coder" }).instructions("Code.").build();
+  await deploy(runtime.url, runtime.headers(), bot, { name: "coder", model: "custom/agent-model" });
+  // A provider that is not connected, and a model the catalog does not list: the Tenant's model.
+  await deploy(runtime.url, runtime.headers(), bot, { name: "unconnected", id: "unconnected", model: "anthropic/claude-sonnet-4-5" });
+  await deploy(runtime.url, runtime.headers(), bot, { name: "unlisted", id: "unlisted", model: "openai/no-such-model" });
+  for (const [id, agent] of [["c1", "coder"], ["c2", "unconnected"], ["c3", "unlisted"]])
+    expect((await call("PUT", `/v1/sessions/${id}`, { requestId: id, agent, ownerUserId: "ada" })).status).toBe(200);
+
+  expect((await call("GET", "/v1/sessions/c1/model")).body).toMatchObject({
+    source: "session",
+    provider: "custom",
+    model: "agent-model",
+    choice: { provider: "custom", model: "agent-model" },
+  });
+  for (const id of ["c2", "c3"])
+    expect((await call("GET", `/v1/sessions/${id}/model`)).body).toMatchObject({ source: "tenant", model: "tenant-model" });
+
+  await turn("c1", "a1");
+  expect(await settled("c1")).toBe("completed");
+  await turn("c2", "a2");
+  expect(await settled("c2")).toBe("completed");
+  expect(called).toEqual(["agent-model", "tenant-model"]);
+
+  // An explicit choice still overrides it, and clearing it gives the Tenant's model.
+  const chosen = await call("PUT", "/v1/sessions/c1/model", { provider: "custom", model: "chosen-model" });
+  expect(chosen.status, JSON.stringify(chosen.body)).toBe(200);
+  await turn("c1", "a3");
+  expect(await settled("c1")).toBe("completed");
+  expect(called.at(-1)).toBe("chosen-model");
+  expect((await call("DELETE", "/v1/sessions/c1/model")).body).toMatchObject({ source: "tenant" });
+  // An existing session is found again as it is: no model put back.
+  expect((await call("PUT", "/v1/sessions/c1", { requestId: "c1", agent: "coder", ownerUserId: "ada" })).status).toBe(200);
+  expect((await call("GET", "/v1/sessions/c1/model")).body).toMatchObject({ source: "tenant" });
+});
