@@ -5535,6 +5535,51 @@ export const ModelCallExportPageSchema = z
   .strict();
 export type ModelCallExportPage = z.infer<typeof ModelCallExportPageSchema>;
 /**
+ * A turn's status in the turn index (Host feature `turns`): `running` from its first
+ * `command.message` and again after an answer, `paused` while it waits for a person, then one of
+ * the three ends.
+ */
+export const TURN_STATUSES = ["running", "paused", "completed", "failed", "cancelled"] as const;
+export const TurnStatusSchema = z.enum(TURN_STATUSES);
+export type TurnStatus = z.infer<typeof TurnStatusSchema>;
+/**
+ * One turn as the turn index keeps it (Host feature `turns`), written in the transaction of the
+ * event that changed it, so it agrees with the session's log. `totals` are the turn's end facts
+ * (null until it ends, or for a turn that ended before the Runtime recorded them); `a2a` names the
+ * A2A context and task when the session is an A2A context.
+ */
+export const TurnSummarySchema = z
+  .object({
+    turnId: z.string(),
+    sessionId: z.string(),
+    agentId: z.string(),
+    status: TurnStatusSchema,
+    startedAt: z.string(),
+    endedAt: z.string().nullable(),
+    /** When its status last changed (the event's time). */
+    changedAt: z.string(),
+    totals: z
+      .object({
+        steps: z.number().int().nonnegative(),
+        tokens: z.number().int().nonnegative(),
+        costUsd: z.number().nonnegative(),
+      })
+      .strict()
+      .nullable(),
+    a2a: z.object({ contextId: z.string(), taskId: z.string() }).strict().nullable(),
+  })
+  .strict();
+export type TurnSummary = z.infer<typeof TurnSummarySchema>;
+/**
+ * A page of the turn change feed (`GET /v1/turns`), in the order the turns changed: a turn
+ * appears again each time it changes. Pass `cursor` as `changedAfter` to read on; it is returned
+ * even when `turns` is empty. `hasMore`: another page is ready now.
+ */
+export const TurnChangesPageSchema = z
+  .object({ turns: z.array(TurnSummarySchema), cursor: z.string(), hasMore: z.boolean() })
+  .strict();
+export type TurnChangesPage = z.infer<typeof TurnChangesPageSchema>;
+/**
  * One tool call of a session, read from the effect journal: what ran, with what input,
  * how many sends, and how it ended. `invoking` while it runs. `uncertain` only for a call
  * recorded by an older Runtime. The output is in the session's log (`tool.completed`).

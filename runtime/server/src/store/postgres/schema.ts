@@ -649,6 +649,44 @@ export const modelBudgets = nylorun.table(
 );
 
 /**
+ * The turn index (A2A design §9, Host feature `turns`): one row per turn, written by `Tx.event`
+ * in the transaction of each event that changes the turn (`store/postgres/turns.ts`), so it
+ * agrees with the session's log. The session's Agent, owner and A2A context are copied in when
+ * the turn starts. `txid` is the transaction that last changed the row: the change feed reads
+ * rows in its order, only below every transaction still running (`pg_snapshot_xmin`), as the
+ * model call export does. `firstSeq` and `lastSeq` bound the turn's lifecycle events in the log.
+ */
+export const turns = nylorun.table(
+  "turns",
+  {
+    sessionId: textC().notNull(),
+    turnId: textC().notNull(),
+    agentId: textC().notNull(),
+    /** The session owner (`ownerUserId`); null for an application's own session. */
+    ownerUserId: textC(),
+    /** `info.a2a.contextId` of an A2A context's session. */
+    a2aContextId: textC(),
+    status: text({ enum: ["running", "paused", "completed", "failed", "cancelled"] }).notNull(),
+    /** ISO times: of the turn's first event, its end, and its last status change. */
+    startedAt: textC().notNull(),
+    endedAt: textC(),
+    changedAt: textC().notNull(),
+    /** The end facts' `totals` (`{steps, tokens, costUsd}`), once it ended with them. */
+    totals: jsonText(),
+    firstSeq: bigint({ mode: "number" }).notNull(),
+    lastSeq: bigint({ mode: "number" }).notNull(),
+    txid: xid8().notNull().default(sql`pg_current_xact_id()`),
+  },
+  (t) => [
+    primaryKey({ name: "turns_pkey", columns: [t.sessionId, t.turnId] }),
+    index("turns_turn").on(t.turnId),
+    index("turns_changes").on(t.txid, t.sessionId, t.turnId),
+    index("turns_owner_changes").on(t.ownerUserId, t.txid),
+    index("turns_owner_agent").on(t.ownerUserId, t.agentId, t.changedAt),
+  ],
+);
+
+/**
  * Each session's queue (protocol 17, D76): messages that arrived while its turn ran or waited, in
  * order (`seq`), until a turn takes them. A row holds the command as sent, the turn input its
  * message gives the engine (file parts pinned when it was queued), and who sent it.
@@ -965,6 +1003,7 @@ export type ModelUsageRow = typeof modelUsage.$inferSelect;
 export type ModelBudgetRow = typeof modelBudgets.$inferSelect;
 export type ToolCrossingRow = typeof toolCrossings.$inferSelect;
 export type QueuedMessageRow = typeof sessionQueue.$inferSelect;
+export type TurnRow = typeof turns.$inferSelect;
 export type AgentTriggerRow = typeof agentTriggers.$inferSelect;
 export type TriggerRunRow = typeof triggerRuns.$inferSelect;
 export type MemoryRow = typeof memories.$inferSelect;

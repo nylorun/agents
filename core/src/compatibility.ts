@@ -241,6 +241,13 @@ export const OPTIONAL_HOST_FEATURES = [
   "session-model",
   "model-host-identity",
   "credential-provider",
+  /**
+   * The turn index: `GET /v1/turns` pages the turns a caller may see in the order they changed
+   * (`changedAfter`, the cursor it returned), or one session's (`sessionId`), each with its
+   * status, times, totals and A2A context and task; an application key sees the whole Tenant, a
+   * subject its own sessions'. The A2A endpoint answers `ListTasks` from it.
+   */
+  "turns",
 ] as const;
 export type OptionalHostFeature = (typeof OPTIONAL_HOST_FEATURES)[number];
 export interface ProtocolRange {
