@@ -219,7 +219,14 @@ export async function pumpSession(ctx: TenantContext, sessionId: string): Promis
     }
     const from = Math.min(...configs.map((config) => config.nextSeq));
     const rows = await ctx.store.record().readRange(ctx.store.tenantId, sessionId, from, from + PUMP_BATCH);
-    if (rows.length === 0) return;
+    if (rows.length === 0) {
+      // A deleted session's configs follow nothing any more.
+      await ctx.store.tx(async (t) => {
+        if (await t.get("sessions", sessionId)) return;
+        for (const config of configs) await t.deletePushConfig(sessionId, config.taskId, config.configId);
+      });
+      return;
+    }
     const events = rows.map((row) => row.body as LiveEvent);
     const key = configs.some((config) => config.traceId === null) ? await traceKey(ctx.store) : undefined;
     await ctx.store.tx(async (t) => {
