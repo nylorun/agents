@@ -313,14 +313,16 @@ describe("push notifications", () => {
       }
       return byId;
     };
-    // The two pushes that failed come again (the sweep), each under its first webhook-id.
+    // The two deliveries that failed come again (the sweep), each under its push's first
+    // webhook-id: one push failed twice, or two pushes once each, as delivery order has it.
     await until(
       () => [...counts().values()],
-      (seen) => seen.filter((count) => count === 2).length === 2 && states(path).includes("TASK_STATE_COMPLETED"),
+      (seen) =>
+        seen.reduce((sum, count) => sum + count - 1, 0) === 2 && states(path).includes("TASK_STATE_COMPLETED"),
       20_000
     );
     for (const push of pushesTo(path)) verify(push);
-  });
+  }, 30_000);
 
   it("backs off, and drops a push past 24 hours", () => {
     const now = Date.parse("2026-10-31T12:00:00Z");

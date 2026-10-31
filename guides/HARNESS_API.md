@@ -96,7 +96,12 @@ Which token:
   your records.
 - `loop` (optional): the harness section's `loop`, your own settings, which the Runtime passes on
   without reading. Ours reads `plan`: `true` offers the root agent `update_plan`, whose calls it
-  claims as `plan.updated` (§4b).
+  claims as `plan.updated` (§4b); and `connections`: `true` offers it `request_connection`
+  (`{app, reason}`), a `harness` tool whose first call's outcome is `interaction-required` with
+  `interaction: {kind: "response", prompt: "Connect <app>: <reason>", metadata: {kind:
+  "connection", app, reason}}`, so the turn pauses on it like any interaction (§7); answered
+  with `respond`, the call runs again in the next segment and reads the value
+  (`true` or `{connected: true}`: `Connected: <app>`; anything else `Not connected: <app>`).
 - `memory` (`TurnMemorySchema`, optional; track T5): present when the version the session runs
   sets `harness.memory`. `access` (`read_write` or `read_only`, the same in every turn),
   `instructions` (the agent's own, after yours), and `index`: one line per memory, newest first,

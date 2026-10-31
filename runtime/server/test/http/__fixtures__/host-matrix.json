@@ -108,7 +108,9 @@
           "agent-folders",
           "session-model",
           "model-host-identity",
-          "credential-provider"
+          "credential-provider",
+          "turns",
+          "agent-model"
         ]
       }
     },
@@ -192,7 +194,9 @@
           "agent-folders",
           "session-model",
           "model-host-identity",
-          "credential-provider"
+          "credential-provider",
+          "turns",
+          "agent-model"
         ]
       }
     },
@@ -276,7 +280,9 @@
           "agent-folders",
           "session-model",
           "model-host-identity",
-          "credential-provider"
+          "credential-provider",
+          "turns",
+          "agent-model"
         ]
       }
     },
@@ -360,7 +366,9 @@
           "agent-folders",
           "session-model",
           "model-host-identity",
-          "credential-provider"
+          "credential-provider",
+          "turns",
+          "agent-model"
         ]
       }
     },
@@ -444,7 +452,9 @@
           "agent-folders",
           "session-model",
           "model-host-identity",
-          "credential-provider"
+          "credential-provider",
+          "turns",
+          "agent-model"
         ]
       }
     },
@@ -528,7 +538,9 @@
           "agent-folders",
           "session-model",
           "model-host-identity",
-          "credential-provider"
+          "credential-provider",
+          "turns",
+          "agent-model"
         ]
       }
     },
@@ -612,7 +624,9 @@
           "agent-folders",
           "session-model",
           "model-host-identity",
-          "credential-provider"
+          "credential-provider",
+          "turns",
+          "agent-model"
         ]
       }
     },
@@ -696,7 +710,9 @@
           "agent-folders",
           "session-model",
           "model-host-identity",
-          "credential-provider"
+          "credential-provider",
+          "turns",
+          "agent-model"
         ]
       }
     },
@@ -780,7 +796,9 @@
           "agent-folders",
           "session-model",
           "model-host-identity",
-          "credential-provider"
+          "credential-provider",
+          "turns",
+          "agent-model"
         ]
       }
     },
@@ -864,7 +882,9 @@
           "agent-folders",
           "session-model",
           "model-host-identity",
-          "credential-provider"
+          "credential-provider",
+          "turns",
+          "agent-model"
         ]
       }
     },
@@ -948,7 +968,9 @@
           "agent-folders",
           "session-model",
           "model-host-identity",
-          "credential-provider"
+          "credential-provider",
+          "turns",
+          "agent-model"
         ]
       }
     },
@@ -1032,7 +1054,9 @@
           "agent-folders",
           "session-model",
           "model-host-identity",
-          "credential-provider"
+          "credential-provider",
+          "turns",
+          "agent-model"
         ]
       }
     },
@@ -1149,7 +1173,9 @@
           "agent-folders",
           "session-model",
           "model-host-identity",
-          "credential-provider"
+          "credential-provider",
+          "turns",
+          "agent-model"
         ]
       }
     },
@@ -1233,7 +1259,9 @@
           "agent-folders",
           "session-model",
           "model-host-identity",
-          "credential-provider"
+          "credential-provider",
+          "turns",
+          "agent-model"
         ]
       }
     },
@@ -1317,7 +1345,9 @@
           "agent-folders",
           "session-model",
           "model-host-identity",
-          "credential-provider"
+          "credential-provider",
+          "turns",
+          "agent-model"
         ]
       }
     },
@@ -1401,7 +1431,9 @@
           "agent-folders",
           "session-model",
           "model-host-identity",
-          "credential-provider"
+          "credential-provider",
+          "turns",
+          "agent-model"
         ]
       }
     },
@@ -1485,7 +1517,9 @@
           "agent-folders",
           "session-model",
           "model-host-identity",
-          "credential-provider"
+          "credential-provider",
+          "turns",
+          "agent-model"
         ]
       }
     },
@@ -1569,7 +1603,9 @@
           "agent-folders",
           "session-model",
           "model-host-identity",
-          "credential-provider"
+          "credential-provider",
+          "turns",
+          "agent-model"
         ]
       }
     },
@@ -1653,7 +1689,9 @@
           "agent-folders",
           "session-model",
           "model-host-identity",
-          "credential-provider"
+          "credential-provider",
+          "turns",
+          "agent-model"
         ]
       }
     },

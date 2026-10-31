@@ -44,6 +44,8 @@ import {
   ToolCallSchema,
   ToolCallsPageSchema,
   TurnTraceSchema,
+  TurnChangesPageSchema,
+  TurnSummarySchema,
   JwksSchema,
   SigningKeyListSchema,
   SigningKeyViewSchema,
@@ -300,4 +302,9 @@ export const AgentPage = named(
 export const ToolCall = named("ToolCall", ToolCallSchema);
 export const ToolCallsPage = named("ToolCallsPage", ToolCallsPageSchema.extend({ calls: z.array(ToolCall) }));
 export const TurnTrace = named("TurnTrace", TurnTraceSchema);
+export const TurnSummary = named("TurnSummary", TurnSummarySchema);
+export const TurnChangesPage = named(
+  "TurnChangesPage",
+  TurnChangesPageSchema.extend({ turns: z.array(TurnSummary) }),
+);
 export const MeResponse = named("MeResponse", MeResponseSchema);

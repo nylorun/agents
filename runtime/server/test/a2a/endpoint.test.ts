@@ -395,7 +395,6 @@ describe("files sent inline", () => {
 
 describe("explicit answers for what v1 does not do", () => {
   it.each([
-    ["ListTasks", {}, -32004],
     ["SendStreamingMessage", { message: {} }, -32004],
     ["SubscribeToTask", { id: "x" }, -32004],
     ["CreateTaskPushNotificationConfig", {}, -32003],

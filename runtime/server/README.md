@@ -340,6 +340,16 @@ requests without `limit` retain their response shapes. These are public APIs for
 CLI and custom clients; clients never need database access. See the
 [API contracts, authorization, SDK examples and Studio handoff](https://github.com/nylorun/agents/blob/main/runtime/docs/session-reads.md).
 
+## Turns
+
+Hosts advertising `turns` keep a turn index, written with the events that change each turn, and
+serve it as a change feed: `GET /v1/turns?changedAfter=<cursor>&limit=<1..500>` pages the turns a
+caller may see in the order they changed (a turn again each time it changes), each with its
+session, Agent, status, start and end, last change, totals and A2A context and task. Pass the
+page's `cursor` as `changedAfter` to read on; `sessionId` reads one session's turns. An application
+key reads the whole Tenant, a subject only its own sessions'. The A2A endpoint answers `ListTasks`
+from the same index.
+
 ## Artifact pages
 
 Hosts advertising `artifact-reads` accept `GET /v1/artifacts?limit=50`, returning

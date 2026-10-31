@@ -148,6 +148,7 @@ import { database, driverError, type Database, type Transaction } from "./db.js"
 import { expectedSchemaVersion, readSchemaVersion } from "./migrate.js";
 import { hostTuning } from "../../tuning.js";
 import { createPostgresRecordReader } from "./record.js";
+import { indexTurn, listTurns, turnOfQueuedMessage, turnRow, type TurnListQuery } from "./turns.js";
 import { postgresAgentRecordWriter, postgresRecordWriter } from "./record-writer.js";
 import {
   artifacts,
@@ -180,6 +181,8 @@ import {
   signingKeys,
   tenant,
   tenantSettings,
+  turns,
+  type TurnRow,
   vaultAudit,
   vaultCredentials,
   vaultIdempotency,
@@ -494,7 +497,17 @@ const SIGNING_KEY_STAMP: Partial<
 /** The audit columns a row has (`ord` only orders them). */
 const { ord: _ord, ...AUDIT } = getTableColumns(vaultAudit);
 
-const SESSION_TABLES = [sessions, commands, effects, links, wakes, sessionQueue, a2aPushConfigs, a2aPushes];
+const SESSION_TABLES = [
+  sessions,
+  commands,
+  effects,
+  links,
+  wakes,
+  sessionQueue,
+  turns,
+  a2aPushConfigs,
+  a2aPushes,
+];
 
 /**
  * The outbox's tables, by the kind of request each holds. Their delivery columns (`id`,
@@ -636,9 +649,28 @@ class PostgresTx implements Tx {
       ...(writer ? { writer } : {}),
       maxEntryBytes: await this.maxEntryBytes(),
     });
+    // The turn index changes with the log, in this transaction (Host feature `turns`).
+    await indexTurn(db, event);
     this.events.push(event);
     this.generations.push(generation);
     return structuredClone(event);
+  }
+
+  // --- turn index ----------------------------------------------------------
+
+  async turn(sessionId: string, turnId: string): Promise<TurnRow | undefined> {
+    this.check();
+    return turnRow(this.db, sessionId, turnId);
+  }
+
+  async turnOfQueuedMessage(sessionId: string, queuedMessageId: string): Promise<TurnRow | undefined> {
+    this.check();
+    return turnOfQueuedMessage(this.db, sessionId, queuedMessageId);
+  }
+
+  async listTurns(query: TurnListQuery): Promise<{ turns: TurnRow[]; total: number }> {
+    this.check();
+    return listTurns(this.db, query);
   }
 
   // --- wake outbox ---------------------------------------------------------

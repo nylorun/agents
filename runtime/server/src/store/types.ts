@@ -89,6 +89,7 @@ import type {
   PrincipalRow,
   ToolCrossingRow,
   QueuedMessageRow,
+  TurnRow,
   A2aPushConfigRow,
   AgentTriggerRow,
   TriggerRunRow,
@@ -100,6 +101,8 @@ import type {
   VaultIdempotencyRow,
   VaultRow,
 } from "./postgres/schema.js";
+import type { TurnListQuery } from "./postgres/turns.js";
+export type { TurnListQuery };
 
 // ---------------------------------------------------------------------------
 // Documents
@@ -392,6 +395,7 @@ export type {
   ModelUsageWrite,
   ToolCrossingRow,
   QueuedMessageRow,
+  TurnRow,
   A2aPushConfigRow,
   AgentTriggerRow,
   TriggerRunRow,
@@ -658,6 +662,22 @@ export interface Tx {
     /** Who wrote it (R4.9): absent, core, observed. */
     writer?: EventWriter,
   ): Promise<SessionEventOf<T>>;
+
+  // --- turn index (Host feature `turns`) --------------------------------------
+
+  /**
+   * One turn's row of the turn index, or undefined when the session never had that turn. `event`
+   * keeps the index: each event that changes a turn (`command.message`, `command.approve`,
+   * `command.respond`, `turn.*`) writes its row in the same transaction.
+   */
+  turn(sessionId: string, turnId: string): Promise<TurnRow | undefined>;
+  /** The turn that took queued message `queuedMessageId` of the session, if one did (protocol 17). */
+  turnOfQueuedMessage(sessionId: string, queuedMessageId: string): Promise<TurnRow | undefined>;
+  /**
+   * One owner's A2A tasks with one Agent from the turn index (`ListTasks`), latest status change
+   * first, with how many match before paging.
+   */
+  listTurns(query: TurnListQuery): Promise<{ turns: TurnRow[]; total: number }>;
 
   // --- outbox (architecture §12.3) ------------------------------------------
 

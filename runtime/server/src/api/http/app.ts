@@ -20,6 +20,7 @@ import { memoryRoutes } from "./routes/memories.js";
 import { agentManifestRoutes } from "./routes/agent-manifests.js";
 import { artifactRoutes } from "./routes/artifacts.js";
 import { readRoutes } from "./routes/reads.js";
+import { turnRoutes } from "./routes/turns.js";
 import { sessionRoutes } from "./routes/sessions.js";
 import { fileRoutes } from "./routes/files.js";
 import { keyRoutes } from "./routes/keys.js";
@@ -102,5 +103,6 @@ function build(): OpenAPIHono<TenantEnv> {
     return jsonResponse(rejection.status, rejection.body, rejection.headers);
   });
   readRoutes(api);
+  turnRoutes(api);
   return api;
 }

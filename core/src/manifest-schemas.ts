@@ -19,6 +19,14 @@ import {
   RuntimeManifestFileSchema,
 } from "./contracts.js";
 
+/**
+ * The revision of a document whose version kept its number while it gained an optional field (a
+ * published `$id` names one document for good): agent manifest v8 and the harness file v1 took
+ * `harness.model` (Host feature `agent-model`), published as `v8.1` and `v1.1`.
+ */
+const AGENT_MANIFEST_REVISION = 1;
+const HARNESS_MANIFEST_FILE_REVISION = 1;
+
 function document(schema: z.ZodType, id: string, title: string): Record<string, unknown> {
   const { $schema: _, ...definition } = z.toJSONSchema(schema, { io: "input", unrepresentable: "any" }) as Record<
     string,
@@ -45,7 +53,7 @@ function document(schema: z.ZodType, id: string, title: string): Record<string, 
 export function agentManifestJsonSchema(): Record<string, unknown> {
   return document(
     AgentManifestFileSchema,
-    `agent-manifest/v${AGENT_MANIFEST_V8_SCHEMA_VERSION}`,
+    `agent-manifest/v${AGENT_MANIFEST_V8_SCHEMA_VERSION}.${AGENT_MANIFEST_REVISION}`,
     `Nylorun agent manifest ${AGENT_MANIFEST_V8_SCHEMA_VERSION}`,
   );
 }
@@ -54,7 +62,7 @@ export function agentManifestJsonSchema(): Record<string, unknown> {
 export function harnessManifestJsonSchema(): Record<string, unknown> {
   return document(
     HarnessManifestFileSchema,
-    `harness-manifest/v${HARNESS_MANIFEST_FILE_SCHEMA_VERSION}`,
+    `harness-manifest/v${HARNESS_MANIFEST_FILE_SCHEMA_VERSION}.${HARNESS_MANIFEST_FILE_REVISION}`,
     `Nylorun harness manifest ${HARNESS_MANIFEST_FILE_SCHEMA_VERSION}`,
   );
 }

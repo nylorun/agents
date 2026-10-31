@@ -2,9 +2,12 @@
  * The A2A endpoint (Host features `a2a-endpoint` and `a2a-profile-v2`): `POST
  * /v1/a2a/agents/:agent` answers A2A 1.0 JSON-RPC for one subject, and `GET
  * /v1/a2a/agents/:agent/card` returns the agent's card. It serves `SendMessage` (blocking up to
- * `a2aWaitMs`, or `returnImmediately`), `GetTask`, `CancelTask` and the four push notification
- * config methods; every other operation answers with the error the specification defines for it
- * (docs: `implementation/a2a-implementation.md`, profile v2: `design/runtime/a2a-profile.md`).
+ * `a2aWaitMs`, or `returnImmediately`), `GetTask`, `ListTasks`, `CancelTask` and the four push
+ * notification config methods; every other operation answers with the error the specification
+ * defines for it (docs: `implementation/a2a-implementation.md`, profile v2:
+ * `design/runtime/a2a-profile.md`). Tasks are found through the turn index (Host feature
+ * `turns`, `list.ts`): a context's session carries `info.a2a`, and a task's events are read from
+ * its turn's first event, never the whole history.
  *
  * Every task operation goes through the session contract as the caller: `command` with the
  * caller's scope (limits and owner checks apply), sessions derived from the caller's own
@@ -44,6 +47,7 @@ import {
 } from "../inbound-files.js";
 import { agentCard, inputModesFor, type CardDefinition } from "./card.js";
 import { keepExtensions } from "./extensions.js";
+import { indexedTurnEvents, listTasks, parseListParams } from "./list.js";
 import {
   A2aError,
   a2aFail,
@@ -102,6 +106,7 @@ import { agentGrantsOf, liveEnvironment } from "../../tenant/agents.js";
 import { HttpError, fail } from "../../tenant/http.js";
 import { observeSession, readHistory } from "../../tenant/session-streams.js";
 import { putSession } from "../../tenant/sessions.js";
+import type { TurnRow } from "../../store/types.js";
 import { readRuntimeLimits } from "../../tenant/runtime-limits.js";
 import { traceKey } from "../../traces/key.js";
 import { parseTraceparent, traceIdOf, type TraceContext } from "../../traces/ids.js";
@@ -232,7 +237,9 @@ async function operation(
     case "CancelTask":
       return cancelTask(caller, parseTaskParams(request.params).id);
     case "ListTasks":
-      return a2aFail("unsupportedOperation", "ListTasks is not supported by this agent yet");
+      return listTasks(caller, parseListParams(request.params), (row, session, historyLength) =>
+        indexedTask(caller, row, session, { historyLength }).then((built) => built?.task)
+      );
     case "SendStreamingMessage":
     case "SubscribeToTask":
       return a2aFail(
@@ -291,7 +298,7 @@ async function contextSession(
   }
 }
 
-/** Every event of a session, in stream order. */
+/** Every event of a session, in stream order: only to find a queued message no turn took yet. */
 async function sessionEvents(ctx: TenantContext, sessionId: string): Promise<LiveEvent[]> {
   return (await readHistory(ctx, sessionId, undefined, undefined)).items;
 }
@@ -309,9 +316,38 @@ async function turnTraceId(
 const payloadOf = (event: LiveEvent) => (event.payload ?? {}) as Record<string, unknown>;
 
 /**
- * The caller's task `taskId`. Its last part is a turn, or a queued message's id: while the
- * message waits the task is `SUBMITTED`, and once a turn took it (its `command.message` names
- * the message) the task is that turn's, under the id the caller knows.
+ * The task of turn index row `row` as the caller sees it (`taskId`: the id the caller knows it
+ * by), built from that turn's own events (`indexedTurnEvents`): what `GetTask` and `ListTasks`
+ * answer.
+ */
+async function indexedTask(
+  caller: Caller,
+  row: TurnRow,
+  session: Session,
+  options: { taskId?: string; historyLength?: number } = {}
+): Promise<{ task: Task; events: LiveEvent[] } | undefined> {
+  const contextId = row.a2aContextId ?? parseTaskId(options.taskId ?? "")?.contextId;
+  if (contextId === undefined) return undefined;
+  const events = await indexedTurnEvents(caller.ctx, row);
+  const ended = events.some((event) => ENDED.has(event.type));
+  const task = buildTask({
+    contextId,
+    turnId: row.turnId,
+    ...(options.taskId !== undefined ? { taskId: options.taskId } : {}),
+    session,
+    events,
+    baseUrl: caller.baseUrl,
+    ...(ended ? { traceId: await turnTraceId(caller.ctx, row.sessionId, row.turnId, events) } : {}),
+    ...(options.historyLength !== undefined ? { historyLength: options.historyLength } : {}),
+  });
+  return task ? { task, events } : undefined;
+}
+
+/**
+ * The caller's task `taskId`, found through the turn index. Its last part is a turn, or a queued
+ * message's id: while the message waits the task is `SUBMITTED`, and once a turn took it (the
+ * index keeps the queued messages each turn took) the task is that turn's, under the id the
+ * caller knows. Only a message still in the queue is looked for in the session's history.
  */
 async function ownedTask(
   caller: Caller,
@@ -321,45 +357,43 @@ async function ownedTask(
   const ids = parseTaskId(taskId) ?? taskNotFound(taskId);
   const sessionId = contextSessionId(caller.access.owner, caller.agentId, ids.contextId);
   const session = (await contextSession(caller, sessionId)) ?? taskNotFound(taskId);
-  const all = await sessionEvents(caller.ctx, sessionId);
-  let turnId = ids.turnId;
-  let events = all.filter((event) => event.turnId === turnId);
-  if (events.length === 0 && session.activeTurnId !== turnId && session.lastTurnId !== turnId) {
-    const taken = all.find(
-      (event) => event.type === "command.message" && event.turnId && payloadOf(event).queuedMessageId === ids.turnId
+  const found = await caller.ctx.store.tx(async (t) => {
+    const turn = await t.turn(sessionId, ids.turnId);
+    if (turn) return { turn };
+    // Still queued, or taken: the queue is read first, so a message taken meanwhile is found.
+    if ((await t.queuedMessages(sessionId)).some((row) => row.id === ids.turnId)) return { queued: true };
+    const taken = await t.turnOfQueuedMessage(sessionId, ids.turnId);
+    return taken ? { turn: taken } : {};
+  });
+  if (found.queued) {
+    const queued = (await sessionEvents(caller.ctx, sessionId)).find(
+      (event) => event.type === "message.queued" && payloadOf(event).queuedMessageId === ids.turnId
     );
-    if (taken) {
-      turnId = taken.turnId!;
-      events = all.filter((event) => event.turnId === turnId);
-    } else {
-      const queued = all.find(
-        (event) => event.type === "message.queued" && payloadOf(event).queuedMessageId === ids.turnId
-      );
-      if (queued)
-        return {
-          task: submittedTask(ids.contextId, taskId, queued),
-          session,
-          sessionId,
-          contextId: ids.contextId,
-          turnId: ids.turnId,
-          events: [],
-          queued,
-        };
-    }
+    if (queued)
+      return {
+        task: submittedTask(ids.contextId, taskId, queued),
+        session,
+        sessionId,
+        contextId: ids.contextId,
+        turnId: ids.turnId,
+        events: [],
+        queued,
+      };
   }
-  const ended = events.some((event) => ENDED.has(event.type));
-  const task =
-    buildTask({
-      contextId: ids.contextId,
-      turnId,
+  const row = found.turn ?? taskNotFound(taskId);
+  const built =
+    (await indexedTask(caller, { ...row, a2aContextId: ids.contextId }, session, {
       taskId,
-      session,
-      events,
-      baseUrl: caller.baseUrl,
-      ...(ended ? { traceId: await turnTraceId(caller.ctx, sessionId, turnId, events) } : {}),
       ...(historyLength !== undefined ? { historyLength } : {}),
-    }) ?? taskNotFound(taskId);
-  return { task, session, sessionId, contextId: ids.contextId, turnId, events };
+    })) ?? taskNotFound(taskId);
+  return {
+    task: built.task,
+    session,
+    sessionId,
+    contextId: ids.contextId,
+    turnId: row.turnId,
+    events: built.events,
+  };
 }
 
 /** What a session command answered: a turn that took it, or the queue it waits in. */
@@ -402,10 +436,26 @@ async function run(
   }
 }
 
-/** Opens the caller's session for a context: created when missing, never changed after. */
-async function openContext(caller: Caller, sessionId: string): Promise<Session> {
+/**
+ * Opens the caller's session for a context: created when missing, with `info.a2a` naming the
+ * context and the subject, so the turn index can list its tasks (`ListTasks`); the session id
+ * stays the one-way `contextSessionId`. A context opened before `info.a2a` gets it now, for the
+ * turns it starts from here on. Nothing else changes after.
+ */
+async function openContext(caller: Caller, sessionId: string, contextId: string): Promise<Session> {
+  const a2a = { contextId, subject: caller.access.owner };
   const existing = await contextSession(caller, sessionId);
-  if (existing) return existing;
+  if (existing) {
+    if (existing.info?.a2a?.contextId === contextId) return existing;
+    return caller.ctx.store.tx(async (t) => {
+      const session = (await t.lockSession<Session>(sessionId))!;
+      if (session.info?.a2a?.contextId !== contextId) {
+        session.info = { ...(session.info ?? {}), a2a };
+        await t.put("sessions", sessionId, session);
+      }
+      return session;
+    });
+  }
   return putSession(
     caller.ctx,
     sessionId,
@@ -413,6 +463,7 @@ async function openContext(caller: Caller, sessionId: string): Promise<Session> 
       requestId: randomUUID(),
       agent: caller.agentId,
       ownerUserId: caller.access.owner,
+      info: { a2a },
     },
     caller.access,
     agentGrantsOf(caller.scope) === undefined ? {} : { agentGrants: agentGrantsOf(caller.scope)! }
@@ -448,7 +499,7 @@ async function sendMessage(
     contextId =
       send.contextId ?? newContextId(caller.access.owner, caller.agentId, send.messageId);
     sessionId = contextSessionId(caller.access.owner, caller.agentId, contextId);
-    await openContext(caller, sessionId);
+    await openContext(caller, sessionId, contextId);
     const context = contextId;
     const { body, stored } = await messageBody(caller, sessionId, idempotencyKey, send.input);
     accepted = await run(
