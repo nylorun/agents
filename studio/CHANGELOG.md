@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.35.0-beta
+
+### Minor Changes
+
+- d48b6ef: The Events tab names a `plan.updated` event "Plan" and sums it up as how many of its steps are done and the step under way, such as `1/3 done · active: Build in parts`.
+
+### Patch Changes
+
+- Pin agents to the tested release.
+- Pin admin to the tested release.
+- Updated dependencies [d48b6ef]
+- Updated dependencies [d48b6ef]
+- Updated dependencies
+- Updated dependencies
+  - @nylorun/agents@0.31.0-beta
+  - @nylorun/admin@0.19.8-beta
+
 ## 0.34.1-beta
 
 ### Patch Changes

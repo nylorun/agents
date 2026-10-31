@@ -1,5 +1,34 @@
 # @nylorun/agents
 
+## 0.31.0-beta
+
+### Minor Changes
+
+- d48b6ef: An A2A client for the Nylorun profile v2 (A2A-E12, E13, E16), on `@nylorun/agents/a2a` and the package root.
+
+  - **`createA2aClient({ url, key?, subject?, scopes?, headers?, fetch?, extensions?, cardUrl? })`**: `send`, `get`, `list`, `listAll`, `cancel`, `answer` (an interaction under `interactions/v1`), `card` and `call`, as A2A 1.0 JSON-RPC with `A2A-Version: 1.0` and the five profile extensions activated by `A2A-Extensions`. A subject is sent as `Nylorun-Subject` with `Nylorun-Scopes: sessions:own`. A JSON-RPC error is thrown as `A2aError` (`code`, `message`, `reason` from `google.rpc.ErrorInfo`); an HTTP refusal stays a `RuntimeError`.
+  - **`verifyA2aPush({ secret, headers, body, toleranceSeconds?, token? })`**: checks a push delivery's Standard Webhooks signature (`whsec_` secret, several signatures allowed, 300 s tolerance) with Web Crypto, and returns its `StreamResponse`; `A2aPushVerificationError` otherwise.
+  - **`A2A_EXTENSIONS`** and the readers `readInteraction`, `readProgress`, `readTelemetry`, `readEffects`, `readFiles` and `readExtension`, with the profile's types and the A2A 1.0 types (`Task`, `StreamResponse`, `AgentCard`, …; the root's namespace `A2a`).
+  - **`listTurnChanges({ baseUrl, key, changedAfter?, sessionId?, limit? })`**: the Runtime's change feed, `GET /v1/turns` (Host feature `turns`).
+  - **SSE idle timeout:** `session.observe` drops a connection that sends nothing, keepalives included, for `idleTimeoutMs` (default 45 s; `0` never) and reopens it from `Last-Event-ID`.
+
+### Patch Changes
+
+- d48b6ef: An agent manifest names the model its agent runs on (Host feature `agent-model`).
+
+  - **`harness.model`**: `<provider>/<model>`, such as `anthropic/claude-sonnet-4-5` (the provider's id, a `/`, then the model's id, which may hold a `/`; at most 200 characters). In an agent folder it is `model:` in `AGENT.md`'s frontmatter; the compiler refuses any other shape (`value_invalid`) and a `model` in an agent under `agents/`, which runs on the root agent's. `harness.manifest.json` takes it too, and the composer keeps it.
+  - **A new session starts on it.** A session opened on a version that names a model gets it as its own model (`GET /v1/sessions/{id}/model` answers `source: "session"`), as `PUT /v1/sessions/{id}/model` would choose it, when the provider is connected and its catalog lists the model. Otherwise the session has none and the Tenant's model applies; nothing fails. Sessions opened by the A2A server and by triggers get it too. An explicit choice still replaces it, and an open session keeps its model across versions.
+  - `agentModelChoice` and `AgentModelSchema` in `@nylorun/core/contracts`.
+  - The JSON Schema documents that gained the field are published at new ids: `agent-manifest/v8.1.json`, `harness-manifest/v1.1.json` and `agent-folder/v1/agent-md.1.json`; the old ids are retired. `manifestSchemaVersion` stays 8.
+
+- Pin core to the tested release.
+- Updated dependencies [d48b6ef]
+- Updated dependencies [d48b6ef]
+- Updated dependencies [d48b6ef]
+- Updated dependencies [d48b6ef]
+- Updated dependencies [d48b6ef]
+  - @nylorun/core@0.32.0-beta
+
 ## 0.30.0-beta
 
 ### Minor Changes
