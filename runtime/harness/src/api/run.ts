@@ -95,6 +95,8 @@ export async function runTurn(ctx: RunContext, run: HarnessRun): Promise<void> {
     // the root only, and its index pinned at the head of the conversation.
     const memory = start.engine === "agent" ? start.memory : undefined;
     const rootId = (start.manifest as AgentManifest).id;
+    // The agent's plan (A2A profile v2): the version's `harness.loop.plan`, for the root agent.
+    const plan = start.engine === "agent" && (start.loop as { plan?: unknown } | undefined)?.plan === true;
     const engineTools = (agent: AgentManifest) =>
       engineToolsFor(
         agent,
@@ -105,6 +107,7 @@ export async function runTurn(ctx: RunContext, run: HarnessRun): Promise<void> {
           ...(memory.instructions === undefined ? {} : { instructions: memory.instructions }),
           root: agent.id === rootId,
         },
+        plan && agent.id === rootId,
       );
     const mcp =
       start.engine === "agent" && start.mcp

@@ -9061,6 +9061,9 @@
             "$ref": "#/components/schemas/McpDiscoveredEvent"
           },
           {
+            "$ref": "#/components/schemas/PlanUpdatedEvent"
+          },
+          {
             "$ref": "#/components/schemas/EnvironmentStateEvent"
           },
           {
@@ -9126,6 +9129,7 @@
             "delegation.started": "#/components/schemas/DelegationStartedEvent",
             "delegation.completed": "#/components/schemas/DelegationCompletedEvent",
             "mcp.discovered": "#/components/schemas/McpDiscoveredEvent",
+            "plan.updated": "#/components/schemas/PlanUpdatedEvent",
             "environment.state": "#/components/schemas/EnvironmentStateEvent",
             "environment.exec": "#/components/schemas/EnvironmentExecEvent",
             "agent.attached": "#/components/schemas/AgentAttachedEvent",
@@ -13947,6 +13951,228 @@
             },
             "required": [
               "servers"
+            ],
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "schema",
+          "eventId",
+          "tenantId",
+          "sessionId",
+          "runId",
+          "turnId",
+          "incarnation",
+          "epoch",
+          "seq",
+          "cursor",
+          "time",
+          "schemaVersion",
+          "source",
+          "evidence",
+          "visibility",
+          "retention",
+          "type",
+          "payload"
+        ]
+      },
+      "PlanUpdatedEvent": {
+        "type": "object",
+        "properties": {
+          "schema": {
+            "type": "string",
+            "enum": [
+              "nylorun.event/2"
+            ]
+          },
+          "eventId": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "runId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "turnId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "incarnation": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "epoch": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "time": {
+            "type": "string"
+          },
+          "schemaVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "client",
+                  "core",
+                  "model-gate",
+                  "tool-gate",
+                  "egress-gate",
+                  "sandboxes",
+                  "edge",
+                  "init",
+                  "controller",
+                  "loop",
+                  "supervisor",
+                  "harness",
+                  "evidence",
+                  "operator",
+                  "human",
+                  "api"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ]
+          },
+          "evidence": {
+            "type": "string",
+            "enum": [
+              "observed",
+              "measured",
+              "attested",
+              "claimed",
+              "asserted"
+            ]
+          },
+          "principal": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "application",
+                  "subject",
+                  "flow-host",
+                  "core",
+                  "trigger"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          "trace": {
+            "type": "object",
+            "properties": {
+              "traceId": {
+                "type": "string"
+              },
+              "spanId": {
+                "type": "string"
+              },
+              "parentSpanId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "traceId",
+              "spanId"
+            ]
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "internal",
+              "restricted"
+            ]
+          },
+          "retention": {
+            "type": "string",
+            "enum": [
+              "full",
+              "metadata"
+            ]
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "plan.updated"
+            ]
+          },
+          "payload": {
+            "type": "object",
+            "properties": {
+              "steps": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "label": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 120
+                    },
+                    "state": {
+                      "type": "string",
+                      "enum": [
+                        "pending",
+                        "active",
+                        "done",
+                        "blocked",
+                        "skipped"
+                      ]
+                    },
+                    "note": {
+                      "type": "string",
+                      "maxLength": 280
+                    }
+                  },
+                  "required": [
+                    "label",
+                    "state"
+                  ],
+                  "additionalProperties": {}
+                },
+                "maxItems": 20
+              }
+            },
+            "required": [
+              "steps"
             ],
             "additionalProperties": {}
           }
@@ -32505,6 +32731,9 @@
                     },
                     {
                       "$ref": "#/components/schemas/McpDiscoveredEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/PlanUpdatedEvent"
                     },
                     {
                       "$ref": "#/components/schemas/EnvironmentStateEvent"
