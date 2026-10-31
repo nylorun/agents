@@ -65,7 +65,8 @@ import {
   waitForIdle,
 } from "./scheduler.js";
 import { advance } from "./advance.js";
-import { sweep } from "./sweep.js";
+import { outboxFields, sweep } from "./sweep.js";
+import { deliverPush } from "../api/a2a/push.js";
 import {
   TenantWorkers,
   WORKER_ID,
@@ -438,7 +439,10 @@ export class TenantRuntime implements TenantHandle {
         send: (request) =>
           request.kind === "wake"
             ? ctx.wake(request.sessionId, request.wake)
-            : ctx.sandboxSignal(request.sandboxId, request.signal),
+            : request.kind === "push"
+              ? // An A2A push goes to the caller's URL, not to the execution (`api/a2a/push.ts`).
+                deliverPush(ctx, request.push)
+              : ctx.sandboxSignal(request.sandboxId, request.signal),
         ...(hooks.execution?.stuckInvocations
           ? {
               stuckInvocations: () =>
@@ -458,9 +462,7 @@ export class TenantRuntime implements TenantHandle {
           return await ctx.send(request);
         } catch (error) {
           config.logger.warn("outbox delivery after commit failed; the sweep sends it again", {
-            ...(request.kind === "wake"
-              ? { sessionId: request.sessionId, reason: request.wake.reason }
-              : { sandboxId: request.sandboxId, signal: request.signal.kind }),
+            ...outboxFields(request),
             message: error instanceof Error ? error.message : String(error),
           });
           return false;

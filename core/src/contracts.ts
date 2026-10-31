@@ -3480,6 +3480,29 @@ export const WakeBookedPayloadSchema = z
   .object({ at: z.string(), note: z.string(), effectId: z.string(), replaced: z.boolean() })
   .passthrough();
 export const WakeCancelledPayloadSchema = z.object({ effectId: z.string() }).passthrough();
+/** The states of a plan step (`plan.updated`). */
+export const PLAN_STEP_STATES = ["pending", "active", "done", "blocked", "skipped"] as const;
+export type PlanStepState = (typeof PLAN_STEP_STATES)[number];
+/** The most steps one plan holds, and the most characters (UTF-16 units) of a label and a note. */
+export const PLAN_LIMITS = Object.freeze({ steps: 20, labelChars: 120, noteChars: 280 });
+/** One step of an agent's plan: a short label, its state, and an optional note. */
+export const PlanStepSchema = z
+  .object({
+    label: z.string().min(1).max(PLAN_LIMITS.labelChars),
+    state: z.enum(PLAN_STEP_STATES),
+    note: z.string().max(PLAN_LIMITS.noteChars).optional(),
+  })
+  .passthrough();
+export type PlanStep = z.infer<typeof PlanStepSchema>;
+/**
+ * `plan.updated`: the agent's whole plan, as its last `update_plan` call left it (our engine's
+ * built-in tool, which a version opts into with `harness.loop.plan`), never a diff. Our harness
+ * claims it. Labels and notes are the agent's short text, never tool arguments or results; the A2A
+ * server serves the latest under `progress/v1`.
+ */
+export const PlanUpdatedPayloadSchema = z
+  .object({ steps: z.array(PlanStepSchema).max(PLAN_LIMITS.steps) })
+  .passthrough();
 /** `queue.taken` (protocol 17): the turn that started with the queued messages, in order. */
 export const QueueTakenPayloadSchema = z
   .object({ turnId: z.string(), queuedMessageIds: z.array(z.string()).min(1) })
@@ -3811,6 +3834,7 @@ export const EVENT_CATALOG = {
   "delegation.started": { payload: DelegationPayloadSchema, source: "loop", version: 1 },
   "delegation.completed": { payload: DelegationPayloadSchema, source: "loop", version: 1 },
   "mcp.discovered": { payload: McpDiscoveredPayloadSchema, source: "loop", version: 1 },
+  "plan.updated": { payload: PlanUpdatedPayloadSchema, source: "loop", version: 1 },
   "environment.state": { payload: EnvironmentStatePayloadSchema, source: "loop", version: 1 },
   "environment.exec": { payload: EnvironmentExecPayloadSchema, source: "loop", version: 1 },
   "agent.attached": { payload: AgentAttachedPayloadSchema, source: "api", version: 1 },

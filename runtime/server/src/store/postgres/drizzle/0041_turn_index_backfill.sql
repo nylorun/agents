@@ -1,7 +1,8 @@
--- Custom SQL (a data change): the turn index (0039) for the turns the record already holds. Each
+-- Custom SQL (a data change): the turn index (0040) for the turns the record already holds. Each
 -- turn's row is what `Tx.event` would have written for its lifecycle events (`command.message`,
 -- `command.approve`, `command.respond`, `turn.paused`, `turn.completed`, `turn.failed`,
--- `turn.cancelled`): its status from the last of them, its start from the first. Its session's
+-- `turn.cancelled`): its status from the last of them (and, paused, what its first open
+-- interaction asks for), its start from the first, and the queued messages it took. Its session's
 -- Agent, owner and A2A context come from the session row as it is now. Rows written from here on
 -- come from `Tx.event`, in the transaction of the event.
 WITH lifecycle AS (
@@ -16,18 +17,30 @@ WITH lifecycle AS (
 	FROM lifecycle
 	WHERE doc->>'turnId' IS NOT NULL
 ), bounds AS (
-	SELECT "session_id", turn_id, min("seq") AS first_seq, max("seq") AS last_seq,
-		min(doc->>'time') AS started_at
+	SELECT "session_id", turn_id, min("seq") AS first_seq,
+		min(doc->>'time') AS started_at,
+		coalesce(
+			array_remove(
+				array_agg(doc->'payload'->>'queuedMessageId' ORDER BY "seq")
+					FILTER (WHERE "type" = 'command.message'),
+				NULL
+			),
+			'{}'
+		) AS queued_message_ids
 	FROM turned
 	GROUP BY "session_id", turn_id
 ), latest AS (
-	SELECT DISTINCT ON ("session_id", turn_id) "session_id", turn_id, "type", doc
-	FROM turned
-	ORDER BY "session_id", turn_id, "seq" DESC
+	-- A turn's further messages (a queued batch) change nothing but its queued messages.
+	SELECT DISTINCT ON (t."session_id", t.turn_id) t."session_id", t.turn_id, t."seq", t."type", t.doc
+	FROM turned t
+	JOIN bounds b ON b."session_id" = t."session_id" AND b.turn_id = t.turn_id
+	WHERE NOT (t."type" = 'command.message' AND t."seq" > b.first_seq)
+	ORDER BY t."session_id", t.turn_id, t."seq" DESC
 )
 INSERT INTO "nylorun"."turns" (
 	"session_id", "turn_id", "agent_id", "owner_user_id", "a2a_context_id", "status",
-	"started_at", "ended_at", "changed_at", "totals", "first_seq", "last_seq"
+	"started_at", "ended_at", "changed_at", "totals", "waiting_for", "queued_message_ids",
+	"first_seq", "last_seq"
 )
 SELECT
 	b."session_id",
@@ -54,8 +67,22 @@ SELECT
 			'tokens', l.doc->'payload'->'totals'->'tokens',
 			'costUsd', l.doc->'payload'->'totals'->'costUsd'
 		) END,
+	CASE WHEN l."type" = 'turn.paused' AND jsonb_typeof(l.doc->'payload'->'interactions') = 'array' THEN (
+		SELECT CASE
+			WHEN x.e->'interaction'->>'kind' = 'connection'
+				OR x.e->'interaction'->'metadata'->>'kind' = 'connection' THEN 'connection'
+			WHEN x.e->'interaction'->>'kind' = 'approval' THEN 'approval'
+			ELSE 'question'
+		END
+		FROM jsonb_array_elements(l.doc->'payload'->'interactions') WITH ORDINALITY AS x(e, i)
+		WHERE (x.e->>'status' IS NULL OR x.e->>'status' = 'interaction')
+			AND jsonb_typeof(x.e->'interaction'->'id') = 'string'
+		ORDER BY x.i
+		LIMIT 1
+	) END,
+	b.queued_message_ids,
 	b.first_seq,
-	b.last_seq
+	l."seq"
 FROM bounds b
 JOIN latest l ON l."session_id" = b."session_id" AND l.turn_id = b.turn_id
 LEFT JOIN "nylorun"."sessions" s ON s."id" = b."session_id";

@@ -229,6 +229,7 @@ export async function startTestTenant(
     ...(options.rollover === undefined ? {} : { rollover: options.rollover }),
     ...(options.delivery === undefined ? {} : { delivery: options.delivery }),
     ...(options.publicUrl === undefined ? {} : { publicUrl: options.publicUrl }),
+    ...(options.a2a === undefined ? {} : { a2a: options.a2a }),
     logger,
   };
 

@@ -324,6 +324,18 @@ describe("agent folders: messages in the compiler's own words", () => {
     expect(warnings(custom.diagnostics)).toEqual([]);
   });
 
+  it("takes loop.plan, which offers the agent update_plan, as true or false", () => {
+    const plan = compile({ "AGENT.md": "---\nname: shop\ndescription: Orders.\nloop: { plan: true }\n---\nGo.\n" });
+    expect(plan.diagnostics).toEqual([]);
+    expect(plan.manifest!.harness).toMatchObject({ loop: { plan: true } });
+    const off = compile({ "AGENT.md": "---\nname: shop\ndescription: Orders.\nloop: { plan: false }\n---\nGo.\n" });
+    expect(off.diagnostics).toEqual([]);
+    const bad = compile({ "AGENT.md": "---\nname: shop\ndescription: Orders.\nloop: { plan: yes please }\n---\nGo.\n" });
+    expect(errors(bad.diagnostics)).toEqual([expect.objectContaining({ code: "value_invalid", file: "AGENT.md", message: "loop.plan is true or false: true offers the agent update_plan" })]);
+    const typo = compile({ "AGENT.md": "---\nname: shop\ndescription: Orders.\nloop: { plans: true }\n---\nGo.\n" });
+    expect(warnings(typo.diagnostics)).toEqual([expect.objectContaining({ code: "loop_key", message: expect.stringContaining("Did you mean 'plan'?") })]);
+  });
+
   it("warns on an agent with no instructions, and compiles it", () => {
     const result = compile({ "AGENT.md": "---\nname: shop\ndescription: Orders.\n---\n\n" });
     expect(result.manifest).toBeDefined();

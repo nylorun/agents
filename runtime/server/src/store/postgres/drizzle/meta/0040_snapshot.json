@@ -1,9 +1,217 @@
 {
-  "id": "188fb369-c74e-45bd-95f0-3b7c57b17d7a",
-  "prevId": "44c724ba-9fdc-43a9-b30d-7a281bf35336",
+  "id": "b70fa478-9445-48f1-b2d5-d8348024f1cd",
+  "prevId": "ee9ddb04-a5a1-4517-9389-d22b3f0961df",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
+    "nylorun.a2a_push_configs": {
+      "name": "a2a_push_configs",
+      "schema": "nylorun",
+      "columns": {
+        "session_id": {
+          "name": "session_id",
+          "type": "text COLLATE \"C\"",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "task_id": {
+          "name": "task_id",
+          "type": "text COLLATE \"C\"",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "config_id": {
+          "name": "config_id",
+          "type": "text COLLATE \"C\"",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "context_id": {
+          "name": "context_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "turn_id": {
+          "name": "turn_id",
+          "type": "text COLLATE \"C\"",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "url": {
+          "name": "url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "token": {
+          "name": "token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "authentication": {
+          "name": "authentication",
+          "type": "json",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "base_url": {
+          "name": "base_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "extensions": {
+          "name": "extensions",
+          "type": "json",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "trace_id": {
+          "name": "trace_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "next_seq": {
+          "name": "next_seq",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "clock_timestamp()"
+        },
+        "done_at": {
+          "name": "done_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "a2a_push_configs_done_at": {
+          "name": "a2a_push_configs_done_at",
+          "columns": [
+            {
+              "expression": "done_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "a2a_push_configs_pkey": {
+          "name": "a2a_push_configs_pkey",
+          "columns": [
+            "session_id",
+            "task_id",
+            "config_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "nylorun.a2a_pushes": {
+      "name": "a2a_pushes",
+      "schema": "nylorun",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text COLLATE \"C\"",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "session_id": {
+          "name": "session_id",
+          "type": "text COLLATE \"C\"",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "task_id": {
+          "name": "task_id",
+          "type": "text COLLATE \"C\"",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "config_id": {
+          "name": "config_id",
+          "type": "text COLLATE \"C\"",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "body": {
+          "name": "body",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "clock_timestamp()"
+        },
+        "attempts": {
+          "name": "attempts",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "retry_at": {
+          "name": "retry_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "parked_at": {
+          "name": "parked_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "a2a_pushes_created_at": {
+          "name": "a2a_pushes_created_at",
+          "columns": [
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "nylorun_streams.agent_events": {
       "name": "agent_events",
       "schema": "nylorun_streams",
@@ -233,9 +441,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "agent_triggers_endpoint": {
           "name": "agent_triggers_endpoint",
@@ -248,10 +456,10 @@
             }
           ],
           "isUnique": true,
-          "with": {},
-          "method": "btree",
           "where": "endpoint_id IS NOT NULL",
-          "concurrently": false
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {},
@@ -515,9 +723,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         }
       },
       "foreignKeys": {},
@@ -573,27 +781,27 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         }
       },
       "foreignKeys": {
         "artifact_content_version_fkey": {
           "name": "artifact_content_version_fkey",
           "tableFrom": "artifact_content",
+          "tableTo": "artifact_versions",
+          "schemaTo": "nylorun",
           "columnsFrom": [
             "artifact_id",
             "version"
           ],
-          "tableTo": "artifact_versions",
-          "schemaTo": "nylorun",
           "columnsTo": [
             "artifact_id",
             "version"
           ],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {
@@ -682,26 +890,26 @@
             }
           ],
           "isUnique": true,
-          "with": {},
-          "method": "btree",
           "where": "write_key IS NOT NULL",
-          "concurrently": false
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
         "artifact_versions_artifact_id_fkey": {
           "name": "artifact_versions_artifact_id_fkey",
           "tableFrom": "artifact_versions",
+          "tableTo": "artifacts",
+          "schemaTo": "nylorun",
           "columnsFrom": [
             "artifact_id"
           ],
-          "tableTo": "artifacts",
-          "schemaTo": "nylorun",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {
@@ -807,9 +1015,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "artifacts_environment_disk": {
           "name": "artifacts_environment_disk",
@@ -822,10 +1030,10 @@
             }
           ],
           "isUnique": true,
-          "with": {},
-          "method": "btree",
           "where": "environment_id IS NOT NULL",
-          "concurrently": false
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         },
         "artifacts_creation_order": {
           "name": "artifacts_creation_order",
@@ -844,9 +1052,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         }
       },
       "foreignKeys": {},
@@ -896,15 +1104,15 @@
           "primaryKey": true,
           "notNull": true,
           "identity": {
+            "type": "always",
             "name": "control_signals_id_seq",
+            "schema": "nylorun",
             "increment": "1",
+            "startWith": "1",
             "minValue": "1",
             "maxValue": "9223372036854775807",
-            "startWith": "1",
             "cache": "1",
-            "cycle": false,
-            "schema": "nylorun",
-            "type": "always"
+            "cycle": false
           }
         },
         "kind": {
@@ -963,9 +1171,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         }
       },
       "foreignKeys": {},
@@ -1015,9 +1223,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         }
       },
       "foreignKeys": {},
@@ -1101,8 +1309,8 @@
           "primaryKey": false,
           "notNull": false,
           "generated": {
-            "type": "stored",
-            "as": "nylorun.doc(body)->'request'->>'sessionId'"
+            "as": "nylorun.doc(body)->'request'->>'sessionId'",
+            "type": "stored"
           }
         },
         "turn_id": {
@@ -1111,8 +1319,8 @@
           "primaryKey": false,
           "notNull": false,
           "generated": {
-            "type": "stored",
-            "as": "nylorun.doc(body)->'request'->>'turnId'"
+            "as": "nylorun.doc(body)->'request'->>'turnId'",
+            "type": "stored"
           }
         },
         "kind": {
@@ -1121,8 +1329,8 @@
           "primaryKey": false,
           "notNull": false,
           "generated": {
-            "type": "stored",
-            "as": "nylorun.doc(body)->'request'->>'kind'"
+            "as": "nylorun.doc(body)->'request'->>'kind'",
+            "type": "stored"
           }
         },
         "status": {
@@ -1131,8 +1339,8 @@
           "primaryKey": false,
           "notNull": false,
           "generated": {
-            "type": "stored",
-            "as": "nylorun.doc(body)->>'status'"
+            "as": "nylorun.doc(body)->>'status'",
+            "type": "stored"
           }
         }
       },
@@ -1160,9 +1368,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "effects_status": {
           "name": "effects_status",
@@ -1181,9 +1389,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         }
       },
       "foreignKeys": {},
@@ -1215,8 +1423,8 @@
           "primaryKey": false,
           "notNull": false,
           "generated": {
-            "type": "stored",
-            "as": "nylorun.doc(body)->>'workflowSessionId'"
+            "as": "nylorun.doc(body)->>'workflowSessionId'",
+            "type": "stored"
           }
         }
       },
@@ -1232,9 +1440,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         }
       },
       "foreignKeys": {},
@@ -1414,9 +1622,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "memory_versions_path": {
           "name": "memory_versions_path",
@@ -1441,9 +1649,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         }
       },
       "foreignKeys": {},
@@ -1696,9 +1904,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "model_usage_export": {
           "name": "model_usage_export",
@@ -1717,9 +1925,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "model_usage_effect": {
           "name": "model_usage_effect",
@@ -1732,9 +1940,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "model_usage_manifest": {
           "name": "model_usage_manifest",
@@ -1753,9 +1961,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "model_usage_turn": {
           "name": "model_usage_turn",
@@ -1768,9 +1976,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "model_usage_created": {
           "name": "model_usage_created",
@@ -1783,9 +1991,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         }
       },
       "foreignKeys": {},
@@ -1836,10 +2044,10 @@
       "uniqueConstraints": {
         "principals_token_hash_key": {
           "name": "principals_token_hash_key",
+          "nullsNotDistinct": false,
           "columns": [
             "token_hash"
-          ],
-          "nullsNotDistinct": false
+          ]
         }
       },
       "policies": {},
@@ -1944,9 +2152,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         }
       },
       "foreignKeys": {},
@@ -2159,9 +2367,9 @@
             }
           ],
           "isUnique": true,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         }
       },
       "foreignKeys": {},
@@ -2193,8 +2401,8 @@
           "primaryKey": false,
           "notNull": false,
           "generated": {
-            "type": "stored",
-            "as": "nylorun.doc(body)->>'status'"
+            "as": "nylorun.doc(body)->>'status'",
+            "type": "stored"
           }
         },
         "agent_id": {
@@ -2203,8 +2411,8 @@
           "primaryKey": false,
           "notNull": false,
           "generated": {
-            "type": "stored",
-            "as": "nylorun.doc(body)->>'agentId'"
+            "as": "nylorun.doc(body)->>'agentId'",
+            "type": "stored"
           }
         },
         "created_at": {
@@ -2239,8 +2447,8 @@
           "primaryKey": false,
           "notNull": false,
           "generated": {
-            "type": "stored",
-            "as": "nylorun.doc(body)->>'ownerUserId'"
+            "as": "nylorun.doc(body)->>'ownerUserId'",
+            "type": "stored"
           }
         },
         "environment_id": {
@@ -2249,8 +2457,8 @@
           "primaryKey": false,
           "notNull": false,
           "generated": {
-            "type": "stored",
-            "as": "nylorun.doc(body)->>'environmentId'"
+            "as": "nylorun.doc(body)->>'environmentId'",
+            "type": "stored"
           }
         },
         "manifest_name": {
@@ -2259,8 +2467,8 @@
           "primaryKey": false,
           "notNull": false,
           "generated": {
-            "type": "stored",
-            "as": "nylorun.doc(body)->'definition'->>'name'"
+            "as": "nylorun.doc(body)->'definition'->>'name'",
+            "type": "stored"
           }
         }
       },
@@ -2282,9 +2490,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "sessions_status": {
           "name": "sessions_status",
@@ -2303,9 +2511,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "sessions_agent": {
           "name": "sessions_agent",
@@ -2318,9 +2526,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "sessions_owner_user": {
           "name": "sessions_owner_user",
@@ -2333,9 +2541,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "sessions_environment": {
           "name": "sessions_environment",
@@ -2348,9 +2556,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "sessions_manifest": {
           "name": "sessions_manifest",
@@ -2363,9 +2571,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         }
       },
       "foreignKeys": {},
@@ -2464,10 +2672,10 @@
             }
           ],
           "isUnique": true,
-          "with": {},
-          "method": "btree",
           "where": "state = 'standby'",
-          "concurrently": false
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         },
         "signing_keys_one_current": {
           "name": "signing_keys_one_current",
@@ -2480,10 +2688,10 @@
             }
           ],
           "isUnique": true,
-          "with": {},
-          "method": "btree",
           "where": "state = 'current'",
-          "concurrently": false
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         },
         "signing_keys_one_previous": {
           "name": "signing_keys_one_previous",
@@ -2496,10 +2704,10 @@
             }
           ],
           "isUnique": true,
-          "with": {},
-          "method": "btree",
           "where": "state = 'previous'",
-          "concurrently": false
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {},
@@ -2580,10 +2788,10 @@
       "uniqueConstraints": {
         "tenant_singleton_key": {
           "name": "tenant_singleton_key",
+          "nullsNotDistinct": false,
           "columns": [
             "singleton"
-          ],
-          "nullsNotDistinct": false
+          ]
         }
       },
       "policies": {},
@@ -2667,9 +2875,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         }
       },
       "foreignKeys": {},
@@ -2781,9 +2989,9 @@
             }
           ],
           "isUnique": true,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "trigger_runs_agent": {
           "name": "trigger_runs_agent",
@@ -2802,9 +3010,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "trigger_runs_fired": {
           "name": "trigger_runs_fired",
@@ -2817,9 +3025,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         }
       },
       "foreignKeys": {},
@@ -2893,6 +3101,19 @@
           "primaryKey": false,
           "notNull": false
         },
+        "waiting_for": {
+          "name": "waiting_for",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "queued_message_ids": {
+          "name": "queued_message_ids",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'"
+        },
         "first_seq": {
           "name": "first_seq",
           "type": "bigint",
@@ -2925,9 +3146,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "turns_changes": {
           "name": "turns_changes",
@@ -2952,9 +3173,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "turns_owner_changes": {
           "name": "turns_owner_changes",
@@ -2973,9 +3194,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "turns_owner_agent": {
           "name": "turns_owner_agent",
@@ -3000,9 +3221,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         }
       },
       "foreignKeys": {},
@@ -3030,15 +3251,15 @@
           "primaryKey": true,
           "notNull": true,
           "identity": {
+            "type": "always",
             "name": "vault_audit_ord_seq",
+            "schema": "nylorun",
             "increment": "1",
+            "startWith": "1",
             "minValue": "1",
             "maxValue": "9223372036854775807",
-            "startWith": "1",
             "cache": "1",
-            "cycle": false,
-            "schema": "nylorun",
-            "type": "always"
+            "cycle": false
           }
         },
         "id": {
@@ -3114,9 +3335,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         }
       },
       "foreignKeys": {},
@@ -3124,10 +3345,10 @@
       "uniqueConstraints": {
         "vault_audit_id_key": {
           "name": "vault_audit_id_key",
+          "nullsNotDistinct": false,
           "columns": [
             "id"
-          ],
-          "nullsNotDistinct": false
+          ]
         }
       },
       "policies": {},
@@ -3235,9 +3456,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "vault_credentials_name": {
           "name": "vault_credentials_name",
@@ -3256,25 +3477,25 @@
             }
           ],
           "isUnique": true,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         }
       },
       "foreignKeys": {
         "vault_credentials_vault_id_fkey": {
           "name": "vault_credentials_vault_id_fkey",
           "tableFrom": "vault_credentials",
+          "tableTo": "vaults",
+          "schemaTo": "nylorun",
           "columnsFrom": [
             "vault_id"
           ],
-          "tableTo": "vaults",
-          "schemaTo": "nylorun",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -3361,25 +3582,25 @@
             }
           ],
           "isUnique": true,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         }
       },
       "foreignKeys": {
         "vaults_environment_id_fkey": {
           "name": "vaults_environment_id_fkey",
           "tableFrom": "vaults",
+          "tableTo": "agents",
+          "schemaTo": "nylorun",
           "columnsFrom": [
             "environment_id"
           ],
-          "tableTo": "agents",
-          "schemaTo": "nylorun",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -3460,9 +3681,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         }
       },
       "foreignKeys": {},
@@ -3478,10 +3699,10 @@
     "nylorun": "nylorun",
     "nylorun_streams": "nylorun_streams"
   },
-  "views": {},
   "sequences": {},
   "roles": {},
   "policies": {},
+  "views": {},
   "_meta": {
     "columns": {},
     "schemas": {},

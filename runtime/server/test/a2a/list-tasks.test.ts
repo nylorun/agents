@@ -176,17 +176,21 @@ describe("ListTasks", () => {
     expect((await list({}, { agent: "guarded" })).result.totalSize).toBe(0);
   });
 
-  it("shows a task waiting for approval as INPUT_REQUIRED with its question, then CANCELED", async () => {
+  it("shows a task waiting for approval as AUTH_REQUIRED with its interaction, as GetTask does, then CANCELED", async () => {
     const asked = await send("Save it", { contextId: "ctx-g" }, { agent: "guarded" });
-    expect(asked.status.state).toBe("TASK_STATE_INPUT_REQUIRED");
-    const [waiting] = (await list({ status: "TASK_STATE_INPUT_REQUIRED" }, { agent: "guarded" })).result.tasks;
+    expect(asked.status.state).toBe("TASK_STATE_AUTH_REQUIRED");
+    expect((await list({ status: "TASK_STATE_INPUT_REQUIRED" }, { agent: "guarded" })).result.totalSize).toBe(0);
+    const [waiting] = (await list({ status: "TASK_STATE_AUTH_REQUIRED" }, { agent: "guarded" })).result.tasks;
+    const got = (await rpc("GetTask", { id: asked.id, historyLength: 0 }, { agent: "guarded" })).result;
     expect(waiting).toMatchObject({
       id: asked.id,
-      status: { state: "TASK_STATE_INPUT_REQUIRED", message: { role: "ROLE_AGENT", parts: [{ text: "Approve save?" }] } },
+      status: { state: "TASK_STATE_AUTH_REQUIRED", message: { role: "ROLE_AGENT", parts: [{ text: "Approve save?" }] } },
     });
+    expect(waiting.status.message).toEqual(got.status.message);
     await rpc("CancelTask", { id: asked.id }, { agent: "guarded" });
     const [cancelled] = (await list({}, { agent: "guarded" })).result.tasks;
     expect(cancelled).toMatchObject({ id: asked.id, status: { state: "TASK_STATE_CANCELED" } });
+    expect(cancelled.metadata).toEqual((await rpc("GetTask", { id: asked.id }, { agent: "guarded" })).result.metadata);
   });
 });
 

@@ -636,6 +636,37 @@ export function artifactRoutes(api: OpenAPIHono<TenantEnv>): void {
 
   tenantRoute(
     api,
+    { credentials: ["subject", "token"], scopes: ["sessions:own"] },
+    {
+      method: "get",
+      path: "/v1/a2a/files/{artifactId}/versions/{version}",
+      tags: ["A2A"],
+      summary: "Download a file an A2A task wrote",
+      description:
+        "Where the `url` parts of an A2A task's file artifacts point (Host feature `a2a-profile-v2`, `files/v1`): a file version's bytes, with Range, or a folder version as a zip. Served only to the subject whose session wrote it, as the A2A endpoint is: send the same credential, `Nylorun-Subject` and `Nylorun-Scopes`. Another subject's artifact is a `404`.",
+      request: { params: versionParam },
+      responses: { 200: fileContent("The file, or the folder's zip"), ...ranged },
+    },
+    async (c) => {
+      const ctx = c.env.tenant;
+      const access =
+        accessOf(c.get("scope")) ??
+        fail(400, "Acting for a subject is required: send Nylorun-Subject and Nylorun-Scopes", {
+          code: "subject_required",
+        });
+      const { artifact, version } = await artifactContent(
+        ctx,
+        c.req.param("artifactId")!,
+        versionNumber(c.req.param("version")),
+        access,
+      );
+      if (artifact.kind === "file") return contentResponse(ctx, fileOf(artifact, version), c.req.raw);
+      return zipResponse(ctx, artifact, version, await readManifest(ctx.blobs, version), c.req.raw);
+    },
+  );
+
+  tenantRoute(
+    api,
     OWN,
     {
       method: "post",

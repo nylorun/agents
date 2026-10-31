@@ -42,6 +42,7 @@ import {
   type Stored,
 } from "../tools/results.js";
 import { isToolSearch, runToolSearch } from "../tools/tool-search.js";
+import { isPlanTool, runPlanTool } from "../tools/plan.js";
 import { runAbortKind } from "./abort.js";
 import type { HarnessExecutors, HarnessRun } from "./executors.js";
 import type { LoopConfig } from "../loop/config.js";
@@ -61,8 +62,8 @@ export interface EngineConfig extends EngineToolOptions {
 /**
  * The host of one run. A `harness` tool call is one of our engine's own tools, run here: the skill
  * tools over `definition.file`, the artifact tools over the artifact seam and `executors.files`,
- * `tool_search` over the run's MCP tools (`mcp`). Every other tool call goes to `executors.tool`,
- * which routes it by its target.
+ * `tool_search` over the run's MCP tools (`mcp`), `update_plan` as a `plan.updated` claim. Every
+ * other tool call goes to `executors.tool`, which routes it by its target.
  */
 export function apiHost(
   channel: HarnessChannel,
@@ -228,6 +229,7 @@ export function apiHost(
       return Promise.resolve(
         runToolSearch(effect, mcp?.deferredOf(effect.agent?.id) ?? [], engine.mcpTools),
       );
+    if (isPlanTool(effect)) return runPlanTool(effect, { channel, run, signal });
     if (isArtifactTool(effect.toolName))
       return runArtifactTool(effect, {
         channel,

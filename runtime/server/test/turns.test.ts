@@ -271,6 +271,43 @@ describe("the turn index's transactions", () => {
       });
       expect(BigInt(ended!.txid)).toBeGreaterThan(BigInt(started!.txid));
       expect(ended!.endedAt).toBe(ended!.changedAt);
+
+      // A paused turn keeps what its first open interaction asks for, as profile v2 names it.
+      const paused = (kind: string, metadata?: object) => ({
+        interactions: [
+          { invocationId: "done", status: "completed", interaction: { id: "old", kind: "approval" } },
+          { invocationId: "i", status: "interaction", interaction: { id: "x", kind, ...(metadata ? { metadata } : {}) } },
+        ],
+      });
+      const waiting = async (turnId: string, payload: object) => {
+        await store.tx((t) => t.event("t-tx", turnId, "command.message", { ...message, idempotencyKey: turnId }));
+        await store.tx((t) => t.event("t-tx", turnId, "turn.paused", payload as never));
+        return (await store.tx((t) => t.turn("t-tx", turnId)))!;
+      };
+      expect(await waiting("turn-ask", paused("response"))).toMatchObject({ status: "paused", waitingFor: "question" });
+      expect(await waiting("turn-approve", paused("approval"))).toMatchObject({ waitingFor: "approval" });
+      expect(await waiting("turn-connect", paused("response", { kind: "connection" }))).toMatchObject({
+        waitingFor: "connection",
+      });
+      await store.tx((t) =>
+        t.event("t-tx", "turn-ask", "command.respond", {
+          type: "respond",
+          requestId: "a",
+          idempotencyKey: "a",
+          interactionId: "x",
+          value: "yes",
+        }),
+      );
+      expect(await store.tx((t) => t.turn("t-tx", "turn-ask"))).toMatchObject({ status: "running", waitingFor: null });
+
+      // A turn that took queued messages is found by each of their ids.
+      await store.tx(async (t) => {
+        await t.event("t-tx", "turn-queued", "command.message", { ...message, idempotencyKey: "q1", queuedMessageId: "qm-1" });
+        await t.event("t-tx", "turn-queued", "command.message", { ...message, idempotencyKey: "q2", queuedMessageId: "qm-2" });
+      });
+      for (const id of ["qm-1", "qm-2"])
+        expect((await store.tx((t) => t.turnOfQueuedMessage("t-tx", id)))?.turnId).toBe("turn-queued");
+      expect(await store.tx((t) => t.turnOfQueuedMessage("t-tx", "qm-none"))).toBeUndefined();
     });
   });
 });
@@ -365,12 +402,12 @@ describe("the backfill migration", () => {
   it("writes the rows the live index wrote", async () => {
     const db = database(testTenantPool(runtime.tenantId));
     const columns = sql.raw(
-      `session_id, turn_id, agent_id, owner_user_id, a2a_context_id, status, started_at, ended_at, changed_at, totals::jsonb AS totals, first_seq, last_seq`,
+      `session_id, turn_id, agent_id, owner_user_id, a2a_context_id, status, started_at, ended_at, changed_at, totals::jsonb AS totals, waiting_for, queued_message_ids, first_seq, last_seq`,
     );
     const read = () => db.execute(sql`SELECT ${columns} FROM nylorun.turns ORDER BY session_id, turn_id`);
     const live = await read();
     expect(live.length).toBeGreaterThanOrEqual(7);
-    const backfill = shippedMigrations().find((migration) => migration.tag === "0040_turn_index_backfill")!;
+    const backfill = shippedMigrations().find((migration) => migration.tag === "0041_turn_index_backfill")!;
     await db.transaction(async (tx) => {
       await tx.execute(sql`DELETE FROM nylorun.turns`);
       for (const statement of backfill.statements) if (statement.trim()) await tx.execute(sql.raw(statement));

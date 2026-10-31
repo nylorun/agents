@@ -6,12 +6,16 @@
  *
  * `ListTasks` is scoped before any lookup: the caller's own subject and this endpoint's Agent,
  * A2A contexts only. Tasks come latest status change first; a page's token is the last task's
- * position, bound to the caller and the filters. A task's `status.timestamp` is when its status
- * last changed (`statusTimestampAfter` compares with it). Without `historyLength` or
- * `includeArtifacts` a task is built from its index row alone (and, while it waits for input,
- * its session's question); with them, from its own events.
+ * position, bound to the caller and the filters. Each task is built as `GetTask` builds it, from
+ * its turn's own events (state, interaction, `progress/v1` and `telemetry/v1` metadata), with
+ * `history` only for `historyLength` and artifacts only for `includeArtifacts`; its
+ * `status.timestamp` is when its status last changed, which `statusTimestampAfter` compares with.
+ * A paused turn is `AUTH_REQUIRED` while it waits for an approval or a connection, and
+ * `INPUT_REQUIRED` for a question (the index's `waitingFor`). A queued message no turn took yet
+ * (`SUBMITTED`) is not a turn, so it is not listed.
  */
 import type { LiveEvent, TurnStatus } from "@nylorun/core/contracts";
+import type { TurnState } from "../../store/postgres/turns.js";
 import { encodeCursor } from "../../record/index.js";
 import { historyCursor, readCursor } from "../../reads/cursor.js";
 import type { TurnRow } from "../../store/types.js";
@@ -19,26 +23,24 @@ import { ENDED_TURN_STATUSES } from "../../store/postgres/turns.js";
 import { loadSession, type Session, type SessionAccess, type TenantContext } from "../../tenant/context.js";
 import { HttpError } from "../../tenant/http.js";
 import { readHistory } from "../../tenant/session-streams.js";
-import {
-  a2aFail,
-  parseHistoryLength,
-  type Message,
-  type Task,
-  type TaskState,
-} from "./protocol.js";
-import { buildTask, contextSessionId, pendingInteraction, taskIdOf } from "./tasks.js";
+import { a2aFail, parseHistoryLength, type Task, type TaskState } from "./protocol.js";
+import { contextSessionId } from "./tasks.js";
 
 /** `ListTasks`' page size when the request names none, and the most it may ask. */
 export const LIST_PAGE_DEFAULT = 50;
 export const LIST_PAGE_MAX = 100;
 
-/** The A2A state of each turn status. */
-const STATE_OF: Readonly<Record<TurnStatus, TaskState>> = {
-  running: "TASK_STATE_WORKING",
-  paused: "TASK_STATE_INPUT_REQUIRED",
-  completed: "TASK_STATE_COMPLETED",
-  failed: "TASK_STATE_FAILED",
-  cancelled: "TASK_STATE_CANCELED",
+/**
+ * The turn index states each A2A state is (profile v2 §1): a paused turn by what its first open
+ * interaction asks for. `SUBMITTED` (a queued message), `REJECTED` and anything else: none.
+ */
+const TURN_STATES: Readonly<Partial<Record<TaskState, readonly TurnState[]>>> = {
+  TASK_STATE_WORKING: [{ status: "running" }],
+  TASK_STATE_INPUT_REQUIRED: [{ status: "paused", waitingFor: ["question"] }],
+  TASK_STATE_AUTH_REQUIRED: [{ status: "paused", waitingFor: ["approval", "connection"] }],
+  TASK_STATE_COMPLETED: [{ status: "completed" }],
+  TASK_STATE_FAILED: [{ status: "failed" }],
+  TASK_STATE_CANCELED: [{ status: "cancelled" }],
 };
 
 const TASK_STATES: readonly TaskState[] = [
@@ -163,8 +165,19 @@ export interface ListCaller {
   readonly agentId: string;
 }
 
+/** Builds one listed turn's task as `GetTask` does (`routes.ts`), or undefined when it has none. */
+export type BuildListedTask = (
+  row: TurnRow,
+  session: Session,
+  historyLength: number
+) => Promise<Task | undefined>;
+
 /** `ListTasks`: the caller's tasks with this Agent, from the turn index. */
-export async function listTasks(caller: ListCaller, params: ListParams): Promise<ListTasksResult> {
+export async function listTasks(
+  caller: ListCaller,
+  params: ListParams,
+  build: BuildListedTask
+): Promise<ListTasksResult> {
   const { ctx, access, agentId } = caller;
   const owner = access.owner;
   const token = readCursor(ctx.config.tenantId, "a2a-tasks", {
@@ -183,10 +196,7 @@ export async function listTasks(caller: ListCaller, params: ListParams): Promise
   }
   if (key && (key.length !== 3 || key.some((part) => typeof part !== "string")))
     a2aFail("invalidParams", "pageToken is not one this request returned", {}, "pageToken");
-  const statuses =
-    params.status === undefined
-      ? undefined
-      : (Object.keys(STATE_OF) as TurnStatus[]).filter((status) => STATE_OF[status] === params.status);
+  const states = params.status === undefined ? undefined : (TURN_STATES[params.status] ?? []);
   const { turns, total } = await ctx.store.tx((t) =>
     t.listTurns({
       ownerUserId: owner,
@@ -195,7 +205,7 @@ export async function listTasks(caller: ListCaller, params: ListParams): Promise
       ...(params.contextId === undefined
         ? {}
         : { sessionId: contextSessionId(owner, agentId, params.contextId) }),
-      ...(statuses === undefined ? {} : { statuses }),
+      ...(states === undefined ? {} : { states }),
       ...(params.statusTimestampAfter === undefined ? {} : { changedSince: params.statusTimestampAfter }),
       ...(key ? { after: { changedAt: key[0]!, sessionId: key[1]!, turnId: key[2]! } } : {}),
       limit: params.pageSize + 1,
@@ -204,10 +214,20 @@ export async function listTasks(caller: ListCaller, params: ListParams): Promise
   const page = turns.slice(0, params.pageSize);
   const last = page.at(-1);
   const tasks: Task[] = [];
+  const sessions = new Map<string, Session | undefined>();
   for (const row of page) {
     // Only a context the A2A server opened for this caller: its session id is the context's.
     if (contextSessionId(owner, agentId, row.a2aContextId!) !== row.sessionId) continue;
-    tasks.push(await indexedTask(caller, row, params));
+    if (!sessions.has(row.sessionId)) sessions.set(row.sessionId, await sessionOf(caller, row.sessionId));
+    const session = sessions.get(row.sessionId);
+    const built = session ? await build(row, session, params.historyLength ?? 0) : undefined;
+    if (!built) continue;
+    const { artifacts, ...task } = built;
+    tasks.push({
+      ...task,
+      status: { ...task.status, timestamp: row.changedAt },
+      ...(params.includeArtifacts && artifacts ? { artifacts } : {}),
+    });
   }
   return {
     tasks,
@@ -228,48 +248,4 @@ async function sessionOf(caller: ListCaller, sessionId: string): Promise<Session
     if (error instanceof HttpError && error.status === 404) return undefined;
     throw error;
   }
-}
-
-/** One listed task: from its row, or from its events when history or artifacts are asked for. */
-async function indexedTask(caller: ListCaller, row: TurnRow, params: ListParams): Promise<Task> {
-  const contextId = row.a2aContextId!;
-  const taskId = taskIdOf(contextId, row.turnId);
-  const state = STATE_OF[row.status as TurnStatus];
-  const status = { state, timestamp: row.changedAt };
-  if ((params.historyLength ?? 0) > 0 || params.includeArtifacts) {
-    const session = await sessionOf(caller, row.sessionId);
-    const built = session
-      ? buildTask({
-          contextId,
-          turnId: row.turnId,
-          session,
-          events: await indexedTurnEvents(caller.ctx, row),
-          historyLength: params.historyLength ?? 0,
-        })
-      : undefined;
-    if (built) {
-      const { artifacts, ...task } = built;
-      return {
-        ...task,
-        status: { ...built.status, timestamp: row.changedAt },
-        ...(params.includeArtifacts && artifacts ? { artifacts } : {}),
-      };
-    }
-  }
-  let message: Message | undefined;
-  if (row.status === "paused") {
-    // The question it waits on is on its session, not in its history.
-    const session = await sessionOf(caller, row.sessionId);
-    const pending = session && session.activeTurnId === row.turnId ? pendingInteraction(session) : undefined;
-    if (pending)
-      message = { messageId: pending.id, role: "ROLE_AGENT", parts: [{ text: pending.prompt }], contextId, taskId };
-  } else if (row.status === "failed")
-    message = {
-      messageId: `${row.turnId}:failed`,
-      role: "ROLE_AGENT",
-      parts: [{ text: "The agent failed." }],
-      contextId,
-      taskId,
-    };
-  return { id: taskId, contextId, status: { ...status, ...(message ? { message } : {}) } };
 }

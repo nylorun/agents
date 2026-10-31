@@ -1,9 +1,217 @@
 {
-  "id": "44c724ba-9fdc-43a9-b30d-7a281bf35336",
+  "id": "ee9ddb04-a5a1-4517-9389-d22b3f0961df",
   "prevId": "382be49a-ee85-4c9c-982e-304b3e0b3854",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
+    "nylorun.a2a_push_configs": {
+      "name": "a2a_push_configs",
+      "schema": "nylorun",
+      "columns": {
+        "session_id": {
+          "name": "session_id",
+          "type": "text COLLATE \"C\"",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "task_id": {
+          "name": "task_id",
+          "type": "text COLLATE \"C\"",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "config_id": {
+          "name": "config_id",
+          "type": "text COLLATE \"C\"",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "context_id": {
+          "name": "context_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "turn_id": {
+          "name": "turn_id",
+          "type": "text COLLATE \"C\"",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "url": {
+          "name": "url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "token": {
+          "name": "token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "authentication": {
+          "name": "authentication",
+          "type": "json",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "base_url": {
+          "name": "base_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "extensions": {
+          "name": "extensions",
+          "type": "json",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "trace_id": {
+          "name": "trace_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "next_seq": {
+          "name": "next_seq",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "clock_timestamp()"
+        },
+        "done_at": {
+          "name": "done_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "a2a_push_configs_done_at": {
+          "name": "a2a_push_configs_done_at",
+          "columns": [
+            {
+              "expression": "done_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "a2a_push_configs_pkey": {
+          "name": "a2a_push_configs_pkey",
+          "columns": [
+            "session_id",
+            "task_id",
+            "config_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "nylorun.a2a_pushes": {
+      "name": "a2a_pushes",
+      "schema": "nylorun",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text COLLATE \"C\"",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "session_id": {
+          "name": "session_id",
+          "type": "text COLLATE \"C\"",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "task_id": {
+          "name": "task_id",
+          "type": "text COLLATE \"C\"",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "config_id": {
+          "name": "config_id",
+          "type": "text COLLATE \"C\"",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "body": {
+          "name": "body",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "clock_timestamp()"
+        },
+        "attempts": {
+          "name": "attempts",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "retry_at": {
+          "name": "retry_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "parked_at": {
+          "name": "parked_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "a2a_pushes_created_at": {
+          "name": "a2a_pushes_created_at",
+          "columns": [
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "nylorun_streams.agent_events": {
       "name": "agent_events",
       "schema": "nylorun_streams",
@@ -2824,197 +3032,6 @@
       },
       "foreignKeys": {},
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "nylorun.turns": {
-      "name": "turns",
-      "schema": "nylorun",
-      "columns": {
-        "session_id": {
-          "name": "session_id",
-          "type": "text COLLATE \"C\"",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "turn_id": {
-          "name": "turn_id",
-          "type": "text COLLATE \"C\"",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "agent_id": {
-          "name": "agent_id",
-          "type": "text COLLATE \"C\"",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "owner_user_id": {
-          "name": "owner_user_id",
-          "type": "text COLLATE \"C\"",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "a2a_context_id": {
-          "name": "a2a_context_id",
-          "type": "text COLLATE \"C\"",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "started_at": {
-          "name": "started_at",
-          "type": "text COLLATE \"C\"",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "ended_at": {
-          "name": "ended_at",
-          "type": "text COLLATE \"C\"",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "changed_at": {
-          "name": "changed_at",
-          "type": "text COLLATE \"C\"",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "totals": {
-          "name": "totals",
-          "type": "json",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "first_seq": {
-          "name": "first_seq",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "last_seq": {
-          "name": "last_seq",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "txid": {
-          "name": "txid",
-          "type": "xid8",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "pg_current_xact_id()"
-        }
-      },
-      "indexes": {
-        "turns_turn": {
-          "name": "turns_turn",
-          "columns": [
-            {
-              "expression": "turn_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "turns_changes": {
-          "name": "turns_changes",
-          "columns": [
-            {
-              "expression": "txid",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "session_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "turn_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "turns_owner_changes": {
-          "name": "turns_owner_changes",
-          "columns": [
-            {
-              "expression": "owner_user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "txid",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "turns_owner_agent": {
-          "name": "turns_owner_agent",
-          "columns": [
-            {
-              "expression": "owner_user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "agent_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "changed_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {
-        "turns_pkey": {
-          "name": "turns_pkey",
-          "columns": [
-            "session_id",
-            "turn_id"
-          ]
-        }
-      },
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},

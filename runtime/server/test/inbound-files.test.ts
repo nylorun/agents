@@ -145,8 +145,11 @@ describe("a message the Runtime refuses", () => {
       role: "ROLE_USER",
       contextId,
       parts: [{ text: "Summarize this" }, { raw: PDF, mediaType: "application/pdf", filename: "brief.pdf" }],
+      // A follow-up is queued (profile v2) unless the caller asks for the refusal.
+      metadata: { delivery: "reject" },
     });
     expect(refused.error).toMatchObject({ code: -32004 });
+    expect(refused.error.data[0].reason).toBe("CONTEXT_BUSY");
     expect(await artifactsOf(contextSessionId("app:rae", "bot", contextId))).toEqual([]);
     release();
   });

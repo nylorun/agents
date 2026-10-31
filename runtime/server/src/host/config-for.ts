@@ -18,6 +18,8 @@ export function configForFactory(options: {
   issuers?: TenantConfig["issuers"];
   /** The URL clients reach the Runtime API at (`NYLORUN_PUBLIC_URL`). */
   publicUrl?: string;
+  /** The A2A server's settings (`StackConfig.a2a`). */
+  a2a?: TenantConfig["a2a"];
 }): (id: string) => TenantConfig {
   return (id: string): TenantConfig => {
     const tenant = tenantPaths(options.hostRoot);
@@ -31,6 +33,7 @@ export function configForFactory(options: {
       ...(options.delivery ? { delivery: options.delivery } : {}),
       ...(options.issuers ? { issuers: options.issuers } : {}),
       ...(options.publicUrl ? { publicUrl: options.publicUrl } : {}),
+      ...(options.a2a ? { a2a: options.a2a } : {}),
       logger: {
         info: (message, fields) =>
           options.logger.info(message, { tenantId: id, ...fields }),

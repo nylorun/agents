@@ -171,7 +171,13 @@ export function createA2aHandler(options: A2aHandlerOptions): A2aHandler {
       if (response.ok)
         return new Response(response.body, {
           status: response.status,
-          headers: { "content-type": response.headers.get("content-type") ?? "application/json" },
+          headers: {
+            "content-type": response.headers.get("content-type") ?? "application/json",
+            // The extensions the agent activated (A2A §4.6), echoed to the partner.
+            ...(response.headers.get("a2a-extensions")
+              ? { "A2A-Extensions": response.headers.get("a2a-extensions")! }
+              : {}),
+          },
         });
       await response.body?.cancel().catch(() => {});
       if (response.status === 404) throw new Problem(404, "Not found");

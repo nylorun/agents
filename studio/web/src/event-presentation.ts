@@ -55,6 +55,7 @@ const LABELS: Readonly<Record<string, string>> = {
   "loop.waiting": "Loop waiting",
   "loop.verified": "Loop verified",
   "mcp.discovered": "MCP servers",
+  "plan.updated": "Plan",
 };
 
 /** The agent used as a tool that an event belongs to; undefined for the session's root agent. */
@@ -242,6 +243,16 @@ export function eventSummary(event: Pick<LiveEvent, "type" | "payload">): string
           return `${name} ${text(server.outcome, "failed")}: ${text(server.message, "no tools")}`;
         })
         .join(" · ");
+    }
+    case "plan.updated": {
+      // The agent's whole plan (`update_plan`): how far it is, and the step under way.
+      const steps = Array.isArray(payload.steps) ? payload.steps.map(record) : [];
+      if (steps.length === 0) return "No steps.";
+      const done = steps.filter((step) => step.state === "done").length;
+      const current = steps.find((step) => step.state === "active" || step.state === "blocked");
+      return `${done}/${steps.length} done${
+        current ? ` · ${text(current.state, "active")}: ${compact(text(current.label, "step"))}` : ""
+      }`;
     }
     default:
       return compact(event.payload);

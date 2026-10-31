@@ -98,6 +98,34 @@ one's secrets on the Runtime API, and names one when it opens a session
 - Removing a person is the app server's decision: it stops acting for them and
   closes their open streams.
 
+### A2A and push notifications
+
+Every Agent is served over A2A 1.0 (JSON-RPC) at `POST /v1/a2a/agents/{agentId}`, for a subject
+(an application key with `Nylorun-Subject` and `Nylorun-Scopes: sessions:own`), under the
+[Nylorun A2A profile v2](https://docs.nylorun.com/a2a/profile/v2) (Host feature
+`a2a-profile-v2`). Its card, at `GET .../card`, lists this Runtime's own JSON-RPC interface at
+`NYLORUN_PUBLIC_URL` (else the origin the request reached); a gateway lists its own.
+
+- **Push notifications.** A caller gives a push config (`SendMessage`'s
+  `configuration.taskPushNotificationConfig`, or `CreateTaskPushNotificationConfig`), and every
+  update of the task is POSTed to its URL as one A2A `StreamResponse`, at least once, signed with
+  Standard Webhooks (`webhook-id`, `webhook-timestamp`, `webhook-signature`) and carrying the
+  config's token as `X-A2A-Notification-Token`. A push that fails is retried with backoff for
+  `a2a.pushMaxAgeMs` (24 hours), then dropped. Two settings (Runtime config `a2a.push`):
+
+  | Variable | Runtime config | What it does |
+  | --- | --- | --- |
+  | `NYLORUN_A2A_PUSH_SECRET` | `a2a.push.secret` | The installation's Standard Webhooks secret, `whsec_` and the base64 of at least 24 bytes, that signs every push. Receivers verify with it. Unset: no push notifications (`pushNotifications: false`) |
+  | `NYLORUN_A2A_PUSH_ALLOW_HOSTS` | `a2a.push.allowHosts` | Comma-separated `host:port`s (`host:*` for any port) a push, or a file `url` part the Runtime fetches, may reach although they are private, loopback or link-local, such as a receiver on the Docker bridge (`172.17.0.1:18787`). Every other private address is refused, whatever `NYLORUN_ENDPOINT_PRIVATE` says |
+
+  Keep the secret in your secret store, as you keep the other `NYLORUN_*` secrets.
+- **Files.** A message's `url` file parts are fetched (within `inlineFileBytes`, under the same
+  address rule) and stored as the context's artifacts; the files a task writes come back as
+  artifacts whose `url` points at `GET /v1/a2a/files/{artifactId}/versions/{version}`, served
+  only to the same subject.
+- **Long tasks.** A blocking `SendMessage` waits at most `a2aWaitMs`; send `returnImmediately`
+  with a push config instead.
+
 ## Calling the Runtime from browsers and apps
 
 A browser or a mobile app can call the Runtime itself, without carrying its
@@ -424,7 +452,8 @@ put | fork | rm` does the same from the command line (Runtime API, an applicatio
 An **agent manifest** (v8, protocol 16) is one named, versioned document with what runs inside
 the agent loop and what the Runtime provides around it: `harness`, the harness's `id` (`nylorun`,
 ours, by default), `instructions`, `tools`, `skills`, `mcpServers`, `plugins`, `outputSchema`
-and the harness's own `loop` settings, or a flow (`kind: "workflow"`); and `runtime`, the
+and the harness's own `loop` settings (ours reads `plan`: `true` offers the agent `update_plan`,
+whose calls are `plan.updated` events), or a flow (`kind: "workflow"`); and `runtime`, the
 Agent's kind and what it gets (`image`, `network`, `setup`, `files`, `limits`, `lifecycle` and
 the secret slots, `secrets`). Its JSON Schema is
 `https://docs.nylorun.com/schemas/agent-manifest/v8.json`
@@ -614,9 +643,10 @@ in `timezone`, an IANA name, UTC by default), `at` (one time, RFC 3339 with an o
 - **Wakes.** `"selfWake": true` offers the agent `schedule_wake`: it books its session's next turn
   (`in` or `at`, and a `note` that is that turn's message), one booking per session.
 - **The session queue.** A message to a session whose turn runs is queued and starts the next
-  turn (protocol 17); `delivery: "reject"` answers `409 session_busy` instead. AG-UI and A2A
-  refuse it, as before: a run or a task is the turn it starts (AG-UI's `RUN_ERROR`
-  `session_busy`, A2A's `UnsupportedOperationError`).
+  turn (protocol 17); `delivery: "reject"` answers `409 session_busy` instead. AG-UI refuses it,
+  as before: a run is the turn it starts (`RUN_ERROR` `session_busy`). A2A queues it too and
+  answers with the task that will take it (`SUBMITTED`); `metadata.delivery: "reject"` asks for
+  `UnsupportedOperationError` with reason `CONTEXT_BUSY` ([A2A](#a2a-and-push-notifications)).
 - **Limits.** `triggersPerAgent`, `triggerMinIntervalMs`, `triggerRunsPerHour` (the guard against
   an Agent triggering itself), `triggerPromptChars`, `triggerRunRetentionMs`, `wakeMaxAheadMs`,
   `wakeNoteChars`, `webhookBodyBytes` and `sessionQueuedMessages` ([Runtime limits](#runtime-limits)).
@@ -1074,6 +1104,10 @@ below the run token's, the host token's longer than `harness.podRenewMs`, and
 | `sweep.outboxAttempts` | 10 | Failed deliveries after which an outbox row is parked |
 | `sweep.outboxRetry` | 5 s to 10 min | The wait after an outbox row's failed delivery |
 | `sweep.stalePodMs` | 60 s | How long a pod row may go unchanged before the sweep reconciles it |
+| `a2a.pushRetry` | 5 s to 10 min | The wait after an A2A push's failed delivery, doubled after each |
+| `a2a.pushMaxAgeMs` | 24 h | How long an A2A push is retried before it is dropped (the change feed covers it) |
+| `a2a.pushTimeoutMs` | 10 s | How long one A2A push's request may take |
+| `a2a.pushConfigRetentionMs` | 7 days | How long a finished task's push configs are kept |
 | `triggers.lateGraceMs` | 2 min | How long after it was due a trigger's fire counts as late, and how overdue an active trigger is before the sweep arms its timer again |
 | `triggers.intervalCheckFires` | 100 | How many upcoming fires the save check reads to find a schedule's smallest gap |
 | `triggers.webhookToleranceMs` | 5 min | The clock skew a webhook delivery's `webhook-timestamp` may have, either way |

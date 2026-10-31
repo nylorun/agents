@@ -9,6 +9,8 @@ CREATE TABLE "nylorun"."turns" (
 	"ended_at" text COLLATE "C",
 	"changed_at" text COLLATE "C" NOT NULL,
 	"totals" json,
+	"waiting_for" text,
+	"queued_message_ids" text[] DEFAULT '{}' NOT NULL,
 	"first_seq" bigint NOT NULL,
 	"last_seq" bigint NOT NULL,
 	"txid" "xid8" DEFAULT pg_current_xact_id() NOT NULL,

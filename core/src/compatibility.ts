@@ -224,6 +224,13 @@ export const OPTIONAL_HOST_FEATURES = [
   "subject-headers",
   "ag-ui-endpoint",
   "a2a-endpoint",
+  /**
+   * The Nylorun A2A profile v2 on `a2a-endpoint`: queued follow-ups, push notification configs
+   * (signed with Standard Webhooks), `url` file parts in and out (`GET /v1/a2a/files/…`), and
+   * the five extensions activated with `A2A-Extensions` (interactions, effects, progress,
+   * telemetry, files); the card lists the Runtime's JSON-RPC interface.
+   */
+  "a2a-profile-v2",
   "sandbox-pods",
   "trusted-issuers",
   "session-reads",

@@ -4,16 +4,17 @@
  * transaction, so a turn's row changes exactly when its log does:
  *
  * - `command.message` starts the turn (`running`), copying in its session's Agent, owner and A2A
- *   context (`info.a2a.contextId`, `api/a2a/routes.ts`); a further message of the same turn
- *   changes nothing;
- * - `command.approve` and `command.respond` set it `running` again, `turn.paused` `paused`;
+ *   context (`info.a2a.contextId`, `api/a2a/routes.ts`) and the queued message it took, if any;
+ *   a further message of the same turn only adds its queued message;
+ * - `command.approve` and `command.respond` set it `running` again, `turn.paused` `paused` with
+ *   what its first open interaction asks for (`waitingFor`, profile v2's kinds);
  * - `turn.completed`, `turn.failed` and `turn.cancelled` end it, with their end facts' `totals`.
  *
  * Each change stamps the row with its transaction (`txid`), which orders the change feed
  * (`reads.ts`). Rows for the turns recorded before the index are backfilled by migration
- * `0040_turn_index_backfill`.
+ * `0041_turn_index_backfill`.
  */
-import { and, desc, eq, isNotNull, gte, inArray, sql, type SQL } from "drizzle-orm";
+import { and, desc, eq, isNotNull, gte, inArray, or, sql, type SQL } from "drizzle-orm";
 import type { EventType, TurnStatus } from "@nylorun/core/contracts";
 import type { Queryable } from "./db.js";
 import { sessions, toJson, turns, type TurnRow } from "./schema.js";
@@ -60,6 +61,26 @@ function totalsOf(payload: unknown): { steps: number; tokens: number; costUsd: n
   return { steps: totals.steps, tokens: totals.tokens, costUsd: totals.costUsd };
 }
 
+/** What an interaction asks for, as profile v2 names it (`api/a2a/tasks.ts` `interactionOf`). */
+export type WaitingFor = "question" | "approval" | "connection";
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+/** What a `turn.paused` payload's first open interaction asks for, or null. */
+export function waitingForOf(payload: unknown): WaitingFor | null {
+  const entries = isRecord(payload) && Array.isArray(payload.interactions) ? payload.interactions : [];
+  for (const entry of entries) {
+    if (!isRecord(entry) || (entry.status !== undefined && entry.status !== "interaction")) continue;
+    const interaction = entry.interaction;
+    if (!isRecord(interaction) || typeof interaction.id !== "string") continue;
+    const metadata = isRecord(interaction.metadata) ? interaction.metadata : undefined;
+    if (interaction.kind === "connection" || metadata?.kind === "connection") return "connection";
+    return interaction.kind === "approval" ? "approval" : "question";
+  }
+  return null;
+}
+
 /**
  * Writes the change `event` makes to its turn's row, in the event's transaction (the session
  * row is locked). An event without a turn, or of a type that changes none, writes nothing.
@@ -69,27 +90,37 @@ export async function indexTurn(db: Queryable, event: IndexedEvent): Promise<voi
   if (status === undefined || event.turnId === null) return;
   const ended = ENDED_TURN_STATUSES.has(status);
   const totals = ended ? totalsOf(event.payload) : null;
+  const waitingFor = event.type === "turn.paused" ? waitingForOf(event.payload) : null;
+  const queuedMessageId =
+    event.type === "command.message" && isRecord(event.payload) && typeof event.payload.queuedMessageId === "string"
+      ? event.payload.queuedMessageId
+      : undefined;
   const insert = sql`
     INSERT INTO ${turns} (
       "session_id", "turn_id", "agent_id", "owner_user_id", "a2a_context_id", "status",
-      "started_at", "ended_at", "changed_at", "totals", "first_seq", "last_seq"
+      "started_at", "ended_at", "changed_at", "totals", "waiting_for", "queued_message_ids",
+      "first_seq", "last_seq"
     )
     SELECT
       ${sessions.id}, ${event.turnId}, coalesce(${sessions.agentId}, ''), ${sessions.ownerUserId},
       nylorun.doc(${sessions.body})->'info'->'a2a'->>'contextId', ${status},
       ${event.time}, ${ended ? event.time : null}, ${event.time},
-      ${totals === null ? null : sql`${toJson(totals)}::text::json`}, ${event.seq}, ${event.seq}
+      ${totals === null ? null : sql`${toJson(totals)}::text::json`}, ${waitingFor},
+      ${queuedMessageId === undefined ? sql`'{}'::text[]` : sql`ARRAY[${queuedMessageId}]::text[]`},
+      ${event.seq}, ${event.seq}
     FROM ${sessions}
     WHERE ${sessions.id} = ${event.sessionId}`;
-  // A turn's further messages (a queued batch) leave its row as it is.
+  // A turn's further messages (a queued batch) add their queued ids and change nothing else.
   await db.execute(
     event.type === "command.message"
-      ? sql`${insert} ON CONFLICT ("session_id", "turn_id") DO NOTHING`
+      ? sql`${insert} ON CONFLICT ("session_id", "turn_id") DO UPDATE SET
+          "queued_message_ids" = ${turns}."queued_message_ids" || excluded."queued_message_ids"`
       : sql`${insert} ON CONFLICT ("session_id", "turn_id") DO UPDATE SET
           "status" = excluded."status",
           "ended_at" = excluded."ended_at",
           "changed_at" = excluded."changed_at",
           "totals" = excluded."totals",
+          "waiting_for" = excluded."waiting_for",
           "last_seq" = excluded."last_seq",
           "txid" = pg_current_xact_id()`,
   );
@@ -108,6 +139,26 @@ export async function turnRow(
   return row;
 }
 
+/** The turn that took queued message `queuedMessageId` of a session, if one did. */
+export async function turnOfQueuedMessage(
+  db: Queryable,
+  sessionId: string,
+  queuedMessageId: string,
+): Promise<TurnRow | undefined> {
+  const [row] = await db
+    .select()
+    .from(turns)
+    .where(and(eq(turns.sessionId, sessionId), sql`${queuedMessageId} = ANY(${turns.queuedMessageIds})`))
+    .limit(1);
+  return row;
+}
+
+/** A status a listed turn may have: `paused` narrowed by what it waits for. */
+export interface TurnState {
+  readonly status: TurnStatus;
+  readonly waitingFor?: readonly WaitingFor[];
+}
+
 /** Which turns `listTurns` reads: one owner's A2A tasks with one Agent (`ListTasks`). */
 export interface TurnListQuery {
   readonly ownerUserId: string;
@@ -116,8 +167,8 @@ export interface TurnListQuery {
   readonly a2a: true;
   /** Only this session (one A2A context's). */
   readonly sessionId?: string;
-  /** Only these statuses; empty matches none. */
-  readonly statuses?: readonly TurnStatus[];
+  /** Only turns in one of these states; empty matches none. */
+  readonly states?: readonly TurnState[];
   /** Only turns whose status changed at or after this ISO time. */
   readonly changedSince?: string;
   /** Only turns after this one in the order: the last row of the previous page. */
@@ -133,14 +184,24 @@ export async function listTurns(
   db: Queryable,
   query: TurnListQuery,
 ): Promise<{ turns: TurnRow[]; total: number }> {
-  if (query.statuses?.length === 0) return { turns: [], total: 0 };
+  if (query.states?.length === 0) return { turns: [], total: 0 };
   const where: SQL[] = [
     eq(turns.ownerUserId, query.ownerUserId),
     eq(turns.agentId, query.agentId),
     isNotNull(turns.a2aContextId),
   ];
   if (query.sessionId !== undefined) where.push(eq(turns.sessionId, query.sessionId));
-  if (query.statuses !== undefined) where.push(inArray(turns.status, [...query.statuses]));
+  if (query.states !== undefined)
+    where.push(
+      or(
+        ...query.states.map((state) =>
+          and(
+            eq(turns.status, state.status),
+            state.waitingFor === undefined ? undefined : inArray(turns.waitingFor, [...state.waitingFor]),
+          ),
+        ),
+      )!,
+    );
   if (query.changedSince !== undefined) where.push(gte(turns.changedAt, query.changedSince));
   const after = query.after;
   // One statement at a time: a transaction runs on one connection.

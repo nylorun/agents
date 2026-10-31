@@ -50,13 +50,15 @@ export type ReleaseReason = z.infer<typeof ReleaseReasonSchema>;
  * Events a harness may claim: for a run it holds, or for a workspace request core sent it. A
  * `environment.state` claim carries the workspace's compute record, which core keeps. Our engine
  * claims `artifact.export.skipped` and `artifact.export.failed` when the turn-end save of its
- * outputs folder stores nothing (protocol 15).
+ * outputs folder stores nothing (protocol 15), and `plan.updated` when the agent calls its
+ * built-in `update_plan` tool (additive within v5).
  */
 export const HARNESS_CLAIMS = [
   "environment.state",
   "environment.exec",
   "artifact.export.skipped",
   "artifact.export.failed",
+  "plan.updated",
 ] as const;
 export type HarnessClaim = (typeof HARNESS_CLAIMS)[number];
 

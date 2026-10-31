@@ -22,6 +22,7 @@
         "subject-headers",
         "ag-ui-endpoint",
         "a2a-endpoint",
+        "a2a-profile-v2",
         "sandbox-pods",
         "trusted-issuers",
         "session-reads",
@@ -9062,6 +9063,9 @@
             "$ref": "#/components/schemas/McpDiscoveredEvent"
           },
           {
+            "$ref": "#/components/schemas/PlanUpdatedEvent"
+          },
+          {
             "$ref": "#/components/schemas/EnvironmentStateEvent"
           },
           {
@@ -9127,6 +9131,7 @@
             "delegation.started": "#/components/schemas/DelegationStartedEvent",
             "delegation.completed": "#/components/schemas/DelegationCompletedEvent",
             "mcp.discovered": "#/components/schemas/McpDiscoveredEvent",
+            "plan.updated": "#/components/schemas/PlanUpdatedEvent",
             "environment.state": "#/components/schemas/EnvironmentStateEvent",
             "environment.exec": "#/components/schemas/EnvironmentExecEvent",
             "agent.attached": "#/components/schemas/AgentAttachedEvent",
@@ -13948,6 +13953,228 @@
             },
             "required": [
               "servers"
+            ],
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "schema",
+          "eventId",
+          "tenantId",
+          "sessionId",
+          "runId",
+          "turnId",
+          "incarnation",
+          "epoch",
+          "seq",
+          "cursor",
+          "time",
+          "schemaVersion",
+          "source",
+          "evidence",
+          "visibility",
+          "retention",
+          "type",
+          "payload"
+        ]
+      },
+      "PlanUpdatedEvent": {
+        "type": "object",
+        "properties": {
+          "schema": {
+            "type": "string",
+            "enum": [
+              "nylorun.event/2"
+            ]
+          },
+          "eventId": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "runId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "turnId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "incarnation": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "epoch": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "time": {
+            "type": "string"
+          },
+          "schemaVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "client",
+                  "core",
+                  "model-gate",
+                  "tool-gate",
+                  "egress-gate",
+                  "sandboxes",
+                  "edge",
+                  "init",
+                  "controller",
+                  "loop",
+                  "supervisor",
+                  "harness",
+                  "evidence",
+                  "operator",
+                  "human",
+                  "api"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ]
+          },
+          "evidence": {
+            "type": "string",
+            "enum": [
+              "observed",
+              "measured",
+              "attested",
+              "claimed",
+              "asserted"
+            ]
+          },
+          "principal": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "application",
+                  "subject",
+                  "flow-host",
+                  "core",
+                  "trigger"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          "trace": {
+            "type": "object",
+            "properties": {
+              "traceId": {
+                "type": "string"
+              },
+              "spanId": {
+                "type": "string"
+              },
+              "parentSpanId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "traceId",
+              "spanId"
+            ]
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "internal",
+              "restricted"
+            ]
+          },
+          "retention": {
+            "type": "string",
+            "enum": [
+              "full",
+              "metadata"
+            ]
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "plan.updated"
+            ]
+          },
+          "payload": {
+            "type": "object",
+            "properties": {
+              "steps": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "label": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 120
+                    },
+                    "state": {
+                      "type": "string",
+                      "enum": [
+                        "pending",
+                        "active",
+                        "done",
+                        "blocked",
+                        "skipped"
+                      ]
+                    },
+                    "note": {
+                      "type": "string",
+                      "maxLength": 280
+                    }
+                  },
+                  "required": [
+                    "label",
+                    "state"
+                  ],
+                  "additionalProperties": {}
+                },
+                "maxItems": 20
+              }
+            },
+            "required": [
+              "steps"
             ],
             "additionalProperties": {}
           }
@@ -24586,7 +24813,7 @@
           "name"
         ],
         "additionalProperties": {},
-        "description": "The agent's A2A card, without interfaces"
+        "description": "The agent's A2A card: this Runtime's JSON-RPC interface (A2A 1.0), `streaming: false`, `pushNotifications` when the Runtime has a push secret, and the Nylorun profile v2 extensions, all `required: false`"
       },
       "A2aJsonRpcResponse": {
         "type": "object",
@@ -24658,7 +24885,7 @@
           },
           "method": {
             "type": "string",
-            "description": "`SendMessage`, `GetTask` or `CancelTask`; others answer their A2A error"
+            "description": "`SendMessage`, `GetTask`, `CancelTask`, `CreateTaskPushNotificationConfig`, `GetTaskPushNotificationConfig`, `ListTaskPushNotificationConfigs`, `DeleteTaskPushNotificationConfig` or `ListTasks`; others answer their A2A error"
           },
           "params": {}
         },
@@ -32624,6 +32851,9 @@
                       "$ref": "#/components/schemas/McpDiscoveredEvent"
                     },
                     {
+                      "$ref": "#/components/schemas/PlanUpdatedEvent"
+                    },
+                    {
                       "$ref": "#/components/schemas/EnvironmentStateEvent"
                     },
                     {
@@ -34876,8 +35106,8 @@
         ],
         "summary": "Get an agent's A2A card",
         "externalDocs": {
-          "description": "The A2A specification",
-          "url": "https://a2a-protocol.org/latest/specification/"
+          "description": "The Nylorun A2A profile v2",
+          "url": "https://docs.nylorun.com/a2a/profile/v2"
         },
         "security": [
           {
@@ -35016,7 +35246,7 @@
           "A2A"
         ],
         "summary": "Call an agent over A2A",
-        "description": "A2A 1.0 JSON-RPC, for a subject: `SendMessage` (blocking up to the Runtime limit `a2aWaitMs`, 5 minutes by default, or `returnImmediately`), `GetTask` and `CancelTask`. A message is text, one data part, or text and `raw` files (at most the Runtime limit `inlineFileBytes` each, 20 MiB by default, stored as artifacts of the context's session); a file `url` is `ContentTypeNotSupportedError`. A context is one session per subject, agent and `contextId`; a task is one turn. JSON-RPC errors are answered with 200; limits, scopes and unavailable streams stay HTTP errors.",
+        "description": "A2A 1.0 JSON-RPC, for a subject, under the Nylorun profile v2 (Host feature `a2a-profile-v2`). `SendMessage` blocks up to the Runtime limit `a2aWaitMs` (5 minutes by default; then the task is answered still `WORKING`) unless `returnImmediately`; `GetTask` (with `historyLength`), `CancelTask` and `ListTasks`; and the four push notification config methods, plus `configuration.taskPushNotificationConfig` in `SendMessage`: each update is POSTed as one `StreamResponse`, signed with Standard Webhooks (`webhook-id`, `webhook-timestamp`, `webhook-signature` with the Runtime's `a2a.push.secret`) and `X-A2A-Notification-Token`, at least once, retried for up to 24 hours, to hosts the Runtime allows (`a2a.push.allowHosts` for private ones). A message to a busy context is queued and answered with the task that will take it (`TASK_STATE_SUBMITTED`); `message.metadata.delivery: \"reject\"` asks for `UnsupportedOperationError` (reason `CONTEXT_BUSY`) instead. A message is text, one data part, or text with `raw` files (stored as artifacts of the context's session) and `url` files (fetched by the Runtime), each at most the Runtime limit `inlineFileBytes` (20 MiB by default). An approval, question or connection the task waits for (`AUTH_REQUIRED` or `INPUT_REQUIRED`) is shown under `interactions/v1` and answered on the same task with `{ interactionId, approved }` or `{ interactionId, value }` under that URI in the message's `metadata`; text never approves. Artifacts carry the turn's output and the files it wrote, as `url` parts at `/v1/a2a/files/…` with `files/v1`; the task's metadata carries `progress/v1`, `telemetry/v1` and `effects/v1`. Extension data is answered only for the extensions activated with `A2A-Extensions`. A context is one session per subject, agent and `contextId`; a task is one turn. JSON-RPC errors are answered with 200; limits, scopes and unavailable streams stay HTTP errors. Not served: streaming, `GetExtendedAgentCard`.",
         "externalDocs": {
           "description": "The A2A specification",
           "url": "https://a2a-protocol.org/latest/specification/"
@@ -35104,6 +35334,16 @@
             "description": "W3C trace context, kept with `traceparent`",
             "name": "tracestate",
             "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Comma-separated profile v2 extension URIs to activate; the answer echoes the activated ones"
+            },
+            "required": false,
+            "description": "Comma-separated profile v2 extension URIs to activate; the answer echoes the activated ones",
+            "name": "A2A-Extensions",
+            "in": "header"
           }
         ],
         "requestBody": {
@@ -35119,6 +35359,16 @@
         "responses": {
           "200": {
             "description": "The JSON-RPC answer: a result, or an A2A error",
+            "headers": {
+              "A2A-Extensions": {
+                "schema": {
+                  "type": "string",
+                  "description": "Comma-separated profile v2 extension URIs to activate; the answer echoes the activated ones"
+                },
+                "required": false,
+                "description": "Comma-separated profile v2 extension URIs to activate; the answer echoes the activated ones"
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -35166,6 +35416,219 @@
                 }
               }
             }
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/a2a/files/{artifactId}/versions/{version}": {
+      "get": {
+        "tags": [
+          "A2A"
+        ],
+        "summary": "Download a file an A2A task wrote",
+        "description": "Where the `url` parts of an A2A task's file artifacts point (Host feature `a2a-profile-v2`, `files/v1`): a file version's bytes, with Range, or a folder version as a zip. Served only to the subject whose session wrote it, as the A2A endpoint is: send the same credential, `Nylorun-Subject` and `Nylorun-Scopes`. Another subject's artifact is a `404`.",
+        "security": [
+          {
+            "applicationKey": []
+          },
+          {
+            "issuerToken": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "subject",
+          "token"
+        ],
+        "x-nylorun-scopes": [
+          "sessions:own"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "artifactId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "A version number, or `latest`"
+            },
+            "required": true,
+            "description": "A version number, or `latest`",
+            "name": "version",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `18`"
+            },
+            "required": true,
+            "description": "The protocol version, `18`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The person an application key acts for"
+            },
+            "required": false,
+            "description": "The person an application key acts for",
+            "name": "Nylorun-Subject",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The subject's space-separated scopes; required with a subject"
+            },
+            "required": false,
+            "description": "The subject's space-separated scopes; required with a subject",
+            "name": "Nylorun-Scopes",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The file, or the folder's zip",
+            "headers": {
+              "Accept-Ranges": {
+                "schema": {
+                  "type": "string",
+                  "description": "`bytes`"
+                },
+                "required": true,
+                "description": "`bytes`"
+              },
+              "Content-Range": {
+                "schema": {
+                  "type": "string",
+                  "description": "The bytes sent, on a `206`: `bytes <start>-<end>/<size>`"
+                },
+                "required": false,
+                "description": "The bytes sent, on a `206`: `bytes <start>-<end>/<size>`"
+              },
+              "ETag": {
+                "schema": {
+                  "type": "string",
+                  "description": "The version's SHA-256, quoted"
+                },
+                "required": true,
+                "description": "The version's SHA-256, quoted"
+              }
+            },
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "206": {
+            "description": "The bytes the `Range` header asked for",
+            "headers": {
+              "Accept-Ranges": {
+                "schema": {
+                  "type": "string",
+                  "description": "`bytes`"
+                },
+                "required": true,
+                "description": "`bytes`"
+              },
+              "Content-Range": {
+                "schema": {
+                  "type": "string",
+                  "description": "The bytes sent, on a `206`: `bytes <start>-<end>/<size>`"
+                },
+                "required": false,
+                "description": "The bytes sent, on a `206`: `bytes <start>-<end>/<size>`"
+              },
+              "ETag": {
+                "schema": {
+                  "type": "string",
+                  "description": "The version's SHA-256, quoted"
+                },
+                "required": true,
+                "description": "The version's SHA-256, quoted"
+              }
+            },
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid headers, path, body or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No credential (`credential_required`), one the Tenant does not accept (`credential_invalid`), a token that expired (`token_expired`), or a token whose issuer's keys cannot be fetched now (`issuer_unavailable`). `WWW-Authenticate: Bearer` names the protected resource metadata (`resource_metadata`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "416": {
+            "description": "The `Range` starts past the end of the file"
           },
           "426": {
             "description": "`Nylorun-Protocol` missing or unsupported",
@@ -37615,7 +38078,7 @@
     },
     {
       "name": "A2A",
-      "description": "The same sessions through Agent2Agent: a context is one session per subject, Agent and `contextId`, and a task is one turn; every caller's session runs on the Agent's disk and vault, so an app that serves several audiences makes an Agent for each. The card is how an A2A client finds the Agent."
+      "description": "The same sessions through Agent2Agent (A2A 1.0, JSON-RPC) under the Nylorun profile v2: a context is one session per subject, Agent and `contextId`, and a task is one turn; every caller's session runs on the Agent's disk and vault, so an app that serves several audiences makes an Agent for each. The card is how an A2A client finds the Agent; push notifications carry a task's updates to the caller, and the files a task writes are downloaded from `/v1/a2a/files/…` by the same subject."
     },
     {
       "name": "Artifacts",

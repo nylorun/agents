@@ -1,9 +1,11 @@
 /**
  * A2A 1.0 over JSON-RPC: the wire types the Runtime answers with, the envelope, the error
- * codes and the parameter checks (Host feature `a2a-endpoint`). Only what v1 serves is typed:
- * text, data and file parts, tasks, the card. Field names are the spec's ProtoJSON (camelCase,
- * enum values such as `TASK_STATE_WORKING`). No Tenant state is read here.
+ * codes and the parameter checks (Host features `a2a-endpoint` and `a2a-profile-v2`). Only what
+ * the Runtime serves is typed: text, data, `raw` and `url` parts, tasks, their status and
+ * artifact updates (push), push configs, the card. Field names are the spec's ProtoJSON
+ * (camelCase, enum values such as `TASK_STATE_WORKING`). No Tenant state is read here.
  */
+import { A2A_EXTENSIONS } from "./extensions.js";
 
 /** The A2A version this endpoint speaks (`A2A-Version`, Major.Minor). */
 export const A2A_VERSION = "1.0";
@@ -38,12 +40,16 @@ export interface Message {
   contextId?: string;
   taskId?: string;
   metadata?: Record<string, unknown>;
+  /** The extensions whose data the message carries (A2A §4.6). */
+  extensions?: string[];
 }
 
 export interface Artifact {
   artifactId: string;
   name?: string;
   parts: Part[];
+  metadata?: Record<string, unknown>;
+  extensions?: string[];
 }
 
 export interface TaskStatus {
@@ -58,6 +64,57 @@ export interface Task {
   status: TaskStatus;
   artifacts?: Artifact[];
   history?: Message[];
+  /** Profile v2 data about the whole task: `progress/v1`, `telemetry/v1`, `effects/v1`. */
+  metadata?: Record<string, unknown>;
+}
+
+/** A change of a task's status, as a push delivers it (`StreamResponse.statusUpdate`). */
+export interface TaskStatusUpdateEvent {
+  taskId: string;
+  contextId: string;
+  status: TaskStatus;
+  metadata?: Record<string, unknown>;
+}
+
+/** An artifact of a task, as a push delivers it (`StreamResponse.artifactUpdate`). */
+export interface TaskArtifactUpdateEvent {
+  taskId: string;
+  contextId: string;
+  artifact: Artifact;
+  append?: boolean;
+  lastChunk?: boolean;
+  metadata?: Record<string, unknown>;
+}
+
+/** One push's body: A2A's `StreamResponse`, one of its cases. */
+export type StreamResponse =
+  | { statusUpdate: TaskStatusUpdateEvent }
+  | { artifactUpdate: TaskArtifactUpdateEvent }
+  | { task: Task };
+
+/** How a push authenticates to its receiver (A2A `AuthenticationInfo`): `Authorization: <scheme> <credentials>`. */
+export interface PushAuthentication {
+  scheme: string;
+  credentials: string;
+}
+
+/** A push notification config as a client gives it (A2A `TaskPushNotificationConfig`). */
+export interface PushConfigInput {
+  /** The config's id within its task; the Runtime makes one when absent. */
+  id?: string;
+  url: string;
+  /** Sent back as `X-A2A-Notification-Token` with every push. */
+  token?: string;
+  authentication?: PushAuthentication;
+}
+
+/** A push notification config as the Runtime answers it. */
+export interface TaskPushNotificationConfig {
+  id: string;
+  taskId: string;
+  url: string;
+  token?: string;
+  authentication?: PushAuthentication;
 }
 
 /** The standard JSON-RPC codes and the A2A codes (spec §5.4, §9.5). */
@@ -84,7 +141,9 @@ export class A2aError extends Error {
     message: string,
     readonly metadata: Readonly<Record<string, string>> = {},
     /** `google.rpc.BadRequest` field violations, for invalid parameters. */
-    readonly field?: string
+    readonly field?: string,
+    /** `ErrorInfo.reason` when it is more precise than the kind's, as `CONTEXT_BUSY`. */
+    readonly reason?: string
   ) {
     super(message);
     this.name = "A2aError";
@@ -117,7 +176,7 @@ export function jsonRpcError(id: JsonRpcId, error: A2aError): unknown {
   const data: unknown[] = [
     {
       "@type": "type.googleapis.com/google.rpc.ErrorInfo",
-      reason,
+      reason: error.reason ?? reason,
       domain: "a2a-protocol.org",
       metadata: { ...error.metadata },
     },
@@ -165,9 +224,27 @@ export function parseEnvelope(
     request: {
       id: safeId,
       method: body.method,
-      params: (body.params as Record<string, unknown> | undefined) ?? {},
+      params: protoJsonKeys((body.params as Record<string, unknown> | undefined) ?? {}) as Record<string, unknown>,
     },
   };
+}
+
+/**
+ * Params with ProtoJSON's original field names (`task_id`, `return_immediately`) read as their
+ * lowerCamel JSON names, as ProtoJSON parsers must accept both. A part's `data` and any
+ * `metadata` are the caller's own values and keep their keys.
+ */
+function protoJsonKeys(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(protoJsonKeys);
+  if (!isObject(value)) return value;
+  const out: Record<string, unknown> = {};
+  for (const [key, child] of Object.entries(value)) {
+    const name = key.includes("_") ? key.replace(/_([a-z0-9])/g, (_, c: string) => c.toUpperCase()) : key;
+    // The lowerCamel name wins when a client sends both.
+    if (name !== key && Object.hasOwn(value, name)) continue;
+    out[name] = name === "data" || name === "metadata" ? child : protoJsonKeys(child);
+  }
+  return out;
 }
 
 /** `A2A-Version` as Major.Minor; empty means 0.3 (spec §3.6.2). */
@@ -210,14 +287,29 @@ export interface RawFile {
   readonly filename?: string;
 }
 
+/** A file sent by URL: fetched by the Runtime (`guardedFetch`), then stored as a `raw` one is. */
+export interface UrlFile {
+  readonly url: string;
+  readonly mediaType?: string;
+  readonly filename?: string;
+}
+
 /**
  * A client's message reduced to what the Runtime runs: text, one JSON value, or text and files
- * sent inline.
+ * sent inline or by URL.
  */
 export type MessageInput =
   | { content: string }
   | { data: unknown }
-  | { files: readonly ({ text: string } | RawFile)[] };
+  | { files: readonly ({ text: string } | RawFile | UrlFile)[] };
+
+/** What a message to a busy context does (profile v2 §1): queued, or refused with `CONTEXT_BUSY`. */
+export type Delivery = "queue" | "reject";
+
+/** A caller's answer to an open interaction (`interactions/v1` on the reply message). */
+export type InteractionAnswer =
+  | { interactionId: string; approved: boolean }
+  | { interactionId: string; value: unknown };
 
 export interface SendParams {
   messageId: string;
@@ -226,6 +318,12 @@ export interface SendParams {
   input: MessageInput;
   returnImmediately: boolean;
   historyLength?: number;
+  /** `configuration.taskPushNotificationConfig`: where this task's updates go. */
+  push?: PushConfigInput;
+  /** `metadata.delivery`; default `queue`. */
+  delivery: Delivery;
+  /** The answer the message carries under `interactions/v1`. */
+  answer?: InteractionAnswer;
 }
 
 export function parseHistoryLength(value: unknown, field: string): number | undefined {
@@ -250,10 +348,95 @@ function partKind(part: unknown, field: string): "text" | "data" | "raw" | "url"
     return a2aFail("invalidParams", `${field}.text must be a string`, {}, `${field}.text`);
   if (kinds[0] === "raw" && typeof part.raw !== "string")
     return a2aFail("invalidParams", `${field}.raw must be base64 bytes`, {}, `${field}.raw`);
+  if (kinds[0] === "url" && !isHttpUrl(part.url))
+    return a2aFail("invalidParams", `${field}.url must be an http or https URL`, {}, `${field}.url`);
   for (const key of ["mediaType", "filename"] as const)
     if (part[key] !== undefined && typeof part[key] !== "string")
       return a2aFail("invalidParams", `${field}.${key} must be a string`, {}, `${field}.${key}`);
-  return kinds[0] === "raw" ? "raw" : kinds[0] === "url" ? "url" : kinds[0];
+  return kinds[0];
+}
+
+function isHttpUrl(value: unknown): value is string {
+  if (typeof value !== "string" || value.length > 2048) return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+/** The longest push token and credentials kept: a header value, not a document. */
+const MAX_SECRET = 1024;
+
+/**
+ * A push notification config (A2A `TaskPushNotificationConfig`) at `field`: an http(s) `url`, an
+ * optional `id`, `token` and `authentication` (`scheme`, `credentials`). Its `taskId`, when
+ * present, is the caller's to check.
+ */
+export function parsePushConfig(value: unknown, field: string): PushConfigInput {
+  if (!isObject(value)) return a2aFail("invalidParams", `${field} must be an object`, {}, field);
+  if (!isHttpUrl(value.url))
+    a2aFail("invalidParams", `${field}.url must be an http or https URL`, {}, `${field}.url`);
+  const id = value.id === undefined || value.id === "" ? undefined : checkId(value.id, `${field}.id`, true);
+  if (value.token !== undefined && (typeof value.token !== "string" || value.token.length > MAX_SECRET))
+    a2aFail("invalidParams", `${field}.token must be a string of at most ${MAX_SECRET} characters`, {}, `${field}.token`);
+  let authentication: PushAuthentication | undefined;
+  if (value.authentication !== undefined && value.authentication !== null) {
+    const auth = value.authentication;
+    if (
+      !isObject(auth) ||
+      typeof auth.scheme !== "string" ||
+      !/^[A-Za-z0-9!#$%&'*+.^_`|~-]{1,64}$/.test(auth.scheme) ||
+      typeof auth.credentials !== "string" ||
+      auth.credentials.length > MAX_SECRET ||
+      /[\r\n]/.test(auth.credentials)
+    )
+      a2aFail(
+        "invalidParams",
+        `${field}.authentication needs an HTTP scheme and credentials`,
+        {},
+        `${field}.authentication`
+      );
+    authentication = {
+      scheme: (auth as { scheme: string }).scheme,
+      credentials: (auth as { credentials: string }).credentials,
+    };
+  }
+  return {
+    url: value.url as string,
+    ...(id !== undefined ? { id } : {}),
+    ...(typeof value.token === "string" && value.token !== "" ? { token: value.token } : {}),
+    ...(authentication ? { authentication } : {}),
+  };
+}
+
+/** `metadata.delivery`: `queue` (the default) or `reject`. */
+function parseDelivery(metadata: Record<string, unknown>): Delivery {
+  const delivery = metadata.delivery;
+  if (delivery === undefined || delivery === null) return "queue";
+  if (delivery !== "queue" && delivery !== "reject")
+    return a2aFail("invalidParams", 'message.metadata.delivery must be "queue" or "reject"', {}, "message.metadata.delivery");
+  return delivery;
+}
+
+/** The answer under `interactions/v1`, when the message carries one. */
+function parseAnswer(metadata: Record<string, unknown>): InteractionAnswer | undefined {
+  const field = `message.metadata["${A2A_EXTENSIONS.interactions}"]`;
+  const raw = metadata[A2A_EXTENSIONS.interactions];
+  if (raw === undefined || raw === null) return undefined;
+  if (!isObject(raw)) return a2aFail("invalidParams", `${field} must be an object`, {}, field);
+  const interactionId = checkId(raw.interactionId, `${field}.interactionId`, true)!;
+  if (raw.approved !== undefined) {
+    if (typeof raw.approved !== "boolean")
+      a2aFail("invalidParams", `${field}.approved must be a boolean`, {}, `${field}.approved`);
+    if (raw.value !== undefined)
+      a2aFail("invalidParams", `${field} takes approved or value, not both`, {}, field);
+    return { interactionId, approved: raw.approved as boolean };
+  }
+  if (!("value" in raw))
+    return a2aFail("invalidParams", `${field} needs approved or value`, {}, field);
+  return { interactionId, value: raw.value };
 }
 
 /** `SendMessage` params (spec §3.2.1), checked in the order a client can fix them. */
@@ -270,12 +453,22 @@ export function parseSendParams(params: Record<string, unknown>): SendParams {
     a2aFail("invalidParams", "At least one part is required", {}, "message.parts");
   const parts = message.parts as Record<string, unknown>[];
   const kinds = parts.map((part, index) => partKind(part, `message.parts[${index}]`));
+  if (message.metadata !== undefined && message.metadata !== null && !isObject(message.metadata))
+    a2aFail("invalidParams", "message.metadata must be an object", {}, "message.metadata");
+  const metadata = (message.metadata ?? {}) as Record<string, unknown>;
+  // On the message (the profile's place), or on the request's own metadata.
+  const delivery = parseDelivery(
+    metadata.delivery === undefined && isObject(params.metadata) ? params.metadata : metadata
+  );
+  const answer = parseAnswer(metadata);
   const configuration = params.configuration;
-  if (configuration !== undefined && !isObject(configuration))
+  if (configuration !== undefined && configuration !== null && !isObject(configuration))
     a2aFail("invalidParams", "configuration must be an object", {}, "configuration");
   const config = (configuration ?? {}) as Record<string, unknown>;
-  if (config.taskPushNotificationConfig !== undefined && config.taskPushNotificationConfig !== null)
-    a2aFail("pushNotSupported", "Push notifications are not supported");
+  const push =
+    config.taskPushNotificationConfig === undefined || config.taskPushNotificationConfig === null
+      ? undefined
+      : parsePushConfig(config.taskPushNotificationConfig, "configuration.taskPushNotificationConfig");
   if (config.returnImmediately !== undefined && typeof config.returnImmediately !== "boolean")
     a2aFail(
       "invalidParams",
@@ -288,12 +481,6 @@ export function parseSendParams(params: Record<string, unknown>): SendParams {
   if (kinds.every((kind) => kind === "text"))
     input = { content: parts.map((part) => part.text as string).join("\n") };
   else if (kinds.length === 1 && kinds[0] === "data") input = { data: parts[0]!.data };
-  else if (kinds.includes("url"))
-    return a2aFail(
-      "contentTypeNotSupported",
-      "File URLs are not fetched yet; send the bytes inline as raw",
-      { accepted: "raw" }
-    );
   else if (kinds.includes("data"))
     return a2aFail(
       "contentTypeNotSupported",
@@ -302,17 +489,20 @@ export function parseSendParams(params: Record<string, unknown>): SendParams {
     );
   else
     input = {
-      files: parts.map((part, index) =>
-        kinds[index] === "text"
+      files: parts.map((part, index) => {
+        const named = {
+          ...(part.mediaType !== undefined ? { mediaType: part.mediaType as string } : {}),
+          ...(part.filename !== undefined ? { filename: part.filename as string } : {}),
+        };
+        return kinds[index] === "text"
           ? { text: part.text as string }
-          : {
-              raw: part.raw as string,
-              ...(part.mediaType !== undefined ? { mediaType: part.mediaType as string } : {}),
-              ...(part.filename !== undefined ? { filename: part.filename as string } : {}),
-            }
-      ),
+          : kinds[index] === "url"
+          ? { url: part.url as string, ...named }
+          : { raw: part.raw as string, ...named };
+      }),
     };
-  if ("content" in input && input.content.trim() === "")
+  // An answer may carry its value only in metadata: its parts are then what a person reads.
+  if ("content" in input && input.content.trim() === "" && answer === undefined)
     a2aFail("invalidParams", "The message has no text", {}, "message.parts");
   return {
     messageId,
@@ -321,6 +511,9 @@ export function parseSendParams(params: Record<string, unknown>): SendParams {
     input,
     returnImmediately: config.returnImmediately === true,
     ...(historyLength !== undefined ? { historyLength } : {}),
+    ...(push ? { push } : {}),
+    delivery,
+    ...(answer ? { answer } : {}),
   };
 }
 
@@ -333,4 +526,49 @@ export function parseTaskParams(params: Record<string, unknown>): {
     return a2aFail("invalidParams", "id is required", {}, "id");
   const historyLength = parseHistoryLength(params.historyLength, "historyLength");
   return { id: params.id, ...(historyLength !== undefined ? { historyLength } : {}) };
+}
+
+/** `taskId` of a push config method's params. */
+function pushTaskId(params: Record<string, unknown>): string {
+  if (typeof params.taskId !== "string" || params.taskId === "")
+    return a2aFail("invalidParams", "taskId is required", {}, "taskId");
+  return params.taskId;
+}
+
+/** `CreateTaskPushNotificationConfig` params: a `TaskPushNotificationConfig` naming its task. */
+export function parseCreatePushParams(params: Record<string, unknown>): {
+  taskId: string;
+  config: PushConfigInput;
+} {
+  const taskId = pushTaskId(params);
+  // A2A 1.0 sends the config itself; an earlier draft nested it under `config`.
+  const config = isObject(params.config) ? { ...params.config, ...(params.id ? { id: params.id } : {}) } : params;
+  return { taskId, config: parsePushConfig(config, isObject(params.config) ? "config" : "params") };
+}
+
+/** `GetTaskPushNotificationConfig` and `DeleteTaskPushNotificationConfig` params. */
+export function parsePushConfigRef(params: Record<string, unknown>): { taskId: string; id: string } {
+  const taskId = pushTaskId(params);
+  const id = checkId(params.id, "id", true)!;
+  return { taskId, id };
+}
+
+/** The most configs one page of `ListTaskPushNotificationConfigs` holds. */
+export const PUSH_CONFIG_PAGE = 100;
+
+/** `ListTaskPushNotificationConfigs` params: the task, and paging. */
+export function parseListPushParams(params: Record<string, unknown>): {
+  taskId: string;
+  pageSize: number;
+  pageToken?: string;
+} {
+  const taskId = pushTaskId(params);
+  const size = params.pageSize;
+  if (size !== undefined && size !== null && size !== 0 && (typeof size !== "number" || !Number.isInteger(size) || size < 1))
+    a2aFail("invalidParams", "pageSize must be a positive integer", {}, "pageSize");
+  const pageSize = Math.min(typeof size === "number" && size > 0 ? size : PUSH_CONFIG_PAGE, PUSH_CONFIG_PAGE);
+  const token = params.pageToken;
+  if (token !== undefined && token !== null && token !== "" && typeof token !== "string")
+    a2aFail("invalidParams", "pageToken must be a string", {}, "pageToken");
+  return { taskId, pageSize, ...(typeof token === "string" && token !== "" ? { pageToken: token } : {}) };
 }

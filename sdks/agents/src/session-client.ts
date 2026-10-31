@@ -435,8 +435,17 @@ export class SessionClient {
       ...("tail" in page ? { tail: page.tail } : {}),
     };
   }
+  /**
+   * The session's events from `cursor` on, reconnecting from the last one when the connection
+   * drops or sends nothing, keepalives included, for `idleTimeoutMs` (default 45 s; `0` never).
+   */
   async *observe(
-    options: { cursor?: string; signal?: AbortSignal; follow?: boolean } = {},
+    options: {
+      cursor?: string;
+      signal?: AbortSignal;
+      follow?: boolean;
+      idleTimeoutMs?: number;
+    } = {},
   ) {
     if (!options.follow) {
       yield* this.observeOne(this.id, options);
@@ -447,7 +456,7 @@ export class SessionClient {
 
   private async *observeOne(
     sessionId: string,
-    options: { cursor?: string; signal?: AbortSignal },
+    options: { cursor?: string; signal?: AbortSignal; idleTimeoutMs?: number },
   ) {
     for await (const frame of observeSSE(
       this.transport,
@@ -466,6 +475,7 @@ export class SessionClient {
   private async *observeFollowing(options: {
     cursor?: string;
     signal?: AbortSignal;
+    idleTimeoutMs?: number;
   }) {
     const signal = options.signal;
     const linked = new Set<string>();
@@ -491,7 +501,11 @@ export class SessionClient {
       cursor?: string,
     ): Promise<void> => {
       try {
-        for await (const event of this.observeOne(sessionId, { cursor, signal })) {
+        for await (const event of this.observeOne(sessionId, {
+          cursor,
+          signal,
+          ...(options.idleTimeoutMs !== undefined ? { idleTimeoutMs: options.idleTimeoutMs } : {}),
+        })) {
           push(event);
           const link = linkedSessionId(event);
           if (link && link !== this.id && !linked.has(link)) {

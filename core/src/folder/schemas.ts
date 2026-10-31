@@ -138,7 +138,10 @@ function agentMd(): Json {
       "This agent's settings for each skill of skills/ or a plugin, by its name",
     ),
     memory: fromZod(HarnessMemorySchema, defs, "The Agent's memory: Markdown files under /memories it keeps across sessions"),
-    loop: { type: "object", description: "The harness's own settings, passed to it each turn; the nylorun harness reads none yet" },
+    loop: {
+      type: "object",
+      description: "The harness's own settings, passed to it each turn; the nylorun harness reads plan (true offers the agent update_plan)",
+    },
     metadata: { type: "object", description: "The manifest's metadata, as it is" },
   };
   return document(
