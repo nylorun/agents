@@ -142,6 +142,16 @@ session's MCP tools, with their text before the MCP tools' own, not hashed). Eac
 seam; `tool_search` over the run's MCP tools). An author tool of the same name fails the turn
 (`agentFrom`, `agent.build-failed`).
 
+**Plan**: The agent's own list of steps, each a label, a state (`pending`, `active`, `done`,
+`blocked`, `skipped`) and an optional note (A2A profile v2, `progress/v1`; `tools/plan.ts`). Our
+engine offers `update_plan` (a `harness` tool, after the agent's other engine tools) to the
+session's root agent when the version the session runs sets `harness.loop.plan: true`
+(`turn.start.loop.plan`; `loop: { plan: true }` in `AGENT.md`), unless the agent has its own tool of
+that name. Each call takes the whole plan, cuts it to `PLAN_LIMITS` (20 steps, labels of 120 and
+notes of 280 characters, ending in `…`) rather than refusing it, claims one durable `plan.updated`
+over the Harness API's `event`, and answers `Plan updated`. A malformed plan, or a claim the
+Runtime refuses, is a failed outcome the model sees; a replayed call claims nothing again.
+
 **Effect target**: What runs a tool effect, by identity (`HostEffect.target`, protocol 15):
 `{kind: "mcp", server, tool}` (`tool` the server's own name), `{kind: "http", tool}` (the
 declared name), `{kind: "sandbox"}` or `{kind: "harness"}`; `platform` is gone. Core routes,

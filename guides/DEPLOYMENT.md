@@ -424,7 +424,8 @@ put | fork | rm` does the same from the command line (Runtime API, an applicatio
 An **agent manifest** (v8, protocol 16) is one named, versioned document with what runs inside
 the agent loop and what the Runtime provides around it: `harness`, the harness's `id` (`nylorun`,
 ours, by default), `instructions`, `tools`, `skills`, `mcpServers`, `plugins`, `outputSchema`
-and the harness's own `loop` settings, or a flow (`kind: "workflow"`); and `runtime`, the
+and the harness's own `loop` settings (ours reads `plan`: `true` offers the agent `update_plan`,
+whose calls are `plan.updated` events), or a flow (`kind: "workflow"`); and `runtime`, the
 Agent's kind and what it gets (`image`, `network`, `setup`, `files`, `limits`, `lifecycle` and
 the secret slots, `secrets`). Its JSON Schema is
 `https://docs.nylorun.com/schemas/agent-manifest/v8.json`

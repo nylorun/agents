@@ -386,7 +386,8 @@ export const TurnStartSchema = z
     definition: z.object({ name: z.string(), version: z.number().int().positive() }).strict().optional(),
     /**
      * The harness section's `loop` (protocol 16): the harness's own settings, which the Runtime
-     * passes on without reading. Ours reads none yet.
+     * passes on without reading. Ours reads `plan`: `true` offers the root agent the built-in
+     * `update_plan` tool, whose calls it claims as `plan.updated`.
      */
     loop: document.optional(),
     /** The Agent's memory, when the version its session runs sets `harness.memory`. Absent for a flow. */

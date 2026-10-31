@@ -3,6 +3,8 @@ import {
   EVENT_CATALOG,
   EVENT_SCHEMAS,
   EVENT_TYPES,
+  PLAN_LIMITS,
+  PLAN_STEP_STATES,
   SessionEventSchema,
   parseSessionEvent,
 } from "../src/contracts.js";
@@ -67,6 +69,32 @@ describe("event catalog", () => {
       SessionEventSchema.safeParse({ ...envelope, type: "loop.verified", payload: { n: 1 } })
         .success
     ).toBe(false);
+  });
+
+  it("types plan.updated: the whole plan, within its limits", () => {
+    const event = parseSessionEvent({
+      ...envelope,
+      type: "plan.updated",
+      payload: {
+        steps: [
+          { label: "Inspect wikis and toolchain", state: "done", note: "Node 22, pnpm 9" },
+          { label: "Build in parts", state: "active" },
+          { label: "Package zip and write summary", state: "pending" },
+        ],
+      },
+    });
+    expect(event.type).toBe("plan.updated");
+    expect(EVENT_CATALOG["plan.updated"]).toMatchObject({ source: "loop", version: 1 });
+    expect(PLAN_STEP_STATES).toEqual(["pending", "active", "done", "blocked", "skipped"]);
+    expect(PLAN_LIMITS).toEqual({ steps: 20, labelChars: 120, noteChars: 280 });
+    const parse = (payload: unknown) =>
+      SessionEventSchema.safeParse({ ...envelope, type: "plan.updated", payload }).success;
+    expect(parse({ steps: [] })).toBe(true);
+    expect(parse({ steps: [{ label: "a", state: "done", later: 1 }] })).toBe(true);
+    expect(parse({ steps: [{ label: "a", state: "finished" }] })).toBe(false);
+    expect(parse({ steps: [{ label: "a".repeat(121), state: "done" }] })).toBe(false);
+    expect(parse({ steps: [{ label: "a", state: "done", note: "n".repeat(281) }] })).toBe(false);
+    expect(parse({ steps: Array.from({ length: 21 }, () => ({ label: "a", state: "done" })) })).toBe(false);
   });
 
   it("names a source and a version for every type", () => {
