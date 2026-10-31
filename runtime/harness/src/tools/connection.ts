@@ -75,7 +75,9 @@ export function isConnectionTool(effect: HostEffect): boolean {
 export function connectedIn(value: unknown): boolean {
   if (value === true) return true;
   return (
-    typeof value === "object" && value !== null && (value as { connected?: unknown }).connected === true
+    typeof value === "object" &&
+    value !== null &&
+    (value as { connected?: unknown }).connected === true
   );
 }
 

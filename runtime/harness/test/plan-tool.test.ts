@@ -82,10 +82,17 @@ describe("the plan", () => {
     expect(planOf({})).toMatch(/Give steps/);
     expect(planOf(undefined)).toMatch(/Give steps/);
     expect(planOf({ steps: [{ label: "", state: "done" }] })).toBe("Step 1 has no label.");
-    expect(planOf({ steps: [{ label: "a", state: "done" }, { label: "b", state: "finished" }] })).toMatch(
-      /^Step 2's state is one of pending, active, done, blocked, skipped/,
+    expect(
+      planOf({
+        steps: [
+          { label: "a", state: "done" },
+          { label: "b", state: "finished" },
+        ],
+      }),
+    ).toMatch(/^Step 2's state is one of pending, active, done, blocked, skipped/);
+    expect(planOf({ steps: [{ label: "a", state: "done", note: 3 }] })).toBe(
+      "Step 1's note is text.",
     );
-    expect(planOf({ steps: [{ label: "a", state: "done", note: 3 }] })).toBe("Step 1's note is text.");
   });
 });
 
@@ -99,7 +106,9 @@ describe("the plan.updated event", () => {
       { steps: [{ label: "", state: "done" }] },
       { steps: [{ label: "x".repeat(PLAN_LIMITS.labelChars + 1), state: "done" }] },
       { steps: [{ label: "x", state: "done", note: "n".repeat(PLAN_LIMITS.noteChars + 1) }] },
-      { steps: Array.from({ length: PLAN_LIMITS.steps + 1 }, () => ({ label: "x", state: "done" })) },
+      {
+        steps: Array.from({ length: PLAN_LIMITS.steps + 1 }, () => ({ label: "x", state: "done" })),
+      },
       {},
     ])
       expect(PlanUpdatedPayloadSchema.safeParse(bad).success).toBe(false);
@@ -212,7 +221,11 @@ describe("a call of update_plan", () => {
       throw new HarnessApiError("invalid", "A harness may not claim plan.updated");
     });
     expect(
-      await runPlanTool(effect({ steps: [] }), { channel: refused.channel, run, signal: run.signal }),
+      await runPlanTool(effect({ steps: [] }), {
+        channel: refused.channel,
+        run,
+        signal: run.signal,
+      }),
     ).toMatchObject({ kind: "failed", code: "plan.not_recorded" });
     const lost = channelOf(() => {
       throw new HarnessApiError("run_not_held", "gone");
@@ -254,7 +267,10 @@ function fakeCore() {
   const flush = () => {
     if (!offer || !lease) return;
     runs += 1;
-    lease({ run: { runId: `r${runs}`, sessionId: "s1", turnId: offer.turnId, epoch: 1 }, input: offer.start });
+    lease({
+      run: { runId: `r${runs}`, sessionId: "s1", turnId: offer.turnId, epoch: 1 },
+      input: offer.start,
+    });
     offer = undefined;
     lease = undefined;
   };
@@ -262,7 +278,12 @@ function fakeCore() {
     calls.push([method, params]);
     switch (method) {
       case "hello":
-        return { api: HARNESS_API_VERSION, tenantId: "tn_test", sandbox: { backend: null }, renewEveryMs: 1000 };
+        return {
+          api: HARNESS_API_VERSION,
+          tenantId: "tn_test",
+          sandbox: { backend: null },
+          renewEveryMs: 1000,
+        };
       case "lease":
         return new Promise((resolve) => {
           lease = resolve;
@@ -344,17 +365,24 @@ describe("update_plan over the Harness API", () => {
     const claims = core.calls.filter(([method]) => method === "event");
     expect(claims).toHaveLength(1);
     const claim = claims[0]![1];
-    expect(claim).toMatchObject({ runId: "r1", sessionId: "s1", turnId: "t1", type: "plan.updated" });
+    expect(claim).toMatchObject({
+      runId: "r1",
+      sessionId: "s1",
+      turnId: "t1",
+      type: "plan.updated",
+    });
     expect(PlanUpdatedPayloadSchema.parse(claim.payload).steps).toEqual([
       { label: "Inspect wikis and toolchain", state: "done", note: "Node 22, pnpm 9" },
       { label: `${"x".repeat(119)}…`, state: "active" },
     ]);
     const intent = core.calls.find(
-      ([method, params]) => method === "effect.intent" && params.effect.toolName === UPDATE_PLAN_TOOL,
+      ([method, params]) =>
+        method === "effect.intent" && params.effect.toolName === UPDATE_PLAN_TOOL,
     )![1];
     expect(intent.effect.target).toEqual({ kind: "harness" });
     const outcome = core.calls.find(
-      ([method, params]) => method === "effect.outcome" && params.effectId === intent.effect.effectId,
+      ([method, params]) =>
+        method === "effect.outcome" && params.effectId === intent.effect.effectId,
     )![1];
     expect(outcome.value).toEqual({ kind: "completed", output: "Plan updated" });
     expect(core.outputs.at(-1)![0]).toBe("turn.completed");
@@ -365,7 +393,13 @@ describe("update_plan over the Harness API", () => {
     await core.offer(
       start({
         loop: { plan: true },
-        outcomes: [{ effectId: intent.effect.effectId, requestHash: intent.requestHash, outcome: { value: outcome.value } }],
+        outcomes: [
+          {
+            effectId: intent.effect.effectId,
+            requestHash: intent.requestHash,
+            outcome: { value: outcome.value },
+          },
+        ],
       }),
       "t1",
     );
@@ -377,7 +411,11 @@ describe("update_plan over the Harness API", () => {
     const tools: string[][] = [];
     const harness = createHarness({
       channel: core.channel,
-      executors: { model: planningModel(tools), tool: async () => "tool", recovers: { model: false, tool: () => false } },
+      executors: {
+        model: planningModel(tools),
+        tool: async () => "tool",
+        recovers: { model: false, tool: () => false },
+      },
     });
     harnesses.push(harness);
     await harness.start();

@@ -97,7 +97,10 @@ export async function runTurn(ctx: RunContext, run: HarnessRun): Promise<void> {
     const rootId = (start.manifest as AgentManifest).id;
     // The agent's plan and connection requests (A2A profile v2): the version's
     // `harness.loop.plan` and `harness.loop.connections`, for the root agent.
-    const loop = start.engine === "agent" ? (start.loop as { plan?: unknown; connections?: unknown } | undefined) : undefined;
+    const loop =
+      start.engine === "agent"
+        ? (start.loop as { plan?: unknown; connections?: unknown } | undefined)
+        : undefined;
     const plan = loop?.plan === true;
     const connections = loop?.connections === true;
     const engineTools = (agent: AgentManifest) =>

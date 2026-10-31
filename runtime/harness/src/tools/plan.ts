@@ -97,7 +97,8 @@ const STATES: ReadonlySet<string> = new Set(PLAN_STEP_STATES);
 /** The plan a call's input states, cut to the limits; a string naming the problem when it is not one. */
 export function planOf(input: unknown): { steps: PlanStep[]; dropped: number } | string {
   const steps = (input as { steps?: unknown } | null | undefined)?.steps;
-  if (!Array.isArray(steps)) return "Give steps: the whole plan, as a list of { label, state, note? }.";
+  if (!Array.isArray(steps))
+    return "Give steps: the whole plan, as a list of { label, state, note? }.";
   const plan: PlanStep[] = [];
   for (const [index, raw] of steps.slice(0, PLAN_LIMITS.steps).entries()) {
     const step = (raw ?? {}) as { label?: unknown; state?: unknown; note?: unknown };
@@ -152,7 +153,11 @@ export async function runPlanTool(effect: HostEffect, context: PlanToolContext) 
     );
   } catch (error) {
     if (signal.aborted || !(error instanceof HarnessApiError) || LOST.has(error.code)) throw error;
-    return { kind: "failed", code: "plan.not_recorded", message: `The plan was not recorded: ${error.message}` } as const;
+    return {
+      kind: "failed",
+      code: "plan.not_recorded",
+      message: `The plan was not recorded: ${error.message}`,
+    } as const;
   }
   return {
     kind: "completed",
