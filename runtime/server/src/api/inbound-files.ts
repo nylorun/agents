@@ -2,7 +2,8 @@
  * Files that arrive inside a message (multimodal messages, M7): the AG-UI and A2A endpoints take
  * a file's bytes inline (base64), store them as an artifact of the message's session, and send
  * the message as `parts` through the session's normal command path, so every check a message
- * with file parts meets applies. A file by URL is refused: the Runtime fetches nothing.
+ * with file parts meets applies. AG-UI refuses a file by URL; A2A's `url` parts are fetched
+ * (`fetchUrlFile`, through `guardedFetch` within `inlineFileBytes`) and then stored the same way.
  *
  * A retried message (the same idempotency key) reuses the files the first one stored rather than
  * storing them again, so it replays the first turn instead of conflicting with it. A message the
@@ -15,6 +16,7 @@ import { deleteArtifact, uploadArtifact, type ArtifactAccess } from "../artifact
 import type { TenantContext } from "../tenant/context.js";
 import { fail } from "../tenant/http.js";
 import { readRuntimeLimits } from "../tenant/runtime-limits.js";
+import { guardedFetch, OutboundFailed, OutboundRefused, type OutboundPolicy } from "../tenant/outbound.js";
 
 /** A file sent inline: its name, declared media type and base64 bytes. */
 export interface InlineFile {
@@ -37,6 +39,54 @@ export function refuseUrl(): never {
   return fail(400, "File URLs are not fetched yet; send the bytes inline", {
     code: "invalid_request",
   });
+}
+
+/** How long fetching one file `url` part may take. */
+const URL_FETCH_TIMEOUT_MS = 60_000;
+
+/**
+ * Fetches a file sent by URL (A2A `url` parts) under `policy`, within the Tenant's Runtime limit
+ * `inlineFileBytes`, as an inline file: its media type is the part's, else the answer's. A URL
+ * the policy refuses, or that does not answer 2xx, is `400`; a file past the limit `413`.
+ */
+export async function fetchUrlFile(
+  ctx: TenantContext,
+  url: string,
+  named: { mediaType?: string; filename?: string },
+  policy: OutboundPolicy,
+): Promise<InlineFile> {
+  const { inlineFileBytes } = await ctx.store.tx((t) => readRuntimeLimits(t));
+  let response: Response;
+  try {
+    response = await guardedFetch(policy, { maxResponseBytes: inlineFileBytes, timeoutMs: URL_FETCH_TIMEOUT_MS })(url);
+  } catch (error) {
+    if (error instanceof OutboundFailed && error.code === "TOO_LARGE")
+      return fail(413, `A file sent by URL may hold at most ${inlineFileBytes} bytes (the Runtime limit inlineFileBytes)`, {
+        code: "limit_exceeded",
+        details: { limitBytes: inlineFileBytes },
+      });
+    const reason = error instanceof OutboundRefused || error instanceof OutboundFailed ? error.message : "it did not answer";
+    return fail(400, `The file at ${new URL(url).host} could not be fetched: ${reason}`, { code: "invalid_request" });
+  }
+  if (!response.ok)
+    return fail(400, `The file at ${new URL(url).host} could not be fetched: it answered ${response.status}`, {
+      code: "invalid_request",
+    });
+  const bytes = Buffer.from(await response.arrayBuffer());
+  const answered = response.headers.get("content-type")?.split(";")[0]?.trim();
+  const segment = new URL(url).pathname.split("/").filter(Boolean).at(-1) ?? "";
+  let last = segment;
+  try {
+    last = decodeURIComponent(segment);
+  } catch {
+    // Not percent-encoding: the segment as it is.
+  }
+  const mediaType = named.mediaType ?? (answered || "application/octet-stream");
+  return {
+    name: named.filename ?? (last !== "" ? last : inlineFileName(mediaType, 0)),
+    mediaType,
+    data: bytes.toString("base64"),
+  };
 }
 
 /** A name for a file its client did not name: its place in the message and its type's extension. */

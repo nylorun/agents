@@ -223,6 +223,17 @@ export const HostTuningSchema = z
       /** How long a pod row may go unchanged before the sweep checks it. */
       stalePodMs: ms(MINUTE),
     }),
+    /** The A2A server's push notifications (Host feature `a2a-profile-v2`). */
+    a2a: group({
+      /** The wait after a push's failed delivery, doubled after each. */
+      pushRetry: backoff(5_000, 10 * MINUTE),
+      /** How long a push is tried before it is dropped: the change feed covers what it said. */
+      pushMaxAgeMs: ms(24 * HOUR),
+      /** How long one push's request may take. */
+      pushTimeoutMs: ms(10_000),
+      /** How long a finished task's push configs are kept, for `GetTaskPushNotificationConfig`. */
+      pushConfigRetentionMs: ms(7 * 24 * HOUR),
+    }),
     /** Triggers (track T4, D74): server timing; the Tenant's own bounds are its Runtime limits. */
     triggers: group({
       /**

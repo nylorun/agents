@@ -486,9 +486,10 @@ _Avoid_: re-`PUT`ting a thread's session (its Environment is fixed when it is cr
 bytes sent inline (AG-UI `data` sources, A2A `raw` parts; at most 20 MiB each decoded, bodies
 up to 28 MiB) are stored as artifacts of the message's session, and the message goes through
 the commands service as `parts`. A retried message reuses the files the first one stored; a
-refused one deletes the files it stored. A file URL is refused (AG-UI `400`, A2A
-`ContentTypeNotSupportedError`): the Runtime fetches nothing.
-_Avoid_: fetching a client's URL; storing a retried message's files twice.
+refused one deletes the files it stored. AG-UI refuses a file URL (`400`); an A2A `url` part is
+fetched (`fetchUrlFile`, `guardedFetch` within `inlineFileBytes`, under the **push address
+rule**) and stored the same way.
+_Avoid_: fetching a URL anywhere else than `fetchUrlFile`; storing a retried message's files twice.
 
 **Browsers**: A request with an `Origin` reaches the `/v1` routes (protocol 7): a
 trusted issuer's token is served, any key (application or management) is `403
@@ -760,7 +761,7 @@ other clients `426`; required features `studio-principal`, `artifacts`, `managem
 `resource-server`, `model-inputs`, `flat-manifest`, `harness-boundary`, `agents`,
 `session-queue` and `usage-by-kind`;
 optional Host features `tenant-fixture-model`, `transcript-events`, `subject-headers`,
-`ag-ui-endpoint`, `a2a-endpoint`, `sandbox-pods`, `trusted-issuers`, `session-reads`,
+`ag-ui-endpoint`, `a2a-endpoint`, `a2a-profile-v2`, `sandbox-pods`, `trusted-issuers`, `session-reads`,
 `calls-export`, `credential-coverage`, `tool-calls`, `environment-setup`,
 `environment-disk-versions`, `tool-policy`, `traces`, `artifact-reads`,
 `gateway-credentials`, `agent-folders`, `session-model`, `model-host-identity` and
@@ -897,13 +898,53 @@ JSON-RPC) and `GET /v1/a2a/agents/:agent/card` (feature `a2a-endpoint`,
 `sessions:own`; an application key without one is `400 subject_required`. An
 A2A **context** is one session per subject, agent and `contextId`; an A2A
 **task** is one turn, named `t1.<base64url context>.<turnId>` and always
-resolved within the caller's own sessions. `SendMessage`, `GetTask` and
-`CancelTask` work; the rest answer with the A2A error for them. A message is
-text, one data part, or text and `raw` files (**inbound files**); a reply to a
-task takes text or data only. The card's `defaultInputModes` are text, JSON and
-the media types the Tenant's model reads now (`inputModesFor` in `api/a2a/card.ts`).
+resolved within the caller's own sessions. `SendMessage`, `GetTask`, `CancelTask` and the four
+push notification config methods work (**push**); streaming and `GetExtendedAgentCard` answer
+with the A2A error for them. A message is text, one data part, or text and `raw` or `url` files
+(**inbound files**); a reply to a task takes text or data only, or an `interactions/v1` answer.
+A2A params are read with ProtoJSON's lowerCamel names, or the original proto names. The card's `defaultInputModes` are text, JSON and
+the media types the Tenant's model reads now (`inputModesFor` in `api/a2a/card.ts`); its
+`supportedInterfaces` is this Runtime's JSON-RPC endpoint at `publicUrl` (else the request's
+origin), `streaming` false, `pushNotifications` true when the Runtime has a push secret.
 _Avoid_: calling the task id a session id; trusting a task id to select a
 session.
+
+**Profile v2** (Host feature `a2a-profile-v2`, `docs.nylorun.com/a2a/profile/v2`): What the A2A
+endpoint answers beyond A2A 1.0, for Nylorun callers (Nylorun Bot's service). Five
+**extensions**, each `required: false` on the card and keyed by URI in `metadata`
+(`api/a2a/extensions.ts`): `interactions/v1`, `effects/v1`, `progress/v1`, `telemetry/v1`,
+`files/v1`. A request activates them with `A2A-Extensions`; the answer echoes the activated
+ones and carries no data of the others (`keepExtensions`). The rules: an approval or a
+**connection** ask is `AUTH_REQUIRED`, a question `INPUT_REQUIRED`, each shown on the status
+message with `{ interactionId, kind, prompt, detail }`; a caller answers on the same task with
+`{ interactionId, approved }` (`approve`, `approvedBy` from its subject) or `{ interactionId,
+value }` (`respond`), and text never approves. A **connection** ask is an ask (`respond`) whose
+metadata says `kind: "connection"`. A **queued follow-up** is a message to a busy context: queued
+(`delivery: "queue"`), and its task is named by the queued message's id
+(`t1.<context>.<queuedMessageId>`), `SUBMITTED` until a turn takes it (its `command.message`
+names the message), then that turn's; `metadata.delivery: "reject"` keeps `CONTEXT_BUSY`.
+`plan.updated` events become `progress/v1` (the whole plan), a turn's end facts and trace id
+`telemetry/v1`, an uncertain effect `effects/v1`, and the files the turn wrote artifacts whose
+`url` is `GET /v1/a2a/files/{artifactId}/versions/{version}` (served only to the same subject)
+with `files/v1`.
+_Avoid_: putting tool calls, arguments or results in any extension; reading an extension's data
+the caller did not activate.
+
+**Push** (A2A push notifications, `api/a2a/push.ts`): A **push config** (`a2a_push_configs`) sends
+one task's updates to a caller's URL; it follows one turn from its `nextSeq`. The **push pump**
+reads the session's record from the lowest `nextSeq`, translates each event of the config's
+turn (`updatesOf` in `tasks.ts`, the one translator from events to `statusUpdate` and
+`artifactUpdate`) and writes each as a row of the outbox kind **`push`** (`a2a_pushes`), moving
+the config on in the same transaction under its row lock; it runs on commits of this process and
+at every Tenant sweep. Delivery (`deliverPush`, the Tenant's `send` for kind `push`) POSTs the
+body with Standard Webhooks headers signed with Runtime config `a2a.push.secret`
+(`webhook-id` = the row id), `X-A2A-Notification-Token` and the config's `Authorization`; a
+failure is retried with the Host tuning's `a2a.pushRetry` and dropped after `a2a.pushMaxAgeMs`
+(24 hours): the change feed covers it. The **push address rule**: `guardedFetch` under the
+Host's delivery policy, with private addresses refused unless the URL's `host:port` (or
+`host:*`) is in `a2a.push.allowHosts`.
+_Avoid_: sending a push inside a transaction; parking a push row; pushing to a private host
+nobody listed.
 
 **Gateway mode**: A2A through the app server: `createA2aHandler`
 (`@nylorun/agents/a2a`) authenticates partners, names each one's subject, and
@@ -918,7 +959,8 @@ table. A `message` command says what a busy session does with it (`delivery`): `
 the command's transaction (`message.queued {queuedMessageId, position}`, answered
 `{status: "queued"}`), `reject` is `409 session_busy`. With no `delivery`, the route takes `queue`
 for a protocol 17 caller and `reject` for a protocol 16 one (`deliveryFor`); core's own messages
-and the AG-UI and A2A adapters, which stream the run they start, take `reject`. A turn that ends
+and the AG-UI adapter, which streams the run it starts, take `reject`; the A2A endpoint takes
+`queue` (**profile v2**), unless the caller asks `reject`. A turn that ends
 (`settle`, `settleFailure`, a `cancel`) starts the next one in the same transaction
 (`startQueuedTurn`): every queued message carrying the same turn manifest as the first (a workflow
 takes one), each its own user message (our engine's input `{kind: "messages", messages}`), with
