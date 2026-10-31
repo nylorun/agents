@@ -82,7 +82,31 @@ export interface TenantConfig {
    * of webhook URLs and the OAuth resource. Absent: the origin each request reached.
    */
   publicUrl?: string;
+  /** The A2A server's settings (Runtime config `a2a`, Host feature `a2a-profile-v2`). */
+  a2a?: A2aConfig;
   logger: Logger;
+}
+
+/**
+ * Runtime config `a2a` (`NYLORUN_A2A_*`): how the A2A server pushes task updates (profile v2).
+ * Without `push.secret` the Runtime serves no push notifications: the card says
+ * `pushNotifications: false` and the push methods answer `PushNotificationNotSupportedError`.
+ */
+export interface A2aConfig {
+  push?: {
+    /**
+     * `a2a.push.secret` (`NYLORUN_A2A_PUSH_SECRET`): the installation's Standard Webhooks secret,
+     * `whsec_<base64>`, that signs every push (`webhook-signature`). Receivers verify with it.
+     */
+    secret?: string;
+    /**
+     * `a2a.push.allowHosts` (`NYLORUN_A2A_PUSH_ALLOW_HOSTS`, comma-separated): the `host:port`s
+     * a push, or a file `url` part the Runtime fetches, may reach although they are private,
+     * loopback or link-local (a receiver on the Docker bridge). Every other URL of those is
+     * refused, whatever `delivery.privateAddresses` says.
+     */
+    allowHosts?: readonly string[];
+  };
 }
 
 export interface Logger {

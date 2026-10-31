@@ -38,7 +38,12 @@
  *    timer is armed, later overdue ones only, and runs past `triggerRunRetentionMs` are deleted.
  * 5. **Control signals.** Signals on the control bus older than `sweep.signalRetentionMs` are
  *    deleted: followers read back only the last two minutes (`store/postgres/control.ts`).
- * 6. **Hooks.** Callbacks registered with `ctx.onSweep`.
+ * 6. **A2A pushes** (`api/a2a/push.ts`): every session with a push config still following its
+ *    task is pumped (its new events become `push` outbox rows, which step 1 of the next pass, or
+ *    the delivery after commit, sends), and configs of tasks long finished are deleted. A push
+ *    row that fails is retried with the Host tuning's `a2a.pushRetry` and dropped once it is
+ *    `a2a.pushMaxAgeMs` old, never parked: the change feed covers what it said.
+ * 7. **Hooks.** Callbacks registered with `ctx.onSweep`.
  *
  * Every step runs one transaction per session it changes (a linked agent and its workflow
  * share one, child first), so the sweep follows the lock order in `store/types.ts`. A failing
@@ -56,6 +61,8 @@ import type { PendingRequest } from "../store/types.js";
 import type { TenantContext } from "./context.js";
 import { hostTuning } from "../tuning.js";
 import { sweepStartChecks } from "./agent-versions.js";
+import { pumpPushes, pushRetry } from "../api/a2a/push.js";
+import type { OutboxRequest } from "../store/types.js";
 
 /*
  * The sweep's timings are the Host tuning's `sweep` group (`tuning.ts`):
@@ -142,6 +149,8 @@ export async function sweep(ctx: TenantContext): Promise<void> {
     ["seeds", () => sweepPendingSeeds(ctx)],
     // A harness elsewhere closes its own idle MCP connections.
     ["mcp", async () => ctx.mcp?.sweep()],
+    // A2A pushes: new events of sessions with push configs become push outbox rows.
+    ["a2a-push", () => pumpPushes(ctx)],
     [
       "signals",
       () =>
@@ -214,28 +223,48 @@ export async function deliverOutbox(
   }
 }
 
-/** Records a failed delivery of `row`: retried with backoff, parked after the last attempt. */
+/** What a log says of an outbox request: which session, sandbox or push, never a body. */
+export function outboxFields(request: OutboxRequest): Record<string, unknown> {
+  return request.kind === "wake"
+    ? { sessionId: request.sessionId, reason: request.wake.reason }
+    : request.kind === "push"
+      ? { sessionId: request.push.sessionId, taskId: request.push.taskId, pushId: request.push.id }
+      : { sandboxId: request.sandboxId, signal: request.signal.kind };
+}
+
+/**
+ * Records a failed delivery of `row`: retried with backoff, parked after the last attempt. An
+ * A2A push is retried on its own backoff until it is too old, then deleted (`pushRetry`).
+ */
 async function failed(
   ctx: Pick<TenantContext, "store" | "config">,
   row: PendingRequest,
   error: unknown
 ): Promise<void> {
   const attempts = row.attempts + 1;
+  const fields = {
+    rowId: row.id,
+    ...outboxFields(row.request),
+    attempts,
+    message: error instanceof Error ? error.message : String(error),
+  };
+  if (row.kind === "push") {
+    const retry = pushRetry(attempts, row.createdAt);
+    if (retry === "drop") {
+      await ctx.store.tx((t) => t.deleteOutbox([row]));
+      ctx.config.logger.warn("a2a push dropped after its last retry; the change feed covers it", fields);
+    } else {
+      await ctx.store.tx((t) => t.failOutbox(row, { retryInMs: retry.retryInMs, park: false }));
+      ctx.config.logger.warn("a2a push failed; the sweep sends it again", fields);
+    }
+    return;
+  }
   // Parked after `sweep.outboxAttempts` failed deliveries (`Tx.failOutbox`); tried again after
   // `outboxRetry.minMs`, doubled each time.
   const { outboxAttempts, outboxRetry } = hostTuning().sweep;
   const park = attempts >= outboxAttempts;
   const retryInMs = Math.min(outboxRetry.minMs * 2 ** (attempts - 1), outboxRetry.maxMs);
   await ctx.store.tx((t) => t.failOutbox(row, { retryInMs, park }));
-  const { request } = row;
-  const fields = {
-    rowId: row.id,
-    ...(request.kind === "wake"
-      ? { sessionId: request.sessionId, reason: request.wake.reason }
-      : { sandboxId: request.sandboxId, signal: request.signal.kind }),
-    attempts,
-    message: error instanceof Error ? error.message : String(error),
-  };
   if (park) ctx.config.logger.error("outbox row parked: its delivery keeps failing", fields);
   else ctx.config.logger.warn("outbox delivery failed; the sweep tries it again", fields);
 }
