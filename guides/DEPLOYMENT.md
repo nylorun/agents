@@ -425,7 +425,9 @@ An **agent manifest** (v8, protocol 16) is one named, versioned document with wh
 the agent loop and what the Runtime provides around it: `harness`, the harness's `id` (`nylorun`,
 ours, by default), `instructions`, `tools`, `skills`, `mcpServers`, `plugins`, `outputSchema`,
 the agent's `model` (below) and the harness's own `loop` settings (ours reads `plan`: `true`
-offers the agent `update_plan`, whose calls are `plan.updated` events), or a flow (`kind: "workflow"`); and `runtime`, the
+offers the agent `update_plan`, whose calls are `plan.updated` events; and `connections`: `true`
+offers it `request_connection`, which pauses the turn on an interaction whose `metadata.kind` is
+`connection`), or a flow (`kind: "workflow"`); and `runtime`, the
 Agent's kind and what it gets (`image`, `network`, `setup`, `files`, `limits`, `lifecycle` and
 the secret slots, `secrets`). Its JSON Schema is
 `https://docs.nylorun.com/schemas/agent-manifest/v8.1.json` (v8 with `harness.model`; `v8.json`

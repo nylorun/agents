@@ -332,6 +332,11 @@ describe("agent folders: messages in the compiler's own words", () => {
     expect(off.diagnostics).toEqual([]);
     const bad = compile({ "AGENT.md": "---\nname: shop\ndescription: Orders.\nloop: { plan: yes please }\n---\nGo.\n" });
     expect(errors(bad.diagnostics)).toEqual([expect.objectContaining({ code: "value_invalid", file: "AGENT.md", message: "loop.plan is true or false: true offers the agent update_plan" })]);
+    const both = compile({ "AGENT.md": "---\nname: shop\ndescription: Orders.\nloop: { plan: true, connections: true }\n---\nGo.\n" });
+    expect(both.diagnostics).toEqual([]);
+    expect(both.manifest!.harness).toMatchObject({ loop: { plan: true, connections: true } });
+    const badConnections = compile({ "AGENT.md": "---\nname: shop\ndescription: Orders.\nloop: { connections: 1 }\n---\nGo.\n" });
+    expect(errors(badConnections.diagnostics)).toEqual([expect.objectContaining({ code: "value_invalid", message: "loop.connections is true or false: true offers the agent request_connection" })]);
     const typo = compile({ "AGENT.md": "---\nname: shop\ndescription: Orders.\nloop: { plans: true }\n---\nGo.\n" });
     expect(warnings(typo.diagnostics)).toEqual([expect.objectContaining({ code: "loop_key", message: expect.stringContaining("Did you mean 'plan'?") })]);
   });

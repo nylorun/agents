@@ -149,7 +149,7 @@ function agentMd(): Json {
     memory: fromZod(HarnessMemorySchema, defs, "The Agent's memory: Markdown files under /memories it keeps across sessions"),
     loop: {
       type: "object",
-      description: "The harness's own settings, passed to it each turn; the nylorun harness reads plan (true offers the agent update_plan)",
+      description: "The harness's own settings, passed to it each turn; the nylorun harness reads plan (true offers the agent update_plan) and connections (true offers it request_connection)",
     },
     model: fromZod(AgentModelSchema, defs, "The model the agent runs on: <provider>/<model>, such as anthropic/claude-sonnet-4-5"),
     metadata: { type: "object", description: "The manifest's metadata, as it is" },

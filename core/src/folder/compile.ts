@@ -163,10 +163,11 @@ export const SERVER_SETTING_KEYS = ["deferred", "tools"] as const;
 export const PLUGIN_SERVER_SETTING_KEYS = [...SERVER_SETTING_KEYS, "credential"] as const;
 export const TOOL_KEYS = ["description", "inputSchema", "outputSchema", "http"] as const;
 /**
- * The loop settings our harness reads from `loop`: `plan` (`true` offers the agent `update_plan`).
- * A custom harness reads its own.
+ * The loop settings our harness reads from `loop`: `plan` (`true` offers the agent `update_plan`)
+ * and `connections` (`true` offers it `request_connection`). A custom harness reads its own.
  */
-const NYLORUN_LOOP_KEYS: readonly string[] = ["plan"];
+const NYLORUN_LOOP_KEYS: readonly string[] = ["plan", "connections"];
+const LOOP_TOOLS: Readonly<Record<string, string>> = { plan: "update_plan", connections: "request_connection" };
 /** The runtime fields only a sandbox has, and the ones only a pod has. */
 const SANDBOX_FIELDS = ["image", "resources", "storage", "network", "setup", "files"] as const;
 const POD_FIELDS = ["image", "storage", "setup", "files"] as const;
@@ -624,9 +625,9 @@ export function compileAgentFolder(input: CompileAgentFolderInput, scope?: Folde
     // so another key does nothing there: likely a typo, or meant for a custom harness.
     if (isObject(front.loop) && (front.harness === undefined || front.harness === DEFAULT_HARNESS))
       for (const key of Object.keys(front.loop))
-        if (key === "plan") {
-          if (typeof front.loop.plan !== "boolean")
-            error("value_invalid", "loop.plan is true or false: true offers the agent update_plan", AGENT_FILE, ["loop", "plan"]);
+        if (key in LOOP_TOOLS) {
+          if (typeof front.loop[key] !== "boolean")
+            error("value_invalid", `loop.${key} is true or false: true offers the agent ${LOOP_TOOLS[key]}`, AGENT_FILE, ["loop", key]);
         } else if (!NYLORUN_LOOP_KEYS.includes(key)) {
           const close = suggestion(key, NYLORUN_LOOP_KEYS);
           warn(
