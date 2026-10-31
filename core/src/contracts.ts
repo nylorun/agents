@@ -1868,6 +1868,27 @@ export const HarnessMemorySchema = z.strictObject({
 });
 const harnessMemoryField = HarnessMemorySchema.optional()
   .meta({ description: "The Agent's memory: Markdown files under /memories it keeps across sessions" });
+/**
+ * `harness.model` (Host feature `agent-model`): the model the agent runs on, `<provider>/<model>`
+ * (the provider's id, then its model's id, which may itself hold `/`). A session opened on a
+ * version that names one starts with it as its own model (`Session.model`), when the provider is
+ * connected and lists the model; otherwise the Tenant's model applies. A later
+ * `PUT /v1/sessions/{id}/model` still chooses another.
+ */
+export const AGENT_MODEL_PATTERN = /^[A-Za-z0-9._-]+\/\S+$/;
+export const AGENT_MODEL_MAX_CHARS = 200;
+export const AgentModelSchema = z
+  .string()
+  .max(AGENT_MODEL_MAX_CHARS)
+  .regex(AGENT_MODEL_PATTERN, "model is <provider>/<model>, such as anthropic/claude-sonnet-4-5")
+  .meta({ description: "The model the agent runs on: <provider>/<model>, such as anthropic/claude-sonnet-4-5" });
+/** `harness.model` as a session's model choice: the provider before the first `/`, the model after. */
+export function agentModelChoice(value: string): { provider: string; model: string } | undefined {
+  if (value.length > AGENT_MODEL_MAX_CHARS || !AGENT_MODEL_PATTERN.test(value)) return undefined;
+  const slash = value.indexOf("/");
+  return { provider: value.slice(0, slash), model: value.slice(slash + 1) };
+}
+const harnessModelField = AgentModelSchema.optional();
 /** Fields the harness section refuses with where they went. */
 const REMOVED_HARNESS_FIELDS: Readonly<Record<string, string>> = Object.freeze({
   requires:
@@ -1890,6 +1911,7 @@ const agentHarnessObject = z
       outputSchema: definitionJson.optional(),
       loop: harnessLoopField,
       memory: harnessMemoryField,
+      model: harnessModelField,
       functions: z.unknown().optional().meta({ description: "Reserved: Functions are not available yet" }),
     },
     { error: removedFieldError(REMOVED_HARNESS_FIELDS) },
@@ -2242,6 +2264,7 @@ export const HarnessManifestFileSchema = z
     outputSchema: definitionJson.optional(),
     loop: harnessLoopField,
     memory: harnessMemoryField,
+    model: harnessModelField,
     /** MCP server or HTTP tool name → the `runtime.secrets` slot it authenticates with. */
     credentials: z.record(z.string().min(1), z.string().min(1)).optional(),
     /** What this harness needs of any runtime it is combined with; checked by the composer only. */

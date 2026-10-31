@@ -34,6 +34,8 @@ export interface ManifestOptions {
   loop?: Record<string, unknown>;
   /** The harness section's `memory` (track T5). */
   memory?: AgentMemorySettings;
+  /** The harness section's `model`, `<provider>/<model>` (Host feature `agent-model`). */
+  model?: string;
 }
 
 /** The agent manifest v8 a loop manifest makes, with its id as the name unless `name` is given. */
@@ -49,6 +51,7 @@ export function manifestOf(source: AgentSource, options: ManifestOptions = {}): 
       ...harness,
       ...(options.loop === undefined ? {} : { loop: options.loop }),
       ...(options.memory === undefined ? {} : { memory: options.memory }),
+      ...(options.model === undefined ? {} : { model: options.model }),
     },
     ...(options.runtime === undefined ? {} : { runtime: options.runtime }),
   } as AgentManifestV8;

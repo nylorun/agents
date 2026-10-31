@@ -336,6 +336,35 @@ describe("agent folders: messages in the compiler's own words", () => {
     expect(warnings(typo.diagnostics)).toEqual([expect.objectContaining({ code: "loop_key", message: expect.stringContaining("Did you mean 'plan'?") })]);
   });
 
+  it("takes model as <provider>/<model> into harness.model, and refuses any other shape", () => {
+    const named = compile({ "AGENT.md": "---\nname: shop\ndescription: Orders.\nmodel: anthropic/claude-sonnet-4-5\n---\nGo.\n" });
+    expect(named.diagnostics).toEqual([]);
+    expect(named.manifest!.harness).toMatchObject({ model: "anthropic/claude-sonnet-4-5" });
+    // The model's id may hold a '/' of its own.
+    const routed = compile({ "AGENT.md": "---\nname: shop\ndescription: Orders.\nmodel: openrouter/google/gemini-2.5-pro\n---\nGo.\n" });
+    expect(routed.manifest!.harness).toMatchObject({ model: "openrouter/google/gemini-2.5-pro" });
+    expect(compile({ "AGENT.md": AGENT }).manifest!.harness).not.toHaveProperty("model");
+    for (const bad of ["claude-sonnet-4-5", "anthropic/", "/claude", "anthropic/claude sonnet", "an thropic/claude", "{ provider: anthropic }", "3"]) {
+      const result = compile({ "AGENT.md": `---\nname: shop\ndescription: Orders.\nmodel: ${bad}\n---\nGo.\n` });
+      expect(result.manifest, bad).toBeUndefined();
+      expect(errors(result.diagnostics), bad).toEqual([
+        expect.objectContaining({ code: "value_invalid", file: "AGENT.md", line: 4, message: expect.stringMatching(/^model is <provider>\/<model>, such as anthropic\/claude-sonnet-4-5/) }),
+      ]);
+    }
+    const long = compile({ "AGENT.md": `---\nname: shop\ndescription: Orders.\nmodel: a/${"m".repeat(200)}\n---\nGo.\n` });
+    expect(errors(long.diagnostics)).toHaveLength(1);
+  });
+
+  it("refuses model in an agent under agents/: it runs on the root agent's", () => {
+    const result = compile({
+      "AGENT.md": AGENT,
+      "agents/helper/AGENT.md": "---\nname: helper\ndescription: Helps.\nmodel: anthropic/claude-haiku-4-5\n---\nHelp.\n",
+    });
+    expect(errors(result.diagnostics)).toEqual([
+      expect.objectContaining({ code: "nested_refused", file: "agents/helper/AGENT.md", message: expect.stringContaining("model is the root agent's") }),
+    ]);
+  });
+
   it("warns on an agent with no instructions, and compiles it", () => {
     const result = compile({ "AGENT.md": "---\nname: shop\ndescription: Orders.\n---\n\n" });
     expect(result.manifest).toBeDefined();

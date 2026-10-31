@@ -225,6 +225,7 @@ function agentHarness(
     ...(file.outputSchema === undefined ? {} : { outputSchema: file.outputSchema }),
     ...(file.loop === undefined ? {} : { loop: file.loop }),
     ...(file.memory === undefined ? {} : { memory: file.memory }),
+    ...(file.model === undefined ? {} : { model: file.model }),
   };
 }
 

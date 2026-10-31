@@ -22,6 +22,7 @@ import {
   AGENT_MANIFEST_NAME_PATTERN,
   ENVIRONMENT_NAME_PATTERN,
   HarnessIdSchema,
+  AgentModelSchema,
   HarnessMemorySchema,
   HttpToolTargetSchema,
   McpToolSettingsSchema,
@@ -73,11 +74,19 @@ function fromZod(schema: z.ZodType, defs: Json, description?: string): Json {
   return description ? { ...definition, description } : definition;
 }
 
+/**
+ * A kind's revision within format 1, when its document gained an optional key (a published `$id`
+ * names one document for good): `AGENT.md` took `model` (Host feature `agent-model`), published
+ * as `agent-md.1.json`.
+ */
+const REVISIONS: Partial<Record<AgentFolderSchemaKind, number>> = { "agent-md": 1 };
+
 /** One document: its `$id` from its kind, then the body, then the `$defs` its parts named. */
 function document(kind: AgentFolderSchemaKind, title: string, description: string, body: Json, defs: Json): Json {
+  const revision = REVISIONS[kind];
   return {
     $schema: DIALECT,
-    $id: `${FOLDER_SCHEMAS}${kind}.json`,
+    $id: `${FOLDER_SCHEMAS}${kind}${revision === undefined ? "" : `.${revision}`}.json`,
     title,
     description,
     ...body,
@@ -142,6 +151,7 @@ function agentMd(): Json {
       type: "object",
       description: "The harness's own settings, passed to it each turn; the nylorun harness reads plan (true offers the agent update_plan)",
     },
+    model: fromZod(AgentModelSchema, defs, "The model the agent runs on: <provider>/<model>, such as anthropic/claude-sonnet-4-5"),
     metadata: { type: "object", description: "The manifest's metadata, as it is" },
   };
   return document(

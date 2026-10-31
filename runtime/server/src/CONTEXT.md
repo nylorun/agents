@@ -663,6 +663,10 @@ and the usage ledger records the model called. The Tenant's model and every othe
 as they are. It names a connected provider and a model its catalog lists (any model for
 `custom`), and changes only while no turn runs or waits (`409 session_busy`); while its provider
 is disconnected the session uses the Tenant's model again (`source: "tenant"`, `choice` kept).
+A session opened on a version whose manifest names a model (`harness.model`, `<provider>/<model>`;
+Host feature `agent-model`) starts with it as its own, when that choice would pass (`agentModelOf`
+in `putSession`'s path, so a session the A2A server or a trigger opens gets it too); one the Tenant
+cannot use now is left out, and the Tenant's model applies. A later choice replaces it.
 _Avoid_: changing the Tenant's model from a session; switching a turn's model mid-turn.
 
 The **reference line**, the **file view** and the structured answer are the harness's
@@ -763,8 +767,8 @@ optional Host features `tenant-fixture-model`, `transcript-events`, `subject-hea
 `ag-ui-endpoint`, `a2a-endpoint`, `sandbox-pods`, `trusted-issuers`, `session-reads`,
 `calls-export`, `credential-coverage`, `tool-calls`, `environment-setup`,
 `environment-disk-versions`, `tool-policy`, `traces`, `artifact-reads`,
-`gateway-credentials`, `agent-folders`, `session-model`, `model-host-identity` and
-`credential-provider`).
+`gateway-credentials`, `agent-folders`, `session-model`, `model-host-identity`,
+`credential-provider` and `agent-model`).
 Protocols 17 (the session queue) and 18 (usage by token kind) were additive.
 Protocol 16 made agents one manifest (track T2, `agents`, Harness API 5): an **agent manifest** v8
 with a harness and a runtime section, checked against each other at save, replaced agent

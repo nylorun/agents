@@ -223,6 +223,11 @@ export interface AgentHarnessSection {
   readonly loop?: JsonObject;
   /** Turns on the Agent's memory: Markdown files it keeps across sessions. */
   readonly memory?: AgentMemorySettings;
+  /**
+   * The model the agent runs on, `<provider>/<model>`: a new session's own model when the provider
+   * is connected and lists it (Host feature `agent-model`).
+   */
+  readonly model?: string;
 }
 
 /**

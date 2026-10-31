@@ -9,7 +9,7 @@
  * Format `agent-folder/1`:
  *
  * - `AGENT.md`: frontmatter (`name`, `description`, `format`, `harness`, `outputSchema`,
- *   `mcpServers`, `skills`, `memory`, `loop`, `metadata`); the body is the instructions, then
+ *   `mcpServers`, `skills`, `memory`, `loop`, `model`, `metadata`); the body is the instructions, then
  *   each of `instructions/*.md` in natural order (`2-x.md` before `10-y.md`).
  * - `runtime.json`: the runtime section. Without one, a folder that needs a runtime section (a
  *   derived secret slot, a trigger, files) gets kind `none`.
@@ -44,12 +44,14 @@
 import type { z } from "zod";
 import {
   AGENT_MANIFEST_V8_SCHEMA_VERSION,
+  AGENT_MODEL_MAX_CHARS,
   AgentManifestV8Schema,
   ENVIRONMENT_NAME_PATTERN,
   HarnessIdSchema,
   RuntimeSectionSchema,
   TOOL_SECRET_NAME_PATTERN,
   TriggerSchema,
+  agentModelChoice,
   isAgentManifestName,
   type AgentFolderFix,
   type AgentManifestV8,
@@ -151,7 +153,7 @@ export const SCHEMA_URLS = {
   flow: [`${FOLDER_SCHEMAS}flow.json`],
 } as const;
 const SKILL_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
-export const AGENT_KEYS = ["name", "description", "format", "harness", "inputSchema", "outputSchema", "mcpServers", "skills", "memory", "loop", "metadata"] as const;
+export const AGENT_KEYS = ["name", "description", "format", "harness", "inputSchema", "outputSchema", "mcpServers", "skills", "memory", "loop", "model", "metadata"] as const;
 const SKILL_KEYS = ["name", "description", "license", "compatibility", "metadata", "allowed-tools"];
 export const TRIGGER_KEYS = ["schedule", "timezone", "at", "webhook", "session"] as const;
 export const MCP_KEYS = ["$schema", "mcpServers"] as const;
@@ -635,6 +637,17 @@ export function compileAgentFolder(input: CompileAgentFolderInput, scope?: Folde
             { key: true },
           );
         }
+    // The model the agent runs on (Host feature `agent-model`): `<provider>/<model>`.
+    if (front.model !== undefined) {
+      if (typeof front.model === "string" && agentModelChoice(front.model.trim()) !== undefined) harness.model = front.model.trim();
+      else
+        error(
+          "value_invalid",
+          `model is <provider>/<model>, such as anthropic/claude-sonnet-4-5: the provider's id (letters, digits, '.', '_' or '-'), a '/', then the model's id, at most ${AGENT_MODEL_MAX_CHARS} characters and no spaces${typeof front.model === "string" ? `, not ${JSON.stringify(front.model)}` : ""}`,
+          AGENT_FILE,
+          ["model"],
+        );
+    }
     if (front.metadata !== undefined) {
       if (isObject(front.metadata)) metadata = front.metadata;
       else error("value_invalid", "metadata is a map", AGENT_FILE, ["metadata"]);
@@ -642,7 +655,7 @@ export function compileAgentFolder(input: CompileAgentFolderInput, scope?: Folde
     const body = trimBlankLines(agent.body);
     if (body !== "") instructions.push(body);
     origins.push([["harness", "instructions"], { file: AGENT_FILE, path: [] }]);
-    for (const key of ["memory", "loop", "outputSchema"])
+    for (const key of ["memory", "loop", "model", "outputSchema"])
       origins.push([["harness", key], { file: AGENT_FILE, path: [key] }]);
     origins.push([["harness", "id"], { file: AGENT_FILE, path: ["harness"] }]);
   }
