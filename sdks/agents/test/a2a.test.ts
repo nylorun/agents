@@ -105,6 +105,18 @@ describe("createA2aHandler", () => {
     expect(request!.headers.get("a2a-extensions")).toBe("https://example.com/ext/v1");
   });
 
+  it("echoes the extensions the agent activated", async () => {
+    const { client } = fakeRuntime({
+      respond: () =>
+        Response.json(
+          { jsonrpc: "2.0", id: 1, result: { task: { id: "t" } } },
+          { headers: { "A2A-Extensions": "https://docs.nylorun.com/a2a/progress/v1" } }
+        ),
+    });
+    const response = await handler(client).fetch(call("/a2a/support", { partner: "acme" }));
+    expect(response.headers.get("a2a-extensions")).toBe("https://docs.nylorun.com/a2a/progress/v1");
+  });
+
   it("sends A2A-Version from the query when there is no header, and none when neither", async () => {
     const { client, sent } = fakeRuntime();
     const a2a = handler(client);
