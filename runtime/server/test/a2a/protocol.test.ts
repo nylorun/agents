@@ -128,7 +128,7 @@ describe("SendMessage params", () => {
   it("joins text parts", () => {
     expect(
       parseSendParams(message({ parts: [{ text: "a" }, { text: "b" }] }))
-    ).toEqual({ messageId: "m-1", input: { content: "a\nb" }, returnImmediately: false });
+    ).toEqual({ messageId: "m-1", input: { content: "a\nb" }, returnImmediately: false, delivery: "queue" });
   });
 
   it("takes one data part as JSON input, with the configuration", () => {
@@ -143,6 +143,7 @@ describe("SendMessage params", () => {
       input: { data: { orderId: "o-1" } },
       returnImmediately: true,
       historyLength: 2,
+      delivery: "queue",
     });
   });
 
@@ -161,7 +162,36 @@ describe("SendMessage params", () => {
         ],
       },
       returnImmediately: false,
+      delivery: "queue",
     });
+  });
+
+  it("takes url file parts, a push config, a delivery and an interaction answer (profile v2)", () => {
+    expect(
+      parseSendParams({
+        ...message({
+          parts: [{ text: "Read" }, { url: "https://files.example/a.pdf", mediaType: "application/pdf" }],
+          metadata: { delivery: "reject" },
+        }),
+        configuration: {
+          taskPushNotificationConfig: { url: "https://bot.example/a2a/push", token: "t-1", id: "c-1" },
+        },
+      })
+    ).toEqual({
+      messageId: "m-1",
+      input: { files: [{ text: "Read" }, { url: "https://files.example/a.pdf", mediaType: "application/pdf" }] },
+      returnImmediately: false,
+      push: { url: "https://bot.example/a2a/push", token: "t-1", id: "c-1" },
+      delivery: "reject",
+    });
+    const answer = parseSendParams(
+      message({
+        parts: [{ data: { approved: true } }],
+        metadata: { "https://docs.nylorun.com/a2a/interactions/v1": { interactionId: "eff_1", approved: true } },
+      })
+    );
+    expect(answer.answer).toEqual({ interactionId: "eff_1", approved: true });
+    expect(parseSendParams({ ...message(), metadata: { delivery: "reject" } }).delivery).toBe("reject");
   });
 
   it.each([
@@ -172,13 +202,14 @@ describe("SendMessage params", () => {
     ["no parts", message({ parts: [] }), "invalidParams", "message.parts"],
     ["a part with two kinds", message({ parts: [{ text: "a", data: 1 }] }), "invalidParams", "message.parts[0]"],
     ["blank text", message({ parts: [{ text: "  " }] }), "invalidParams", "message.parts"],
-    ["a file URL", message({ parts: [{ url: "https://x/y.pdf" }] }), "contentTypeNotSupported", undefined],
-    ["a file URL with raw bytes", message({ parts: [{ raw: "AA==" }, { url: "https://x/y.pdf" }] }), "contentTypeNotSupported", undefined],
+    ["a file URL that is not http", message({ parts: [{ url: "file:///etc/passwd" }] }), "invalidParams", "message.parts[0].url"],
+    ["a file URL with data", message({ parts: [{ data: 1 }, { url: "https://x/y.pdf" }] }), "contentTypeNotSupported", undefined],
+    ["an unknown delivery", message({ metadata: { delivery: "later" } }), "invalidParams", "message.metadata.delivery"],
     ["raw bytes and data", message({ parts: [{ raw: "AA==" }, { data: 1 }] }), "contentTypeNotSupported", undefined],
     ["raw bytes that are not a string", message({ parts: [{ raw: [1, 2] }] }), "invalidParams", "message.parts[0].raw"],
     ["a filename that is not a string", message({ parts: [{ raw: "AA==", filename: 3 }] }), "invalidParams", "message.parts[0].filename"],
     ["text and data", message({ parts: [{ text: "a" }, { data: 1 }] }), "contentTypeNotSupported", undefined],
-    ["a push config", { ...message(), configuration: { taskPushNotificationConfig: { url: "x" } } }, "pushNotSupported", undefined],
+    ["a push config without a URL", { ...message(), configuration: { taskPushNotificationConfig: { url: "x" } } }, "invalidParams", "configuration.taskPushNotificationConfig.url"],
     ["a negative history length", { ...message(), configuration: { historyLength: -1 } }, "invalidParams", "configuration.historyLength"],
   ])("refuses %s", (_name, params, kind, field) => {
     const error = a2aError(() => parseSendParams(params as Record<string, unknown>));
@@ -266,6 +297,14 @@ describe("buildTask", () => {
       parts: [{ text: "Which order?" }],
       contextId: "ctx",
       taskId,
+      extensions: ["https://docs.nylorun.com/a2a/interactions/v1"],
+      metadata: {
+        "https://docs.nylorun.com/a2a/interactions/v1": {
+          interactionId: "q-1",
+          kind: "question",
+          prompt: "Which order?",
+        },
+      },
     });
     expect(task.history!.map((m) => [m.role, m.messageId, m.parts])).toEqual([
       ["ROLE_USER", "m-1", [{ text: "Refund my order" }]],
@@ -382,7 +421,14 @@ describe("agentCard", () => {
       description: "Answers questions.",
       supportedInterfaces: [],
       version: "support@3",
-      capabilities: { streaming: false, pushNotifications: false, extendedAgentCard: false },
+      capabilities: {
+        streaming: false,
+        pushNotifications: false,
+        extendedAgentCard: false,
+        extensions: expect.arrayContaining([
+          expect.objectContaining({ uri: "https://docs.nylorun.com/a2a/progress/v1", required: false }),
+        ]),
+      },
       defaultInputModes: ["text/plain", "application/json"],
       defaultOutputModes: ["text/plain", "application/json"],
       skills: [{ id: "support", name: "Support", description: "Answers questions.", tags: [] }],

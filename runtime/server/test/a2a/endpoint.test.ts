@@ -429,11 +429,12 @@ describe("explicit answers for what v1 does not do", () => {
     expect(body).toMatchObject({ jsonrpc: "2.0", id: null, error: { code: -32700 } });
   });
 
-  it("refuses files and mismatched contexts", async () => {
+  it("refuses unreachable file URLs and mismatched contexts", async () => {
+    // A private address the Runtime is not allowed to reach (a2a.push.allowHosts).
     const file = await rpc("SendMessage", {
-      message: { messageId: "f-1", role: "ROLE_USER", parts: [{ url: "https://x/y.pdf" }] },
+      message: { messageId: "f-1", role: "ROLE_USER", parts: [{ url: "http://127.0.0.1:9/y.pdf" }] },
     });
-    expect(file.body.error.code).toBe(-32005);
+    expect(file.body.error.code).toBe(-32602);
     const task = (await rpc("SendMessage", wireMessage("Hi"))).body.result.task;
     const mismatch = await rpc(
       "SendMessage",
@@ -446,10 +447,10 @@ describe("explicit answers for what v1 does not do", () => {
     expect(done.body.error.code).toBe(-32002);
   });
 
-  it("pauses an approval as INPUT_REQUIRED, refuses a reply, and cancels", async () => {
+  it("pauses an approval as AUTH_REQUIRED, refuses a text reply, and cancels", async () => {
     const asked = (await rpc("SendMessage", wireMessage("Save it"), { agent: "guarded" })).body
       .result.task;
-    expect(asked.status.state).toBe("TASK_STATE_INPUT_REQUIRED");
+    expect(asked.status.state).toBe("TASK_STATE_AUTH_REQUIRED");
     expect(asked.status.message.parts).toEqual([{ text: "Approve save?" }]);
     const reply = await rpc("SendMessage", wireMessage("yes", { taskId: asked.id }), {
       agent: "guarded",
@@ -486,6 +487,8 @@ describe("the gateway and the Runtime route", () => {
       headers: runtime.headers(),
     });
     expect(card.status).toBe(200);
-    expect((await card.json()).supportedInterfaces).toEqual([]);
+    expect((await card.json()).supportedInterfaces).toEqual([
+      { url: `${runtime.url}/v1/a2a/agents/support`, protocolBinding: "JSONRPC", protocolVersion: "1.0" },
+    ]);
   });
 });
