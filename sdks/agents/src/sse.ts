@@ -4,10 +4,27 @@ export interface SSEEvent {
   data: string;
   id?: string;
 }
-/** Fetch-based SSE supports Authorization headers and works in browsers and Node. */
+/**
+ * How long a stream may send nothing before the client takes it for dead: the Runtime sends a
+ * `: keepalive` comment every 15 s, so three missed ones.
+ */
+export const SSE_IDLE_TIMEOUT_MS = 45_000;
+/** A stream sent no byte, not even a keepalive, for `idleTimeoutMs`. */
+export class SSEIdleTimeoutError extends Error {
+  constructor(readonly idleTimeoutMs: number) {
+    super(`The event stream sent nothing for ${idleTimeoutMs} ms`);
+    this.name = "SSEIdleTimeoutError";
+  }
+}
+/**
+ * Fetch-based SSE supports Authorization headers and works in browsers and Node. Any byte,
+ * keepalive comments included, counts as liveness; after `idleTimeoutMs` without one the read
+ * stops with `SSEIdleTimeoutError` (`0` waits forever).
+ */
 export async function* readSSE(
   response: Response,
-  signal: AbortSignal
+  signal: AbortSignal,
+  options: { idleTimeoutMs?: number } = {}
 ): AsyncGenerator<SSEEvent> {
   if (!response.headers.get("content-type")?.includes("text/event-stream"))
     throw new Error("Expected an SSE response");
@@ -22,9 +39,21 @@ export async function* readSSE(
     void reader.cancel().catch(() => {});
   };
   signal.addEventListener("abort", abort, { once: true });
+  const idleTimeoutMs = options.idleTimeoutMs ?? SSE_IDLE_TIMEOUT_MS;
+  let idle = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     while (!signal.aborted) {
+      // Only the wait for bytes counts, never the time the consumer holds an event. Cancelling
+      // the reader ends the pending read, as an abort does.
+      if (idleTimeoutMs > 0)
+        timer = setTimeout(() => {
+          idle = true;
+          abort();
+        }, idleTimeoutMs);
       const result = await reader.read();
+      clearTimeout(timer);
+      if (idle) throw new SSEIdleTimeoutError(idleTimeoutMs);
       if (result.done) break;
       buffer += decoder.decode(result.value, { stream: true });
       if (buffer.length > 2_000_000)
@@ -56,6 +85,7 @@ export async function* readSSE(
       }
     }
   } finally {
+    clearTimeout(timer);
     signal.removeEventListener("abort", abort);
     await reader.cancel().catch(() => {});
     reader.releaseLock();
@@ -64,7 +94,7 @@ export async function* readSSE(
 export async function* observeSSE(
   transport: Transport,
   path: string,
-  options: { signal?: AbortSignal; cursor?: string } = {}
+  options: { signal?: AbortSignal; cursor?: string; idleTimeoutMs?: number } = {}
 ): AsyncGenerator<SSEEvent> {
   const controller = new AbortController();
   const signal = options.signal ?? controller.signal;
@@ -83,7 +113,10 @@ export async function* observeSSE(
           ...(cursor ? { "Last-Event-ID": cursor } : {}),
         },
       });
-      for await (const event of readSSE(response, signal)) {
+      const read = readSSE(response, signal, {
+        ...(options.idleTimeoutMs !== undefined ? { idleTimeoutMs: options.idleTimeoutMs } : {}),
+      });
+      for await (const event of read) {
         if (event.event === "nylorun.closed") {
           closedByRuntime += 1;
           reconnectNow = closedByRuntime === 1;
@@ -96,6 +129,8 @@ export async function* observeSSE(
       }
     } catch (error) {
       if (signal.aborted) return;
+      // A silent stream is a dead connection: open a new one from the last event at once.
+      if (error instanceof SSEIdleTimeoutError) continue;
       if (
         error instanceof RuntimeError &&
         error.status >= 400 &&

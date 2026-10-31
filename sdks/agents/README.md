@@ -556,7 +556,7 @@ default release registry). Host contract:
 [HOST_CONTRACT.md](../../runtime/harness/HOST_CONTRACT.md). Vocabulary (turn loop vs
 workflow Loop): [runtime/harness/src/CONTEXT.md](../../runtime/harness/src/CONTEXT.md).
 
-Use `session.observe({ cursor, signal })` for resumable canonical events, `session.inspect()` for waiting/uncertain state, and `approve`, `respond` or `cancel` to answer or stop a turn. `cancel` takes an idempotency key; `approve(interactionId, approved)` and `respond(interactionId, value)` make one of their own when given none, so give them a stable one (`{ idempotencyKey }`) when you may retry. Retry the same semantic command with the same key. `ownerUserId` must come from trusted server authentication. Application credentials are not browser credentials; browser applications need an authorized backend. Definition authoring is browser-bundleable.
+Use `session.observe({ cursor, signal })` for resumable canonical events (a connection that sends nothing, not even its 15-second keepalive, for `idleTimeoutMs`, default 45 s, is dropped and reopened from the last event's `Last-Event-ID`; `0` never times out), `session.inspect()` for waiting/uncertain state, and `approve`, `respond` or `cancel` to answer or stop a turn. `cancel` takes an idempotency key; `approve(interactionId, approved)` and `respond(interactionId, value)` make one of their own when given none, so give them a stable one (`{ idempotencyKey }`) when you may retry. Retry the same semantic command with the same key. `ownerUserId` must come from trusted server authentication. Application credentials are not browser credentials; browser applications need an authorized backend. Definition authoring is browser-bundleable.
 
 Connection defaults follow `resolveConnection` (options → environment → Project
 link). Agents do not hash the manifest; a session pins the manifest version its Agent runs
@@ -701,15 +701,143 @@ What the Runtime answers (Host feature `a2a-endpoint`):
   `url` is `ContentTypeNotSupportedError`; a file of any type is accepted, and
   the agent's harness decides how its model sees it.
 - Clients must send `A2A-Version: 1.0` (header or `?A2A-Version=`).
-- Not yet: `ListTasks`, streaming and `SubscribeToTask`
-  (`UnsupportedOperationError`; the card says `streaming: false`), push
-  notifications, the extended card, and approvals. An agent that pauses for an
-  approval shows `INPUT_REQUIRED`, refuses a reply, and can be canceled, so do
-  not publish agents whose tools the Tenant's tool policy asks about yet.
+- Before Host feature `a2a-profile-v2`: no `ListTasks`, push notifications or
+  approvals. An agent that pauses for an approval shows `INPUT_REQUIRED`,
+  refuses a reply, and can be canceled, so on such a Runtime do not publish
+  agents whose tools the Tenant's tool policy asks about. Never: streaming and
+  `SubscribeToTask` (`UnsupportedOperationError`; the card says
+  `streaming: false`) and the extended card.
 - The handler calls the Runtime as the partner's subject with the scope
   `sessions:own` only, so one partner never reaches another's tasks. It sends
   no header the partner chose except `A2A-Version` and `A2A-Extensions`. Without
   `a2a-endpoint` on the Runtime it answers `502` (`runtime_feature_missing`).
+
+### Calling an agent: the A2A client
+
+`createA2aClient` calls one A2A agent's JSON-RPC endpoint: a Runtime's
+`/v1/a2a/agents/{agentId}`, a gateway's, or any A2A 1.0 agent. It sends
+`A2A-Version: 1.0` and activates the
+[Nylorun profile v2](https://docs.nylorun.com/a2a/profile/v2) extensions with
+`A2A-Extensions` (all five by default). It is plain `fetch` and loads no A2A
+package; it is also exported from the package root.
+
+<!-- doc-test: typescript -->
+```ts
+import { createA2aClient, readInteraction, readProgress } from "@nylorun/agents/a2a";
+
+const a2a = createA2aClient({
+  url: "https://agents.example.com/v1/a2a/agents/coding",
+  key: process.env.NYLORUN_SERVER_KEY, // Authorization: Bearer
+  subject: "u:org_1:user_1", // Nylorun-Subject, with Nylorun-Scopes: sessions:own
+});
+
+const task = await a2a.send({
+  messageId: crypto.randomUUID(), // the idempotency key: a retry answers the same task
+  parts: [{ text: "Build the portal from the wikis" }],
+  returnImmediately: true,
+  push: { url: "https://bot.example.com/a2a/push", token: "per-task-token" },
+});
+
+const latest = await a2a.get(task.id, { historyLength: 0 });
+console.log(readProgress(latest)?.steps);
+const open = readInteraction(latest); // an approval pauses the task as AUTH_REQUIRED
+if (open?.kind === "approval")
+  await a2a.answer({
+    taskId: latest.id,
+    contextId: latest.contextId,
+    interactionId: open.interactionId,
+    approved: true,
+    messageId: crypto.randomUUID(),
+  });
+```
+
+| Method | A2A operation |
+| --- | --- |
+| `send({ messageId, contextId?, taskId?, parts, metadata?, extensions?, delivery?, push?, returnImmediately?, historyLength?, traceparent? })` | `SendMessage`, answered with the task. A message to a busy context is queued; `delivery: "reject"` asks for `CONTEXT_BUSY` instead. `traceparent` joins the task to your trace |
+| `get(taskId, { historyLength? })` | `GetTask` |
+| `list({ contextId?, status?, statusTimestampAfter?, pageSize?, pageToken? })`, `listAll(...)` | `ListTasks`: one page, or every task page after page |
+| `cancel(taskId)` | `CancelTask` |
+| `answer({ taskId, contextId, interactionId, approved? \| value?, messageId })` | Answers an open interaction under `interactions/v1`: `approved` for an approval or a connection, `value` for a question |
+| `card()` | The Agent Card: `{url}/card` on a Runtime, else `{url}/.well-known/agent-card.json` (`cardUrl` overrides) |
+| `call(method, params)` | Any other JSON-RPC method |
+
+An error the agent answers in JSON-RPC is thrown as `A2aError` with its
+`code` (e.g. `-32001`), `message` and `reason` from `google.rpc.ErrorInfo`
+(e.g. `TASK_NOT_FOUND`, `CONTEXT_BUSY`). An HTTP refusal (`401`, an unknown
+agent's `404`, `429`) is a `RuntimeError` with its `status`.
+
+**Pushes.** Each delivery is a `POST` of one A2A `StreamResponse`, signed with
+[Standard Webhooks](https://www.standardwebhooks.com) and the installation's
+`whsec_` webhook secret. Verify the raw body before you parse it:
+
+<!-- doc-test: typescript -->
+```ts
+import { createServer } from "node:http";
+import { A2aPushVerificationError, readFiles, readTelemetry, verifyA2aPush } from "@nylorun/agents/a2a";
+
+createServer(async (req, res) => {
+  const chunks: Buffer[] = [];
+  for await (const chunk of req) chunks.push(chunk as Buffer);
+  try {
+    const update = await verifyA2aPush({
+      secret: process.env.A2A_PUSH_SECRET!, // whsec_…
+      headers: req.headers,
+      body: Buffer.concat(chunks).toString("utf8"),
+      token: "per-task-token", // optional: X-A2A-Notification-Token must match
+    });
+    // Order status updates by status.timestamp: a delivery may come twice or late.
+    if ("statusUpdate" in update) console.log(update.statusUpdate.status.state, readTelemetry(update));
+    if ("artifactUpdate" in update) console.log(readFiles(update));
+    res.writeHead(204).end();
+  } catch (error) {
+    res.writeHead(error instanceof A2aPushVerificationError ? 401 : 500).end();
+  }
+}).listen(3000);
+```
+
+`verifyA2aPush` checks `webhook-id`, `webhook-timestamp` (at most
+`toleranceSeconds`, default 300, from now, either way) and every `v1,`
+signature in `webhook-signature` (several are allowed, as during a rotation),
+in constant time with Web Crypto, and returns the parsed `StreamResponse`. A
+failure is `A2aPushVerificationError` with its `reason`.
+
+**Profile v2 readers.** Each takes a task, a `StreamResponse`, a status
+update, a status, a message or an artifact, and returns `undefined` (`[]` for
+files) when the data is missing, as from an agent outside Nylorun:
+
+| Reader | Extension (`A2A_EXTENSIONS`) | Returns |
+| --- | --- | --- |
+| `readInteraction` | `interactions` | `{ interactionId, kind, prompt?, detail? }`: `approval`, `question` or `connection` |
+| `readProgress` | `progress` | `{ steps: [{ label, state, note? }] }`, the whole plan |
+| `readTelemetry` | `telemetry` | `{ totals?: { steps, tokens, costUsd }, traceId? }`, on the terminal update |
+| `readEffects` | `effects` | `{ uncertain? }`: the effect whose outcome was lost |
+| `readFiles` | `files` | `[{ artifact, file: { kind, path?, version?, size?, sha256? } }]` |
+| `readExtension(source, uri)` | any | The raw data under `uri` |
+
+**The change feed.** `listTurnChanges` reads a Runtime's `GET /v1/turns`
+(Host feature `turns`): the turns that changed after a cursor, in the order
+they changed. Poll it with the last `cursor` to find what a lost push would
+have said:
+
+<!-- doc-test: typescript -->
+```ts
+import { listTurnChanges } from "@nylorun/agents";
+
+let cursor: string | undefined;
+const page = await listTurnChanges({
+  baseUrl: "https://agents.example.com",
+  key: process.env.NYLORUN_SERVER_KEY!, // the whole Tenant; add `subject` for one subject's turns
+  ...(cursor ? { changedAfter: cursor } : {}),
+  limit: 200,
+});
+for (const turn of page.turns) console.log(turn.status, turn.a2a?.taskId, turn.totals?.costUsd);
+cursor = page.cursor; // returned even when nothing changed
+```
+
+The A2A 1.0 types (`Task`, `Message`, `Part`, `Artifact`,
+`TaskStatusUpdateEvent`, `TaskArtifactUpdateEvent`, `StreamResponse`,
+`AgentCard`, `ListTasksResult`, `TaskState`) are exported from
+`@nylorun/agents/a2a`, and from the root as the namespace `A2a` (`A2a.Task`).
 
 ## Files: artifacts and message parts
 
