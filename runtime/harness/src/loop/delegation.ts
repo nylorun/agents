@@ -22,7 +22,12 @@ export interface DelegationHost {
   child(
     delegate: Delegate,
     ref: AgentRef,
-  ): { readonly definition: AgentDefinition; readonly onModelCall: ModelAdapter };
+  ): {
+    readonly definition: AgentDefinition;
+    readonly onModelCall: ModelAdapter;
+    /** Whether the child has `read_artifact` (ADR-100), when it is not the parent's. */
+    readonly artifactReads?: boolean;
+  };
   /**
    * Run a flow agent used as a tool: the host starts it in its own linked session and
    * returns the settled value (the flow's output, or a `{ kind: "failed" }` value). Only
@@ -133,9 +138,17 @@ export async function runDelegation(
             input: task,
             onModelCall: child.onModelCall,
             signal,
-            // A child calls the same model, and reads its files as the parent does.
+            // A child calls the same model, and reads its files as the parent does, with
+            // `read_artifact` as it declares (ADR-100).
             ...(options.model === undefined ? {} : { model: options.model }),
-            ...(options.files === undefined ? {} : { files: options.files }),
+            ...(options.files === undefined
+              ? {}
+              : {
+                  files:
+                    child.artifactReads === undefined
+                      ? options.files
+                      : { ...options.files, artifactReads: child.artifactReads },
+                }),
             ...(options.info === undefined ? {} : { info: options.info }),
             state: initializeExecutionState(child.definition, {
               executionId: `${invocation.state.executionId}/${call.invocationId}`,

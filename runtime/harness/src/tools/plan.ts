@@ -15,67 +15,18 @@ import {
   type PlanStep,
   type PlanStepState,
 } from "@nylorun/core/contracts";
-import { HarnessApiError, type EffectTarget, type HarnessChannel } from "@nylorun/core/harness-api";
+import { HarnessApiError, type HarnessChannel } from "@nylorun/core/harness-api";
+import { PLAN_TEXT, UPDATE_PLAN_TOOL, planToolOf } from "@nylorun/core/engine";
 import type { DurableSessionTool, HostEffect } from "../run/durable.js";
 import type { HarnessRun } from "../api/executors.js";
 
-/** The tool's name. */
-export const UPDATE_PLAN_TOOL = "update_plan";
+export { UPDATE_PLAN_TOOL } from "@nylorun/core/engine";
 /** What a call answers. */
 export const PLAN_UPDATED = "Plan updated";
 
-const HARNESS: EffectTarget = Object.freeze({ kind: "harness" });
-
-const DESCRIPTION = [
-  "Keep your plan for this task: a short list of steps, each with a state, which the person or agent who asked sees while you work.",
-  "Pass the whole plan each time, never only the changes: the steps in order, each with a label (a few words) and a state (pending, active, done, blocked or skipped), and optionally a note (a short fact, such as why a step is blocked).",
-  `At most ${PLAN_LIMITS.steps} steps; a label is cut at ${PLAN_LIMITS.labelChars} characters and a note at ${PLAN_LIMITS.noteChars}.`,
-  "Never put tool arguments, results, secrets or file contents in a label or note.",
-].join(" ");
-
-const INPUT_SCHEMA = {
-  type: "object",
-  properties: {
-    steps: {
-      type: "array",
-      description: `The whole plan, in order: at most ${PLAN_LIMITS.steps} steps.`,
-      items: {
-        type: "object",
-        properties: {
-          label: {
-            type: "string",
-            minLength: 1,
-            description: `What the step does, in a few words (at most ${PLAN_LIMITS.labelChars} characters).`,
-          },
-          state: { type: "string", enum: [...PLAN_STEP_STATES], description: "The step's state." },
-          note: {
-            type: "string",
-            description: `A short fact about the step (at most ${PLAN_LIMITS.noteChars} characters).`,
-          },
-        },
-        required: ["label", "state"],
-        additionalProperties: false,
-      },
-    },
-  },
-  required: ["steps"],
-  additionalProperties: false,
-} as const;
-
-const INSTRUCTIONS =
-  "For work of several steps, keep your plan with update_plan: set it when you start, and call it again, with the whole plan, as each step starts, finishes or is blocked.";
-
-/** The tool, and the text the model reads with it. */
+/** The tool, and the text the model reads with it (block `plan`, `@nylorun/core/engine`). */
 export function planTool(): { tool: DurableSessionTool; instructions: string } {
-  return {
-    tool: {
-      name: UPDATE_PLAN_TOOL,
-      description: DESCRIPTION,
-      inputSchema: INPUT_SCHEMA as unknown as DurableSessionTool["inputSchema"],
-      target: HARNESS,
-    },
-    instructions: INSTRUCTIONS,
-  };
+  return { tool: planToolOf(), instructions: PLAN_TEXT };
 }
 
 /** True when `effect` is a call of `update_plan` (ours: a `harness` call). */

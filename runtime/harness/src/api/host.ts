@@ -29,6 +29,7 @@ import {
 } from "@nylorun/core/harness-api";
 import type { DurableHost, EffectResolution, HostEffect } from "../run/durable.js";
 import { delegatesOf, type AgentManifest } from "@nylorun/core/define";
+import { engineFeaturesOf } from "@nylorun/core/engine";
 import { isArtifactTool, runArtifactTool } from "../tools/artifacts.js";
 import { isSkillTool, mountSkills, runSkillTool } from "../tools/skills.js";
 import type { EngineToolOptions } from "../tools/engine-tools.js";
@@ -168,6 +169,7 @@ export function apiHost(
         ...(run.start.model ? { model: run.start.model } : {}),
         limits,
         config: engine.toolResults,
+        ...(readsArtifacts(effect) ? {} : { retrievable: false }),
         store: (bytes, artifact) => store(effect, bytes, artifact),
       });
       // Shaping keeps a result under its cap; one that a store could not hold is refused here,
@@ -176,6 +178,18 @@ export function apiHost(
       budget.count(effect, fitted);
       return fitted;
     });
+  };
+
+  /** Whether the call's agent (the root, or the agent used as a tool) has `read_artifact`. */
+  const readsArtifacts = (effect: HostEffect): boolean => {
+    const root = run.start.manifest as AgentManifest | undefined;
+    if (!root || typeof root !== "object") return true;
+    const agent =
+      effect.agent === undefined
+        ? root
+        : (delegatesOf(root).find(({ manifest }) => manifest.id === effect.agent!.id)?.manifest ??
+          root);
+    return engineFeaturesOf(agent.engine, { computer: false }).artifactsRead;
   };
 
   /** Stores a tool result's bytes as an artifact of the run's session, linked to its call. */
