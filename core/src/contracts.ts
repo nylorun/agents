@@ -3825,6 +3825,43 @@ export const ArtifactExportFailedPayloadSchema = z
   .object({ name: z.string(), message: z.string() })
   .passthrough();
 
+/** Where the model a session's turns call comes from (`SessionModelRecord.source`). */
+export const SESSION_MODEL_SOURCES = ["manifest", "session", "tenant"] as const;
+/**
+ * Why a session's turns call the Tenant's model and not the one its manifest (`harness.model`) or
+ * its own choice (`PUT /v1/sessions/{id}/model`) names: that model's provider is not connected,
+ * its provider's catalog does not list it, or it is no `<provider>/<model>` the Tenant takes.
+ */
+export const SESSION_MODEL_FALLBACK_REASONS = ["provider_not_connected", "not_in_catalog", "invalid_model"] as const;
+/**
+ * The model a session's turns call, and why (`model` on `GET /v1/sessions/{id}`, and the
+ * `session.model` event): `source` `manifest` for the model its Agent's version names
+ * (`harness.model`, Host feature `agent-model`), `session` for its own choice, `tenant` for the
+ * Tenant's model. On a fallback to the Tenant's, `reason` says why the model `requested` (by the
+ * manifest or the session) is not used.
+ */
+export const SessionModelRecordSchema = z
+  .object({
+    provider: z.string(),
+    model: z.string(),
+    source: z.enum(SESSION_MODEL_SOURCES),
+    reason: z.enum(SESSION_MODEL_FALLBACK_REASONS).optional(),
+    requested: z
+      .object({ provider: z.string(), model: z.string(), by: z.enum(["manifest", "session"]) })
+      .strict()
+      .optional(),
+  })
+  .strict();
+export type SessionModelRecord = z.infer<typeof SessionModelRecordSchema>;
+/**
+ * `session.model`: the model the session's turns call was set (the session opened, its own model
+ * was chosen or cleared) or changed (at a turn's start: a provider was connected or disconnected,
+ * the Tenant's model changed), fallbacks included. `previous` is what it was, absent at the first.
+ */
+export const SessionModelPayloadSchema = SessionModelRecordSchema.extend({
+  previous: SessionModelRecordSchema.optional(),
+}).passthrough();
+
 /**
  * `turn.version_kept`: a turn's first segment did not move the session to the version its Agent
  * runs now (`from` is the version the session keeps, `to` the Agent's). `variant_invalid`: the
@@ -3894,6 +3931,7 @@ export const EVENT_CATALOG = {
   "turn.failed": { payload: TurnFailedPayloadSchema, source: "loop", version: 1 },
   "turn.cancelled": { payload: TurnCancelledPayloadSchema, source: "api", version: 1 },
   "turn.version_kept": { payload: TurnVersionKeptPayloadSchema, source: "api", version: 1 },
+  "session.model": { payload: SessionModelPayloadSchema, source: "api", version: 1 },
   "message.queued": { payload: MessageQueuedPayloadSchema, source: "api", version: 1 },
   "queue.taken": { payload: QueueTakenPayloadSchema, source: "api", version: 1 },
   "wake.booked": { payload: WakeBookedPayloadSchema, source: "api", version: 1 },
@@ -4689,6 +4727,12 @@ export const SessionViewSchema = z
     closedReason: z.string().optional(),
     mcpSnapshot: z.record(z.string(), z.unknown()).nullable(),
     mcpDiagnostics: z.array(z.record(z.string(), z.unknown())),
+    /**
+     * The model the session's turns call and why (`SessionModelRecord`): as its last turn
+     * started, or as the session opened or chose it since. Null for a flow and while the Tenant
+     * has no model.
+     */
+    model: SessionModelRecordSchema.nullable(),
     /** What the session waits on: interactions, approvals, timers. */
     waits: z.unknown().optional(),
     error: z.string().optional(),

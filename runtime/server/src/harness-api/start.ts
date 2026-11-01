@@ -28,6 +28,7 @@ import { ownedTx } from "../store/ownership.js";
 import type { SandboxPodState, Tx } from "../store/types.js";
 import { harnessOf, type Lease, type Session, type TenantContext } from "../tenant/context.js";
 import { repinTurn } from "../tenant/agent-versions.js";
+import { noteSessionModel, sessionModelRecordOf } from "../tenant/session-model.js";
 import { HARNESS_ID } from "../sandbox/placement.js";
 import {
   checkParity,
@@ -123,6 +124,13 @@ export async function startSegment(
     async (t, current) => {
       // A turn's first segment runs the version its Agent runs now (T3, D73).
       if (options.harness && (await repinTurn(t, current))) await t.put("sessions", id, current);
+      // The model the segment's calls use, and why: `session.model` when it changed since.
+      if (
+        options.harness &&
+        !isWorkflowManifest(current.manifest) &&
+        (await noteSessionModel(t, current, await sessionModelRecordOf(t, current)))
+      )
+        await t.put("sessions", id, current);
       // A transcript left on our engine's state by an older Runtime is recorded once; another
       // harness's state is its own (R4.2).
       const limits = await readRuntimeLimits(t);

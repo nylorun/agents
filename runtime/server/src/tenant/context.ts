@@ -19,6 +19,7 @@ import { DEFAULT_HARNESS, agentGranted } from "@nylorun/core/contracts";
 import type {
   IssuerScope,
   SessionModelChoice,
+  SessionModelRecord,
   SubjectScope,
   TenantEnvelope,
 } from "@nylorun/core/contracts";
@@ -158,6 +159,14 @@ export interface Session {
    * place of the Tenant's while its provider is connected. Absent: the Tenant's model.
    */
   model?: SessionModelChoice;
+  /** Where `model` came from: `manifest` when its Agent's version named it (`harness.model`). Absent: chosen. */
+  modelSource?: "manifest";
+  /**
+   * The model the session's turns call and why (`SessionModelRecord`, `tenant/session-model.ts`):
+   * as the session opened or chose it, and at each segment's start since. Absent while the
+   * Tenant has no model, and on a session opened before it was kept.
+   */
+  modelRecord?: SessionModelRecord;
 }
 
 export type AuthScope =

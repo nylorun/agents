@@ -1,3 +1,15 @@
+# A session's model, and why
+
+Additive. `GET /v1/sessions/{id}` answers `model`, the model the session's turns call and why:
+`{ provider, model, source, reason?, requested? }`, where `source` is `manifest` (its Agent's
+version names it, `harness.model`), `session` (its own, `PUT /v1/sessions/{id}/model`) or `tenant`.
+When it falls back to the Tenant's model, `reason` says why (`provider_not_connected`,
+`not_in_catalog`, `invalid_model`) and `requested` names the model asked for and `by` whom
+(`manifest` or `session`). It is null for a flow and while the Tenant has no model. The session's
+log has a `session.model` event each time it is set or changes (the session opens, chooses or clears
+its model, or a turn starts after a provider was connected or disconnected or the Tenant's model
+changed), with the `previous` record. `SessionView.model` in `@nylorun/agents` types it.
+
 # A turn's tools by name, and variants across versions
 
 Additive. A message takes `removeTools`, the tools its turn may not use, by name (Host feature

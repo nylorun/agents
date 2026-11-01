@@ -10,6 +10,7 @@ import {
   SessionManifestViewSchema,
   SessionModelViewSchema,
   type SessionModelChoice,
+  type SessionModelRecord,
   SessionUsageTotalsSchema,
   ModelCallsPageSchema,
   ToolCallsPageSchema,
@@ -73,6 +74,13 @@ export interface SessionView {
   status: string;
   activeTurnId: string | null;
   waits?: unknown;
+  /**
+   * The model the session's turns call and why: `source` `manifest` (its Agent's version's
+   * `harness.model`), `session` (its own, `setModel`) or `tenant`, with `reason` and `requested`
+   * when it falls back to the Tenant's. Null for a flow and while the Tenant has no model; absent
+   * from an older Runtime. Each change is a `session.model` event.
+   */
+  model?: SessionModelRecord | null;
   [key: string]: unknown;
 }
 /** `AgentsClient.createSession`'s options. */
