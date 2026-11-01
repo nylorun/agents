@@ -18,9 +18,11 @@ Agent manifests:
                                       write <path>/AGENT.md, a new agent folder named after the
                                       path's last segment; --example adds a tool, mcp.json and a
                                       trigger
-  check [<dir>...] [--fix] [--json]   compile each agent folder offline and print every problem
+  check [<dir>...] [--fix] [--explain] [--json]
+                                      compile each agent folder offline and print every problem
                                       by file, line and column (reads no Runtime); --fix makes
-                                      the edits the fixable ones name
+                                      the edits the fixable ones name; --explain prints each
+                                      engine feature on, and the tools and text it adds
   apply [<dir>...] [--dry-run] [--if-match <n>] [--agent [<id>]] [--watch [--save]]
                                       save the agent manifest each folder describes (its AGENT.md,
                                       or its agent.manifest.json), with its files (Runtime API);
@@ -33,6 +35,8 @@ Agent manifests:
                                       and an environment manifest v1 (reads no Runtime)
   migrate folder <dir> [--out <dir>]  write the agent folder of a three-file folder
                                       (agent.manifest.json; reads no Runtime)
+  migrate folder <dir> --to 2         make an agent folder agent-folder/2, declaring every
+                                      engine feature it gets today, so nothing it gets changes
   export --folder <name>[@<version>] [--out <dir>]
                                       write the agent folder of a saved manifest (Runtime API)
   pull <name>[@<version>] [--out <dir>]
