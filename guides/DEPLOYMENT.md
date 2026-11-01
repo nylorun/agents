@@ -1736,7 +1736,8 @@ curl -X PUT "$NYLORUN_RUNTIME_URL/v1/tenant/tool-policy" \
 a call when every selector it sets matches: `tool` (the tool's own name: an MCP tool's name on
 its server, such as `create_issue`, or an HTTP tool's declared name; `*` matches any run of
 characters), `server` (an MCP server's name), `kind` (`mcp` or `http`), `agent` (the agent that
-calls it: its manifest's name, or a subagent's or a flow agent's id), and `when` (fields of the input by dotted path, each tested with `equals`, `in`, `gt`,
+calls it: its manifest's name, or a subagent's or a flow agent's id; the manifest's name also
+matches its subagents' calls, so a rule for an agent covers the agents it uses as tools), and `when` (fields of the input by dotted path, each tested with `equals`, `in`, `gt`,
 `gte`, `lt`, `lte` or `matches`). The strictest rule that matches decides, whatever their order;
 a call no rule matches runs.
 

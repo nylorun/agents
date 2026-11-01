@@ -137,6 +137,23 @@ describe("a call as the policy reads it (protocol 15)", () => {
     expect(policyCallOf(session, delegated, "http").agent).toBe("billing");
   });
 
+  it("matches a subagent's call by the root agent's name too, and still by its own id", () => {
+    const delegated = policyCallOf(
+      session,
+      effect({ target: { kind: "http", tool: "lookup_order" }, agent: { id: "billing", path: "billing" } }),
+      "http",
+    );
+    expect(delegated).toMatchObject({ agent: "billing", root: "support" });
+    expect(decide([{ effect: "deny", agent: "support", tool: "lookup_order" }], delegated).effect).toBe("deny");
+    expect(decide([{ effect: "ask", agent: "supp*" }], delegated).effect).toBe("ask");
+    expect(decide([{ effect: "ask", agent: "billing" }], delegated).effect).toBe("ask");
+    expect(decide([{ effect: "ask", agent: "sales" }], delegated).effect).toBe("allow");
+    // The root's own call names no root, and a rule for the subagent leaves it alone.
+    const own = policyCallOf(session, effect({ target: { kind: "http", tool: "lookup_order" } }), "http");
+    expect(own).not.toHaveProperty("root");
+    expect(decide([{ effect: "deny", agent: "billing" }], own).effect).toBe("allow");
+  });
+
   it("finds a pinned approval by the tool's identity", () => {
     // A manifest saved before R5 step 2, as a pinned session keeps it.
     const manifest = {

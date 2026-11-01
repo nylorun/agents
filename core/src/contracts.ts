@@ -5024,8 +5024,9 @@ export type ToolInputCondition = z.infer<typeof ToolInputConditionSchema>;
  * identity: an MCP tool's own name on its server, or an HTTP tool's declared name; never the name
  * a harness gave the model; `*` for any run of characters), `server` (an MCP server's name),
  * `kind`, `agent` (the agent that calls it: the agent manifest's name, or the id of an agent used
- * as a tool or of a flow's agent; never an Agent's id) and `when` (fields of the input, by dotted
- * path). The strictest matching rule decides: `deny` refuses the call before it is sent,
+ * as a tool or of a flow's agent; never an Agent's id; the session's root agent's name matches its
+ * subagents' calls too, those of the agents it uses as tools) and `when` (fields of the input, by
+ * dotted path). The strictest matching rule decides: `deny` refuses the call before it is sent,
  * `ask` holds it until a person approves it on the session (`approve`), `allow` runs it. A call no
  * rule matches runs. Sandbox tools never cross the gate; their network side is egress policy.
  *
@@ -5053,7 +5054,7 @@ export const ToolRuleSchema = z
       .optional()
       .meta({
         description:
-          "The agent that calls the tool: the agent manifest's name, or the id of an agent used as a tool or of a flow's agent, never an Agent's id. `*` matches any run of characters",
+          "The agent that calls the tool: the agent manifest's name, or the id of an agent used as a tool or of a flow's agent, never an Agent's id. The session's root agent's name also matches the calls of the agents it uses as tools. `*` matches any run of characters",
       }),
     when: z
       .record(z.string().min(1), ToolInputConditionSchema)

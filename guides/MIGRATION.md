@@ -11,6 +11,10 @@ Behaviour changes, no API removed.
   another session of the same Agent, or a person over the API, wrote the Agent's memory since its
   last turn started (`turn.start.memory.refresh`; our engine pins the new index in place of the
   old). The session's own writes leave its index as it pinned it, as before.
+- **A tool policy rule whose `agent` is the session's agent (its manifest's name) also matches the
+  calls of the agents it uses as tools.** Before, a subagent's call matched only a rule naming the
+  subagent's id, which still matches. Check `deny` and `ask` rules scoped to an agent with
+  subagents: they now apply to those subagents' MCP and HTTP calls too.
 
 # A session's model, and why
 

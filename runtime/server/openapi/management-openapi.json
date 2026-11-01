@@ -2566,7 +2566,7 @@
                 "agent": {
                   "type": "string",
                   "minLength": 1,
-                  "description": "The agent that calls the tool: the agent manifest's name, or the id of an agent used as a tool or of a flow's agent, never an Agent's id. `*` matches any run of characters"
+                  "description": "The agent that calls the tool: the agent manifest's name, or the id of an agent used as a tool or of a flow's agent, never an Agent's id. The session's root agent's name also matches the calls of the agents it uses as tools. `*` matches any run of characters"
                 },
                 "when": {
                   "type": "object",
@@ -2668,7 +2668,7 @@
                 "agent": {
                   "type": "string",
                   "minLength": 1,
-                  "description": "The agent that calls the tool: the agent manifest's name, or the id of an agent used as a tool or of a flow's agent, never an Agent's id. `*` matches any run of characters"
+                  "description": "The agent that calls the tool: the agent manifest's name, or the id of an agent used as a tool or of a flow's agent, never an Agent's id. The session's root agent's name also matches the calls of the agents it uses as tools. `*` matches any run of characters"
                 },
                 "when": {
                   "type": "object",
