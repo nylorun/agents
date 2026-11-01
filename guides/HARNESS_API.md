@@ -548,7 +548,9 @@ one version: a harness that says `api: 4` is refused.
 
 Protocol 17 added one input shape within v5: `checkpoint.input` `{kind: "messages"}` (§3). One
 claim came within v5 too: `plan.updated` (§4b), which core accepts and no v5 harness must make;
-the JSON Schema document that has it is published as `harness-api/v5.1.json`.
+the JSON Schema document that has it is published as `harness-api/v5.1.json`. ADR-100 added the
+claim `engine.diagnostic` and made `turn.start.memory.index` optional (absent for a version that
+sets `harness.memory.index: false`), both within v5: `harness-api/v5.2.json`.
 
 What v5 changed (protocol 16, agents from one manifest):
 

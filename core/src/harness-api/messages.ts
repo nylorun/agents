@@ -51,7 +51,9 @@ export type ReleaseReason = z.infer<typeof ReleaseReasonSchema>;
  * `environment.state` claim carries the workspace's compute record, which core keeps. Our engine
  * claims `artifact.export.skipped` and `artifact.export.failed` when the turn-end save of its
  * outputs folder stores nothing (protocol 15), and `plan.updated` when the agent calls its
- * built-in `update_plan` tool (additive within v5).
+ * built-in `update_plan` tool, and `engine.diagnostic` when an agent's declarations leave it
+ * something to say instead of choose, such as MCP tools past the deferral threshold of an agent
+ * that does not declare tool search (ADR-100; both additive within v5).
  */
 export const HARNESS_CLAIMS = [
   "environment.state",
@@ -59,6 +61,7 @@ export const HARNESS_CLAIMS = [
   "artifact.export.skipped",
   "artifact.export.failed",
   "plan.updated",
+  "engine.diagnostic",
 ] as const;
 export type HarnessClaim = (typeof HARNESS_CLAIMS)[number];
 

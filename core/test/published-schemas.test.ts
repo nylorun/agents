@@ -25,11 +25,11 @@ const PUBLISHED: Record<string, () => Record<string, unknown>> = {
  * moves to `RETIRED`.
  */
 const PINNED: Record<string, string> = {
-  "https://docs.nylorun.com/schemas/agent-manifest/v8.1.json": "6dda83e5a12bcbc9e4257f46b4ed35cb25226aa1c45a4168f705619b46d35200",
-  "https://docs.nylorun.com/schemas/harness-manifest/v1.1.json": "6c7f4b14f336ea4af337faf2a205bd10937337d1fc38083ef9eae6de1a84eb0f",
+  "https://docs.nylorun.com/schemas/agent-manifest/v8.2.json": "b83246587e4ce2a756c3748ee7f988dea4f777a35c52b71a4fc7a733634772e9",
+  "https://docs.nylorun.com/schemas/harness-manifest/v1.2.json": "8412d108baf508d40aa49e0bc73dded4b828e3417e75d29114f2b586ffdce4b8",
   "https://docs.nylorun.com/schemas/runtime-manifest/v1.json": "cd7c9cba1635920921cc5400389b50c4260047bb26213b37a7facd129f2ae06d",
-  "https://docs.nylorun.com/schemas/harness-api/v5.1.json": "e922de74b76e84fa649ec9fb3b920819e09a9acc58ceeee2ef9ec3ab521c1267",
-  "https://docs.nylorun.com/schemas/agent-folder/v1/agent-md.1.json": "9ee89d463268daa1df81bce053f9dff0bb49d63d872c5f36dcfbeb53d5864a66",
+  "https://docs.nylorun.com/schemas/harness-api/v5.2.json": "3df2a99a800c1fd44b35fd6f6eca455df4d1875941a5873366261f8d40f32617",
+  "https://docs.nylorun.com/schemas/agent-folder/v1/agent-md.2.json": "a575e9a180df297a9c23984f5f28290d945c080e2484e3a9e32e9091911260e8",
   "https://docs.nylorun.com/schemas/agent-folder/v1/trigger-md.json": "bb8d8d46e8171fd93b2789d4db35effe7fb5cae62783246ad561eefb4b65c515",
   "https://docs.nylorun.com/schemas/agent-folder/v1/runtime.json": "0dfc10f40e5c57fab55ae6ff48988d4f9a5835132ba590c0bb4fecdbca3487a1",
   "https://docs.nylorun.com/schemas/agent-folder/v1/tool.json": "632f25d978ae5da96ba4abd1da5647066541a63d07af1a65579e21f45dc7c1a7",
@@ -47,6 +47,10 @@ const RETIRED = [
   "https://docs.nylorun.com/schemas/agent-manifest/v8.json",
   "https://docs.nylorun.com/schemas/harness-manifest/v1.json",
   "https://docs.nylorun.com/schemas/agent-folder/v1/agent-md.json",
+  "https://docs.nylorun.com/schemas/agent-manifest/v8.1.json",
+  "https://docs.nylorun.com/schemas/harness-manifest/v1.1.json",
+  "https://docs.nylorun.com/schemas/harness-api/v5.1.json",
+  "https://docs.nylorun.com/schemas/agent-folder/v1/agent-md.1.json",
 ];
 
 /**
