@@ -77,8 +77,10 @@ NYLORUN_TOKEN).
                                       a bearer or headers secret's routing: where its requests
                                       go (over the slot's via) and the gateway's tool prefix
   secrets rm <id> <name>
-  triggers list <id>                  its triggers: status, next and last run, as JSON
+  triggers list <id>                  its triggers: status, next and last run, as JSON; with
+                                      the ones its agents made (origin agent)
   triggers pause|resume <id> <trigger>
+  triggers rm <id> <trigger>          delete a trigger its agent made (not a manifest's)
   triggers run <id> <trigger> [--idempotency-key <k>]
                                       run it once now, as if it fired
   triggers new-secret <id> <trigger>  a webhook trigger's new signing secret (whsec_…), shown
@@ -411,7 +413,7 @@ async function secrets(deps: StackDeps, args: readonly string[]): Promise<number
   throw usageError(`Usage: nylorun agents secrets <list|get|put|rm> …\n\n${agentsUsage}`);
 }
 
-/** `nylorun agents triggers <list|pause|resume|run> …` (track T4). */
+/** `nylorun agents triggers <list|pause|resume|run|rm|new-secret> …` (track T4, D83). */
 async function triggers(deps: StackDeps, args: readonly string[]): Promise<number> {
   const [verb, ...rest] = args;
   if (isHelp(verb)) throw new HelpRequest(usageLinesOf(agentsUsage, "triggers"));
@@ -448,6 +450,15 @@ async function triggers(deps: StackDeps, args: readonly string[]): Promise<numbe
     );
     return 0;
   }
+  if (verb === "rm" || verb === "delete") {
+    const usage = "nylorun agents triggers rm <id> <trigger>";
+    const flags = parseFlags(rest, {}, usage);
+    const [id, trigger] = positional(flags, 2, usage);
+    const { client } = await runtimeClient(deps, flags);
+    await runtimeCall(() => client.agents.deleteTrigger(id!, trigger!));
+    deps.out(`Deleted trigger ${trigger} of Agent ${id}.`);
+    return 0;
+  }
   if (verb === "new-secret") {
     const usage = "nylorun agents triggers new-secret <id> <trigger>";
     const flags = parseFlags(rest, {}, usage);
@@ -456,7 +467,7 @@ async function triggers(deps: StackDeps, args: readonly string[]): Promise<numbe
     printJson(deps, await runtimeCall(() => client.agents.rotateWebhookSecret(id!, trigger!)));
     return 0;
   }
-  throw usageError(`Usage: nylorun agents triggers <list|pause|resume|run|new-secret> …\n\n${agentsUsage}`);
+  throw usageError(`Usage: nylorun agents triggers <list|pause|resume|run|rm|new-secret> …\n\n${agentsUsage}`);
 }
 
 /** `nylorun agents memories <ls|cat|put|rm|versions> …` (track T5). */

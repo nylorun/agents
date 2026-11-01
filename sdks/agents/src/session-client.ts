@@ -32,6 +32,7 @@ import { AgentInstancesClient } from "./agents.js";
 import { AgentManifestsClient, type AgentSource } from "./agent-manifests.js";
 import { ArtifactsClient } from "./artifacts.js";
 import { FilesClient } from "./files.js";
+import { RunsClient } from "./runs.js";
 import { Transport, id, segment, type Destination } from "./http.js";
 import { observeSSE } from "./sse.js";
 
@@ -156,6 +157,10 @@ export class AgentsClient {
   /** Definition files: the skill files a definition names, by content hash. */
   get files(): FilesClient {
     return new FilesClient(this.transport);
+  }
+  /** The Tenant's runs (Host feature `agent-triggers`): `stream()` follows every Agent's trigger runs. */
+  get runs(): RunsClient {
+    return new RunsClient(this.transport);
   }
   /** The Runtime's protocol features, including optional ones such as `transcript-events`. */
   hostFeatures(options: { signal?: AbortSignal } = {}): Promise<readonly string[]> {
@@ -565,6 +570,8 @@ export { RuntimeError, IncompatibleRuntimeError } from "./http.js";
 export type { Destination, IncompatibleReason } from "./http.js";
 export type { LiveEvent } from "@nylorun/core/contracts";
 export { AccessClient } from "./access.js";
+export { RunsClient } from "./runs.js";
+export type { TenantRunEvent } from "./runs.js";
 export { AgentInstancesClient, AgentMemoriesClient, AgentSecretsClient, runtimeFiles } from "./agents.js";
 export type { AgentFilter, AgentInput, AgentSecretInput, AgentSecretRouting, RuntimeFileBytes } from "./agents.js";
 export { AgentManifestsClient, ManifestGapsError, agentManifest, requirementGaps } from "./agent-manifests.js";

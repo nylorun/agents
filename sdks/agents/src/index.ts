@@ -144,6 +144,13 @@ export type {
   ArtifactTree,
   ArtifactDiff,
   FolderEntry,
+  TriggerView,
+  TriggerOrigin,
+  TriggerRun,
+  TriggerRunPage,
+  TriggerToolInput,
+  TriggerToolOutput,
+  TenantRun,
 } from "@nylorun/core/contracts";
 export {
   AGENT_EVENT_TYPES,
@@ -215,6 +222,8 @@ export type { PackedFolder } from "./folder.js";
 export { packFolder, isAgentFolder, FOLDER_IGNORE_FILE } from "./folder-pack.js";
 export { ignoreMatcher } from "./folder-ignore.js";
 export { AccessClient } from "./access.js";
+export { RunsClient } from "./runs.js";
+export type { TenantRunEvent } from "./runs.js";
 export { resolveConnection, ConnectionError } from "./connection.js";
 export type { ResolvedConnection } from "./connection.js";
 export { RuntimeError, IncompatibleRuntimeError } from "./http.js";

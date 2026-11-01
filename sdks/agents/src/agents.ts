@@ -17,9 +17,11 @@
  * write-only: no call reads one back.
  *
  * Triggers: what its manifest's `runtime.triggers` declares starts its turns with
- * no client connected. `triggers(id)` lists them with their status and next run, `pauseTrigger`,
- * `resumeTrigger` and `runTrigger` change or run one, `rotateWebhookSecret` makes a webhook
- * trigger's signing secret, and `runs(id)` pages what each fire came to.
+ * no client connected, and so do the triggers its agents set up with the `triggers` tool
+ * (`engine.triggers`, origin `agent`). `triggers(id)` lists them with their status and next run,
+ * `pauseTrigger`, `resumeTrigger` and `runTrigger` change or run one, `deleteTrigger` deletes one
+ * an agent made, `rotateWebhookSecret` makes a webhook trigger's signing secret, and `runs(id)`
+ * pages what each fire came to. `client.runs.stream()` follows every Agent's runs.
  *
  * Memory: an Agent whose manifest sets `harness.memory` keeps Markdown files under
  * `/memories` across sessions. `agents.memories` lists, reads, writes (to seed it), deletes and
@@ -450,6 +452,16 @@ export class AgentInstancesClient {
   async triggers(agentId: string, options: { signal?: AbortSignal } = {}): Promise<TriggerView[]> {
     const reply = await this.transport.json<{ triggers: TriggerView[] }>(`${this.path(agentId)}/triggers`, "GET", undefined, options.signal);
     return reply.triggers;
+  }
+
+  /**
+   * Deletes trigger `triggerId`, one of the Agent's agents made with the `triggers` tool (origin
+   * `agent`; Host feature `agent-triggers`). One its manifest declares is refused
+   * (`409 trigger_from_manifest`): save a version without it, or pause it.
+   */
+  async deleteTrigger(agentId: string, triggerId: string, options: { signal?: AbortSignal } = {}): Promise<void> {
+    await this.transport.requireFeature("agent-triggers", options.signal);
+    await this.transport.json(`${this.path(agentId)}/triggers/${segment(triggerId)}`, "DELETE", undefined, options.signal);
   }
 
   /** Pauses trigger `triggerId`: it stops firing until it is resumed. Answers the Agent's triggers. */
