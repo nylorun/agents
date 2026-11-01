@@ -315,7 +315,11 @@ runtime it applies (`slotHolds`); another stays in the vault, **dormant** (T3). 
 names one with `agent` (`Session.agentId`, and `environmentId` for its environment, always the
 same id), pins its manifest version (`Session.definition`) and its sandbox spec then
 (`Session.sandbox`, `sandbox/resolve.ts` `sandboxSpecOf`), and a turn's first segment pins
-again the version the Agent runs then (`repinTurn` in `tenant/agent-versions.ts`, track T3);
+again the version the Agent runs then (`repinTurn` in `tenant/agent-versions.ts`, track T3),
+applying again what the turn's message asked of its manifest (`Session.turnRequest`): its
+`removeTools` (Host feature `remove-tools`, `withoutTools` in core), and its variant, validated
+again against the new version (one that is no variant of it keeps the turn on the version it
+pinned, with `turn.version_kept`, so a variant never widens a turn);
 its workspace is keyed by the Agent's
 id, so its sessions share files, and deleting a session only detaches it. Its sessions run their
 turns at the same time (D66; one turn per session stays); a turn start checks a token caller's
@@ -983,7 +987,7 @@ for a protocol 17 caller and `reject` for a protocol 16 one (`deliveryFor`); cor
 and the AG-UI adapter, which streams the run it starts, take `reject`; the A2A endpoint takes
 `queue` (**profile v2**), unless the caller asks `reject`. A turn that ends
 (`settle`, `settleFailure`, a `cancel`) starts the next one in the same transaction
-(`startQueuedTurn`): every queued message carrying the same turn manifest as the first (a workflow
+(`startQueuedTurn`): every queued message carrying the same turn manifest and `removeTools` as the first (a workflow
 takes one), each its own user message (our engine's input `{kind: "messages", messages}`), with
 each one's `command.message` (its `queuedMessageId`) and `queue.taken`. A client's message and
 queued ones start a turn through one door, `beginMessageTurn`. When the Agent cannot take a turn

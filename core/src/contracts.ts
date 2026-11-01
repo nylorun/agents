@@ -2992,11 +2992,27 @@ const commandBase = {
  */
 export const MessageDeliverySchema = z.enum(["queue", "reject"]);
 export type MessageDelivery = z.infer<typeof MessageDeliverySchema>;
+/**
+ * A message's `removeTools` (Host feature `remove-tools`): the tools its turn may not use, by
+ * name. In the root agent and each agent it uses as a tool, a name removes the declared tool of
+ * that name (an agent used as a tool included), `<server>__<tool>` disables an MCP server's tool
+ * (the server's name and the tool's own name on it), and `<server>` every tool of that server.
+ * Applied to the version the turn runs, after a turn's first segment re-pins the session to its
+ * Agent's version; names that version does not have are ignored. Any caller may send it: it
+ * only narrows.
+ */
+export const RemoveToolsSchema = z.array(z.string().min(1).max(256)).max(256);
 const messageBase = {
   ...commandBase,
   type: z.literal("message"),
-  /** Optional turn manifest (Loop patch); validated as a variant of the pinned agent. */
+  /**
+   * Optional turn manifest (Loop patch): a variant of the version the turn runs. Validated
+   * against the session's pin when the message is accepted, and again against the Agent's
+   * version when the turn's first segment re-pins the session to it; one that is no variant of
+   * that version keeps the turn on the version it pinned (`turn.version_kept`).
+   */
   manifest: AgentManifestSchema.optional(),
+  removeTools: RemoveToolsSchema.optional(),
   delivery: MessageDeliverySchema.optional(),
 };
 /**
@@ -3581,6 +3597,8 @@ export const CommandMessagePayloadSchema = z
     parts: z.array(MessagePartSchema).optional(),
     /** The turn manifest the message carried, if any. */
     manifest: z.unknown().optional(),
+    /** The tools the message's turn may not use (Host feature `remove-tools`). */
+    removeTools: z.array(z.string()).optional(),
     delivery: MessageDeliverySchema.optional(),
     /** Set when the message waited in the session's queue (protocol 17): its id there. */
     queuedMessageId: z.string().optional(),
@@ -3807,6 +3825,22 @@ export const ArtifactExportFailedPayloadSchema = z
   .object({ name: z.string(), message: z.string() })
   .passthrough();
 
+/**
+ * `turn.version_kept`: a turn's first segment did not move the session to the version its Agent
+ * runs now (`from` is the version the session keeps, `to` the Agent's). `variant_invalid`: the
+ * turn manifest its message carried is no variant of that version, and the turn runs it on the
+ * version it was accepted for, so the variant never widens what the turn may do. Send the message
+ * again with a variant of the new version, or name the tools with `removeTools`.
+ */
+export const TurnVersionKeptPayloadSchema = z
+  .object({
+    reason: z.enum(["variant_invalid"]),
+    from: z.object({ name: z.string(), version: z.number().int() }).strict(),
+    to: z.object({ name: z.string(), version: z.number().int() }).strict(),
+    message: z.string(),
+  })
+  .passthrough();
+
 /** What readying one declared MCP server found (`mcp.discovered`). */
 export const McpServerOutcomeSchema = z
   .object({
@@ -3859,6 +3893,7 @@ export const EVENT_CATALOG = {
   "turn.paused": { payload: TurnPausedPayloadSchema, source: "loop", version: 1 },
   "turn.failed": { payload: TurnFailedPayloadSchema, source: "loop", version: 1 },
   "turn.cancelled": { payload: TurnCancelledPayloadSchema, source: "api", version: 1 },
+  "turn.version_kept": { payload: TurnVersionKeptPayloadSchema, source: "api", version: 1 },
   "message.queued": { payload: MessageQueuedPayloadSchema, source: "api", version: 1 },
   "queue.taken": { payload: QueueTakenPayloadSchema, source: "api", version: 1 },
   "wake.booked": { payload: WakeBookedPayloadSchema, source: "api", version: 1 },

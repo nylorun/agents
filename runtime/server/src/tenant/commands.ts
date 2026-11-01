@@ -46,7 +46,7 @@ import {
   planCancelCascade,
   wakeLinkedWorkflow,
 } from "../core/flow-host.js";
-import { resolveMessageManifest } from "../core/turn-manifest.js";
+import { resolveMessageManifest, turnManifestFor, turnManifestRequestOf } from "../core/turn-manifest.js";
 import { canonical } from "../store/canonical.js";
 import type { Tx } from "../store/types.js";
 import {
@@ -516,13 +516,18 @@ async function beginMessageTurn(
       input: first.input as JsonValue,
     });
   else {
-    const resolved = resolveMessageManifest({
-      pinned: s.manifest,
-      pinnedHash: s.manifestHash,
-      messageManifest: first.command.manifest,
-      store: variantStore(s),
-    });
+    const request = turnManifestRequestOf(first.command);
+    const resolved = turnManifestFor({ pinned: s.manifest, pinnedHash: s.manifestHash, request: request ?? {} });
     if (!resolved.ok) return fail(400, resolved.message);
+    if (resolved.hash !== s.manifestHash) variantStore(s).put(resolved.hash, resolved.manifest);
+    // A turn's first segment applies the request again to the version it re-pins (`repinTurn`).
+    if (request)
+      s.turnRequest = {
+        turnId,
+        ...(resolved.variant === undefined ? {} : { manifest: resolved.variant }),
+        ...(request.removeTools === undefined ? {} : { removeTools: [...request.removeTools] }),
+      };
+    else delete s.turnRequest;
     checkpoint = createDurableCheckpoint({
       manifest: resolved.manifest,
       sessionId: id,
@@ -588,7 +593,9 @@ export async function startQueuedTurn(
   if (s.closedReason !== undefined || !takesMessages(s) || s.activeTurnId !== null) return undefined;
   const queued = await t.queuedMessages(id);
   if (queued.length === 0) return undefined;
-  const manifestOf = (row: (typeof queued)[number]) => canonical((row.command as MessageEventBody).manifest ?? null);
+  // Messages that ask the same of their turn's manifest (a variant, `removeTools`) share a turn.
+  const manifestOf = (row: (typeof queued)[number]) =>
+    canonical(turnManifestRequestOf(row.command as MessageEventBody) ?? null);
   const batch = isWorkflowManifest(s.manifest) ? [queued[0]!] : [];
   if (batch.length === 0)
     for (const row of queued) {

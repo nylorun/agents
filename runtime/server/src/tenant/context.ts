@@ -71,6 +71,13 @@ export interface Session {
   loop?: Record<string, unknown>;
   /** Validated turn-manifest variants, keyed by hash (loops.md §4.2). */
   variants?: Record<string, AgentManifest>;
+  /**
+   * What the active turn's first message asked of its manifest: a variant (`manifest`) and the
+   * tools it may not use (`removeTools`, Host feature `remove-tools`). A turn's first segment that
+   * re-pins the session to its Agent's version applies it again to that version (`repinTurn`).
+   * Absent when the message asked for neither.
+   */
+  turnRequest?: { turnId: string; manifest?: AgentManifest; removeTools?: string[] };
   info?: any;
   status: string;
   activeTurnId: string | null;

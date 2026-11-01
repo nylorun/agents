@@ -260,7 +260,8 @@ export async function recordIntent(
  * - `mcp`: the tool `{server, tool}` of an MCP server its agent declares, as the session
  *   discovered it (`tool.unknown` otherwise), left enabled by the turn's manifest (R2b C9,
  *   `tool.disabled`);
- * - `http`: an HTTP tool its agent declares under that name (R2 M3), which crosses the Tool Gate;
+ * - `http`: an HTTP tool its agent declares under that name in the turn's manifest (R2 M3), which
+ *   crosses the Tool Gate;
  * - `sandbox`: one of the sandbox operations, in a session with a sandbox;
  * - `harness`: a tool the harness runs in its own process; its egress gate is its only control.
  * - `runtime`: served by `recordIntent` itself, before this (`schedule_wake`, track T4).
@@ -287,7 +288,8 @@ function refusal(s: Session, request: HostEffect): ToolRefusal | undefined {
       return undefined;
     }
     case "http":
-      return isHttpToolCall(s.manifest, request) ? undefined : unrunnableTool(request);
+      // Declared in the turn's manifest: a variant or `removeTools` may have removed it.
+      return isHttpToolCall(turnManifestOf(s), request) ? undefined : unrunnableTool(request);
     case "sandbox":
       return sessionSandboxSpec(s) !== undefined &&
         request.toolName !== undefined &&

@@ -1,3 +1,21 @@
+# A turn's tools by name, and variants across versions
+
+Additive. A message takes `removeTools`, the tools its turn may not use, by name (Host feature
+`remove-tools`; `session.input(value, { removeTools })` and `session.inputParts(parts, {
+removeTools })` in `@nylorun/agents`): a declared tool or an agent used as a tool by its name, in
+the agent and in the agents it uses as tools; an MCP server's tool as `<server>__<tool>` (the
+server's name and the tool's own name on it); every tool of a server by the server's name. The
+Runtime applies it to the version the turn runs, after the turn's first segment moves the session
+to its Agent's version, so a session that sends it with every message still moves to new
+versions; names that version does not have are ignored. Any caller may send it, a token caller
+included: it only narrows.
+
+A turn whose message carried a whole turn manifest (`message.manifest`) now moves to the Agent's
+new version too, when the variant is still a variant of it. When it is not, the turn runs on the
+version it was accepted for, as before, and the session's log says why (`turn.version_kept`,
+`reason: "variant_invalid"`). A variant may now also narrow an agent it uses as a tool: remove its
+tools and disable its MCP servers' tools, the rest of it unchanged.
+
 # Agent folders, complete (track T7)
 
 Additive, with two deprecations. Agent folders now hold flows (`flow.json`), subagents

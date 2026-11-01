@@ -18,7 +18,16 @@ function toolsByName(
   return map;
 }
 
-/** Candidate tools (agents used as tools included) may only be removed, never added or changed. */
+/** An agent used as a tool that runs in the turn (not a flow agent, which runs in its own session). */
+function loopAgentOf(tool: ToolManifest): AgentManifest | undefined {
+  return tool.agent && !("kind" in tool.agent) ? tool.agent : undefined;
+}
+
+/**
+ * Candidate tools (agents used as tools included) may only be removed, never added or changed,
+ * except that an agent used as a tool may be narrowed (`narrows`): its own tools removed and its
+ * MCP servers' tools disabled, the rest of it the same.
+ */
 function removeOnlyTools(
   pinned: readonly ToolManifest[] | undefined,
   candidate: readonly ToolManifest[] | undefined
@@ -26,9 +35,22 @@ function removeOnlyTools(
   const base = toolsByName(pinned);
   for (const tool of candidate ?? []) {
     const prior = base.get(tool.name);
-    if (!prior || !same(prior, tool)) return false;
+    if (!prior) return false;
+    if (same(prior, tool)) continue;
+    const child = loopAgentOf(tool);
+    const priorChild = loopAgentOf(prior);
+    const { agent: _agent, ...rest } = tool;
+    const { agent: _prior, ...priorRest } = prior;
+    if (!child || !priorChild || !same(rest, priorRest) || !narrows(child, priorChild)) return false;
   }
   return true;
+}
+
+/** `candidate` is `prior` with tools removed and MCP tools disabled, and nothing else changed. */
+function narrows(candidate: AgentManifest, prior: AgentManifest): boolean {
+  const { tools, mcpServers, ...rest } = candidate;
+  const { tools: priorTools, mcpServers: priorServers, ...priorRest } = prior;
+  return same(rest, priorRest) && removeOnlyTools(priorTools, tools) && tightensServers(priorServers, mcpServers);
 }
 
 /**
@@ -76,7 +98,8 @@ function tightensServers(
  * Whether `candidate` is a valid turn-manifest variant of the session's pinned manifest
  * (`loops.md` §3.4). A variant may remove tools (agents used as tools and HTTP tools included),
  * tighten its MCP servers' tool settings, and change its instructions, name,
- * description and metadata. Its skills and servers are setup: the sandbox holds the skills from
+ * description and metadata. An agent it uses as a tool may only be narrowed the same way: its
+ * tools removed and its MCP servers' tool settings tightened (what `withoutTools` makes). Its skills and servers are setup: the sandbox holds the skills from
  * the session's start.
  */
 export function isVariantOf(
@@ -91,4 +114,59 @@ export function isVariantOf(
   if (!removeOnlyTools(pinned.tools, candidate.tools)) return false;
   if (!same(candidate.skills, pinned.skills)) return false;
   return tightensServers(pinned.mcpServers, candidate.mcpServers);
+}
+
+/**
+ * `manifest` without the tools `names` names (a message's `removeTools`): a turn variant of it
+ * (`isVariantOf`) that the Runtime makes, so a client names what a turn may not use without
+ * sending a whole manifest. In the root agent and in each agent it uses as a tool, a name removes:
+ *
+ * - the tool of that name: an agent used as a tool, an HTTP tool, any declared tool;
+ * - `<server>__<tool>`, an MCP server's tool by the server's name and the tool's own name on it:
+ *   disabled in the server's `tools` settings (`{enabled: false}`);
+ * - `<server>`, an MCP server's name: every tool of it disabled (`"*"` and each entry).
+ *
+ * A name that matches nothing is ignored: the version the turn runs may not have it. Returns
+ * `manifest` itself when nothing matched.
+ */
+export function withoutTools(manifest: AgentManifest, names: readonly string[]): AgentManifest {
+  const removed = new Set(names);
+  if (removed.size === 0) return manifest;
+  const next = narrowAgent(manifest, removed, true);
+  return same(next, manifest) ? manifest : next;
+}
+
+function narrowAgent(agent: AgentManifest, removed: ReadonlySet<string>, root: boolean): AgentManifest {
+  const { tools: _tools, mcpServers: _servers, ...rest } = agent;
+  const tools = agent.tools
+    ?.filter((tool) => !removed.has(tool.name))
+    .map((tool) => {
+      const child = root ? loopAgentOf(tool) : undefined;
+      return child ? { ...tool, agent: narrowAgent(child, removed, false) } : tool;
+    });
+  const servers =
+    agent.mcpServers === undefined
+      ? undefined
+      : Object.fromEntries(
+          Object.entries(agent.mcpServers).map(([key, server]) => [key, narrowServer(server, removed)])
+        );
+  return {
+    ...rest,
+    ...(tools === undefined ? {} : { tools }),
+    ...(servers === undefined ? {} : { mcpServers: servers }),
+  };
+}
+
+function narrowServer(server: McpServerManifest, removed: ReadonlySet<string>): McpServerManifest {
+  const prefix = `${server.name}__`;
+  const all = removed.has(server.name);
+  const named = [...removed].filter((name) => name.startsWith(prefix) && name.length > prefix.length);
+  if (!all && named.length === 0) return server;
+  const tools: Record<string, McpToolSettings> = { ...(server.tools ?? {}) };
+  const disable = (key: string) => {
+    tools[key] = { ...(Object.hasOwn(tools, key) ? tools[key] : {}), enabled: false };
+  };
+  if (all) for (const key of [...Object.keys(tools), "*"]) disable(key);
+  else for (const name of named) disable(name.slice(prefix.length));
+  return { ...server, tools };
 }

@@ -40,7 +40,8 @@
         "model-host-identity",
         "credential-provider",
         "turns",
-        "agent-model"
+        "agent-model",
+        "remove-tools"
       ]
     },
     "description": "For developers: agent manifests, Agents, sessions (with AG-UI and A2A) and artifacts, through `@nylorun/agents`. Every Tenant serves it on its one URL, beside the Management API (`/openapi/management.json`). Every request sends `Nylorun-Protocol`. Who may call each operation is its `security` and its `x-nylorun-credentials` and `x-nylorun-scopes` (the subject scopes that reach it) fields: an application key (servers) or a trusted issuer's token (browsers and apps)."
@@ -6769,6 +6770,15 @@
                 ],
                 "additionalProperties": false
               },
+              "removeTools": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                },
+                "maxItems": 256
+              },
               "delivery": {
                 "type": "string",
                 "enum": [
@@ -7085,6 +7095,15 @@
                 ],
                 "additionalProperties": false
               },
+              "removeTools": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                },
+                "maxItems": 256
+              },
               "delivery": {
                 "type": "string",
                 "enum": [
@@ -7399,6 +7418,15 @@
                   "id"
                 ],
                 "additionalProperties": false
+              },
+              "removeTools": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                },
+                "maxItems": 256
               },
               "delivery": {
                 "type": "string",
@@ -9025,6 +9053,9 @@
             "$ref": "#/components/schemas/TurnCancelledEvent"
           },
           {
+            "$ref": "#/components/schemas/TurnVersionKeptEvent"
+          },
+          {
             "$ref": "#/components/schemas/MessageQueuedEvent"
           },
           {
@@ -9119,6 +9150,7 @@
             "turn.paused": "#/components/schemas/TurnPausedEvent",
             "turn.failed": "#/components/schemas/TurnFailedEvent",
             "turn.cancelled": "#/components/schemas/TurnCancelledEvent",
+            "turn.version_kept": "#/components/schemas/TurnVersionKeptEvent",
             "message.queued": "#/components/schemas/MessageQueuedEvent",
             "queue.taken": "#/components/schemas/QueueTakenEvent",
             "wake.booked": "#/components/schemas/WakeBookedEvent",
@@ -9384,6 +9416,12 @@
                 }
               },
               "manifest": {},
+              "removeTools": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
               "delivery": {
                 "type": "string",
                 "enum": [
@@ -10823,6 +10861,239 @@
                 "additionalProperties": {}
               }
             },
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "schema",
+          "eventId",
+          "tenantId",
+          "sessionId",
+          "runId",
+          "turnId",
+          "incarnation",
+          "epoch",
+          "seq",
+          "cursor",
+          "time",
+          "schemaVersion",
+          "source",
+          "evidence",
+          "visibility",
+          "retention",
+          "type",
+          "payload"
+        ]
+      },
+      "TurnVersionKeptEvent": {
+        "type": "object",
+        "properties": {
+          "schema": {
+            "type": "string",
+            "enum": [
+              "nylorun.event/2"
+            ]
+          },
+          "eventId": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "runId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "turnId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "incarnation": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "epoch": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "time": {
+            "type": "string"
+          },
+          "schemaVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "client",
+                  "core",
+                  "model-gate",
+                  "tool-gate",
+                  "egress-gate",
+                  "sandboxes",
+                  "edge",
+                  "init",
+                  "controller",
+                  "loop",
+                  "supervisor",
+                  "harness",
+                  "evidence",
+                  "operator",
+                  "human",
+                  "api"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ]
+          },
+          "evidence": {
+            "type": "string",
+            "enum": [
+              "observed",
+              "measured",
+              "attested",
+              "claimed",
+              "asserted"
+            ]
+          },
+          "principal": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "application",
+                  "subject",
+                  "flow-host",
+                  "core",
+                  "trigger"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          "trace": {
+            "type": "object",
+            "properties": {
+              "traceId": {
+                "type": "string"
+              },
+              "spanId": {
+                "type": "string"
+              },
+              "parentSpanId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "traceId",
+              "spanId"
+            ]
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "internal",
+              "restricted"
+            ]
+          },
+          "retention": {
+            "type": "string",
+            "enum": [
+              "full",
+              "metadata"
+            ]
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "turn.version_kept"
+            ]
+          },
+          "payload": {
+            "type": "object",
+            "properties": {
+              "reason": {
+                "type": "string",
+                "enum": [
+                  "variant_invalid"
+                ]
+              },
+              "from": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "version": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "name",
+                  "version"
+                ],
+                "additionalProperties": false
+              },
+              "to": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "version": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "name",
+                  "version"
+                ],
+                "additionalProperties": false
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "reason",
+              "from",
+              "to",
+              "message"
+            ],
             "additionalProperties": {}
           }
         },
@@ -32817,6 +33088,9 @@
                     },
                     {
                       "$ref": "#/components/schemas/TurnCancelledEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/TurnVersionKeptEvent"
                     },
                     {
                       "$ref": "#/components/schemas/MessageQueuedEvent"
