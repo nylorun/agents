@@ -594,9 +594,12 @@ Answer from the documents in the conversation.
 `engine.sandbox` lists any of `bash`, `read`, `write`, `edit`, `grep` and `glob`;
 `artifacts.save`, `outputs` and `sandbox` need a computer; and `engine.instructions.<block>`
 replaces a text block's wording with a Markdown file under `engine/` (the blocks are `skills`,
-`sandbox`, `skill_folder`, `artifacts_save`, `outputs`, `artifacts_read`, `wake`, `memory`,
-`plan`, `connection` and `tool_search`; memory's rule that outside text is data stays). A
-subagent declares its own `engine:`, a subset of its parent's. The compiled manifest lists the
+`sandbox`, `skill_folder`, `artifacts_save`, `outputs`, `artifacts_read`, `wake`, `triggers`,
+`memory`, `plan`, `connection` and `tool_search`; memory's rule that outside text is data stays).
+`engine.triggers: true` offers the root agent the `triggers` tool: it sets up its own schedules,
+one-time runs and follow-ups (`list`, `create`, `delete`), which the Agent keeps beside its
+manifest's triggers (`nylorun agents triggers list`, `rm` for one an agent made). A
+subagent declares its own `engine:`, a subset of its parent's, and never `triggers`. The compiled manifest lists the
 blocks the agent gets, with their versions and hashes (`harness.engine.blocks`).
 `nylorun check --explain` prints each feature on, and the tools and blocks it adds;
 `previewTurn(manifest)` in `@nylorun/agents` returns the exact system text and tool list.

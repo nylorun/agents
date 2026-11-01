@@ -1,3 +1,36 @@
+# Agents set up their own triggers
+
+Additive: no protocol change. The Runtime advertises the optional Host feature `agent-triggers`.
+
+- **A folder declares the capability.** In an `agent-folder/2` folder, `engine: { triggers: true }`
+  in the root agent's `AGENT.md` offers it the `triggers` tool (`list`, `create`, `delete`) and the
+  text block `triggers@1`; `engine.instructions.triggers: engine/<file>.md` replaces its wording.
+  A subagent never gets it (`engine_subset`, or `nested_refused` when its parent declares it). It
+  compiles to `harness.engine.triggers`. The JSON Schemas that gained it are published as
+  `agent-manifest/v8.3`, `harness-manifest/v1.3`, `runtime-manifest/v1.2`,
+  `agent-folder/v1/agent-md.3` and `agent-folder/v1/runtime.2`, and the Harness API's as
+  `harness-api/v5.3` (`turn.start.agent.triggers` and the `runtime` operation `triggers`). An older
+  Runtime refuses a manifest that declares it (`400`).
+- **The Agent keeps what its agents make.** A trigger made with the tool is the Agent's, beside
+  its manifest's: `GET /v1/agents/{id}/triggers` lists it with `origin: "agent"`, its `title`, the
+  session that made it (`createdSessionId`) and its `prompt` (every `TriggerView` now carries
+  `origin`, `title` and `createdSessionId`), and `DELETE /v1/agents/{id}/triggers/{triggerId}`
+  deletes it (`409 trigger_from_manifest` for a manifest's). `session: "own"` runs it in
+  `<session>_t_<id>`. An upgrade never touches it; while the version lacks the capability it waits
+  paused (`pausedReason: "undeclared"`). `client.agents.deleteTrigger` and `nylorun agents
+  triggers rm` follow.
+- **Tool rules cover runtime operations.** A rule of `kind: "runtime"` matches the operations the
+  Runtime serves itself (`tool: "triggers"`, `memory`, `schedule_wake`), with `when` on the call's
+  input; rules without it match only MCP and HTTP calls, as before. A held call's interaction
+  carries `metadata: { tool, kind, input }`.
+- **Limits in layers.** A manifest's `runtime.limits.triggers` (`count`, `minIntervalMs`,
+  `runsPerHour`) tightens the Tenant's `triggersPerAgent`, `triggerMinIntervalMs` and
+  `triggerRunsPerHour`; a looser one is refused when it is saved.
+- **The Tenant's runs.** `GET /v1/runs/stream` (an application key with `agents:read`) follows
+  every run of every Agent's triggers as server-sent events from a cursor, kept 7 days;
+  `client.runs.stream({ cursor, signal })` yields `{ cursor, run }`. A cursor from before a Tenant
+  reset is `410 cursor_expired`. The migration marks the runs recorded before it as streamed.
+
 # A2A messages leave tools out too
 
 Additive. An A2A `SendMessage` takes `message.metadata.removeTools` (or the request's `metadata`):
