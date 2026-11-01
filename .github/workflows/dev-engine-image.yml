@@ -1,0 +1,104 @@
+# ghcr.io/nylorun/dev:engine-<runtime>: the dev image with one Runtime version's engine built in
+# (images/dev-engine, ADR-99 in nylorun/factory), a tag of the public ghcr.io/nylorun/dev package.
+# On a pull request that changes images/dev-engine: build it for amd64 on the newest beta Runtime
+# and run its smoke test. By hand, from main, with a Runtime version: build it for amd64 and arm64,
+# run the smoke test, and push the tag, once per version.
+name: Dev engine image
+
+on:
+  pull_request:
+    paths:
+      - images/dev-engine/**
+      - .github/workflows/dev-engine-image.yml
+  workflow_dispatch:
+    inputs:
+      runtime:
+        description: "The Runtime version whose engine it carries, as ghcr.io/nylorun/runtime tags it (e.g. 0.40.0-beta). Empty: the newest beta"
+        required: false
+        type: string
+      push:
+        description: "Push ghcr.io/nylorun/dev:engine-<runtime> (from main only)"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dev-engine-image-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - name: The Runtime version and the dev image
+        env:
+          REQUESTED: ${{ inputs.runtime }}
+        run: |
+          set -euo pipefail
+          runtime="${REQUESTED:-$(npm view nylorun@beta nylorun.runtime)}"
+          [[ "$runtime" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]] || { echo "::error::\"$runtime\" isn't a Runtime version"; exit 1; }
+          dev="$(tr -d '[:space:]' < images/dev-engine/dev.image)"
+          [[ "$dev" =~ ^ghcr\.io/nylorun/dev@sha256:[0-9a-f]{64}$ ]] || { echo "::error::images/dev-engine/dev.image is ghcr.io/nylorun/dev@sha256:<64 hex>"; exit 1; }
+          echo "RUNTIME_VERSION=${runtime}" >> "$GITHUB_ENV"
+          echo "DEV=${dev}" >> "$GITHUB_ENV"
+          echo "Runtime ${runtime}, dev ${dev}"
+
+      - name: Build for amd64
+        run: |
+          docker build --build-arg "DEV=${DEV}" --build-arg "RUNTIME_VERSION=${RUNTIME_VERSION}" \
+            -t dev-engine:ci images/dev-engine
+
+      - name: Smoke test
+        run: bash images/dev-engine/smoke.sh dev-engine:ci
+
+      - name: Check where it pushes from
+        if: github.event_name == 'workflow_dispatch' && inputs.push
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          [ "$REF" = refs/heads/main ] || { echo "::error::Push from main only"; exit 1; }
+          if docker buildx imagetools inspect "ghcr.io/nylorun/dev:engine-${RUNTIME_VERSION}" >/dev/null 2>&1; then
+            echo "::error::ghcr.io/nylorun/dev:engine-${RUNTIME_VERSION} exists: each Runtime version is built once"; exit 1
+          fi
+
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+        if: github.event_name == 'workflow_dispatch' && inputs.push
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        if: github.event_name == 'workflow_dispatch' && inputs.push
+
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        if: github.event_name == 'workflow_dispatch' && inputs.push
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push amd64 and arm64
+        if: github.event_name == 'workflow_dispatch' && inputs.push
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: images/dev-engine
+          platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: |
+            DEV=${{ env.DEV }}
+            RUNTIME_VERSION=${{ env.RUNTIME_VERSION }}
+          tags: ghcr.io/nylorun/dev:engine-${{ env.RUNTIME_VERSION }}
+
+      - name: Summary
+        if: github.event_name == 'workflow_dispatch' && inputs.push
+        run: |
+          set -euo pipefail
+          digest="$(docker buildx imagetools inspect "ghcr.io/nylorun/dev:engine-${RUNTIME_VERSION}" --format '{{json .Manifest.Digest}}' | tr -d '"')"
+          echo "Pushed ghcr.io/nylorun/dev:engine-${RUNTIME_VERSION}@${digest} (Runtime ${RUNTIME_VERSION}, ${DEV}). Pin ghcr.io/nylorun/dev@${digest} as the agent's image." >> "$GITHUB_STEP_SUMMARY"
