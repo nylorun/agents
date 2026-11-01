@@ -68,7 +68,6 @@ export function engineDeclarations(
   value: unknown,
   options: {
     readonly error: Fail;
-    readonly warn: Fail;
     readonly computer: boolean;
     readonly role: "root" | "subagent";
     readonly parent?: HarnessEngine;

@@ -749,7 +749,6 @@ export function compileAgentFolder(input: CompileAgentFolderInput, scope?: Folde
     } else {
       declared = engineDeclarations(front.engine, {
         error: (code, message, path, options) => error(code, message, AGENT_FILE, path, options),
-        warn: (code, message, path, options) => warn(code, message, AGENT_FILE, path, options),
         computer,
         role,
         ...(scope?.engineFacts?.engine === undefined ? {} : { parent: scope.engineFacts.engine }),
@@ -769,7 +768,7 @@ export function compileAgentFolder(input: CompileAgentFolderInput, scope?: Folde
           return trimmed;
         },
       });
-      if (declared && role === "root" && computer && (declared.engine.sandbox ?? []).length === 0)
+      if (declared && !scope && computer && (declared.engine.sandbox ?? []).length === 0)
         warn(
           "sandbox_undeclared",
           `The runtime has a computer (kind ${JSON.stringify(runtimeKind)}), and engine.sandbox names no sandbox tool, so the agent gets no shell or file tools and no sandbox note. Fix: engine: { sandbox: [bash, read, write, edit, grep, glob] } (any of them), or a runtime without a computer`,
