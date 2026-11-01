@@ -112,7 +112,8 @@
           "turns",
           "agent-model",
           "secret-routing",
-          "remove-tools"
+          "remove-tools",
+          "agent-triggers"
         ]
       }
     },
@@ -200,7 +201,8 @@
           "turns",
           "agent-model",
           "secret-routing",
-          "remove-tools"
+          "remove-tools",
+          "agent-triggers"
         ]
       }
     },
@@ -288,7 +290,8 @@
           "turns",
           "agent-model",
           "secret-routing",
-          "remove-tools"
+          "remove-tools",
+          "agent-triggers"
         ]
       }
     },
@@ -376,7 +379,8 @@
           "turns",
           "agent-model",
           "secret-routing",
-          "remove-tools"
+          "remove-tools",
+          "agent-triggers"
         ]
       }
     },
@@ -464,7 +468,8 @@
           "turns",
           "agent-model",
           "secret-routing",
-          "remove-tools"
+          "remove-tools",
+          "agent-triggers"
         ]
       }
     },
@@ -552,7 +557,8 @@
           "turns",
           "agent-model",
           "secret-routing",
-          "remove-tools"
+          "remove-tools",
+          "agent-triggers"
         ]
       }
     },
@@ -640,7 +646,8 @@
           "turns",
           "agent-model",
           "secret-routing",
-          "remove-tools"
+          "remove-tools",
+          "agent-triggers"
         ]
       }
     },
@@ -728,7 +735,8 @@
           "turns",
           "agent-model",
           "secret-routing",
-          "remove-tools"
+          "remove-tools",
+          "agent-triggers"
         ]
       }
     },
@@ -816,7 +824,8 @@
           "turns",
           "agent-model",
           "secret-routing",
-          "remove-tools"
+          "remove-tools",
+          "agent-triggers"
         ]
       }
     },
@@ -904,7 +913,8 @@
           "turns",
           "agent-model",
           "secret-routing",
-          "remove-tools"
+          "remove-tools",
+          "agent-triggers"
         ]
       }
     },
@@ -992,7 +1002,8 @@
           "turns",
           "agent-model",
           "secret-routing",
-          "remove-tools"
+          "remove-tools",
+          "agent-triggers"
         ]
       }
     },
@@ -1080,7 +1091,8 @@
           "turns",
           "agent-model",
           "secret-routing",
-          "remove-tools"
+          "remove-tools",
+          "agent-triggers"
         ]
       }
     },
@@ -1201,7 +1213,8 @@
           "turns",
           "agent-model",
           "secret-routing",
-          "remove-tools"
+          "remove-tools",
+          "agent-triggers"
         ]
       }
     },
@@ -1289,7 +1302,8 @@
           "turns",
           "agent-model",
           "secret-routing",
-          "remove-tools"
+          "remove-tools",
+          "agent-triggers"
         ]
       }
     },
@@ -1377,7 +1391,8 @@
           "turns",
           "agent-model",
           "secret-routing",
-          "remove-tools"
+          "remove-tools",
+          "agent-triggers"
         ]
       }
     },
@@ -1465,7 +1480,8 @@
           "turns",
           "agent-model",
           "secret-routing",
-          "remove-tools"
+          "remove-tools",
+          "agent-triggers"
         ]
       }
     },
@@ -1553,7 +1569,8 @@
           "turns",
           "agent-model",
           "secret-routing",
-          "remove-tools"
+          "remove-tools",
+          "agent-triggers"
         ]
       }
     },
@@ -1641,7 +1658,8 @@
           "turns",
           "agent-model",
           "secret-routing",
-          "remove-tools"
+          "remove-tools",
+          "agent-triggers"
         ]
       }
     },
@@ -1729,7 +1747,8 @@
           "turns",
           "agent-model",
           "secret-routing",
-          "remove-tools"
+          "remove-tools",
+          "agent-triggers"
         ]
       }
     },
