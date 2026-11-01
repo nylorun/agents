@@ -7,6 +7,10 @@ Behaviour changes, no API removed.
   are offered from that turn on, its diagnostic says `connected`, and a second `mcp.discovered`
   names it with `rejoined: true`. Before, a server that failed at the first turn added no tools for
   the session's life.
+- **The memory index a session pinned is refreshed** at its next turn's start (not mid-turn) when
+  another session of the same Agent, or a person over the API, wrote the Agent's memory since its
+  last turn started (`turn.start.memory.refresh`; our engine pins the new index in place of the
+  old). The session's own writes leave its index as it pinned it, as before.
 
 # A session's model, and why
 

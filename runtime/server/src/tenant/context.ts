@@ -159,6 +159,12 @@ export interface Session {
    * place of the Tenant's while its provider is connected. Absent: the Tenant's model.
    */
   model?: SessionModelChoice;
+  /**
+   * The Agent's memory as the session's last turn started (track T5): the newest memory version
+   * then (`seen`), and whether that turn's first segment asked the harness to pin the index again
+   * (`refresh`: someone else wrote the memory since the turn before). Absent before its first turn.
+   */
+  memoryIndex?: { turnId: string; seen?: string; refresh: boolean };
   /** Where `model` came from: `manifest` when its Agent's version named it (`harness.model`). Absent: chosen. */
   modelSource?: "manifest";
   /**

@@ -970,6 +970,12 @@ export interface Tx {
   insertMemoryVersion(row: MemoryVersionRow): Promise<void>;
   /** An Agent's memory versions, newest first, before version id `before`; `path` keeps one path's. */
   memoryVersions(agentId: string, options: { path?: string; before?: string; limit: number }): Promise<MemoryVersionRow[]>;
+  /**
+   * Of Agent `agentId`'s memory versions after version id `after` (every one without it): the
+   * newest's id, and whether any was written other than by session `sessionId` (another session,
+   * or the API).
+   */
+  memoryWritesSince(agentId: string, after: string | undefined, sessionId: string): Promise<{ newest?: string; others: boolean }>;
   memoryVersion(agentId: string, id: string): Promise<MemoryVersionRow | undefined>;
   /** Copies Agent `from`'s memories to new Agent `to`, each at version 1, with no history (a fork). */
   copyMemories(from: string, to: string, now: string): Promise<number>;

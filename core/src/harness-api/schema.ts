@@ -360,7 +360,8 @@ export const TurnAgentSchema = z
  * harness pins in the session (one line per memory, newest first, with its description, within
  * the Runtime limits `memoryIndexLines` and `memoryIndexBytes`; `truncated` when some were left
  * out). A harness offers the `memory` tool (a `runtime` effect, operation `memory`), view only for
- * `read_only` and for its sub-agents.
+ * `read_only` and for its sub-agents. The index is the Runtime's as the segment starts; a harness
+ * keeps the one it pinned, and pins it again when `refresh` says the memory changed elsewhere.
  */
 export const TurnMemorySchema = z
   .object({
@@ -368,6 +369,13 @@ export const TurnMemorySchema = z
     instructions: z.string().optional(),
     index: z.string(),
     truncated: z.boolean(),
+    /**
+     * Set at a turn's first segment when someone other than this session (another session of the
+     * Agent, or a person over the API) wrote its memory since the session's last turn started: the
+     * harness pins `index` again in place of the one it pinned before. Never set mid-turn. Within
+     * v5, core sends it only to Nylorun's own harness (`nylorun`, the Runtime's own version).
+     */
+    refresh: z.literal(true).optional(),
   })
   .strict();
 

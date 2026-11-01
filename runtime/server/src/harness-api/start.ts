@@ -155,7 +155,9 @@ export async function startSegment(
         ...(current.sandbox === undefined ? {} : { spec: current.sandbox }),
       };
       const turnId = current.activeTurnId;
+      const noted = current.memoryIndex;
       const memory = isWorkflowManifest(current.manifest) ? undefined : await turnMemoryOf(t, current, limits);
+      if (current.memoryIndex !== noted) await t.put("sessions", id, current);
       return {
         current,
         fixtureModel,
@@ -261,18 +263,44 @@ export function buildTurnStart(ctx: TenantContext, segment: SegmentStart): TurnS
 /**
  * The Agent's memory as the segment starts (track T5, D72), when the version the session runs sets
  * `harness.memory`: its access (the same in every turn), the agent's instructions, and the index of
- * its memories, newest first, within the Tenant's index limits.
+ * its memories, newest first, within the Tenant's index limits. `refresh` at a turn's first
+ * segment when someone other than the session wrote the memory since its last turn started
+ * (`memoryRefreshOf`); the harness then pins this index in place of the one it pinned before.
+ * Only our harness is sent it: another v5 harness's schema may not know the field.
  */
 async function turnMemoryOf(t: Tx, s: Session, limits: RuntimeLimits): Promise<TurnMemory | undefined> {
   const settings = await memorySettingsOf(t, s);
   if (!settings) return undefined;
   const { index, truncated } = await renderMemoryIndex(t, s.agentId, limits);
+  // Within Harness API 5 only our harness, the Runtime's own version, is sent `refresh`.
+  const refresh = (await memoryRefreshOf(t, s)) && harnessOf(s) === HARNESS_ID;
   return {
     access: settings.access ?? "read_write",
     ...(settings.instructions === undefined ? {} : { instructions: settings.instructions }),
     index,
     truncated,
+    ...(refresh ? { refresh: true as const } : {}),
   };
+}
+
+/**
+ * Whether the harness pins the memory index again at this segment: only at a turn's first segment
+ * (never mid-turn), when a memory version newer than the one the session's last turn saw was
+ * written other than by this session (another session of the Agent, or the API). Notes the newest
+ * version on the session (`Session.memoryIndex`; the caller saves it), and answers a first segment
+ * that runs again as it was answered. The session's first turn pins the index anyway.
+ */
+async function memoryRefreshOf(t: Tx, s: Session): Promise<boolean> {
+  const checkpoint = s.checkpoint as { segment?: number; turnId?: string } | undefined;
+  const turnId = s.activeTurnId;
+  if (turnId === null || checkpoint?.segment !== 0 || checkpoint.turnId !== turnId) return false;
+  const before = s.memoryIndex;
+  if (before?.turnId === turnId) return before.refresh;
+  const writes = await t.memoryWritesSince(s.agentId, before?.seen, s.id);
+  const refresh = before !== undefined && writes.others;
+  const seen = writes.newest ?? before?.seen;
+  s.memoryIndex = { turnId, ...(seen === undefined ? {} : { seen }), refresh };
+  return refresh;
 }
 
 /**

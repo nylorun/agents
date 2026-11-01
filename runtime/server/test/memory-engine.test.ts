@@ -118,6 +118,28 @@ describe("memory through our engine", () => {
     expect(textOf(calls.at(-1)!.prompt[1])).toContain("- /memories/conventions/release.md — How we cut release branches");
   });
 
+  it("pins the index again at a session's next turn when another session wrote the memory", async () => {
+    const file = "---\ndescription: Who is on call\n---\nAda this week.";
+    await send("m2", `call memory ${JSON.stringify({ command: "create", path: "/memories/team/oncall.md", file_text: file })}`);
+    expect(lastResult()).toContain("File created successfully");
+    // m1 pinned an empty index; m2 wrote since: m1's next turn pins the index as it is now.
+    await send("m1", "again");
+    expect(textOf(calls.at(-1)!.prompt[1])).toContain("- /memories/team/oncall.md — Who is on call");
+    expect(textOf(calls.at(-1)!.prompt[1])).toContain("- /memories/conventions/release.md");
+    // m2's own write leaves its pinned index as it was.
+    await send("m2", "again");
+    expect(textOf(calls.at(-1)!.prompt[1])).not.toContain("oncall.md");
+    // A person's write over the API is someone else's too.
+    const put = await fetch(`${runtime.url}/v1/agents/keeper/memories/${encodeURIComponent("team/rota.md")}`, {
+      method: "PUT",
+      headers,
+      body: JSON.stringify({ content: "---\ndescription: The rota\n---\nWeekly." }),
+    });
+    expect(put.status, await put.clone().text()).toBe(200);
+    await send("m2", "again");
+    expect(textOf(calls.at(-1)!.prompt[1])).toContain("- /memories/team/rota.md — The rota");
+  });
+
   it("gives a read_only agent view only", async () => {
     await open("r1", "reader");
     await send("r1", "hello");

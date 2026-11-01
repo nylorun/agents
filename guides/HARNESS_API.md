@@ -108,7 +108,9 @@ Which token:
   `- <path>` with ` — <description>` from its frontmatter, within the Runtime limits
   `memoryIndexLines` and `memoryIndexBytes` (`truncated` when some were left out). Pin the index
   where the prompt prefix stays cacheable (ours: a user-role entry at the head of the session,
-  fresh after a compaction), and offer a `memory` tool whose calls are `runtime` effects
+  fresh after a compaction, and again when `refresh` is set: at a turn's first segment, never
+  mid-turn, when another session of the Agent or the API wrote its memory since the session's
+  last turn started; core sends `refresh` only to ours), and offer a `memory` tool whose calls are `runtime` effects
   (below); offer only `view` for `read_only` and to sub-agents. Ours words it with `memoryTool`
   and `memoryIndexBlock` (`@nylorun/harness/api`), checks each command's parameters before it
   sends a call (`checkMemoryCall`, `@nylorun/core/contracts`; core checks again), and takes a
@@ -548,7 +550,10 @@ one version: a harness that says `api: 4` is refused.
 
 Protocol 17 added one input shape within v5: `checkpoint.input` `{kind: "messages"}` (§3). One
 claim came within v5 too: `plan.updated` (§4b), which core accepts and no v5 harness must make;
-the JSON Schema document that has it is published as `harness-api/v5.1.json`.
+the JSON Schema document that has it is published as `harness-api/v5.1.json`. Then one optional
+field, `turn.start.memory.refresh` (§3), which core sends only to Nylorun's own harness (`nylorun`,
+always the Runtime's own version), so no other v5 harness sees it; the document that has it is
+`harness-api/v5.2.json`.
 
 What v5 changed (protocol 16, agents from one manifest):
 

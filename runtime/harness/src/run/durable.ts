@@ -174,6 +174,11 @@ export async function runDurable(options: {
    * hashed.
    */
   pinned?: readonly string[];
+  /**
+   * Pin `pinned` in place of what the state pinned before: at a turn's first segment, when the
+   * Agent's memory changed elsewhere since (`turn.start.memory.refresh`).
+   */
+  refreshPinned?: boolean;
   /** Segment rollover (Model Calls §10): yield after this many steps or milliseconds. */
   yieldAfter?: { readonly steps?: number; readonly ms?: number };
   /** The model the turn's calls use (`turn.start.model`), for the root and every child. */
@@ -406,6 +411,7 @@ export async function runDurable(options: {
               options.mcp,
             ),
             options.pinned,
+            options.refreshPinned === true,
           ),
           input: checkpoint.input,
           info: checkpoint.info,
@@ -448,15 +454,20 @@ function withLayout(state: ExecutionState, mcp: McpToolSet | undefined): Executi
 
 /**
  * The state with the text our engine keeps at the head of the conversation: what it pinned
- * before, or `pinned` when it has none (the session's first turn, or after a compaction).
+ * before, or `pinned` when it has none (the session's first turn, or after a compaction) or
+ * `refresh` asks for it again.
  */
-function withPinned(state: ExecutionState, pinned: readonly string[] | undefined): ExecutionState {
+function withPinned(
+  state: ExecutionState,
+  pinned: readonly string[] | undefined,
+  refresh = false,
+): ExecutionState {
   if (pinned === undefined) {
     if (state.pinned === undefined) return state;
     const { pinned: _dropped, ...rest } = state;
     return rest;
   }
-  return state.pinned === undefined ? { ...state, pinned: [...pinned] } : state;
+  return state.pinned === undefined || refresh ? { ...state, pinned: [...pinned] } : state;
 }
 
 /**

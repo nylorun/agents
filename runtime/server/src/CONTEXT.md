@@ -1088,7 +1088,11 @@ and the trigger run that started the turn (`Session.turnCause`), and records `me
 index, newest first within `memoryIndexLines` and `memoryIndexBytes`. Our engine offers the tool
 with Anthropic's schema (`tools/memory.ts` in `@nylorun/harness`), view-only for `read_only` and
 agents used as tools, and pins the index after the instructions as user-role context
-(`ExecutionState.pinned`, kept for the session, re-pinned after a compaction). _Avoid_: "memory store" for an Agent's memories (Managed Agents'
+(`ExecutionState.pinned`, kept for the session, re-pinned after a compaction). At a turn's first
+segment, never mid-turn, `turn.start.memory.refresh` asks it to pin the index again when someone
+other than the session (another session of the Agent, or the API) wrote the memory since its last
+turn started (`memoryRefreshOf` in `harness-api/start.ts`, by `Session.memoryIndex.seen`, the
+newest memory version then, and `memoryWritesSince`); the session's own writes leave it as pinned. _Avoid_: "memory store" for an Agent's memories (Managed Agents'
 term for a shared resource); "knowledge base".
 
 ## Runtime architecture
