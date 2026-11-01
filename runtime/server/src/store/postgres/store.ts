@@ -444,6 +444,7 @@ function environmentOf(row: typeof agents.$inferSelect): Environment {
             ...(row.retiring !== null ? { retiring: row.retiring } : {}),
             ...(row.volumeId !== null ? { volumeId: row.volumeId } : {}),
             ...(row.imageDigest !== null ? { imageDigest: row.imageDigest } : {}),
+            ...(row.engineImage ? { engineImage: row.engineImage as { version: string; digest?: string } } : {}),
           },
         }
       : {}),
@@ -481,6 +482,7 @@ function podColumns(patch: SandboxPodPatch): Partial<typeof agents.$inferInsert>
     retiring: patch.retiring,
     volumeId: patch.volumeId,
     imageDigest: patch.imageDigest,
+    engineImage: patch.engineImage,
   };
   return Object.fromEntries(Object.entries(columns).filter(([, value]) => value !== undefined));
 }

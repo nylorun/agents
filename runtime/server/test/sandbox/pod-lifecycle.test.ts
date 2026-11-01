@@ -210,6 +210,28 @@ describe("pod lifecycle", () => {
     expect(spec.image).toBe(pulled);
   });
 
+  it("runs the engine an image the Tenant lists carries, and copies it in otherwise (ADR-99)", () => {
+    const repo = "ghcr.io/nylorun/bot-worker";
+    const digest = `${repo}@sha256:${"c".repeat(64)}`;
+    const input = {
+      environmentId: "team/a",
+      spec: { image: `${repo}:0.38.0-beta` } as never,
+      config: { engine: { images: [repo] } },
+      mode: "Running" as const,
+      harnessImage: "ghcr.io/nylorun/runtime:0.38.0-beta",
+    };
+    const first = podSpecOf({ ...input, pod: row().pod });
+    expect(first.entrypoint).toBe("builtin");
+    expect(first).not.toHaveProperty("harnessImage");
+    // An engine of another Runtime version, seen on this digest: copied in instead.
+    const older = podSpecOf({ ...input, pod: row({ imageDigest: digest, engineImage: { version: "0.0.1-old", digest } }).pod });
+    expect(older).toMatchObject({ image: digest, harnessImage: "ghcr.io/nylorun/runtime:0.38.0-beta" });
+    expect(older).not.toHaveProperty("entrypoint");
+    // Not listed: copied, as for any image. A custom harness keeps its own entrypoint.
+    expect(podSpecOf({ ...input, config: {}, pod: row().pod })).not.toHaveProperty("entrypoint");
+    expect(podSpecOf({ ...input, harness: "acme", pod: row().pod }).entrypoint).toBe("image");
+  });
+
   it("renders the service's PUT body with the Tenant's lifecycle settings", () => {
     const body = podSpecOf({
       environmentId: "team/a",

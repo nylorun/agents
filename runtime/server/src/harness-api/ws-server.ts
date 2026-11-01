@@ -40,6 +40,7 @@ import { HostAuthError, type HostAuthority, type HostJoinRequest } from "../sand
 import { parseSetupReport } from "../sandbox/setup.js";
 import type { HarnessPeer } from "./server.js";
 import { hostTuning } from "../tuning.js";
+import { ENGINE_VERSION_PATTERN, IMAGE_ENGINE_HEADER } from "../harness/image-engine.js";
 
 export { HOST_JOIN_PATH, HOST_RENEW_PATH };
 /** Where a pod's engine reads its setup and reports it (R2d step 2, `sandbox/setup.ts`). */
@@ -88,6 +89,12 @@ function refuse(socket: Socket, status: number, text: string, headers: Record<st
     ...Object.entries(headers).map(([name, value]) => `${name}: ${value}`),
   ];
   socket.end(`${lines.join("\r\n")}\r\n\r\n`);
+}
+
+/** The Runtime version an engine built into the image reports at join (ADR-99), when well formed. */
+function imageEngineOf(request: IncomingMessage): string | undefined {
+  const value = request.headers[IMAGE_ENGINE_HEADER];
+  return typeof value === "string" && ENGINE_VERSION_PATTERN.test(value) ? value : undefined;
 }
 
 function bearerOf(header: string | undefined): string | undefined {
@@ -155,7 +162,7 @@ export async function startHarnessListener(options: HarnessListenerOptions): Pro
     try {
       const answer =
         path === HOST_JOIN_PATH
-          ? await authority.join(parseJoin(await readBody(request)))
+          ? await authority.join(parseJoin(await readBody(request)), { imageEngine: imageEngineOf(request) })
           : await authority.renew(bearerOf(request.headers.authorization) ?? "");
       return reply(response, 200, answer);
     } catch (error) {

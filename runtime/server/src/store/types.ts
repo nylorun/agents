@@ -333,6 +333,12 @@ export interface SandboxPodState {
    * Environment is ready (Q14): every later pod, after a stop, a relaunch or a reset, runs it.
    */
   imageDigest?: string;
+  /**
+   * The engine the workload image carries (ADR-99, `sandbox/pods/builtin.ts`): its Runtime
+   * version, as its engine reported at join, and the digest that pod ran. It counts only while
+   * that digest is `imageDigest`.
+   */
+  engineImage?: { version: string; digest?: string };
 }
 
 /** A change to a pod's columns: `null` clears an optional one. */

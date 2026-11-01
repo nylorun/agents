@@ -42,6 +42,8 @@ export interface FakeSandboxes extends SandboxesClient {
   down: boolean;
   /** How long a new pod takes to be ready. Default 0. */
   readyAfterMs: number;
+  /** The image a running pod reports (`imageID`), as a node pulled it; none when unset. */
+  imageIdOf?: (spec: PodSpec) => string | undefined;
 }
 
 export function fakeSandboxes(): FakeSandboxes {
@@ -66,6 +68,7 @@ export function fakeSandboxes(): FakeSandboxes {
       suspended: sandbox.spec.mode === "Suspended" && sandbox.podUid === undefined,
       expired,
       ...(running ? { podUID: sandbox.podUid, podPhase: "Running" } : {}),
+      ...(running && fake.imageIdOf?.(sandbox.spec) ? { imageID: fake.imageIdOf(sandbox.spec)! } : {}),
       volume: sandbox.volume ? "present" : "missing",
       opId: sandbox.spec.opId,
       ...(sandbox.spec.shutdownTime ? { shutdownTime: sandbox.spec.shutdownTime } : {}),

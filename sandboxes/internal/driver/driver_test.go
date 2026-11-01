@@ -134,6 +134,34 @@ func TestRenderImageEntrypoint(t *testing.T) {
 	}
 }
 
+func TestRenderBuiltinEntrypoint(t *testing.T) {
+	spec := driver.Spec{OpID: "op", Mode: "Running", Image: "ghcr.io/nylorun/bot-worker:0.38.0-beta", Entrypoint: "builtin"}
+	if err := spec.Normalize(); err != nil {
+		t.Fatal(err)
+	}
+	o := driver.Render(namespace, "sbx-aaaaaaaaaaaaaaaa-g0", spec, urls)
+	if _, found, _ := unstructured.NestedSlice(o.Object, "spec", "podTemplate", "spec", "initContainers"); found {
+		t.Fatal("nothing is copied into an image that has the engine")
+	}
+	volumes, _, _ := unstructured.NestedSlice(o.Object, "spec", "podTemplate", "spec", "volumes")
+	for _, volume := range volumes {
+		if volume.(map[string]any)["name"] == "nylo" {
+			t.Fatal("no /nylo volume when the image has the engine")
+		}
+	}
+	containers, _, _ := unstructured.NestedSlice(o.Object, "spec", "podTemplate", "spec", "containers")
+	workload := containers[0].(map[string]any)
+	command := workload["command"].([]any)
+	if len(command) != len(driver.BuiltinCommand) || command[0] != "/opt/nylorun/bin/tini" || command[4] != "/opt/nylorun/engine/harness.mjs" {
+		t.Fatalf("the image's engine runs under its tini, got %v", command)
+	}
+	for _, mount := range workload["volumeMounts"].([]any) {
+		if mount.(map[string]any)["mountPath"] == "/nylo" {
+			t.Fatal("no /nylo mount when the image has the engine")
+		}
+	}
+}
+
 func TestNormalizeRefuses(t *testing.T) {
 	cases := map[string]func(*driver.Spec){
 		"opId":           func(s *driver.Spec) { s.OpID = "" },
@@ -150,6 +178,9 @@ func TestNormalizeRefuses(t *testing.T) {
 		"entrypoint":     func(s *driver.Spec) { s.Entrypoint = "shell" },
 		"image and engine": func(s *driver.Spec) {
 			s.Entrypoint = "image"
+		},
+		"builtin and engine": func(s *driver.Spec) {
+			s.Entrypoint = "builtin"
 		},
 	}
 	for name, mutate := range cases {

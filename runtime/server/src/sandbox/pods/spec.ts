@@ -11,6 +11,7 @@ import { podTuningEnv } from "../../tuning.js";
 import type { SandboxPodState } from "../../store/types.js";
 import type { PodSpec } from "./client.js";
 import { opIdOf, type PodLifecycleConfig } from "./lifecycle.js";
+import { runsBuiltinEngine } from "./builtin.js";
 
 /** The pod's grace period to stop when the Tenant sets none (D34). */
 export const DEFAULT_STOP_GRACE_SECONDS = 10;
@@ -72,12 +73,25 @@ export function podSpecOf(input: PodSpecInput): PodSpec {
   // Pinned by digest once a pod ran it (Q14).
   const image = pod.imageDigest ?? spec.image;
   const ours = (input.harness ?? DEFAULT_HARNESS) === DEFAULT_HARNESS;
+  // Our engine, built into an image the Tenant lists, while it is this Runtime's (ADR-99).
+  const builtin =
+    ours &&
+    runsBuiltinEngine({
+      image: spec.image,
+      imageDigest: pod.imageDigest,
+      engineImage: pod.engineImage,
+      listed: config.engine?.images,
+    });
   return {
     opId: opIdOf(pod),
     mode: input.mode,
     ...(image ? { image } : {}),
     // A custom harness is its image: the pod runs the image's entrypoint, nothing copied in.
-    ...(ours ? { harnessImage: input.harnessImage } : { entrypoint: "image" as const }),
+    ...(!ours
+      ? { entrypoint: "image" as const }
+      : builtin
+        ? { entrypoint: "builtin" as const }
+        : { harnessImage: input.harnessImage }),
     cpus: spec.resources?.cpus ?? 1,
     memoryMiB: memoryMiBOf(spec),
     storageGiB: storageGiBOf(spec),

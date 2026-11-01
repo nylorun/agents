@@ -1482,6 +1482,21 @@ export const TenantEnvironmentsConfigSchema = z
       .strict()
       .optional(),
     /**
+     * Pods: images that carry this Runtime's engine under `/opt/nylorun` (ADR-99), by repository
+     * (`ghcr.io/nylorun/bot-worker`). A pod of a listed image runs that engine with nothing copied
+     * in, while the engine is the Runtime's own version; otherwise the engine is copied in, as for
+     * any other image.
+     */
+    engine: z
+      .object({
+        images: z
+          .array(z.string().min(1).max(256).regex(/^[a-z0-9]([a-z0-9._:/-]*[a-z0-9])?$/, "an image repository, without a tag or digest"))
+          .max(32)
+          .optional(),
+      })
+      .strict()
+      .optional(),
+    /**
      * Where each harness may run, by harness id (`nylorun`, or `*` for the rest):
      * `harness-container` (the Runtime's harness) and `sandbox` (the engine in a pod).
      * Default `{ "*": { hosts: ["harness-container", "sandbox"] } }`. Checked when a session

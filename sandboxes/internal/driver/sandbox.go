@@ -81,8 +81,9 @@ type Spec struct {
 	// Image is the workload image (default python:3.13-slim).
 	Image string `json:"image,omitempty"`
 	// Entrypoint is what the workload container runs: "engine" (the default), the Runtime's
-	// engine copied in from HarnessImage, or "image", the workload image's own ENTRYPOINT and
-	// CMD: a custom harness built into the image (track R4). With "image" nothing is copied in.
+	// engine copied in from HarnessImage; "builtin", the Runtime's engine built into the workload
+	// image under /opt/nylorun (ADR-99); or "image", the workload image's own ENTRYPOINT and CMD:
+	// a custom harness built into the image (track R4). With "builtin" or "image" nothing is copied in.
 	Entrypoint string `json:"entrypoint,omitempty"`
 	// HarnessImage is the Runtime image the engine is copied from (init container nylo-copy).
 	HarnessImage string `json:"harnessImage,omitempty"`
@@ -149,12 +150,16 @@ func (s *Spec) Normalize() error {
 		if s.HarnessImage == "" && len(s.Command) == 0 {
 			return invalid("harnessImage is required unless command is given")
 		}
+	case EntrypointBuiltin:
+		if s.HarnessImage != "" {
+			return invalid("harnessImage is not allowed with entrypoint builtin: the image has the engine")
+		}
 	case EntrypointImage:
 		if s.HarnessImage != "" {
 			return invalid("harnessImage is not allowed with entrypoint image: the image is the harness")
 		}
 	default:
-		return invalid("entrypoint must be engine or image")
+		return invalid("entrypoint must be engine, builtin or image")
 	}
 	if len(s.Command) > 64 {
 		return invalid("command has more than 64 arguments")
@@ -235,8 +240,9 @@ func millicores(cpus float64) string {
 
 // The workload's entrypoints (Spec.Entrypoint).
 const (
-	EntrypointEngine = "engine"
-	EntrypointImage  = "image"
+	EntrypointEngine  = "engine"
+	EntrypointBuiltin = "builtin"
+	EntrypointImage   = "image"
 )
 
 // EngineCommand runs the copied engine under tini as PID 1 (signals reach the whole group).
@@ -244,6 +250,13 @@ const (
 var EngineCommand = []string{
 	"/nylo/tini-static", "-g", "--",
 	"/nylo/node", "/nylo/entry.mjs", "--service", "harness",
+}
+
+// BuiltinCommand runs the engine an image carries under /opt/nylorun (ADR-99), under tini as PID 1:
+// the Runtime image's tini, node and bundled engine, copied there when the image was built.
+var BuiltinCommand = []string{
+	"/opt/nylorun/bin/tini", "-g", "--",
+	"/opt/nylorun/bin/node", "/opt/nylorun/engine/harness.mjs", "--service", "harness",
 }
 
 // EngineCopy copies tini, node and the engine from the Runtime image into /nylo and links
@@ -279,8 +292,11 @@ func Render(namespace, name string, spec Spec, urls PodURLs) *unstructured.Unstr
 
 	// An image entrypoint leaves the command unset: Kubernetes runs the image's own.
 	var command []string
-	if spec.Entrypoint != EntrypointImage {
+	switch spec.Entrypoint {
+	case EntrypointEngine:
 		command = EngineCommand
+	case EntrypointBuiltin:
+		command = BuiltinCommand
 	}
 	if len(spec.Command) > 0 {
 		command = spec.Command

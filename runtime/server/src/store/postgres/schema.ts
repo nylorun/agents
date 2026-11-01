@@ -261,6 +261,8 @@ export const agents = nylorun.table(
     volumeId: text(),
     /** The workload image by digest, from the first ready pod on (Q14): later pods run it. */
     imageDigest: textC(),
+    /** The engine the image carries (ADR-99): `{ version, digest? }`, from a join of its engine. */
+    engineImage: jsonText(),
     /**
      * The disk lease (R2d step 3): `{ kind, version?, startedAt, until }` while a snapshot, a
      * restore or a seed copies the disk; turns are refused until it ends or `until` passes.

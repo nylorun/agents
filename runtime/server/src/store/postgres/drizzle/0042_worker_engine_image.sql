@@ -1,0 +1,1 @@
+ALTER TABLE "nylorun"."agents" ADD COLUMN "engine_image" json;
