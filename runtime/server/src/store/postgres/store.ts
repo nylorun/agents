@@ -1856,6 +1856,25 @@ class PostgresTx implements Tx {
     return inserted.length === 1;
   }
 
+  async unstreamedTriggerRuns(options: { firedBefore: string; limit: number }): Promise<TriggerRunRow[]> {
+    this.check();
+    return this.db
+      .select()
+      .from(triggerRuns)
+      .where(and(isNull(triggerRuns.streamedAt), lt(triggerRuns.firedAt, options.firedBefore)))
+      .orderBy(triggerRuns.firedAt, triggerRuns.id)
+      .limit(options.limit);
+  }
+
+  async markTriggerRunsStreamed(ids: readonly string[], at: string): Promise<void> {
+    this.check();
+    if (ids.length === 0) return;
+    await this.db
+      .update(triggerRuns)
+      .set({ streamedAt: at })
+      .where(and(inArray(triggerRuns.id, [...ids]), isNull(triggerRuns.streamedAt)));
+  }
+
   async triggerRunByKey(agentId: string, runKey: string): Promise<TriggerRunRow | undefined> {
     this.check();
     const [row] = await this.db
@@ -2366,8 +2385,8 @@ class PostgresTx implements Tx {
     const db = this.db;
     if (scope === "sessions" || scope === "all") {
       for (const table of SESSION_TABLES) await db.delete(table);
-      // A session's booked wake (T4) goes with it.
-      await db.delete(agentTriggers).where(eq(agentTriggers.kind, "wake"));
+      // A session's booked wake (T4) goes with it, and the triggers its agents made (D83).
+      await db.delete(agentTriggers).where(or(eq(agentTriggers.kind, "wake"), inArray(agentTriggers.origin, ["wake", "agent"])));
       await db.delete(toolCrossings);
       // A session's artifacts go with it (their versions by cascade).
       await db.delete(artifacts).where(isNotNull(artifacts.sessionId));

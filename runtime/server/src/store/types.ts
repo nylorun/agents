@@ -950,6 +950,13 @@ export interface Tx {
   listTriggerRuns(agentId: string, options: { triggerId?: string; before?: string; limit: number }): Promise<TriggerRunRow[]>;
   /** Deletes runs fired before `before`; returns how many. */
   pruneTriggerRuns(before: string): Promise<number>;
+  /**
+   * Runs of every Agent not yet on the Tenant's runs stream (D83), fired before `firedBefore`,
+   * oldest first.
+   */
+  unstreamedTriggerRuns(options: { firedBefore: string; limit: number }): Promise<TriggerRunRow[]>;
+  /** Marks runs as on the runs stream, at `at`; one already marked keeps its time. */
+  markTriggerRunsStreamed(ids: readonly string[], at: string): Promise<void>;
   // Memory (track T5, D72): paths are normalised `/memories/...` paths; versions page by id.
   /** One memory; with `lock`, its path is locked until the transaction ends, whether or not a row has it. */
   memory(agentId: string, path: string, options?: { lock?: boolean }): Promise<MemoryRow | undefined>;

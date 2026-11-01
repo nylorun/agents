@@ -166,8 +166,10 @@ const AGENT_PLUGINS_MCP_SCHEMA = "https://agent-plugins.org/schemas/1.0.0/mcp.sc
 export const FOLDER_SCHEMAS = "https://docs.nylorun.com/schemas/agent-folder/v1/";
 export const SCHEMA_URLS = {
   runtime: [
+    `${FOLDER_SCHEMAS}runtime.2.json`,
     `${FOLDER_SCHEMAS}runtime.1.json`,
     `${FOLDER_SCHEMAS}runtime.json`,
+    "https://docs.nylorun.com/schemas/runtime-manifest/v1.2.json",
     "https://docs.nylorun.com/schemas/runtime-manifest/v1.1.json",
     "https://docs.nylorun.com/schemas/runtime-manifest/v1.json",
   ],

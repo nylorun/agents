@@ -79,6 +79,8 @@ import {
   CredentialCoverageRequestSchema,
   CredentialCoverageSchema,
   DeletedResponseSchema,
+  TenantRunEventSchema,
+  TenantRunSchema,
   ListSessionsResponseSchema,
   LiveEventSchema,
   PutAgentRequestSchema,
@@ -213,6 +215,8 @@ export const PutMemoryRequest = named("PutMemoryRequest", PutMemoryRequestSchema
 export const MemoryVersionPage = named("MemoryVersionPage", MemoryVersionPageSchema);
 export const MemoryVersionDetail = named("MemoryVersionDetail", MemoryVersionDetailSchema);
 export const TriggerRunPage = named("TriggerRunPage", TriggerRunPageSchema);
+export const TenantRun = named("TenantRun", TenantRunSchema);
+export const TenantRunEvent = named("TenantRunEvent", TenantRunEventSchema);
 export const RunTriggerResponse = named("RunTriggerResponse", RunTriggerResponseSchema);
 export const WebhookSecretResponse = named("WebhookSecretResponse", WebhookSecretResponseSchema);
 export const WebhookAcceptedResponse = named("WebhookAcceptedResponse", WebhookAcceptedResponseSchema);

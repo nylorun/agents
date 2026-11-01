@@ -9,8 +9,9 @@
  *   `<basinPrefix>tn-<ulid>` for a Tenant id `tn_<ulid>`, `…-<g base36>` for generation g.
  * - The basin is created with `createStreamOnAppend` and `createStreamOnRead`, so
  *   `sessions/<id>` come into existence on first use. Its default stream config
- *   sets infinite retention, which session streams keep. There are no other
- *   streams: signals between processes go over Postgres (D48).
+ *   sets infinite retention, which session streams keep. The Tenant's `runs`
+ *   stream (D83) is ensured with 7 days' retention (`ensureStream`). There are
+ *   no other streams: signals between processes go over Postgres (D48).
  * - Bodies are JSON text in string records. Record timestamps are S2 arrival
  *   times.
  * - Appends use `appendRetryPolicy: "noSideEffects"`: the SDK retries only
@@ -252,6 +253,13 @@ class S2Streams implements DurableStreams {
     } catch (error) {
       if (!isMissing(error)) throw error;
     }
+  }
+
+  async ensureStream(tenantId: string, stream: string, options: { retentionSecs: number }): Promise<void> {
+    this.checkOpen();
+    await this.s2
+      .basin(this.basinName(tenantId))
+      .streams.ensure({ stream, config: { retentionPolicy: { ageSecs: options.retentionSecs } } }, { signal: this.closing.signal });
   }
 
   async listStreams(tenantId: string, prefix: string): Promise<string[]> {

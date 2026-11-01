@@ -16,7 +16,9 @@
  * for an agent covers the agents it uses as tools.
  *
  * A rule's `tool` matches the tool's identity (protocol 15): an MCP tool's own name on its
- * server (`server` names the server), an HTTP tool's declared name, a flow stage's key. The name
+ * server (`server` names the server), an HTTP tool's declared name, a flow stage's key, an
+ * operation the Runtime serves (`triggers`, `memory`, `schedule_wake`; D83), which only a rule of
+ * `kind: "runtime"` matches. The name
  * a harness gave the model never matches. A stored rule whose `tool` has `__` in it (an MCP tool
  * named by its old model-facing `server__tool` name) makes the policy unreadable, so every call
  * is refused until the policy names it by `server` and `tool`: a rule never silently stops
@@ -37,7 +39,7 @@ export const TOOL_POLICY_SETTING = "tool-policy";
 
 /** A call as the policy reads it. */
 export interface PolicyCall {
-  readonly kind: "mcp" | "http";
+  readonly kind: "mcp" | "http" | "runtime";
   /**
    * The tool's identity: an MCP tool's own name on its server, an HTTP tool's declared name, a
    * flow stage's key.
@@ -96,7 +98,7 @@ export async function toolCallDecision(
   t: Pick<Tx, "getSetting">,
   s: Session,
   request: HostEffect,
-  kind: "mcp" | "http",
+  kind: "mcp" | "http" | "runtime",
 ): Promise<PolicyDecision> {
   let rules: readonly ToolRule[];
   try {
@@ -120,14 +122,16 @@ export async function toolCallDecision(
  * session's Agent id (`s.agentId`), which protocol 16 made the Agent the session runs on
  * (`users/ada/desk` for the manifest `desk`).
  */
-export function policyCallOf(s: Pick<Session, "manifest">, request: HostEffect, kind: "mcp" | "http"): PolicyCall {
+export function policyCallOf(s: Pick<Session, "manifest">, request: HostEffect, kind: "mcp" | "http" | "runtime"): PolicyCall {
   const target = request.target;
   return {
     kind,
     tool:
       target?.kind === "mcp" || target?.kind === "http"
         ? target.tool
-        : (request.key ?? request.effectId),
+        : target?.kind === "runtime"
+          ? target.operation
+          : (request.key ?? request.effectId),
     ...(target?.kind === "mcp" ? { server: target.server } : {}),
     agent: request.agent?.id ?? (s.manifest as { id: string }).id,
     ...(request.agent === undefined ? {} : { root: (s.manifest as { id: string }).id }),
@@ -168,6 +172,9 @@ export function pinnedApproval(manifest: AgentManifest, request: HostEffect): bo
 
 function matches(rule: ToolRule, call: PolicyCall): boolean {
   if (rule.kind !== undefined && rule.kind !== call.kind) return false;
+  // A runtime operation matches only a rule that names kind `runtime` (D83): rules written for
+  // MCP and HTTP tools keep their meaning.
+  if (call.kind === "runtime" && rule.kind !== "runtime") return false;
   if (rule.tool !== undefined && !glob(rule.tool).test(call.tool)) return false;
   if (rule.server !== undefined && (call.server === undefined || !glob(rule.server).test(call.server))) return false;
   if (rule.agent !== undefined && !agentMatches(glob(rule.agent), call)) return false;

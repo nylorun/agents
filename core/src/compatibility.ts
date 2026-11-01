@@ -277,6 +277,14 @@ export const OPTIONAL_HOST_FEATURES = [
    * always sends it still moves to new versions.
    */
   "remove-tools",
+  /**
+   * The triggers capability (D83): an agent whose version declares `harness.engine.triggers` sets
+   * up its own triggers with the `triggers` tool, kept by the Agent (`origin: agent` in
+   * `GET /v1/agents/{id}/triggers`); `DELETE /v1/agents/{id}/triggers/{triggerId}` deletes one;
+   * a tool rule of `kind: "runtime"` decides the operations the Runtime serves; the manifest's
+   * `runtime.limits.triggers`; and `GET /v1/runs/stream`, the Tenant's runs as server-sent events.
+   */
+  "agent-triggers",
 ] as const;
 export type OptionalHostFeature = (typeof OPTIONAL_HOST_FEATURES)[number];
 export interface ProtocolRange {

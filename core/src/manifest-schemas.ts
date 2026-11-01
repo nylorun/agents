@@ -30,7 +30,7 @@ import {
  */
 const AGENT_MANIFEST_REVISION = 3;
 const HARNESS_MANIFEST_FILE_REVISION = 3;
-const RUNTIME_MANIFEST_FILE_REVISION = 1;
+const RUNTIME_MANIFEST_FILE_REVISION = 2;
 
 function document(schema: z.ZodType, id: string, title: string): Record<string, unknown> {
   const { $schema: _, ...definition } = z.toJSONSchema(schema, { io: "input", unrepresentable: "any" }) as Record<

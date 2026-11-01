@@ -52,6 +52,7 @@
  */
 import { sweepUnusedAgents } from "./agents.js";
 import { reconcileTriggers } from "./triggers.js";
+import { streamMissedRuns } from "./runs-stream.js";
 import { sweepPendingSeeds } from "../artifacts/disk.js";
 import {
   pendingAgentEffects,
@@ -145,6 +146,8 @@ export async function sweep(ctx: TenantContext): Promise<void> {
     // Triggers (track T4): every active one armed on this process's first pass, overdue ones after;
     // runs past their retention deleted.
     ["triggers", () => reconcileTriggers(ctx, first)],
+    // The Tenant runs stream's outbox (D83): runs not appended after their commit.
+    ["runs-stream", () => streamMissedRuns(ctx)],
     // Seeds of new volumes whose engine is connected and no process copies (R2d step 3).
     ["seeds", () => sweepPendingSeeds(ctx)],
     // A harness elsewhere closes its own idle MCP connections.

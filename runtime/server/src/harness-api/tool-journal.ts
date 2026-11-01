@@ -103,6 +103,8 @@ export function toolKindOf(
     const host = httpHostOf(declaredHttpTool(s.manifest, request.agent?.id, target.tool)?.http.url);
     return { toolKind: "http", ...(host === undefined ? {} : { server: host }), tool: target.tool };
   }
+  // An operation the Runtime serves (D83): its identity is the operation, as the policy names it.
+  if (target?.kind === "runtime") return { toolKind: "runtime", tool: target.operation };
   const skill =
     request.skill !== undefined && agentManifest?.skills?.[request.skill] !== undefined
       ? request.skill

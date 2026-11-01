@@ -7,6 +7,7 @@
  * | Stream | Contents | Written by | Read by |
  * | --- | --- | --- | --- |
  * | `sessions/<sessionId>` | every event of the session, in sequence | the stream relay, from the record | history and session SSE |
+| `runs` | every run of the Tenant's triggers (D83), kept 7 days | `tenant/runs-stream.ts`, after the commit that made the run, and the sweep | `GET /v1/runs/stream` |
  *
  * S2 serves API listeners only (history, SSE, AG-UI, A2A): nothing inside the Runtime signals
  * through it or waits on it (D48). Signals between processes go over the control bus on
@@ -15,7 +16,9 @@
  * **Basin generations.** A session id is unique within its Tenant's basin generation. A
  * Tenant reset, the only path that frees ids, moves the Tenant to the next generation, so
  * a session created again with the same id starts in an empty basin at sequence 0; the old
- * basin is deleted afterwards. The cursor is `base64url("<sessionId>:<seq>")`.
+ * basin is deleted afterwards. The cursor is `base64url("<sessionId>:<seq>")`. The `runs`
+ * stream starts at 0 in each generation too; its cursor names the generation
+ * (`base64url("runs:<generation>:<seq>")`), so one from an older basin is refused.
  *
  * S2 is the supported implementation (`adapters/streams/s2.ts`, the only file
  * importing the S2 SDK); `streams/memory.ts` is the in-memory fake.
@@ -116,6 +119,12 @@ export interface DurableStreams {
   /** Deletes one stream. Idempotent. */
   deleteStream(tenantId: string, stream: string): Promise<void>;
   /**
+   * Creates `stream` if it does not exist, or sets its configuration, keeping its records for
+   * `retentionSecs` (the basin's default keeps them forever). Absent for in-process
+   * implementations, which keep what they hold until they close.
+   */
+  ensureStream?(tenantId: string, stream: string, options: { retentionSecs: number }): Promise<void>;
+  /**
    * Names of the Tenant's streams starting with `prefix`, in name order,
    * without streams being deleted. Empty when the Tenant has no basin.
    */
@@ -133,6 +142,10 @@ export interface DurableStreams {
 // Stream names
 
 export const SESSION_STREAM_PREFIX = "sessions/";
+/** The Tenant's runs stream (D83): every run of its triggers, beside the session streams. */
+export const RUNS_STREAM = "runs";
+/** How long the runs stream keeps a run: 7 days. */
+export const RUNS_STREAM_RETENTION_SECS = 7 * 24 * 3600;
 /** The stream of a session: `sessions/<sessionId>`. */
 export function sessionStream(sessionId: string): string {
   if (!sessionId) throw new Error("sessionId is required");

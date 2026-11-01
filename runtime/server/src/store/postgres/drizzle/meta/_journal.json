@@ -302,6 +302,20 @@
       "when": 1793509192153,
       "tag": "0042_worker_engine_image",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1793548856412,
+      "tag": "0043_agent_triggers_origin",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1793548858191,
+      "tag": "0044_agent_triggers_origin_backfill",
+      "breakpoints": true
     }
   ]
 }

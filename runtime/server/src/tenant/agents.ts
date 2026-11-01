@@ -87,6 +87,7 @@ import {
   manifestShapeIssues,
   readTenantLimits,
   secretRequestIssues,
+  type StorageLimits,
 } from "./limits.js";
 import { readRuntimeLimits } from "./runtime-limits.js";
 import { armAgentTriggers, createAgentTriggers } from "./triggers.js";
@@ -248,7 +249,7 @@ async function viewOf(
         : {}),
     },
     runtime: environment.applied,
-    limits: limitsInForce(await readTenantLimits(t), environment.applied.limits),
+    limits: storageView(limitsInForce(await readTenantLimits(t), environment.applied.limits)),
     sessions: visible.map((session) => ({
       id: session.id,
       ownerUserId: session.ownerUserId,
@@ -1504,4 +1505,9 @@ export function sandboxRouteDeps(ctx: TenantContext): SandboxRouteDeps {
     sandbox: ctx.sandbox,
     session: (id) => ctx.store.tx((t) => sessionOf(t, id)),
   };
+}
+
+/** The limits an Agent's view shows: its storage's, without its triggers'. */
+function storageView({ triggers: _, ...storage }: StorageLimits): Omit<StorageLimits, "triggers"> {
+  return storage;
 }

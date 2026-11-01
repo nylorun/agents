@@ -310,9 +310,11 @@ export const agents = nylorun.table(
 /**
  * An Agent's triggers (track T4, D74): what its manifest's `runtime.triggers` declares is the
  * manifest's; whether each one is on and when it fires next is the Agent's, here. A booked wake
- * (D77) is a row of kind `wake` with id `wake:<sessionId>`. Postgres holds the truth: one
- * durable timer per active trigger is armed from `nextFireAt`, and the sweep re-arms an overdue
- * one, so the execution's timers can be rebuilt from these rows.
+ * (D77) is a row of kind `wake` with id `wake:<sessionId>`. A trigger an agent made with the
+ * `triggers` tool (D83) is a row of origin `agent`, its definition (a `Trigger`, as a manifest
+ * entry holds it) and title on the row, with the session and turn that made it. Postgres holds
+ * the truth: one durable timer per active trigger is armed from `nextFireAt`, and the sweep
+ * re-arms an overdue one, so the execution's timers can be rebuilt from these rows.
  */
 export const agentTriggers = nylorun.table(
   "agent_triggers",
@@ -339,11 +341,23 @@ export const agentTriggers = nylorun.table(
     sessionId: textC(),
     note: text(),
     effectId: text(),
+    /**
+     * Where its definition comes from (D83): `manifest` (the version's `runtime.triggers`),
+     * `agent` (`definition`, made with the `triggers` tool) or `wake` (a booked wake).
+     */
+    origin: text({ enum: ["manifest", "agent", "wake"] }).notNull().default("manifest"),
+    /** An agent-made trigger's title, its definition, and the session and turn that made it. */
+    title: text(),
+    definition: jsonText(),
+    createdSessionId: textC(),
+    createdTurnId: textC(),
     createdAt: textC().notNull(),
     updatedAt: textC().notNull(),
   },
   (t) => [
+    check("agent_triggers_origin_check", sql`${t.origin} IN ('manifest', 'agent', 'wake')`),
     primaryKey({ name: "agent_triggers_pkey", columns: [t.agentId, t.triggerId] }),
+    index("agent_triggers_created_session").on(t.agentId, t.createdSessionId).where(sql`created_session_id IS NOT NULL`),
     index("agent_triggers_due").on(t.status, t.nextFireAt),
     uniqueIndex("agent_triggers_endpoint").on(t.endpointId).where(sql`endpoint_id IS NOT NULL`),
   ],
@@ -401,7 +415,8 @@ export const memoryVersions = nylorun.table(
  * Each run of an Agent's triggers (D74): one per fire, delivery or run by hand, keyed by what
  * caused it (`runKey`: `fire:<trigger>:<due ms>`, `webhook:<trigger>:<delivery id>`,
  * `manual:<trigger>:<idempotency key>`), so a repeated cause makes no second run. Kept for the
- * Runtime limit `triggerRunRetentionMs`.
+ * Runtime limit `triggerRunRetentionMs`. `streamedAt` is the Tenant runs stream's outbox (D83):
+ * set once the run is in the `runs` stream; the sweep appends a run still unset.
  */
 export const triggerRuns = nylorun.table(
   "trigger_runs",
@@ -419,11 +434,17 @@ export const triggerRuns = nylorun.table(
     sessionId: textC(),
     turnId: textC(),
     queuedMessageId: textC(),
+    /** Its trigger's origin and title when it ran (D83), for the runs stream after the trigger is gone. */
+    origin: text({ enum: ["manifest", "agent", "wake"] }).notNull().default("manifest"),
+    title: text(),
+    /** When it was appended to the Tenant's `runs` stream (ISO), or null until then. */
+    streamedAt: textC(),
   },
   (t) => [
     uniqueIndex("trigger_runs_key").on(t.agentId, t.runKey),
     index("trigger_runs_agent").on(t.agentId, t.id),
     index("trigger_runs_fired").on(t.firedAt),
+    index("trigger_runs_unstreamed").on(t.firedAt).where(sql`streamed_at IS NULL`),
   ],
 );
 

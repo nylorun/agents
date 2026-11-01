@@ -82,9 +82,9 @@ function fromZod(schema: z.ZodType, defs: Json, description?: string): Json {
  * as `agent-md.1.json`, then `format: agent-folder/2` and `engine` (ADR-100), as `agent-md.2.json`,
  * then `engine.triggers` (D83), as `agent-md.3.json`;
  * `runtime.json` took a secret slot's `toolPrefix` (Host feature `secret-routing`), published as
- * `runtime.1.json`.
+ * `runtime.1.json`, then `limits.triggers` (D83), as `runtime.2.json`.
  */
-const REVISIONS: Partial<Record<AgentFolderSchemaKind, number>> = { "agent-md": 3, runtime: 1 };
+const REVISIONS: Partial<Record<AgentFolderSchemaKind, number>> = { "agent-md": 3, runtime: 2 };
 
 /** One document: its `$id` from its kind, then the body, then the `$defs` its parts named. */
 function document(kind: AgentFolderSchemaKind, title: string, description: string, body: Json, defs: Json): Json {
