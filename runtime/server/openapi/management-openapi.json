@@ -42,7 +42,8 @@
         "turns",
         "agent-model",
         "secret-routing",
-        "remove-tools"
+        "remove-tools",
+        "agent-triggers"
       ]
     },
     "description": "For operators: the Tenant's models, vaults, signing keys, settings and application keys, at `/v1/tenant/*` on the Tenant's URL, through `@nylorun/admin`. Every operation takes a management key, acting as itself: never for a subject and never from a browser. Management keys are issued only on the Tenant's machine (`nylorun tenant keys put <id> --management`) or from `NYLORUN_MANAGEMENT_KEY_FILE`."
@@ -2561,8 +2562,10 @@
                   "type": "string",
                   "enum": [
                     "mcp",
-                    "http"
-                  ]
+                    "http",
+                    "runtime"
+                  ],
+                  "description": "mcp, http, or runtime: an operation the Runtime serves itself (triggers, memory, schedule_wake), which only a rule naming it matches"
                 },
                 "agent": {
                   "type": "string",
@@ -2663,8 +2666,10 @@
                   "type": "string",
                   "enum": [
                     "mcp",
-                    "http"
-                  ]
+                    "http",
+                    "runtime"
+                  ],
+                  "description": "mcp, http, or runtime: an operation the Runtime serves itself (triggers, memory, schedule_wake), which only a rule naming it matches"
                 },
                 "agent": {
                   "type": "string",

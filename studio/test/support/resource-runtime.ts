@@ -236,6 +236,9 @@ const event = {
 const trigger = (status: string) => ({
   id: "weekly-kpi",
   kind: "schedule",
+  origin: "manifest",
+  title: null,
+  createdSessionId: null,
   status,
   pausedReason: status === "paused" ? "manual" : null,
   schedule: "0 8 * * 1",
@@ -243,6 +246,7 @@ const trigger = (status: string) => ({
   session: "kpi",
   nextRunAt: status === "active" ? "2026-10-12T06:00:00.000Z" : null,
   lastRunAt: time,
+  prompt: "Write the weekly KPI report.",
 });
 const run = {
   id: "run-1",

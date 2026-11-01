@@ -68,7 +68,7 @@ describe("nylorun init and check", () => {
       "editor.tabSize": 2,
       "json.schemas": [
         { fileMatch: ["x.json"], url: "https://example.com/x.json" },
-        { fileMatch: ["agents/**/runtime.json"], url: `${base}/runtime.1.json` },
+        { fileMatch: ["agents/**/runtime.json"], url: `${base}/runtime.2.json` },
         { fileMatch: ["agents/**/tools/*.json"], url: `${base}/tool.json` },
         { fileMatch: ["agents/**/flow.json"], url: `${base}/flow.json` },
         { fileMatch: ["agents/**/mcp.json", "!agents/**/plugins/**"], url: `${base}/mcp.json` },

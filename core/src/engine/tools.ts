@@ -6,7 +6,7 @@
  * deliberately.
  */
 import { z } from "zod";
-import { ARTIFACT_NAME_MAX, PLAN_LIMITS, PLAN_STEP_STATES } from "../contracts.js";
+import { ARTIFACT_NAME_MAX, PLAN_LIMITS, PLAN_STEP_STATES, TRIGGER_DELAY_PATTERN, TRIGGER_TITLE_MAX } from "../contracts.js";
 import { MEMORY_ROOT } from "../utils/memory.js";
 import { SANDBOX_TOOL_NAMES, SANDBOX_WORKSPACE, type SandboxToolName } from "../utils/sandbox.js";
 import { SKILL_ENTRY } from "../utils/definition-files.js";
@@ -428,6 +428,57 @@ export function wakeToolOf(): EngineTool {
       additionalProperties: false,
     },
     target: RUNTIME_WAKE,
+  };
+}
+
+// --- triggers --------------------------------------------------------------------------------
+
+/** The triggers tool's name (D83). */
+export const TRIGGERS_TOOL = "triggers";
+/** What serves a `triggers` call: the Runtime, in the call's own transaction. */
+export const RUNTIME_TRIGGERS: EffectTarget = Object.freeze({ kind: "runtime", operation: "triggers" });
+
+/**
+ * `triggers` (D83): list, create and delete the triggers the calling session made, for an agent
+ * whose version declares `engine.triggers`; the root agent's only. A `runtime` effect, operation
+ * `triggers`; its input is `TriggerToolInputSchema`'s.
+ */
+export function triggersToolOf(): EngineTool {
+  return {
+    name: TRIGGERS_TOOL,
+    description: [
+      "Set up work that runs later, when nobody may be here to ask: a trigger runs its prompt as your message, on a schedule, at a time or after a delay.",
+      "Commands:",
+      "- list: the triggers this session made, each with its id, title, status, when and next run.",
+      "- create: make a trigger, or replace the one this session made with the same id. Params: id, title (optional, a few words), exactly one of schedule (five cron fields: minute hour day-of-month month day-of-week, with an optional IANA timezone, default UTC), at (an RFC 3339 time with an offset) or in (a delay: 30m, 2h, 1d), session (this: run here, as a follow-up; own: run in a session of its own, kept across runs), and prompt (what to do then, in your own words).",
+      "- delete: remove a trigger this session made. Params: id.",
+      "Returns the trigger's id, status, next run and the session it runs in.",
+    ].join("\n"),
+    inputSchema: {
+      type: "object",
+      properties: {
+        command: { type: "string", enum: ["list", "create", "delete"], description: "The operation to perform." },
+        id: {
+          type: "string",
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$",
+          description: "create and delete: the trigger's id, such as daily-standup: 1-64 letters, digits, '.', '_' and '-'.",
+        },
+        title: { type: "string", minLength: 1, maxLength: TRIGGER_TITLE_MAX, description: "create only: a few words that name it." },
+        schedule: { type: "string", description: "create only: five cron fields, such as 0 9 * * 1-5 (weekdays at nine)." },
+        timezone: { type: "string", description: "create only, with schedule: an IANA time zone, such as Europe/Berlin; default UTC." },
+        at: { type: "string", description: "create only: one run at an RFC 3339 time with an offset, such as 2026-11-01T09:00:00+05:30." },
+        in: { type: "string", pattern: TRIGGER_DELAY_PATTERN.source, description: "create only: one run after a delay: 30m, 2h, 1d." },
+        session: {
+          type: "string",
+          enum: ["this", "own"],
+          description: "create only: this runs it in this session; own runs it in a session of its own, kept across its runs.",
+        },
+        prompt: { type: "string", minLength: 1, description: "create only: what to do then, in your own words: your message when it runs." },
+      },
+      required: ["command"],
+      additionalProperties: false,
+    },
+    target: RUNTIME_TRIGGERS,
   };
 }
 

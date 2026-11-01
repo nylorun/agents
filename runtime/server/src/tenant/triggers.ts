@@ -25,6 +25,13 @@
  *
  * A schedule's runs are moved by a fixed offset (jitter), from a hash of the Agent and trigger id:
  * up to `triggerJitterPercent` of its interval and `triggerJitterMaxMs`.
+ *
+ * **Origins** (D83). A row's definition comes from where it was made (`origin`, `definitionOf`):
+ * `manifest`, the entry of the version the Agent runs; `agent`, the row's own (a trigger an agent
+ * made with the `triggers` tool, `agent-triggers.ts`); `wake`, a session's booked wake. Every
+ * origin fires through `fireTimer` and `deliverRun`; only where its definition comes from differs.
+ * An upgrade merges `manifest` rows only, and an `agent` row does not fire while the version lacks
+ * `harness.engine.triggers`: it is paused (`undeclared`) until a version declares it again.
  */
 import { createHash, randomBytes } from "node:crypto";
 import { Cron } from "croner";
@@ -40,6 +47,7 @@ import {
   type TriggerView,
 } from "@nylorun/core/contracts";
 import type { AgentTriggerRow, Environment, TriggerRunRow, Tx } from "../store/types.js";
+import { appendRuns } from "./runs-stream.js";
 import type { SealedWebhookSecret } from "../keys/webhooks.js";
 import { hostTuning } from "../tuning.js";
 import type { Session, TenantContext } from "./context.js";
@@ -47,6 +55,7 @@ import { checkAgentTurn, liveEnvironment } from "./agents.js";
 import { acceptMessage, QUEUE_SCOPE, takesMessages, type MessageCause, type TurnMessage } from "./commands.js";
 import { fail, HttpError } from "./http.js";
 import { readRuntimeLimits } from "./runtime-limits.js";
+import { triggerLimitsInForce } from "./limits.js";
 import { openSessionIn } from "./sessions.js";
 
 const TIMER_PREFIX = "trigger:";
@@ -120,6 +129,8 @@ export function triggerIssues(
   triggers: Readonly<Record<string, Trigger>> | undefined,
   limits: RuntimeLimits,
   now = new Date(),
+  /** How an issue names trigger `id`: its place in the manifest by default. */
+  label: (id: string) => string = (id) => `runtime.triggers.${id}`,
 ): string[] {
   if (!triggers) return [];
   const issues: string[] = [];
@@ -130,7 +141,7 @@ export function triggerIssues(
     );
   const fires = hostTuning().triggers.intervalCheckFires;
   for (const [id, trigger] of Object.entries(triggers)) {
-    const at = `runtime.triggers.${id}`;
+    const at = label(id);
     if (trigger.prompt.length > limits.triggerPromptChars)
       issues.push(
         `${at}.prompt is ${trigger.prompt.length} characters, over the Runtime limit triggerPromptChars (${limits.triggerPromptChars}).`,
@@ -161,9 +172,39 @@ export function triggerIssues(
 
 /** The triggers of the manifest version an Agent runs. */
 async function triggersOf(t: Tx, agent: Environment): Promise<Record<string, Trigger>> {
-  const version = await t.agentManifest(agent.manifestName, agent.manifestVersion);
-  return ((version?.body as AgentManifestV8 | undefined)?.runtime?.triggers ?? {}) as Record<string, Trigger>;
+  return (await pinnedOf(t, agent)).triggers;
 }
+
+/** What the manifest version an Agent runs says of triggers: its own, and whether it declares the capability. */
+async function pinnedOf(t: Tx, agent: Environment): Promise<{ triggers: Record<string, Trigger>; declared: boolean }> {
+  const body = (await t.agentManifest(agent.manifestName, agent.manifestVersion))?.body as AgentManifestV8 | undefined;
+  const harness = body?.harness as { engine?: { triggers?: unknown } } | undefined;
+  return { triggers: (body?.runtime?.triggers ?? {}) as Record<string, Trigger>, declared: harness?.engine?.triggers === true };
+}
+
+/** Where a row's definition comes from (D83): its origin, or `wake` for a booked wake written before origins. */
+export function originOf(row: Pick<AgentTriggerRow, "origin" | "kind">): AgentTriggerRow["origin"] {
+  return row.kind === "wake" ? "wake" : row.origin;
+}
+
+/**
+ * The definition trigger row `row` fires with (D83): a booked wake's, from its session and note;
+ * an agent-made trigger's own, from the row; a manifest trigger's, the entry of the version the
+ * Agent runs (`manifest`, read once by the caller). Undefined when it has none.
+ */
+export function definitionOf(row: AgentTriggerRow, manifest: Readonly<Record<string, Trigger>>): Trigger | undefined {
+  switch (originOf(row)) {
+    case "wake":
+      return wakeTriggerOf(row);
+    case "agent":
+      return (row.definition ?? undefined) as Trigger | undefined;
+    default:
+      return manifest[row.triggerId];
+  }
+}
+
+/** The columns a row of origin `manifest` or `wake` leaves empty. */
+const NO_AGENT_FIELDS = { title: null, definition: null, createdSessionId: null, createdTurnId: null } as const;
 
 /**
  * Writes the state of a new Agent's triggers (D74): every trigger of the version it is made from
@@ -188,6 +229,8 @@ export async function createAgentTriggers(t: Tx, agent: Environment, now = new D
       sessionId: null,
       note: null,
       effectId: null,
+      origin: "manifest",
+      ...NO_AGENT_FIELDS,
       createdAt: stamp,
       updatedAt: stamp,
     });
@@ -198,21 +241,39 @@ export async function createAgentTriggers(t: Tx, agent: Environment, now = new D
  * After Agent `agent` (locked) moved from manifest version `from` to the version it now runs (track
  * T3, D73), in the move's transaction: its triggers merge by id. One the new version adds arrives
  * paused (`new`), one it drops loses its state (its runs stay), and one whose timing changed gets a
- * new generation and next time; a changed prompt or session applies at the next fire. The sweep
- * arms what changed (`reconcileTriggers`).
+ * new generation and next time; a changed prompt or session applies at the next fire. Only rows of
+ * origin `manifest` merge (D83): an agent's and a booked wake stay as they are, but for an agent's
+ * paused `undeclared`, which resumes on a version that declares `harness.engine.triggers`. A
+ * manifest trigger whose id an agent's trigger holds is not added. The sweep arms what changed
+ * (`reconcileTriggers`).
  */
 export async function mergeAgentTriggers(t: Tx, agent: Environment, from: number, now = new Date()): Promise<void> {
   const before = (((await t.agentManifest(agent.manifestName, from))?.body as AgentManifestV8 | undefined)?.runtime?.triggers ??
     {}) as Record<string, Trigger>;
-  const after = await triggersOf(t, agent);
+  const { triggers: after, declared } = await pinnedOf(t, agent);
   const limits = await readRuntimeLimits(t);
   const stamp = now.toISOString();
-  const rows = new Map((await t.agentTriggers(agent.id)).map((row) => [row.triggerId, row]));
-  for (const [triggerId, row] of rows)
-    if (row.kind !== "wake" && after[triggerId] === undefined) await t.deleteAgentTrigger(agent.id, triggerId);
+  const all = await t.agentTriggers(agent.id);
+  const rows = new Map(all.filter((row) => originOf(row) === "manifest").map((row) => [row.triggerId, row]));
+  const taken = new Set(all.filter((row) => originOf(row) !== "manifest").map((row) => row.triggerId));
+  for (const [triggerId] of rows) if (after[triggerId] === undefined) await t.deleteAgentTrigger(agent.id, triggerId);
+  if (declared)
+    for (const row of all)
+      if (originOf(row) === "agent" && row.status === "paused" && row.pausedReason === UNDECLARED) {
+        const next = row.definition ? nextFireAt(agent.id, row.triggerId, row.definition as Trigger, now, limits) : null;
+        await t.putAgentTrigger({
+          ...row,
+          status: next === null ? "completed" : "active",
+          pausedReason: null,
+          nextFireAt: next?.toISOString() ?? null,
+          generation: row.generation + 1,
+          updatedAt: stamp,
+        });
+      }
   const timing = (trigger: Trigger | undefined) =>
     trigger === undefined ? undefined : JSON.stringify([trigger.schedule, trigger.timezone, trigger.at, trigger.webhook]);
   for (const [triggerId, trigger] of Object.entries(after)) {
+    if (taken.has(triggerId)) continue;
     const row = rows.get(triggerId);
     if (!row) {
       await t.putAgentTrigger({
@@ -229,6 +290,8 @@ export async function mergeAgentTriggers(t: Tx, agent: Environment, from: number
         sessionId: null,
         note: null,
         effectId: null,
+        origin: "manifest",
+        ...NO_AGENT_FIELDS,
         createdAt: stamp,
         updatedAt: stamp,
       });
@@ -299,7 +362,9 @@ export async function fireTimer(ctx: TenantContext, key: string): Promise<void> 
   const target = parseTimerKey(key);
   if (!target) return;
   const { agentId, triggerId } = target;
+  const runs: TriggerRunRow[] = [];
   const armed = await ctx.store.tx(async (t) => {
+    runs.length = 0;
     const row = await t.agentTrigger(agentId, triggerId, { lock: true });
     if (!row || row.status !== "active" || row.nextFireAt === null) return undefined;
     const due = Date.parse(row.nextFireAt);
@@ -308,17 +373,30 @@ export async function fireTimer(ctx: TenantContext, key: string): Promise<void> 
     if (due > now) return row;
     const agent = await liveEnvironment(t, agentId, { lock: true });
     if (!agent) return undefined;
-    // A booked wake (D77) is its own trigger: its session, with its note as the message.
-    const trigger = row.kind === "wake" ? wakeTriggerOf(row) : (await triggersOf(t, agent))[triggerId];
+    // A booked wake (D77) is its own trigger: its session, with its note as the message; an
+    // agent's (D83) is the row's own definition.
+    const pinned = await pinnedOf(t, agent);
+    const origin = originOf(row);
+    const trigger = definitionOf(row, pinned.triggers);
     if (!trigger) {
-      await t.deleteAgentTrigger(agentId, triggerId);
+      // A manifest's that the version no longer has, or a wake with nothing to say. An agent's
+      // row always holds its definition.
+      if (origin !== "agent") await t.deleteAgentTrigger(agentId, triggerId);
       return undefined;
     }
-    await deliverRun(ctx, t, agent, triggerId, trigger, row, {
+    // An agent's trigger runs only while the version declares the capability: until one does, it
+    // waits paused and is not deleted.
+    if (origin === "agent" && !pinned.declared) {
+      const stamp = new Date(now).toISOString();
+      await t.putAgentTrigger({ ...row, status: "paused", pausedReason: UNDECLARED, nextFireAt: null, generation: row.generation + 1, updatedAt: stamp });
+      await t.agentEvent(agentId, "agent.trigger_paused", { triggerId, reason: UNDECLARED });
+      return undefined;
+    }
+    runs.push(await deliverRun(ctx, t, agent, triggerId, trigger, row, {
       runKey: `fire:${triggerId}:${due}`,
       dueAt: row.nextFireAt,
       late: now - due > hostTuning().triggers.lateGraceMs,
-    });
+    }));
     const limits = await readRuntimeLimits(t);
     // A booked wake runs once and goes: the session may book the next.
     if (row.kind === "wake") {
@@ -338,8 +416,12 @@ export async function fireTimer(ctx: TenantContext, key: string): Promise<void> 
     await t.putAgentTrigger(updated);
     return updated;
   });
+  await appendRuns(ctx, runs);
   if (armed) await armTrigger(ctx, armed);
 }
+
+/** Why an agent's trigger is paused: the version its Agent runs lacks `harness.engine.triggers` (D83). */
+export const UNDECLARED = "undeclared";
 
 /** What makes a run: its cause's key, when it was due, whether late. */
 interface RunCause {
@@ -373,11 +455,12 @@ export async function deliverRun(
   agent: Environment,
   triggerId: string,
   trigger: Trigger,
-  row: Pick<AgentTriggerRow, "kind">,
+  row: Pick<AgentTriggerRow, "kind"> & Partial<Pick<AgentTriggerRow, "origin" | "title" | "createdSessionId">>,
   cause: RunCause,
 ): Promise<TriggerRunRow> {
   const existing = await t.triggerRunByKey(agent.id, cause.runKey);
   if (existing) return existing;
+  const origin = row.kind === "wake" ? "wake" : (row.origin ?? "manifest");
   const firedAt = new Date().toISOString();
   const id = newRunId();
   const run: TriggerRunRow = {
@@ -394,8 +477,11 @@ export async function deliverRun(
     sessionId: null,
     turnId: null,
     queuedMessageId: null,
+    origin,
+    title: row.title ?? null,
+    streamedAt: null,
   };
-  const outcome = await runOutcome(ctx, t, agent, triggerId, trigger, row.kind, id, firedAt, cause.payload);
+  const outcome = await runOutcome(ctx, t, agent, triggerId, trigger, row.kind, id, firedAt, cause.payload, row.createdSessionId ?? null);
   Object.assign(run, outcome);
   await t.insertTriggerRun(run);
   await t.agentEvent(agent.id, "agent.run", {
@@ -422,13 +508,16 @@ async function runOutcome(
   runId: string,
   firedAt: string,
   payload: WebhookPayload | undefined,
+  /** The session whose agent made the trigger (D83): a session it opens is that session's owner's. */
+  createdBy: string | null,
 ): Promise<Partial<Outcome>> {
   const skipped = (reason: string, sessionId: string | null = null): Partial<Outcome> => ({ status: "skipped", reason, sessionId });
   const failed = (reason: string, sessionId: string | null = null): Partial<Outcome> => ({ status: "failed", reason, sessionId });
   if (agent.desiredState === "off") return skipped("paused");
-  const limits = await readRuntimeLimits(t);
+  // The hourly cap in force: the manifest's `runtime.limits.triggers.runsPerHour`, never above the Tenant's.
+  const { runsPerHour } = triggerLimitsInForce(await readRuntimeLimits(t), agent.applied?.limits);
   const hourAgo = new Date(Date.parse(firedAt) - HOUR_MS).toISOString();
-  if ((await t.countTriggerRuns(agent.id, hourAgo, ["started", "queued"])) >= limits.triggerRunsPerHour)
+  if ((await t.countTriggerRuns(agent.id, hourAgo, ["started", "queued"])) >= runsPerHour)
     return skipped("rate_limited");
   // `new`: a session of its own, named for the run, so a repeated cause never opens a second.
   const sessionId = trigger.session === "new" ? `run-${runId}` : trigger.session;
@@ -436,10 +525,11 @@ async function runOutcome(
   if (session && session.agentId !== agent.id) return failed("session_conflict", sessionId);
   try {
     if (!session) {
+      const maker = createdBy === null ? undefined : await t.get<Session>("sessions", createdBy);
       await openSessionIn(ctx, t, sessionId, {
         requestId: `trigger-${runId}`,
         agent: agent.id,
-        ownerUserId: agent.ownerUserId ?? "installation",
+        ownerUserId: maker?.ownerUserId ?? agent.ownerUserId ?? "installation",
       });
       session = (await t.lockSession<Session>(sessionId))!;
     }
@@ -530,7 +620,33 @@ export function runView(row: TriggerRunRow): TriggerRun {
   };
 }
 
-/** `GET /v1/agents/{id}/triggers`. */
+/** One trigger as the API shows it: its definition and the Agent's state of it. */
+export function triggerView(row: AgentTriggerRow, trigger: Trigger, origin = ""): TriggerView {
+  const from = originOf(row);
+  return {
+    id: row.triggerId,
+    kind: row.kind,
+    origin: from,
+    title: row.title,
+    createdSessionId: row.createdSessionId,
+    status: row.status,
+    pausedReason: row.pausedReason,
+    ...(trigger.schedule === undefined ? {} : { schedule: trigger.schedule, timezone: trigger.timezone ?? "UTC" }),
+    ...(trigger.at === undefined ? {} : { at: trigger.at }),
+    session: trigger.session,
+    nextRunAt: row.status === "active" ? row.nextFireAt : null,
+    lastRunAt: row.lastFireAt,
+    ...(row.endpointId === null
+      ? {}
+      : { webhookUrl: `${origin}${webhookPath(row.endpointId)}`, secretSet: row.sealedSecret !== null }),
+    ...(from === "wake" ? {} : { prompt: trigger.prompt }),
+  };
+}
+
+/**
+ * `GET /v1/agents/{id}/triggers`: the manifest's triggers the Agent holds, and the triggers its
+ * agents made (D83); never a session's booked wake.
+ */
 export async function listTriggers(ctx: TenantContext, agentId: string, origin = ""): Promise<{ triggers: TriggerView[] }> {
   return ctx.store.tx(async (t) => {
     const agent = (await liveEnvironment(t, agentId)) ?? fail(404, `Agent ${agentId} not found`, { code: "not_found" });
@@ -538,34 +654,19 @@ export async function listTriggers(ctx: TenantContext, agentId: string, origin =
     const rows = await t.agentTriggers(agentId);
     return {
       triggers: rows.flatMap((row): TriggerView[] => {
-        const trigger = triggers[row.triggerId];
-        if (!trigger) return [];
-        return [
-          {
-            id: row.triggerId,
-            kind: row.kind,
-            status: row.status,
-            pausedReason: row.pausedReason,
-            ...(trigger.schedule === undefined ? {} : { schedule: trigger.schedule, timezone: trigger.timezone ?? "UTC" }),
-            ...(trigger.at === undefined ? {} : { at: trigger.at }),
-            session: trigger.session,
-            nextRunAt: row.status === "active" ? row.nextFireAt : null,
-            lastRunAt: row.lastFireAt,
-            ...(row.endpointId === null
-              ? {}
-              : { webhookUrl: `${origin}${webhookPath(row.endpointId)}`, secretSet: row.sealedSecret !== null }),
-          },
-        ];
+        if (originOf(row) === "wake") return [];
+        const trigger = definitionOf(row, triggers);
+        return trigger ? [triggerView(row, trigger, origin)] : [];
       }),
     };
   });
 }
 
-/** The trigger `triggerId` of Agent `agentId`, locked with its Agent, or a 404. */
+/** The trigger `triggerId` of Agent `agentId`, locked with its Agent, or a 404. A booked wake is not one. */
 async function lockedTrigger(t: Tx, agentId: string, triggerId: string) {
   const agent = (await liveEnvironment(t, agentId, { lock: true })) ?? fail(404, `Agent ${agentId} not found`, { code: "not_found" });
   const row = await t.agentTrigger(agentId, triggerId, { lock: true });
-  const trigger = (await triggersOf(t, agent))[triggerId];
+  const trigger = row && originOf(row) !== "wake" ? definitionOf(row, await triggersOf(t, agent)) : undefined;
   if (!row || !trigger) return fail(404, `Agent ${agentId} has no trigger ${triggerId}`, { code: "not_found" });
   return { agent, row, trigger };
 }
@@ -592,9 +693,13 @@ export async function setTriggerStatus(
     const next = nextFireAt(agentId, triggerId, trigger, now, await readRuntimeLimits(t));
     // An `at` runs once: one that ran, or whose time passed, does not run again.
     if (trigger.at !== undefined && (next === null || row.status === "completed"))
-      fail(409, `Trigger ${triggerId} was due at ${trigger.at} and does not run again: save a manifest version with a new time.`, {
-        code: "trigger_expired",
-      });
+      fail(
+        409,
+        `Trigger ${triggerId} was due at ${trigger.at} and does not run again: ${
+          originOf(row) === "agent" ? "the agent creates it again with a new time" : "save a manifest version with a new time"
+        }.`,
+        { code: "trigger_expired" },
+      );
     const updated: AgentTriggerRow = {
       ...row,
       status: "active",
@@ -612,19 +717,37 @@ export async function setTriggerStatus(
 }
 
 /**
+ * `DELETE /v1/agents/{id}/triggers/{triggerId}` (D83): deletes a trigger one of the Agent's agents
+ * made (origin `agent`), with `agent.trigger_deleted`. A manifest's is the manifest's to drop
+ * (`409 trigger_from_manifest`); its runs stay.
+ */
+export async function deleteTrigger(ctx: TenantContext, agentId: string, triggerId: string, principal?: string): Promise<void> {
+  await ctx.store.tx(async (t) => {
+    const { row } = await lockedTrigger(t, agentId, triggerId);
+    if (originOf(row) !== "agent")
+      fail(409, `Trigger ${triggerId} is declared by the Agent's manifest: save a version without it, or pause it.`, {
+        code: "trigger_from_manifest",
+      });
+    await t.deleteAgentTrigger(agentId, triggerId);
+    await t.agentEvent(agentId, "agent.trigger_deleted", { triggerId, ...(principal === undefined ? {} : { principal }) });
+  });
+}
+
+/**
  * `POST .../triggers/{triggerId}/run`: runs it now, whatever its status, keyed by the request's
  * `Idempotency-Key`, so a retried request makes one run.
  */
 export async function runTriggerNow(ctx: TenantContext, agentId: string, triggerId: string, idempotencyKey: string): Promise<TriggerRun> {
-  return ctx.store.tx(async (t) => {
+  const run = await ctx.store.tx(async (t) => {
     const { agent, row, trigger } = await lockedTrigger(t, agentId, triggerId);
-    const run = await deliverRun(ctx, t, agent, triggerId, trigger, row, {
+    return deliverRun(ctx, t, agent, triggerId, trigger, row, {
       runKey: `manual:${triggerId}:${idempotencyKey}`,
       dueAt: new Date().toISOString(),
       late: false,
     });
-    return runView(run);
   });
+  await appendRuns(ctx, [run]);
+  return runView(run);
 }
 
 /** `GET /v1/agents/{id}/runs`: newest first, `limit` per page, after cursor `before`. */
@@ -708,7 +831,9 @@ export async function receiveWebhook(
     body: delivery.body.toString("base64"),
   });
   if (!verified) return unsigned();
-  return ctx.store.tx(async (t) => {
+  const runs: TriggerRunRow[] = [];
+  const answer = await ctx.store.tx(async (t) => {
+    runs.length = 0;
     const { agent, row, trigger } = await lockedTrigger(t, found.agentId, found.triggerId);
     const runKey = `webhook:${row.triggerId}:${id}`;
     const repeated = await t.triggerRunByKey(agent.id, runKey);
@@ -722,8 +847,11 @@ export async function receiveWebhook(
       payload: { body: delivery.body.toString("utf8"), contentType: delivery.contentType, receivedAt },
     });
     if (!repeated) await t.putAgentTrigger({ ...row, lastFireAt: receivedAt, updatedAt: receivedAt });
+    runs.push(run);
     return { runId: run.id, status: run.status, reason: run.reason };
   });
+  await appendRuns(ctx, runs);
+  return answer;
 }
 
 // ---------------------------------------------------------------------------
@@ -797,6 +925,8 @@ export async function serveRuntimeTool(t: Tx, s: Session, request: { effectId: s
     sessionId: s.id,
     note: input.note,
     effectId: request.effectId,
+    origin: "wake",
+    ...NO_AGENT_FIELDS,
     createdAt: existing?.createdAt ?? stamp,
     updatedAt: stamp,
   });

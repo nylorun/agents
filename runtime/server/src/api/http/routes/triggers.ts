@@ -2,12 +2,14 @@
  * An Agent's triggers and their runs (track T4, D74): read them, pause and resume one, run one now
  * (keyed by `Idempotency-Key`), and page the runs; make a webhook trigger's signing secret, and
  * take a sender's delivery at its endpoint (D75), an anonymous, unversioned route. What a trigger is lives in the Agent's manifest
- * (`runtime.triggers`); these routes change only what the Agent owns, its status.
+ * (`runtime.triggers`), or, for one its agents made with the `triggers` tool (D83), on the Agent:
+ * these routes change only what the Agent owns, its status, and delete an agent's trigger.
  */
 import type { OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 import { isAgentId } from "@nylorun/core/contracts";
 import {
+  DeletedResponse,
   RunTriggerResponse,
   TriggerList,
   TriggerRunPage,
@@ -17,6 +19,7 @@ import {
 import { assertReaches } from "../../../tenant/agents.js";
 import { fail } from "../../../tenant/http.js";
 import {
+  deleteTrigger,
   listRuns,
   listTriggers,
   receiveWebhook,
@@ -27,6 +30,7 @@ import {
 import { readRuntimeLimits } from "../../../tenant/runtime-limits.js";
 import { readBytes } from "../body.js";
 import type { TenantBindings, TenantEnv } from "../app.js";
+import type { AuthScope } from "../../../tenant/context.js";
 import { tenantRoute, type RouteAccess } from "../define.js";
 import { pageQuery, pageSize, parseQuery } from "./reads.js";
 import { jsonResponse } from "../respond.js";
@@ -48,8 +52,15 @@ const agentId = z.object({
   agentId: z.string().meta({ description: "The Agent id, percent-encoded" }),
 });
 const triggerPath = agentId.extend({
-  triggerId: z.string().meta({ description: "The trigger's id in the manifest's `runtime.triggers`" }),
+  triggerId: z.string().meta({ description: "The trigger's id: in the manifest's `runtime.triggers`, or the one its agent gave it" }),
 });
+
+/** Who a route call acts as, for the Agent's events: the principal (its subject), or the token's subject. */
+function principalOf(scope: AuthScope): string | undefined {
+  if (scope.kind === "token") return `${scope.issuer}:${scope.subject}`;
+  if (scope.kind === "subject") return `${scope.principalId}:${scope.subject}`;
+  return "principalId" in scope ? scope.principalId : undefined;
+}
 
 function idOf(value: string | undefined): string {
   if (!isAgentId(value))
@@ -67,7 +78,7 @@ export function triggerRoutes(api: OpenAPIHono<TenantEnv>): void {
       tags: ["Triggers"],
       summary: "List an Agent's triggers",
       description:
-        "Each trigger its manifest declares, with what the Agent holds of it: its status (`active`, `paused` with a reason, `completed` for an `at` that ran), when it runs next and last ran.",
+        "Each trigger its manifest declares, and each its agents made with the `triggers` tool (`origin: agent`, with the title and the session that made it), with what the Agent holds of it: its status (`active`, `paused` with a reason, `completed` for an `at` that ran), its prompt, when it runs next and last ran. A session's booked wake is not listed.",
       request: { params: agentId },
       responses: { 200: json(TriggerList, "The triggers") },
     },
@@ -103,6 +114,33 @@ export function triggerRoutes(api: OpenAPIHono<TenantEnv>): void {
         return jsonResponse(200, await setTriggerStatus(c.env.tenant, id, c.req.param("triggerId")!, action, originOf(c)));
       },
     );
+
+  tenantRoute(
+    api,
+    WRITE,
+    {
+      method: "delete",
+      path: "/v1/agents/{agentId}/triggers/{triggerId}",
+      tags: ["Triggers"],
+      summary: "Delete a trigger an agent made",
+      description:
+        "Deletes a trigger one of the Agent's agents made with the `triggers` tool (`origin: agent`), with `agent.trigger_deleted` on the Agent's events; its runs stay. A trigger its manifest declares is refused (`trigger_from_manifest`): save a version without it, or pause it.",
+      request: { params: triggerPath },
+      responses: {
+        200: json(DeletedResponse, "Deleted"),
+        404: { description: "The Agent has no such trigger" },
+        409: { description: "The manifest declares it (`trigger_from_manifest`)" },
+      },
+    },
+    async (c) => {
+      const id = idOf(c.req.param("agentId"));
+      const scope = c.get("scope");
+      assertReaches(scope, id);
+      const triggerId = c.req.param("triggerId")!;
+      await deleteTrigger(c.env.tenant, id, triggerId, principalOf(scope));
+      return jsonResponse(200, { id: triggerId });
+    },
+  );
 
   tenantRoute(
     api,

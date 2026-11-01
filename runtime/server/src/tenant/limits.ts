@@ -1,10 +1,12 @@
 /**
- * What artifacts, skills and disk versions may hold: the Tenant's limits (`artifacts.config`,
- * `skills.config` here, and the Runtime limits `diskVersion*` of `limits.config`), and an
- * Environment's, which its manifest sets (`limits`). A limit the manifest leaves out is the
- * Tenant's as it is when the limit is checked, and none is ever above the Tenant's: a manifest
- * asking for more is refused when the Environment is made, and a Tenant that lowers a limit
- * later lowers it for every Environment.
+ * What artifacts, skills and disk versions may hold, and how many triggers an agent may make and
+ * how often they run (D83): the Tenant's limits (`artifacts.config`, `skills.config` here, and the
+ * Runtime limits `diskVersion*`, `triggersPerAgent`, `triggerMinIntervalMs` and
+ * `triggerRunsPerHour` of `limits.config`), and an Environment's, which its manifest sets
+ * (`limits`). A limit the manifest leaves out is the Tenant's as it is when the limit is checked,
+ * and none is ever looser than the Tenant's (a trigger's minimum interval is never shorter): a
+ * manifest asking for more is refused when the Environment is made, and a Tenant that lowers a
+ * limit later lowers it for every Environment. Lowering a trigger limit deletes nothing.
  *
  * Also the shape a manifest and an Environment's labels must fit, which the Tenant's Runtime
  * limits set (`manifestShapeIssues`, `labelIssues`), checked when they are put rather than by
@@ -37,11 +39,41 @@ export interface DiskLimits {
   readonly versionEntries: number;
 }
 
-/** The limits an Environment's artifacts, skills and disk versions are held to. */
+/** How many triggers an Agent's agents may make, and how often its triggers run (D83). */
+export interface TriggerLimits {
+  /** The most triggers its agents may have made (`triggers` tool, origin `agent`). */
+  readonly count: number;
+  /** The shortest gap between two runs of one schedule, and the soonest an `at` or `in` may be. */
+  readonly minIntervalMs: number;
+  /** The most runs its triggers start or queue in any hour. */
+  readonly runsPerHour: number;
+}
+
+/** The limits an Environment's artifacts, skills and disk versions are held to, and its triggers. */
 export interface StorageLimits {
   readonly artifacts: ArtifactLimits;
   readonly skills: SkillLimits;
   readonly disk: DiskLimits;
+  readonly triggers: TriggerLimits;
+}
+
+/** The Tenant's trigger limits: its Runtime limits `triggersPerAgent`, `triggerMinIntervalMs`, `triggerRunsPerHour`. */
+export function tenantTriggerLimits(runtime: RuntimeLimits): TriggerLimits {
+  return { count: runtime.triggersPerAgent, minIntervalMs: runtime.triggerMinIntervalMs, runsPerHour: runtime.triggerRunsPerHour };
+}
+
+/**
+ * The trigger limits in force for an Environment whose manifest sets `set` (`limits.triggers`):
+ * the lower count and hourly runs, and the longer minimum interval, of its own and the Tenant's.
+ */
+export function triggerLimitsInForce(runtime: RuntimeLimits, set: EnvironmentLimits | undefined): TriggerLimits {
+  const tenant = tenantTriggerLimits(runtime);
+  const asked = set?.triggers;
+  return {
+    count: Math.min(asked?.count ?? tenant.count, tenant.count),
+    minIntervalMs: Math.max(asked?.minIntervalMs ?? tenant.minIntervalMs, tenant.minIntervalMs),
+    runsPerHour: Math.min(asked?.runsPerHour ?? tenant.runsPerHour, tenant.runsPerHour),
+  };
 }
 
 interface SettingsReader {
@@ -78,6 +110,7 @@ export async function readTenantLimits(t: SettingsReader): Promise<StorageLimits
     artifacts: await readArtifactLimits(t),
     skills: await readSkillLimits(t),
     disk: { versionBytes: runtime.diskVersionBytes, versionEntries: runtime.diskVersionEntries },
+    triggers: tenantTriggerLimits(runtime),
   };
 }
 
@@ -94,6 +127,11 @@ export function limitsInForce(tenant: StorageLimits, set: EnvironmentLimits | un
       versionBytes: within(set?.disk?.versionBytes, tenant.disk.versionBytes),
       versionEntries: within(set?.disk?.versionEntries, tenant.disk.versionEntries),
     },
+    triggers: {
+      count: within(set?.triggers?.count, tenant.triggers.count),
+      minIntervalMs: Math.max(set?.triggers?.minIntervalMs ?? tenant.triggers.minIntervalMs, tenant.triggers.minIntervalMs),
+      runsPerHour: within(set?.triggers?.runsPerHour, tenant.triggers.runsPerHour),
+    },
   };
 }
 
@@ -109,6 +147,18 @@ export function limitIssues(set: EnvironmentLimits | undefined, tenant: StorageL
   check("skills.totalBytes", set?.skills?.totalBytes, tenant.skills.totalBytes);
   check("disk.versionBytes", set?.disk?.versionBytes, tenant.disk.versionBytes);
   check("disk.versionEntries", set?.disk?.versionEntries, tenant.disk.versionEntries, "entries");
+  // Trigger limits (D83): the Tenant's Runtime limits, set with PUT /v1/tenant/limits.
+  const triggers = set?.triggers;
+  if (triggers?.count !== undefined && triggers.count > tenant.triggers.count)
+    issues.push(`limits.triggers.count asks for ${triggers.count} triggers; this Tenant allows at most ${tenant.triggers.count} (the Runtime limit triggersPerAgent).`);
+  if (triggers?.runsPerHour !== undefined && triggers.runsPerHour > tenant.triggers.runsPerHour)
+    issues.push(
+      `limits.triggers.runsPerHour asks for ${triggers.runsPerHour} runs an hour; this Tenant allows at most ${tenant.triggers.runsPerHour} (the Runtime limit triggerRunsPerHour).`,
+    );
+  if (triggers?.minIntervalMs !== undefined && triggers.minIntervalMs < tenant.triggers.minIntervalMs)
+    issues.push(
+      `limits.triggers.minIntervalMs asks for runs ${triggers.minIntervalMs} ms apart; this Tenant allows no less than ${tenant.triggers.minIntervalMs} ms (the Runtime limit triggerMinIntervalMs).`,
+    );
   return issues;
 }
 

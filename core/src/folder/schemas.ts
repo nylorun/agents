@@ -79,11 +79,12 @@ function fromZod(schema: z.ZodType, defs: Json, description?: string): Json {
 /**
  * A kind's revision within format 1, when its document gained an optional key (a published `$id`
  * names one document for good): `AGENT.md` took `model` (Host feature `agent-model`), published
- * as `agent-md.1.json`, then `format: agent-folder/2` and `engine` (ADR-100), as `agent-md.2.json`;
+ * as `agent-md.1.json`, then `format: agent-folder/2` and `engine` (ADR-100), as `agent-md.2.json`,
+ * then `engine.triggers` (D83), as `agent-md.3.json`;
  * `runtime.json` took a secret slot's `toolPrefix` (Host feature `secret-routing`), published as
- * `runtime.1.json`.
+ * `runtime.1.json`, then `limits.triggers` (D83), as `runtime.2.json`.
  */
-const REVISIONS: Partial<Record<AgentFolderSchemaKind, number>> = { "agent-md": 2, runtime: 1 };
+const REVISIONS: Partial<Record<AgentFolderSchemaKind, number>> = { "agent-md": 3, runtime: 2 };
 
 /** One document: its `$id` from its kind, then the body, then the `$defs` its parts named. */
 function document(kind: AgentFolderSchemaKind, title: string, description: string, body: Json, defs: Json): Json {
@@ -163,7 +164,7 @@ function agentMd(): Json {
     engine: {
       type: "object",
       description:
-        "agent-folder/2: the engine features the agent uses, and nothing else is added: sandbox (the sandbox tools), artifacts (read_artifact, save_artifact), outputs (the outputs folder), toolSearch (MCP tools deferred past the threshold), instructions (a block's wording, from a file under engine/)",
+        "agent-folder/2: the engine features the agent uses, and nothing else is added: sandbox (the sandbox tools), artifacts (read_artifact, save_artifact), outputs (the outputs folder), toolSearch (MCP tools deferred past the threshold), triggers (the triggers tool, the root agent's), instructions (a block's wording, from a file under engine/)",
       properties: {
         sandbox: {
           type: "array",
@@ -183,6 +184,10 @@ function agentMd(): Json {
         toolSearch: {
           type: "boolean",
           description: "Defer the MCP tools behind tool_search when their schemas pass the threshold; a server's own deferred applies either way",
+        },
+        triggers: {
+          type: "boolean",
+          description: "The triggers tool and its text: the agent sets up its own schedules and follow-ups, kept by the Agent; the root agent's only",
         },
         instructions: {
           type: "object",

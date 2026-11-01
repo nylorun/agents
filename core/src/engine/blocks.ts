@@ -31,6 +31,7 @@ export const ENGINE_BLOCK_VERSIONS: Readonly<Record<EngineBlockName, number>> = 
   outputs: 1,
   artifacts_read: 1,
   wake: 1,
+  triggers: 1,
   memory: 1,
   plan: 1,
   connection: 1,
@@ -98,6 +99,12 @@ export const ARTIFACTS_READ_TEXT =
 /** `wake`. */
 export const WAKE_TEXT =
   "You can book this session's next turn with schedule_wake, to check on something later or keep a routine going. Booking again replaces the booking you have.";
+
+/** `triggers` (D83): what the `triggers` tool is for, and where a trigger's runs go. */
+export const TRIGGERS_TEXT =
+  "You can set up triggers with the triggers tool, so the work goes on when nobody is here: a schedule (five-field cron, in a time zone), one time (at), or a delay (in, such as 30m, 2h or 1d), each with the prompt that will be your message when it runs. " +
+  "session: this runs it here, as a follow-up in this conversation; session: own runs it in a session of its own, kept across its runs. " +
+  "Use list to read back the triggers this session made, create with an id it already has to change one, and delete to remove one. A turn a trigger started can't create triggers.";
 
 /** `plan`. */
 export const PLAN_TEXT =
@@ -169,6 +176,8 @@ function templateOf(name: EngineBlockName): string {
       return ARTIFACTS_READ_TEXT;
     case "wake":
       return WAKE_TEXT;
+    case "triggers":
+      return TRIGGERS_TEXT;
     case "memory":
       return [memoryRules(true), memoryRules(true, false), memoryRules(false)].join("\n\n");
     case "plan":

@@ -10,8 +10,9 @@
  *   the artifact notes; the wake note; the memory rules; the plan and connection notes;
  * - tools: the sandbox tools; the skill tools; `save_artifact`; `read_artifact`;
  *   `schedule_wake` when the session's version sets `runtime.selfWake` (track T4); `memory`
- *   when it sets `harness.memory` (track T5); and, for the root agent, `update_plan` when it sets
- *   `harness.loop.plan` and `request_connection` when it sets `harness.loop.connections` (A2A
+ *   when it sets `harness.memory` (track T5); and, for the root agent, `triggers` when it
+ *   declares `harness.engine.triggers` (D83, `turn.start.agent.triggers`), `update_plan` when it
+ *   sets `harness.loop.plan` and `request_connection` when it sets `harness.loop.connections` (A2A
  *   profile v2).
  *
  * The code is `@nylorun/core/engine`'s (`engineProjection`), which the SDK's `previewTurn` runs
@@ -64,7 +65,9 @@ export interface EngineTools {
  * which may only view memory; `memory.index` false when no index is pinned. `plan` offers
  * `update_plan`: true for the session's root agent when the version sets `harness.loop.plan`
  * (`turn.start.loop.plan`); `connections` offers `request_connection` alike
- * (`harness.loop.connections`). An agent whose own tools name one of them keeps its own.
+ * (`harness.loop.connections`); `triggers` offers the `triggers` tool, for the root agent when the
+ * version declares `harness.engine.triggers` (`turn.start.agent.triggers`). An agent whose own
+ * tools name one of them keeps its own.
  */
 export function engineToolsFor(
   agent: Pick<AgentManifest, "skills" | "tools" | "engine">,
@@ -73,6 +76,7 @@ export function engineToolsFor(
   memory?: EngineMemory,
   plan = false,
   connections = false,
+  triggers = false,
 ): EngineTools {
-  return engineProjection(agent, runsOn, options, memory, plan, connections);
+  return engineProjection(agent, runsOn, options, memory, plan, connections, triggers);
 }

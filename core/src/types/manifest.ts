@@ -194,6 +194,8 @@ export interface HarnessEngine {
   readonly outputs?: boolean;
   /** MCP tools deferred behind `tool_search` when their schemas pass the threshold. */
   readonly toolSearch?: boolean;
+  /** The `triggers` tool and its text (D83): the root agent sets up its own triggers. */
+  readonly triggers?: boolean;
   /** A block's wording replaced by the folder's text, by block name. */
   readonly instructions?: Readonly<Partial<Record<EngineBlockName, string>>>;
   /** The engine text blocks the agent gets, each with its version and the hash of its text. */

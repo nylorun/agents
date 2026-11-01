@@ -710,6 +710,13 @@ async function heldCalls(t: Tx, effectIds: readonly string[]) {
         ...(row.server === undefined ? {} : { server: row.server }),
         ...(row.tool === undefined ? {} : { tool: row.tool }),
         input: request.input ?? null,
+        // What a client renders the approval from (D83): the tool's identity and the call's input.
+        metadata: {
+          tool: row.tool ?? toolName,
+          ...(row.toolKind === undefined ? {} : { kind: row.toolKind }),
+          ...(row.server === undefined ? {} : { server: row.server }),
+          input: request.input ?? null,
+        },
       },
       status: "interaction",
       toolName,

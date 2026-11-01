@@ -42,7 +42,8 @@
         "turns",
         "agent-model",
         "secret-routing",
-        "remove-tools"
+        "remove-tools",
+        "agent-triggers"
       ]
     },
     "description": "For developers: agent manifests, Agents, sessions (with AG-UI and A2A) and artifacts, through `@nylorun/agents`. Every Tenant serves it on its one URL, beside the Management API (`/openapi/management.json`). Every request sends `Nylorun-Protocol`. Who may call each operation is its `security` and its `x-nylorun-credentials` and `x-nylorun-scopes` (the subject scopes that reach it) fields: an application key (servers) or a trusted issuer's token (browsers and apps)."
@@ -8624,6 +8625,10 @@
             "type": "boolean",
             "description": "Defer MCP tools behind tool_search when their schemas pass the threshold"
           },
+          "triggers": {
+            "type": "boolean",
+            "description": "The triggers tool and its text: the root agent sets up its own triggers; never a subagent's"
+          },
           "instructions": {
             "type": "object",
             "properties": {
@@ -8652,6 +8657,10 @@
                 "minLength": 1
               },
               "wake": {
+                "type": "string",
+                "minLength": 1
+              },
+              "triggers": {
                 "type": "string",
                 "minLength": 1
               },
@@ -8689,6 +8698,7 @@
                     "outputs",
                     "artifacts_read",
                     "wake",
+                    "triggers",
                     "memory",
                     "plan",
                     "connection",
@@ -18629,6 +18639,24 @@
                             }
                           },
                           "additionalProperties": false
+                        },
+                        "triggers": {
+                          "type": "object",
+                          "properties": {
+                            "count": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0
+                            },
+                            "minIntervalMs": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0
+                            },
+                            "runsPerHour": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0
+                            }
+                          },
+                          "additionalProperties": false
                         }
                       },
                       "additionalProperties": false
@@ -19403,6 +19431,24 @@
                               "exclusiveMinimum": 0
                             },
                             "versionEntries": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0
+                            }
+                          },
+                          "additionalProperties": false
+                        },
+                        "triggers": {
+                          "type": "object",
+                          "properties": {
+                            "count": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0
+                            },
+                            "minIntervalMs": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0
+                            },
+                            "runsPerHour": {
                               "type": "integer",
                               "exclusiveMinimum": 0
                             }
@@ -20196,6 +20242,24 @@
                       }
                     },
                     "additionalProperties": false
+                  },
+                  "triggers": {
+                    "type": "object",
+                    "properties": {
+                      "count": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0
+                      },
+                      "minIntervalMs": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0
+                      },
+                      "runsPerHour": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0
+                      }
+                    },
+                    "additionalProperties": false
                   }
                 },
                 "additionalProperties": false
@@ -20843,6 +20907,9 @@
                     "agent.trigger_paused",
                     "agent.trigger_resumed",
                     "agent.trigger_secret_rotated",
+                    "agent.trigger_created",
+                    "agent.trigger_updated",
+                    "agent.trigger_deleted",
                     "agent.memory_updated"
                   ]
                 },
@@ -21512,6 +21579,24 @@
                                 "exclusiveMinimum": 0
                               },
                               "versionEntries": {
+                                "type": "integer",
+                                "exclusiveMinimum": 0
+                              }
+                            },
+                            "additionalProperties": false
+                          },
+                          "triggers": {
+                            "type": "object",
+                            "properties": {
+                              "count": {
+                                "type": "integer",
+                                "exclusiveMinimum": 0
+                              },
+                              "minIntervalMs": {
+                                "type": "integer",
+                                "exclusiveMinimum": 0
+                              },
+                              "runsPerHour": {
                                 "type": "integer",
                                 "exclusiveMinimum": 0
                               }
@@ -22421,6 +22506,26 @@
                     "wake"
                   ]
                 },
+                "origin": {
+                  "type": "string",
+                  "enum": [
+                    "manifest",
+                    "agent",
+                    "wake"
+                  ]
+                },
+                "title": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "createdSessionId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "status": {
                   "type": "string",
                   "enum": [
@@ -22464,11 +22569,17 @@
                 },
                 "secretSet": {
                   "type": "boolean"
+                },
+                "prompt": {
+                  "type": "string"
                 }
               },
               "required": [
                 "id",
                 "kind",
+                "origin",
+                "title",
+                "createdSessionId",
                 "status",
                 "pausedReason",
                 "session",
@@ -22661,6 +22772,115 @@
         "required": [
           "runs",
           "nextCursor"
+        ],
+        "additionalProperties": false
+      },
+      "TenantRunEvent": {
+        "type": "object",
+        "properties": {
+          "cursor": {
+            "type": "string"
+          },
+          "run": {
+            "type": "object",
+            "properties": {
+              "runId": {
+                "type": "string"
+              },
+              "agentId": {
+                "type": "string"
+              },
+              "triggerId": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "schedule",
+                  "at",
+                  "webhook",
+                  "wake"
+                ]
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "started",
+                  "queued",
+                  "skipped",
+                  "failed"
+                ]
+              },
+              "reason": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "sessionId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "turnId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "queuedMessageId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "dueAt": {
+                "type": "string"
+              },
+              "firedAt": {
+                "type": "string"
+              },
+              "late": {
+                "type": "boolean"
+              },
+              "origin": {
+                "type": "string",
+                "enum": [
+                  "manifest",
+                  "agent",
+                  "wake"
+                ]
+              },
+              "title": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "runId",
+              "agentId",
+              "triggerId",
+              "kind",
+              "status",
+              "reason",
+              "sessionId",
+              "turnId",
+              "queuedMessageId",
+              "dueAt",
+              "firedAt",
+              "late",
+              "origin",
+              "title"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "cursor",
+          "run"
         ],
         "additionalProperties": false
       },
@@ -23911,6 +24131,24 @@
                     "exclusiveMinimum": 0
                   },
                   "versionEntries": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  }
+                },
+                "additionalProperties": false
+              },
+              "triggers": {
+                "type": "object",
+                "properties": {
+                  "count": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  },
+                  "minIntervalMs": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  },
+                  "runsPerHour": {
                     "type": "integer",
                     "exclusiveMinimum": 0
                   }
@@ -31144,7 +31382,7 @@
           "Triggers"
         ],
         "summary": "List an Agent's triggers",
-        "description": "Each trigger its manifest declares, with what the Agent holds of it: its status (`active`, `paused` with a reason, `completed` for an `at` that ran), when it runs next and last ran.",
+        "description": "Each trigger its manifest declares, and each its agents made with the `triggers` tool (`origin: agent`, with the title and the session that made it), with what the Agent holds of it: its status (`active`, `paused` with a reason, `completed` for an `at` that ran), its prompt, when it runs next and last ran. A session's booked wake is not listed.",
         "security": [
           {
             "applicationKey": []
@@ -31316,10 +31554,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The trigger's id in the manifest's `runtime.triggers`"
+              "description": "The trigger's id: in the manifest's `runtime.triggers`, or the one its agent gave it"
             },
             "required": true,
-            "description": "The trigger's id in the manifest's `runtime.triggers`",
+            "description": "The trigger's id: in the manifest's `runtime.triggers`, or the one its agent gave it",
             "name": "triggerId",
             "in": "path"
           },
@@ -31468,10 +31706,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The trigger's id in the manifest's `runtime.triggers`"
+              "description": "The trigger's id: in the manifest's `runtime.triggers`, or the one its agent gave it"
             },
             "required": true,
-            "description": "The trigger's id in the manifest's `runtime.triggers`",
+            "description": "The trigger's id: in the manifest's `runtime.triggers`, or the one its agent gave it",
             "name": "triggerId",
             "in": "path"
           },
@@ -31620,10 +31858,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The trigger's id in the manifest's `runtime.triggers`"
+              "description": "The trigger's id: in the manifest's `runtime.triggers`, or the one its agent gave it"
             },
             "required": true,
-            "description": "The trigger's id in the manifest's `runtime.triggers`",
+            "description": "The trigger's id: in the manifest's `runtime.triggers`, or the one its agent gave it",
             "name": "triggerId",
             "in": "path"
           },
@@ -31718,6 +31956,151 @@
                 }
               }
             }
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/agents/{agentId}/triggers/{triggerId}": {
+      "delete": {
+        "tags": [
+          "Triggers"
+        ],
+        "summary": "Delete a trigger an agent made",
+        "description": "Deletes a trigger one of the Agent's agents made with the `triggers` tool (`origin: agent`), with `agent.trigger_deleted` on the Agent's events; its runs stay. A trigger its manifest declares is refused (`trigger_from_manifest`): save a version without it, or pause it.",
+        "security": [
+          {
+            "applicationKey": []
+          },
+          {
+            "issuerToken": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "application",
+          "subject",
+          "token"
+        ],
+        "x-nylorun-scopes": [
+          "agents:write"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The Agent id, percent-encoded"
+            },
+            "required": true,
+            "description": "The Agent id, percent-encoded",
+            "name": "agentId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The trigger's id: in the manifest's `runtime.triggers`, or the one its agent gave it"
+            },
+            "required": true,
+            "description": "The trigger's id: in the manifest's `runtime.triggers`, or the one its agent gave it",
+            "name": "triggerId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `18`"
+            },
+            "required": true,
+            "description": "The protocol version, `18`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The person an application key acts for"
+            },
+            "required": false,
+            "description": "The person an application key acts for",
+            "name": "Nylorun-Subject",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The subject's space-separated scopes; required with a subject"
+            },
+            "required": false,
+            "description": "The subject's space-separated scopes; required with a subject",
+            "name": "Nylorun-Scopes",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeletedResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid headers, path, body or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No credential (`credential_required`), one the Tenant does not accept (`credential_invalid`), a token that expired (`token_expired`), or a token whose issuer's keys cannot be fetched now (`issuer_unavailable`). `WWW-Authenticate: Bearer` names the protected resource metadata (`resource_metadata`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The Agent has no such trigger"
+          },
+          "409": {
+            "description": "The manifest declares it (`trigger_from_manifest`)"
           },
           "426": {
             "description": "`Nylorun-Protocol` missing or unsupported",
@@ -31912,6 +32295,117 @@
         }
       }
     },
+    "/v1/runs/stream": {
+      "get": {
+        "tags": [
+          "Triggers"
+        ],
+        "summary": "Follow the Tenant's runs",
+        "description": "Server-sent events, one `event: run` per run of any Agent's triggers, with its cursor as `id`, from the cursor on (`?cursor=` or `Last-Event-ID`; none reads from the oldest run the stream keeps, 7 days). The data is `{cursor, run}`: the run as the Agent's runs list it, with its Agent and its trigger's origin and title. A run may arrive twice: drop a `runId` you have seen. A cursor from before the Tenant's reset is refused (`cursor_expired`): read again without one. A `: keepalive` comment every 15 seconds.",
+        "security": [
+          {
+            "applicationKey": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "application"
+        ],
+        "x-nylorun-scopes": [
+          "agents:read",
+          "agents:write"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The cursor of the last run read: the stream goes on after it"
+            },
+            "required": false,
+            "description": "The cursor of the last run read: the stream goes on after it",
+            "name": "cursor",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `18`"
+            },
+            "required": true,
+            "description": "The protocol version, `18`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The runs",
+            "content": {
+              "text/event-stream": {
+                "itemSchema": {
+                  "$ref": "#/components/schemas/TenantRunEvent"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Not a cursor of the runs stream (`invalid_cursor`)"
+          },
+          "401": {
+            "description": "No credential (`credential_required`), or one the Tenant does not accept (`credential_invalid`), with a `WWW-Authenticate: Bearer` challenge",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "A cursor from before the Tenant's reset (`cursor_expired`)"
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/agents/{agentId}/triggers/{triggerId}/secret": {
       "post": {
         "tags": [
@@ -31949,10 +32443,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The trigger's id in the manifest's `runtime.triggers`"
+              "description": "The trigger's id: in the manifest's `runtime.triggers`, or the one its agent gave it"
             },
             "required": true,
-            "description": "The trigger's id in the manifest's `runtime.triggers`",
+            "description": "The trigger's id: in the manifest's `runtime.triggers`, or the one its agent gave it",
             "name": "triggerId",
             "in": "path"
           },
@@ -39142,7 +39636,7 @@
     },
     {
       "name": "Triggers",
-      "description": "What starts an Agent's turns with no client connected: the schedules, one-shot times and webhook endpoints its manifest's `runtime.triggers` declare. Each trigger's status is the Agent's: pause and resume it, run it now, make a webhook trigger's signing secret, and read its runs (`started`, `queued`, `skipped` or `failed`, with a reason). In `@nylorun/agents` and `nylorun agents triggers`."
+      "description": "What starts an Agent's turns with no client connected: the schedules, one-shot times and webhook endpoints its manifest's `runtime.triggers` declare, and the schedules and follow-ups its agents set up with the `triggers` tool (`engine.triggers`). Each trigger's status is the Agent's: pause and resume it, run it now, delete one an agent made, make a webhook trigger's signing secret, and read its runs (`started`, `queued`, `skipped` or `failed`, with a reason), an Agent's or the whole Tenant's as a stream. In `@nylorun/agents` and `nylorun agents triggers`."
     },
     {
       "name": "Memory",

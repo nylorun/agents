@@ -6,10 +6,10 @@
  * One order keeps the prompt's prefix stable:
  *
  * - text: `skills` (the usage and the catalog); `sandbox`; `skill_folder`; `artifacts_save` and
- *   `outputs`; `artifacts_read`; `wake`; `memory`, then the agent's memory instructions; `plan`;
- *   `connection`;
+ *   `outputs`; `artifacts_read`; `wake`; `triggers`; `memory`, then the agent's memory
+ *   instructions; `plan`; `connection`;
  * - tools: the sandbox tools; the skill tools; `save_artifact`; `read_artifact`; `schedule_wake`;
- *   `memory`; `update_plan`; `request_connection`.
+ *   `triggers`; `memory`; `update_plan`; `request_connection`.
  *
  * They come after the agent's own and before the session's MCP tools (`mcpToolSet`), and are
  * not hashed.
@@ -27,6 +27,7 @@ import {
   OUTPUTS_TEXT,
   PLAN_TEXT,
   SKILLS_USAGE,
+  TRIGGERS_TEXT,
   WAKE_TEXT,
   formatSkillCatalog,
   memoryRules,
@@ -39,6 +40,7 @@ import { engineFeaturesOf, type EngineFeatures } from "./features.js";
 import {
   DEFAULT_SANDBOX_TOOL_LIMITS,
   REQUEST_CONNECTION_TOOL,
+  TRIGGERS_TOOL,
   UPDATE_PLAN_TOOL,
   artifactTools,
   connectionToolOf,
@@ -46,6 +48,7 @@ import {
   planToolOf,
   sandboxTools,
   skillTools,
+  triggersToolOf,
   wakeToolOf,
   type EngineTool,
   type SandboxToolLimits,
@@ -96,8 +99,10 @@ export interface EngineProjection {
  * with its memory (`turn.start.memory`). `memory.root` is false for an agent used as a tool,
  * which may only view memory. `plan` offers `update_plan`: true for the session's root agent when
  * the version sets `harness.loop.plan`; `connections` offers `request_connection` alike
- * (`harness.loop.connections`). An agent whose own tools name one of them keeps its own. What the
- * agent declares (`agent.engine`) decides the rest; a block it replaces is in its words.
+ * (`harness.loop.connections`). An agent whose own tools name one of them keeps its own.
+ * `triggers` offers the `triggers` tool and its text (D83): true for the session's root agent when
+ * the version declares `harness.engine.triggers` (`turn.start.agent.triggers`). What the agent
+ * declares (`agent.engine`) decides the rest; a block it replaces is in its words.
  */
 export function engineProjection(
   agent: Pick<AgentManifest, "skills" | "tools" | "engine">,
@@ -106,6 +111,7 @@ export function engineProjection(
   memory?: EngineMemory,
   plan = false,
   connections = false,
+  triggers = false,
 ): EngineProjection {
   const skills = Object.values(agent.skills ?? {});
   const workspace = runsOn?.sandbox?.workspace;
@@ -145,6 +151,13 @@ export function engineProjection(
     use("wake");
     instructions.push(text("wake", WAKE_TEXT));
   }
+  // The triggers the agent sets up itself (D83): the root agent's, when the version declares them.
+  const own = (name: string) => (agent.tools ?? []).some((tool) => tool.name === name);
+  const triggering = triggers && !own(TRIGGERS_TOOL);
+  if (triggering) {
+    use("triggers");
+    instructions.push(text("triggers", TRIGGERS_TEXT));
+  }
   // The Agent's memory (track T5, D72).
   const writes = memory !== undefined && memory.root && memory.access === "read_write";
   if (memory) {
@@ -155,7 +168,6 @@ export function engineProjection(
     instructions.push([rules, ...(memory.instructions ? [`Memory instructions for this agent:\n${memory.instructions}`] : [])].join("\n\n"));
   }
   // The agent's plan (A2A profile v2, `progress/v1`).
-  const own = (name: string) => (agent.tools ?? []).some((tool) => tool.name === name);
   const planning = plan && !own(UPDATE_PLAN_TOOL);
   if (planning) {
     use("plan");
@@ -176,6 +188,7 @@ export function engineProjection(
         { pageBytes: options.artifactPageBytes },
       ),
       ...(wake ? [wakeToolOf()] : []),
+      ...(triggering ? [triggersToolOf()] : []),
       ...(memory ? [memoryToolOf(writes)] : []),
       ...(planning ? [planToolOf()] : []),
       ...(connecting ? [connectionToolOf()] : []),

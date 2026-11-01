@@ -187,8 +187,9 @@ describe("agent folder JSON Schemas", () => {
   });
 
   it("are published at the $id the compiler takes in $schema and nylorun init maps", () => {
-    // AGENT.md gained `model`, then `engine` (ADR-100): revision 2; runtime.json a slot's `toolPrefix`: revision 1.
-    const revision: Record<string, string> = { "agent-md": ".2", runtime: ".1" };
+    // AGENT.md gained `model`, then `engine` (ADR-100), then `engine.triggers` (D83): revision 3;
+    // runtime.json a slot's `toolPrefix`, then `limits.triggers` (D83): revision 2.
+    const revision: Record<string, string> = { "agent-md": ".3", runtime: ".2" };
     for (const kind of AGENT_FOLDER_SCHEMA_KINDS)
       expect(SCHEMAS[kind].$id).toBe(`https://docs.nylorun.com/schemas/agent-folder/v1/${kind}${revision[kind] ?? ""}.json`);
     for (const [kind, urls] of Object.entries(SCHEMA_URLS)) expect(urls[0], kind).toBe(SCHEMAS[kind as keyof typeof SCHEMA_URLS].$id);

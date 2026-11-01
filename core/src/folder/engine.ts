@@ -11,6 +11,7 @@
  *   artifacts: { read: true, save: false }          # save needs a computer
  *   outputs: true                                   # save /workspace/outputs when a turn ends; needs a computer
  *   toolSearch: false                               # no automatic deferral; a server's own `deferred` still applies
+ *   triggers: true                                  # the triggers tool and its text (D83); the root agent's only
  *   instructions:                                   # a block's wording, replaced by a file under engine/
  *     memory: engine/memory.md
  * ```
@@ -30,7 +31,7 @@ import { suggestion } from "./suggest.js";
 import type { ReportOptions } from "./context.js";
 
 /** The keys of `AGENT.md`'s `engine:` block. */
-export const ENGINE_KEYS = ["sandbox", "artifacts", "outputs", "toolSearch", "instructions"] as const;
+export const ENGINE_KEYS = ["sandbox", "artifacts", "outputs", "toolSearch", "triggers", "instructions"] as const;
 const ARTIFACT_KEYS = ["read", "save"] as const;
 /** Where a folder keeps the files that replace a block's wording. */
 export const ENGINE_TEXT_DIR = "engine";
@@ -165,6 +166,17 @@ export function engineDeclarations(
       engine.toolSearch = value.toolSearch;
     }
   }
+  // triggers: the root agent's (D83). A subagent whose parent declares them is refused in
+  // `nested.ts`; one whose parent does not, here.
+  if (value.triggers !== undefined) {
+    const at = ["engine", "triggers"];
+    if (typeof value.triggers !== "boolean")
+      fail("value_invalid", "engine.triggers is true or false: true offers the agent the triggers tool, to set up its own schedules and follow-ups", at);
+    else {
+      if (role === "subagent" && value.triggers && parent?.triggers !== true) subset("engine.triggers is true", at);
+      engine.triggers = value.triggers;
+    }
+  }
   if (value.instructions !== undefined) {
     const at = ["engine", "instructions"];
     if (!isObject(value.instructions))
@@ -206,7 +218,8 @@ export function engineDeclarations(
 /**
  * The text blocks an agent gets, from what it declares and what the folder says of its session:
  * whether its runtime has a computer and sets `selfWake`, its skills, memory and loop settings,
- * and whether its MCP tools may be deferred. The harness's own projection decides them
+ * whether it is the root agent declaring `engine.triggers`, and whether its MCP tools may be
+ * deferred. The harness's own projection decides them
  * (`engineProjection`), so the list is what a session's system text holds.
  */
 export function engineBlocksOf(
@@ -222,6 +235,8 @@ export function engineBlocksOf(
     readonly memory?: { readonly root: boolean; readonly access?: "read_write" | "read_only"; readonly index?: boolean };
     readonly plan: boolean;
     readonly connections: boolean;
+    /** The root agent declares `engine.triggers` (D83). */
+    readonly triggers?: boolean;
   },
 ): EngineBlockName[] {
   const projection = engineProjection(
@@ -231,6 +246,7 @@ export function engineBlocksOf(
     facts.memory && { access: facts.memory.access ?? "read_write", root: facts.memory.root, index: facts.memory.index !== false },
     facts.plan,
     facts.connections,
+    facts.triggers === true,
   );
   const names = projection.blocks.map((block) => block.name);
   const servers = Object.values(agent.mcpServers ?? {});

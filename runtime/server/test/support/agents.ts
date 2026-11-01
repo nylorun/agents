@@ -39,6 +39,8 @@ export interface ManifestOptions {
   memory?: AgentMemorySettings;
   /** The harness section's `model`, `<provider>/<model>` (Host feature `agent-model`). */
   model?: string;
+  /** The harness section's `engine` (ADR-100): the engine features the agent declares. */
+  engine?: { readonly triggers?: boolean } & Record<string, unknown>;
 }
 
 /** The agent manifest v8 a loop manifest makes, with its id as the name unless `name` is given. */
@@ -55,6 +57,7 @@ export function manifestOf(source: AgentSource, options: ManifestOptions = {}): 
       ...(options.loop === undefined ? {} : { loop: options.loop }),
       ...(options.memory === undefined ? {} : { memory: options.memory }),
       ...(options.model === undefined ? {} : { model: options.model }),
+      ...(options.engine === undefined ? {} : { engine: options.engine }),
     },
     ...(options.runtime === undefined ? {} : { runtime: options.runtime }),
   } as AgentManifestV8;

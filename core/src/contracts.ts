@@ -359,6 +359,10 @@ export const HarnessEngineSchema = z
       .boolean()
       .optional()
       .meta({ description: "Defer MCP tools behind tool_search when their schemas pass the threshold" }),
+    triggers: z
+      .boolean()
+      .optional()
+      .meta({ description: "The triggers tool and its text: the root agent sets up its own triggers; never a subagent's" }),
     instructions: z
       .partialRecord(z.enum(ENGINE_BLOCK_NAMES), z.string().min(1))
       .optional()
@@ -926,6 +930,21 @@ export const EnvironmentLimitsSchema = z
       })
       .strict()
       .optional(),
+    /**
+     * Its triggers (D83), within the Tenant's Runtime limits `triggersPerAgent`,
+     * `triggerMinIntervalMs` and `triggerRunsPerHour`: lowering one deletes nothing.
+     */
+    triggers: z
+      .object({
+        /** The most triggers its agents may make with the `triggers` tool; at most `triggersPerAgent`. */
+        count: z.number().int().positive().optional(),
+        /** The shortest gap between two runs of a schedule its agents make; at least `triggerMinIntervalMs`. */
+        minIntervalMs: z.number().int().positive().optional(),
+        /** The most runs its triggers start or queue in any hour; at most `triggerRunsPerHour`. */
+        runsPerHour: z.number().int().positive().optional(),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 export type EnvironmentLimits = z.infer<typeof EnvironmentLimitsSchema>;
@@ -1353,6 +1372,10 @@ export const AGENT_EVENT_TYPES = [
   "agent.trigger_paused",
   "agent.trigger_resumed",
   "agent.trigger_secret_rotated",
+  // Triggers an agent made with the triggers tool (D83), and one deleted by an agent or a person.
+  "agent.trigger_created",
+  "agent.trigger_updated",
+  "agent.trigger_deleted",
   // Memory (track T5, D72): a turn changed the Agent's memories.
   "agent.memory_updated",
 ] as const;
@@ -1448,6 +1471,35 @@ export const AGENT_EVENT_PAYLOADS = {
   "agent.trigger_resumed": z.object({ triggerId: z.string() }).passthrough(),
   /** A webhook trigger's signing secret was made or replaced; the one before stopped working. */
   "agent.trigger_secret_rotated": z.object({ triggerId: z.string() }).passthrough(),
+  /**
+   * An agent made a trigger with the `triggers` tool (D83), or replaced one with the same id
+   * (`agent.trigger_updated`): the session whose agent made it (`sessionId`), the session it runs
+   * in (`session`), its title and its next run.
+   */
+  "agent.trigger_created": z
+    .object({
+      triggerId: z.string(),
+      kind: z.enum(["schedule", "at"]),
+      sessionId: z.string(),
+      session: z.string(),
+      title: z.string().optional(),
+      nextRunAt: z.string().nullable(),
+    })
+    .passthrough(),
+  "agent.trigger_updated": z
+    .object({
+      triggerId: z.string(),
+      kind: z.enum(["schedule", "at"]),
+      sessionId: z.string(),
+      session: z.string(),
+      title: z.string().optional(),
+      nextRunAt: z.string().nullable(),
+    })
+    .passthrough(),
+  /** A trigger an agent made was deleted: by an agent of `sessionId`, or over the API (`principal`). */
+  "agent.trigger_deleted": z
+    .object({ triggerId: z.string(), sessionId: z.string().optional(), principal: z.string().optional() })
+    .passthrough(),
   /** A turn changed the Agent's memories (`memory.updated` in its session): which, and how. */
   "agent.memory_updated": MemoryUpdatedPayloadSchema.extend({ sessionId: z.string(), turnId: z.string() }),
 } as const satisfies Record<AgentEventType, z.ZodType>;
@@ -2131,12 +2183,28 @@ export function triggerKindOf(trigger: Trigger): Exclude<TriggerKind, "wake"> {
  * `manual`, or `new` for one an upgrade added), `completed` is an `at` that ran.
  */
 export const TRIGGER_STATUSES = ["active", "paused", "completed"] as const;
-/** `GET /v1/agents/{id}/triggers`: one trigger, from its manifest entry and the Agent's state. */
+/**
+ * Where a trigger's definition comes from (D83): `manifest` (the version's `runtime.triggers`),
+ * `agent` (made by an agent of the Agent's sessions with the `triggers` tool, kept by the Agent)
+ * or `wake` (a session's booked wake, never listed).
+ */
+export const TRIGGER_ORIGINS = ["manifest", "agent", "wake"] as const;
+export type TriggerOrigin = (typeof TRIGGER_ORIGINS)[number];
+/**
+ * `GET /v1/agents/{id}/triggers`: one trigger, from its manifest entry (or, for one an agent made,
+ * its own definition) and the Agent's state.
+ */
 export const TriggerViewSchema = z
   .object({
     id: z.string(),
     kind: z.enum(TRIGGER_KINDS),
+    origin: z.enum(TRIGGER_ORIGINS),
+    /** The title an agent gave a trigger it made; null for a manifest's. */
+    title: z.string().nullable(),
+    /** The session whose agent made it; null for a manifest's. */
+    createdSessionId: z.string().nullable(),
     status: z.enum(TRIGGER_STATUSES),
+    /** `manual`, `new` for one an upgrade added, `undeclared` for an agent's while the version lacks `engine.triggers`. */
     pausedReason: z.string().nullable(),
     schedule: z.string().optional(),
     timezone: z.string().optional(),
@@ -2153,10 +2221,70 @@ export const TriggerViewSchema = z
     webhookUrl: z.string().optional(),
     /** Whether a webhook trigger has a signing secret (`POST .../secret` makes one). */
     secretSet: z.boolean().optional(),
+    /** What each run sends as its message: the definition's prompt. */
+    prompt: z.string().optional(),
   })
   .strict();
 export type TriggerView = z.infer<typeof TriggerViewSchema>;
 export const TriggerListSchema = z.object({ triggers: z.array(TriggerViewSchema) }).strict();
+
+/** `in` of the `triggers` tool (D83): a delay in minutes, hours or days, such as `30m`, `2h`, `1d`. */
+export const TRIGGER_DELAY_PATTERN = /^[1-9][0-9]*(m|h|d)$/;
+/** The longest title an agent gives a trigger it makes. */
+export const TRIGGER_TITLE_MAX = 80;
+/** Where an agent-made trigger runs: the calling session (`this`), or a session of its own (`own`). */
+export const TRIGGER_TOOL_SESSIONS = ["this", "own"] as const;
+const triggerCreateSchema = z
+  .strictObject({
+    command: z.literal("create"),
+    id: TriggerIdSchema,
+    title: z.string().min(1).max(TRIGGER_TITLE_MAX).optional(),
+    schedule: TriggerSchema.shape.schedule,
+    timezone: z.string().min(1).optional(),
+    at: TriggerSchema.shape.at,
+    in: z.string().regex(TRIGGER_DELAY_PATTERN, { message: "in is a delay such as 30m, 2h or 1d" }).optional(),
+    session: z.enum(TRIGGER_TOOL_SESSIONS),
+    prompt: z.string().min(1),
+  })
+  .superRefine((input, ctx) => {
+    if ([input.schedule, input.at, input.in].filter((value) => value !== undefined).length !== 1)
+      ctx.addIssue({ code: "custom", message: "Give exactly one of schedule, at or in" });
+    if (input.timezone !== undefined && input.schedule === undefined)
+      ctx.addIssue({ code: "custom", path: ["timezone"], message: "timezone goes with schedule" });
+  });
+/**
+ * A call of the `triggers` tool (D83), which the Runtime serves for an agent whose version
+ * declares `engine.triggers`: `list` the triggers the calling session made; `create` one (or
+ * replace the session's own with the same `id`) with exactly one of `schedule` (with `timezone`),
+ * `at` or `in`, the `session` it runs in and its `prompt`; `delete` one by `id`.
+ */
+export const TriggerToolInputSchema = z.discriminatedUnion("command", [
+  z.strictObject({ command: z.literal("list") }),
+  triggerCreateSchema,
+  z.strictObject({ command: z.literal("delete"), id: TriggerIdSchema }),
+]);
+export type TriggerToolInput = z.infer<typeof TriggerToolInputSchema>;
+/** One trigger as the `triggers` tool lists it. */
+export const TriggerToolItemSchema = z
+  .strictObject({
+    id: z.string(),
+    title: z.string().nullable(),
+    status: z.enum(TRIGGER_STATUSES),
+    schedule: z.string().optional(),
+    timezone: z.string().optional(),
+    at: z.string().optional(),
+    /** The session it runs in: the calling session's id, or its own (`<session>_t_<id>`). */
+    session: z.string(),
+    nextRunAt: z.string().nullable(),
+    prompt: z.string(),
+  });
+/** What a `triggers` call answers: the trigger made, the list, or the one deleted. */
+export const TriggerToolOutputSchema = z.union([
+  z.strictObject({ id: z.string(), status: z.enum(TRIGGER_STATUSES), nextRunAt: z.string().nullable(), session: z.string() }),
+  z.strictObject({ triggers: z.array(TriggerToolItemSchema) }),
+  z.strictObject({ id: z.string(), deleted: z.literal(true) }),
+]);
+export type TriggerToolOutput = z.infer<typeof TriggerToolOutputSchema>;
 /**
  * What a run came to: `started` a turn, `queued` a message behind a running turn,
  * `skipped` (nothing started: `overlap`, `rate_limited`, `paused`) or `failed` (`queue_full`,
@@ -2182,6 +2310,35 @@ export const TriggerRunSchema = z
   })
   .strict();
 export type TriggerRun = z.infer<typeof TriggerRunSchema>;
+/**
+ * One run on the Tenant's runs stream (D83, `GET /v1/runs/stream`): a run of any Agent's
+ * triggers, as `TriggerRunSchema` has it, with its Agent and its trigger's origin and title. A
+ * run may arrive twice (after a crash between append and mark); a reader drops a `runId` it has
+ * seen.
+ */
+export const TenantRunSchema = z
+  .object({
+    runId: z.string(),
+    agentId: z.string(),
+    triggerId: z.string(),
+    kind: z.enum(TRIGGER_KINDS),
+    status: z.enum(TRIGGER_RUN_STATUSES),
+    reason: z.string().nullable(),
+    sessionId: z.string().nullable(),
+    turnId: z.string().nullable(),
+    queuedMessageId: z.string().nullable(),
+    dueAt: z.string(),
+    firedAt: z.string(),
+    late: z.boolean(),
+    origin: z.enum(TRIGGER_ORIGINS),
+    /** The title an agent gave the trigger; null for a manifest's or a wake. */
+    title: z.string().nullable(),
+  })
+  .strict();
+export type TenantRun = z.infer<typeof TenantRunSchema>;
+/** One event of `GET /v1/runs/stream` (`event: run`): the run, and the cursor to resume after it. */
+export const TenantRunEventSchema = z.object({ cursor: z.string(), run: TenantRunSchema }).strict();
+export type TenantRunEvent = z.infer<typeof TenantRunEventSchema>;
 /** `GET /v1/agents/{id}/runs`: runs, newest first. */
 export const TriggerRunPageSchema = z
   .object({ runs: z.array(TriggerRunSchema), nextCursor: z.string().nullable() })
@@ -5119,10 +5276,12 @@ export const ToolInputConditionSchema = z
 export type ToolInputCondition = z.infer<typeof ToolInputConditionSchema>;
 /**
  * One rule of the Tenant's tool policy, applied at the Tool Gate to every MCP and HTTP tool call
- * of every harness. A rule matches a call when every selector it sets matches: `tool` (the tool's
- * identity: an MCP tool's own name on its server, or an HTTP tool's declared name; never the name
- * a harness gave the model; `*` for any run of characters), `server` (an MCP server's name),
- * `kind`, `agent` (the agent that calls it: the agent manifest's name, or the id of an agent used
+ * of every harness, and to the operations the Runtime serves itself (`kind: "runtime"`, D83). A
+ * rule matches a call when every selector it sets matches: `tool` (the tool's identity: an MCP
+ * tool's own name on its server, an HTTP tool's declared name, or a runtime operation:
+ * `triggers`, `memory`, `schedule_wake`; never the name a harness gave the model; `*` for any run
+ * of characters), `server` (an MCP server's name), `kind` (a runtime operation matches only a rule
+ * that names `kind: "runtime"`), `agent` (the agent that calls it: the agent manifest's name, or the id of an agent used
  * as a tool or of a flow's agent; never an Agent's id; the session's root agent's name matches its
  * subagents' calls too, those of the agents it uses as tools) and `when` (fields of the input, by
  * dotted path). The strictest matching rule decides: `deny` refuses the call before it is sent,
@@ -5146,7 +5305,10 @@ export const ToolRuleSchema = z
           "The tool's identity: an MCP tool's own name on its `server`, or an HTTP tool's declared name, never the name the model calls it by. `*` matches any run of characters; a name with `__` in it is refused",
       }),
     server: z.string().min(1).optional().meta({ description: "An MCP server's name; `*` matches any run of characters" }),
-    kind: z.enum(["mcp", "http"]).optional(),
+    kind: z
+      .enum(["mcp", "http", "runtime"])
+      .optional()
+      .meta({ description: "mcp, http, or runtime: an operation the Runtime serves itself (triggers, memory, schedule_wake), which only a rule naming it matches" }),
     agent: z
       .string()
       .min(1)
@@ -5164,6 +5326,8 @@ export const ToolRuleSchema = z
   })
   .strict()
   .superRefine((rule, ctx) => {
+    if (rule.kind === "runtime" && rule.server !== undefined)
+      ctx.addIssue({ code: "custom", path: ["server"], message: "A runtime operation has no server: leave server out of a rule of kind runtime" });
     if (rule.tool !== undefined && rule.tool.includes("__"))
       ctx.addIssue({
         code: "custom",

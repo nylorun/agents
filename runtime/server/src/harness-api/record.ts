@@ -65,8 +65,10 @@ import { redactTokens } from "./redact.js";
 import { toolCallDecision } from "../gates/policy.js";
 import type { Tx } from "../store/types.js";
 import { traceKey } from "../traces/key.js";
-import { serveRuntimeTool } from "../tenant/triggers.js";
+import { armTrigger, serveRuntimeTool } from "../tenant/triggers.js";
+import { serveTriggersTool, triggersRefusal } from "../tenant/agent-triggers.js";
 import { serveMemoryTool } from "../memory/tool.js";
+import type { AgentTriggerRow } from "../store/types.js";
 import { effectSpanOf, traceparentOf, turnTraceIdOf, type TraceKey } from "../traces/ids.js";
 import {
   firstSend,
@@ -122,7 +124,10 @@ export async function recordIntent(
   const request = effect as HostEffect;
   // Read before the transaction: the first read of the Tenant may create the key.
   const key = await traceKey(ctx.store);
+  /** Triggers a `triggers` call wrote (D83): armed once the transaction commits. */
+  const toArm: AgentTriggerRow[] = [];
   const answer = await ctx.store.tx(async (t): Promise<IntentAnswer | "flow"> => {
+    toArm.length = 0;
     const s = await ownedSession(t, lease, request.sessionId);
     if (s.status === "cancelled" || s.activeTurnId !== request.turnId) throw TURN_CANCELLED();
     // A tool call's span context (R7.4), kept on its row.
@@ -138,6 +143,15 @@ export async function recordIntent(
       // to join it or collect its outcome (P1.2).
       if (existing.status === "invoking" && request.kind === "model" && recoversModelCalls(ctx))
         return { status: "execute", rejoin: true };
+      // An operation the Runtime serves that a person approved while it was held (D83): served
+      // now, as the turn resumes, in this transaction; never resent.
+      if (
+        existing.status === "invoking" &&
+        existing.request.kind === "tool" &&
+        (existing.request as HostEffect).target?.kind === "runtime" &&
+        existing.approval?.approved === true
+      )
+        return { status: "completed", outcome: await serveRuntimeRow(t, s, existing, scope, toArm) };
       // A tool call a crash, a shutdown or a lost gate hop interrupted (R5.3, R5.4).
       if (existing.status === "invoking" && existing.request.kind === "tool")
         return resend(t, s, existing, recoversToolCalls(ctx));
@@ -207,13 +221,19 @@ export async function recordIntent(
     const agentManifest = manifestFor(s.manifest, request.agent);
     if (!agentManifest) throw new Error(`Agent '${request.agent?.id ?? ""}' is not used as a tool`);
     // An operation the Runtime serves itself (track T4): settled here, in the call's own
-    // transaction, keyed by its effect id, so a replay finds it completed.
+    // transaction, keyed by its effect id, so a replay finds it completed. The Tenant's tool
+    // policy decides it first (D83): a rule of kind `runtime` may deny it or hold it for a person.
     if (request.kind === "tool" && request.target?.kind === "runtime") {
       const row: StoredEffect = { request, requestHash, status: "invoking", ...firstSend(toolKindOf(s, agentManifest, request)) };
-      const served =
-        request.target.operation === "memory" ? await serveMemoryTool(t, s, request) : await serveRuntimeTool(t, s, request);
-      const outcome = await settleToolRow(t, s, row, served, { writer: coreIn(scope) });
-      return { status: "completed", outcome };
+      // Off means off (ADR-100): a call the session's agent cannot make is refused unasked.
+      const unavailable = request.target.operation === "triggers" ? await triggersRefusal(t, s, request) : undefined;
+      if (unavailable) {
+        row.attempts = 0;
+        return { status: "completed", outcome: await settleToolRow(t, s, row, unavailable, { writer: coreIn(scope) }) };
+      }
+      const decided = await bypolicy(t, s, row, "runtime");
+      if (decided) return decided;
+      return { status: "completed", outcome: await serveRuntimeRow(t, s, row, scope, toArm) };
     }
     const refused = request.kind === "tool" ? refusal(s, request) : undefined;
     if (refused) {
@@ -248,9 +268,40 @@ export async function recordIntent(
     await t.put("effects", request.effectId, row);
     return { status: "execute", ...(row.traceparent ? { traceparent: row.traceparent } : {}) };
   });
+  // No I/O in the transaction: the triggers it wrote are armed now; the sweep arms what this misses.
+  for (const row of toArm)
+    await armTrigger(ctx, row).catch((error: unknown) =>
+      ctx.config.logger.warn("trigger not armed after its call; the sweep arms it", {
+        triggerId: row.triggerId,
+        message: error instanceof Error ? error.message : String(error),
+      }),
+    );
   if (answer !== "flow") return answer;
   if (!isFlowEffect(request)) return { status: "pending" };
   return resolveNewFlowEffect(ctx, request, signal, lease);
+}
+
+/**
+ * Serves the `runtime` effect of tool row `row` in `t` and settles the row (track T4, D72, D83):
+ * `memory`, `schedule_wake` or `triggers`. Rows a `triggers` call wrote go on `toArm`.
+ */
+async function serveRuntimeRow(
+  t: Tx,
+  s: Session,
+  row: StoredEffect,
+  scope: RecordScope,
+  toArm: AgentTriggerRow[],
+): Promise<{ value: unknown }> {
+  const request = row.request as HostEffect;
+  const operation = request.target?.kind === "runtime" ? request.target.operation : undefined;
+  let served: unknown;
+  if (operation === "memory") served = await serveMemoryTool(t, s, request);
+  else if (operation === "triggers") {
+    const result = await serveTriggersTool(t, s, request);
+    toArm.push(...result.arm);
+    served = result.outcome;
+  } else served = await serveRuntimeTool(t, s, request);
+  return settleToolRow(t, s, row, served, { writer: coreIn(scope) });
 }
 
 /**
@@ -264,7 +315,8 @@ export async function recordIntent(
  *   crosses the Tool Gate;
  * - `sandbox`: one of the sandbox operations, in a session with a sandbox;
  * - `harness`: a tool the harness runs in its own process; its egress gate is its only control.
- * - `runtime`: served by `recordIntent` itself, before this (`schedule_wake`, track T4).
+ * - `runtime`: served by `recordIntent` itself, before this (`schedule_wake`, track T4; `memory`,
+ *   track T5; `triggers`, D83), after the Tenant's tool policy.
  *
  * No target, and anything else, runs nothing (`tool.unavailable`).
  */
@@ -371,7 +423,7 @@ async function bypolicy(
   t: Tx,
   s: Session,
   row: StoredEffect,
-  kind: "mcp" | "http",
+  kind: "mcp" | "http" | "runtime",
 ): Promise<IntentAnswer | undefined> {
   const decision = await toolCallDecision(t, s, row.request as HostEffect, kind);
   if (decision.effect === "allow") return undefined;

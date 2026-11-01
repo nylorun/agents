@@ -85,6 +85,13 @@ const FOLDERS: Record<string, Record<string, string>> = {
     "mcp.json": MCP,
     "agents/scout/AGENT.md": SCOUT.replace("{engine}", ""),
   },
+  "agent-folder/2, with triggers (D83)": {
+    "AGENT.md":
+      "---\nname: helper\ndescription: Helps.\nformat: agent-folder/2\nengine:\n  triggers: true\n---\nHelp the person.\n",
+    "runtime.json": JSON.stringify({ kind: "none", selfWake: true }),
+    "mcp.json": MCP,
+    "agents/scout/AGENT.md": SCOUT.replace("{engine}", "engine: {}\n"),
+  },
   "agent-folder/2, migrated from the first": {
     "AGENT.md":
       "---\nname: helper\ndescription: Helps.\nformat: agent-folder/2\nmemory:\n  instructions: Keep preferences.\nloop:\n  plan: true\n  connections: true\nengine:\n  sandbox: [bash, read, write, edit, grep, glob]\n  artifacts: { read: true, save: true }\n  outputs: true\n  toolSearch: true\n---\nHelp the person.\n",
@@ -140,6 +147,7 @@ function turnStart(manifest: AgentManifestV8): TurnStart {
   const harness = manifest.harness as {
     memory?: { access?: "read_write" | "read_only"; instructions?: string; index?: boolean };
     loop?: Record<string, unknown>;
+    engine?: { triggers?: boolean };
   };
   const kind = manifest.runtime?.kind ?? "none";
   return {
@@ -164,6 +172,7 @@ function turnStart(manifest: AgentManifestV8): TurnStart {
       kind,
       ...(kind === "none" ? {} : { sandbox: { workspace: "/workspace" } }),
       ...(manifest.runtime?.selfWake ? { selfWake: true } : {}),
+      ...(harness.engine?.triggers ? { triggers: true } : {}),
     },
     ...(harness.loop ? { loop: harness.loop } : {}),
     ...(harness.memory
@@ -274,6 +283,31 @@ describe("previewTurn and the harness (ADR-100)", () => {
       expect(scout.system).toBe(preview.agents.scout!.system);
       expect(scout.tools).toEqual(preview.agents.scout!.tools);
     }
+  });
+
+  it("offers the triggers tool and its text to the root agent only (D83)", async () => {
+    const manifest = compiled(FOLDERS["agent-folder/2, with triggers (D83)"]!);
+    const calls = await modelCalls(turnStart(manifest));
+    const root = seen(calls.root);
+    expect(root.tools.map((tool: any) => tool.name)).toEqual([
+      "scout",
+      "schedule_wake",
+      "triggers",
+      "gh__get_issue",
+      "tool_search",
+      "tool_call",
+    ]);
+    expect(root.system).toContain("You can set up triggers with the triggers tool");
+    const scout = seen(calls.scout);
+    expect(scout.tools.map((tool: any) => tool.name)).not.toContain("triggers");
+    expect(scout.system).not.toContain("triggers tool");
+    // Without turn.start.agent.triggers (a version that does not declare it), none.
+    const start = turnStart(manifest);
+    const off = await modelCalls({
+      ...start,
+      agent: { ...start.agent!, triggers: undefined },
+    } as TurnStart);
+    expect(seen(off.root).tools.map((tool: any) => tool.name)).not.toContain("triggers");
   });
 
   it("migrating keeps every byte an agent-folder/1 agent's model reads", () => {

@@ -465,9 +465,11 @@ offers it `request_connection`, which pauses the turn on an interaction whose `m
 `connection`), or a flow (`kind: "workflow"`); and `runtime`, the
 Agent's kind and what it gets (`image`, `network`, `setup`, `files`, `limits`, `lifecycle` and
 the secret slots, `secrets`). Its JSON Schema is
-`https://docs.nylorun.com/schemas/agent-manifest/v8.2.json` (v8 with `harness.model`,
-`harness.engine`, `harness.memory.index` and a secret slot's `toolPrefix`; `v8.1.json` is the
-same without the last three, and `v8.json` without `harness.model` too)
+`https://docs.nylorun.com/schemas/agent-manifest/v8.3.json` (v8 with `harness.model`,
+`harness.engine` with `triggers`, `harness.memory.index`, a secret slot's `toolPrefix` and
+`runtime.limits.triggers`; `v8.2.json` is the same without `harness.engine.triggers` and
+`limits.triggers`, `v8.1.json` without `harness.engine`, `harness.memory.index` and `toolPrefix`
+too, and `v8.json` without `harness.model` too)
 (`@nylorun/core/schemas/agent-manifest.json`; clients drop `$schema` before they save):
 
 ```json
@@ -531,8 +533,8 @@ same without the last three, and `v8.json` without `harness.model` too)
   `agents/<id>/`, a flow in `flow.json` and vendored Agent Plugins in `plugins/<name>/`; a
   `.nyloignore` leaves files out. The [CLI's README](../cli/nylorun/README.md#agent-manifests-apply)
   shows each. Each kind of file has a JSON Schema at
-  `https://docs.nylorun.com/schemas/agent-folder/v1/<kind>.json` (`runtime.1`, `tool`, `mcp` and
-  `flow`, and `agent-md.2` and `trigger-md` for the frontmatter), exported as
+  `https://docs.nylorun.com/schemas/agent-folder/v1/<kind>.json` (`runtime.2`, `tool`, `mcp` and
+  `flow`, and `agent-md.3` and `trigger-md` for the frontmatter), exported as
   `@nylorun/core/schemas/agent-folder-<kind>.json`.
   `nylorun init <path>` writes one, `nylorun check` compiles it offline and prints every problem by
   file, line and column, and `nylorun apply` (or `saveFolder` in `@nylorun/agents`) sends it by

@@ -165,7 +165,7 @@ export async function startSegment(
         ...(memory ? { memory } : {}),
         outcomes: current.checkpoint ? await bulkOutcomes(t, current, current.checkpoint) : [],
         sandbox,
-        ...(resource ? { agent: agentOf(resource, current.sandbox, await selfWakeOf(t, current)) } : {}),
+        ...(resource ? { agent: agentOf(resource, current.sandbox, await pinnedEngineFacts(t, current)) } : {}),
         ...(key && turnId ? { trace: turnContextOf(key, ctx.store.tenantId, current, turnId) } : {}),
         ...(resource?.pod
           ? {
@@ -306,26 +306,32 @@ async function memoryRefreshOf(t: Tx, s: Session): Promise<boolean> {
 
 /**
  * The facts of the Agent a session runs on (Harness API 5): its id and kind, and, with the
- * session's sandbox, the workspace its commands start in. The harness words them.
+ * session's sandbox, the workspace its commands start in; whether the version it runs books its
+ * own wakes and declares the triggers capability. The harness words them.
  */
 function agentOf(
   resource: { readonly id: string; readonly kind: TurnAgent["kind"] },
   spec: SandboxManifest | undefined,
-  selfWake: boolean,
+  facts: { readonly selfWake: boolean; readonly triggers: boolean },
 ): TurnAgent {
   return {
     id: resource.id,
     kind: resource.kind,
     ...(spec === undefined ? {} : { sandbox: { workspace: SANDBOX_WORKSPACE } }),
-    ...(selfWake ? { selfWake: true } : {}),
+    ...(facts.selfWake ? { selfWake: true } : {}),
+    ...(facts.triggers ? { triggers: true as const } : {}),
   };
 }
 
-/** Whether the manifest version the session runs sets `runtime.selfWake` (track T4, D77). */
-async function selfWakeOf(t: Tx, s: Pick<Session, "definition">): Promise<boolean> {
-  if (!s.definition) return false;
-  const version = await t.agentManifest(s.definition.name, s.definition.version);
-  return version?.body.runtime?.selfWake === true;
+/**
+ * Whether the manifest version the session runs sets `runtime.selfWake` (track T4, D77) and
+ * declares `harness.engine.triggers` (D83).
+ */
+async function pinnedEngineFacts(t: Tx, s: Pick<Session, "definition">): Promise<{ selfWake: boolean; triggers: boolean }> {
+  if (!s.definition) return { selfWake: false, triggers: false };
+  const body = (await t.agentManifest(s.definition.name, s.definition.version))?.body;
+  const harness = body?.harness as { engine?: { triggers?: unknown } } | undefined;
+  return { selfWake: body?.runtime?.selfWake === true, triggers: harness?.engine?.triggers === true };
 }
 
 /**

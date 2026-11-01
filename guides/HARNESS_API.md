@@ -237,16 +237,17 @@ What an intent carries:
     | `{kind: "harness"}` | always: your own process, whose egress gate is its only control | you |
     | `{kind: "runtime", operation: "schedule_wake"}` | the session's version sets `runtime.selfWake` (`turn.start.agent.selfWake`); input `{in \| at, note}` or `{cancel: true}` | core, in the intent's own transaction: answered `completed`, never `execute` |
     | `{kind: "runtime", operation: "memory"}` | the session's version sets `harness.memory` (`turn.start.memory`); input is Anthropic's memory tool's: `command` (`view`, `create`, `str_replace`, `insert`, `delete`, `rename`) and its parameters | core, likewise: a view, or a write versioned to the turn; a missing parameter, a path outside `/memories` or a write that is `read_only` or a sub-agent's (`memory.forbidden`) is a failure with text for the model |
+    | `{kind: "runtime", operation: "triggers"}` | the session's version declares `harness.engine.triggers` (`turn.start.agent.triggers`), and the call is the root agent's; input `{command: "list"}`, `{command: "create", id, title?, schedule? (with timezone?) \| at? \| in?, session: "this" \| "own", prompt}` or `{command: "delete", id}` (`TriggerToolInputSchema`) | core, likewise, after the Tenant's tool policy: a rule of `kind: "runtime"` may deny it or hold it (`pending`, the turn pauses) and an approved call is answered `completed` when the turn resumes; a version without the capability is `tool.unavailable`, a sub-agent's call `tool.forbidden`, a create from a turn a trigger started `tool.forbidden` |
     Each refusal is answered `completed` with a failure and never runs: an MCP tool the session
     did not discover is `tool.unknown`, one the turn disabled `tool.disabled`, and a call with no
     target, or an HTTP tool or sandbox the session lacks, `tool.unavailable`. Core runs no tool
-    itself but `schedule_wake` (track T4) and `memory` (track T5): `tool_search` over deferred tools is yours (ours is a `harness` call), and the
+    itself but `schedule_wake` (track T4), `memory` (track T5) and `triggers` (D83): `tool_search` over deferred tools is yours (ours is a `harness` call), and the
     deferred tool's call names its own MCP target. A tool of yours may take any name; a name two
     of the model's tools share is yours to refuse. `skill` (optional) names the skill the call
     ran.
   - The tool policy matches the identity too: a rule's `server` and `tool` are the MCP server and
-    its raw tool name, or `tool` an HTTP tool's declared name. The name you gave the model never
-    matches.
+    its raw tool name, or `tool` an HTTP tool's declared name, or, for a rule of `kind: "runtime"`,
+    the operation core serves (`triggers`). The name you gave the model never matches.
   - `delegation` and `agent` belong to our engine's subagents and flows.
 - **What the log records of a tool call.** Each one ends in one `tool.completed`, and a row at
   `GET /v1/sessions/{id}/calls/tool`:
@@ -554,7 +555,10 @@ the JSON Schema document that has it is published as `harness-api/v5.1.json`. AD
 claim `engine.diagnostic` and made `turn.start.memory.index` optional (absent for a version that
 sets `harness.memory.index: false`), and one optional field came with it, `turn.start.memory.refresh`
 (§3), which core sends only to Nylorun's own harness (`nylorun`, always the Runtime's own version),
-so no other v5 harness sees it; all within v5: `harness-api/v5.2.json`.
+so no other v5 harness sees it; all within v5: `harness-api/v5.2.json`. D83 added the `runtime`
+operation `triggers` and `turn.start.agent.triggers` (`true` when the session's version declares
+`harness.engine.triggers`: offer the root agent a tool whose calls name that target, or none), which
+a v5 harness may ignore: it offers no tool, and core receives no such call: `harness-api/v5.3.json`.
 
 What v5 changed (protocol 16, agents from one manifest):
 

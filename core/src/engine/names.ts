@@ -13,6 +13,7 @@ export const ENGINE_BLOCK_NAMES = Object.freeze([
   "outputs",
   "artifacts_read",
   "wake",
+  "triggers",
   "memory",
   "plan",
   "connection",

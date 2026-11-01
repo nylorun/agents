@@ -317,10 +317,10 @@ describe("authoring files", () => {
   });
 
   it("publishes the three files as JSON Schema documents", () => {
-    expect(agentManifestJsonSchema().$id).toBe("https://docs.nylorun.com/schemas/agent-manifest/v8.2.json");
-    expect(harnessManifestJsonSchema().$id).toBe("https://docs.nylorun.com/schemas/harness-manifest/v1.2.json");
+    expect(agentManifestJsonSchema().$id).toBe("https://docs.nylorun.com/schemas/agent-manifest/v8.3.json");
+    expect(harnessManifestJsonSchema().$id).toBe("https://docs.nylorun.com/schemas/harness-manifest/v1.3.json");
     const runtime = runtimeManifestJsonSchema();
-    expect(runtime.$id).toBe("https://docs.nylorun.com/schemas/runtime-manifest/v1.1.json");
+    expect(runtime.$id).toBe("https://docs.nylorun.com/schemas/runtime-manifest/v1.2.json");
     expect(Object.keys(runtime.properties as object)).toEqual(expect.arrayContaining(["$schema", "kind", "secrets"]));
   });
 });

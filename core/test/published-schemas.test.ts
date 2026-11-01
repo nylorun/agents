@@ -25,13 +25,13 @@ const PUBLISHED: Record<string, () => Record<string, unknown>> = {
  * moves to `RETIRED`.
  */
 const PINNED: Record<string, string> = {
-  "https://docs.nylorun.com/schemas/agent-manifest/v8.2.json": "274ac020dbca3a7f2c4068120eef0cde67e8db34ba9ffd77abb660c1d94d2973",
-  "https://docs.nylorun.com/schemas/harness-manifest/v1.2.json": "8412d108baf508d40aa49e0bc73dded4b828e3417e75d29114f2b586ffdce4b8",
-  "https://docs.nylorun.com/schemas/runtime-manifest/v1.1.json": "1b8c81394fd34657b3b43098cc88ff7e74dcd6bd1e731a882bb6d1607a0e34df",
-  "https://docs.nylorun.com/schemas/harness-api/v5.2.json": "81fc5468ca2e937b92da610fc57de56d13efce5a92ba5612e6be04aff4146ed1",
-  "https://docs.nylorun.com/schemas/agent-folder/v1/agent-md.2.json": "a575e9a180df297a9c23984f5f28290d945c080e2484e3a9e32e9091911260e8",
+  "https://docs.nylorun.com/schemas/agent-manifest/v8.3.json": "378efba8440c64a1a874f7d2e15f14b599f58d74c998b9909007419d95d047b8",
+  "https://docs.nylorun.com/schemas/harness-manifest/v1.3.json": "54e76b932699d4c911796344aeeeabea293e9a360ca15d2fec8955d6634fe415",
+  "https://docs.nylorun.com/schemas/runtime-manifest/v1.2.json": "56d01dd3fcfa7c4cc598bb836482642aa582ddc16eba7753932da6b565d55261",
+  "https://docs.nylorun.com/schemas/harness-api/v5.3.json": "a3a8b6b372630b856b4c1b6c012945056bdf7c99ad2d53b28b1fa18013edfbeb",
+  "https://docs.nylorun.com/schemas/agent-folder/v1/agent-md.3.json": "aa08b8858ac070bc624ae8a53375075d1c48ee09e1c2c9c9d4804292a91912de",
   "https://docs.nylorun.com/schemas/agent-folder/v1/trigger-md.json": "bb8d8d46e8171fd93b2789d4db35effe7fb5cae62783246ad561eefb4b65c515",
-  "https://docs.nylorun.com/schemas/agent-folder/v1/runtime.1.json": "481fda4f99bb772554c69c8bc6afb3fe198ebccc489d67ec1d59b3496bf234f8",
+  "https://docs.nylorun.com/schemas/agent-folder/v1/runtime.2.json": "8a693cea33e4edc961858e6f6beaa8fc38427f62f43baec487385255ef713d7c",
   "https://docs.nylorun.com/schemas/agent-folder/v1/tool.json": "632f25d978ae5da96ba4abd1da5647066541a63d07af1a65579e21f45dc7c1a7",
   "https://docs.nylorun.com/schemas/agent-folder/v1/mcp.json": "d470edffee6646192dc030ce68d25d020ec2f9b710e818886e1a5703f0780094",
   "https://docs.nylorun.com/schemas/agent-folder/v1/flow.json": "eb30c5bce859a38c6184b7aa36c7c4dc1ee1806f1d2a5fde423986bfb9261362",
@@ -53,6 +53,12 @@ const RETIRED = [
   "https://docs.nylorun.com/schemas/agent-folder/v1/agent-md.1.json",
   "https://docs.nylorun.com/schemas/runtime-manifest/v1.json",
   "https://docs.nylorun.com/schemas/agent-folder/v1/runtime.json",
+  "https://docs.nylorun.com/schemas/agent-manifest/v8.2.json",
+  "https://docs.nylorun.com/schemas/harness-manifest/v1.2.json",
+  "https://docs.nylorun.com/schemas/runtime-manifest/v1.1.json",
+  "https://docs.nylorun.com/schemas/harness-api/v5.2.json",
+  "https://docs.nylorun.com/schemas/agent-folder/v1/agent-md.2.json",
+  "https://docs.nylorun.com/schemas/agent-folder/v1/runtime.1.json",
 ];
 
 /**

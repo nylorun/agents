@@ -30,6 +30,17 @@ describe("previewTurn (ADR-100)", () => {
     expect(preview.pinned).toEqual([expect.stringContaining("<memory-index>")]);
   });
 
+  it("shows the triggers tool and its block for a root agent that declares engine.triggers (D83)", async () => {
+    const dir = folder({
+      "AGENT.md": "---\nname: helper\ndescription: Helps.\nformat: agent-folder/2\nengine:\n  triggers: true\n---\nHelp the person.\n",
+    });
+    const { manifest } = await checkFolder(await packFolder(dir));
+    const preview = previewTurn(manifest!);
+    expect(preview.tools.map((tool) => tool.name)).toEqual(["triggers"]);
+    expect(preview.blocks.map((block) => `${block.name}@${block.version}`)).toEqual(["triggers@1"]);
+    expect(previewTurn(manifest!, { triggers: false }).tools).toEqual([]);
+  });
+
   it("previews an SDK-built agent with every default, with the session's facts it is given", () => {
     const { manifest } = Agent({ id: "bot" }).instructions("Be brief.").build();
     expect(previewTurn(manifest).tools.map((tool) => tool.name)).toEqual(["read_artifact"]);
