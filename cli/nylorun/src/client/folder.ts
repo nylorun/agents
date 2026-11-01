@@ -214,9 +214,10 @@ export async function checkCommand(deps: StackDeps, args: readonly string[]): Pr
       else deps.err(line);
     const label = relative(cwd, folder) || basename(folder);
     const files = `${pack.entries.length} ${pack.entries.length === 1 ? "file" : "files"}`;
-    if (compiled.manifest) deps.out(`${label}: ok, agent manifest ${compiled.manifest.name} (${files}, ${compiled.compiler})`);
-    if (compiled.manifest && explain) for (const line of explainLines(explainEngine(compiled.manifest))) deps.out(line);
-    else {
+    if (compiled.manifest) {
+      deps.out(`${label}: ok, agent manifest ${compiled.manifest.name} (${files}, ${compiled.compiler})`);
+      if (explain) for (const line of explainLines(explainEngine(compiled.manifest))) deps.out(line);
+    } else {
       const errors = compiled.diagnostics.filter((item) => item.severity === "error").length;
       deps.err(`${label}: ${errors} ${errors === 1 ? "error" : "errors"}`);
     }
