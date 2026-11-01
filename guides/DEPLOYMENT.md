@@ -371,6 +371,13 @@ which had agent definitions, environment manifests and Environments:
   Tenant's (`PUT /v1/tenant/artifacts`, `PUT /v1/tenant/skills`; a higher one is `400`), and one
   left out is the Tenant's as it is when checked. The Tenant's own totals still apply to
   everything; the view's `limits` says what is in force.
+- **The engine in the image** (pods, ADR-99): a pod runs the Runtime's engine, copied from the
+  Runtime image into the pod at each start. An image that already carries this Runtime's engine
+  under `/opt/nylorun` (`bin/tini`, `bin/node` and `engine/`, copied from the Runtime image when
+  the image was built) skips that copy: list its repository in the Tenant's `engine.images`
+  (`PUT /v1/tenant/sandbox`). Such an engine reports its Runtime version when it joins, and a pod
+  runs it only while that is the Runtime's own version; after an upgrade, pods copy the engine
+  again until the image is rebuilt for the new version.
 - **Lifecycle**: `lifecycle.idle` stops a pod after that long without a turn (at most the
   Tenant's `limits.idle`); `lifecycle.deleteAfter` deletes the Agent, its vault and its disk
   once it has gone that long unused (no turn, change, secret write, stop or reset). The default

@@ -15,6 +15,8 @@ import { createCertificateAuthority } from "../../src/keys/x509.js";
 import { awaitNetworkPolicy, blockedAddresses } from "../../src/sandbox/pods/network-gate.js";
 import { runSandboxTool } from "../../src/sandbox/tools.js";
 import { resolveNetwork } from "../../src/sandbox/policy.js";
+import { IMAGE_ENGINE_HEADER } from "../../src/harness/image-engine.js";
+import { RUNTIME_VERSION } from "../../src/version.js";
 
 const servers: Server[] = [];
 const dirs: string[] = [];
@@ -147,6 +149,35 @@ describe("credentials for skills in a pod (R2c)", () => {
       expect(env.NODE_USE_ENV_PROXY).toBe("1");
     } finally {
       host.stop();
+    }
+  });
+
+  it("says at join which Runtime an engine the image carries came from, and only then (ADR-99)", async () => {
+    const root = await mkdtemp(join(tmpdir(), "nylorun-pod-"));
+    dirs.push(root);
+    const joinFile = join(root, "join");
+    await writeFile(joinFile, "join-token\n");
+    const answer = { hostToken: "h", egressToken: "e", epoch: 1, expiresAt: new Date(Date.now() + 900_000).toISOString() };
+    for (const imageEngine of [true, false]) {
+      const seen: Record<string, string>[] = [];
+      const host = podHost(
+        { sandboxId: "sbx_1", podUid: "uid-1", joinFile, httpUrl: "http://listener", egressProxy: "http://egress:4200", blocked: [] },
+        { info: () => undefined, warn: () => undefined },
+        {
+          fetch: async (_url, init) => {
+            seen.push({ ...(init?.headers as Record<string, string>) });
+            return new Response(JSON.stringify(answer));
+          },
+          imageEngine,
+          caBundleFile: join(root, `bundle-${imageEngine}.pem`),
+        },
+      );
+      try {
+        await host.token();
+        expect(seen[0]?.[IMAGE_ENGINE_HEADER]).toBe(imageEngine ? RUNTIME_VERSION : undefined);
+      } finally {
+        host.stop();
+      }
     }
   });
 });
