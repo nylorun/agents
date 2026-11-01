@@ -1,3 +1,10 @@
+# A2A messages leave tools out too
+
+Additive. An A2A `SendMessage` takes `message.metadata.removeTools` (or the request's `metadata`):
+the tools its new turn may not use, as a session message's `removeTools` (Host feature
+`remove-tools`, the same names and limits). A reply to a waiting task answers an interaction and
+takes none. `createA2aClient(...).send({ ..., removeTools })` sends it.
+
 # Secret routing: the folder names, the installation routes
 
 Additive: no protocol change. The Runtime advertises the optional Host feature `secret-routing`.

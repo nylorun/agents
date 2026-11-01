@@ -510,6 +510,7 @@ async function sendMessage(
         requestId: randomUUID(),
         idempotencyKey,
         ...body,
+        ...(send.removeTools ? { removeTools: [...send.removeTools] } : {}),
       } as SessionCommand,
       async () => {
         const active = (await contextSession(caller, sessionId))?.activeTurnId;

@@ -43,13 +43,19 @@ const SCRIPTS: Record<string, { steps: Step[]; closing: (results: string) => str
     steps: [{ text: "Starting.", call: { name: "wait", args: {} } }],
     closing: () => "Finished.",
   },
+  tooled: { steps: [], closing: () => "Done." },
 };
+
+/** The tools each of `tooled`'s model calls was offered, by name. */
+const offered: string[][] = [];
 
 /** Plays each agent's script, one step per model call within a turn. */
 function scriptedModel(): ModelProvider {
   const baseline = new Map<string, number>();
   return async (effect) => {
     const script = SCRIPTS[effect.agentId]!;
+    if (effect.agentId === "tooled")
+      offered.push(((effect.input as { tools?: { name: string }[] }).tools ?? []).map((tool) => tool.name).sort());
     const prompt = (effect.input as { prompt?: { kind?: string }[] }).prompt ?? [];
     const results = prompt.filter((item) => item.kind === "tool-result");
     if (!baseline.has(effect.turnId)) baseline.set(effect.turnId, results.length);
@@ -89,7 +95,10 @@ function agents(service: ToolServer) {
   const slow = Agent({ id: "slow", name: "Slow" })
     .tools(service.tool("wait", { input: z.object({}) }))
     .build();
-  return [support, guarded, slow];
+  const tooled = Agent({ id: "tooled", name: "Tooled" })
+    .tools(service.tool("note", { input: z.object({}) }), service.tool("keep", { input: z.object({}) }))
+    .build();
+  return [support, guarded, slow, tooled];
 }
 
 let runtime: Awaited<ReturnType<typeof startTestTenant>>;
@@ -270,6 +279,19 @@ describe("the official A2A client", () => {
     const again = taskOf(await client.getTask({ id: task.id, historyLength: 0 } as never));
     expect(again.status.state).toBe(TaskState.TASK_STATE_COMPLETED);
     expect(again.history ?? []).toEqual([]);
+  });
+
+  it("leaves out of a new message's turn the tools its metadata.removeTools names (remove-tools)", async () => {
+    offered.length = 0;
+    const narrowed = await rpc("SendMessage", wireMessage("Go", { metadata: { removeTools: ["note"] } }), { agent: "tooled" });
+    expect(narrowed.body.result.task.status.state).toBe("TASK_STATE_COMPLETED");
+    expect(offered.at(-1)).toContain("keep");
+    expect(offered.at(-1)).not.toContain("note");
+    const whole = await rpc("SendMessage", wireMessage("Go"), { agent: "tooled" });
+    expect(whole.body.result.task.status.state).toBe("TASK_STATE_COMPLETED");
+    expect(offered.at(-1)).toEqual(expect.arrayContaining(["keep", "note"]));
+    const bad = await rpc("SendMessage", wireMessage("Go", { metadata: { removeTools: "note" } }), { agent: "tooled" });
+    expect(bad.body.error.code).toBe(-32602);
   });
 
   it("returns immediately and lets the caller poll", async () => {

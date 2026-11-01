@@ -144,6 +144,17 @@ describe("ProtoJSON field names", () => {
 });
 
 describe("SendMessage params", () => {
+  it("takes metadata.removeTools, on the message or the request, and refuses a bad one", () => {
+    expect(parseSendParams(message({ parts: [{ text: "a" }], metadata: { removeTools: ["deploy", "github"] } })).removeTools).toEqual([
+      "deploy",
+      "github",
+    ]);
+    expect(parseSendParams({ ...message({ parts: [{ text: "a" }] }), metadata: { removeTools: ["x"] } }).removeTools).toEqual(["x"]);
+    expect(parseSendParams(message({ parts: [{ text: "a" }] })).removeTools).toBeUndefined();
+    for (const removeTools of ["deploy", [""], [1], Array.from({ length: 257 }, (_, i) => `t${i}`)])
+      expect(() => parseSendParams(message({ parts: [{ text: "a" }], metadata: { removeTools } }))).toThrow(/removeTools/);
+  });
+
   it("joins text parts", () => {
     expect(
       parseSendParams(message({ parts: [{ text: "a" }, { text: "b" }] }))

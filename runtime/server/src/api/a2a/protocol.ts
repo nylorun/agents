@@ -322,6 +322,12 @@ export interface SendParams {
   push?: PushConfigInput;
   /** `metadata.delivery`; default `queue`. */
   delivery: Delivery;
+  /**
+   * `metadata.removeTools` (Host feature `remove-tools`): the tools the message's turn may not
+   * use, by name, as a session message's `removeTools`. A new message only: a reply answers an
+   * interaction of a turn already running.
+   */
+  removeTools?: readonly string[];
   /** The answer the message carries under `interactions/v1`. */
   answer?: InteractionAnswer;
 }
@@ -411,6 +417,24 @@ export function parsePushConfig(value: unknown, field: string): PushConfigInput 
   };
 }
 
+/** `metadata.removeTools`: at most 256 names of 1 to 256 characters (a session message's `removeTools`). */
+function parseRemoveTools(metadata: Record<string, unknown>): readonly string[] | undefined {
+  const value = metadata.removeTools;
+  if (value === undefined || value === null) return undefined;
+  if (
+    !Array.isArray(value) ||
+    value.length > 256 ||
+    !value.every((name) => typeof name === "string" && name.length >= 1 && name.length <= 256)
+  )
+    return a2aFail(
+      "invalidParams",
+      "message.metadata.removeTools must be at most 256 tool names of 1 to 256 characters",
+      {},
+      "message.metadata.removeTools"
+    );
+  return value as string[];
+}
+
 /** `metadata.delivery`: `queue` (the default) or `reject`. */
 function parseDelivery(metadata: Record<string, unknown>): Delivery {
   const delivery = metadata.delivery;
@@ -461,6 +485,9 @@ export function parseSendParams(params: Record<string, unknown>): SendParams {
     metadata.delivery === undefined && isObject(params.metadata) ? params.metadata : metadata
   );
   const answer = parseAnswer(metadata);
+  const removeTools = parseRemoveTools(
+    metadata.removeTools === undefined && isObject(params.metadata) ? params.metadata : metadata
+  );
   const configuration = params.configuration;
   if (configuration !== undefined && configuration !== null && !isObject(configuration))
     a2aFail("invalidParams", "configuration must be an object", {}, "configuration");
@@ -513,6 +540,7 @@ export function parseSendParams(params: Record<string, unknown>): SendParams {
     ...(historyLength !== undefined ? { historyLength } : {}),
     ...(push ? { push } : {}),
     delivery,
+    ...(removeTools ? { removeTools } : {}),
     ...(answer ? { answer } : {}),
   };
 }
