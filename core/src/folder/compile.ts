@@ -1198,6 +1198,7 @@ export function compileAgentFolder(input: CompileAgentFolderInput, scope?: Folde
             : {}),
         plan: role === "root" && loop.plan === true,
         connections: role === "root" && loop.connections === true,
+        triggers: role === "root" && declared.engine.triggers === true,
       },
     );
     for (const name of unusedInstructions(declared.engine, names))

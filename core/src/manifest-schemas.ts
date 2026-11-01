@@ -25,10 +25,11 @@ import {
  * `harness.model` (Host feature `agent-model`), published as `v8.1` and `v1.1`, then
  * `harness.engine` and `harness.memory.index` (ADR-100) and a secret slot's `toolPrefix` (Host
  * feature `secret-routing`), published as agent manifest `v8.2`, harness file `v1.2` and runtime
- * file `v1.1`.
+ * file `v1.1`, then `harness.engine.triggers` and `runtime.limits.triggers` (D83), published as
+ * agent manifest `v8.3`, harness file `v1.3` and runtime file `v1.2`.
  */
-const AGENT_MANIFEST_REVISION = 2;
-const HARNESS_MANIFEST_FILE_REVISION = 2;
+const AGENT_MANIFEST_REVISION = 3;
+const HARNESS_MANIFEST_FILE_REVISION = 3;
 const RUNTIME_MANIFEST_FILE_REVISION = 1;
 
 function document(schema: z.ZodType, id: string, title: string): Record<string, unknown> {

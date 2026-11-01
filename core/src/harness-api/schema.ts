@@ -96,9 +96,11 @@ export const EffectTargetSchema = z.discriminatedUnion("kind", [
    * An operation the Runtime itself serves, in the transaction that journals the call, keyed by
    * the effect id: `schedule_wake` books the session's next turn; `memory` is a
    * call of the `memory` tool, with Anthropic's memory tool parameters as its input,
-   * on the Agent's memories. Answered at once; the harness never executes it.
+   * on the Agent's memories; `triggers` lists, creates and deletes the triggers the session made
+   * (D83, `TriggerToolInputSchema`). Answered at once, unless the Tenant's tool policy holds it
+   * for a person; the harness never executes it.
    */
-  z.object({ kind: z.literal("runtime"), operation: z.enum(["schedule_wake", "memory"]) }).strict(),
+  z.object({ kind: z.literal("runtime"), operation: z.enum(["schedule_wake", "memory", "triggers"]) }).strict(),
 ]);
 
 /**
@@ -351,6 +353,11 @@ export const TurnAgentSchema = z
      * `schedule_wake`, a `runtime` effect.
      */
     selfWake: z.boolean().optional(),
+    /**
+     * The version the session runs declares `harness.engine.triggers` (D83): our engine offers
+     * the root agent the `triggers` tool, a `runtime` effect.
+     */
+    triggers: z.literal(true).optional(),
   })
   .strict();
 

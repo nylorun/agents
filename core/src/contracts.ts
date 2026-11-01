@@ -359,6 +359,10 @@ export const HarnessEngineSchema = z
       .boolean()
       .optional()
       .meta({ description: "Defer MCP tools behind tool_search when their schemas pass the threshold" }),
+    triggers: z
+      .boolean()
+      .optional()
+      .meta({ description: "The triggers tool and its text (D83): the root agent sets up its own triggers; never a subagent's" }),
     instructions: z
       .partialRecord(z.enum(ENGINE_BLOCK_NAMES), z.string().min(1))
       .optional()
@@ -2157,6 +2161,64 @@ export const TriggerViewSchema = z
   .strict();
 export type TriggerView = z.infer<typeof TriggerViewSchema>;
 export const TriggerListSchema = z.object({ triggers: z.array(TriggerViewSchema) }).strict();
+
+/** `in` of the `triggers` tool (D83): a delay in minutes, hours or days, such as `30m`, `2h`, `1d`. */
+export const TRIGGER_DELAY_PATTERN = /^[1-9][0-9]*(m|h|d)$/;
+/** The longest title an agent gives a trigger it makes. */
+export const TRIGGER_TITLE_MAX = 80;
+/** Where an agent-made trigger runs: the calling session (`this`), or a session of its own (`own`). */
+export const TRIGGER_TOOL_SESSIONS = ["this", "own"] as const;
+const triggerCreateSchema = z
+  .strictObject({
+    command: z.literal("create"),
+    id: TriggerIdSchema,
+    title: z.string().min(1).max(TRIGGER_TITLE_MAX).optional(),
+    schedule: TriggerSchema.shape.schedule,
+    timezone: z.string().min(1).optional(),
+    at: TriggerSchema.shape.at,
+    in: z.string().regex(TRIGGER_DELAY_PATTERN, { message: "in is a delay such as 30m, 2h or 1d" }).optional(),
+    session: z.enum(TRIGGER_TOOL_SESSIONS),
+    prompt: z.string().min(1),
+  })
+  .superRefine((input, ctx) => {
+    if ([input.schedule, input.at, input.in].filter((value) => value !== undefined).length !== 1)
+      ctx.addIssue({ code: "custom", message: "Give exactly one of schedule, at or in" });
+    if (input.timezone !== undefined && input.schedule === undefined)
+      ctx.addIssue({ code: "custom", path: ["timezone"], message: "timezone goes with schedule" });
+  });
+/**
+ * A call of the `triggers` tool (D83), which the Runtime serves for an agent whose version
+ * declares `engine.triggers`: `list` the triggers the calling session made; `create` one (or
+ * replace the session's own with the same `id`) with exactly one of `schedule` (with `timezone`),
+ * `at` or `in`, the `session` it runs in and its `prompt`; `delete` one by `id`.
+ */
+export const TriggerToolInputSchema = z.discriminatedUnion("command", [
+  z.strictObject({ command: z.literal("list") }),
+  triggerCreateSchema,
+  z.strictObject({ command: z.literal("delete"), id: TriggerIdSchema }),
+]);
+export type TriggerToolInput = z.infer<typeof TriggerToolInputSchema>;
+/** One trigger as the `triggers` tool lists it. */
+export const TriggerToolItemSchema = z
+  .strictObject({
+    id: z.string(),
+    title: z.string().nullable(),
+    status: z.enum(TRIGGER_STATUSES),
+    schedule: z.string().optional(),
+    timezone: z.string().optional(),
+    at: z.string().optional(),
+    /** The session it runs in: the calling session's id, or its own (`<session>_t_<id>`). */
+    session: z.string(),
+    nextRunAt: z.string().nullable(),
+    prompt: z.string(),
+  });
+/** What a `triggers` call answers: the trigger made, the list, or the one deleted. */
+export const TriggerToolOutputSchema = z.union([
+  z.strictObject({ id: z.string(), status: z.enum(TRIGGER_STATUSES), nextRunAt: z.string().nullable(), session: z.string() }),
+  z.strictObject({ triggers: z.array(TriggerToolItemSchema) }),
+  z.strictObject({ id: z.string(), deleted: z.literal(true) }),
+]);
+export type TriggerToolOutput = z.infer<typeof TriggerToolOutputSchema>;
 /**
  * What a run came to: `started` a turn, `queued` a message behind a running turn,
  * `skipped` (nothing started: `overlap`, `rate_limited`, `paused`) or `failed` (`queue_full`,

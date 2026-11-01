@@ -208,6 +208,13 @@ function nestedChecks(ctx: FolderContext): void {
     model: `model is the root agent's: ${what} runs in the root agent's session, on its model`,
   };
   for (const [key, message] of Object.entries(keys)) if (ctx.front[key] !== undefined) refuse(message, AGENT_FILE, [key]);
+  // Triggers are the root agent's (D83): a subagent of a parent without them fails engine_subset.
+  if (
+    isObject(ctx.front.engine) &&
+    ctx.front.engine.triggers === true &&
+    (ctx.scope!.role === "stage" || ctx.scope!.engineFacts?.engine?.triggers === true)
+  )
+    refuse(`triggers are the root agent's: ${what} never sets up triggers, so leave engine.triggers out here`, AGENT_FILE, ["engine", "triggers"]);
   // Agent manifest v7, which embeds an agent, has no place for a credential or a skill's secrets.
   const settings = isObject(ctx.front.mcpServers) ? ctx.front.mcpServers : {};
   for (const [key, server] of Object.entries(isObject(ctx.harness.mcpServers) ? ctx.harness.mcpServers : {})) {

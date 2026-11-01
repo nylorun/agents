@@ -16,6 +16,7 @@ import {
   REQUEST_CONNECTION_TOOL,
   SCHEDULE_WAKE_TOOL,
   TOOL_CALL_TOOL,
+  TRIGGERS_TOOL,
   TOOL_SEARCH_TOOL,
   UPDATE_PLAN_TOOL,
 } from "./tools.js";
@@ -30,6 +31,7 @@ export const ENGINE_FEATURES = [
   "outputs",
   "artifacts.read",
   "selfWake",
+  "triggers",
   "memory",
   "plan",
   "connections",
@@ -66,6 +68,7 @@ const TOOLS: Readonly<Record<EngineFeature, readonly string[]>> = {
   outputs: [],
   "artifacts.read": [READ_ARTIFACT_TOOL],
   selfWake: [SCHEDULE_WAKE_TOOL],
+  triggers: [TRIGGERS_TOOL],
   memory: [MEMORY_TOOL],
   plan: [UPDATE_PLAN_TOOL],
   connections: [REQUEST_CONNECTION_TOOL],
@@ -78,6 +81,7 @@ const BLOCKS: Readonly<Record<EngineFeature, readonly EngineBlockName[]>> = {
   outputs: ["outputs"],
   "artifacts.read": ["artifacts_read"],
   selfWake: ["wake"],
+  triggers: ["triggers"],
   memory: ["memory"],
   plan: ["plan"],
   connections: ["connection"],
@@ -102,6 +106,8 @@ function explainOne(
         return "loop.connections";
       case "selfWake":
         return "runtime.selfWake";
+      case "triggers":
+        return "engine.triggers";
       default:
         return declared ? `engine.${feature}` : "by default";
     }

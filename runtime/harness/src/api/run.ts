@@ -104,6 +104,9 @@ export async function runTurn(ctx: RunContext, run: HarnessRun): Promise<void> {
         : undefined;
     const plan = loop?.plan === true;
     const connections = loop?.connections === true;
+    // The triggers the agent sets up itself (D83): the version declares `harness.engine.triggers`,
+    // for the root agent only.
+    const triggers = start.engine === "agent" && start.agent?.triggers === true;
     const engineTools = (agent: AgentManifest) =>
       engineToolsFor(
         agent,
@@ -118,6 +121,7 @@ export async function runTurn(ctx: RunContext, run: HarnessRun): Promise<void> {
         },
         plan && agent.id === rootId,
         connections && agent.id === rootId,
+        triggers && agent.id === rootId,
       );
     const mcp =
       start.engine === "agent" && start.mcp

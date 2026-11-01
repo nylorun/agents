@@ -75,9 +75,10 @@ export function harnessApiSchemas(): Record<string, z.ZodType> {
  * published `$id` names one document for good. Revision 2: `engine.diagnostic` among the claims,
  * `turn.start.memory.index` absent for a version that pins none (ADR-100), and
  * `turn.start.memory.refresh` (an optional field a v5 harness may ignore, keeping the index it
- * pinned).
+ * pinned). Revision 3: `turn.start.agent.triggers` and the `runtime` operation `triggers` (D83),
+ * which a v5 harness that offers no `triggers` tool never sees.
  */
-const SCHEMA_REVISION = 2;
+const SCHEMA_REVISION = 3;
 
 /** The JSON Schema document of the Harness API (draft 2020-12). */
 export function harnessApiJsonSchema(): Record<string, unknown> {
