@@ -10,6 +10,7 @@ import {
   SessionManifestViewSchema,
   SessionModelViewSchema,
   type SessionModelChoice,
+  type SessionModelRecord,
   SessionUsageTotalsSchema,
   ModelCallsPageSchema,
   ToolCallsPageSchema,
@@ -73,6 +74,13 @@ export interface SessionView {
   status: string;
   activeTurnId: string | null;
   waits?: unknown;
+  /**
+   * The model the session's turns call and why: `source` `manifest` (its Agent's version's
+   * `harness.model`), `session` (its own, `setModel`) or `tenant`, with `reason` and `requested`
+   * when it falls back to the Tenant's. Null for a flow and while the Tenant has no model; absent
+   * from an older Runtime. Each change is a `session.model` event.
+   */
+  model?: SessionModelRecord | null;
   [key: string]: unknown;
 }
 /** `AgentsClient.createSession`'s options. */
@@ -191,9 +199,13 @@ export type CommandOptions = {
 /**
  * A message's options. `delivery` says what a message to a busy session does (protocol 17):
  * `queue` (the default) waits for the running turn to end, `reject` is refused with
- * `409 session_busy`.
+ * `409 session_busy`. `removeTools` names the tools the message's turn may not use (Host feature
+ * `remove-tools`): a declared tool or an agent used as a tool by its name (in the agent and in
+ * the agents it uses as tools), an MCP server's tool as `<server>__<tool>`, a whole MCP server by
+ * its name. It applies to the version the turn runs, so the session still moves to its Agent's
+ * new versions; names that version does not have are ignored.
  */
-export type MessageOptions = CommandOptions & { delivery?: MessageDelivery };
+export type MessageOptions = CommandOptions & { delivery?: MessageDelivery; removeTools?: readonly string[] };
 export class SessionClient {
   readonly sandbox: SessionSandbox;
   constructor(private readonly transport: Transport, readonly id: string) {
@@ -228,12 +240,13 @@ export class SessionClient {
    * Start a turn. Strings become `message.content`; any other JSON value becomes
    * `message.data` (workflows.md §5).
    */
-  input(value: string | JsonValue, options: MessageOptions) {
+  async input(value: string | JsonValue, options: MessageOptions) {
     const base = {
       type: "message" as const,
       requestId: options.requestId ?? id(),
       idempotencyKey: options.idempotencyKey,
       ...(options.delivery ? { delivery: options.delivery } : {}),
+      ...(await this.removeToolsOf(options)),
     };
     return this.command(
       typeof value === "string"
@@ -247,7 +260,7 @@ export class SessionClient {
    * it with `client.artifacts.upload`), at a version or its latest, and the model reads it, an
    * image as an image and a text file as text.
    */
-  inputParts(parts: readonly MessagePart[], options: MessageOptions) {
+  async inputParts(parts: readonly MessagePart[], options: MessageOptions) {
     return this.command(
       {
         type: "message",
@@ -255,9 +268,16 @@ export class SessionClient {
         idempotencyKey: options.idempotencyKey,
         parts: [...parts],
         ...(options.delivery ? { delivery: options.delivery } : {}),
+        ...(await this.removeToolsOf(options)),
       },
       options.signal
     );
+  }
+  /** A message's `removeTools`, when it names any; a Runtime without `remove-tools` refuses it. */
+  private async removeToolsOf(options: MessageOptions): Promise<{ removeTools?: string[] }> {
+    if (!options.removeTools?.length) return {};
+    await this.transport.requireFeature("remove-tools", options.signal);
+    return { removeTools: [...options.removeTools] };
   }
   /** Approve (or deny) a held tool call. Without an idempotency key, a new one is made. */
   approve(interactionId: string, approved: boolean, options: Partial<CommandOptions> = {}) {
@@ -546,7 +566,7 @@ export type { Destination, IncompatibleReason } from "./http.js";
 export type { LiveEvent } from "@nylorun/core/contracts";
 export { AccessClient } from "./access.js";
 export { AgentInstancesClient, AgentMemoriesClient, AgentSecretsClient, runtimeFiles } from "./agents.js";
-export type { AgentFilter, AgentInput, AgentSecretInput, RuntimeFileBytes } from "./agents.js";
+export type { AgentFilter, AgentInput, AgentSecretInput, AgentSecretRouting, RuntimeFileBytes } from "./agents.js";
 export { AgentManifestsClient, ManifestGapsError, agentManifest, requirementGaps } from "./agent-manifests.js";
 export { AGENT_FOLDER_FILE, FolderError, FolderInvalidError, diagnosticLine } from "./folder.js";
 export type { PackedFolder } from "./folder.js";

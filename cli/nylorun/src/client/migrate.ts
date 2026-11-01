@@ -34,6 +34,8 @@ import { harnessSectionOf, sectionGaps } from "@nylorun/core/define";
 import { CliError } from "../errors.js";
 import { parseStackFlags, type StackDeps } from "../stack/commands.js";
 import { migrateFolderCommand, migrateFolderUsage } from "./convert.js";
+import { migrateFormatCommand, migrateFormatUsage } from "./migrate-format.js";
+import { isHelp } from "../errors.js";
 import { readJson, usageError } from "./runtime.js";
 
 export const migrateUsage = `nylorun migrate v8 <agent.json> [--runtime <environment-manifest.json>] [--name <name>] [--out <dir>]
@@ -81,10 +83,23 @@ function hasSkills(loop: AgentManifest | WorkflowManifest): boolean {
 export async function migrateCommand(deps: StackDeps, args: readonly string[]): Promise<number> {
   const [version, ...rest] = args;
   if (version === "--help" || version === "-h") {
-    deps.out(`${migrateUsage}\n\n${migrateFolderUsage}`);
+    deps.out(`${migrateUsage}\n\n${migrateFolderUsage}\n\n${migrateFormatUsage}`);
     return 0;
   }
-  if (version === "folder") return migrateFolderCommand(deps, rest);
+  if (version === "folder") {
+    // `--to 2`: an agent folder made agent-folder/2 in place (ADR-100).
+    const to = rest.indexOf("--to");
+    if (to < 0) return migrateFolderCommand(deps, rest);
+    const value = rest[to + 1];
+    const others = rest.filter((_, index) => index !== to && index !== to + 1);
+    if (others.some(isHelp)) {
+      deps.out(migrateFormatUsage);
+      return 0;
+    }
+    if (value === undefined || value.startsWith("-") || others.length !== 1 || others[0]!.startsWith("-"))
+      throw usageError(`Usage: ${migrateFormatUsage.split("\n")[0]}`);
+    return migrateFormatCommand(deps, resolve(deps.cwd ?? process.cwd(), others[0]!), value);
+  }
   if (version !== "v8")
     throw usageError(version === undefined ? migrateUsage : `nylorun migrate knows v8 and folder only.\n${migrateUsage}\n\n${migrateFolderUsage}`);
   const flags = parseStackFlags(rest, { values: ["--runtime", "--name", "--out"] }, migrateUsage);

@@ -6,6 +6,7 @@
  */
 import type { AgentFolderDiagnostic, AgentFolderEntry, AgentFolderFix, CompileAgentFolderInput, CompiledAgentFolder } from "./compile.js";
 import { parseJson, pointerOf, type Located, type Position } from "./json.js";
+import type { EngineScopeFacts } from "./engine.js";
 
 /** A JSON Schema named by `/x` from a folder inside another: found, refused, or already reported. */
 export type SchemaLookup = { readonly schema: Record<string, unknown> } | { readonly code: string; readonly message: string } | undefined;
@@ -20,6 +21,8 @@ export interface FolderScope {
   readonly deriveSlot: (credential: string, type: "bearer" | "headers", url: string, file: string, at: Position | undefined, header?: string) => void;
   /** `/x`: a JSON Schema file of the uploaded folder, by its path there. */
   readonly schema: (target: string) => SchemaLookup;
+  /** The uploaded folder's format, computer and engine declarations (agent-folder/2, `engine.ts`). */
+  readonly engineFacts?: EngineScopeFacts;
 }
 
 /** What a loop manifest embeds for an agent of a flow: agent manifest v7 or workflow manifest v3. */
@@ -75,6 +78,8 @@ export interface FolderContext {
   readonly suggest: (name: string, known: readonly string[]) => string | undefined;
   readonly compile: (input: CompileAgentFolderInput, scope?: FolderScope) => CompiledAgentFolder;
   readonly folderTextPaths: (entries: readonly AgentFolderEntry[]) => string[];
+  /** What a folder inside this one knows of it: its format, computer and engine declarations. */
+  readonly engineFacts: () => EngineScopeFacts;
 }
 
 export const isObject = (value: unknown): value is Record<string, unknown> =>

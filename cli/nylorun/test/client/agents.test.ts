@@ -1,5 +1,7 @@
 import { PROTOCOL_FEATURES, PROTOCOL_VERSION } from "@nylorun/core/compatibility";
-import { readFileSync, statSync } from "node:fs";
+import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { runStackCommand } from "../../src/stack/commands.js";
 import { stackPaths } from "../../src/stack/paths.js";
@@ -153,6 +155,7 @@ async function running(options: { up?: boolean } = {}) {
       return json({ ...AGENTS[0], id: "users/alice", manifest: body.manifest, owner: body.owner ?? null, labels: body.labels ?? {} }, 201);
     }
     if (path === "/v1/agents/team-a%2Fproj-42/secrets/GH_TOKEN") return json({ name: "GH_TOKEN" });
+    if (path.startsWith("/v1/agents/bot/secrets/")) return json({ name: path.split("/").at(-1) });
     if (path === "/v1/agents/user-7" && init?.method === "GET") return json(AGENTS[1]);
     if (path === "/v1/agents/user-7" && init?.method === "PUT") {
       const body = JSON.parse(String(init.body));
@@ -304,6 +307,21 @@ describe("nylorun agents", () => {
     const written = fetch.requests.find((item) => item.url.endsWith("/secrets/GH_TOKEN"))!;
     expect(new URL(written.url).pathname).toBe("/v1/agents/team-a%2Fproj-42/secrets/GH_TOKEN");
     expect(JSON.parse(String(written.init!.body))).toMatchObject({ value: "ghp_example" });
+  });
+
+  it("writes a slot's value with this installation's via and tool prefix", async () => {
+    const { deps, fetch } = await running();
+    const piped = { ...deps, stdin: { isTTY: false, text: async () => "sk-example\n" } };
+    expect(
+      await agentsCommand(piped, ["secrets", "put", "bot", "DELEGATE", "--via", "https://bot.example.com/delegate", "--tool-prefix", "x-"]),
+    ).toBe(0);
+    const written = fetch.requests.find((item) => item.url.endsWith("/secrets/DELEGATE"))!;
+    expect(JSON.parse(String(written.init!.body))).toMatchObject({ value: "sk-example", via: "https://bot.example.com/delegate", toolPrefix: "x-" });
+    const file = join(mkdtempSync(join(tmpdir(), "nylorun-secret-")), "web.json");
+    writeFileSync(file, JSON.stringify({ headers: { "x-litellm-api-key": "sk-x" } }));
+    expect(await agentsCommand(deps, ["secrets", "put", "bot", "WEB_KEY", file, "--via", "http://localhost:4100/mcp/web"])).toBe(0);
+    const slot = fetch.requests.find((item) => item.url.endsWith("/secrets/WEB_KEY"))!;
+    expect(JSON.parse(String(slot.init!.body))).toMatchObject({ headers: { "x-litellm-api-key": "sk-x" }, via: "http://localhost:4100/mcp/web" });
   });
 
   it("never starts a stopped Tenant", async () => {

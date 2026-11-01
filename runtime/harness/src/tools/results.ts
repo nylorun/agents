@@ -25,7 +25,7 @@
  * Each stored result's key (`spillKey`) is the call's effect id with the bytes' hash: a call run
  * again after a crash, which the gate answers with the same bytes, writes nothing new, and other
  * bytes never take the key of a preview already recorded. The model reads a stored result with
- * `read_artifact`.
+ * `read_artifact`; for an agent without it (ADR-100), the stub says `retrievable: false`.
  */
 import { createHash } from "node:crypto";
 import {
@@ -104,6 +104,12 @@ export interface ShapeContext {
   readonly model?: ModelDescriptor;
   readonly limits: Pick<RuntimeLimits, "modelFileBytes">;
   readonly config: ToolResultConfig;
+  /**
+   * False when the call's agent has no `read_artifact` (ADR-100, an `agent-folder/2` agent
+   * without `engine.artifacts.read`): a cut result says `retrievable: false`, since the model
+   * cannot read the rest. It is stored all the same, for people. Default true.
+   */
+  readonly retrievable?: boolean;
   /** Stores `bytes` as an artifact of the call's session (`artifact.write`), or says why not. */
   store(
     bytes: Uint8Array,
@@ -299,6 +305,7 @@ async function shapeParts(
         type: part.type,
         ...(resource && typeof resource.uri === "string" ? { uri: resource.uri } : {}),
         truncated: true,
+        ...(ctx.retrievable === false ? { retrievable: false } : {}),
         ...kept,
       },
       text,
@@ -371,7 +378,12 @@ async function storedWhole(ctx: ShapeContext, value: unknown): Promise<Part> {
     name: nameOf(ctx, contentType),
     contentType,
   });
-  return withPreview({ truncated: true, ...kept }, text, ctx.limit, ctx.config);
+  return withPreview(
+    { truncated: true, ...(ctx.retrievable === false ? { retrievable: false } : {}), ...kept },
+    text,
+    ctx.limit,
+    ctx.config,
+  );
 }
 
 /**

@@ -30,7 +30,7 @@ import { readRuntimeLimits } from "../tenant/runtime-limits.js";
 import type { SessionStore } from "../store/types.js";
 import type { OutboundPolicy } from "../tenant/outbound.js";
 import { signingKeyView, type SigningKeys } from "../tenant/signing-keys.js";
-import type { SealedSecretCopies, VaultService } from "../vault/service.js";
+import type { SealedSecretCopies, SecretWriteOptions, VaultService } from "../vault/service.js";
 
 /** One JWT to sign: its `typ` and every claim, `iss`, `aud`, `sub`, `iat`, `exp` and `jti` included. */
 export interface SignRequest {
@@ -48,12 +48,16 @@ import { makeWebhookSecret, verifyWebhook, type SealedWebhookSecret, type Webhoo
 import { VaultCryptoError } from "../vault/crypto.js";
 
 export interface Keys {
-  /** `PUT /v1/agents/{id}/secrets/{name}` (`VaultService.putEnvironmentSecret`). */
+  /**
+   * `PUT /v1/agents/{id}/secrets/{name}` (`VaultService.putEnvironmentSecret`); `options.viaFromSlot`
+   * when `body.via` is the slot's, not the write's own (`secret-routing`).
+   */
   putEnvironmentSecret(
     environmentId: string,
     name: string,
     body: PutAgentSecretRequest,
     actor: string,
+    options?: SecretWriteOptions | null,
   ): Promise<AgentSecretView>;
   putHostModel(body: PutHostModelRequest): Promise<HostModelView>;
   selectHostModel(body: SelectHostModelRequest): Promise<HostModelView>;
@@ -128,8 +132,8 @@ export function inProcessKeys(options: InProcessKeysOptions): Keys {
   const { store, vault, signingKeys, kek } = options;
   const egress = new EgressAuthority(store, kek);
   return {
-    putEnvironmentSecret: (environmentId, name, body, actor) =>
-      vault.putEnvironmentSecret(environmentId, name, body, actor),
+    putEnvironmentSecret: (environmentId, name, body, actor, options) =>
+      vault.putEnvironmentSecret(environmentId, name, body, actor, options),
     putHostModel: (body) => vault.putHostModel(body),
     selectHostModel: (body) => vault.selectHostModel(body),
     sealEnvironmentSecretCopies: (from, vaultId, slots) => vault.sealEnvironmentSecretCopies(from, vaultId, slots),

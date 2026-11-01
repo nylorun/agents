@@ -465,8 +465,9 @@ offers it `request_connection`, which pauses the turn on an interaction whose `m
 `connection`), or a flow (`kind: "workflow"`); and `runtime`, the
 Agent's kind and what it gets (`image`, `network`, `setup`, `files`, `limits`, `lifecycle` and
 the secret slots, `secrets`). Its JSON Schema is
-`https://docs.nylorun.com/schemas/agent-manifest/v8.1.json` (v8 with `harness.model`; `v8.json`
-is the same without it)
+`https://docs.nylorun.com/schemas/agent-manifest/v8.2.json` (v8 with `harness.model`,
+`harness.engine`, `harness.memory.index` and a secret slot's `toolPrefix`; `v8.1.json` is the
+same without the last three, and `v8.json` without `harness.model` too)
 (`@nylorun/core/schemas/agent-manifest.json`; clients drop `$schema` before they save):
 
 ```json
@@ -520,7 +521,8 @@ is the same without it)
   (`virtual` or `pod`). It also refuses what the Tenant's limits do not allow, files it does not
   hold, a tool that runs your code and a tool's `approval` (the Tenant's
   [tool policy](#tool-policy) decides).
-- **Agent folders.** Author a manifest as a folder (tracks T6 and T7, format `agent-folder/1`):
+- **Agent folders.** Author a manifest as a folder (tracks T6 and T7, format `agent-folder/1`; or
+  `agent-folder/2`, ADR-100, which declares every engine feature it uses in `engine:`):
   `AGENT.md` (frontmatter `name` and `description`, optionally `model: <provider>/<model>`, the
   instructions below), `mcp.json` (Agent
   Plugins syntax; `Authorization: Bearer ${NAME}` names a `bearer` slot, derived for the server's
@@ -529,8 +531,8 @@ is the same without it)
   `agents/<id>/`, a flow in `flow.json` and vendored Agent Plugins in `plugins/<name>/`; a
   `.nyloignore` leaves files out. The [CLI's README](../cli/nylorun/README.md#agent-manifests-apply)
   shows each. Each kind of file has a JSON Schema at
-  `https://docs.nylorun.com/schemas/agent-folder/v1/<kind>.json` (`runtime`, `tool`, `mcp` and
-  `flow`, and `agent-md.1` and `trigger-md` for the frontmatter), exported as
+  `https://docs.nylorun.com/schemas/agent-folder/v1/<kind>.json` (`runtime.1`, `tool`, `mcp` and
+  `flow`, and `agent-md.2` and `trigger-md` for the frontmatter), exported as
   `@nylorun/core/schemas/agent-folder-<kind>.json`.
   `nylorun init <path>` writes one, `nylorun check` compiles it offline and prints every problem by
   file, line and column, and `nylorun apply` (or `saveFolder` in `@nylorun/agents`) sends it by
@@ -1374,9 +1376,20 @@ Either kind may add:
   (`github__create_issue`), a manifest's `tools` settings and tool policy rules name the server's
   own tools whether or not a gateway is in between, and calls each tool by the name the gateway
   listed. A listed tool that lacks the prefix keeps its name, and the server's discovery diagnostic
-  names it. It is the installation's routing, so it goes on the Agent's secret only: a manifest's
-  secret slot cannot name it, and a slot's value write (`{ "headers": { … }, "toolPrefix": "github-" }`)
-  adds it to a slot with `via`.
+  names it. A manifest's `bearer` or `headers` slot may name it too, with or without a `via`
+  (Host feature `secret-routing`), so an agent folder names how tools are listed and each
+  installation binds where requests go; a slot's value write may also add it
+  (`{ "headers": { … }, "toolPrefix": "github-" }`) when there is a `via`. The slot's prefix wins:
+  a write that names another is accepted, and the Runtime logs a warning.
+- **Routing a slot** (Host feature `secret-routing`): a `bearer` or `headers` slot's value write
+  may add `via` (`{ "headers": { … }, "via": "http://localhost:4100/mcp/web" }`), with the same
+  rules as above. At each request the secret's `via` wins, else the slot's `via` of the version
+  the Agent runs, else none (the request goes to the slot's `url`); the slot's `url` still picks the
+  credential. So a folder holds no deployment's endpoints: its slot names the server's own URL (or,
+  for an HTTP tool, a fixed name such as `https://tools.bot.nylorun/delegate`), and each
+  installation routes it. An HTTP tool whose URL has `{field}` parameters still fails with
+  `http.credential` when its credential has a `via`. `GET .../secrets` shows the `via` and
+  `toolPrefix` in force.
 - **`identity: { header }`**: a header that carries the session owner's subject, for a gateway
   that keeps each person's accounts ([Reaching a person's accounts](#reaching-a-persons-accounts)).
 
@@ -1736,7 +1749,8 @@ curl -X PUT "$NYLORUN_RUNTIME_URL/v1/tenant/tool-policy" \
 a call when every selector it sets matches: `tool` (the tool's own name: an MCP tool's name on
 its server, such as `create_issue`, or an HTTP tool's declared name; `*` matches any run of
 characters), `server` (an MCP server's name), `kind` (`mcp` or `http`), `agent` (the agent that
-calls it: its manifest's name, or a subagent's or a flow agent's id), and `when` (fields of the input by dotted path, each tested with `equals`, `in`, `gt`,
+calls it: its manifest's name, or a subagent's or a flow agent's id; the manifest's name also
+matches its subagents' calls, so a rule for an agent covers the agents it uses as tools), and `when` (fields of the input by dotted path, each tested with `equals`, `in`, `gt`,
 `gte`, `lt`, `lte` or `matches`). The strictest rule that matches decides, whatever their order;
 a call no rule matches runs.
 

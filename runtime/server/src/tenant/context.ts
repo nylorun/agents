@@ -19,6 +19,7 @@ import { DEFAULT_HARNESS, agentGranted } from "@nylorun/core/contracts";
 import type {
   IssuerScope,
   SessionModelChoice,
+  SessionModelRecord,
   SubjectScope,
   TenantEnvelope,
 } from "@nylorun/core/contracts";
@@ -71,6 +72,13 @@ export interface Session {
   loop?: Record<string, unknown>;
   /** Validated turn-manifest variants, keyed by hash (loops.md §4.2). */
   variants?: Record<string, AgentManifest>;
+  /**
+   * What the active turn's first message asked of its manifest: a variant (`manifest`) and the
+   * tools it may not use (`removeTools`, Host feature `remove-tools`). A turn's first segment that
+   * re-pins the session to its Agent's version applies it again to that version (`repinTurn`).
+   * Absent when the message asked for neither.
+   */
+  turnRequest?: { turnId: string; manifest?: AgentManifest; removeTools?: string[] };
   info?: any;
   status: string;
   activeTurnId: string | null;
@@ -151,6 +159,20 @@ export interface Session {
    * place of the Tenant's while its provider is connected. Absent: the Tenant's model.
    */
   model?: SessionModelChoice;
+  /**
+   * The Agent's memory as the session's last turn started (track T5): the newest memory version
+   * then (`seen`), and whether that turn's first segment asked the harness to pin the index again
+   * (`refresh`: someone else wrote the memory since the turn before). Absent before its first turn.
+   */
+  memoryIndex?: { turnId: string; seen?: string; refresh: boolean };
+  /** Where `model` came from: `manifest` when its Agent's version named it (`harness.model`). Absent: chosen. */
+  modelSource?: "manifest";
+  /**
+   * The model the session's turns call and why (`SessionModelRecord`, `tenant/session-model.ts`):
+   * as the session opened or chose it, and at each segment's start since. Absent while the
+   * Tenant has no model, and on a session opened before it was kept.
+   */
+  modelRecord?: SessionModelRecord;
 }
 
 export type AuthScope =

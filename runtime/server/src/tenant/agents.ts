@@ -646,22 +646,35 @@ export async function secretWritten(ctx: TenantContext, id: string): Promise<voi
 }
 
 /**
+ * A secret write as the vault takes it (`Keys.putEnvironmentSecret`): the typed request, and
+ * whether its `via` is the slot's (`viaFromSlot`), so a session follows the slot of the version
+ * its Agent runs, rather than this installation's own `via` (Host feature `secret-routing`).
+ */
+export interface SecretWrite {
+  readonly request: PutAgentSecretRequest;
+  readonly viaFromSlot: boolean;
+}
+
+/**
  * The secret write `raw` asks of Environment `id` (D64). When what it runs declares secret
  * slots, the name must be one (`409 secret_not_in_manifest`), and the body is `{ value }` (or
  * `{ headers }` for a `headers` slot) with the binding from the slot; a full typed body is
- * accepted only when its binding is the slot's. Without slots, today's typed body.
+ * accepted only when its binding is the slot's. Without slots, today's typed body. Either way a
+ * `bearer` or `headers` slot's write may add this installation's routing (Host feature
+ * `secret-routing`): `via`, which wins over the slot's, and the gateway's `toolPrefix`, which
+ * gives way to the slot's (a different one is accepted, with a warning in the log).
  */
 export async function secretRequestFor(
   ctx: TenantContext,
   id: string,
   name: string,
   raw: unknown,
-): Promise<PutAgentSecretRequest> {
-  const request = await parseSecretRequest(ctx, id, name, raw);
+): Promise<SecretWrite> {
+  const write = await parseSecretRequest(ctx, id, name, raw);
   // Within the Tenant's Runtime limits `secretValueChars` and `secretHosts`, read for the write.
-  const issues = secretRequestIssues(request, await ctx.store.tx((t) => readRuntimeLimits(t)));
+  const issues = secretRequestIssues(write.request, await ctx.store.tx((t) => readRuntimeLimits(t)));
   if (issues.length > 0) fail(400, issues.join(" "));
-  return request;
+  return write;
 }
 
 async function parseSecretRequest(
@@ -669,12 +682,12 @@ async function parseSecretRequest(
   id: string,
   name: string,
   raw: unknown,
-): Promise<PutAgentSecretRequest> {
+): Promise<SecretWrite> {
   const { environment, slots } = await ctx.store.tx(async (t) => {
     const environment = await liveEnvironment(t, id);
     return { environment, slots: environment && (await slotsAhead(t, environment)) };
   });
-  if (!environment || slots === undefined) return PutAgentSecretRequestSchema.parse(raw);
+  if (!environment || slots === undefined) return { request: PutAgentSecretRequestSchema.parse(raw), viaFromSlot: false };
   const named = `${environment.manifestName}@${environment.targetVersion ?? environment.manifestVersion}`;
   const slot =
     slots[name] ??
@@ -684,36 +697,71 @@ async function parseSecretRequest(
       { code: "secret_not_in_manifest", details: { declared: Object.keys(slots).sort() } },
     );
   const full = slotRequest(slot);
+  const slotVia = typeof full.via === "string" ? full.via : undefined;
+  const routed = slot.type === "bearer" || slot.type === "headers";
+  /** The write's prefix gives way to the slot's: said in the log when they differ. */
+  const prefixed = (toolPrefix: string | undefined) => {
+    if (routed && toolPrefix !== undefined && slot.toolPrefix !== undefined && toolPrefix !== slot.toolPrefix)
+      ctx.config.logger.warn("secret tool prefix gives way to the manifest's", {
+        environmentId: id,
+        secret: name,
+        manifest: named,
+      });
+  };
   if (raw !== null && typeof raw === "object" && "type" in raw) {
     const body = PutAgentSecretRequestSchema.parse(raw);
-    // The gateway's tool prefix is this installation's to add (`gateway-credentials`).
-    const { requestId: _, value: _v, headers: _h, toolPrefix: _p, ...binding } = body as PutAgentSecretRequest & {
+    // This installation's routing (`gateway-credentials`, `secret-routing`): its via and the
+    // gateway's tool prefix are its own to add.
+    const { requestId: _, value: _v, headers: _h, toolPrefix, via, ...binding } = body as PutAgentSecretRequest & {
       value?: string;
       headers?: unknown;
       toolPrefix?: string;
+      via?: string;
     };
-    if (canonical(binding) !== canonical(full))
+    const { via: _s, ...slotBinding } = full;
+    if (canonical(binding) !== canonical(slotBinding))
       fail(409, `Secret ${name}'s type and binding come from Agent ${id}'s manifest: send only its value ({ "value": "…" }).`, {
         code: "secret_not_in_manifest",
       });
-    return body;
+    prefixed(toolPrefix);
+    if (!routed || (via !== undefined && via !== slotVia)) return { request: body, viaFromSlot: false };
+    // No via of its own: the slot's, which a session reads from the version its Agent runs.
+    return {
+      request: PutAgentSecretRequestSchema.parse({ ...body, ...(slotVia === undefined ? {} : { via: slotVia }) }),
+      viaFromSlot: slotVia !== undefined,
+    };
   }
-  const { requestId, value, headers, toolPrefix } = PutAgentSecretValueRequestSchema.parse(raw);
+  const { requestId, value, headers, via, toolPrefix } = PutAgentSecretValueRequestSchema.parse(raw);
+  if (!routed && (via !== undefined || toolPrefix !== undefined))
+    fail(400, `Secret ${name} is an ${slot.type}: via and toolPrefix are for a bearer or headers secret.`);
+  if (toolPrefix !== undefined && via === undefined && slotVia === undefined)
+    fail(400, `toolPrefix needs via: Secret ${name}'s slot names none, so send one with the value.`);
+  prefixed(toolPrefix);
   const withId = {
     ...(requestId === undefined ? {} : { requestId }),
     ...(toolPrefix === undefined ? {} : { toolPrefix }),
   };
+  // The write's via wins over the slot's (`secret-routing`); the URL still picks the credential.
+  const routing = via === undefined ? {} : { via };
+  const viaFromSlot = via === undefined && slotVia !== undefined;
   if (slot.type === "headers") {
     if (headers === undefined) fail(400, `Secret ${name} is a headers credential: send { "headers": { … } }.`);
-    return PutAgentSecretRequestSchema.parse({ ...withId, ...full, headers });
+    return { request: PutAgentSecretRequestSchema.parse({ ...withId, ...full, ...routing, headers }), viaFromSlot };
   }
   if (value === undefined) fail(400, `Secret ${name} takes a value: send { "value": "…" }.`);
-  return PutAgentSecretRequestSchema.parse({ ...withId, ...full, value });
+  return { request: PutAgentSecretRequestSchema.parse({ ...withId, ...full, ...routing, value }), viaFromSlot };
 }
 
-/** A slot's type and binding, as a secret write's fields (without the value). */
+/**
+ * A slot's type and binding, as a secret write's fields (without the value). A slot's
+ * `toolPrefix` stays the slot's: a session reads it from the version its Agent runs.
+ */
 function slotRequest(slot: EnvironmentSecretSlot): Record<string, unknown> {
   const { required: _r, description: _d, ...binding } = slot;
+  if ("toolPrefix" in binding) {
+    const { toolPrefix: _p, ...rest } = binding;
+    return rest;
+  }
   return binding;
 }
 

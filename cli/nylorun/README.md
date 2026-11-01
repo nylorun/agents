@@ -54,11 +54,12 @@ nylorun doctor sandbox [--tenant <name>] [--json]   # the sandbox backend the Te
 # apply, agent-manifests, agents, sessions, artifacts: the Runtime API (an application key, or NYLORUN_TOKEN)
 # every one takes --tenant <name>, and --as <subject> [--scope <scope>]... to act for a person
 nylorun init <path> [--description <text>] [--example]   # write <path>/AGENT.md, a new agent folder named after the last segment
-nylorun check [<dir>...] [--fix] [--json]  # compile each agent folder offline: every problem by file, line and column; --fix makes the fixable ones' edits
+nylorun check [<dir>...] [--fix] [--explain] [--json]  # compile each agent folder offline: every problem by file, line and column; --fix makes the fixable ones' edits; --explain prints each engine feature on, and what it adds
 nylorun apply [<dir>...] [--dry-run] [--if-match <n>] [--agent [<id>]] [--watch [--save]]   # plan, then save each folder (AGENT.md or agent.manifest.json), its files uploaded
 nylorun chat <agent> [--session <id>] [--message <text>]   # send each line (or --message), print each reply
 nylorun migrate v8 <agent.json> [--runtime <environment-manifest.json>] [--name <name>] [--out <dir>]   # the three files from a v7 manifest; reads no Runtime
 nylorun migrate folder <dir> [--out <dir>]   # the agent folder of a three-file folder; reads no Runtime
+nylorun migrate folder <dir> --to 2   # make an agent folder agent-folder/2, declaring what it gets today
 nylorun export --folder <name>[@<n>] [--out <dir>]   # the agent folder of a saved manifest (JSON or TypeScript)
 nylorun pull <name>[@<n>] [--out <dir>]   # the folder a version was saved from, byte for byte
 nylorun agent-manifests list [--json]       # name, latest version, runtime kind, harness, Agents
@@ -288,7 +289,11 @@ secret of that Agent's vault, a `bearer` token or a `headers` map, with `via` an
 an identity header when an MCP gateway holds each person's sign-in. Write it with
 `nylorun agents secrets put <id> <name>` (a slot's value on standard input) or
 `nylorun agents secrets put <id> <name> <secret.json|->` (the secret's JSON
-comes from a file or standard input, never the command line),
+comes from a file or standard input, never the command line; for a slot, only
+`{ "value": … }` or `{ "headers": { … } }`), with `--via <url>` and
+`--tool-prefix <prefix>` for this installation's routing of a `bearer` or
+`headers` secret (Host feature `secret-routing`: the write's `via` wins over the
+slot's, the slot's tool prefix over the write's),
 `client.agents.secrets.put(id, name, secret)` of `@nylorun/agents` (the
 Runtime API, an application key) or in Studio.
 The whole flow, with gateway recipes, is in
@@ -563,6 +568,40 @@ does not compile), plans it, prints the compiler's notes (such as a slot derived
 from `mcp.json`) and saves it, uploading its files by hash; the Runtime keeps the
 folder as the version's source. `--dry-run` also prints the compiled manifest. A
 change only to a file outside the agent, such as a README, is `unchanged`.
+
+**What the engine adds (`agent-folder/2`, ADR-100).** An `agent-folder/1` folder (no `format`,
+the default) gets every engine feature by default: with a computer in `runtime.json`, the six
+sandbox tools, `save_artifact` and the outputs folder; always `read_artifact`; and its MCP tools
+deferred behind `tool_search` past a share of the context window. A folder with
+`format: agent-folder/2` gets only what it declares. Memory, skills, `loop` and
+`runtime.selfWake` declare their parts as before; `engine:` declares the rest:
+
+<!-- doc-test: folder declared AGENT.md -->
+```markdown
+---
+name: declared
+description: Answers from the docs it is given.
+format: agent-folder/2
+memory:
+  index: false
+engine:
+  artifacts: { read: true }
+  toolSearch: false
+---
+Answer from the documents in the conversation.
+```
+
+`engine.sandbox` lists any of `bash`, `read`, `write`, `edit`, `grep` and `glob`;
+`artifacts.save`, `outputs` and `sandbox` need a computer; and `engine.instructions.<block>`
+replaces a text block's wording with a Markdown file under `engine/` (the blocks are `skills`,
+`sandbox`, `skill_folder`, `artifacts_save`, `outputs`, `artifacts_read`, `wake`, `memory`,
+`plan`, `connection` and `tool_search`; memory's rule that outside text is data stays). A
+subagent declares its own `engine:`, a subset of its parent's. The compiled manifest lists the
+blocks the agent gets, with their versions and hashes (`harness.engine.blocks`).
+`nylorun check --explain` prints each feature on, and the tools and blocks it adds;
+`previewTurn(manifest)` in `@nylorun/agents` returns the exact system text and tool list.
+`nylorun migrate folder <dir> --to 2` writes the declarations that keep what an `agent-folder/1`
+folder gets, so nothing changes until you remove a line.
 
 The loop from an empty folder to an answer:
 

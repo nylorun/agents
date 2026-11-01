@@ -12,6 +12,7 @@ import type { JsonObject, JsonValue } from "./types/shared.js";
 import type { WorkflowLoopVerify, WorkflowManifest, WorkflowNode } from "./types/workflow.js";
 import {
   SANDBOX_NETWORK_PRESETS,
+  SANDBOX_TOOL_NAMES,
   isSandboxHostPattern,
   parseSandboxDuration,
   parseSandboxSize,
@@ -34,6 +35,7 @@ import {
   httpVerifierIssue,
 } from "./definition/http-tool.js";
 import { canonical } from "./utils/canonical.js";
+import { ENGINE_BLOCK_NAMES } from "./engine/names.js";
 import { FILE_NAME_MAX, FILE_PATH_MAX, LINK_TARGET_MAX } from "./utils/file-systems.js";
 export { FILE_NAME_MAX, FILE_PATH_MAX } from "./utils/file-systems.js";
 import { DEFAULT_HARNESS, HARNESS_ID_PATTERN, isHarnessId } from "./utils/harness-id.js";
@@ -328,6 +330,43 @@ const agentRequirementsSchema = z
     secrets: z.array(z.string().regex(ENVIRONMENT_NAME_PATTERN, "A secret name in requires is an environment variable name")).optional(),
   })
   .strict();
+/**
+ * The engine features an agent declares (ADR-100, `agent-folder/2`): `harness.engine` of an
+ * agent manifest v8 and `engine` of the loop manifest (v7) the harness runs. With it, our engine
+ * adds only what it names; without it, the defaults of `agent-folder/1`.
+ */
+const engineBlockRefSchema = z
+  .object({
+    name: z.enum(ENGINE_BLOCK_NAMES),
+    version: z.number().int().positive(),
+    sha256: z.string().regex(/^sha256:[0-9a-f]{64}$/),
+    source: z.string().min(1).optional(),
+  })
+  .strict();
+export const HarnessEngineSchema = z
+  .strictObject({
+    sandbox: z
+      .array(z.enum(SANDBOX_TOOL_NAMES))
+      .refine((tools) => new Set(tools).size === tools.length, { message: "engine.sandbox names each tool once" })
+      .optional()
+      .meta({ description: "The sandbox tools offered: any of bash, read, write, edit, grep and glob; needs a computer" }),
+    artifacts: z
+      .strictObject({ read: z.boolean().optional(), save: z.boolean().optional() })
+      .optional()
+      .meta({ description: "read: read_artifact and its text; save: save_artifact and its text (needs a computer)" }),
+    outputs: z.boolean().optional().meta({ description: "Save /workspace/outputs when a turn ends; needs a computer" }),
+    toolSearch: z
+      .boolean()
+      .optional()
+      .meta({ description: "Defer MCP tools behind tool_search when their schemas pass the threshold" }),
+    instructions: z
+      .partialRecord(z.enum(ENGINE_BLOCK_NAMES), z.string().min(1))
+      .optional()
+      .meta({ description: "A block's wording replaced, by block name" }),
+    blocks: z.array(engineBlockRefSchema).optional().meta({ description: "The engine text blocks the agent gets, with their hashes" }),
+  })
+  .meta({ id: "HarnessEngine" });
+const harnessEngineField = HarnessEngineSchema.optional();
 const agentManifestSchema = z
   .strictObject(
     {
@@ -344,6 +383,7 @@ const agentManifestSchema = z
       skills: z.record(z.string(), skillManifestSchema).optional(),
       mcpServers: z.record(z.string(), mcpServerSchema).optional(),
       requires: agentRequirementsSchema.optional(),
+      engine: harnessEngineField,
       // Reserved for Functions, which are deferred: developer code the Runtime will run from
       // uploaded definition files (a `functions/` folder). Any value is refused below.
       functions: z.unknown().optional().meta({ description: "Reserved: Functions are not available yet" }),
@@ -1575,8 +1615,10 @@ export type CredentialIdentity = z.infer<typeof CredentialIdentitySchema>;
  * `toolPrefix`: what the gateway at `via` puts before each tool name it lists, such as
  * LiteLLM's `github-` (Host feature `gateway-credentials`). The Runtime lists the server's tools
  * without it, so tool names, a manifest's `tools` settings and tool policy rules name the server's
- * own tools, and calls a tool by the name the gateway listed. Only with `via`, and only on an
- * Agent's secret: how a gateway names tools is the installation's routing, never a manifest's.
+ * own tools, and calls a tool by the name the gateway listed. On an Agent's secret, only with
+ * `via`. A manifest's `bearer` or `headers` slot may name it too (Host feature `secret-routing`),
+ * with or without a `via`: it applies whenever the credential's requests go to a `via`, and wins
+ * over the secret's.
  */
 export const CredentialToolPrefixSchema = z
   .string()
@@ -1758,14 +1800,22 @@ export type PutAgentSecretRequest = z.infer<typeof PutAgentSecretRequestSchema>;
 /**
  * A secret write on an Environment whose manifest declares the secret's slot: only the
  * value, `value` (or `headers` for a `headers` slot). Its type and binding come from the slot,
- * except the gateway's `toolPrefix`, which this installation's write may add to a slot with `via`.
+ * except this installation's routing of a `bearer` or `headers` slot (Host feature
+ * `secret-routing`): `via`, where its requests go, which wins over the slot's; and the gateway's
+ * `toolPrefix`, which needs a `via` (the write's or the slot's) and gives way to the slot's.
  */
 export const PutAgentSecretValueRequestSchema = z
   .object({
     requestId: RequestIdSchema.optional(),
     value: z.string().min(1).optional(),
     headers: CredentialHeadersSchema.optional(),
-    /** A `bearer` or `headers` slot with `via`: how the gateway there prefixes tool names. */
+    /**
+     * A `bearer` or `headers` slot: where this installation sends the credential's requests,
+     * such as a gateway's endpoint for the server. Wins over the slot's `via`; the credential is
+     * still chosen by the slot's `url`.
+     */
+    via: CredentialViaSchema.optional(),
+    /** A `bearer` or `headers` slot with a `via`: how the gateway there prefixes tool names. */
     toolPrefix: CredentialToolPrefixSchema.optional(),
   })
   .strict()
@@ -1800,7 +1850,11 @@ const slotBase = {
 /**
  * One secret an Environment of a kind needs: its type and binding, never its value. The
  * value is written into each Environment's vault (`PUT /v1/agents/{id}/secrets/{name}`
- * with `{ value }`, or `{ headers }` for `headers`), and the binding comes from here.
+ * with `{ value }`, or `{ headers }` for `headers`), and the binding comes from here. A
+ * `bearer` or `headers` slot may name the gateway's `toolPrefix` without a `via`, so a folder
+ * names how tools are listed and each installation binds where requests go (the write's `via`,
+ * Host feature `secret-routing`). At each request the credential's `via` is the secret's, else
+ * the slot's, else none (the slot's `url`), and its tool prefix the slot's, else the secret's.
  */
 export const EnvironmentSecretSlotSchema = z.discriminatedUnion("type", [
   z
@@ -1812,8 +1866,24 @@ export const EnvironmentSecretSlotSchema = z.discriminatedUnion("type", [
     })
     .strict(),
   z.object({ type: z.literal("environment_variable"), ...slotBase }).strict(),
-  z.object({ type: z.literal("bearer"), url: z.string().min(1), ...credentialRouting, ...slotBase }).strict(),
-  z.object({ type: z.literal("headers"), url: z.string().min(1), ...credentialRouting, ...slotBase }).strict(),
+  z
+    .object({
+      type: z.literal("bearer"),
+      url: z.string().min(1),
+      ...credentialRouting,
+      toolPrefix: CredentialToolPrefixSchema.optional(),
+      ...slotBase,
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("headers"),
+      url: z.string().min(1),
+      ...credentialRouting,
+      toolPrefix: CredentialToolPrefixSchema.optional(),
+      ...slotBase,
+    })
+    .strict(),
 ]);
 export type EnvironmentSecretSlot = z.infer<typeof EnvironmentSecretSlotSchema>;
 /** A manifest's secret slots: at most the Tenant's Runtime limit `environmentSecretSlots`. */
@@ -1880,6 +1950,10 @@ export const HarnessMemorySchema = z.strictObject({
     .max(MEMORY_INSTRUCTIONS_MAX)
     .optional()
     .meta({ description: "What this agent should remember, after the engine's own memory rules" }),
+  index: z
+    .boolean()
+    .optional()
+    .meta({ description: "agent-folder/2: false pins no memory index in a session. Default true" }),
 });
 const harnessMemoryField = HarnessMemorySchema.optional()
   .meta({ description: "The Agent's memory: Markdown files under /memories it keeps across sessions" });
@@ -1927,6 +2001,7 @@ const agentHarnessObject = z
       loop: harnessLoopField,
       memory: harnessMemoryField,
       model: harnessModelField,
+      engine: harnessEngineField,
       functions: z.unknown().optional().meta({ description: "Reserved: Functions are not available yet" }),
     },
     { error: removedFieldError(REMOVED_HARNESS_FIELDS) },
@@ -2280,6 +2355,7 @@ export const HarnessManifestFileSchema = z
     loop: harnessLoopField,
     memory: harnessMemoryField,
     model: harnessModelField,
+    engine: harnessEngineField,
     /** MCP server or HTTP tool name → the `runtime.secrets` slot it authenticates with. */
     credentials: z.record(z.string().min(1), z.string().min(1)).optional(),
     /** What this harness needs of any runtime it is combined with; checked by the composer only. */
@@ -2815,8 +2891,15 @@ export const AgentSecretViewSchema = z
       .strict(),
     /** A `headers` credential's header names (lower case), never their values. */
     headerNames: z.array(z.string()).optional(),
+    /**
+     * Where its requests go: the secret's own `via`, else its slot's (Host feature
+     * `secret-routing`). Absent: to its `url`.
+     */
     via: z.string().optional(),
-    /** How the gateway at `via` prefixes tool names (Host feature `gateway-credentials`). */
+    /**
+     * How the gateway at `via` prefixes tool names (Host feature `gateway-credentials`): its
+     * slot's, else the secret's; only with a `via`.
+     */
     toolPrefix: z.string().optional(),
     identity: CredentialIdentitySchema.optional(),
     createdAt: z.string(),
@@ -2992,11 +3075,27 @@ const commandBase = {
  */
 export const MessageDeliverySchema = z.enum(["queue", "reject"]);
 export type MessageDelivery = z.infer<typeof MessageDeliverySchema>;
+/**
+ * A message's `removeTools` (Host feature `remove-tools`): the tools its turn may not use, by
+ * name. In the root agent and each agent it uses as a tool, a name removes the declared tool of
+ * that name (an agent used as a tool included), `<server>__<tool>` disables an MCP server's tool
+ * (the server's name and the tool's own name on it), and `<server>` every tool of that server.
+ * Applied to the version the turn runs, after a turn's first segment re-pins the session to its
+ * Agent's version; names that version does not have are ignored. Any caller may send it: it
+ * only narrows.
+ */
+export const RemoveToolsSchema = z.array(z.string().min(1).max(256)).max(256);
 const messageBase = {
   ...commandBase,
   type: z.literal("message"),
-  /** Optional turn manifest (Loop patch); validated as a variant of the pinned agent. */
+  /**
+   * Optional turn manifest (Loop patch): a variant of the version the turn runs. Validated
+   * against the session's pin when the message is accepted, and again against the Agent's
+   * version when the turn's first segment re-pins the session to it; one that is no variant of
+   * that version keeps the turn on the version it pinned (`turn.version_kept`).
+   */
   manifest: AgentManifestSchema.optional(),
+  removeTools: RemoveToolsSchema.optional(),
   delivery: MessageDeliverySchema.optional(),
 };
 /**
@@ -3581,6 +3680,8 @@ export const CommandMessagePayloadSchema = z
     parts: z.array(MessagePartSchema).optional(),
     /** The turn manifest the message carried, if any. */
     manifest: z.unknown().optional(),
+    /** The tools the message's turn may not use (Host feature `remove-tools`). */
+    removeTools: z.array(z.string()).optional(),
     delivery: MessageDeliverySchema.optional(),
     /** Set when the message waited in the session's queue (protocol 17): its id there. */
     queuedMessageId: z.string().optional(),
@@ -3807,6 +3908,74 @@ export const ArtifactExportFailedPayloadSchema = z
   .object({ name: z.string(), message: z.string() })
   .passthrough();
 
+/**
+ * `engine.diagnostic`: our engine met something about the session's agent that the agent's
+ * declarations decide, and says so instead of choosing for it (ADR-100), such as `mcp_tools_inline`:
+ * an agent that does not declare `engine.toolSearch` has MCP tool schemas past the share of the
+ * model's context window at which they would be deferred, and keeps them all in its tool list.
+ */
+export const EngineDiagnosticPayloadSchema = z
+  .object({
+    code: z.string().min(1),
+    message: z.string(),
+    /** The agent used as a tool it is about; absent for the session's root agent. */
+    agentId: z.string().optional(),
+  })
+  .passthrough();
+
+/** Where the model a session's turns call comes from (`SessionModelRecord.source`). */
+export const SESSION_MODEL_SOURCES = ["manifest", "session", "tenant"] as const;
+/**
+ * Why a session's turns call the Tenant's model and not the one its manifest (`harness.model`) or
+ * its own choice (`PUT /v1/sessions/{id}/model`) names: that model's provider is not connected,
+ * its provider's catalog does not list it, or it is no `<provider>/<model>` the Tenant takes.
+ */
+export const SESSION_MODEL_FALLBACK_REASONS = ["provider_not_connected", "not_in_catalog", "invalid_model"] as const;
+/**
+ * The model a session's turns call, and why (`model` on `GET /v1/sessions/{id}`, and the
+ * `session.model` event): `source` `manifest` for the model its Agent's version names
+ * (`harness.model`, Host feature `agent-model`), `session` for its own choice, `tenant` for the
+ * Tenant's model. On a fallback to the Tenant's, `reason` says why the model `requested` (by the
+ * manifest or the session) is not used.
+ */
+export const SessionModelRecordSchema = z
+  .object({
+    provider: z.string(),
+    model: z.string(),
+    source: z.enum(SESSION_MODEL_SOURCES),
+    reason: z.enum(SESSION_MODEL_FALLBACK_REASONS).optional(),
+    requested: z
+      .object({ provider: z.string(), model: z.string(), by: z.enum(["manifest", "session"]) })
+      .strict()
+      .optional(),
+  })
+  .strict();
+export type SessionModelRecord = z.infer<typeof SessionModelRecordSchema>;
+/**
+ * `session.model`: the model the session's turns call was set (the session opened, its own model
+ * was chosen or cleared) or changed (at a turn's start: a provider was connected or disconnected,
+ * the Tenant's model changed), fallbacks included. `previous` is what it was, absent at the first.
+ */
+export const SessionModelPayloadSchema = SessionModelRecordSchema.extend({
+  previous: SessionModelRecordSchema.optional(),
+}).passthrough();
+
+/**
+ * `turn.version_kept`: a turn's first segment did not move the session to the version its Agent
+ * runs now (`from` is the version the session keeps, `to` the Agent's). `variant_invalid`: the
+ * turn manifest its message carried is no variant of that version, and the turn runs it on the
+ * version it was accepted for, so the variant never widens what the turn may do. Send the message
+ * again with a variant of the new version, or name the tools with `removeTools`.
+ */
+export const TurnVersionKeptPayloadSchema = z
+  .object({
+    reason: z.enum(["variant_invalid"]),
+    from: z.object({ name: z.string(), version: z.number().int() }).strict(),
+    to: z.object({ name: z.string(), version: z.number().int() }).strict(),
+    message: z.string(),
+  })
+  .passthrough();
+
 /** What readying one declared MCP server found (`mcp.discovered`). */
 export const McpServerOutcomeSchema = z
   .object({
@@ -3834,11 +4003,17 @@ export const McpServerOutcomeSchema = z
 export type McpServerOutcome = z.infer<typeof McpServerOutcomeSchema>;
 /**
  * `mcp.discovered`: the session's first turn readied its MCP servers and pinned the tools they
- * offer, one outcome per declared server. A server that did not connect adds no tools for the
- * session's life, so this is where the model's missing tools show (also `mcpDiagnostics`).
+ * offer, one outcome per declared server. A server that did not connect adds no tools until a
+ * later turn's first segment, which tries it again: once it answers, it joins the session's
+ * snapshot and a second `mcp.discovered` names it (`rejoined`, with only the servers that joined).
+ * This is where the model's missing tools show (also `mcpDiagnostics`).
  */
 export const McpDiscoveredPayloadSchema = z
-  .object({ servers: z.array(McpServerOutcomeSchema) })
+  .object({
+    servers: z.array(McpServerOutcomeSchema),
+    /** Set when the servers joined the snapshot at a later turn, having failed at the first. */
+    rejoined: z.literal(true).optional(),
+  })
   .passthrough();
 
 /**
@@ -3859,6 +4034,8 @@ export const EVENT_CATALOG = {
   "turn.paused": { payload: TurnPausedPayloadSchema, source: "loop", version: 1 },
   "turn.failed": { payload: TurnFailedPayloadSchema, source: "loop", version: 1 },
   "turn.cancelled": { payload: TurnCancelledPayloadSchema, source: "api", version: 1 },
+  "turn.version_kept": { payload: TurnVersionKeptPayloadSchema, source: "api", version: 1 },
+  "session.model": { payload: SessionModelPayloadSchema, source: "api", version: 1 },
   "message.queued": { payload: MessageQueuedPayloadSchema, source: "api", version: 1 },
   "queue.taken": { payload: QueueTakenPayloadSchema, source: "api", version: 1 },
   "wake.booked": { payload: WakeBookedPayloadSchema, source: "api", version: 1 },
@@ -3873,6 +4050,7 @@ export const EVENT_CATALOG = {
   "delegation.completed": { payload: DelegationPayloadSchema, source: "loop", version: 1 },
   "mcp.discovered": { payload: McpDiscoveredPayloadSchema, source: "loop", version: 1 },
   "plan.updated": { payload: PlanUpdatedPayloadSchema, source: "loop", version: 1 },
+  "engine.diagnostic": { payload: EngineDiagnosticPayloadSchema, source: "loop", version: 1 },
   "environment.state": { payload: EnvironmentStatePayloadSchema, source: "loop", version: 1 },
   "environment.exec": { payload: EnvironmentExecPayloadSchema, source: "loop", version: 1 },
   "agent.attached": { payload: AgentAttachedPayloadSchema, source: "api", version: 1 },
@@ -4654,6 +4832,12 @@ export const SessionViewSchema = z
     closedReason: z.string().optional(),
     mcpSnapshot: z.record(z.string(), z.unknown()).nullable(),
     mcpDiagnostics: z.array(z.record(z.string(), z.unknown())),
+    /**
+     * The model the session's turns call and why (`SessionModelRecord`): as its last turn
+     * started, or as the session opened or chose it since. Null for a flow and while the Tenant
+     * has no model.
+     */
+    model: SessionModelRecordSchema.nullable(),
     /** What the session waits on: interactions, approvals, timers. */
     waits: z.unknown().optional(),
     error: z.string().optional(),
@@ -4939,8 +5123,9 @@ export type ToolInputCondition = z.infer<typeof ToolInputConditionSchema>;
  * identity: an MCP tool's own name on its server, or an HTTP tool's declared name; never the name
  * a harness gave the model; `*` for any run of characters), `server` (an MCP server's name),
  * `kind`, `agent` (the agent that calls it: the agent manifest's name, or the id of an agent used
- * as a tool or of a flow's agent; never an Agent's id) and `when` (fields of the input, by dotted
- * path). The strictest matching rule decides: `deny` refuses the call before it is sent,
+ * as a tool or of a flow's agent; never an Agent's id; the session's root agent's name matches its
+ * subagents' calls too, those of the agents it uses as tools) and `when` (fields of the input, by
+ * dotted path). The strictest matching rule decides: `deny` refuses the call before it is sent,
  * `ask` holds it until a person approves it on the session (`approve`), `allow` runs it. A call no
  * rule matches runs. Sandbox tools never cross the gate; their network side is egress policy.
  *
@@ -4968,7 +5153,7 @@ export const ToolRuleSchema = z
       .optional()
       .meta({
         description:
-          "The agent that calls the tool: the agent manifest's name, or the id of an agent used as a tool or of a flow's agent, never an Agent's id. `*` matches any run of characters",
+          "The agent that calls the tool: the agent manifest's name, or the id of an agent used as a tool or of a flow's agent, never an Agent's id. The session's root agent's name also matches the calls of the agents it uses as tools. `*` matches any run of characters",
       }),
     when: z
       .record(z.string().min(1), ToolInputConditionSchema)

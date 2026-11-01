@@ -22,7 +22,7 @@ import {
 } from "./context.js";
 import { fail } from "./http.js";
 import { definitionFileIssues } from "./definition-files.js";
-import { agentModelOf } from "./session-model.js";
+import { agentModelOf, noteSessionModel, sessionModelRecordOf } from "./session-model.js";
 import { limitsInForce, readTenantLimits } from "./limits.js";
 
 /** A session's creation identity: everything but the request id. */
@@ -137,7 +137,8 @@ export async function openSessionIn(
   if (agent.kind === "pod") await requirePods(ctx.pods, `Agent ${agent.id}`);
   // The model the version names (`harness.model`, Host feature `agent-model`) is the new
   // session's own, as `chooseSessionModel` would make it, when the Tenant can use it now.
-  const model = await agentModelOf(t, version.body.harness as { readonly model?: unknown });
+  const asked = await agentModelOf(t, version.body.harness as { readonly model?: unknown });
+  const model = asked && "choice" in asked ? asked.choice : undefined;
   const created: Session = {
     id,
     agentId: agent.id,
@@ -154,10 +155,16 @@ export async function openSessionIn(
     environmentId: agent.id,
     environmentVersion: agent.version,
     ...(pin.sandbox === undefined ? {} : { sandbox: pin.sandbox }),
-    ...(model === undefined ? {} : { model }),
+    ...(model === undefined ? {} : { model, modelSource: "manifest" as const }),
   };
   await t.put("sessions", id, created);
   await recordAttachment(t, id, agent.id);
+  // The model its turns call, and why: a flow's agents call theirs in their own sessions.
+  if (!isWorkflowManifest(pin.manifest)) {
+    const fallback = asked && "fallback" in asked ? asked.fallback : undefined;
+    if (await noteSessionModel(t, created, await sessionModelRecordOf(t, created, fallback)))
+      await t.put("sessions", id, created);
+  }
   return created;
 }
 
@@ -208,6 +215,9 @@ export async function sessionView(t: Tx, s: Session): Promise<unknown> {
     ...(s.closedReason === undefined ? {} : { closedReason: s.closedReason }),
     mcpSnapshot: s.mcpSnapshot ?? null,
     mcpDiagnostics: s.mcpDiagnostics ?? [],
+    // As its last turn started; a session that kept none yet (older, or opened before the
+    // Tenant had a model) answers what its next turn would call.
+    model: isWorkflowManifest(s.manifest) ? null : (s.modelRecord ?? (await sessionModelRecordOf(t, s)) ?? null),
     waits,
     error: s.error,
     uncertainEffects: uncertain.map((e) => ({

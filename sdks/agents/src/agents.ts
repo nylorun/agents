@@ -59,13 +59,25 @@ import { id, segment, type Transport } from "./http.js";
 /** What an Agent is made from (`manifest: "name"` or `"name@n"`), and its owner guard, labels and `from`. */
 export type AgentInput = Omit<PutAgentRequest, "requestId">;
 /**
+ * This installation's routing of a `bearer` or `headers` slot's value (Host feature
+ * `secret-routing`): `via`, where the credential's requests go (an `https` URL, `http` only to a
+ * loopback host, with no userinfo, query or fragment), which wins over the slot's `via`; and the
+ * gateway's `toolPrefix`, which needs a `via` (this one or the slot's) and gives way to the slot's.
+ * The credential is still chosen by the slot's `url`.
+ */
+export interface AgentSecretRouting {
+  readonly via?: string;
+  readonly toolPrefix?: string;
+}
+/**
  * One secret of an Agent's vault, as written: typed, or only its value (`{ value }`, or
- * `{ headers }` for a `headers` secret) when its manifest declares the slot.
+ * `{ headers }` for a `headers` secret) when its manifest declares the slot, with this
+ * installation's routing for a `bearer` or `headers` slot (`AgentSecretRouting`).
  */
 export type AgentSecretInput =
   | PutAgentSecretRequest
-  | { readonly value: string }
-  | { readonly headers: Readonly<Record<string, string>> };
+  | ({ readonly value: string } & AgentSecretRouting)
+  | ({ readonly headers: Readonly<Record<string, string>> } & AgentSecretRouting);
 /** Which Agents a `list` or `page` answers: those with every label, and the state or manifest given. */
 export interface AgentFilter {
   readonly labels?: Readonly<Record<string, string>>;
@@ -119,8 +131,10 @@ export class AgentSecretsClient {
    * Creates or replaces secret `name` (`PUT /v1/agents/{id}/secrets/{name}`): for
    * `environment_secret` and `environment_variable` the name is the variable's. A second
    * credential for a host or a URL is a 409 `credential_conflict`. When the Agent's manifest
-   * declares the secret's slot, send only `{ value }` (or `{ headers }`); a name it does
-   * not declare is `409 secret_not_in_manifest`.
+   * declares the secret's slot, send only `{ value }` (or `{ headers }`), with `via` and
+   * `toolPrefix` for a `bearer` or `headers` slot routed through a gateway (Host feature
+   * `secret-routing`); a name it does not declare is `409 secret_not_in_manifest`. The answer
+   * shows the `via` and `toolPrefix` in force, never a value.
    */
   async put(
     agentId: string,

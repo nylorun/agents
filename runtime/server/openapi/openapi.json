@@ -40,7 +40,9 @@
         "model-host-identity",
         "credential-provider",
         "turns",
-        "agent-model"
+        "agent-model",
+        "secret-routing",
+        "remove-tools"
       ]
     },
     "description": "For developers: agent manifests, Agents, sessions (with AG-UI and A2A) and artifacts, through `@nylorun/agents`. Every Tenant serves it on its one URL, beside the Management API (`/openapi/management.json`). Every request sends `Nylorun-Protocol`. Who may call each operation is its `security` and its `x-nylorun-credentials` and `x-nylorun-scopes` (the subject scopes that reach it) fields: an application key (servers) or a trusted issuer's token (browsers and apps)."
@@ -6759,6 +6761,9 @@
                     },
                     "additionalProperties": false
                   },
+                  "engine": {
+                    "$ref": "#/components/schemas/HarnessEngine"
+                  },
                   "functions": {
                     "description": "Reserved: Functions are not available yet"
                   }
@@ -6768,6 +6773,15 @@
                   "id"
                 ],
                 "additionalProperties": false
+              },
+              "removeTools": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                },
+                "maxItems": 256
               },
               "delivery": {
                 "type": "string",
@@ -7075,6 +7089,9 @@
                     },
                     "additionalProperties": false
                   },
+                  "engine": {
+                    "$ref": "#/components/schemas/HarnessEngine"
+                  },
                   "functions": {
                     "description": "Reserved: Functions are not available yet"
                   }
@@ -7084,6 +7101,15 @@
                   "id"
                 ],
                 "additionalProperties": false
+              },
+              "removeTools": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                },
+                "maxItems": 256
               },
               "delivery": {
                 "type": "string",
@@ -7390,6 +7416,9 @@
                     },
                     "additionalProperties": false
                   },
+                  "engine": {
+                    "$ref": "#/components/schemas/HarnessEngine"
+                  },
                   "functions": {
                     "description": "Reserved: Functions are not available yet"
                   }
@@ -7399,6 +7428,15 @@
                   "id"
                 ],
                 "additionalProperties": false
+              },
+              "removeTools": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                },
+                "maxItems": 256
               },
               "delivery": {
                 "type": "string",
@@ -7839,6 +7877,9 @@
                 },
                 "additionalProperties": false
               },
+              "engine": {
+                "$ref": "#/components/schemas/HarnessEngine"
+              },
               "functions": {
                 "description": "Reserved: Functions are not available yet"
               }
@@ -8213,6 +8254,9 @@
                       },
                       "additionalProperties": false
                     },
+                    "engine": {
+                      "$ref": "#/components/schemas/HarnessEngine"
+                    },
                     "functions": {
                       "description": "Reserved: Functions are not available yet"
                     }
@@ -8541,6 +8585,141 @@
         },
         "additionalProperties": false
       },
+      "HarnessEngine": {
+        "type": "object",
+        "properties": {
+          "sandbox": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "bash",
+                "read",
+                "write",
+                "edit",
+                "grep",
+                "glob"
+              ]
+            },
+            "description": "The sandbox tools offered: any of bash, read, write, edit, grep and glob; needs a computer"
+          },
+          "artifacts": {
+            "type": "object",
+            "properties": {
+              "read": {
+                "type": "boolean"
+              },
+              "save": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false,
+            "description": "read: read_artifact and its text; save: save_artifact and its text (needs a computer)"
+          },
+          "outputs": {
+            "type": "boolean",
+            "description": "Save /workspace/outputs when a turn ends; needs a computer"
+          },
+          "toolSearch": {
+            "type": "boolean",
+            "description": "Defer MCP tools behind tool_search when their schemas pass the threshold"
+          },
+          "instructions": {
+            "type": "object",
+            "properties": {
+              "skills": {
+                "type": "string",
+                "minLength": 1
+              },
+              "sandbox": {
+                "type": "string",
+                "minLength": 1
+              },
+              "skill_folder": {
+                "type": "string",
+                "minLength": 1
+              },
+              "artifacts_save": {
+                "type": "string",
+                "minLength": 1
+              },
+              "outputs": {
+                "type": "string",
+                "minLength": 1
+              },
+              "artifacts_read": {
+                "type": "string",
+                "minLength": 1
+              },
+              "wake": {
+                "type": "string",
+                "minLength": 1
+              },
+              "memory": {
+                "type": "string",
+                "minLength": 1
+              },
+              "plan": {
+                "type": "string",
+                "minLength": 1
+              },
+              "connection": {
+                "type": "string",
+                "minLength": 1
+              },
+              "tool_search": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "description": "A block's wording replaced, by block name"
+          },
+          "blocks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "enum": [
+                    "skills",
+                    "sandbox",
+                    "skill_folder",
+                    "artifacts_save",
+                    "outputs",
+                    "artifacts_read",
+                    "wake",
+                    "memory",
+                    "plan",
+                    "connection",
+                    "tool_search"
+                  ]
+                },
+                "version": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0
+                },
+                "sha256": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                },
+                "source": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "name",
+                "version",
+                "sha256"
+              ],
+              "additionalProperties": false
+            },
+            "description": "The engine text blocks the agent gets, with their hashes"
+          }
+        },
+        "additionalProperties": false
+      },
       "JsonValue": {
         "anyOf": [
           {
@@ -8801,6 +8980,66 @@
               "additionalProperties": {}
             }
           },
+          "model": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "provider": {
+                "type": "string"
+              },
+              "model": {
+                "type": "string"
+              },
+              "source": {
+                "type": "string",
+                "enum": [
+                  "manifest",
+                  "session",
+                  "tenant"
+                ]
+              },
+              "reason": {
+                "type": "string",
+                "enum": [
+                  "provider_not_connected",
+                  "not_in_catalog",
+                  "invalid_model"
+                ]
+              },
+              "requested": {
+                "type": "object",
+                "properties": {
+                  "provider": {
+                    "type": "string"
+                  },
+                  "model": {
+                    "type": "string"
+                  },
+                  "by": {
+                    "type": "string",
+                    "enum": [
+                      "manifest",
+                      "session"
+                    ]
+                  }
+                },
+                "required": [
+                  "provider",
+                  "model",
+                  "by"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "provider",
+              "model",
+              "source"
+            ],
+            "additionalProperties": false
+          },
           "waits": {},
           "error": {
             "type": "string"
@@ -8842,6 +9081,7 @@
           "harness",
           "mcpSnapshot",
           "mcpDiagnostics",
+          "model",
           "uncertainEffects"
         ],
         "additionalProperties": false
@@ -9025,6 +9265,12 @@
             "$ref": "#/components/schemas/TurnCancelledEvent"
           },
           {
+            "$ref": "#/components/schemas/TurnVersionKeptEvent"
+          },
+          {
+            "$ref": "#/components/schemas/SessionModelEvent"
+          },
+          {
             "$ref": "#/components/schemas/MessageQueuedEvent"
           },
           {
@@ -9065,6 +9311,9 @@
           },
           {
             "$ref": "#/components/schemas/PlanUpdatedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/EngineDiagnosticEvent"
           },
           {
             "$ref": "#/components/schemas/EnvironmentStateEvent"
@@ -9119,6 +9368,8 @@
             "turn.paused": "#/components/schemas/TurnPausedEvent",
             "turn.failed": "#/components/schemas/TurnFailedEvent",
             "turn.cancelled": "#/components/schemas/TurnCancelledEvent",
+            "turn.version_kept": "#/components/schemas/TurnVersionKeptEvent",
+            "session.model": "#/components/schemas/SessionModelEvent",
             "message.queued": "#/components/schemas/MessageQueuedEvent",
             "queue.taken": "#/components/schemas/QueueTakenEvent",
             "wake.booked": "#/components/schemas/WakeBookedEvent",
@@ -9133,6 +9384,7 @@
             "delegation.completed": "#/components/schemas/DelegationCompletedEvent",
             "mcp.discovered": "#/components/schemas/McpDiscoveredEvent",
             "plan.updated": "#/components/schemas/PlanUpdatedEvent",
+            "engine.diagnostic": "#/components/schemas/EngineDiagnosticEvent",
             "environment.state": "#/components/schemas/EnvironmentStateEvent",
             "environment.exec": "#/components/schemas/EnvironmentExecEvent",
             "agent.attached": "#/components/schemas/AgentAttachedEvent",
@@ -9384,6 +9636,12 @@
                 }
               },
               "manifest": {},
+              "removeTools": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
               "delivery": {
                 "type": "string",
                 "enum": [
@@ -10823,6 +11081,533 @@
                 "additionalProperties": {}
               }
             },
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "schema",
+          "eventId",
+          "tenantId",
+          "sessionId",
+          "runId",
+          "turnId",
+          "incarnation",
+          "epoch",
+          "seq",
+          "cursor",
+          "time",
+          "schemaVersion",
+          "source",
+          "evidence",
+          "visibility",
+          "retention",
+          "type",
+          "payload"
+        ]
+      },
+      "TurnVersionKeptEvent": {
+        "type": "object",
+        "properties": {
+          "schema": {
+            "type": "string",
+            "enum": [
+              "nylorun.event/2"
+            ]
+          },
+          "eventId": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "runId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "turnId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "incarnation": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "epoch": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "time": {
+            "type": "string"
+          },
+          "schemaVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "client",
+                  "core",
+                  "model-gate",
+                  "tool-gate",
+                  "egress-gate",
+                  "sandboxes",
+                  "edge",
+                  "init",
+                  "controller",
+                  "loop",
+                  "supervisor",
+                  "harness",
+                  "evidence",
+                  "operator",
+                  "human",
+                  "api"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ]
+          },
+          "evidence": {
+            "type": "string",
+            "enum": [
+              "observed",
+              "measured",
+              "attested",
+              "claimed",
+              "asserted"
+            ]
+          },
+          "principal": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "application",
+                  "subject",
+                  "flow-host",
+                  "core",
+                  "trigger"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          "trace": {
+            "type": "object",
+            "properties": {
+              "traceId": {
+                "type": "string"
+              },
+              "spanId": {
+                "type": "string"
+              },
+              "parentSpanId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "traceId",
+              "spanId"
+            ]
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "internal",
+              "restricted"
+            ]
+          },
+          "retention": {
+            "type": "string",
+            "enum": [
+              "full",
+              "metadata"
+            ]
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "turn.version_kept"
+            ]
+          },
+          "payload": {
+            "type": "object",
+            "properties": {
+              "reason": {
+                "type": "string",
+                "enum": [
+                  "variant_invalid"
+                ]
+              },
+              "from": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "version": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "name",
+                  "version"
+                ],
+                "additionalProperties": false
+              },
+              "to": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "version": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "name",
+                  "version"
+                ],
+                "additionalProperties": false
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "reason",
+              "from",
+              "to",
+              "message"
+            ],
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "schema",
+          "eventId",
+          "tenantId",
+          "sessionId",
+          "runId",
+          "turnId",
+          "incarnation",
+          "epoch",
+          "seq",
+          "cursor",
+          "time",
+          "schemaVersion",
+          "source",
+          "evidence",
+          "visibility",
+          "retention",
+          "type",
+          "payload"
+        ]
+      },
+      "SessionModelEvent": {
+        "type": "object",
+        "properties": {
+          "schema": {
+            "type": "string",
+            "enum": [
+              "nylorun.event/2"
+            ]
+          },
+          "eventId": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "runId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "turnId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "incarnation": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "epoch": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "time": {
+            "type": "string"
+          },
+          "schemaVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "client",
+                  "core",
+                  "model-gate",
+                  "tool-gate",
+                  "egress-gate",
+                  "sandboxes",
+                  "edge",
+                  "init",
+                  "controller",
+                  "loop",
+                  "supervisor",
+                  "harness",
+                  "evidence",
+                  "operator",
+                  "human",
+                  "api"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ]
+          },
+          "evidence": {
+            "type": "string",
+            "enum": [
+              "observed",
+              "measured",
+              "attested",
+              "claimed",
+              "asserted"
+            ]
+          },
+          "principal": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "application",
+                  "subject",
+                  "flow-host",
+                  "core",
+                  "trigger"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          "trace": {
+            "type": "object",
+            "properties": {
+              "traceId": {
+                "type": "string"
+              },
+              "spanId": {
+                "type": "string"
+              },
+              "parentSpanId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "traceId",
+              "spanId"
+            ]
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "internal",
+              "restricted"
+            ]
+          },
+          "retention": {
+            "type": "string",
+            "enum": [
+              "full",
+              "metadata"
+            ]
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "session.model"
+            ]
+          },
+          "payload": {
+            "type": "object",
+            "properties": {
+              "provider": {
+                "type": "string"
+              },
+              "model": {
+                "type": "string"
+              },
+              "source": {
+                "type": "string",
+                "enum": [
+                  "manifest",
+                  "session",
+                  "tenant"
+                ]
+              },
+              "reason": {
+                "type": "string",
+                "enum": [
+                  "provider_not_connected",
+                  "not_in_catalog",
+                  "invalid_model"
+                ]
+              },
+              "requested": {
+                "type": "object",
+                "properties": {
+                  "provider": {
+                    "type": "string"
+                  },
+                  "model": {
+                    "type": "string"
+                  },
+                  "by": {
+                    "type": "string",
+                    "enum": [
+                      "manifest",
+                      "session"
+                    ]
+                  }
+                },
+                "required": [
+                  "provider",
+                  "model",
+                  "by"
+                ],
+                "additionalProperties": false
+              },
+              "previous": {
+                "type": "object",
+                "properties": {
+                  "provider": {
+                    "type": "string"
+                  },
+                  "model": {
+                    "type": "string"
+                  },
+                  "source": {
+                    "type": "string",
+                    "enum": [
+                      "manifest",
+                      "session",
+                      "tenant"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string",
+                    "enum": [
+                      "provider_not_connected",
+                      "not_in_catalog",
+                      "invalid_model"
+                    ]
+                  },
+                  "requested": {
+                    "type": "object",
+                    "properties": {
+                      "provider": {
+                        "type": "string"
+                      },
+                      "model": {
+                        "type": "string"
+                      },
+                      "by": {
+                        "type": "string",
+                        "enum": [
+                          "manifest",
+                          "session"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "provider",
+                      "model",
+                      "by"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "provider",
+                  "model",
+                  "source"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "provider",
+              "model",
+              "source"
+            ],
             "additionalProperties": {}
           }
         },
@@ -13950,6 +14735,12 @@
                   ],
                   "additionalProperties": {}
                 }
+              },
+              "rejoined": {
+                "type": "boolean",
+                "enum": [
+                  true
+                ]
               }
             },
             "required": [
@@ -14176,6 +14967,206 @@
             },
             "required": [
               "steps"
+            ],
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "schema",
+          "eventId",
+          "tenantId",
+          "sessionId",
+          "runId",
+          "turnId",
+          "incarnation",
+          "epoch",
+          "seq",
+          "cursor",
+          "time",
+          "schemaVersion",
+          "source",
+          "evidence",
+          "visibility",
+          "retention",
+          "type",
+          "payload"
+        ]
+      },
+      "EngineDiagnosticEvent": {
+        "type": "object",
+        "properties": {
+          "schema": {
+            "type": "string",
+            "enum": [
+              "nylorun.event/2"
+            ]
+          },
+          "eventId": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "runId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "turnId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "incarnation": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "epoch": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "time": {
+            "type": "string"
+          },
+          "schemaVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "client",
+                  "core",
+                  "model-gate",
+                  "tool-gate",
+                  "egress-gate",
+                  "sandboxes",
+                  "edge",
+                  "init",
+                  "controller",
+                  "loop",
+                  "supervisor",
+                  "harness",
+                  "evidence",
+                  "operator",
+                  "human",
+                  "api"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ]
+          },
+          "evidence": {
+            "type": "string",
+            "enum": [
+              "observed",
+              "measured",
+              "attested",
+              "claimed",
+              "asserted"
+            ]
+          },
+          "principal": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "application",
+                  "subject",
+                  "flow-host",
+                  "core",
+                  "trigger"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          "trace": {
+            "type": "object",
+            "properties": {
+              "traceId": {
+                "type": "string"
+              },
+              "spanId": {
+                "type": "string"
+              },
+              "parentSpanId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "traceId",
+              "spanId"
+            ]
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "internal",
+              "restricted"
+            ]
+          },
+          "retention": {
+            "type": "string",
+            "enum": [
+              "full",
+              "metadata"
+            ]
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "engine.diagnostic"
+            ]
+          },
+          "payload": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string",
+                "minLength": 1
+              },
+              "message": {
+                "type": "string"
+              },
+              "agentId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message"
             ],
             "additionalProperties": {}
           }
@@ -17743,6 +18734,12 @@
                                 ],
                                 "additionalProperties": false
                               },
+                              "toolPrefix": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 64,
+                                "pattern": "^[\\x21-\\x7e]+$"
+                              },
                               "required": {
                                 "type": "boolean"
                               },
@@ -17784,6 +18781,12 @@
                                   "header"
                                 ],
                                 "additionalProperties": false
+                              },
+                              "toolPrefix": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 64,
+                                "pattern": "^[\\x21-\\x7e]+$"
                               },
                               "required": {
                                 "type": "boolean"
@@ -18510,6 +19513,12 @@
                                 ],
                                 "additionalProperties": false
                               },
+                              "toolPrefix": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 64,
+                                "pattern": "^[\\x21-\\x7e]+$"
+                              },
                               "required": {
                                 "type": "boolean"
                               },
@@ -18551,6 +19560,12 @@
                                   "header"
                                 ],
                                 "additionalProperties": false
+                              },
+                              "toolPrefix": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 64,
+                                "pattern": "^[\\x21-\\x7e]+$"
                               },
                               "required": {
                                 "type": "boolean"
@@ -19286,6 +20301,12 @@
                           ],
                           "additionalProperties": false
                         },
+                        "toolPrefix": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 64,
+                          "pattern": "^[\\x21-\\x7e]+$"
+                        },
                         "required": {
                           "type": "boolean"
                         },
@@ -19327,6 +20348,12 @@
                             "header"
                           ],
                           "additionalProperties": false
+                        },
+                        "toolPrefix": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 64,
+                          "pattern": "^[\\x21-\\x7e]+$"
                         },
                         "required": {
                           "type": "boolean"
@@ -20595,6 +21622,12 @@
                                   ],
                                   "additionalProperties": false
                                 },
+                                "toolPrefix": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 64,
+                                  "pattern": "^[\\x21-\\x7e]+$"
+                                },
                                 "required": {
                                   "type": "boolean"
                                 },
@@ -20636,6 +21669,12 @@
                                     "header"
                                   ],
                                   "additionalProperties": false
+                                },
+                                "toolPrefix": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 64,
+                                  "pattern": "^[\\x21-\\x7e]+$"
                                 },
                                 "required": {
                                   "type": "boolean"
@@ -21337,6 +22376,9 @@
               "type": "string",
               "minLength": 1
             }
+          },
+          "via": {
+            "type": "string"
           },
           "toolPrefix": {
             "type": "string",
@@ -22387,6 +23429,9 @@
                       },
                       "additionalProperties": false
                     },
+                    "engine": {
+                      "$ref": "#/components/schemas/HarnessEngine"
+                    },
                     "functions": {
                       "description": "Reserved: Functions are not available yet"
                     }
@@ -22677,6 +23722,10 @@
                 "type": "string",
                 "maxLength": 4096,
                 "description": "What this agent should remember, after the engine's own memory rules"
+              },
+              "index": {
+                "type": "boolean",
+                "description": "agent-folder/2: false pins no memory index in a session. Default true"
               }
             },
             "additionalProperties": false,
@@ -22687,6 +23736,9 @@
             "maxLength": 200,
             "pattern": "^[A-Za-z0-9._-]+\\/\\S+$",
             "description": "The model the agent runs on: <provider>/<model>, such as anthropic/claude-sonnet-4-5"
+          },
+          "engine": {
+            "$ref": "#/components/schemas/HarnessEngine"
           },
           "functions": {
             "description": "Reserved: Functions are not available yet"
@@ -22969,6 +24021,12 @@
                       ],
                       "additionalProperties": false
                     },
+                    "toolPrefix": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64,
+                      "pattern": "^[\\x21-\\x7e]+$"
+                    },
                     "required": {
                       "type": "boolean"
                     },
@@ -23010,6 +24068,12 @@
                         "header"
                       ],
                       "additionalProperties": false
+                    },
+                    "toolPrefix": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64,
+                      "pattern": "^[\\x21-\\x7e]+$"
                     },
                     "required": {
                       "type": "boolean"
@@ -28803,7 +29867,7 @@
           "Agents"
         ],
         "summary": "Write an Agent's secret",
-        "description": "Creates or replaces one credential of the Agent's vault: an `environment_secret` (the variable `name` reads the sentinel `nylorun_managed` in the sandbox, and egress-gate sets the value as a header on requests to `allowedHosts`), an `environment_variable` (a plain variable), or a `bearer` token or `headers` map for the MCP servers and HTTP tools at `url`. The same name and type re-seals the value and binding; another type replaces it. A rotated value is used from the next request. A second credential for a host or a URL is `409 credential_conflict`. When the Agent's manifest declares secret slots (while it moves to another version, that version's), send only the value (`{ value }`, or `{ headers }` for a `headers` slot): the type and binding come from the slot, and a name it does not declare is `409 secret_not_in_manifest`.",
+        "description": "Creates or replaces one credential of the Agent's vault: an `environment_secret` (the variable `name` reads the sentinel `nylorun_managed` in the sandbox, and egress-gate sets the value as a header on requests to `allowedHosts`), an `environment_variable` (a plain variable), or a `bearer` token or `headers` map for the MCP servers and HTTP tools at `url`. The same name and type re-seals the value and binding; another type replaces it. A rotated value is used from the next request. A second credential for a host or a URL is `409 credential_conflict`. When the Agent's manifest declares secret slots (while it moves to another version, that version's), send only the value (`{ value }`, or `{ headers }` for a `headers` slot): the type and binding come from the slot, and a name it does not declare is `409 secret_not_in_manifest`. A `bearer` or `headers` slot's write may add `via`, where this installation sends the credential's requests (it wins over the slot's `via`; the slot's `url` still picks the credential), and the gateway's `toolPrefix`, which needs a `via` and gives way to the slot's.",
         "security": [
           {
             "applicationKey": []
@@ -32819,6 +33883,12 @@
                       "$ref": "#/components/schemas/TurnCancelledEvent"
                     },
                     {
+                      "$ref": "#/components/schemas/TurnVersionKeptEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SessionModelEvent"
+                    },
+                    {
                       "$ref": "#/components/schemas/MessageQueuedEvent"
                     },
                     {
@@ -32859,6 +33929,9 @@
                     },
                     {
                       "$ref": "#/components/schemas/PlanUpdatedEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/EngineDiagnosticEvent"
                     },
                     {
                       "$ref": "#/components/schemas/EnvironmentStateEvent"

@@ -13,11 +13,14 @@ import type {
   AgentView,
   PutAgentRequest,
   PutAgentSecretRequest,
+  PutAgentSecretValueRequest,
   RuntimeSection,
   WorkflowManifest,
 } from "@nylorun/core/contracts";
 
 export type Loop = AgentManifest | WorkflowManifest;
+/** A secret write's body: typed, or a slot's value with this installation's routing (`secret-routing`). */
+export type SecretBody = PutAgentSecretRequest | Omit<PutAgentSecretValueRequest, "requestId">;
 /** A built agent or flow (`{ id, manifest }`), or its loop manifest itself. */
 export type AgentSource = Loop | { readonly id: string; readonly manifest: Loop };
 
@@ -119,7 +122,7 @@ export interface DeployOptions extends ManifestOptions {
   owner?: string;
   labels?: Record<string, string>;
   /** Secrets to write into the Agent's vault once it exists, by name. */
-  secrets?: Record<string, PutAgentSecretRequest | { value: string } | { headers: Record<string, string> }>;
+  secrets?: Record<string, SecretBody>;
 }
 
 /**
@@ -140,7 +143,7 @@ export async function deploy(
     ...(options.owner === undefined ? {} : { owner: options.owner }),
     ...(options.labels === undefined ? {} : { labels: options.labels }),
   });
-  for (const [name, body] of Object.entries(options.secrets ?? {})) await putSecret(url, headers, agent.id, name, body as PutAgentSecretRequest);
+  for (const [name, body] of Object.entries(options.secrets ?? {})) await putSecret(url, headers, agent.id, name, body);
   return agent;
 }
 
@@ -150,7 +153,7 @@ export async function writeSecret(
   headers: Record<string, string>,
   agentId: string,
   name: string,
-  body: PutAgentSecretRequest | { value: string } | { headers: Record<string, string> },
+  body: SecretBody,
 ): Promise<{ status: number; body: Record<string, unknown> }> {
   const response = await fetch(
     `${url}/v1/agents/${encodeURIComponent(agentId)}/secrets/${encodeURIComponent(name)}`,
@@ -165,7 +168,7 @@ export async function putSecret(
   headers: Record<string, string>,
   agentId: string,
   name: string,
-  body: PutAgentSecretRequest | { value: string } | { headers: Record<string, string> },
+  body: SecretBody,
 ): Promise<Record<string, unknown>> {
   const written = await writeSecret(url, headers, agentId, name, body);
   expect(written.status, JSON.stringify(written.body)).toBe(200);

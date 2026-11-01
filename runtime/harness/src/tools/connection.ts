@@ -14,56 +14,20 @@
  * Long input is cut, never refused: an app of at most `CONNECTION_LIMITS.appChars` characters
  * and a reason of at most `reasonChars`, each cut ending in `…`.
  */
-import type { EffectTarget } from "@nylorun/core/harness-api";
+import {
+  CONNECTION_LIMITS,
+  CONNECTION_TEXT,
+  REQUEST_CONNECTION_TOOL,
+  connectionToolOf,
+} from "@nylorun/core/engine";
 import type { DurableSessionTool, HostEffect } from "../run/durable.js";
 import { cut } from "./plan.js";
 
-/** The tool's name. */
-export const REQUEST_CONNECTION_TOOL = "request_connection";
-/** The most characters of the app's name and of the reason. */
-export const CONNECTION_LIMITS = Object.freeze({ appChars: 80, reasonChars: 280 });
+export { CONNECTION_LIMITS, REQUEST_CONNECTION_TOOL } from "@nylorun/core/engine";
 
-const HARNESS: EffectTarget = Object.freeze({ kind: "harness" });
-
-const DESCRIPTION = [
-  "Ask the person or agent who gave you this task to connect an app you need and cannot reach, such as their GitHub, Linear or Google Drive, then wait for their answer.",
-  "Give the app's name and the reason, in a sentence they can act on.",
-  "It answers Connected: <app> once they connected it, so try again; or Not connected: <app>, so go on without it or say what you could not do.",
-  "Use it only when a tool says the app is not connected or its credential is missing; never to ask anything else.",
-].join(" ");
-
-const INPUT_SCHEMA = {
-  type: "object",
-  properties: {
-    app: {
-      type: "string",
-      minLength: 1,
-      description: `The app to connect, by its name (at most ${CONNECTION_LIMITS.appChars} characters).`,
-    },
-    reason: {
-      type: "string",
-      minLength: 1,
-      description: `Why you need it, in a sentence (at most ${CONNECTION_LIMITS.reasonChars} characters).`,
-    },
-  },
-  required: ["app", "reason"],
-  additionalProperties: false,
-} as const;
-
-const INSTRUCTIONS =
-  "When a tool fails because an app is not connected or its credential is missing, ask for it with request_connection, then try again once it is connected.";
-
-/** The tool, and the text the model reads with it. */
+/** The tool, and the text the model reads with it (block `connection`, `@nylorun/core/engine`). */
 export function connectionTool(): { tool: DurableSessionTool; instructions: string } {
-  return {
-    tool: {
-      name: REQUEST_CONNECTION_TOOL,
-      description: DESCRIPTION,
-      inputSchema: INPUT_SCHEMA as unknown as DurableSessionTool["inputSchema"],
-      target: HARNESS,
-    },
-    instructions: INSTRUCTIONS,
-  };
+  return { tool: connectionToolOf(), instructions: CONNECTION_TEXT };
 }
 
 /** True when `effect` is a call of `request_connection` (ours: a `harness` call). */

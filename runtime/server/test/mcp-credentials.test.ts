@@ -191,6 +191,8 @@ let revokedText: Awaited<ReturnType<typeof revokedGateway>>;
 let prefixing: Awaited<ReturnType<typeof prefixingGateway>>;
 /** The URL the prefixed server's manifests name; the gateway reaches it. */
 const X_URL = "https://x.test/mcp";
+/** An HTTP tool's fixed name in a folder; nothing listens there. */
+const DELEGATE_URL = "https://tools.bot.nylorun/delegate";
 /** Ada's own Agent, guarded for her sessions. */
 const ADA = "users/ada";
 
@@ -300,6 +302,42 @@ beforeAll(async () => {
     runtime: { kind: "none", secrets: { x: { type: "headers", url: X_URL, via: prefixing.url } } },
     secrets: { x: { headers: { "x-gateway-key": GATEWAY_KEY }, toolPrefix: "x-" } as never },
   });
+  // The folder names how the gateway lists tools (the slot's toolPrefix) and this installation
+  // binds where requests go (the value write's via, `secret-routing`).
+  await register(Agent({ id: "routed-folder" }).mcp({ x: { type: "streamable-http", url: X_URL } }).build(), {
+    runtime: { kind: "none", secrets: { x: { type: "headers", url: X_URL, toolPrefix: "x-" } } },
+    secrets: { x: { headers: { "x-gateway-key": GATEWAY_KEY }, via: prefixing.url } },
+  });
+  // The write's via wins over the slot's; the slot's prefix over the write's.
+  await register(Agent({ id: "routed-override" }).mcp({ x: { type: "streamable-http", url: X_URL } }).build(), {
+    runtime: {
+      kind: "none",
+      secrets: { x: { type: "headers", url: X_URL, via: "https://unreachable.test/mcp/x", toolPrefix: "x-" } },
+    },
+    secrets: { x: { headers: { "x-gateway-key": GATEWAY_KEY }, via: prefixing.url, toolPrefix: "y-" } },
+  });
+  // An HTTP tool whose folder URL is a fixed name, routed to the real service by the write.
+  await register(
+    Agent({ id: "routed-http" })
+      .tools(
+        http({ name: "delegate", input, url: DELEGATE_URL, credential: "delegate" }),
+        http({ name: "order", input, url: "https://tools.bot.nylorun/orders/{orderId}", credential: "orders" }),
+      )
+      .build(),
+    {
+      runtime: {
+        kind: "none",
+        secrets: {
+          delegate: { type: "headers", url: DELEGATE_URL },
+          orders: { type: "bearer", url: "https://tools.bot.nylorun/orders/{orderId}" },
+        },
+      },
+      secrets: {
+        delegate: { headers: { "x-api-key": BILLING_KEY }, via: `${service.url}/refunds` },
+        orders: { value: BILLING_KEY, via: `${service.url}/refunds` },
+      },
+    },
+  );
   // The HTTP tools name their credentials: slots of the manifest's runtime section, whose values
   // the Agent's vault holds (protocol 16).
   await register(
@@ -565,5 +603,94 @@ describe("a gateway's tool prefix (#494)", () => {
       toolPrefix: "x-",
     } as never);
     expect(refused.status).toBe(400);
+  });
+});
+
+describe("routing the installation binds, naming the folder declares (secret-routing)", () => {
+  const secrets = (agent: string) =>
+    fetch(`${runtime.url}/v1/agents/${agent}/secrets`, { headers: runtime.headers() }).then(
+      (response) => response.json() as Promise<{ secrets: Record<string, unknown>[] }>,
+    );
+
+  it("sends an MCP server's requests to the write's via, with the slot's tool prefix", async () => {
+    const before = prefixing.called.length;
+    const result = await run("routed-folder", "x__echo");
+    expect(result.status).toBe("completed");
+    expect(result.discovered).toEqual({ servers: [expect.objectContaining({ serverName: "x", outcome: "connected", tools: 3 })] });
+    expect(result.completed).toEqual([expect.objectContaining({ toolName: "x__echo", output: "x-echo hi" })]);
+    expect(prefixing.called.slice(before)).toEqual(["x-echo"]);
+    expect(result.history).not.toContain(GATEWAY_KEY);
+  });
+
+  it("takes the write's via over the slot's, and the slot's prefix over the write's", async () => {
+    const before = prefixing.called.length;
+    const result = await run("routed-override", "x__echo");
+    expect(result.completed).toEqual([expect.objectContaining({ toolName: "x__echo", output: "x-echo hi" })]);
+    expect(prefixing.called.slice(before)).toEqual(["x-echo"]);
+  });
+
+  it("shows the via and prefix in force on the secret, never a value, and the slot's prefix on the manifest", async () => {
+    expect((await secrets("routed-folder")).secrets).toEqual([
+      expect.objectContaining({ name: "x", headerNames: ["x-gateway-key"], via: prefixing.url, toolPrefix: "x-" }),
+    ]);
+    expect((await secrets("routed-override")).secrets).toEqual([
+      expect.objectContaining({ name: "x", via: prefixing.url, toolPrefix: "x-" }),
+    ]);
+    const one = await fetch(`${runtime.url}/v1/agents/routed-folder/secrets/x`, { headers: runtime.headers() }).then(
+      (response) => response.json() as Promise<Record<string, unknown>>,
+    );
+    expect(one).toMatchObject({ name: "x", type: "headers", binding: { url: X_URL }, via: prefixing.url, toolPrefix: "x-" });
+    expect(JSON.stringify(one)).not.toContain(GATEWAY_KEY);
+    const view = await fetch(`${runtime.url}/v1/agents/routed-folder`, { headers: runtime.headers() }).then(
+      (response) => response.json() as Promise<{ runtime: { secrets: Record<string, Record<string, unknown>> } }>,
+    );
+    expect(view.runtime.secrets.x).toEqual({ type: "headers", url: X_URL, toolPrefix: "x-" });
+  });
+
+  it("answers a write whose prefix differs from the slot's with the slot's", async () => {
+    const written = await writeSecret(runtime.url, runtime.headers(), "routed-override", "x", {
+      headers: { "x-gateway-key": GATEWAY_KEY },
+      via: prefixing.url,
+      toolPrefix: "z-",
+    });
+    expect(written.status).toBe(200);
+    expect(written.body).toMatchObject({ via: prefixing.url, toolPrefix: "x-" });
+  });
+
+  it("sends an HTTP tool's call to the write's via, the credential chosen by the folder's URL", async () => {
+    const before = service.seen.length;
+    const result = await run("routed-http", "delegate");
+    expect(result.completed).toEqual([expect.objectContaining({ output: { refundId: "r-1" } })]);
+    expect(service.seen.length - before).toBe(1);
+    const [request] = service.seen.slice(before);
+    expect(request).toMatchObject({ path: "/refunds" });
+    expect(request!.headers["x-api-key"]).toBe(BILLING_KEY);
+    expect(result.history).not.toContain(BILLING_KEY);
+  });
+
+  it("still refuses a via for an HTTP tool whose URL has path parameters", async () => {
+    const before = service.seen.length;
+    const result = await run("routed-http", "order");
+    expect(result.completed).toEqual([
+      expect.objectContaining({ error: expect.objectContaining({ code: "http.credential", message: expect.stringContaining("{field} URL parameters") }) }),
+    ]);
+    expect(service.seen.length).toBe(before);
+  });
+
+  it("refuses via on a shell slot, a prefix with no via anywhere, and a via the manifest's rules refuse", async () => {
+    await register(Agent({ id: "routed-refusals" }).mcp({ x: { type: "streamable-http", url: X_URL } }).build(), {
+      runtime: {
+        kind: "none",
+        secrets: { x: { type: "headers", url: X_URL }, PLAIN: { type: "environment_variable" } },
+      },
+    });
+    const write = (name: string, body: Record<string, unknown>) =>
+      writeSecret(runtime.url, runtime.headers(), "routed-refusals", name, body as never);
+    expect((await write("PLAIN", { value: "v", via: prefixing.url })).status).toBe(400);
+    expect((await write("x", { headers: { "x-k": "k" }, toolPrefix: "x-" })).status).toBe(400);
+    for (const via of ["https://gateway.test/mcp?user=ada", "https://u:p@gateway.test/mcp", "http://gateway.test/mcp"])
+      expect((await write("x", { headers: { "x-k": "k" }, via })).status, via).toBe(400);
+    // The same body with a via is accepted.
+    expect((await write("x", { headers: { "x-k": "k" }, via: prefixing.url, toolPrefix: "x-" })).status).toBe(200);
   });
 });

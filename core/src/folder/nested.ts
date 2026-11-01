@@ -141,6 +141,7 @@ function innerScope(ctx: FolderContext, prefix: string, role: FolderScope["role"
     ...(namespace === undefined ? {} : { namespace }),
     deriveSlot: (credential, type, url, file, at, header) => ctx.deriveSlot(credential, type, url, prefix + file, [], header, at),
     schema: ctx.scope?.schema ?? rootSchema(ctx),
+    engineFacts: ctx.engineFacts(),
   };
 }
 

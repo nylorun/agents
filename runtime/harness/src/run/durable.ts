@@ -1,5 +1,6 @@
 import { HarnessError } from "@nylorun/core/define";
 import { effectIdOf, type EffectTarget, type ModelDescriptor } from "@nylorun/core/harness-api";
+import { engineFeaturesOf, type EngineTool } from "@nylorun/core/engine";
 import type { FileContext } from "../loop/model/files.js";
 import type { AgentManifest } from "@nylorun/core/define";
 import type { ExecutionInput, ExecutionState, RunResult } from "../types/execution.js";
@@ -104,25 +105,9 @@ export type DurableResult =
     };
 /**
  * A tool our engine adds to an agent for this execution (an MCP tool of the session, one of our
- * engine's own). It is not part of the hashed manifest.
+ * engine's own): `@nylorun/core/engine`'s `EngineTool`. It is not part of the hashed manifest.
  */
-export interface DurableSessionTool {
-  /** The agent used as a tool that owns this tool; absent for the root agent. */
-  readonly agentId?: string;
-  readonly name: string;
-  readonly description?: string;
-  readonly inputSchema: JsonObject;
-  readonly outputSchema?: JsonObject;
-  /**
-   * Not in the model's tool list (R2b C10): the model finds it with `tool_search` and runs it
-   * with `tool_call`, which makes the call as this tool's own.
-   */
-  readonly deferred?: boolean;
-  /** Text the model reads, after the engine's, while this tool is advertised. */
-  readonly instructions?: readonly string[];
-  /** What runs its calls: their effects' `target` (an MCP tool's identity, our engine's `harness`). */
-  readonly target?: EffectTarget;
-}
+export type DurableSessionTool = EngineTool;
 export function createDurableCheckpoint(input: {
   manifest: AgentManifest;
   sessionId: string;
@@ -174,6 +159,11 @@ export async function runDurable(options: {
    * hashed.
    */
   pinned?: readonly string[];
+  /**
+   * Pin `pinned` in place of what the state pinned before: at a turn's first segment, when the
+   * Agent's memory changed elsewhere since (`turn.start.memory.refresh`).
+   */
+  refreshPinned?: boolean;
   /** Segment rollover (Model Calls §10): yield after this many steps or milliseconds. */
   yieldAfter?: { readonly steps?: number; readonly ms?: number };
   /** The model the turn's calls use (`turn.start.model`), for the root and every child. */
@@ -371,6 +361,9 @@ export async function runDurable(options: {
     child: (delegate, ref) => ({
       definition: hostedDefinition(delegate.manifest as AgentManifest, ref),
       onModelCall: modelCall(ref),
+      artifactReads: engineFeaturesOf((delegate.manifest as AgentManifest).engine, {
+        computer: false,
+      }).artifactsRead,
     }),
     // A flow agent used as a tool runs in its own linked session, like a flow's agent
     // step: the host starts it, and the effect settles when its turn ends.
@@ -406,6 +399,7 @@ export async function runDurable(options: {
               options.mcp,
             ),
             options.pinned,
+            options.refreshPinned === true,
           ),
           input: checkpoint.input,
           info: checkpoint.info,
@@ -448,15 +442,20 @@ function withLayout(state: ExecutionState, mcp: McpToolSet | undefined): Executi
 
 /**
  * The state with the text our engine keeps at the head of the conversation: what it pinned
- * before, or `pinned` when it has none (the session's first turn, or after a compaction).
+ * before, or `pinned` when it has none (the session's first turn, or after a compaction) or
+ * `refresh` asks for it again.
  */
-function withPinned(state: ExecutionState, pinned: readonly string[] | undefined): ExecutionState {
+function withPinned(
+  state: ExecutionState,
+  pinned: readonly string[] | undefined,
+  refresh = false,
+): ExecutionState {
   if (pinned === undefined) {
     if (state.pinned === undefined) return state;
     const { pinned: _dropped, ...rest } = state;
     return rest;
   }
-  return state.pinned === undefined ? { ...state, pinned: [...pinned] } : state;
+  return state.pinned === undefined || refresh ? { ...state, pinned: [...pinned] } : state;
 }
 
 /**

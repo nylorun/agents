@@ -67,9 +67,26 @@ import { jsonSchemaIssues } from "./json-schema.js";
 import { naturalCompare, suggestion, suggestions } from "./suggest.js";
 import type { ReportOptions } from "./context.js";
 import { folderParts, nestedTextPaths, scopedSchema, type FolderScope } from "./nested.js";
+import {
+  ENGINE_TEXT_DIR,
+  compiledEngine,
+  engineBlocksOf,
+  engineDeclarations,
+  folderFormatOf,
+  unusedInstructions,
+  type EngineScopeFacts,
+} from "./engine.js";
+import type { EngineBlockName } from "../engine/names.js";
+import type { HarnessEngine } from "../types/manifest.js";
 
-/** The compiler format this version builds: a folder with no `format`, or `format: 1`. */
+/** The compiler format this version builds by default: a folder with no `format`, or `format: 1`. */
 export const AGENT_FOLDER_COMPILER = "agent-folder/1";
+/**
+ * The formats this compiler builds: `agent-folder/1`, and `agent-folder/2` (ADR-100), whose
+ * folder declares every engine feature it uses (`folder/engine.ts`).
+ */
+export const AGENT_FOLDER_FORMATS = ["agent-folder/1", "agent-folder/2"] as const;
+export type AgentFolderFormat = (typeof AGENT_FOLDER_FORMATS)[number];
 
 /**
  * What a folder may hold, unless `compileAgentFolder` is given other limits (a Tenant's Runtime
@@ -132,7 +149,8 @@ export interface CompiledAgentFolder {
   /** The manifest, when nothing is an error. */
   readonly manifest?: AgentManifestV8;
   readonly diagnostics: readonly AgentFolderDiagnostic[];
-  readonly compiler: typeof AGENT_FOLDER_COMPILER;
+  /** The format the folder was compiled as: `agent-folder/1` or `agent-folder/2`. */
+  readonly compiler: AgentFolderFormat;
 }
 
 const AGENT_FILE = "AGENT.md";
@@ -147,13 +165,18 @@ const AGENT_PLUGINS_MCP_SCHEMA = "https://agent-plugins.org/schemas/1.0.0/mcp.sc
  */
 export const FOLDER_SCHEMAS = "https://docs.nylorun.com/schemas/agent-folder/v1/";
 export const SCHEMA_URLS = {
-  runtime: [`${FOLDER_SCHEMAS}runtime.json`, "https://docs.nylorun.com/schemas/runtime-manifest/v1.json"],
+  runtime: [
+    `${FOLDER_SCHEMAS}runtime.1.json`,
+    `${FOLDER_SCHEMAS}runtime.json`,
+    "https://docs.nylorun.com/schemas/runtime-manifest/v1.1.json",
+    "https://docs.nylorun.com/schemas/runtime-manifest/v1.json",
+  ],
   tool: [`${FOLDER_SCHEMAS}tool.json`],
   mcp: [`${FOLDER_SCHEMAS}mcp.json`, AGENT_PLUGINS_MCP_SCHEMA],
   flow: [`${FOLDER_SCHEMAS}flow.json`],
 } as const;
 const SKILL_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
-export const AGENT_KEYS = ["name", "description", "format", "harness", "inputSchema", "outputSchema", "mcpServers", "skills", "memory", "loop", "model", "metadata"] as const;
+export const AGENT_KEYS = ["name", "description", "format", "harness", "inputSchema", "outputSchema", "mcpServers", "skills", "memory", "loop", "model", "engine", "metadata"] as const;
 const SKILL_KEYS = ["name", "description", "license", "compatibility", "metadata", "allowed-tools"];
 export const TRIGGER_KEYS = ["schedule", "timezone", "at", "webhook", "session"] as const;
 export const MCP_KEYS = ["$schema", "mcpServers"] as const;
@@ -200,6 +223,7 @@ type Kind =
   | "flow"
   | "nested"
   | "plugin"
+  | "engine_text"
   | "other";
 
 const isEnvFile = (name: string) => name === ".env" || name.startsWith(".env.");
@@ -265,6 +289,8 @@ function classify(path: string): { kind: Kind } | { error: string; code: string 
   if (top === "schemas")
     return base.endsWith(".json") ? { kind: "schema" } : { code: "reserved_directory", error: "schemas/ holds JSON Schema files (.json)" };
   if (top === ".nylorun") return { kind: "other" };
+  // A block's wording, replaced (agent-folder/2, `engine.instructions`): read when it is named.
+  if (top === ENGINE_TEXT_DIR && base.endsWith(".md")) return { kind: "engine_text" };
   if (base.endsWith(".schema.json")) return { kind: "schema" };
   return { kind: "other" };
 }
@@ -284,6 +310,7 @@ export function folderTextPaths(entries: readonly AgentFolderEntry[]): string[] 
       kind.kind === "trigger" ||
       kind.kind === "schema" ||
       kind.kind === "flow" ||
+      kind.kind === "engine_text" ||
       (kind.kind === "skill" && entry.path.split("/").length === 3 && entry.path.endsWith(`/${SKILL_ENTRY}`));
     if (textual) paths.push(entry.path);
   }
@@ -334,6 +361,8 @@ interface Origin {
 export function compileAgentFolder(input: CompileAgentFolderInput, scope?: FolderScope): CompiledAgentFolder {
   const limits: AgentFolderLimits = { ...AGENT_FOLDER_LIMITS, ...input.limits };
   const diagnostics: AgentFolderDiagnostic[] = [];
+  /** The folder's format: the uploaded folder's `format`, which a folder inside it shares. */
+  let format: 1 | 2 = scope?.engineFacts?.format ?? 1;
   const parsed = new Map<string, ParsedFile>();
   const report = (
     severity: AgentFolderDiagnostic["severity"],
@@ -606,8 +635,14 @@ export function compileAgentFolder(input: CompileAgentFolderInput, scope?: Folde
     if (typeof front.description !== "string" || front.description.trim() === "")
       error("description_missing", "description is required: what the agent does, in a sentence", AGENT_FILE, front.description === undefined ? undefined : ["description"]);
     else description = front.description.trim();
-    if (front.format !== undefined && front.format !== 1)
-      error("format_unsupported", `format ${JSON.stringify(front.format)} is not supported: this compiler builds format 1 (${AGENT_FOLDER_COMPILER})`, AGENT_FILE, ["format"]);
+    if (!scope && folderFormatOf(front.format) === undefined)
+      error(
+        "format_unsupported",
+        `format ${JSON.stringify(front.format)} is not supported: this compiler builds ${AGENT_FOLDER_FORMATS.join(" and ")} (the default, ${AGENT_FOLDER_COMPILER})`,
+        AGENT_FILE,
+        ["format"],
+      );
+    else if (!scope) format = folderFormatOf(front.format)!;
     if (front.harness !== undefined) {
       if (HarnessIdSchema.safeParse(front.harness).success) harness.id = front.harness;
       else error("harness_invalid", "harness is the id of the harness that runs the loop, such as nylorun", AGENT_FILE, ["harness"]);
@@ -694,6 +729,73 @@ export function compileAgentFolder(input: CompileAgentFolderInput, scope?: Folde
           if (isObject(trigger)) checkSchedule(RUNTIME_FILE, ["triggers", id], trigger);
     }
   }
+  // --- engine: (agent-folder/2, ADR-100; folder/engine.ts) -------------------------------
+  /** Whether the session's Agent has a computer: the uploaded folder's runtime kind. */
+  const runtimeKind = isObject(runtime) && typeof runtime.kind === "string" ? runtime.kind : "none";
+  const computer = scope?.engineFacts ? scope.engineFacts.computer : runtimeKind === "virtual" || runtimeKind === "pod";
+  const role = scope?.role === "subagent" ? "subagent" : "root";
+  let declared: { engine: HarnessEngine; sources: Partial<Record<EngineBlockName, string>> } | undefined;
+  /** The engine text files a block's wording was read from. */
+  const engineTexts = new Set<string>();
+  if (agent && scope?.role !== "plugin") {
+    const migrate = "add format: agent-folder/2 to AGENT.md, or run nylorun migrate folder <dir> --to 2, which writes the declarations that keep what the agent gets today";
+    if (format === 1) {
+      if (front.engine !== undefined)
+        error("engine_format", `engine declares the engine features of an agent-folder/2 folder, and this folder is agent-folder/1, which gets them all by default. Fix: ${migrate}`, AGENT_FILE, ["engine"], {
+          key: true,
+        });
+      if (isObject(front.memory) && front.memory.index !== undefined)
+        error("engine_format", `memory.index is a key of agent-folder/2: an agent-folder/1 folder always pins its memory index. Fix: ${migrate}`, AGENT_FILE, ["memory", "index"], {
+          key: true,
+        });
+    } else if ([...kinds.values()].includes("flow")) {
+      if (front.engine !== undefined)
+        error("flow_refused", "engine is an agent's: set it in the AGENT.md of each agent under agents/ that uses an engine feature", AGENT_FILE, ["engine"], { key: true });
+    } else {
+      declared = engineDeclarations(front.engine, {
+        error: (code, message, path, options) => error(code, message, AGENT_FILE, path, options),
+        computer,
+        role,
+        ...(scope?.engineFacts?.engine === undefined ? {} : { parent: scope.engineFacts.engine }),
+        text: (path, at) => {
+          if (kinds.get(path) !== "engine_text") {
+            error("engine_text_missing", `${path} is not a file in the folder: write the block's wording there, in Markdown`, AGENT_FILE, at);
+            return undefined;
+          }
+          const text = textOf(path);
+          if (text === undefined) return undefined;
+          engineTexts.add(path);
+          const trimmed = trimBlankLines(text);
+          if (trimmed === "") {
+            error("engine_text_empty", `${path} is empty: write the block's wording, or leave engine.instructions out to keep the engine's`, path);
+            return undefined;
+          }
+          return trimmed;
+        },
+      });
+      if (declared && !scope && computer && (declared.engine.sandbox ?? []).length === 0)
+        warn(
+          "sandbox_undeclared",
+          `The runtime has a computer (kind ${JSON.stringify(runtimeKind)}), and engine.sandbox names no sandbox tool, so the agent gets no shell or file tools and no sandbox note. Fix: engine: { sandbox: [bash, read, write, edit, grep, glob] } (any of them), or a runtime without a computer`,
+          AGENT_FILE,
+          front.engine === undefined ? undefined : ["engine"],
+          front.engine === undefined ? { at: { line: 1, column: 1 } } : { key: true },
+        );
+      origins.push([["harness", "engine"], { file: AGENT_FILE, path: ["engine"] }]);
+    }
+  }
+  for (const [path, kind] of kinds)
+    if (kind === "engine_text" && !engineTexts.has(path) && !(declared && Object.values(declared.sources).includes(path)))
+      report("note", "file_not_compiled", "Kept with the source; not part of the agent", path);
+  /** What a folder inside this one knows of it (folder/nested.ts). */
+  const engineFacts = (): EngineScopeFacts =>
+    scope?.engineFacts ?? {
+      format,
+      computer,
+      ...(format === 2 && declared ? { engine: declared.engine } : {}),
+      memory: isObject(front.memory),
+      selfWake: isObject(runtime) && runtime.selfWake === true,
+    };
   const derivedSlots = new Map<string, { slot: Record<string, unknown>; file: string; path: readonly PropertyKey[]; url: string; at?: Position }>();
   /**
    * A slot for `credential`, derived when runtime.json does not declare it. `at` places it in a
@@ -745,6 +847,7 @@ export function compileAgentFolder(input: CompileAgentFolderInput, scope?: Folde
     suggest: suggestion,
     compile: compileAgentFolder,
     folderTextPaths,
+    engineFacts,
   });
 
   // --- mcp.json --------------------------------------------------------------------------
@@ -1069,7 +1172,44 @@ export function compileAgentFolder(input: CompileAgentFolderInput, scope?: Folde
   for (const [path, kind] of kinds) if (kind === "file") seeded[path.slice("files/".length)] = `sha256:${byPath.get(path)!.sha256}`;
 
   // --- agents/, flow.json and plugins/ (folder/nested.ts) ----------------------------------
-  if (!parts.compose()) return finish(diagnostics);
+  if (!parts.compose()) return finish(format, diagnostics);
+
+  // --- The engine blocks the agent gets (agent-folder/2) ------------------------------------
+  if (declared && harness.kind !== "workflow") {
+    const facts = engineFacts();
+    const loop = isObject(harness.loop) && (harness.id === undefined || harness.id === DEFAULT_HARNESS) ? harness.loop : {};
+    const memory = isObject(harness.memory) ? harness.memory : undefined;
+    const names = engineBlocksOf(
+      {
+        engine: declared.engine,
+        ...(Array.isArray(harness.tools) ? { tools: harness.tools as never } : {}),
+        ...(isObject(harness.skills) ? { skills: harness.skills as never } : {}),
+        ...(isObject(harness.mcpServers) ? { mcpServers: harness.mcpServers as never } : {}),
+      },
+      {
+        computer,
+        selfWake: facts.selfWake,
+        ...(role === "root"
+          ? memory
+            ? { memory: { root: true, ...(memory.access === "read_only" ? { access: "read_only" as const } : {}), index: memory.index !== false } }
+            : {}
+          : facts.memory
+            ? { memory: { root: false } }
+            : {}),
+        plan: role === "root" && loop.plan === true,
+        connections: role === "root" && loop.connections === true,
+      },
+    );
+    for (const name of unusedInstructions(declared.engine, names))
+      warn(
+        "engine_text_unused",
+        `engine.instructions.${name} replaces the wording of the ${name} block, and the agent does not get that block, so the text is never read`,
+        AGENT_FILE,
+        ["engine", "instructions", name],
+        { key: true },
+      );
+    harness.engine = compiledEngine(declared.engine, names, declared.sources);
+  }
 
   // --- The runtime section -----------------------------------------------------------------
   const needsRuntime = derivedSlots.size > 0 || Object.keys(triggers).length > 0 || Object.keys(seeded).length > 0;
@@ -1089,7 +1229,7 @@ export function compileAgentFolder(input: CompileAgentFolderInput, scope?: Folde
 
   // --- Every field checked as the Runtime checks the manifest ------------------------------
   if (diagnostics.some((item) => item.severity === "error") || name === undefined || description === undefined)
-    return finish(diagnostics);
+    return finish(format, diagnostics);
   const document = {
     manifestSchemaVersion: AGENT_MANIFEST_V8_SCHEMA_VERSION,
     name,
@@ -1128,9 +1268,9 @@ export function compileAgentFolder(input: CompileAgentFolderInput, scope?: Folde
       if (issue.path[0] === "runtime" && issue.path[1] === "triggers" && typeof issue.path[2] === "string" && issue.path[2] in triggers) continue;
       place(issue, [], fromOrigins);
     }
-    return finish(diagnostics);
+    return finish(format, diagnostics);
   }
-  if (diagnostics.some((item) => item.severity === "error")) return finish(diagnostics);
+  if (diagnostics.some((item) => item.severity === "error")) return finish(format, diagnostics);
   const manifest = checked.data as AgentManifestV8;
 
   // --- What the Runtime checks at save, where it needs no Tenant ---------------------------
@@ -1179,8 +1319,8 @@ export function compileAgentFolder(input: CompileAgentFolderInput, scope?: Folde
         { key: true, pointer: pointerOf(["runtime", field]) },
       );
     }
-  if (diagnostics.some((item) => item.severity === "error")) return finish(diagnostics);
-  return finish(diagnostics, manifest);
+  if (diagnostics.some((item) => item.severity === "error")) return finish(format, diagnostics);
+  return finish(format, diagnostics, manifest);
 
   /** A schema issue in the compiler's words, at the file and field that wrote it. */
   function place(issue: z.core.$ZodIssue, base: readonly PropertyKey[], where: Where) {
@@ -1337,7 +1477,7 @@ function issueMessage(issue: z.core.$ZodIssue, field: string, value: unknown): s
   }
 }
 
-function finish(diagnostics: AgentFolderDiagnostic[], manifest?: AgentManifestV8): CompiledAgentFolder {
+function finish(format: 1 | 2, diagnostics: AgentFolderDiagnostic[], manifest?: AgentManifestV8): CompiledAgentFolder {
   const order = { error: 0, warning: 1, info: 2, note: 3 } as const;
   const sorted = [...diagnostics].sort(
     (a, b) =>
@@ -1346,7 +1486,7 @@ function finish(diagnostics: AgentFolderDiagnostic[], manifest?: AgentManifestV8
       (a.line ?? 0) - (b.line ?? 0) ||
       (a.column ?? 0) - (b.column ?? 0),
   );
-  return { ...(manifest === undefined ? {} : { manifest }), diagnostics: sorted, compiler: AGENT_FOLDER_COMPILER };
+  return { ...(manifest === undefined ? {} : { manifest }), diagnostics: sorted, compiler: AGENT_FOLDER_FORMATS[format - 1]! };
 }
 
 /** The closest recorded position for `path` in `file`: the field, else its nearest parent. */

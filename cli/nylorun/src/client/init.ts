@@ -51,7 +51,7 @@ export function schemaMappings(root: string, folder: string): { fileMatch: strin
   // Folders under a parent (agents/) share one pattern; a folder at the root is named alone.
   const base = parent === "" ? relative(root, folder).split(sep).join("/") : `${parent}/**`;
   return [
-    { fileMatch: [`${base}/runtime.json`], url: `${SCHEMA_BASE}/runtime.json` },
+    { fileMatch: [`${base}/runtime.json`], url: `${SCHEMA_BASE}/runtime.1.json` },
     { fileMatch: [`${base}/tools/*.json`], url: `${SCHEMA_BASE}/tool.json` },
     { fileMatch: [`${base}/flow.json`], url: `${SCHEMA_BASE}/flow.json` },
     { fileMatch: [`${base}/mcp.json`, `!${base}/plugins/**`], url: `${SCHEMA_BASE}/mcp.json` },

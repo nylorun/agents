@@ -27,52 +27,34 @@ import {
   skillFolderOf,
   skillInstructions,
   type AgentManifest,
-  type JsonObject,
   type SkillManifest,
 } from "@nylorun/core/define";
-import { fromBase64, type EffectTarget, type HarnessChannel } from "@nylorun/core/harness-api";
-import type { DurableSessionTool, HostEffect } from "../run/durable.js";
+import {
+  LOAD_SKILL_TOOL,
+  READ_SKILL_RESOURCE_TOOL,
+  SKILLS_USAGE,
+  formatSkillCatalog,
+} from "@nylorun/core/engine";
+import { fromBase64, type HarnessChannel } from "@nylorun/core/harness-api";
+import type { HostEffect } from "../run/durable.js";
 import type { FailedFileOutcome, HarnessFiles, HarnessRun } from "../api/executors.js";
 
-/** Loads a skill's `SKILL.md`. */
-export const LOAD_SKILL_TOOL = "load_skill";
-/** Reads one resource file of a skill. */
-export const READ_SKILL_RESOURCE_TOOL = "read_skill_resource";
-
-/** The most bytes of one skill file the skill tools read into the model's context by default. */
-export const DEFAULT_SKILL_READ_BYTES = 10 * 1024 * 1024;
+export {
+  DEFAULT_SKILL_READ_BYTES,
+  LOAD_SKILL_TOOL,
+  READ_SKILL_RESOURCE_TOOL,
+  SKILLS_USAGE,
+  formatSkillCatalog,
+  skillFolderNote,
+  skillTools,
+} from "@nylorun/core/engine";
 
 /** True when `name` is one of our engine's skill tools. */
 export function isSkillTool(name: string | undefined): boolean {
   return name === LOAD_SKILL_TOOL || name === READ_SKILL_RESOURCE_TOOL;
 }
 
-/** The text before the skill catalog: when to load a skill. */
-export const SKILLS_USAGE =
-  "The following skills provide specialized instructions. When a task matches a skill description, call load_skill with that name before proceeding.";
-
-/** The skills the model may load, by name and description. */
-export function formatSkillCatalog(
-  skills: readonly { readonly name: string; readonly description: string }[],
-): string {
-  const entries = skills
-    .map(
-      (skill) =>
-        `  <skill>\n    <name>${escapeXml(skill.name)}</name>\n    <description>${escapeXml(skill.description)}</description>\n  </skill>`,
-    )
-    .join("\n");
-  return `<available_skills>\n${entries}\n</available_skills>`;
-}
-
-function escapeXml(value: string): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;");
-}
-
-/** What the model reads of an agent's skills: when to load one, and the catalog. */
+/** What the model reads of an agent's skills: when to load one, and the catalog (block `skills`). */
 export function skillCatalogText(
   skills: readonly { readonly name: string; readonly description: string }[],
 ): string[] {
@@ -80,56 +62,6 @@ export function skillCatalogText(
     SKILLS_USAGE,
     formatSkillCatalog(skills.map(({ name, description }) => ({ name, description }))),
   ];
-}
-
-/** Where each skill's files are in the sandbox, for an agent with skills and a sandbox. */
-export function skillFolderNote(skills: readonly SkillManifest[]): string {
-  return `Each skill's files are in the sandbox, read-only, in its own folder under ${SKILLS_MOUNT}/ (${skills
-    .map((skill) => `${skill.name}: ${skillFolderOf(skill)}/`)
-    .join(", ")}): read them there and run their scripts with bash.`;
-}
-
-const HARNESS: EffectTarget = Object.freeze({ kind: "harness" });
-const SCHEMA = "http://json-schema.org/draft-07/schema#";
-
-/**
- * `load_skill` for the agent's skills, and `read_skill_resource` when a skill has files besides
- * `SKILL.md`. Empty for an agent without skills. Each runs here (`harness`).
- */
-export function skillTools(skills: readonly SkillManifest[]): DurableSessionTool[] {
-  if (skills.length === 0) return [];
-  const names = skills.map((skill) => skill.name).sort();
-  const name: JsonObject =
-    names.length === 1 ? { type: "string", const: names[0]! } : { type: "string", enum: names };
-  const tools: DurableSessionTool[] = [
-    {
-      name: LOAD_SKILL_TOOL,
-      description:
-        "Load the full instructions for a named skill. Call this before following a skill.",
-      inputSchema: {
-        $schema: SCHEMA,
-        type: "object",
-        properties: { name },
-        required: ["name"],
-        additionalProperties: false,
-      },
-      target: HARNESS,
-    },
-  ];
-  if (skills.some((skill) => Object.keys(skill.files).some((path) => path !== SKILL_ENTRY)))
-    tools.push({
-      name: READ_SKILL_RESOURCE_TOOL,
-      description: "Read one text resource from a skill after load_skill.",
-      inputSchema: {
-        $schema: SCHEMA,
-        type: "object",
-        properties: { name, path: { type: "string", minLength: 1 } },
-        required: ["name", "path"],
-        additionalProperties: false,
-      },
-      target: HARNESS,
-    });
-  return tools;
 }
 
 /** What a skill tool runs with. */

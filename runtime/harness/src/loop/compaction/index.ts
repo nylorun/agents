@@ -126,6 +126,7 @@ function filesTokens(
 /** The files an entry names (protocol 12): a message's media parts, and a tool result's files. */
 function filesOf(
   entry: TranscriptEntry,
+  readable = true,
 ): { readonly line: string; readonly part: { mediaType: string; reference: JsonValue } }[] {
   if (entry.kind === "input") {
     const event = entry.event;
@@ -136,14 +137,14 @@ function filesOf(
     )
       return [];
     return event.content.flatMap((part) =>
-      part.type === "media" ? [{ line: mediaReferenceLine(part, "uploaded"), part }] : [],
+      part.type === "media" ? [{ line: mediaReferenceLine(part, "uploaded", readable), part }] : [],
     );
   }
   if (entry.kind === "tool-results")
     return entry.results.flatMap((result) =>
       result.kind === "completed" && result.files
         ? result.files.map((part) => ({
-            line: mediaReferenceLine(part, { tool: result.toolName }),
+            line: mediaReferenceLine(part, { tool: result.toolName }, readable),
             part,
           }))
         : [],
@@ -208,6 +209,8 @@ export async function compact(
 ): Promise<readonly TranscriptEntry[] | undefined> {
   const { transcript } = input;
   const config = input.config ?? DEFAULT_COMPACTION_CONFIG;
+  // An agent without `read_artifact` (ADR-100) is offered it in no line, a summary's either.
+  const readable = input.files?.artifactReads !== false;
   const tokensBefore = estimateTokens(transcript, input.turnId, input.files, config);
   const window = input.budget?.contextWindow ?? tokensBefore;
   const keepTokens = Math.max(
@@ -233,7 +236,7 @@ export async function compact(
       ...(previous?.files ?? []),
       ...older
         .filter((entry) => !request.includes(entry))
-        .flatMap((entry) => filesOf(entry).map(({ line }) => line)),
+        .flatMap((entry) => filesOf(entry, readable).map(({ line }) => line)),
     ]),
   ];
   const keptTokens = tail.reduce((sum, entry) => sum + entryTokens(entry, config), 0);
@@ -359,8 +362,9 @@ function summaryCall(
   maxOutputTokens: number,
   clip: number,
 ): ModelCall {
+  const readable = input.files?.artifactReads !== false;
   const conversation = older
-    .map((entry) => entryText(entry, clip))
+    .map((entry) => entryText(entry, clip, readable))
     .filter((text) => text !== "")
     .join("\n\n");
   const text = [
@@ -410,7 +414,7 @@ function summaryText(outcome: ModelCandidate | string): string {
 }
 
 /** The model-visible text of one entry, with tool payloads clipped to `clip` characters. */
-function entryText(entry: TranscriptEntry, clip: number): string {
+function entryText(entry: TranscriptEntry, clip: number, readable = true): string {
   switch (entry.kind) {
     case "input": {
       const event = entry.event;
@@ -419,7 +423,7 @@ function entryText(entry: TranscriptEntry, clip: number): string {
           "content" in event && event.content
             ? event.content
                 .map((part) =>
-                  part.type === "text" ? part.text : mediaReferenceLine(part, "uploaded"),
+                  part.type === "text" ? part.text : mediaReferenceLine(part, "uploaded", readable),
                 )
                 .join(" ")
             : (event.text ?? "")
@@ -446,7 +450,7 @@ function entryText(entry: TranscriptEntry, clip: number): string {
             ? [
                 `[Tool ${result.toolName} result]: ${clipped(result.output as JsonValue, clip)}`,
                 ...(result.files ?? []).map((file) =>
-                  mediaReferenceLine(file, { tool: result.toolName }),
+                  mediaReferenceLine(file, { tool: result.toolName }, readable),
                 ),
               ].join("\n")
             : result.kind === "denied"

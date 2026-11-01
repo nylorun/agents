@@ -261,6 +261,22 @@ export const OPTIONAL_HOST_FEATURES = [
    * its provider is connected and lists it; otherwise the Tenant's model applies.
    */
   "agent-model",
+  /**
+   * Secret routing bound by the installation, naming by the folder: a manifest's `bearer` or
+   * `headers` secret slot may name the gateway's `toolPrefix` (with or without a `via`), and a
+   * slot's value write (`PUT /v1/agents/{id}/secrets/{name}` with `{ value }` or `{ headers }`)
+   * may name `via`, where the credential's requests go. At each request the secret's `via` wins
+   * over the slot's, the slot's `toolPrefix` over the secret's, and the credential is still
+   * chosen by the slot's `url`. Secret reads show the `via` and `toolPrefix` in force.
+   */
+  "secret-routing",
+  /**
+   * A message's `removeTools`: the tools its turn may not use, by name (declared tools, agents
+   * used as tools and their tools, `<server>__<tool>` and `<server>` for MCP), applied to the
+   * version the turn runs after its first segment re-pins it to the Agent's, so a session that
+   * always sends it still moves to new versions.
+   */
+  "remove-tools",
 ] as const;
 export type OptionalHostFeature = (typeof OPTIONAL_HOST_FEATURES)[number];
 export interface ProtocolRange {

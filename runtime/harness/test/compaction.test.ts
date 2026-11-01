@@ -295,6 +295,30 @@ describe("compaction and files (protocol 12)", () => {
     expect(JSON.stringify(calls[0]!.call.prompt)).not.toContain('"media"');
   });
 
+  it("offers read_artifact in no line for an agent without it (ADR-100)", async () => {
+    const calls: { call: ModelCall; invocationId: string }[] = [];
+    const next = await compact({
+      transcript: [
+        upload("t1", "af_a", "image/png", 10),
+        ...toolStep("t1", 1),
+        input("t2", "the current request"),
+        ...toolStep("t2", 1),
+        ...toolStep("t2", 2),
+        ...toolStep("t2", 3),
+      ],
+      executionId: "session",
+      turnId: "t2",
+      stepId: "t2-s4",
+      trigger: "threshold",
+      budget: { contextWindow: 1_000, reserve: 100 },
+      files: { limits: { modelFileBytes: 1_000_000 }, artifactReads: false },
+      invoke: summarizer(calls),
+      signal: new AbortController().signal,
+    });
+    expect(next![0]).toMatchObject({ files: ['[Uploaded artifact "af_a.bin" · af_a v1]'] });
+    expect(JSON.stringify(calls[0]!.call.prompt)).not.toContain("read_artifact");
+  });
+
   it("counts this turn's files by size, and takes an earlier turn's off the reported usage", () => {
     // An image counts 1,600 tokens, text a quarter of its bytes, another file an eighth (at most 100k).
     const image = upload("t1", "af_i", "image/png", 1_000_000);

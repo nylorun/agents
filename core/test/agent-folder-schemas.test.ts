@@ -187,9 +187,10 @@ describe("agent folder JSON Schemas", () => {
   });
 
   it("are published at the $id the compiler takes in $schema and nylorun init maps", () => {
-    // AGENT.md gained `model` within format 1: its document is revision 1.
+    // AGENT.md gained `model`, then `engine` (ADR-100): revision 2; runtime.json a slot's `toolPrefix`: revision 1.
+    const revision: Record<string, string> = { "agent-md": ".2", runtime: ".1" };
     for (const kind of AGENT_FOLDER_SCHEMA_KINDS)
-      expect(SCHEMAS[kind].$id).toBe(`https://docs.nylorun.com/schemas/agent-folder/v1/${kind}${kind === "agent-md" ? ".1" : ""}.json`);
+      expect(SCHEMAS[kind].$id).toBe(`https://docs.nylorun.com/schemas/agent-folder/v1/${kind}${revision[kind] ?? ""}.json`);
     for (const [kind, urls] of Object.entries(SCHEMA_URLS)) expect(urls[0], kind).toBe(SCHEMAS[kind as keyof typeof SCHEMA_URLS].$id);
     // A JSON file naming its own schema compiles with no schema_url warning.
     const compiled = compile(ORDERS);
@@ -231,7 +232,7 @@ describe("agent folder JSON Schemas", () => {
   it("refuse what the compiler refuses", () => {
     const refused: [AgentFolderSchemaKind, unknown][] = [
       ["agent-md", { name: "a", description: "A." , approval: "always" }],
-      ["agent-md", { name: "a", description: "A.", format: 2 }],
+      ["agent-md", { name: "a", description: "A.", format: 3 }],
       ["agent-md", { description: "A." }],
       ["agent-md", { name: "a", description: "A.", mcpServers: { github: { approval: "never" } } }],
       ["agent-md", { name: "a", description: "A.", mcpServers: { github: { tools: { list: { approval: "never" } } } } }],

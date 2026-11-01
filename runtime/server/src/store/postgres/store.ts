@@ -1990,6 +1990,24 @@ class PostgresTx implements Tx {
       .limit(options.limit);
   }
 
+  async memoryWritesSince(
+    agentId: string,
+    after: string | undefined,
+    sessionId: string,
+  ): Promise<{ newest?: string; others: boolean }> {
+    this.check();
+    const conditions = [eq(memoryVersions.agentId, agentId)];
+    if (after !== undefined) conditions.push(gt(memoryVersions.id, after));
+    const [row] = await this.db
+      .select({
+        newest: sql<string | null>`max(${memoryVersions.id})`,
+        others: sql<boolean>`coalesce(bool_or(${memoryVersions.sessionId} is distinct from ${sessionId}), false)`,
+      })
+      .from(memoryVersions)
+      .where(and(...conditions));
+    return { ...(row?.newest ? { newest: row.newest } : {}), others: row?.others === true };
+  }
+
   async memoryVersion(agentId: string, id: string): Promise<MemoryVersionRow | undefined> {
     this.check();
     const [row] = await this.db

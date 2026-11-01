@@ -146,8 +146,10 @@ async function withSandbox<T>(
 /**
  * Readies the run's MCP servers (§10.5 step 3): a run without MCP facts (`turn.start.mcp`, the
  * session's first) discovers their tools and records the snapshot (the first recorded wins);
- * later ones reconnect the snapshot's servers and record what failed. Answers the facts the run
- * goes on with. Nothing for a session without MCP servers.
+ * later ones reconnect the snapshot's servers and record what failed. A turn's first segment also
+ * discovers again each declared server the snapshot lacks (one that failed or was refused before),
+ * and records the ones that answer now: they join the snapshot, and the turn offers their tools.
+ * Answers the facts the run goes on with. Nothing for a session without MCP servers.
  */
 export async function prepareMcp(
   pool: McpPool,
@@ -171,8 +173,29 @@ export async function prepareMcp(
     answer = await record({ snapshot: found.snapshot, diagnostics: found.diagnostics });
   } else {
     const diagnostics = await pool.reconnect({ sessionId, manifest, servers: facts.servers, signal: run.signal });
-    if (diagnostics.length === 0) return undefined;
-    answer = await record({ diagnostics });
+    // Not mid-turn: a turn's tools stay what its first segment offered.
+    const first = (run.start.checkpoint as { segment?: number } | undefined)?.segment === 0;
+    const known = new Set(facts.servers.map((server) => JSON.stringify([server.agentId ?? null, server.name])));
+    const missing = first
+      ? serversOf(manifest).filter((item) => !known.has(JSON.stringify([item.agentId ?? null, item.server.name])))
+      : [];
+    const found =
+      missing.length === 0
+        ? undefined
+        : await pool.discover({
+            sessionId,
+            manifest,
+            manifestHash: hashManifest(manifest),
+            maxInstructionBytes: run.start.limits.recordEntryBytes,
+            signal: run.signal,
+            servers: missing,
+          });
+    const all = [...diagnostics, ...(found?.diagnostics ?? [])];
+    if (all.length === 0) return undefined;
+    answer = await record({
+      ...(found && found.snapshot.servers.length > 0 ? { snapshot: found.snapshot } : {}),
+      diagnostics: all,
+    });
   }
   return answer.mcp === undefined ? undefined : { mcp: answer.mcp };
 }

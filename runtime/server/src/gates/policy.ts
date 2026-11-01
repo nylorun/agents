@@ -11,6 +11,10 @@
  * manifest saved before R5 step 2 keeps its `approval: "always"` as an ask: no session loses
  * the approval it was opened with. A policy that cannot be read refuses every call.
  *
+ * A rule's `agent` matches the agent that calls: the session's root agent by its manifest's name,
+ * an agent it uses as a tool by its id, and that subagent's calls by the root's name too, so a rule
+ * for an agent covers the agents it uses as tools.
+ *
  * A rule's `tool` matches the tool's identity (protocol 15): an MCP tool's own name on its
  * server (`server` names the server), an HTTP tool's declared name, a flow stage's key. The name
  * a harness gave the model never matches. A stored rule whose `tool` has `__` in it (an MCP tool
@@ -43,6 +47,11 @@ export interface PolicyCall {
   readonly server?: string;
   /** The agent that calls it: its manifest's id (an agent manifest's name), never an Agent's id. */
   readonly agent: string;
+  /**
+   * The session's root agent (its loop manifest's id), when `agent` is an agent it uses as a
+   * tool: a rule whose `agent` names the root matches its subagents' calls too.
+   */
+  readonly root?: string;
   readonly input: unknown;
   /** The name the model called it by, for display only: no rule matches it. */
   readonly name?: string;
@@ -106,9 +115,10 @@ export async function toolCallDecision(
 
 /**
  * `request` as the policy reads it: by its target's identity (protocol 15), and by the agent that
- * calls it: an agent used as a tool by its id, the session's root agent by its loop manifest's id
- * (protocol 16: the agent manifest's name). Never the session's Agent id (`s.agentId`), which
- * protocol 16 made the Agent the session runs on (`users/ada/desk` for the manifest `desk`).
+ * calls it: an agent used as a tool by its id, with the session's root agent as its `root`, and
+ * the root agent by its loop manifest's id (protocol 16: the agent manifest's name). Never the
+ * session's Agent id (`s.agentId`), which protocol 16 made the Agent the session runs on
+ * (`users/ada/desk` for the manifest `desk`).
  */
 export function policyCallOf(s: Pick<Session, "manifest">, request: HostEffect, kind: "mcp" | "http"): PolicyCall {
   const target = request.target;
@@ -120,6 +130,7 @@ export function policyCallOf(s: Pick<Session, "manifest">, request: HostEffect, 
         : (request.key ?? request.effectId),
     ...(target?.kind === "mcp" ? { server: target.server } : {}),
     agent: request.agent?.id ?? (s.manifest as { id: string }).id,
+    ...(request.agent === undefined ? {} : { root: (s.manifest as { id: string }).id }),
     input: request.input,
     ...(request.toolName === undefined ? {} : { name: request.toolName }),
   };
@@ -159,10 +170,18 @@ function matches(rule: ToolRule, call: PolicyCall): boolean {
   if (rule.kind !== undefined && rule.kind !== call.kind) return false;
   if (rule.tool !== undefined && !glob(rule.tool).test(call.tool)) return false;
   if (rule.server !== undefined && (call.server === undefined || !glob(rule.server).test(call.server))) return false;
-  if (rule.agent !== undefined && !glob(rule.agent).test(call.agent)) return false;
+  if (rule.agent !== undefined && !agentMatches(glob(rule.agent), call)) return false;
   for (const [path, condition] of Object.entries(rule.when ?? {}))
     if (!holds(condition, fieldOf(call.input, path))) return false;
   return true;
+}
+
+/**
+ * A rule's `agent` matches the agent that calls (an agent used as a tool by its id), and the
+ * session's root agent for its subagents' calls: a rule for the agent covers the agents it uses.
+ */
+function agentMatches(pattern: RegExp, call: PolicyCall): boolean {
+  return pattern.test(call.agent) || (call.root !== undefined && pattern.test(call.root));
 }
 
 /** A pattern where `*` is any run of characters, matched whole. */
