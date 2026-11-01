@@ -1,5 +1,11 @@
 # @nylorun/agents
 
+## 0.33.0-beta
+
+### Minor Changes
+
+- 78787e2: A2A `SendMessage` takes `message.metadata.removeTools` (Host feature `remove-tools`): the tools a new message's turn may not use, by name, as a session message's `removeTools`. `createA2aClient`'s `send` takes `removeTools`.
+
 ## 0.32.0-beta
 
 ### Minor Changes

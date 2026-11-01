@@ -1,5 +1,15 @@
 # nylorun
 
+## 0.25.1-beta
+
+### Patch Changes
+
+- Pin agents to the tested release.
+- Pin runtime to the tested release.
+- Pin studio to the tested release.
+- Updated dependencies [78787e2]
+  - @nylorun/agents@0.33.0-beta
+
 ## 0.25.0-beta
 
 ### Minor Changes
