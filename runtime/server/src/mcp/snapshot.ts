@@ -155,16 +155,18 @@ export function fitSnapshot(
   snapshot: McpSnapshot,
   diagnostics: readonly McpDiagnostic[],
   limitBytes: number,
+  /** How many of its first servers stay whatever their size: those the session pinned already. */
+  keep = 0,
 ): { snapshot: McpSnapshot; diagnostics: McpDiagnostic[] } {
   const bytes = (value: unknown) => Buffer.byteLength(JSON.stringify(value));
   if (bytes(snapshot) <= limitBytes) return { snapshot, diagnostics: [...diagnostics] };
   const kept: McpServerRecord[] = [];
   const dropped = new Map<string, number>();
   const key = (agentId: string | undefined, serverName: string) => JSON.stringify([agentId ?? null, serverName]);
-  for (const server of snapshot.servers) {
+  for (const [index, server] of snapshot.servers.entries()) {
     const next = { ...snapshot, servers: [...kept, server] };
     const size = bytes(next);
-    if (size <= limitBytes) kept.push(server);
+    if (index < keep || size <= limitBytes) kept.push(server);
     else dropped.set(key(server.agentId, server.name), bytes(server));
   }
   const tooLarge = (agentId: string | undefined, serverName: string, size: number): McpDiagnostic => ({

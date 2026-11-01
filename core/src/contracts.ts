@@ -3075,11 +3075,27 @@ const commandBase = {
  */
 export const MessageDeliverySchema = z.enum(["queue", "reject"]);
 export type MessageDelivery = z.infer<typeof MessageDeliverySchema>;
+/**
+ * A message's `removeTools` (Host feature `remove-tools`): the tools its turn may not use, by
+ * name. In the root agent and each agent it uses as a tool, a name removes the declared tool of
+ * that name (an agent used as a tool included), `<server>__<tool>` disables an MCP server's tool
+ * (the server's name and the tool's own name on it), and `<server>` every tool of that server.
+ * Applied to the version the turn runs, after a turn's first segment re-pins the session to its
+ * Agent's version; names that version does not have are ignored. Any caller may send it: it
+ * only narrows.
+ */
+export const RemoveToolsSchema = z.array(z.string().min(1).max(256)).max(256);
 const messageBase = {
   ...commandBase,
   type: z.literal("message"),
-  /** Optional turn manifest (Loop patch); validated as a variant of the pinned agent. */
+  /**
+   * Optional turn manifest (Loop patch): a variant of the version the turn runs. Validated
+   * against the session's pin when the message is accepted, and again against the Agent's
+   * version when the turn's first segment re-pins the session to it; one that is no variant of
+   * that version keeps the turn on the version it pinned (`turn.version_kept`).
+   */
   manifest: AgentManifestSchema.optional(),
+  removeTools: RemoveToolsSchema.optional(),
   delivery: MessageDeliverySchema.optional(),
 };
 /**
@@ -3664,6 +3680,8 @@ export const CommandMessagePayloadSchema = z
     parts: z.array(MessagePartSchema).optional(),
     /** The turn manifest the message carried, if any. */
     manifest: z.unknown().optional(),
+    /** The tools the message's turn may not use (Host feature `remove-tools`). */
+    removeTools: z.array(z.string()).optional(),
     delivery: MessageDeliverySchema.optional(),
     /** Set when the message waited in the session's queue (protocol 17): its id there. */
     queuedMessageId: z.string().optional(),
@@ -3905,6 +3923,59 @@ export const EngineDiagnosticPayloadSchema = z
   })
   .passthrough();
 
+/** Where the model a session's turns call comes from (`SessionModelRecord.source`). */
+export const SESSION_MODEL_SOURCES = ["manifest", "session", "tenant"] as const;
+/**
+ * Why a session's turns call the Tenant's model and not the one its manifest (`harness.model`) or
+ * its own choice (`PUT /v1/sessions/{id}/model`) names: that model's provider is not connected,
+ * its provider's catalog does not list it, or it is no `<provider>/<model>` the Tenant takes.
+ */
+export const SESSION_MODEL_FALLBACK_REASONS = ["provider_not_connected", "not_in_catalog", "invalid_model"] as const;
+/**
+ * The model a session's turns call, and why (`model` on `GET /v1/sessions/{id}`, and the
+ * `session.model` event): `source` `manifest` for the model its Agent's version names
+ * (`harness.model`, Host feature `agent-model`), `session` for its own choice, `tenant` for the
+ * Tenant's model. On a fallback to the Tenant's, `reason` says why the model `requested` (by the
+ * manifest or the session) is not used.
+ */
+export const SessionModelRecordSchema = z
+  .object({
+    provider: z.string(),
+    model: z.string(),
+    source: z.enum(SESSION_MODEL_SOURCES),
+    reason: z.enum(SESSION_MODEL_FALLBACK_REASONS).optional(),
+    requested: z
+      .object({ provider: z.string(), model: z.string(), by: z.enum(["manifest", "session"]) })
+      .strict()
+      .optional(),
+  })
+  .strict();
+export type SessionModelRecord = z.infer<typeof SessionModelRecordSchema>;
+/**
+ * `session.model`: the model the session's turns call was set (the session opened, its own model
+ * was chosen or cleared) or changed (at a turn's start: a provider was connected or disconnected,
+ * the Tenant's model changed), fallbacks included. `previous` is what it was, absent at the first.
+ */
+export const SessionModelPayloadSchema = SessionModelRecordSchema.extend({
+  previous: SessionModelRecordSchema.optional(),
+}).passthrough();
+
+/**
+ * `turn.version_kept`: a turn's first segment did not move the session to the version its Agent
+ * runs now (`from` is the version the session keeps, `to` the Agent's). `variant_invalid`: the
+ * turn manifest its message carried is no variant of that version, and the turn runs it on the
+ * version it was accepted for, so the variant never widens what the turn may do. Send the message
+ * again with a variant of the new version, or name the tools with `removeTools`.
+ */
+export const TurnVersionKeptPayloadSchema = z
+  .object({
+    reason: z.enum(["variant_invalid"]),
+    from: z.object({ name: z.string(), version: z.number().int() }).strict(),
+    to: z.object({ name: z.string(), version: z.number().int() }).strict(),
+    message: z.string(),
+  })
+  .passthrough();
+
 /** What readying one declared MCP server found (`mcp.discovered`). */
 export const McpServerOutcomeSchema = z
   .object({
@@ -3932,11 +4003,17 @@ export const McpServerOutcomeSchema = z
 export type McpServerOutcome = z.infer<typeof McpServerOutcomeSchema>;
 /**
  * `mcp.discovered`: the session's first turn readied its MCP servers and pinned the tools they
- * offer, one outcome per declared server. A server that did not connect adds no tools for the
- * session's life, so this is where the model's missing tools show (also `mcpDiagnostics`).
+ * offer, one outcome per declared server. A server that did not connect adds no tools until a
+ * later turn's first segment, which tries it again: once it answers, it joins the session's
+ * snapshot and a second `mcp.discovered` names it (`rejoined`, with only the servers that joined).
+ * This is where the model's missing tools show (also `mcpDiagnostics`).
  */
 export const McpDiscoveredPayloadSchema = z
-  .object({ servers: z.array(McpServerOutcomeSchema) })
+  .object({
+    servers: z.array(McpServerOutcomeSchema),
+    /** Set when the servers joined the snapshot at a later turn, having failed at the first. */
+    rejoined: z.literal(true).optional(),
+  })
   .passthrough();
 
 /**
@@ -3957,6 +4034,8 @@ export const EVENT_CATALOG = {
   "turn.paused": { payload: TurnPausedPayloadSchema, source: "loop", version: 1 },
   "turn.failed": { payload: TurnFailedPayloadSchema, source: "loop", version: 1 },
   "turn.cancelled": { payload: TurnCancelledPayloadSchema, source: "api", version: 1 },
+  "turn.version_kept": { payload: TurnVersionKeptPayloadSchema, source: "api", version: 1 },
+  "session.model": { payload: SessionModelPayloadSchema, source: "api", version: 1 },
   "message.queued": { payload: MessageQueuedPayloadSchema, source: "api", version: 1 },
   "queue.taken": { payload: QueueTakenPayloadSchema, source: "api", version: 1 },
   "wake.booked": { payload: WakeBookedPayloadSchema, source: "api", version: 1 },
@@ -4753,6 +4832,12 @@ export const SessionViewSchema = z
     closedReason: z.string().optional(),
     mcpSnapshot: z.record(z.string(), z.unknown()).nullable(),
     mcpDiagnostics: z.array(z.record(z.string(), z.unknown())),
+    /**
+     * The model the session's turns call and why (`SessionModelRecord`): as its last turn
+     * started, or as the session opened or chose it since. Null for a flow and while the Tenant
+     * has no model.
+     */
+    model: SessionModelRecordSchema.nullable(),
     /** What the session waits on: interactions, approvals, timers. */
     waits: z.unknown().optional(),
     error: z.string().optional(),
@@ -5038,8 +5123,9 @@ export type ToolInputCondition = z.infer<typeof ToolInputConditionSchema>;
  * identity: an MCP tool's own name on its server, or an HTTP tool's declared name; never the name
  * a harness gave the model; `*` for any run of characters), `server` (an MCP server's name),
  * `kind`, `agent` (the agent that calls it: the agent manifest's name, or the id of an agent used
- * as a tool or of a flow's agent; never an Agent's id) and `when` (fields of the input, by dotted
- * path). The strictest matching rule decides: `deny` refuses the call before it is sent,
+ * as a tool or of a flow's agent; never an Agent's id; the session's root agent's name matches its
+ * subagents' calls too, those of the agents it uses as tools) and `when` (fields of the input, by
+ * dotted path). The strictest matching rule decides: `deny` refuses the call before it is sent,
  * `ask` holds it until a person approves it on the session (`approve`), `allow` runs it. A call no
  * rule matches runs. Sandbox tools never cross the gate; their network side is egress policy.
  *
@@ -5067,7 +5153,7 @@ export const ToolRuleSchema = z
       .optional()
       .meta({
         description:
-          "The agent that calls the tool: the agent manifest's name, or the id of an agent used as a tool or of a flow's agent, never an Agent's id. `*` matches any run of characters",
+          "The agent that calls the tool: the agent manifest's name, or the id of an agent used as a tool or of a flow's agent, never an Agent's id. The session's root agent's name also matches the calls of the agents it uses as tools. `*` matches any run of characters",
       }),
     when: z
       .record(z.string().min(1), ToolInputConditionSchema)

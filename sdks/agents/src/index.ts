@@ -80,6 +80,7 @@ export type {
   SessionUsageTotals,
   SessionModelChoice,
   SessionModelView,
+  SessionModelRecord,
   CostSplit,
   ModelCall,
   ModelCallsPage,

@@ -232,7 +232,7 @@ export {
   isBuiltWorkflow,
 } from "./definition/workflow/index.js";
 export type { BuiltWorkflow } from "./definition/workflow/index.js";
-export { isVariantOf } from "./definition/variant.js";
+export { isVariantOf, withoutTools } from "./definition/variant.js";
 export type {
   Verdict,
   WorkflowBinding,

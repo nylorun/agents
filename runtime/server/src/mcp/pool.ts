@@ -66,10 +66,15 @@ export class McpPool {
     manifestHash: string;
     maxInstructionBytes: number;
     signal?: AbortSignal;
+    /**
+     * Only these of its declared servers (default all): the ones a later turn tries again because
+     * they are not in the session's snapshot (`prepareMcp`).
+     */
+    servers?: readonly DeclaredServer[];
   }): Promise<{ snapshot: McpSnapshot; diagnostics: McpDiagnostic[] }> {
     const servers: McpServerRecord[] = [];
     const diagnostics: McpDiagnostic[] = [];
-    for (const declared of serversOf(input.manifest)) {
+    for (const declared of input.servers ?? serversOf(input.manifest)) {
       input.signal?.throwIfAborted();
       const opened = await this.connectDeclared(input, declared);
       if (!opened.ok) {

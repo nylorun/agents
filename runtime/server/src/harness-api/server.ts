@@ -454,9 +454,11 @@ export function createHarnessApiServer(
   /**
    * What a harness found readying the run's MCP servers: the first snapshot recorded for the
    * session wins, pinned as it is within the Tenant's Runtime limit `mcpSnapshotBytes` (a server
-   * past it is left out, with a diagnostic: `fitSnapshot`), with `mcp.discovered` in its log;
-   * diagnostics replace those of the same server. Answers the session's facts as the run's turn
-   * sees them (protocol 15).
+   * past it is left out, with a diagnostic: `fitSnapshot`), with `mcp.discovered` in its log.
+   * A later snapshot adds only servers the session's lacks (servers that failed at its first
+   * discovery and answer now, `prepareMcp`), within the limit, with `mcp.discovered` naming them
+   * (`rejoined`). Diagnostics replace those of the same server. Answers the session's facts as the
+   * run's turn sees them (protocol 15).
    */
   const recordMcp = async (run: Run, params: ParamsOf<"session.mcp">) => {
     const snapshot = params.snapshot as McpSnapshot | undefined;
@@ -479,18 +481,53 @@ export function createHarnessApiServer(
           mcpDiscovered(current.mcpSnapshot, diagnostics, current.manifest),
           run.connection ? writerOf(run.connection, run.grant.runId) : undefined
         );
-      } else if (diagnostics.length > 0) {
-        const prior = [...(current.mcpDiagnostics ?? [])];
-        for (const item of diagnostics) {
-          const index = prior.findIndex(
-            (existing) =>
-              (existing.agentId ?? null) === (item.agentId ?? null) && existing.serverName === item.serverName
-          );
-          if (index >= 0) prior[index] = item;
-          else prior.push(item);
+      } else {
+        const key = (agentId: string | undefined, name: string) => JSON.stringify([agentId ?? null, name]);
+        // Servers the session's snapshot lacks, which answered now: they join it.
+        let added = new Set<string>();
+        if (snapshot && current.mcpSnapshot) {
+          const pinned = current.mcpSnapshot.servers;
+          const has = new Set(pinned.map((server) => key(server.agentId, server.name)));
+          const fresh = snapshot.servers.filter((server) => !has.has(key(server.agentId, server.name)));
+          if (fresh.length > 0) {
+            const fitted = fitSnapshot(
+              { ...current.mcpSnapshot, servers: [...pinned, ...fresh] },
+              diagnostics,
+              (await readRuntimeLimits(t)).mcpSnapshotBytes,
+              pinned.length
+            );
+            diagnostics = fitted.diagnostics;
+            current.mcpSnapshot = fitted.snapshot;
+            added = new Set(fitted.snapshot.servers.slice(pinned.length).map((server) => key(server.agentId, server.name)));
+          }
         }
-        current.mcpDiagnostics = prior;
-        await t.put("sessions", current.id, current);
+        if (diagnostics.length > 0) {
+          const prior = [...(current.mcpDiagnostics ?? [])];
+          for (const item of diagnostics) {
+            const index = prior.findIndex(
+              (existing) => key(existing.agentId, existing.serverName) === key(item.agentId, item.serverName)
+            );
+            if (index >= 0) prior[index] = item;
+            else prior.push(item);
+          }
+          current.mcpDiagnostics = prior;
+        }
+        if (diagnostics.length > 0 || added.size > 0) await t.put("sessions", current.id, current);
+        if (added.size > 0 && current.mcpSnapshot)
+          await t.event(
+            current.id,
+            run.grant.turnId,
+            "mcp.discovered",
+            {
+              ...mcpDiscovered(
+                current.mcpSnapshot,
+                diagnostics.filter((item) => added.has(key(item.agentId, item.serverName))),
+                current.manifest
+              ),
+              rejoined: true,
+            },
+            run.connection ? writerOf(run.connection, run.grant.runId) : undefined
+          );
       }
       // The turn's manifest: a variant may have disabled tools.
       return current.mcpSnapshot ? { mcp: mcpFactsOf(current.mcpSnapshot, turnManifestOf(current)) } : {};

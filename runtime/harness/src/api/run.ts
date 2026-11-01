@@ -162,6 +162,8 @@ export async function runTurn(ctx: RunContext, run: HarnessRun): Promise<void> {
             ...(memory?.index !== undefined
               ? { pinned: [memoryIndexBlock({ index: memory.index, truncated: memory.truncated })] }
               : {}),
+            // Another session wrote the memory since this one's last turn: its index again.
+            ...(memory?.refresh ? { refreshPinned: true } : {}),
             ...(start.options.yieldAfter ? { yieldAfter: start.options.yieldAfter } : {}),
             ...(start.model ? { model: start.model } : {}),
             files: filesOf(ctx, run, start, (start.manifest as AgentManifest).engine),

@@ -41,7 +41,8 @@
         "credential-provider",
         "turns",
         "agent-model",
-        "secret-routing"
+        "secret-routing",
+        "remove-tools"
       ]
     },
     "description": "For operators: the Tenant's models, vaults, signing keys, settings and application keys, at `/v1/tenant/*` on the Tenant's URL, through `@nylorun/admin`. Every operation takes a management key, acting as itself: never for a subject and never from a browser. Management keys are issued only on the Tenant's machine (`nylorun tenant keys put <id> --management`) or from `NYLORUN_MANAGEMENT_KEY_FILE`."
@@ -2566,7 +2567,7 @@
                 "agent": {
                   "type": "string",
                   "minLength": 1,
-                  "description": "The agent that calls the tool: the agent manifest's name, or the id of an agent used as a tool or of a flow's agent, never an Agent's id. `*` matches any run of characters"
+                  "description": "The agent that calls the tool: the agent manifest's name, or the id of an agent used as a tool or of a flow's agent, never an Agent's id. The session's root agent's name also matches the calls of the agents it uses as tools. `*` matches any run of characters"
                 },
                 "when": {
                   "type": "object",
@@ -2668,7 +2669,7 @@
                 "agent": {
                   "type": "string",
                   "minLength": 1,
-                  "description": "The agent that calls the tool: the agent manifest's name, or the id of an agent used as a tool or of a flow's agent, never an Agent's id. `*` matches any run of characters"
+                  "description": "The agent that calls the tool: the agent manifest's name, or the id of an agent used as a tool or of a flow's agent, never an Agent's id. The session's root agent's name also matches the calls of the agents it uses as tools. `*` matches any run of characters"
                 },
                 "when": {
                   "type": "object",

@@ -8,6 +8,8 @@ import { afterEach, expect, it, vi } from "vitest";
 import { Agent } from "@nylorun/core/define";
 import { deploy } from "./support/agents.js";
 import { startTestTenant } from "./support/tenant.js";
+import { withTestSessionStore } from "./support/store.js";
+import { HOST_VAULT_ID, hostCredentialRowFor } from "../src/vault/service.js";
 
 const PROVIDER = "https://models.session-model.invalid/v1";
 const realFetch = globalThis.fetch;
@@ -206,4 +208,73 @@ it("starts a new session on the model its Agent's version names, when the Tenant
   // An existing session is found again as it is: no model put back.
   expect((await call("PUT", "/v1/sessions/c1", { requestId: "c1", agent: "coder", ownerUserId: "ada" })).status).toBe(200);
   expect((await call("GET", "/v1/sessions/c1/model")).body).toMatchObject({ source: "tenant" });
+});
+
+/** The `session.model` events of session `id`, as served, once `count` of them are there. */
+async function modelEvents(call: Awaited<ReturnType<typeof boot>>["call"], id: string, count: number) {
+  let events: any[] = [];
+  for (let attempt = 0; attempt < 200 && events.length < count; attempt += 1) {
+    const items = await call("GET", `/v1/sessions/${id}/items`);
+    events = items.body.items.filter((item: any) => item.type === "session.model").map((item: any) => item.payload);
+    if (events.length < count) await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  return events;
+}
+
+it("records the model a session's turns call and why, on the session and as session.model", async () => {
+  const called = stubProvider();
+  const { runtime, call, turn, settled } = await boot();
+  const bot = Agent({ id: "coder", name: "Coder" }).instructions("Code.").build();
+  await deploy(runtime.url, runtime.headers(), bot, { name: "coder", model: "custom/agent-model" });
+  await deploy(runtime.url, runtime.headers(), bot, { name: "unconnected", id: "unconnected", model: "anthropic/claude-sonnet-4-5" });
+  await deploy(runtime.url, runtime.headers(), bot, { name: "unlisted", id: "unlisted", model: "openai/no-such-model" });
+  for (const [id, agent] of [["c1", "coder"], ["c2", "unconnected"], ["c3", "unlisted"]])
+    expect((await call("PUT", `/v1/sessions/${id}`, { requestId: id, agent, ownerUserId: "ada" })).status).toBe(200);
+
+  const tenant = { provider: "custom", model: "tenant-model", source: "tenant" };
+  expect((await call("GET", "/v1/sessions/c1")).body.model).toEqual({ provider: "custom", model: "agent-model", source: "manifest" });
+  expect((await call("GET", "/v1/sessions/c2")).body.model).toEqual({
+    ...tenant,
+    reason: "provider_not_connected",
+    requested: { provider: "anthropic", model: "claude-sonnet-4-5", by: "manifest" },
+  });
+  expect((await call("GET", "/v1/sessions/c3")).body.model).toEqual({
+    ...tenant,
+    reason: "not_in_catalog",
+    requested: { provider: "openai", model: "no-such-model", by: "manifest" },
+  });
+  expect((await call("GET", "/v1/sessions/s1")).body.model).toEqual(tenant);
+  expect(await modelEvents(call, "c2", 1)).toEqual([(await call("GET", "/v1/sessions/c2")).body.model]);
+
+  // A turn keeps the fallback's reason; a choice is the session's own.
+  await turn("c2", "t1");
+  expect(await settled("c2")).toBe("completed");
+  expect((await call("GET", "/v1/sessions/c2")).body.model.reason).toBe("provider_not_connected");
+  expect((await call("PUT", "/v1/sessions/s1/model", { provider: "openai", model: "gpt-4o-mini" })).status).toBe(200);
+  expect((await call("GET", "/v1/sessions/s1")).body.model).toEqual({ provider: "openai", model: "gpt-4o-mini", source: "session" });
+
+  // Its provider is disconnected: the next turn calls the Tenant's model, and says why.
+  await withTestSessionStore(runtime, (store) =>
+    store.tx(async (t) => {
+      const row = await hostCredentialRowFor(t, "openai");
+      await t.deleteCredential(HOST_VAULT_ID, row!.id);
+    }),
+  );
+  await turn("s1", "t2");
+  expect(await settled("s1")).toBe("completed");
+  expect(called.at(-1)).toBe("tenant-model");
+  const fallback = {
+    ...tenant,
+    reason: "provider_not_connected",
+    requested: { provider: "openai", model: "gpt-4o-mini", by: "session" },
+  };
+  expect((await call("GET", "/v1/sessions/s1")).body.model).toEqual(fallback);
+  expect(await modelEvents(call, "s1", 3)).toEqual([
+    tenant,
+    { provider: "openai", model: "gpt-4o-mini", source: "session", previous: tenant },
+    { ...fallback, previous: { provider: "openai", model: "gpt-4o-mini", source: "session" } },
+  ]);
+  // Cleared: the Tenant's, with no reason left.
+  await call("DELETE", "/v1/sessions/s1/model");
+  expect((await call("GET", "/v1/sessions/s1")).body.model).toEqual(tenant);
 });

@@ -585,6 +585,7 @@ export async function resourceRuntime({ artifactReads = true } = {}) {
         harness: "nylorun",
         mcpSnapshot: null,
         mcpDiagnostics: [],
+        model: null,
         uncertainEffects: [],
       });
     if (path === `/v1/sessions/${SESSION}/items`)

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AgentManifest } from "../src/types/manifest.js";
-import { isVariantOf } from "../src/definition/variant.js";
+import { isVariantOf, withoutTools } from "../src/definition/variant.js";
 
 const deploy = {
   name: "deploy",
@@ -130,5 +130,64 @@ describe("isVariantOf", () => {
     const redeployed = manifest({ name: "redeployed-copy" });
     // Variant of the session pin — not of a later deploy digest.
     expect(isVariantOf(redeployed, pinned)).toBe(true);
+  });
+});
+
+describe("withoutTools", () => {
+  const helper: AgentManifest = {
+    manifestSchemaVersion: 7,
+    id: "helper",
+    instructions: ["Help."],
+    tools: [deploy, lookup],
+    mcpServers: { github: { ...mcp.github, tools: { "*": { enabled: true }, read: { deferred: true } } } },
+  };
+  const pinned = manifest({
+    tools: [deploy, lookup, { name: "helper", inputSchema: { type: "object" }, agent: helper }],
+    mcpServers: mcp,
+  });
+
+  it("removes declared tools by name, in the root and in the agents it uses as tools", () => {
+    const next = withoutTools(pinned, ["deploy"]);
+    expect(next.tools?.map((tool) => tool.name)).toEqual(["lookup", "helper"]);
+    expect((next.tools?.[1]?.agent as AgentManifest).tools?.map((tool) => tool.name)).toEqual(["lookup"]);
+    expect(isVariantOf(next, pinned)).toBe(true);
+    // An agent used as a tool goes as a whole by its name.
+    expect(withoutTools(pinned, ["helper"]).tools?.map((tool) => tool.name)).toEqual(["deploy", "lookup"]);
+  });
+
+  it("disables an MCP server's tool by server__tool, and a whole server by its name", () => {
+    const one = withoutTools(pinned, ["github__create_issue"]);
+    expect(one.mcpServers?.github?.tools).toEqual({ create_issue: { enabled: false } });
+    const child = (one.tools?.[2]?.agent as AgentManifest).mcpServers?.github?.tools;
+    expect(child).toEqual({ "*": { enabled: true }, read: { deferred: true }, create_issue: { enabled: false } });
+    expect(isVariantOf(one, pinned)).toBe(true);
+
+    const all = withoutTools(pinned, ["github"]);
+    expect(all.mcpServers?.github?.tools).toEqual({ "*": { enabled: false } });
+    expect((all.tools?.[2]?.agent as AgentManifest).mcpServers?.github?.tools).toEqual({
+      "*": { enabled: false },
+      read: { deferred: true, enabled: false },
+    });
+    expect(isVariantOf(all, pinned)).toBe(true);
+  });
+
+  it("ignores names the manifest does not have", () => {
+    expect(withoutTools(pinned, ["nothing", "other__tool"])).toBe(pinned);
+    expect(withoutTools(pinned, [])).toBe(pinned);
+  });
+
+  it("lets a variant narrow an agent used as a tool, and nothing more", () => {
+    const narrowed = withoutTools(pinned, ["lookup"]);
+    expect(isVariantOf(narrowed, pinned)).toBe(true);
+    const changed = manifest({
+      tools: [deploy, lookup, { name: "helper", inputSchema: { type: "object" }, agent: { ...helper, instructions: ["Other."] } }],
+      mcpServers: mcp,
+    });
+    expect(isVariantOf(changed, pinned)).toBe(false);
+    const widened = manifest({
+      tools: [deploy, lookup, { name: "helper", inputSchema: { type: "object" }, agent: { ...helper, tools: [deploy, lookup, { ...deploy, name: "extra" }] } }],
+      mcpServers: mcp,
+    });
+    expect(isVariantOf(widened, pinned)).toBe(false);
   });
 });

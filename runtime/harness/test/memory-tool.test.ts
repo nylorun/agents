@@ -34,6 +34,7 @@ async function turn(
   calls: { name: string; args: Record<string, unknown> }[],
   pinned: readonly string[] | undefined,
   state?: unknown,
+  refreshPinned?: boolean,
 ) {
   const manifest = Agent({ id: "bot" }).instructions("Help the team.").build()
     .manifest as AgentManifest;
@@ -69,6 +70,7 @@ async function turn(
     host,
     engineTools: (agent) => engineToolsFor(agent, undefined, options, readWrite),
     ...(pinned ? { pinned } : {}),
+    ...(refreshPinned ? { refreshPinned } : {}),
   });
   expect(result.status).toBe("completed");
   return {
@@ -186,6 +188,11 @@ describe("the pinned memory index", () => {
     });
     const two = await turn([], [later], one.result.result.state);
     expect(texts(two.prompts[0]!)[1]).toBe(first);
+
+    // The Runtime says the memory changed elsewhere (`turn.start.memory.refresh`): pinned again.
+    const three = await turn([], [later], two.result.result.state, true);
+    expect(texts(three.prompts[0]!)[1]).toBe(later);
+    expect(three.result.result.state.pinned).toEqual([later]);
 
     // Memory turned off: the state drops it.
     const off = await turn([], undefined, one.result.result.state);

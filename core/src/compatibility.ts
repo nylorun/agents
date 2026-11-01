@@ -270,6 +270,13 @@ export const OPTIONAL_HOST_FEATURES = [
    * chosen by the slot's `url`. Secret reads show the `via` and `toolPrefix` in force.
    */
   "secret-routing",
+  /**
+   * A message's `removeTools`: the tools its turn may not use, by name (declared tools, agents
+   * used as tools and their tools, `<server>__<tool>` and `<server>` for MCP), applied to the
+   * version the turn runs after its first segment re-pins it to the Agent's, so a session that
+   * always sends it still moves to new versions.
+   */
+  "remove-tools",
 ] as const;
 export type OptionalHostFeature = (typeof OPTIONAL_HOST_FEATURES)[number];
 export interface ProtocolRange {
