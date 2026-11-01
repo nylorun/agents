@@ -3905,11 +3905,17 @@ export const McpServerOutcomeSchema = z
 export type McpServerOutcome = z.infer<typeof McpServerOutcomeSchema>;
 /**
  * `mcp.discovered`: the session's first turn readied its MCP servers and pinned the tools they
- * offer, one outcome per declared server. A server that did not connect adds no tools for the
- * session's life, so this is where the model's missing tools show (also `mcpDiagnostics`).
+ * offer, one outcome per declared server. A server that did not connect adds no tools until a
+ * later turn's first segment, which tries it again: once it answers, it joins the session's
+ * snapshot and a second `mcp.discovered` names it (`rejoined`, with only the servers that joined).
+ * This is where the model's missing tools show (also `mcpDiagnostics`).
  */
 export const McpDiscoveredPayloadSchema = z
-  .object({ servers: z.array(McpServerOutcomeSchema) })
+  .object({
+    servers: z.array(McpServerOutcomeSchema),
+    /** Set when the servers joined the snapshot at a later turn, having failed at the first. */
+    rejoined: z.literal(true).optional(),
+  })
   .passthrough();
 
 /**

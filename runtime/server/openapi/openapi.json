@@ -14580,6 +14580,12 @@
                   ],
                   "additionalProperties": {}
                 }
+              },
+              "rejoined": {
+                "type": "boolean",
+                "enum": [
+                  true
+                ]
               }
             },
             "required": [

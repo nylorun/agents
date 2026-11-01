@@ -1,3 +1,13 @@
+# MCP servers rejoin, the memory index refreshes, and policy rules reach subagents
+
+Behaviour changes, no API removed.
+
+- **An MCP server that failed at a session's first discovery is tried again** at each later
+  turn's first segment (not mid-turn). Once it answers, it joins the session's snapshot: its tools
+  are offered from that turn on, its diagnostic says `connected`, and a second `mcp.discovered`
+  names it with `rejoined: true`. Before, a server that failed at the first turn added no tools for
+  the session's life.
+
 # A session's model, and why
 
 Additive. `GET /v1/sessions/{id}` answers `model`, the model the session's turns call and why:
