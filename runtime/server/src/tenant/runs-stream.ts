@@ -67,7 +67,12 @@ export async function appendRuns(ctx: TenantContext, runs: readonly TriggerRunRo
   if (!streams) return;
   const basin = basinOf(ctx.config.tenantId, ctx.sessionStreams.generation);
   try {
-    await ensureRunsStream(streams, basin);
+    await ensureRunsStream(streams, basin).catch((error: unknown) =>
+      // Not fatal: the stream keeps the basin's default retention, and the next append tries again.
+      ctx.config.logger.warn("runs stream retention not set; appending anyway", {
+        message: error instanceof Error ? error.message : String(error),
+      }),
+    );
     const result = await streams.append(basin, RUNS_STREAM, fresh.map(tenantRunOf));
     if (result.status !== "ok") return;
     const at = new Date().toISOString();
