@@ -6759,6 +6759,9 @@
                     },
                     "additionalProperties": false
                   },
+                  "engine": {
+                    "$ref": "#/components/schemas/HarnessEngine"
+                  },
                   "functions": {
                     "description": "Reserved: Functions are not available yet"
                   }
@@ -7075,6 +7078,9 @@
                     },
                     "additionalProperties": false
                   },
+                  "engine": {
+                    "$ref": "#/components/schemas/HarnessEngine"
+                  },
                   "functions": {
                     "description": "Reserved: Functions are not available yet"
                   }
@@ -7389,6 +7395,9 @@
                       }
                     },
                     "additionalProperties": false
+                  },
+                  "engine": {
+                    "$ref": "#/components/schemas/HarnessEngine"
                   },
                   "functions": {
                     "description": "Reserved: Functions are not available yet"
@@ -7839,6 +7848,9 @@
                 },
                 "additionalProperties": false
               },
+              "engine": {
+                "$ref": "#/components/schemas/HarnessEngine"
+              },
               "functions": {
                 "description": "Reserved: Functions are not available yet"
               }
@@ -8213,6 +8225,9 @@
                       },
                       "additionalProperties": false
                     },
+                    "engine": {
+                      "$ref": "#/components/schemas/HarnessEngine"
+                    },
                     "functions": {
                       "description": "Reserved: Functions are not available yet"
                     }
@@ -8537,6 +8552,141 @@
           },
           "deferred": {
             "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "HarnessEngine": {
+        "type": "object",
+        "properties": {
+          "sandbox": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "bash",
+                "read",
+                "write",
+                "edit",
+                "grep",
+                "glob"
+              ]
+            },
+            "description": "The sandbox tools offered: any of bash, read, write, edit, grep and glob; needs a computer"
+          },
+          "artifacts": {
+            "type": "object",
+            "properties": {
+              "read": {
+                "type": "boolean"
+              },
+              "save": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false,
+            "description": "read: read_artifact and its text; save: save_artifact and its text (needs a computer)"
+          },
+          "outputs": {
+            "type": "boolean",
+            "description": "Save /workspace/outputs when a turn ends; needs a computer"
+          },
+          "toolSearch": {
+            "type": "boolean",
+            "description": "Defer MCP tools behind tool_search when their schemas pass the threshold"
+          },
+          "instructions": {
+            "type": "object",
+            "properties": {
+              "skills": {
+                "type": "string",
+                "minLength": 1
+              },
+              "sandbox": {
+                "type": "string",
+                "minLength": 1
+              },
+              "skill_folder": {
+                "type": "string",
+                "minLength": 1
+              },
+              "artifacts_save": {
+                "type": "string",
+                "minLength": 1
+              },
+              "outputs": {
+                "type": "string",
+                "minLength": 1
+              },
+              "artifacts_read": {
+                "type": "string",
+                "minLength": 1
+              },
+              "wake": {
+                "type": "string",
+                "minLength": 1
+              },
+              "memory": {
+                "type": "string",
+                "minLength": 1
+              },
+              "plan": {
+                "type": "string",
+                "minLength": 1
+              },
+              "connection": {
+                "type": "string",
+                "minLength": 1
+              },
+              "tool_search": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "description": "A block's wording replaced, by block name"
+          },
+          "blocks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "enum": [
+                    "skills",
+                    "sandbox",
+                    "skill_folder",
+                    "artifacts_save",
+                    "outputs",
+                    "artifacts_read",
+                    "wake",
+                    "memory",
+                    "plan",
+                    "connection",
+                    "tool_search"
+                  ]
+                },
+                "version": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0
+                },
+                "sha256": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                },
+                "source": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "name",
+                "version",
+                "sha256"
+              ],
+              "additionalProperties": false
+            },
+            "description": "The engine text blocks the agent gets, with their hashes"
           }
         },
         "additionalProperties": false
@@ -9067,6 +9217,9 @@
             "$ref": "#/components/schemas/PlanUpdatedEvent"
           },
           {
+            "$ref": "#/components/schemas/EngineDiagnosticEvent"
+          },
+          {
             "$ref": "#/components/schemas/EnvironmentStateEvent"
           },
           {
@@ -9133,6 +9286,7 @@
             "delegation.completed": "#/components/schemas/DelegationCompletedEvent",
             "mcp.discovered": "#/components/schemas/McpDiscoveredEvent",
             "plan.updated": "#/components/schemas/PlanUpdatedEvent",
+            "engine.diagnostic": "#/components/schemas/EngineDiagnosticEvent",
             "environment.state": "#/components/schemas/EnvironmentStateEvent",
             "environment.exec": "#/components/schemas/EnvironmentExecEvent",
             "agent.attached": "#/components/schemas/AgentAttachedEvent",
@@ -14176,6 +14330,206 @@
             },
             "required": [
               "steps"
+            ],
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "schema",
+          "eventId",
+          "tenantId",
+          "sessionId",
+          "runId",
+          "turnId",
+          "incarnation",
+          "epoch",
+          "seq",
+          "cursor",
+          "time",
+          "schemaVersion",
+          "source",
+          "evidence",
+          "visibility",
+          "retention",
+          "type",
+          "payload"
+        ]
+      },
+      "EngineDiagnosticEvent": {
+        "type": "object",
+        "properties": {
+          "schema": {
+            "type": "string",
+            "enum": [
+              "nylorun.event/2"
+            ]
+          },
+          "eventId": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "runId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "turnId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "incarnation": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "epoch": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "time": {
+            "type": "string"
+          },
+          "schemaVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "client",
+                  "core",
+                  "model-gate",
+                  "tool-gate",
+                  "egress-gate",
+                  "sandboxes",
+                  "edge",
+                  "init",
+                  "controller",
+                  "loop",
+                  "supervisor",
+                  "harness",
+                  "evidence",
+                  "operator",
+                  "human",
+                  "api"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ]
+          },
+          "evidence": {
+            "type": "string",
+            "enum": [
+              "observed",
+              "measured",
+              "attested",
+              "claimed",
+              "asserted"
+            ]
+          },
+          "principal": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "application",
+                  "subject",
+                  "flow-host",
+                  "core",
+                  "trigger"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          "trace": {
+            "type": "object",
+            "properties": {
+              "traceId": {
+                "type": "string"
+              },
+              "spanId": {
+                "type": "string"
+              },
+              "parentSpanId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "traceId",
+              "spanId"
+            ]
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "internal",
+              "restricted"
+            ]
+          },
+          "retention": {
+            "type": "string",
+            "enum": [
+              "full",
+              "metadata"
+            ]
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "engine.diagnostic"
+            ]
+          },
+          "payload": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string",
+                "minLength": 1
+              },
+              "message": {
+                "type": "string"
+              },
+              "agentId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message"
             ],
             "additionalProperties": {}
           }
@@ -22387,6 +22741,9 @@
                       },
                       "additionalProperties": false
                     },
+                    "engine": {
+                      "$ref": "#/components/schemas/HarnessEngine"
+                    },
                     "functions": {
                       "description": "Reserved: Functions are not available yet"
                     }
@@ -22677,6 +23034,10 @@
                 "type": "string",
                 "maxLength": 4096,
                 "description": "What this agent should remember, after the engine's own memory rules"
+              },
+              "index": {
+                "type": "boolean",
+                "description": "agent-folder/2: false pins no memory index in a session. Default true"
               }
             },
             "additionalProperties": false,
@@ -22687,6 +23048,9 @@
             "maxLength": 200,
             "pattern": "^[A-Za-z0-9._-]+\\/\\S+$",
             "description": "The model the agent runs on: <provider>/<model>, such as anthropic/claude-sonnet-4-5"
+          },
+          "engine": {
+            "$ref": "#/components/schemas/HarnessEngine"
           },
           "functions": {
             "description": "Reserved: Functions are not available yet"
@@ -32859,6 +33223,9 @@
                     },
                     {
                       "$ref": "#/components/schemas/PlanUpdatedEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/EngineDiagnosticEvent"
                     },
                     {
                       "$ref": "#/components/schemas/EnvironmentStateEvent"

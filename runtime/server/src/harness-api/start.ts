@@ -253,18 +253,20 @@ export function buildTurnStart(ctx: TenantContext, segment: SegmentStart): TurnS
 /**
  * The Agent's memory as the segment starts (track T5, D72), when the version the session runs sets
  * `harness.memory`: its access (the same in every turn), the agent's instructions, and the index of
- * its memories, newest first, within the Tenant's index limits.
+ * its memories, newest first, within the Tenant's index limits; no index when it sets
+ * `harness.memory.index: false`.
  */
 async function turnMemoryOf(t: Tx, s: Session, limits: RuntimeLimits): Promise<TurnMemory | undefined> {
   const settings = await memorySettingsOf(t, s);
   if (!settings) return undefined;
-  const { index, truncated } = await renderMemoryIndex(t, s.agentId, limits);
-  return {
+  const base = {
     access: settings.access ?? "read_write",
     ...(settings.instructions === undefined ? {} : { instructions: settings.instructions }),
-    index,
-    truncated,
-  };
+  } as const;
+  // A version that sets `harness.memory.index: false` (ADR-100) pins no index: none is rendered.
+  if (settings.index === false) return { ...base, truncated: false };
+  const { index, truncated } = await renderMemoryIndex(t, s.agentId, limits);
+  return { ...base, index, truncated };
 }
 
 /**
