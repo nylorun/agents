@@ -77,9 +77,10 @@ function fromZod(schema: z.ZodType, defs: Json, description?: string): Json {
 /**
  * A kind's revision within format 1, when its document gained an optional key (a published `$id`
  * names one document for good): `AGENT.md` took `model` (Host feature `agent-model`), published
- * as `agent-md.1.json`.
+ * as `agent-md.1.json`; `runtime.json` took a secret slot's `toolPrefix` (Host feature
+ * `secret-routing`), published as `runtime.1.json`.
  */
-const REVISIONS: Partial<Record<AgentFolderSchemaKind, number>> = { "agent-md": 1 };
+const REVISIONS: Partial<Record<AgentFolderSchemaKind, number>> = { "agent-md": 1, runtime: 1 };
 
 /** One document: its `$id` from its kind, then the body, then the `$defs` its parts named. */
 function document(kind: AgentFolderSchemaKind, title: string, description: string, body: Json, defs: Json): Json {

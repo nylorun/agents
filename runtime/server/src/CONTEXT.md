@@ -399,7 +399,13 @@ without an Environment sends none. OSS holds no OAuth client and asks no credent
 URL still picks it, and its **identity header** carries the session owner's subject (none for an
 `installation` session), and its **tool prefix** what the gateway puts before each tool name it
 lists (`gateway-credentials`, #494): `sdkClient` takes it off the tools it lists and puts it back
-on each call. It is set on an Agent's secret, never in a manifest. A `workload` credential holds
+on each call. **Secret routing** (`secret-routing`): a manifest's `bearer` or `headers` slot may
+name the tool prefix (with or without a `via`), and a slot's value write may name `via`, so a
+folder names how tools are listed and the installation binds where requests go. At each request
+(`routingOf`, over the slot of the version the Agent runs) the secret's `via` wins, else the
+slot's, else none; the slot's tool prefix wins over the secret's, and applies only with a `via`. A
+`via` the write copied from the slot is marked `viaFrom: "slot"` and follows the slot when a new
+version moves it; the Agent's secret views show what is in force. A `workload` credential holds
 no value: `sessionCredentials` adds the Runtime's **workload token** as its bearer
 (`vault/workload-token.ts`, `NYLORUN_WORKLOAD_TOKEN_FILE`, read at each use, #496), only to a `via`
 whose origin `NYLORUN_WORKLOAD_TOKEN_ORIGINS` lists; a custom model with `auth.type: "workload"`

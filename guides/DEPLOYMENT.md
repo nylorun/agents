@@ -465,8 +465,9 @@ offers it `request_connection`, which pauses the turn on an interaction whose `m
 `connection`), or a flow (`kind: "workflow"`); and `runtime`, the
 Agent's kind and what it gets (`image`, `network`, `setup`, `files`, `limits`, `lifecycle` and
 the secret slots, `secrets`). Its JSON Schema is
-`https://docs.nylorun.com/schemas/agent-manifest/v8.1.json` (v8 with `harness.model`; `v8.json`
-is the same without it)
+`https://docs.nylorun.com/schemas/agent-manifest/v8.2.json` (v8 with `harness.model` and a
+secret slot's `toolPrefix`; `v8.1.json` is the same without the slot's `toolPrefix`, and `v8.json`
+without either)
 (`@nylorun/core/schemas/agent-manifest.json`; clients drop `$schema` before they save):
 
 ```json
@@ -529,7 +530,7 @@ is the same without it)
   `agents/<id>/`, a flow in `flow.json` and vendored Agent Plugins in `plugins/<name>/`; a
   `.nyloignore` leaves files out. The [CLI's README](../cli/nylorun/README.md#agent-manifests-apply)
   shows each. Each kind of file has a JSON Schema at
-  `https://docs.nylorun.com/schemas/agent-folder/v1/<kind>.json` (`runtime`, `tool`, `mcp` and
+  `https://docs.nylorun.com/schemas/agent-folder/v1/<kind>.json` (`runtime.1`, `tool`, `mcp` and
   `flow`, and `agent-md.1` and `trigger-md` for the frontmatter), exported as
   `@nylorun/core/schemas/agent-folder-<kind>.json`.
   `nylorun init <path>` writes one, `nylorun check` compiles it offline and prints every problem by
@@ -1374,9 +1375,20 @@ Either kind may add:
   (`github__create_issue`), a manifest's `tools` settings and tool policy rules name the server's
   own tools whether or not a gateway is in between, and calls each tool by the name the gateway
   listed. A listed tool that lacks the prefix keeps its name, and the server's discovery diagnostic
-  names it. It is the installation's routing, so it goes on the Agent's secret only: a manifest's
-  secret slot cannot name it, and a slot's value write (`{ "headers": { … }, "toolPrefix": "github-" }`)
-  adds it to a slot with `via`.
+  names it. A manifest's `bearer` or `headers` slot may name it too, with or without a `via`
+  (Host feature `secret-routing`), so an agent folder names how tools are listed and each
+  installation binds where requests go; a slot's value write may also add it
+  (`{ "headers": { … }, "toolPrefix": "github-" }`) when there is a `via`. The slot's prefix wins:
+  a write that names another is accepted, and the Runtime logs a warning.
+- **Routing a slot** (Host feature `secret-routing`): a `bearer` or `headers` slot's value write
+  may add `via` (`{ "headers": { … }, "via": "http://localhost:4100/mcp/web" }`), with the same
+  rules as above. At each request the secret's `via` wins, else the slot's `via` of the version
+  the Agent runs, else none (the request goes to the slot's `url`); the slot's `url` still picks the
+  credential. So a folder holds no deployment's endpoints: its slot names the server's own URL (or,
+  for an HTTP tool, a fixed name such as `https://tools.bot.nylorun/delegate`), and each
+  installation routes it. An HTTP tool whose URL has `{field}` parameters still fails with
+  `http.credential` when its credential has a `via`. `GET .../secrets` shows the `via` and
+  `toolPrefix` in force.
 - **`identity: { header }`**: a header that carries the session owner's subject, for a gateway
   that keeps each person's accounts ([Reaching a person's accounts](#reaching-a-persons-accounts)).
 

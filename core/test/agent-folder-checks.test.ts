@@ -224,6 +224,23 @@ describe("agent folders: the runtime's kind and the save checks, with positions"
     ]);
   });
 
+  it("compiles a slot's toolPrefix into the manifest's slot, with no via (secret-routing)", () => {
+    const result = compile({
+      "AGENT.md": AGENT,
+      "mcp.json": `{\n  "mcpServers": {\n    "web": {\n      "type": "streamable-http",\n      "url": "https://mcp.parallel.ai/mcp",\n      "headers": { "x-litellm-api-key": "\${WEB_KEY}" }\n    }\n  }\n}\n`,
+      "runtime.json": JSON.stringify({
+        $schema: "https://docs.nylorun.com/schemas/agent-folder/v1/runtime.1.json",
+        kind: "none",
+        secrets: { WEB_KEY: { type: "headers", url: "https://mcp.parallel.ai/mcp", toolPrefix: "web-", required: true } },
+      }),
+    });
+    expect(errors(result.diagnostics)).toEqual([]);
+    expect(result.diagnostics.filter((item) => item.code === "schema_url")).toEqual([]);
+    expect(result.manifest?.runtime?.secrets?.WEB_KEY).toEqual({ type: "headers", url: "https://mcp.parallel.ai/mcp", toolPrefix: "web-", required: true });
+    const bad = compile({ "AGENT.md": AGENT, "runtime.json": JSON.stringify({ kind: "none", secrets: { K: { type: "bearer", url: "https://x.test/mcp", toolPrefix: "has space" } } }) });
+    expect(errors(bad.diagnostics)).not.toEqual([]);
+  });
+
   it("gives each gap the manifest path it is about", () => {
     const gaps = sectionGapsAt({
       harness: { tools: [{ name: "a", inputSchema: { type: "object" }, http: { url: "https://x.example/a", credential: "NOPE" } }] },

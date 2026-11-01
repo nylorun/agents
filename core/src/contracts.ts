@@ -1575,8 +1575,10 @@ export type CredentialIdentity = z.infer<typeof CredentialIdentitySchema>;
  * `toolPrefix`: what the gateway at `via` puts before each tool name it lists, such as
  * LiteLLM's `github-` (Host feature `gateway-credentials`). The Runtime lists the server's tools
  * without it, so tool names, a manifest's `tools` settings and tool policy rules name the server's
- * own tools, and calls a tool by the name the gateway listed. Only with `via`, and only on an
- * Agent's secret: how a gateway names tools is the installation's routing, never a manifest's.
+ * own tools, and calls a tool by the name the gateway listed. On an Agent's secret, only with
+ * `via`. A manifest's `bearer` or `headers` slot may name it too (Host feature `secret-routing`),
+ * with or without a `via`: it applies whenever the credential's requests go to a `via`, and wins
+ * over the secret's.
  */
 export const CredentialToolPrefixSchema = z
   .string()
@@ -1758,14 +1760,22 @@ export type PutAgentSecretRequest = z.infer<typeof PutAgentSecretRequestSchema>;
 /**
  * A secret write on an Environment whose manifest declares the secret's slot: only the
  * value, `value` (or `headers` for a `headers` slot). Its type and binding come from the slot,
- * except the gateway's `toolPrefix`, which this installation's write may add to a slot with `via`.
+ * except this installation's routing of a `bearer` or `headers` slot (Host feature
+ * `secret-routing`): `via`, where its requests go, which wins over the slot's; and the gateway's
+ * `toolPrefix`, which needs a `via` (the write's or the slot's) and gives way to the slot's.
  */
 export const PutAgentSecretValueRequestSchema = z
   .object({
     requestId: RequestIdSchema.optional(),
     value: z.string().min(1).optional(),
     headers: CredentialHeadersSchema.optional(),
-    /** A `bearer` or `headers` slot with `via`: how the gateway there prefixes tool names. */
+    /**
+     * A `bearer` or `headers` slot: where this installation sends the credential's requests,
+     * such as a gateway's endpoint for the server. Wins over the slot's `via`; the credential is
+     * still chosen by the slot's `url`.
+     */
+    via: CredentialViaSchema.optional(),
+    /** A `bearer` or `headers` slot with a `via`: how the gateway there prefixes tool names. */
     toolPrefix: CredentialToolPrefixSchema.optional(),
   })
   .strict()
@@ -1800,7 +1810,11 @@ const slotBase = {
 /**
  * One secret an Environment of a kind needs: its type and binding, never its value. The
  * value is written into each Environment's vault (`PUT /v1/agents/{id}/secrets/{name}`
- * with `{ value }`, or `{ headers }` for `headers`), and the binding comes from here.
+ * with `{ value }`, or `{ headers }` for `headers`), and the binding comes from here. A
+ * `bearer` or `headers` slot may name the gateway's `toolPrefix` without a `via`, so a folder
+ * names how tools are listed and each installation binds where requests go (the write's `via`,
+ * Host feature `secret-routing`). At each request the credential's `via` is the secret's, else
+ * the slot's, else none (the slot's `url`), and its tool prefix the slot's, else the secret's.
  */
 export const EnvironmentSecretSlotSchema = z.discriminatedUnion("type", [
   z
@@ -1812,8 +1826,24 @@ export const EnvironmentSecretSlotSchema = z.discriminatedUnion("type", [
     })
     .strict(),
   z.object({ type: z.literal("environment_variable"), ...slotBase }).strict(),
-  z.object({ type: z.literal("bearer"), url: z.string().min(1), ...credentialRouting, ...slotBase }).strict(),
-  z.object({ type: z.literal("headers"), url: z.string().min(1), ...credentialRouting, ...slotBase }).strict(),
+  z
+    .object({
+      type: z.literal("bearer"),
+      url: z.string().min(1),
+      ...credentialRouting,
+      toolPrefix: CredentialToolPrefixSchema.optional(),
+      ...slotBase,
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("headers"),
+      url: z.string().min(1),
+      ...credentialRouting,
+      toolPrefix: CredentialToolPrefixSchema.optional(),
+      ...slotBase,
+    })
+    .strict(),
 ]);
 export type EnvironmentSecretSlot = z.infer<typeof EnvironmentSecretSlotSchema>;
 /** A manifest's secret slots: at most the Tenant's Runtime limit `environmentSecretSlots`. */
@@ -2815,8 +2845,15 @@ export const AgentSecretViewSchema = z
       .strict(),
     /** A `headers` credential's header names (lower case), never their values. */
     headerNames: z.array(z.string()).optional(),
+    /**
+     * Where its requests go: the secret's own `via`, else its slot's (Host feature
+     * `secret-routing`). Absent: to its `url`.
+     */
     via: z.string().optional(),
-    /** How the gateway at `via` prefixes tool names (Host feature `gateway-credentials`). */
+    /**
+     * How the gateway at `via` prefixes tool names (Host feature `gateway-credentials`): its
+     * slot's, else the secret's; only with a `via`.
+     */
     toolPrefix: z.string().optional(),
     identity: CredentialIdentitySchema.optional(),
     createdAt: z.string(),

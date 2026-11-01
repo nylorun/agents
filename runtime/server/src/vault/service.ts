@@ -191,12 +191,24 @@ type CredentialBinding = {
   variableName?: string;
   variableValue?: string;
   via?: string;
+  /**
+   * `slot`: `via` is the secret slot's, copied when it was written, not the write's own
+   * (`secret-routing`): a request follows the slot of the version the Agent runs (`routingOf`).
+   * Absent: `via` is the secret's own (or, written before the marker, the slot's then).
+   */
+  viaFrom?: "slot";
   /** How the gateway at `via` prefixes tool names (`gateway-credentials`). */
   toolPrefix?: string;
   identity?: CredentialIdentity;
   /** A `headers` credential's names, lower-cased. */
   headerNames?: string[];
 };
+
+/** How a secret write was made (`putEnvironmentSecret`); `null` crosses the keys wire as none. */
+export interface SecretWriteOptions {
+  /** The body's `via` is its secret slot's, not the write's own (`secret-routing`). */
+  readonly viaFromSlot?: boolean;
+}
 
 export type AuthorizeResult =
   | {
@@ -411,6 +423,7 @@ export class VaultService {
     name: string,
     body: PutAgentSecretRequest,
     actor: string,
+    options?: SecretWriteOptions | null,
   ): Promise<AgentSecretView> {
     const invalid = environmentSecretNameError(body.type, name);
     if (invalid) throw new VaultError(400, invalid);
@@ -423,6 +436,7 @@ export class VaultService {
       // A workload credential holds no value: the bearer is the Runtime's workload token (#496).
       payload = body.type === "workload" ? {} : payloadOf(body);
       binding = bindingOf(url, payload, body);
+      if (options?.viaFromSlot === true && binding.via !== undefined && body.type !== "workload") binding.viaFrom = "slot";
     }
     const kek = this.kek();
     return this.store.tx(async (t) => {
@@ -463,18 +477,19 @@ export class VaultService {
         await this.audit(t, { actor, action: "create", vaultId: vault.id, credentialId: id, outcome: "created" });
       }
       await t.updateEnvironment(environmentId, { lastUsedAt: now }, now);
-      return secretViewOf(row);
+      return secretViewOf(row, slotOf(await appliedSlots(t, environmentId), row));
     });
   }
 
-  /** The Environment's secrets: names, types and bindings, never values. */
+  /** The Environment's secrets: names, types, bindings and the routing in force, never values. */
   async listEnvironmentSecrets(environmentId: string): Promise<AgentSecretView[]> {
     return this.store.tx(async (t) => {
       const vault = await this.environmentVault(t, environmentId);
+      const slots = await appliedSlots(t, environmentId);
       return (await t.credentialsForVault(vault.id))
         .filter(isUserCredential)
         .sort((a, b) => a.name.localeCompare(b.name))
-        .map(secretViewOf);
+        .map((row) => secretViewOf(row, slotOf(slots, row)));
     });
   }
 
@@ -483,7 +498,7 @@ export class VaultService {
       const vault = await this.environmentVault(t, environmentId);
       const row = await t.credentialByName(vault.id, name);
       if (!row || !isUserCredential(row)) throw new VaultError(404, "Secret not found");
-      return secretViewOf(row);
+      return secretViewOf(row, slotOf(await appliedSlots(t, environmentId), row));
     });
   }
 
@@ -580,7 +595,7 @@ export class VaultService {
     const environmentId = input.environmentId;
     if (environmentId === undefined) return { status: "unauthenticated", url, headers: {} };
     const decided = await this.store.tx(
-      async (t): Promise<{ result: AuthorizeResult } | { row: UserCredentialRow }> => {
+      async (t): Promise<{ result: AuthorizeResult } | { row: UserCredentialRow; slot?: EnvironmentSecretSlot }> => {
         const vault = await t.vaultOfEnvironment(environmentId);
         if (!vault) {
           await this.audit(t, {
@@ -592,7 +607,8 @@ export class VaultService {
           });
           return { result: { status: "refused", url, credentialIds: [], reason: "vault_missing" } };
         }
-        const live = await liveFilter(t, environmentId);
+        const slots = await appliedSlots(t, environmentId);
+        const live = liveFilterOf(slots);
         const matches = (await t.credentialsForVault(vault.id))
           .filter(isUserCredential)
           .filter(live)
@@ -613,7 +629,9 @@ export class VaultService {
             result: { status: "refused", url, credentialIds: matches.map((row) => row.id), reason: "ambiguous" },
           };
         }
-        return { row: matches[0]! };
+        const row = matches[0]!;
+        const slot = slotOf(slots, row);
+        return slot === undefined ? { row } : { row, slot };
       },
     );
     if ("result" in decided) return decided.result;
@@ -657,8 +675,8 @@ export class VaultService {
       status: "authorized",
       url,
       headers,
-      ...(binding.via === undefined ? {} : { via: binding.via }),
-      ...(binding.toolPrefix === undefined ? {} : { toolPrefix: binding.toolPrefix }),
+      // The secret's via, else its slot's; the slot's tool prefix, else the secret's (`secret-routing`).
+      ...routingOf(binding, decided.slot),
       ...(row.type === "workload" ? { workload: true as const } : {}),
       ...(binding.identity === undefined ? {} : { identity: binding.identity }),
     };
@@ -677,12 +695,16 @@ export class VaultService {
   ): Promise<CredentialCoverage> {
     const environmentId: string | undefined = request.agentId;
     return this.store.tx(async (t) => {
-      const credentials: { row: VaultCredentialRow; url?: string }[] = [];
+      const credentials: { row: UserCredentialRow; url?: string; slot?: EnvironmentSecretSlot }[] = [];
       {
         const vault = await this.environmentVault(t, environmentId);
-        const live = await liveFilter(t, environmentId);
+        const slots = environmentId === undefined ? undefined : await appliedSlots(t, environmentId);
+        const live = liveFilterOf(slots);
         for (const row of await t.credentialsForVault(vault.id))
-          if (isUserCredential(row) && live(row)) credentials.push({ row, url: bindingUrl(row) });
+          if (isUserCredential(row) && live(row)) {
+            const slot = slotOf(slots, row);
+            credentials.push({ row, url: bindingUrl(row), ...(slot === undefined ? {} : { slot }) });
+          }
       }
       const entries = credentialNeeds(manifest).map((need): CredentialCoverageEntry => {
         let url: string;
@@ -693,7 +715,7 @@ export class VaultService {
           return coverageEntry(need, need.url, undefined, environmentId, error.message);
         }
         const bound = credentials.find((item) => item.url === url);
-        return coverageEntry(need, url, bound && coverageCredential(environmentId!, bound.row), environmentId);
+        return coverageEntry(need, url, bound && coverageCredential(environmentId!, bound.row, bound.slot), environmentId);
       });
       return {
         agentId: request.agentId,
@@ -1062,9 +1084,9 @@ function bindingUrl(row: VaultCredentialRow): string | undefined {
   return (JSON.parse(row.bindingJson) as { url?: string }).url;
 }
 
-/** Where a credential is, for coverage: never its value. */
-function coverageCredential(environmentId: string, row: VaultCredentialRow): CoverageCredential {
-  const via = (JSON.parse(row.bindingJson) as { via?: string }).via;
+/** Where a credential is, for coverage, with the `via` in force (`routingOf`): never its value. */
+function coverageCredential(environmentId: string, row: UserCredentialRow, slot?: EnvironmentSecretSlot): CoverageCredential {
+  const { via } = routingOf(credentialBinding(row), slot);
   return { agentId: environmentId, name: row.name, ...(via === undefined ? {} : { via }) };
 }
 
@@ -1141,9 +1163,13 @@ function credentialBinding(row: UserCredentialRow): CredentialBinding {
   return JSON.parse(row.bindingJson) as CredentialBinding;
 }
 
-/** A secret as `GET .../secrets/{name}` shows it: never its value. */
-function secretViewOf(row: UserCredentialRow): AgentSecretView {
+/**
+ * A secret as `GET .../secrets/{name}` shows it, with the routing in force under `slot`, the
+ * slot of the version its Agent runs that it fills (`routingOf`): never its value.
+ */
+function secretViewOf(row: UserCredentialRow, slot?: EnvironmentSecretSlot): AgentSecretView {
   const binding = credentialBinding(row);
+  const routing = routingOf(binding, slot);
   return {
     name: row.name,
     type: row.type,
@@ -1157,8 +1183,7 @@ function secretViewOf(row: UserCredentialRow): AgentSecretView {
           ? {}
           : { url: binding.url! },
     ...(binding.headerNames === undefined ? {} : { headerNames: binding.headerNames }),
-    ...(binding.via === undefined ? {} : { via: binding.via }),
-    ...(binding.toolPrefix === undefined ? {} : { toolPrefix: binding.toolPrefix }),
+    ...routing,
     ...(binding.identity === undefined ? {} : { identity: binding.identity }),
     createdAt: row.createdAt,
     ...(row.rotatedAt ? { rotatedAt: row.rotatedAt } : {}),
@@ -1443,11 +1468,15 @@ function rebind(
     if (auth === undefined) return undefined;
     const sealed = payloadOf(auth);
     const routing = slot as { url: string; via?: string | null; identity?: CredentialIdentity | null };
-    // The gateway's tool prefix is the vault's, not the slot's: it stays while the slot keeps `via`.
+    // The secret's own via goes with it (`secret-routing`); else the fork's slot's, which its
+    // sessions then follow. The gateway's tool prefix is the vault's; the slot's is read at use.
+    const own = binding.via !== undefined && binding.viaFrom !== "slot" ? binding.via : undefined;
+    const via = own ?? routing.via ?? null;
+    const rebound = bindingOf(normalizeVaultUrl(routing.url), sealed, { ...routing, via, toolPrefix: binding.toolPrefix ?? null });
     return {
       type,
       payload: sealed,
-      binding: bindingOf(normalizeVaultUrl(routing.url), sealed, { ...routing, toolPrefix: binding.toolPrefix ?? null }),
+      binding: own === undefined && rebound.via !== undefined ? { ...rebound, viaFrom: "slot" } : rebound,
     };
   } catch (error) {
     if (error instanceof VaultError) return undefined;
@@ -1521,10 +1550,44 @@ export function slotHolds(slot: EnvironmentSecretSlot, row: Pick<VaultCredential
  * again. Without slots, every one.
  */
 async function liveFilter(t: Tx, environmentId: string): Promise<(row: VaultCredentialRow) => boolean> {
-  const slots = (await t.environment(environmentId))?.applied.secrets;
+  return liveFilterOf(await appliedSlots(t, environmentId));
+}
+
+/** `liveFilter` under `slots`, the secret slots of the runtime an Agent applies. */
+function liveFilterOf(slots: Readonly<Record<string, EnvironmentSecretSlot>> | undefined): (row: VaultCredentialRow) => boolean {
   if (slots === undefined) return () => true;
-  return (row) => {
-    const slot = slots[row.name];
-    return slot !== undefined && slotHolds(slot, row);
-  };
+  return (row) => slotOf(slots, row) !== undefined;
+}
+
+/** The secret slots of the runtime Agent `environmentId` applies; undefined when it declares none. */
+async function appliedSlots(t: Tx, environmentId: string): Promise<Readonly<Record<string, EnvironmentSecretSlot>> | undefined> {
+  return (await t.environment(environmentId))?.applied.secrets;
+}
+
+/** The slot of `slots` that the credential in `row` fills (`slotHolds`), if any. */
+function slotOf(
+  slots: Readonly<Record<string, EnvironmentSecretSlot>> | undefined,
+  row: Pick<VaultCredentialRow, "name" | "type" | "bindingJson">,
+): EnvironmentSecretSlot | undefined {
+  const slot = slots?.[row.name];
+  return slot !== undefined && slotHolds(slot, row) ? slot : undefined;
+}
+
+/**
+ * Where a `bearer` or `headers` credential's requests go, and how the gateway there names tools,
+ * at the time of the request (Host feature `secret-routing`), under `slot`, the slot it fills of
+ * the version its Agent runs: `via` is the secret's own (written with it), else the slot's, else
+ * none (the request goes to the URL); a `via` copied from the slot (`viaFrom: "slot"`) follows the
+ * slot. `toolPrefix` is the slot's, else the secret's, and only with a `via`. The credential is
+ * chosen by the URL either way.
+ */
+export function routingOf(
+  binding: Pick<CredentialBinding, "via" | "viaFrom" | "toolPrefix">,
+  slot?: EnvironmentSecretSlot,
+): { via?: string; toolPrefix?: string } {
+  const routed = slot?.type === "bearer" || slot?.type === "headers" ? slot : undefined;
+  const via = binding.viaFrom === "slot" && routed !== undefined ? routed.via : (binding.via ?? routed?.via);
+  if (via === undefined) return {};
+  const toolPrefix = routed?.toolPrefix ?? binding.toolPrefix;
+  return toolPrefix === undefined ? { via } : { via, toolPrefix };
 }

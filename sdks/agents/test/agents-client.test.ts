@@ -92,6 +92,20 @@ describe("client.agents", () => {
     expect(sent[1]!.body).toMatchObject({ type: "bearer", url: "https://mcp.linear.app/mcp" });
   });
 
+  it("writes a slot's value with this installation's via and tool prefix (secret-routing)", async () => {
+    const { client, sent } = fake(() =>
+      Response.json({ name: "web", type: "headers", binding: { url: "https://mcp.parallel.ai/mcp" }, via: "http://localhost:4100/mcp/web" }),
+    );
+    const view = await client.agents.secrets.put("bot", "web", {
+      headers: { "x-litellm-api-key": "sk-x" },
+      via: "http://localhost:4100/mcp/web",
+    });
+    expect(view.via).toBe("http://localhost:4100/mcp/web");
+    await client.agents.secrets.put("bot", "delegate", { value: "t", via: "https://bot.example.com/delegate", toolPrefix: "x-" });
+    expect(sent[0]!.body).toMatchObject({ headers: { "x-litellm-api-key": "sk-x" }, via: "http://localhost:4100/mcp/web" });
+    expect(sent[1]!.body).toMatchObject({ value: "t", via: "https://bot.example.com/delegate", toolPrefix: "x-" });
+  });
+
   it("lists, reads, writes, deletes memories and pages their versions by a path with slashes", async () => {
     const { client, sent } = fake(() => Response.json({}));
     await client.agents.memories.list("users/alice/triage", { pathPrefix: "conventions" });

@@ -70,8 +70,12 @@ NYLORUN_TOKEN).
   secrets put <id> <name>             the value of a slot its manifest declares, piped in
                                       on standard input
   secrets put <id> <name> <secret.json|->
-                                      create or replace a secret: {"type": "bearer", ...}, read
-                                      from a file or standard input
+                                      create or replace a secret: {"type": "bearer", ...}, or a
+                                      slot's {"headers": {...}} or {"value": ...}, read from a file
+                                      or standard input
+      [--via <url>] [--tool-prefix <prefix>]
+                                      a bearer or headers secret's routing: where its requests
+                                      go (over the slot's via) and the gateway's tool prefix
   secrets rm <id> <name>
   triggers list <id>                  its triggers: status, next and last run, as JSON
   triggers pause|resume <id> <trigger>
@@ -372,21 +376,27 @@ async function secrets(deps: StackDeps, args: readonly string[]): Promise<number
     return 0;
   }
   if (verb === "put") {
-    const usage = "nylorun agents secrets put <id> <name> [<secret.json|->]";
-    const flags = parseFlags(rest, {}, usage);
+    const usage = "nylorun agents secrets put <id> <name> [<secret.json|->] [--via <url>] [--tool-prefix <prefix>]";
+    const flags = parseFlags(rest, { values: ["--via", "--tool-prefix"] }, usage);
     if (flags.rest.length < 2 || flags.rest.length > 3) throw usageError(`Usage: ${usage}`);
     const [id, name, path] = flags.rest as [string, string, string | undefined];
+    // This installation's routing of a bearer or headers secret (`secret-routing`).
+    const via = flags.values.get("--via");
+    const toolPrefix = flags.values.get("--tool-prefix");
+    const routing = { ...(via === undefined ? {} : { via }), ...(toolPrefix === undefined ? {} : { toolPrefix }) };
     if (path === undefined) {
       // A slot its manifest declares (D64): the value only, piped in; the binding is the slot's.
       const value = await readSecret(deps, `value of ${name}`, `printf %s "$TOKEN" | nylorun agents secrets put ${id} ${name}`);
       const { client } = await runtimeClient(deps, flags);
-      printJson(deps, await runtimeCall(() => client.agents.secrets.put(id, name, { value })));
+      printJson(deps, await runtimeCall(() => client.agents.secrets.put(id, name, { value, ...routing })));
       return 0;
     }
     const secret = await readJson(path, "The secret");
-    if (typeof secret.type !== "string") throw usageError('The secret needs a "type".');
+    // Without a type, a slot's value: { "value": … } or { "headers": { … } }, with via and toolPrefix.
+    if (typeof secret.type !== "string" && secret.value === undefined && secret.headers === undefined)
+      throw usageError('The secret needs a "type", or is a slot\'s "value" or "headers".');
     const { client } = await runtimeClient(deps, flags);
-    printJson(deps, await runtimeCall(() => client.agents.secrets.put(id, name, secret as never)));
+    printJson(deps, await runtimeCall(() => client.agents.secrets.put(id, name, { ...secret, ...routing } as never)));
     return 0;
   }
   if (verb === "rm" || verb === "delete") {

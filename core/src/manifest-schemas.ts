@@ -22,10 +22,13 @@ import {
 /**
  * The revision of a document whose version kept its number while it gained an optional field (a
  * published `$id` names one document for good): agent manifest v8 and the harness file v1 took
- * `harness.model` (Host feature `agent-model`), published as `v8.1` and `v1.1`.
+ * `harness.model` (Host feature `agent-model`), published as `v8.1` and `v1.1`; agent manifest v8
+ * and the runtime file v1 took a secret slot's `toolPrefix` (Host feature `secret-routing`),
+ * published as `v8.2` and `v1.1`.
  */
-const AGENT_MANIFEST_REVISION = 1;
+const AGENT_MANIFEST_REVISION = 2;
 const HARNESS_MANIFEST_FILE_REVISION = 1;
+const RUNTIME_MANIFEST_FILE_REVISION = 1;
 
 function document(schema: z.ZodType, id: string, title: string): Record<string, unknown> {
   const { $schema: _, ...definition } = z.toJSONSchema(schema, { io: "input", unrepresentable: "any" }) as Record<
@@ -71,7 +74,7 @@ export function harnessManifestJsonSchema(): Record<string, unknown> {
 export function runtimeManifestJsonSchema(): Record<string, unknown> {
   return document(
     RuntimeManifestFileSchema,
-    `runtime-manifest/v${RUNTIME_MANIFEST_FILE_SCHEMA_VERSION}`,
+    `runtime-manifest/v${RUNTIME_MANIFEST_FILE_SCHEMA_VERSION}.${RUNTIME_MANIFEST_FILE_REVISION}`,
     `Nylorun runtime manifest ${RUNTIME_MANIFEST_FILE_SCHEMA_VERSION}`,
   );
 }
