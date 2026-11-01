@@ -41,6 +41,8 @@ import {
   TRIGGER_KEYS,
 } from "./compile.js";
 import { LOOP_KEYS, MAP_KEYS, NODE_KINDS, SWITCH_KEYS, VERIFY_KEYS } from "./flow.js";
+import { SANDBOX_TOOL_NAMES } from "../utils/sandbox.js";
+import { ENGINE_BLOCK_NAMES } from "../engine/names.js";
 
 /** The kinds of file an agent folder has a JSON Schema document for. */
 export const AGENT_FOLDER_SCHEMA_KINDS = ["agent-md", "trigger-md", "runtime", "tool", "mcp", "flow"] as const;
@@ -77,9 +79,9 @@ function fromZod(schema: z.ZodType, defs: Json, description?: string): Json {
 /**
  * A kind's revision within format 1, when its document gained an optional key (a published `$id`
  * names one document for good): `AGENT.md` took `model` (Host feature `agent-model`), published
- * as `agent-md.1.json`.
+ * as `agent-md.1.json`, then `format: agent-folder/2` and `engine` (ADR-100), as `agent-md.2.json`.
  */
-const REVISIONS: Partial<Record<AgentFolderSchemaKind, number>> = { "agent-md": 1 };
+const REVISIONS: Partial<Record<AgentFolderSchemaKind, number>> = { "agent-md": 2 };
 
 /** One document: its `$id` from its kind, then the body, then the `$defs` its parts named. */
 function document(kind: AgentFolderSchemaKind, title: string, description: string, body: Json, defs: Json): Json {
@@ -126,7 +128,11 @@ function agentMd(): Json {
   const properties: Properties<typeof AGENT_KEYS> = {
     name: { type: "string", pattern: AGENT_MANIFEST_NAME_PATTERN.source, description: "The agent manifest's name, the folder's when it is saved under one" },
     description: { type: "string", minLength: 1, description: "What the agent does, in a sentence" },
-    format: { const: 1, description: "The folder's format: 1 (agent-folder/1), the default" },
+    format: {
+      enum: [1, 2, "agent-folder/1", "agent-folder/2"],
+      description:
+        "The folder's format: agent-folder/1 (or 1, the default), which gets every engine feature by default, or agent-folder/2 (or 2), which declares each in engine",
+    },
     harness: fromZod(HarnessIdSchema, defs, "The harness that runs the loop: nylorun (ours, the default) or a custom harness's id"),
     inputSchema: ref("JsonSchemaOrPath", "A flow's input (a folder with flow.json); an agent's input is the message"),
     outputSchema: ref("JsonSchemaOrPath", "The JSON Schema of the agent's final answer"),
@@ -152,6 +158,39 @@ function agentMd(): Json {
       description: "The harness's own settings, passed to it each turn; the nylorun harness reads plan (true offers the agent update_plan) and connections (true offers it request_connection)",
     },
     model: fromZod(AgentModelSchema, defs, "The model the agent runs on: <provider>/<model>, such as anthropic/claude-sonnet-4-5"),
+    engine: {
+      type: "object",
+      description:
+        "agent-folder/2: the engine features the agent uses, and nothing else is added: sandbox (the sandbox tools), artifacts (read_artifact, save_artifact), outputs (the outputs folder), toolSearch (MCP tools deferred past the threshold), instructions (a block's wording, from a file under engine/)",
+      properties: {
+        sandbox: {
+          type: "array",
+          items: { enum: [...SANDBOX_TOOL_NAMES] },
+          uniqueItems: true,
+          description: "The sandbox tools offered: any of bash, read, write, edit, grep and glob; needs a computer in runtime.json",
+        },
+        artifacts: {
+          type: "object",
+          properties: {
+            read: { type: "boolean", description: "read_artifact, and the text on results too large to show and files of earlier turns" },
+            save: { type: "boolean", description: "save_artifact and its text; needs a computer" },
+          },
+          additionalProperties: false,
+        },
+        outputs: { type: "boolean", description: "Save /workspace/outputs as the session's outputs folder when a turn ends; needs a computer" },
+        toolSearch: {
+          type: "boolean",
+          description: "Defer the MCP tools behind tool_search when their schemas pass the threshold; a server's own deferred applies either way",
+        },
+        instructions: {
+          type: "object",
+          propertyNames: { enum: [...ENGINE_BLOCK_NAMES] },
+          additionalProperties: { type: "string", pattern: "^(\\./)?engine/.+\\.md$" },
+          description: "A block's wording, replaced by a Markdown file under engine/, by block name; the memory rule that outside text is data stays",
+        },
+      },
+      additionalProperties: false,
+    },
     metadata: { type: "object", description: "The manifest's metadata, as it is" },
   };
   return document(

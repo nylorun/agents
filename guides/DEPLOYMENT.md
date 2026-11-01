@@ -465,8 +465,9 @@ offers it `request_connection`, which pauses the turn on an interaction whose `m
 `connection`), or a flow (`kind: "workflow"`); and `runtime`, the
 Agent's kind and what it gets (`image`, `network`, `setup`, `files`, `limits`, `lifecycle` and
 the secret slots, `secrets`). Its JSON Schema is
-`https://docs.nylorun.com/schemas/agent-manifest/v8.1.json` (v8 with `harness.model`; `v8.json`
-is the same without it)
+`https://docs.nylorun.com/schemas/agent-manifest/v8.2.json` (v8 with `harness.model`,
+`harness.engine` and `harness.memory.index`; `v8.1.json` is the same without the last two, and
+`v8.json` without `harness.model` too)
 (`@nylorun/core/schemas/agent-manifest.json`; clients drop `$schema` before they save):
 
 ```json
@@ -520,7 +521,8 @@ is the same without it)
   (`virtual` or `pod`). It also refuses what the Tenant's limits do not allow, files it does not
   hold, a tool that runs your code and a tool's `approval` (the Tenant's
   [tool policy](#tool-policy) decides).
-- **Agent folders.** Author a manifest as a folder (tracks T6 and T7, format `agent-folder/1`):
+- **Agent folders.** Author a manifest as a folder (tracks T6 and T7, format `agent-folder/1`; or
+  `agent-folder/2`, ADR-100, which declares every engine feature it uses in `engine:`):
   `AGENT.md` (frontmatter `name` and `description`, optionally `model: <provider>/<model>`, the
   instructions below), `mcp.json` (Agent
   Plugins syntax; `Authorization: Bearer ${NAME}` names a `bearer` slot, derived for the server's
@@ -530,7 +532,7 @@ is the same without it)
   `.nyloignore` leaves files out. The [CLI's README](../cli/nylorun/README.md#agent-manifests-apply)
   shows each. Each kind of file has a JSON Schema at
   `https://docs.nylorun.com/schemas/agent-folder/v1/<kind>.json` (`runtime`, `tool`, `mcp` and
-  `flow`, and `agent-md.1` and `trigger-md` for the frontmatter), exported as
+  `flow`, and `agent-md.2` and `trigger-md` for the frontmatter), exported as
   `@nylorun/core/schemas/agent-folder-<kind>.json`.
   `nylorun init <path>` writes one, `nylorun check` compiles it offline and prints every problem by
   file, line and column, and `nylorun apply` (or `saveFolder` in `@nylorun/agents`) sends it by

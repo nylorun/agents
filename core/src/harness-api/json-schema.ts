@@ -72,9 +72,10 @@ export function harnessApiSchemas(): Record<string, z.ZodType> {
 /**
  * The revision of v5's document: the claims a harness may make grew within v5 (`plan.updated`,
  * additive: core accepts more, and a v5 harness that claims none of it is unchanged), and a
- * published `$id` names one document for good.
+ * published `$id` names one document for good. Revision 2: `engine.diagnostic` among the claims,
+ * and `turn.start.memory.index` absent for a version that pins none (ADR-100).
  */
-const SCHEMA_REVISION = 1;
+const SCHEMA_REVISION = 2;
 
 /** The JSON Schema document of the Harness API (draft 2020-12). */
 export function harnessApiJsonSchema(): Record<string, unknown> {

@@ -88,6 +88,7 @@ export function agentFrom<Info = unknown>(
     metadata: manifest.metadata,
     outputSchema,
     ...(manifest.requires === undefined ? {} : { requires: manifest.requires }),
+    ...(manifest.engine === undefined ? {} : { engine: manifest.engine }),
   });
   if (!result.ok)
     throw new HarnessError(

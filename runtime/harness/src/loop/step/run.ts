@@ -91,8 +91,13 @@ export async function runStep(input: {
     requestedModelId = request.model?.id;
     // How each file of the turn reaches the model is ours to decide (protocol 15): text is read
     // and inlined here, the rest goes as its reference or a note.
-    const files = await representFiles(liveFilesOf(request), input.agent.files, input.signal);
-    const call = projectModelCall(request, files);
+    const readable = input.agent.files?.artifactReads !== false;
+    const files = await representFiles(
+      liveFilesOf(request, readable),
+      input.agent.files,
+      input.signal,
+    );
+    const call = projectModelCall(request, files, readable);
     const invocationId = createId("invocation");
     modelInvocationId = invocationId;
     input.observe(() => ({

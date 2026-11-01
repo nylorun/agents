@@ -27,6 +27,7 @@ import { runAbortKind } from "./abort.js";
 import type { HarnessExecutors, HarnessRun } from "./executors.js";
 import { apiHost, type EngineConfig } from "./host.js";
 import { engineToolsFor } from "../tools/engine-tools.js";
+import { engineFeaturesOf } from "@nylorun/core/engine";
 import { memoryIndexBlock } from "../tools/memory.js";
 import { mcpToolSet } from "../tools/mcp.js";
 import { saveOutputs } from "../tools/outputs.js";
@@ -112,6 +113,8 @@ export async function runTurn(ctx: RunContext, run: HarnessRun): Promise<void> {
           access: memory.access,
           ...(memory.instructions === undefined ? {} : { instructions: memory.instructions }),
           root: agent.id === rootId,
+          // No index is pinned when the version sets `harness.memory.index: false` (ADR-100).
+          index: memory.index !== undefined,
         },
         plan && agent.id === rootId,
         connections && agent.id === rootId,
@@ -125,6 +128,18 @@ export async function runTurn(ctx: RunContext, run: HarnessRun): Promise<void> {
             taken: (agent) => engineTools(agent).tools.map((tool) => tool.name),
           })
         : undefined;
+    // What the agent's declarations leave our engine to say, not choose (ADR-100): claimed once,
+    // when the session's layout is decided.
+    for (const diagnostic of mcp?.diagnostics ?? [])
+      await ctx.channel
+        .request("event", {
+          runId,
+          sessionId,
+          turnId: run.grant.turnId,
+          type: "engine.diagnostic",
+          payload: diagnostic,
+        })
+        .catch(() => undefined);
     const host = apiHost(ctx.channel, ctx.executors, run, ctx.engine, mcp);
     const result: EngineResult =
       start.engine === "flow"
@@ -144,17 +159,21 @@ export async function runTurn(ctx: RunContext, run: HarnessRun): Promise<void> {
             ...(mcp ? { mcp } : {}),
             // Our engine's own tools and text, from the turn's facts (protocol 15).
             engineTools,
-            ...(memory ? { pinned: [memoryIndexBlock(memory)] } : {}),
+            ...(memory?.index !== undefined
+              ? { pinned: [memoryIndexBlock({ index: memory.index, truncated: memory.truncated })] }
+              : {}),
             ...(start.options.yieldAfter ? { yieldAfter: start.options.yieldAfter } : {}),
             ...(start.model ? { model: start.model } : {}),
-            files: filesOf(ctx, run, start),
+            files: filesOf(ctx, run, start, (start.manifest as AgentManifest).engine),
             loop: ctx.engine.loop,
           });
-    // Our engine's outputs folder (Q5): saved before the turn ends, while the run is held.
+    // Our engine's outputs folder (Q5): saved before the turn ends, while the run is held, for
+    // a root agent that declares nothing or declares `engine.outputs` (ADR-100).
     if (
       start.engine === "agent" &&
       result.status === "completed" &&
       start.agent?.sandbox !== undefined &&
+      engineFeaturesOf((start.manifest as AgentManifest).engine, { computer: true }).outputs &&
       ctx.executors.files
     )
       await saveOutputs({
@@ -203,10 +222,19 @@ export async function runTurn(ctx: RunContext, run: HarnessRun): Promise<void> {
  * How the run's engine reads the turn's files (protocol 15): it decides from the model
  * descriptor and the Runtime limits, and reads text over the artifact seam.
  */
-function filesOf(ctx: RunContext, run: HarnessRun, start: HarnessRun["start"]): FileContext {
+function filesOf(
+  ctx: RunContext,
+  run: HarnessRun,
+  start: HarnessRun["start"],
+  engine: AgentManifest["engine"],
+): FileContext {
   return {
     ...(start.model ? { model: start.model } : {}),
     limits: start.limits,
+    // Reference lines offer `read_artifact` only to an agent that has it (ADR-100).
+    ...(engineFeaturesOf(engine, { computer: false }).artifactsRead
+      ? {}
+      : { artifactReads: false }),
     async read(reference, offset, length, signal) {
       const answer = await ctx.channel.request(
         "artifact.read",

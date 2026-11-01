@@ -366,7 +366,8 @@ export const TurnMemorySchema = z
   .object({
     access: z.enum(["read_write", "read_only"]),
     instructions: z.string().optional(),
-    index: z.string(),
+    /** Absent when the version sets `harness.memory.index: false` (ADR-100): nothing is pinned. */
+    index: z.string().optional(),
     truncated: z.boolean(),
   })
   .strict();

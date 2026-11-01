@@ -2,6 +2,7 @@ import type { DefinitionPart } from "./bound.js";
 import type {
   AgentManifest,
   AgentRequirements,
+  HarnessEngine,
   McpServerManifest,
   SkillManifest,
   ToolManifest,
@@ -32,6 +33,7 @@ export function createManifest(input: {
   metadata?: JsonObject;
   outputSchema?: ToolSchemaSource;
   requires?: AgentRequirements;
+  engine?: HarnessEngine;
   parts: readonly DefinitionPart[];
 }): AgentManifest {
   const authored = input.parts.filter((part) => part.id !== SESSION_PART_ID);
@@ -64,6 +66,7 @@ export function createManifest(input: {
     ...(Object.keys(skills).length === 0 ? {} : { skills }),
     ...(Object.keys(mcpServers).length === 0 ? {} : { mcpServers }),
     ...(input.requires === undefined ? {} : { requires: copyRequirements(input.requires) }),
+    ...(input.engine === undefined ? {} : { engine: JSON.parse(JSON.stringify(input.engine)) as HarnessEngine }),
   });
 }
 

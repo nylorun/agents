@@ -1,6 +1,6 @@
 import type { DefinitionPart } from "./bound.js";
 import type { BuiltAgent } from "../types/agent.js";
-import type { AgentManifest, AgentRequirements } from "../types/manifest.js";
+import type { AgentManifest, AgentRequirements, HarnessEngine } from "../types/manifest.js";
 import type { BuildDiagnostic, JsonObject } from "../types/shared.js";
 import type { ToolSchemaSource } from "../types/tool.js";
 import { bindAgent } from "./bind-agent.js";
@@ -30,6 +30,7 @@ export function assembleAgent(
     metadata?: JsonObject;
     outputSchema?: ToolSchemaSource;
     requires?: AgentRequirements;
+    engine?: HarnessEngine;
   }>
 ): BuildResult<BuiltAgent> {
   const diagnostics: BuildDiagnostic[] = [];
@@ -98,6 +99,7 @@ export function assembleAgent(
     metadata: identity.metadata,
     outputSchema: identity.outputSchema,
     requires: identity.requires,
+    engine: identity.engine,
     parts: frozenParts,
   });
   const agent = bindAgent(frozenParts, manifest, identity);

@@ -17,14 +17,14 @@
  * read and write, and holds the limits. Expected problems (no such artifact, too large, not a
  * file) are failed outcomes the model sees; only the run's own failures throw.
  */
+import { READ_ARTIFACT_TOOL, SAVE_ARTIFACT_TOOL } from "@nylorun/core/define";
 import {
-  READ_ARTIFACT_TOOL,
-  SANDBOX_WORKSPACE,
-  SAVE_ARTIFACT_TOOL,
-  type JsonObject,
-} from "@nylorun/core/define";
+  ARTIFACTS_READ_TEXT,
+  ARTIFACTS_SAVE_TEXT,
+  OUTPUTS_AFTER_SAVE_TEXT,
+  artifactTools,
+} from "@nylorun/core/engine";
 import {
-  ARTIFACT_NAME_MAX,
   DEFAULT_CONTENT_TYPE,
   contentTypeFor,
   essence,
@@ -40,105 +40,11 @@ import {
   type ArtifactMeta,
   type ArtifactRequester,
   type ArtifactWriteOptions,
-  type EffectTarget,
 } from "@nylorun/core/harness-api";
 import type { DurableSessionTool, HostEffect } from "../run/durable.js";
 import type { FailedFileOutcome, HarnessFiles, HarnessRun } from "../api/executors.js";
 import { textPage } from "./text-page.js";
 import { fileView } from "../loop/model/files.js";
-
-const ARTIFACTS_INSTRUCTIONS =
-  "Use save_artifact to hand the user a file you made: a path in the sandbox, or text you pass as content. " +
-  "The user sees it as an artifact of this session and can download it; reply with its name, not its bytes. " +
-  "Files you write under /workspace/outputs reach the user too: when your turn ends, they become the session's outputs folder.";
-
-const READ_ARTIFACT_INSTRUCTIONS =
-  "A tool result too large to show is saved as an artifact of this session: the result says truncated: true, with its artifactId, its size in bytes and a preview of its start and end. " +
-  "Images and other files a tool returns are saved as artifacts too. Use read_artifact to read more of one, a page at a time, only when the preview is not enough. " +
-  'Files from earlier turns appear as lines like [Uploaded artifact "name" · <artifactId> v<version> · read_artifact to view]: call read_artifact with that artifactId and version only when you need the file again.';
-
-const SAVE_DESCRIPTION =
-  `Save a file as an artifact of this session, for the user to download. Give path (a file in the sandbox; relative paths resolve under ${SANDBOX_WORKSPACE}) or content (text), not both. ` +
-  "Returns the artifact's id and version. Pass artifactId to save a new version of an artifact you saved before.";
-
-const SAVE_SCHEMA: JsonObject = {
-  $schema: "http://json-schema.org/draft-07/schema#",
-  type: "object",
-  properties: {
-    path: { description: "A file in the sandbox.", type: "string", minLength: 1 },
-    content: { description: "Text to save instead of a file.", type: "string" },
-    name: {
-      description: "The artifact's name. Default: the file's name.",
-      type: "string",
-      minLength: 1,
-      maxLength: ARTIFACT_NAME_MAX,
-    },
-    contentType: {
-      description: "The media type, e.g. image/png. Default: from the name's extension.",
-      type: "string",
-      minLength: 1,
-    },
-    artifactId: {
-      description: "Save a new version of this artifact.",
-      type: "string",
-      minLength: 1,
-    },
-  },
-  additionalProperties: false,
-};
-
-function readDescription(pageBytes: number, sandboxed: boolean): string {
-  return (
-    `Read an artifact of this session, such as a tool result marked truncated or a file from an earlier turn. A text file returns up to ${pageBytes} bytes from offset, ` +
-    "with nextOffset while more remains: pass it as offset to read on. An image or another file you can read is shown to you." +
-    (sandboxed
-      ? ` Pass path to copy the whole artifact into the sandbox instead (relative paths resolve under ${SANDBOX_WORKSPACE}), for a command to use.`
-      : "")
-  );
-}
-
-function readSchema(pageBytes: number, sandboxed: boolean): JsonObject {
-  return {
-    $schema: "http://json-schema.org/draft-07/schema#",
-    type: "object",
-    properties: {
-      artifactId: {
-        type: "string",
-        minLength: 1,
-        description: "The artifact to read, e.g. a truncated result's artifactId.",
-      },
-      version: {
-        description: "The version to read. Default: the latest.",
-        type: "integer",
-        minimum: 1,
-        maximum: Number.MAX_SAFE_INTEGER,
-      },
-      offset: {
-        description: "The byte to start at. Default 0.",
-        type: "integer",
-        minimum: 0,
-        maximum: Number.MAX_SAFE_INTEGER,
-      },
-      length: {
-        description: `How many bytes to read. Default and most: ${pageBytes}.`,
-        type: "integer",
-        minimum: 1,
-        maximum: pageBytes,
-      },
-      ...(sandboxed
-        ? {
-            path: {
-              description: "Copy the artifact to this file in the sandbox instead of reading it.",
-              type: "string",
-              minLength: 1,
-            },
-          }
-        : {}),
-    },
-    required: ["artifactId"],
-    additionalProperties: false,
-  };
-}
 
 /** The harness's configuration of its artifact tools. */
 export interface ArtifactToolOptions {
@@ -151,39 +57,25 @@ export function isArtifactTool(name: string | undefined): boolean {
   return name === READ_ARTIFACT_TOOL || name === SAVE_ARTIFACT_TOOL;
 }
 
-const HARNESS: EffectTarget = Object.freeze({ kind: "harness" });
-
 /**
- * The artifact tools our engine offers an agent: `save_artifact` when the session has a sandbox,
- * and `read_artifact`, which takes `path` only then. Each runs here (`harness`).
+ * The artifact tools our engine offers an agent that declares nothing (`agent-folder/1`):
+ * `save_artifact` when the session has a sandbox, and `read_artifact`, which takes `path` only
+ * then. Each runs here (`harness`). One that declares its engine features gets those it names
+ * (`engineProjection`).
  */
 export function artifactToolsFor(
   sandboxed: boolean,
   options: ArtifactToolOptions,
 ): DurableSessionTool[] {
-  return [
-    ...(sandboxed
-      ? [
-          {
-            name: SAVE_ARTIFACT_TOOL,
-            description: SAVE_DESCRIPTION,
-            inputSchema: SAVE_SCHEMA,
-            target: HARNESS,
-          },
-        ]
-      : []),
-    {
-      name: READ_ARTIFACT_TOOL,
-      description: readDescription(options.pageBytes, sandboxed),
-      inputSchema: readSchema(options.pageBytes, sandboxed),
-      target: HARNESS,
-    },
-  ];
+  return artifactTools({ read: true, save: sandboxed, sandboxed }, options);
 }
 
-/** What the model reads with the artifact tools, in their order. */
+/** What the model reads with the artifact tools, in their order, for an agent that declares nothing. */
 export function artifactInstructions(sandboxed: boolean): string[] {
-  return [...(sandboxed ? [ARTIFACTS_INSTRUCTIONS] : []), READ_ARTIFACT_INSTRUCTIONS];
+  return [
+    ...(sandboxed ? [`${ARTIFACTS_SAVE_TEXT} ${OUTPUTS_AFTER_SAVE_TEXT}`] : []),
+    ARTIFACTS_READ_TEXT,
+  ];
 }
 
 /** What an artifact tool runs with. */

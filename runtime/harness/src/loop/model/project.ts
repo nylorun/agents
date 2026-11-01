@@ -11,6 +11,7 @@ import type { ContextItem } from "@nylorun/core/define";
 import type { TranscriptEntry } from "@nylorun/core/define";
 import type { ToolResult } from "@nylorun/core/define";
 import { copyJson, freezeGraph } from "@nylorun/core/define";
+import { outputSchemaInstruction } from "@nylorun/core/engine";
 import { summaryPrompt } from "../compaction/index.js";
 import {
   FILES_MESSAGE_HEADER,
@@ -26,11 +27,13 @@ import {
  * messages, tool results and `read_artifact` loads) also go once, after the conversation and
  * the context, in one user message: each file's line, then what `files` (`representFiles`)
  * made of it, a media part, a `<file>` block or a note. Without `files`, each goes as its media
- * part. Their content reaches the model only in their own turn.
+ * part. Their content reaches the model only in their own turn. `readable` false for an agent
+ * without `read_artifact` (ADR-100): no reference line offers it.
  */
 export function projectModelCall(
   request: ModelRequest,
   files?: ReadonlyMap<string, readonly PromptContentPart[]>,
+  readable = true,
 ): ModelCall {
   return freezeGraph({
     prompt: Object.freeze([
@@ -38,9 +41,9 @@ export function projectModelCall(
       ...(request.pinned ?? []).map((text) =>
         freezeItem({ kind: "context", role: "user", content: [textPart(text)] }),
       ),
-      ...request.transcript.flatMap((entry) => projectEntry(entry, request.turnId)),
+      ...request.transcript.flatMap((entry) => projectEntry(entry, request.turnId, readable)),
       ...projectContext(request.context),
-      ...projectFiles(liveFilesOf(request), files),
+      ...projectFiles(liveFilesOf(request, readable), files),
     ]),
     tools: Object.freeze(
       request.configuration.tools.map((tool): ModelCallTool =>
@@ -60,7 +63,7 @@ export function projectModelCall(
  * The files of the turn in progress, in the order the prompt names them, once each: a user
  * message's media parts and the files its tool results returned.
  */
-export function liveFilesOf(request: ModelRequest): LiveFile[] {
+export function liveFilesOf(request: ModelRequest, readable = true): LiveFile[] {
   const live = new Map<string, LiveFile>();
   const add = (line: string, part: FilePart) => {
     const key = fileKeyOf(part);
@@ -73,12 +76,12 @@ export function liveFilesOf(request: ModelRequest): LiveFile[] {
       if ((event.kind !== "user-message" && event.kind !== "interrupt") || !("content" in event))
         continue;
       for (const part of event.content ?? [])
-        if (part.type === "media") add(mediaReferenceLine(part, "uploaded"), part);
+        if (part.type === "media") add(mediaReferenceLine(part, "uploaded", readable), part);
     } else if (entry.kind === "tool-results")
       for (const result of entry.results)
         if (result.kind === "completed")
           for (const file of result.files ?? [])
-            add(mediaReferenceLine(file, { tool: result.toolName }), file);
+            add(mediaReferenceLine(file, { tool: result.toolName }, readable), file);
   }
   return [...live.values()];
 }
@@ -99,9 +102,9 @@ function projectInstructions(
   return [freezeItem({ kind: "instructions", role: "system", content: [textPart(text)] })];
 }
 
-/** What a turn with an output schema asks of the model's final answer. */
+/** What a turn with an output schema asks of the model's final answer (`@nylorun/core/engine`). */
 export function schemaInstruction(schema: NonNullable<ModelRequest["outputSchema"]>): string {
-  return `Return the final answer as JSON matching this schema: ${JSON.stringify(schema)}. Use tools when needed before returning the final JSON.`;
+  return outputSchemaInstruction(schema);
 }
 
 function projectContext(context: ContextSnapshot): readonly PromptItem[] {
@@ -156,7 +159,11 @@ function projectFiles(
   ];
 }
 
-function projectEntry(entry: TranscriptEntry, turnId: string): readonly PromptItem[] {
+function projectEntry(
+  entry: TranscriptEntry,
+  turnId: string,
+  readable: boolean,
+): readonly PromptItem[] {
   if (entry.kind === "input") {
     if (entry.event.kind !== "user-message" && entry.event.kind !== "interrupt") return [];
     return [
@@ -167,7 +174,7 @@ function projectEntry(entry: TranscriptEntry, turnId: string): readonly PromptIt
           "content" in entry.event
             ? entry.event.content.map((part): PromptContentPart => {
                 if (part.type === "text") return textPart(part.text);
-                return textPart(mediaReferenceLine(part, "uploaded"));
+                return textPart(mediaReferenceLine(part, "uploaded", readable));
               })
             : [textPart(entry.event.text)],
       }),
@@ -209,7 +216,8 @@ function projectEntry(entry: TranscriptEntry, turnId: string): readonly PromptIt
       }),
     ];
   }
-  if (entry.kind === "tool-results") return entry.results.map(projectToolResult);
+  if (entry.kind === "tool-results")
+    return entry.results.map((result) => projectToolResult(result, readable));
   if (entry.kind === "compaction")
     return [
       freezeItem({ kind: "message", role: "user", content: [textPart(summaryPrompt(entry))] }),
@@ -217,7 +225,7 @@ function projectEntry(entry: TranscriptEntry, turnId: string): readonly PromptIt
   return [];
 }
 
-function projectToolResult(result: ToolResult): PromptItem {
+function projectToolResult(result: ToolResult, readable: boolean): PromptItem {
   return freezeItem({
     kind: "tool-result",
     toolCallId: result.callId,
@@ -228,7 +236,9 @@ function projectToolResult(result: ToolResult): PromptItem {
       // Files the tool returned, stored by the host (R2b C11): each is its reference line, and
       // goes to the model in its own turn with the turn's files.
       ...(result.kind === "completed" && result.files
-        ? result.files.map((file) => textPart(mediaReferenceLine(file, { tool: result.toolName })))
+        ? result.files.map((file) =>
+            textPart(mediaReferenceLine(file, { tool: result.toolName }, readable)),
+          )
         : []),
     ],
   });

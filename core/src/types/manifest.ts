@@ -1,4 +1,5 @@
 import type { JsonObject } from "./shared.js";
+import type { EngineBlockName } from "../engine/names.js";
 import type { WorkflowManifest, WorkflowNode } from "./workflow.js";
 
 /**
@@ -168,6 +169,45 @@ export interface AgentManifest {
   readonly mcpServers?: Readonly<Record<string, McpServerManifest>>;
   /** What the agent needs of its session's Environment, checked when a session opens. */
   readonly requires?: AgentRequirements;
+  /**
+   * The engine features the agent declares (ADR-100, `agent-folder/2`): with it, our engine adds
+   * only what it names; without it, every default of `agent-folder/1`.
+   */
+  readonly engine?: HarnessEngine;
+}
+
+/** A sandbox tool our engine may offer: `bash`, `read`, `write`, `edit`, `grep` or `glob`. */
+export type EngineSandboxTool = "bash" | "read" | "write" | "edit" | "grep" | "glob";
+
+/**
+ * The engine features an agent declares (ADR-100): `harness.engine` of an agent manifest v8,
+ * `engine` of the loop manifest the harness runs. Its presence turns the defaults off: an agent
+ * with it gets no engine tool and no engine text it does not name. Memory, skills, `loop` and
+ * `runtime.selfWake` stay declared by their own keys.
+ */
+export interface HarnessEngine {
+  /** The sandbox tools offered, in our engine's order; needs a computer. */
+  readonly sandbox?: readonly EngineSandboxTool[];
+  /** `read_artifact` and its text; `save_artifact` and its text (needs a computer). */
+  readonly artifacts?: { readonly read?: boolean; readonly save?: boolean };
+  /** `/workspace/outputs` saved as the session's outputs folder when a turn ends; needs a computer. */
+  readonly outputs?: boolean;
+  /** MCP tools deferred behind `tool_search` when their schemas pass the threshold. */
+  readonly toolSearch?: boolean;
+  /** A block's wording replaced by the folder's text, by block name. */
+  readonly instructions?: Readonly<Partial<Record<EngineBlockName, string>>>;
+  /** The engine text blocks the agent gets, each with its version and the hash of its text. */
+  readonly blocks?: readonly EngineBlockRef[];
+}
+
+/** One engine text block an agent gets: `memory@1`, the SHA-256 of its text, and its source. */
+export interface EngineBlockRef {
+  readonly name: EngineBlockName;
+  readonly version: number;
+  /** `sha256:<hex>` of the block's text (its template, where the text names session facts). */
+  readonly sha256: string;
+  /** The folder file whose text replaces the engine's wording, when one does. */
+  readonly source?: string;
 }
 
 /** What an agent needs of the Environment its session opens on (protocol 14). */
@@ -228,6 +268,8 @@ export interface AgentHarnessSection {
    * is connected and lists it (Host feature `agent-model`).
    */
   readonly model?: string;
+  /** The engine features the agent declares (ADR-100), for itself; its subagents declare their own. */
+  readonly engine?: HarnessEngine;
 }
 
 /**
@@ -238,6 +280,11 @@ export interface AgentHarnessSection {
 export interface AgentMemorySettings {
   readonly access?: "read_write" | "read_only";
   readonly instructions?: string;
+  /**
+   * `false` (an `agent-folder/2` folder only): no memory index is pinned in a session, and the
+   * memory rules do not mention one. Default true.
+   */
+  readonly index?: boolean;
 }
 
 /**

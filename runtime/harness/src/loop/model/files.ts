@@ -59,6 +59,11 @@ export type FileView =
 
 /** What `fileView` decides from: the turn's model and the Runtime limits. */
 export interface FileViewContext {
+  /**
+   * False when the agent has no `read_artifact` (ADR-100, an `agent-folder/2` agent without
+   * `engine.artifacts.read`): its files' reference lines do not offer it. Default true.
+   */
+  readonly artifactReads?: boolean;
   /** `turn.start.model`; undefined when the Runtime sent none. */
   readonly model?: ModelDescriptor;
   readonly limits: Pick<RuntimeLimits, "modelFileBytes">;
@@ -123,18 +128,21 @@ export function fileNote(name: string, type: string, why: string): string {
 /**
  * The line a file stands for in a prompt (protocol 12): its name, artifact id and version, and
  * how the model reads it again. A file a tool returned names the tool. Every file is its line
- * once its turn is over; in its own turn the line labels what follows it.
+ * once its turn is over; in its own turn the line labels what follows it. `readable` false for
+ * an agent without `read_artifact` (ADR-100): the line names the file only.
  */
 export function mediaReferenceLine(
   part: FilePart,
   origin: "uploaded" | { readonly tool: string },
+  readable = true,
 ): string {
   const reference = mediaReferenceOf(part.reference);
   const what =
     origin === "uploaded" ? "Uploaded artifact" : `Tool ${origin.tool} returned artifact`;
   if (!reference) return `[${what} (${part.mediaType})]`;
   const name = JSON.stringify(reference.name ?? reference.artifactId);
-  return `[${what} ${name} · ${reference.artifactId} v${reference.version} · read_artifact to view]`;
+  // An agent without `read_artifact` (ADR-100) is not offered it.
+  return `[${what} ${name} · ${reference.artifactId} v${reference.version}${readable ? " · read_artifact to view" : ""}]`;
 }
 
 /** A file of the turn in progress: its key (artifact and version), reference line and part. */

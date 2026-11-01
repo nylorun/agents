@@ -12,6 +12,7 @@ import type { JsonObject, JsonValue } from "./types/shared.js";
 import type { WorkflowLoopVerify, WorkflowManifest, WorkflowNode } from "./types/workflow.js";
 import {
   SANDBOX_NETWORK_PRESETS,
+  SANDBOX_TOOL_NAMES,
   isSandboxHostPattern,
   parseSandboxDuration,
   parseSandboxSize,
@@ -34,6 +35,7 @@ import {
   httpVerifierIssue,
 } from "./definition/http-tool.js";
 import { canonical } from "./utils/canonical.js";
+import { ENGINE_BLOCK_NAMES } from "./engine/names.js";
 import { FILE_NAME_MAX, FILE_PATH_MAX, LINK_TARGET_MAX } from "./utils/file-systems.js";
 export { FILE_NAME_MAX, FILE_PATH_MAX } from "./utils/file-systems.js";
 import { DEFAULT_HARNESS, HARNESS_ID_PATTERN, isHarnessId } from "./utils/harness-id.js";
@@ -328,6 +330,43 @@ const agentRequirementsSchema = z
     secrets: z.array(z.string().regex(ENVIRONMENT_NAME_PATTERN, "A secret name in requires is an environment variable name")).optional(),
   })
   .strict();
+/**
+ * The engine features an agent declares (ADR-100, `agent-folder/2`): `harness.engine` of an
+ * agent manifest v8 and `engine` of the loop manifest (v7) the harness runs. With it, our engine
+ * adds only what it names; without it, the defaults of `agent-folder/1`.
+ */
+const engineBlockRefSchema = z
+  .object({
+    name: z.enum(ENGINE_BLOCK_NAMES),
+    version: z.number().int().positive(),
+    sha256: z.string().regex(/^sha256:[0-9a-f]{64}$/),
+    source: z.string().min(1).optional(),
+  })
+  .strict();
+export const HarnessEngineSchema = z
+  .strictObject({
+    sandbox: z
+      .array(z.enum(SANDBOX_TOOL_NAMES))
+      .refine((tools) => new Set(tools).size === tools.length, { message: "engine.sandbox names each tool once" })
+      .optional()
+      .meta({ description: "The sandbox tools offered: any of bash, read, write, edit, grep and glob; needs a computer" }),
+    artifacts: z
+      .strictObject({ read: z.boolean().optional(), save: z.boolean().optional() })
+      .optional()
+      .meta({ description: "read: read_artifact and its text; save: save_artifact and its text (needs a computer)" }),
+    outputs: z.boolean().optional().meta({ description: "Save /workspace/outputs when a turn ends; needs a computer" }),
+    toolSearch: z
+      .boolean()
+      .optional()
+      .meta({ description: "Defer MCP tools behind tool_search when their schemas pass the threshold" }),
+    instructions: z
+      .partialRecord(z.enum(ENGINE_BLOCK_NAMES), z.string().min(1))
+      .optional()
+      .meta({ description: "A block's wording replaced, by block name" }),
+    blocks: z.array(engineBlockRefSchema).optional().meta({ description: "The engine text blocks the agent gets, with their hashes" }),
+  })
+  .meta({ id: "HarnessEngine" });
+const harnessEngineField = HarnessEngineSchema.optional();
 const agentManifestSchema = z
   .strictObject(
     {
@@ -344,6 +383,7 @@ const agentManifestSchema = z
       skills: z.record(z.string(), skillManifestSchema).optional(),
       mcpServers: z.record(z.string(), mcpServerSchema).optional(),
       requires: agentRequirementsSchema.optional(),
+      engine: harnessEngineField,
       // Reserved for Functions, which are deferred: developer code the Runtime will run from
       // uploaded definition files (a `functions/` folder). Any value is refused below.
       functions: z.unknown().optional().meta({ description: "Reserved: Functions are not available yet" }),
@@ -1880,6 +1920,10 @@ export const HarnessMemorySchema = z.strictObject({
     .max(MEMORY_INSTRUCTIONS_MAX)
     .optional()
     .meta({ description: "What this agent should remember, after the engine's own memory rules" }),
+  index: z
+    .boolean()
+    .optional()
+    .meta({ description: "agent-folder/2: false pins no memory index in a session. Default true" }),
 });
 const harnessMemoryField = HarnessMemorySchema.optional()
   .meta({ description: "The Agent's memory: Markdown files under /memories it keeps across sessions" });
@@ -1927,6 +1971,7 @@ const agentHarnessObject = z
       loop: harnessLoopField,
       memory: harnessMemoryField,
       model: harnessModelField,
+      engine: harnessEngineField,
       functions: z.unknown().optional().meta({ description: "Reserved: Functions are not available yet" }),
     },
     { error: removedFieldError(REMOVED_HARNESS_FIELDS) },
@@ -2280,6 +2325,7 @@ export const HarnessManifestFileSchema = z
     loop: harnessLoopField,
     memory: harnessMemoryField,
     model: harnessModelField,
+    engine: harnessEngineField,
     /** MCP server or HTTP tool name → the `runtime.secrets` slot it authenticates with. */
     credentials: z.record(z.string().min(1), z.string().min(1)).optional(),
     /** What this harness needs of any runtime it is combined with; checked by the composer only. */
@@ -3807,6 +3853,21 @@ export const ArtifactExportFailedPayloadSchema = z
   .object({ name: z.string(), message: z.string() })
   .passthrough();
 
+/**
+ * `engine.diagnostic`: our engine met something about the session's agent that the agent's
+ * declarations decide, and says so instead of choosing for it (ADR-100), such as `mcp_tools_inline`:
+ * an agent that does not declare `engine.toolSearch` has MCP tool schemas past the share of the
+ * model's context window at which they would be deferred, and keeps them all in its tool list.
+ */
+export const EngineDiagnosticPayloadSchema = z
+  .object({
+    code: z.string().min(1),
+    message: z.string(),
+    /** The agent used as a tool it is about; absent for the session's root agent. */
+    agentId: z.string().optional(),
+  })
+  .passthrough();
+
 /** What readying one declared MCP server found (`mcp.discovered`). */
 export const McpServerOutcomeSchema = z
   .object({
@@ -3873,6 +3934,7 @@ export const EVENT_CATALOG = {
   "delegation.completed": { payload: DelegationPayloadSchema, source: "loop", version: 1 },
   "mcp.discovered": { payload: McpDiscoveredPayloadSchema, source: "loop", version: 1 },
   "plan.updated": { payload: PlanUpdatedPayloadSchema, source: "loop", version: 1 },
+  "engine.diagnostic": { payload: EngineDiagnosticPayloadSchema, source: "loop", version: 1 },
   "environment.state": { payload: EnvironmentStatePayloadSchema, source: "loop", version: 1 },
   "environment.exec": { payload: EnvironmentExecPayloadSchema, source: "loop", version: 1 },
   "agent.attached": { payload: AgentAttachedPayloadSchema, source: "api", version: 1 },

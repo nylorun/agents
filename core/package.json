@@ -76,6 +76,10 @@
       "types": "./dist/folder/index.d.ts",
       "import": "./dist/folder/index.js"
     },
+    "./engine": {
+      "types": "./dist/engine/index.d.ts",
+      "import": "./dist/engine/index.js"
+    },
     "./schemas/agent-manifest.json": "./dist/schemas/agent-manifest.schema.json",
     "./schemas/harness-manifest.json": "./dist/schemas/harness-manifest.schema.json",
     "./schemas/runtime-manifest.json": "./dist/schemas/runtime-manifest.schema.json",
