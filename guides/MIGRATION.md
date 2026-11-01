@@ -1,3 +1,28 @@
+# Secret routing: the folder names, the installation routes
+
+Additive: no protocol change. The Runtime advertises the optional Host feature `secret-routing`.
+
+- **A slot may name the gateway's tool prefix.** A `bearer` or `headers` secret slot in
+  `runtime.json` (or a manifest's `runtime.secrets`) takes `toolPrefix`, with or without `via`. It
+  applies whenever the credential's requests go to a `via`, and wins over a prefix on the secret: a
+  write that names another is accepted, and the Runtime logs a warning. The JSON Schemas that gained
+  it are published as `agent-manifest/v8.2`, `runtime-manifest/v1.1` and
+  `agent-folder/v1/runtime.1`; `nylorun init` maps `runtime.json` to the new one, and the old
+  `$schema` URLs are still read. An older Runtime refuses a manifest that names it (`400`).
+- **A slot's value write may name `via`.** `PUT /v1/agents/{id}/secrets/{name}` with
+  `{ "value": … }` or `{ "headers": { … } }` for a `bearer` or `headers` slot takes `via` (an
+  `https` URL, `http` only to a loopback host, with no userinfo, query or fragment), and `toolPrefix`
+  now needs only some `via`, the write's or the slot's. At each request the secret's `via` wins,
+  else the slot's in the version the Agent runs, else none; the slot's `url` still picks the
+  credential, for MCP servers and HTTP tools alike (an HTTP tool whose URL has `{field}`
+  parameters still fails with `http.credential` behind a `via`). `client.agents.secrets.put` takes
+  `{ value | headers, via?, toolPrefix? }`, and `nylorun agents secrets put` takes `--via` and
+  `--tool-prefix`. An older Runtime refuses `via` on a value write (`400`): check `/health` for
+  `secret-routing` first.
+- **Reads.** Secret views (`GET /v1/agents/{id}/secrets`, `.../{name}`, and a write's answer) show
+  the `via` and `toolPrefix` in force, never a value. A `via` a write copied from its slot now
+  follows the slot when the Agent moves to a version that changes it.
+
 # Agent folders, complete (track T7)
 
 Additive, with two deprecations. Agent folders now hold flows (`flow.json`), subagents

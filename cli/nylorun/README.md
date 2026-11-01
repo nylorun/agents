@@ -289,7 +289,11 @@ secret of that Agent's vault, a `bearer` token or a `headers` map, with `via` an
 an identity header when an MCP gateway holds each person's sign-in. Write it with
 `nylorun agents secrets put <id> <name>` (a slot's value on standard input) or
 `nylorun agents secrets put <id> <name> <secret.json|->` (the secret's JSON
-comes from a file or standard input, never the command line),
+comes from a file or standard input, never the command line; for a slot, only
+`{ "value": … }` or `{ "headers": { … } }`), with `--via <url>` and
+`--tool-prefix <prefix>` for this installation's routing of a `bearer` or
+`headers` secret (Host feature `secret-routing`: the write's `via` wins over the
+slot's, the slot's tool prefix over the write's),
 `client.agents.secrets.put(id, name, secret)` of `@nylorun/agents` (the
 Runtime API, an application key) or in Studio.
 The whole flow, with gateway recipes, is in

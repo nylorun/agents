@@ -3,7 +3,7 @@ import type { PutAgentSecretRequest } from "@nylorun/core/contracts";
 import type { Environment, SessionStore, Tx } from "../src/store/types.js";
 import { VaultError } from "../src/vault/error.js";
 import { HostModelVault } from "../src/vault/host-model.js";
-import { VaultService } from "../src/vault/service.js";
+import { routingOf, VaultService } from "../src/vault/service.js";
 import { sessionCredentials } from "../src/vault/sources.js";
 import { hostModelCatalog } from "../src/model/catalog.js";
 import { createTestSessionStore, dropTestTenant } from "./support/store.js";
@@ -579,6 +579,83 @@ describe("VaultService header and gateway credentials (R2b C2)", () => {
       ),
     ).toBe(400);
     expect(await vault.listEnvironmentSecrets("shared")).toEqual([]);
+  });
+});
+
+describe("VaultService routing at use (secret-routing)", () => {
+  const SLOT_VIA = "https://gateway.test/mcp/slot";
+  const OWN_VIA = "http://localhost:4100/mcp/web";
+  /** Agent `id`'s applied runtime with secret slot `web` for URL. */
+  const applySlot = (store: SessionStore, id: string, slot: Record<string, unknown>) =>
+    store.tx((t) =>
+      t.updateEnvironment(
+        id,
+        { applied: { harness: "nylorun", lifecycle: {}, secrets: { web: { type: "headers", url: URL, ...slot } } } as never },
+        new Date().toISOString(),
+      ),
+    );
+  const write = (vault: VaultService, id: string, via?: string, viaFromSlot = false) =>
+    vault.putEnvironmentSecret(
+      id,
+      "web",
+      { type: "headers", url: URL, headers: { "x-key": "k" }, ...(via === undefined ? {} : { via }) },
+      "application",
+      viaFromSlot ? { viaFromSlot } : null,
+    );
+
+  it("takes the secret's via, else the slot's, else none; the slot's prefix, else the secret's, only with a via", () => {
+    const slot = { type: "headers" as const, url: URL, via: SLOT_VIA, toolPrefix: "web-" };
+    expect(routingOf({ via: OWN_VIA }, slot)).toEqual({ via: OWN_VIA, toolPrefix: "web-" });
+    expect(routingOf({}, slot)).toEqual({ via: SLOT_VIA, toolPrefix: "web-" });
+    expect(routingOf({ via: "https://old.test/mcp", viaFrom: "slot" }, slot)).toEqual({ via: SLOT_VIA, toolPrefix: "web-" });
+    expect(routingOf({ via: OWN_VIA, toolPrefix: "own-" }, { type: "headers", url: URL })).toEqual({ via: OWN_VIA, toolPrefix: "own-" });
+    expect(routingOf({}, { type: "headers", url: URL, toolPrefix: "web-" })).toEqual({});
+    expect(routingOf({ via: "https://old.test/mcp", viaFrom: "slot" }, { type: "headers", url: URL })).toEqual({});
+    // Without a slot (an Agent whose version declares none), the secret's binding as written.
+    expect(routingOf({ via: "https://old.test/mcp", viaFrom: "slot", toolPrefix: "x-" })).toEqual({ via: "https://old.test/mcp", toolPrefix: "x-" });
+  });
+
+  it("follows the slot of the version the Agent runs for a via copied from it, and keeps the secret's own", async () => {
+    const { vault, store, environment } = await setup();
+    await environment("copied");
+    await environment("own");
+    await applySlot(store, "copied", { via: SLOT_VIA });
+    await applySlot(store, "own", { via: SLOT_VIA });
+    await write(vault, "copied", SLOT_VIA, true);
+    expect(await write(vault, "own", OWN_VIA)).toMatchObject({ via: OWN_VIA });
+    // A new version moves the slot's gateway and names the prefix.
+    await applySlot(store, "copied", { via: "https://gateway.test/mcp/moved", toolPrefix: "web-" });
+    await applySlot(store, "own", { via: "https://gateway.test/mcp/moved", toolPrefix: "web-" });
+    expect(await vault.authorize({ environmentId: "copied", url: URL })).toMatchObject({
+      status: "authorized",
+      via: "https://gateway.test/mcp/moved",
+      toolPrefix: "web-",
+    });
+    expect(await vault.authorize({ environmentId: "own", url: URL })).toMatchObject({ status: "authorized", via: OWN_VIA, toolPrefix: "web-" });
+    expect(await vault.getEnvironmentSecret("copied", "web")).toMatchObject({ via: "https://gateway.test/mcp/moved", toolPrefix: "web-" });
+    expect(await vault.listEnvironmentSecrets("own")).toEqual([expect.objectContaining({ via: OWN_VIA, toolPrefix: "web-" })]);
+    // A version without the slot's via: the copied via goes with it, the secret's own stays.
+    await applySlot(store, "copied", { toolPrefix: "web-" });
+    await applySlot(store, "own", { toolPrefix: "web-" });
+    const copied = await vault.authorize({ environmentId: "copied", url: URL });
+    expect(copied).toMatchObject({ status: "authorized" });
+    expect(copied).not.toHaveProperty("via");
+    expect(copied).not.toHaveProperty("toolPrefix");
+    expect(await vault.authorize({ environmentId: "own", url: URL })).toMatchObject({ via: OWN_VIA, toolPrefix: "web-" });
+  });
+
+  it("keeps a fork's secret's own via, and gives a via copied from the slot the fork's slot", async () => {
+    const { vault, store, environment } = await setup();
+    await environment("source");
+    await applySlot(store, "source", { via: SLOT_VIA });
+    await write(vault, "source", OWN_VIA);
+    const slots = { web: { type: "headers", url: URL, via: "https://gateway.test/mcp/fork", toolPrefix: "web-" } };
+    const [own] = (await vault.sealEnvironmentSecretCopies("source", "fork-vault", slots)).copies;
+    expect(JSON.parse(own!.bindingJson)).toMatchObject({ via: OWN_VIA });
+    expect(JSON.parse(own!.bindingJson)).not.toHaveProperty("viaFrom");
+    await write(vault, "source", SLOT_VIA, true);
+    const [copied] = (await vault.sealEnvironmentSecretCopies("source", "fork-vault", slots)).copies;
+    expect(JSON.parse(copied!.bindingJson)).toMatchObject({ via: "https://gateway.test/mcp/fork", viaFrom: "slot" });
   });
 });
 

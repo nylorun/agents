@@ -40,7 +40,8 @@
         "model-host-identity",
         "credential-provider",
         "turns",
-        "agent-model"
+        "agent-model",
+        "secret-routing"
       ]
     },
     "description": "For developers: agent manifests, Agents, sessions (with AG-UI and A2A) and artifacts, through `@nylorun/agents`. Every Tenant serves it on its one URL, beside the Management API (`/openapi/management.json`). Every request sends `Nylorun-Protocol`. Who may call each operation is its `security` and its `x-nylorun-credentials` and `x-nylorun-scopes` (the subject scopes that reach it) fields: an application key (servers) or a trusted issuer's token (browsers and apps)."
@@ -18097,6 +18098,12 @@
                                 ],
                                 "additionalProperties": false
                               },
+                              "toolPrefix": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 64,
+                                "pattern": "^[\\x21-\\x7e]+$"
+                              },
                               "required": {
                                 "type": "boolean"
                               },
@@ -18138,6 +18145,12 @@
                                   "header"
                                 ],
                                 "additionalProperties": false
+                              },
+                              "toolPrefix": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 64,
+                                "pattern": "^[\\x21-\\x7e]+$"
                               },
                               "required": {
                                 "type": "boolean"
@@ -18864,6 +18877,12 @@
                                 ],
                                 "additionalProperties": false
                               },
+                              "toolPrefix": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 64,
+                                "pattern": "^[\\x21-\\x7e]+$"
+                              },
                               "required": {
                                 "type": "boolean"
                               },
@@ -18905,6 +18924,12 @@
                                   "header"
                                 ],
                                 "additionalProperties": false
+                              },
+                              "toolPrefix": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 64,
+                                "pattern": "^[\\x21-\\x7e]+$"
                               },
                               "required": {
                                 "type": "boolean"
@@ -19640,6 +19665,12 @@
                           ],
                           "additionalProperties": false
                         },
+                        "toolPrefix": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 64,
+                          "pattern": "^[\\x21-\\x7e]+$"
+                        },
                         "required": {
                           "type": "boolean"
                         },
@@ -19681,6 +19712,12 @@
                             "header"
                           ],
                           "additionalProperties": false
+                        },
+                        "toolPrefix": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 64,
+                          "pattern": "^[\\x21-\\x7e]+$"
                         },
                         "required": {
                           "type": "boolean"
@@ -20949,6 +20986,12 @@
                                   ],
                                   "additionalProperties": false
                                 },
+                                "toolPrefix": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 64,
+                                  "pattern": "^[\\x21-\\x7e]+$"
+                                },
                                 "required": {
                                   "type": "boolean"
                                 },
@@ -20990,6 +21033,12 @@
                                     "header"
                                   ],
                                   "additionalProperties": false
+                                },
+                                "toolPrefix": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 64,
+                                  "pattern": "^[\\x21-\\x7e]+$"
                                 },
                                 "required": {
                                   "type": "boolean"
@@ -21691,6 +21740,9 @@
               "type": "string",
               "minLength": 1
             }
+          },
+          "via": {
+            "type": "string"
           },
           "toolPrefix": {
             "type": "string",
@@ -23333,6 +23385,12 @@
                       ],
                       "additionalProperties": false
                     },
+                    "toolPrefix": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64,
+                      "pattern": "^[\\x21-\\x7e]+$"
+                    },
                     "required": {
                       "type": "boolean"
                     },
@@ -23374,6 +23432,12 @@
                         "header"
                       ],
                       "additionalProperties": false
+                    },
+                    "toolPrefix": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64,
+                      "pattern": "^[\\x21-\\x7e]+$"
                     },
                     "required": {
                       "type": "boolean"
@@ -29167,7 +29231,7 @@
           "Agents"
         ],
         "summary": "Write an Agent's secret",
-        "description": "Creates or replaces one credential of the Agent's vault: an `environment_secret` (the variable `name` reads the sentinel `nylorun_managed` in the sandbox, and egress-gate sets the value as a header on requests to `allowedHosts`), an `environment_variable` (a plain variable), or a `bearer` token or `headers` map for the MCP servers and HTTP tools at `url`. The same name and type re-seals the value and binding; another type replaces it. A rotated value is used from the next request. A second credential for a host or a URL is `409 credential_conflict`. When the Agent's manifest declares secret slots (while it moves to another version, that version's), send only the value (`{ value }`, or `{ headers }` for a `headers` slot): the type and binding come from the slot, and a name it does not declare is `409 secret_not_in_manifest`.",
+        "description": "Creates or replaces one credential of the Agent's vault: an `environment_secret` (the variable `name` reads the sentinel `nylorun_managed` in the sandbox, and egress-gate sets the value as a header on requests to `allowedHosts`), an `environment_variable` (a plain variable), or a `bearer` token or `headers` map for the MCP servers and HTTP tools at `url`. The same name and type re-seals the value and binding; another type replaces it. A rotated value is used from the next request. A second credential for a host or a URL is `409 credential_conflict`. When the Agent's manifest declares secret slots (while it moves to another version, that version's), send only the value (`{ value }`, or `{ headers }` for a `headers` slot): the type and binding come from the slot, and a name it does not declare is `409 secret_not_in_manifest`. A `bearer` or `headers` slot's write may add `via`, where this installation sends the credential's requests (it wins over the slot's `via`; the slot's `url` still picks the credential), and the gateway's `toolPrefix`, which needs a `via` and gives way to the slot's.",
         "security": [
           {
             "applicationKey": []

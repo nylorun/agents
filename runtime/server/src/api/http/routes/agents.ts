@@ -552,7 +552,7 @@ export function agentRoutes(api: OpenAPIHono<TenantEnv>): void {
       tags: ["Agents"],
       summary: "Write an Agent's secret",
       description:
-        "Creates or replaces one credential of the Agent's vault: an `environment_secret` (the variable `name` reads the sentinel `nylorun_managed` in the sandbox, and egress-gate sets the value as a header on requests to `allowedHosts`), an `environment_variable` (a plain variable), or a `bearer` token or `headers` map for the MCP servers and HTTP tools at `url`. The same name and type re-seals the value and binding; another type replaces it. A rotated value is used from the next request. A second credential for a host or a URL is `409 credential_conflict`. When the Agent's manifest declares secret slots (while it moves to another version, that version's), send only the value (`{ value }`, or `{ headers }` for a `headers` slot): the type and binding come from the slot, and a name it does not declare is `409 secret_not_in_manifest`.",
+        "Creates or replaces one credential of the Agent's vault: an `environment_secret` (the variable `name` reads the sentinel `nylorun_managed` in the sandbox, and egress-gate sets the value as a header on requests to `allowedHosts`), an `environment_variable` (a plain variable), or a `bearer` token or `headers` map for the MCP servers and HTTP tools at `url`. The same name and type re-seals the value and binding; another type replaces it. A rotated value is used from the next request. A second credential for a host or a URL is `409 credential_conflict`. When the Agent's manifest declares secret slots (while it moves to another version, that version's), send only the value (`{ value }`, or `{ headers }` for a `headers` slot): the type and binding come from the slot, and a name it does not declare is `409 secret_not_in_manifest`. A `bearer` or `headers` slot's write may add `via`, where this installation sends the credential's requests (it wins over the slot's `via`; the slot's `url` still picks the credential), and the gateway's `toolPrefix`, which needs a `via` and gives way to the slot's.",
       request: {
         params: secretPath,
         body: {
@@ -570,8 +570,14 @@ export function agentRoutes(api: OpenAPIHono<TenantEnv>): void {
       const scope = c.get("scope");
       assertReaches(scope, id);
       const name = c.req.param("name") ?? "";
-      const body = await secretRequestFor(c.env.tenant, id, name, await readJson(c));
-      const secret = await c.env.tenant.keys.putEnvironmentSecret(id, name, body, actorOf(scope));
+      const write = await secretRequestFor(c.env.tenant, id, name, await readJson(c));
+      const secret = await c.env.tenant.keys.putEnvironmentSecret(
+        id,
+        name,
+        write.request,
+        actorOf(scope),
+        ...(write.viaFromSlot ? [{ viaFromSlot: true }] : []),
+      );
       // A move that waited for this secret goes on (track T3).
       await secretWritten(c.env.tenant, id);
       return jsonResponse(200, secret);

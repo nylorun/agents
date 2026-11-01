@@ -49,7 +49,7 @@ describe("tool credentials", () => {
       expect(headers({ via }).success, via).toBe(false);
   });
 
-  it("takes a gateway's tool prefix only with via, on a secret and never on a manifest's slot", () => {
+  it("takes a gateway's tool prefix only with via on a typed secret", () => {
     expect(headers({ via: "https://gateway.test/mcp/github", toolPrefix: "github-" }).success).toBe(true);
     expect(
       put({ type: "bearer", url: "https://vendor.test/mcp", value: "t", via: "https://gateway.test/mcp", toolPrefix: "x-" })
@@ -58,17 +58,28 @@ describe("tool credentials", () => {
     expect(headers({ toolPrefix: "github-" }).success).toBe(false);
     for (const toolPrefix of ["", "has space", "x".repeat(65)])
       expect(headers({ via: "https://gateway.test/mcp", toolPrefix }).success, toolPrefix).toBe(false);
-    // How a gateway names tools is the installation's routing: a manifest stays the same with or
-    // without one, and its slot's value write adds the prefix.
-    expect(
-      EnvironmentSecretSlotSchema.safeParse({
-        type: "headers",
-        url: "https://vendor.test/mcp",
-        via: "https://gateway.test/mcp",
-        toolPrefix: "x-",
-      }).success,
-    ).toBe(false);
     expect(PutAgentSecretValueRequestSchema.safeParse({ headers: { "x-api-key": "k" }, toolPrefix: "x-" }).success).toBe(true);
+  });
+
+  it("lets a bearer or headers slot name the gateway's tool prefix, with or without via (secret-routing)", () => {
+    const slot = (body: Record<string, unknown>) => EnvironmentSecretSlotSchema.safeParse(body).success;
+    // The folder names how the gateway lists tools; the installation binds where requests go.
+    expect(slot({ type: "headers", url: "https://vendor.test/mcp", toolPrefix: "web-" })).toBe(true);
+    expect(slot({ type: "bearer", url: "https://vendor.test/mcp", toolPrefix: "web-", required: true })).toBe(true);
+    expect(slot({ type: "headers", url: "https://vendor.test/mcp", via: "https://gateway.test/mcp", toolPrefix: "x-" })).toBe(true);
+    for (const toolPrefix of ["", "has space", "x".repeat(65)])
+      expect(slot({ type: "headers", url: "https://vendor.test/mcp", toolPrefix }), toolPrefix).toBe(false);
+    expect(slot({ type: "environment_variable", toolPrefix: "x-" })).toBe(false);
+    expect(slot({ type: "environment_secret", allowedHosts: ["api.vendor.test"], toolPrefix: "x-" })).toBe(false);
+  });
+
+  it("takes via on a slot's value write, with the manifest's URL rules (secret-routing)", () => {
+    const value = (body: Record<string, unknown>) => PutAgentSecretValueRequestSchema.safeParse(body).success;
+    expect(value({ headers: { "x-api-key": "k" }, via: "http://localhost:4100/mcp/web" })).toBe(true);
+    expect(value({ value: "t", via: "https://gateway.test/delegate" })).toBe(true);
+    expect(value({ value: "t", via: "https://gateway.test/mcp", toolPrefix: "x-" })).toBe(true);
+    for (const via of ["https://gateway.test/mcp?user=ada", "https://key:secret@gateway.test/mcp", "https://gateway.test/mcp#x", "http://gateway.test/mcp", "/relative"])
+      expect(value({ value: "t", via }), via).toBe(false);
   });
 
   it("refuses an empty map, a bad name, a repeated name and a value with a line break", () => {
