@@ -1,5 +1,21 @@
 # nylorun
 
+## 0.24.1-beta
+
+### Patch Changes
+
+- Pin core to the tested release.
+- Pin agents to the tested release.
+- Pin admin to the tested release.
+- Pin runtime to the tested release.
+- Pin studio to the tested release.
+- Updated dependencies [63a6217]
+- Updated dependencies
+- Updated dependencies
+  - @nylorun/core@0.33.0-beta
+  - @nylorun/agents@0.31.1-beta
+  - @nylorun/admin@0.19.9-beta
+
 ## 0.24.0-beta
 
 ### Minor Changes
