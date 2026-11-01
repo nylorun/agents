@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
-import { compileAgentFolder, folderTextPaths, type AgentFolderDiagnostic, type AgentFolderEntry } from "../src/folder/index.js";
+import {
+  compileAgentFolder,
+  folderOfManifest,
+  folderTextPaths,
+  type AgentFolderDiagnostic,
+  type AgentFolderEntry,
+} from "../src/folder/index.js";
 import {
   ENGINE_BLOCK_VERSIONS,
   MEMORY_DATA_RULE,
@@ -156,6 +162,25 @@ describe("agent-folder/2 (ADR-100)", () => {
     });
     expect(codes(wider.diagnostics)).toEqual(["engine_subset", "engine_subset", "engine_subset", "engine_subset"]);
     expect(wider.diagnostics.every((item) => item.severity !== "error" || item.file === "agents/scout/AGENT.md")).toBe(true);
+  });
+});
+
+describe("the agent folder of an agent-folder/2 manifest", () => {
+  it("writes format, engine and engine/ back, and compiles to the same manifest", () => {
+    const compiled = compile({
+      "AGENT.md": agent(
+        "format: agent-folder/2\nmemory:\n  index: false\nengine:\n  sandbox: [bash]\n  outputs: true\n  instructions:\n    sandbox: engine/sandbox.md\n",
+      ),
+      "engine/sandbox.md": "Use bash in /workspace.\n",
+      "runtime.json": COMPUTER,
+      "agents/scout/AGENT.md": "---\nname: scout\ndescription: Looks around.\nengine:\n  sandbox: [bash]\n---\nLook.\n",
+    });
+    expect(codes(compiled.diagnostics)).toEqual([]);
+    const folder = folderOfManifest(compiled.manifest!);
+    expect(folder.notes).toEqual([]);
+    expect(folder.exact).toBe(true);
+    expect(String(folder.files.get("AGENT.md"))).toContain("format: agent-folder/2");
+    expect(String(folder.files.get("engine/sandbox.md"))).toBe("Use bash in /workspace.\n");
   });
 });
 

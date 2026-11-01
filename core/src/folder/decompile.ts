@@ -6,7 +6,8 @@
  *
  * Each manifest field goes where the compiler reads it:
  *
- * - `name`, `description`, `metadata`, `harness.id`, `memory`, `loop`, `model`, and this agent's
+ * - `name`, `description`, `metadata`, `harness.id`, `memory`, `loop`, `model`, `engine` (with
+ *   `format: agent-folder/2`; each replaced wording as `engine/<block>.md`), and this agent's
  *   server and skill settings: `AGENT.md` frontmatter. `harness.outputSchema`:
  *   `output.schema.json`, named by `outputSchema`.
  * - `harness.instructions`: the first as `AGENT.md`'s body, each other as
@@ -46,6 +47,7 @@ import { stringify } from "yaml";
 import type { AgentManifest, AgentManifestV8, WorkflowManifest } from "../contracts.js";
 import { DELEGATE_INPUT_SCHEMA } from "../definition/delegate.js";
 import type { WorkflowNode } from "../types/workflow.js";
+import type { HarnessEngine } from "../types/manifest.js";
 import { canonical } from "../utils/canonical.js";
 import { hashManifest } from "../utils/hash.js";
 import { compileAgentFolder, folderTextPaths, type AgentFolderEntry } from "./compile.js";
@@ -141,6 +143,8 @@ interface Writer {
   /** The root's `runtime.secrets`. */
   readonly secrets: Record<string, unknown>;
   readonly bytesOf: (hash: string) => Uint8Array | undefined;
+  /** The root agent declares its engine features (agent-folder/2): so does every subagent. */
+  declares?: boolean;
 }
 
 /**
@@ -177,6 +181,7 @@ interface AgentFields {
   readonly memory?: unknown;
   readonly loop?: unknown;
   readonly model?: unknown;
+  readonly engine?: HarnessEngine;
 }
 
 /** The harness fields a flow folder writes: a v8 workflow harness's, or an embedded v3's. */
@@ -201,6 +206,7 @@ export function folderOfManifest(manifest: AgentManifestV8, options: FolderOfMan
   };
   const identity: Identity = { name: manifest.name, description: manifest.description, metadata: manifest.metadata };
   const root: Place = { prefix: "", role: "root" };
+  writer.declares = !isWorkflow(manifest.harness) && (manifest.harness as AgentFields).engine !== undefined;
   if (isWorkflow(manifest.harness)) writeFlow(writer, root, identity, manifest.harness as unknown as FlowFields);
   else writeAgent(writer, root, identity, manifest.harness as AgentFields);
   writeRuntime(writer, manifest);
@@ -357,6 +363,22 @@ function writeAgent(writer: Writer, place: Place, identity: Identity, harness: A
     if (isObject(harness.loop)) front.loop = harness.loop;
     else note("harness.loop is not a map, which AGENT.md needs: it is left out.");
   }
+  // agent-folder/2 (ADR-100): the declarations, each replaced wording a file under engine/. The
+  // blocks are the compiler's to list again.
+  if (harness.engine !== undefined && !root && !writer.declares)
+    note("The subagent declares its engine features and the manifest does not: an agent-folder/1 folder cannot say so, so it gets the defaults.");
+  else if (harness.engine !== undefined) {
+    if (root) front.format = "agent-folder/2";
+    const { instructions, blocks: _, ...declared } = harness.engine;
+    const engine: Record<string, unknown> = { ...declared };
+    for (const [block, text] of Object.entries(instructions ?? {})) {
+      const file = `engine/${block}.md`;
+      files.set(at + file, `${text}\n`);
+      engine.instructions = { ...(engine.instructions as Record<string, string> | undefined), [block]: file };
+    }
+    if (Object.keys(engine).length > 0) front.engine = engine;
+  } else if (!root && writer.declares)
+    note("The subagent declares no engine features, and in an agent-folder/2 folder it gets none: it is written as such.");
   if (identity.metadata !== undefined) {
     if (isObject(identity.metadata)) front.metadata = identity.metadata;
     else note("metadata is not a map, which AGENT.md needs: it is left out.");
