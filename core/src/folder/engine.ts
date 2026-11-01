@@ -23,7 +23,7 @@
 import { SANDBOX_TOOL_NAMES, SANDBOX_WORKSPACE, type SandboxToolName } from "../utils/sandbox.js";
 import { ENGINE_BLOCK_NAMES, isEngineBlockName, type EngineBlockName } from "../engine/names.js";
 import { blockRefs } from "../engine/blocks.js";
-import { DEFAULT_ENGINE_TOOL_LIMITS, engineProjection } from "../engine/project.js";
+import { DEFAULT_ENGINE_TOOL_LIMITS, engineProjection } from "../engine/projection.js";
 import { TOOL_SEARCH_TOOL } from "../engine/tools.js";
 import type { HarnessEngine, SkillManifest, ToolManifest } from "../types/manifest.js";
 import { suggestion } from "./suggest.js";

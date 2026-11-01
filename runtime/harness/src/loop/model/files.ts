@@ -59,6 +59,11 @@ export type FileView =
 
 /** What `fileView` decides from: the turn's model and the Runtime limits. */
 export interface FileViewContext {
+  /**
+   * False when the agent has no `read_artifact` (ADR-100, an `agent-folder/2` agent without
+   * `engine.artifacts.read`): its files' reference lines do not offer it. Default true.
+   */
+  readonly artifactReads?: boolean;
   /** `turn.start.model`; undefined when the Runtime sent none. */
   readonly model?: ModelDescriptor;
   readonly limits: Pick<RuntimeLimits, "modelFileBytes">;
@@ -74,11 +79,6 @@ export interface FileChunk {
 /** What `representFiles` needs: the decision's inputs, and the run's artifact reads. */
 export interface FileContext extends FileViewContext {
   readonly limits: Pick<RuntimeLimits, "modelFileBytes" | "modelCallBytes" | "chunkBytes">;
-  /**
-   * False when the agent has no `read_artifact` (ADR-100, an `agent-folder/2` agent without
-   * `engine.artifacts.read`): its files' reference lines do not offer it. Default true.
-   */
-  readonly artifactReads?: boolean;
   /**
    * Reads `length` bytes of the artifact version from `offset` (`artifact.read`). A refusal of
    * the seam (`HarnessApiError`) becomes a note; any other error is the run's.

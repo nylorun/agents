@@ -9,6 +9,6 @@ export * from "./blocks.js";
 export * from "./features.js";
 export * from "./tools.js";
 export * from "./mcp.js";
-export * from "./project.js";
+export * from "./projection.js";
 export * from "./preview.js";
 export * from "./explain.js";

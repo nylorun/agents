@@ -17,7 +17,7 @@ import type { ModelDescriptor, TurnAgent, TurnMemory } from "../harness-api/mess
 import { ENGINE_BLOCK_VERSIONS, type EngineBlockUse } from "./blocks.js";
 import type { EngineFeatures } from "./features.js";
 import { mcpToolConfigOf, mcpToolSet, type McpToolConfig, type McpToolDiagnostic } from "./mcp.js";
-import { DEFAULT_ENGINE_TOOL_LIMITS, engineProjection, type EngineMemory, type EngineToolLimits } from "./project.js";
+import { DEFAULT_ENGINE_TOOL_LIMITS, engineProjection, type EngineMemory, type EngineToolLimits } from "./projection.js";
 import { TOOL_SEARCH_TOOL, type EngineTool } from "./tools.js";
 
 /** What a turn with an output schema asks of the model's final answer, last in the system text. */
