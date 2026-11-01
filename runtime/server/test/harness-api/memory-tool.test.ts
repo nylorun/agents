@@ -48,7 +48,7 @@ async function call(runtime: Started, method: string, path: string, body?: unkno
 type Answer = { status: string; outcome?: { kind?: string; value: any } };
 
 /** A Runtime whose harness the test drives, an Agent with `memory`, and a turn on session `sid`. */
-async function start(memory: { access?: "read_write" | "read_only"; instructions?: string } | undefined) {
+async function start(memory: { access?: "read_write" | "read_only"; instructions?: string; index?: boolean } | undefined) {
   const runtime = await boot({ harness: "remote" });
   cleanups.push(() => runtime.close());
   const acme = attach(runtime);
@@ -107,6 +107,13 @@ async function start(memory: { access?: "read_write" | "read_only"; instructions
   };
   return { runtime, turn };
 }
+
+it("starts a turn with no memory index for a version that sets memory.index false (ADR-100)", async () => {
+  const { turn } = await start({ instructions: "Keep release conventions.", index: false });
+  const first = await turn("s1");
+  expect(first.input.memory).toEqual({ access: "read_write", instructions: "Keep release conventions.", truncated: false });
+  await first.finish();
+});
 
 it("starts a turn with the memory block, serves views and writes, and versions them to the turn", async () => {
   const { runtime, turn } = await start({ instructions: "Keep release conventions." });
