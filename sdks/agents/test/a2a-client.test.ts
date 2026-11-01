@@ -61,6 +61,7 @@ describe("createA2aClient", () => {
       parts: [{ text: "Build the portal" }],
       metadata: { source: "bot" },
       delivery: "reject",
+      removeTools: ["create_bot"],
       push: { url: "https://bot.example/a2a/push", token: "tok" },
       returnImmediately: true,
       traceparent: "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
@@ -91,7 +92,7 @@ describe("createA2aClient", () => {
           role: "ROLE_USER",
           contextId: "ctx_1",
           parts: [{ text: "Build the portal" }],
-          metadata: { source: "bot", delivery: "reject" },
+          metadata: { source: "bot", delivery: "reject", removeTools: ["create_bot"] },
         },
         configuration: {
           returnImmediately: true,

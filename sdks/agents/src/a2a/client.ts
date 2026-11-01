@@ -86,6 +86,11 @@ export interface A2aSendOptions {
    * `metadata.delivery`.
    */
   delivery?: "queue" | "reject";
+  /**
+   * The tools this message's turn may not use, by name (Host feature `remove-tools`), as a
+   * session message's `removeTools`. Sent as `metadata.removeTools`; a new message only.
+   */
+  removeTools?: readonly string[];
   /** Where the agent pushes this task's updates; verify each with `verifyA2aPush`. */
   push?: PushNotificationConfig;
   /** Answer at once with the task (`SUBMITTED` or `WORKING`) instead of waiting. */
@@ -231,7 +236,7 @@ export function createA2aClient(options: A2aClientOptions): A2aClient {
 
   async function sendMessage(
     message: Message,
-    options: Omit<A2aSendOptions, "messageId" | "parts" | "contextId" | "taskId" | "metadata" | "extensions" | "delivery">
+    options: Omit<A2aSendOptions, "messageId" | "parts" | "contextId" | "taskId" | "metadata" | "extensions" | "delivery" | "removeTools">
   ): Promise<Task> {
     const configuration: Record<string, unknown> = {};
     if (options.returnImmediately !== undefined)
@@ -270,6 +275,7 @@ export function createA2aClient(options: A2aClientOptions): A2aClient {
       const metadata = {
         ...send.metadata,
         ...(send.delivery ? { delivery: send.delivery } : {}),
+        ...(send.removeTools?.length ? { removeTools: [...send.removeTools] } : {}),
       };
       return sendMessage(
         {
