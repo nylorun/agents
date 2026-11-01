@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.31.0-beta
+
+### Minor Changes
+
+- 67ed2ea: An agent that declares its engine features (`engine`, `agent-folder/2`, ADR-100) gets only those:
+  no shell or file tools and no sandbox note without `engine.sandbox` (or only the tools it names),
+  no `read_artifact` or `save_artifact` or their text unless declared, and `/workspace/outputs` is
+  saved when a turn ends only with `engine.outputs`. Without `artifacts.read`, a tool result past
+  the inline cap is cut to its preview with `retrievable: false` (still stored), and file reference
+  lines do not offer `read_artifact`. Without `toolSearch`, MCP tools are never deferred
+  automatically (a server's own `deferred` still applies); past the threshold the harness claims
+  `engine.diagnostic` (`mcp_tools_inline`) once. A turn whose `memory` has no `index` pins none, and
+  the memory rules do not name one. A block the manifest replaces (`engine.instructions`) is in its
+  words, the memory rule that outside text is data kept. Agents that declare nothing get exactly
+  what they got before. The engine's text and tool definitions now come from
+  `@nylorun/core/engine`, which the SDK's `previewTurn` runs too.
+- 67ed2ea: The memory index a session pinned is refreshed at its next turn's first segment (never mid-turn)
+  when another session of the Agent, or the API, wrote the Agent's memory since its last turn started:
+  `turn.start.memory.refresh` (Harness API), and our engine pins the index again (`runDurable`'s
+  `refreshPinned`). The Runtime keeps the newest memory version a turn saw on the session
+  (`Session.memoryIndex`, `memoryWritesSince`). A session's own writes leave its index as pinned.
+
+### Patch Changes
+
+- Pin core to the tested release.
+- Updated dependencies [67ed2ea]
+- Updated dependencies [67ed2ea]
+- Updated dependencies [67ed2ea]
+- Updated dependencies [67ed2ea]
+- Updated dependencies [67ed2ea]
+- Updated dependencies [67ed2ea]
+- Updated dependencies [67ed2ea]
+  - @nylorun/core@0.34.0-beta
+
 ## 0.30.1-beta
 
 ### Patch Changes

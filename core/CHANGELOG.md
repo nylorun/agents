@@ -1,5 +1,84 @@
 # @nylorun/core
 
+## 0.34.0-beta
+
+### Minor Changes
+
+- 67ed2ea: `agent-folder/2` (ADR-100): a folder that declares every engine feature it uses. `format:
+agent-folder/2` (or `2`) in `AGENT.md` turns it on; `agent-folder/1` and a folder with no format
+  compile exactly as before. Its `engine:` block declares `sandbox` (any of the six sandbox tools;
+  needs a computer), `artifacts: { read, save }` (`save` needs a computer), `outputs` (needs a
+  computer) and `toolSearch`, and `instructions.<block>` replaces a block's wording with a Markdown
+  file under `engine/`; `memory.index: false` pins no memory index. A computer with no sandbox tools
+  is a warning (`sandbox_undeclared`). A subagent declares its own `engine:` block, a subset of its
+  parent's (`engine_subset`).
+
+  The compiled manifest holds it as `harness.engine` (agent manifest v8, JSON Schema
+  `agent-manifest/v8.2.json`; the harness file `harness-manifest/v1.2.json`; the frontmatter
+  `agent-folder/v1/agent-md.2.json`), and the loop manifest the harness runs as `engine`
+  (`loopManifestOf`). `harness.engine.blocks` lists the engine text blocks the agent gets, each with
+  its version and the SHA-256 of its text, so an engine release that changes one changes the
+  version's hash.
+
+  New `@nylorun/core/engine`: our engine's text blocks by name and version (`skills`, `sandbox`,
+  `skill_folder`, `artifacts_save`, `outputs`, `artifacts_read`, `wake`, `memory`, `plan`,
+  `connection`, `tool_search`, each `@1`), the definitions of its own tools, the MCP tools' naming
+  and deferral (`mcpToolSet`, which no longer defers automatically for an agent that declares its
+  engine features without `toolSearch: true` and reports `mcp_tools_inline` instead), the projection
+  for one agent (`engineProjection`), `previewTurn` and `explainEngine`. Harness API v5 takes the
+  claim `engine.diagnostic` (a new event type) and a `turn.start.memory` without `index`
+  (`harness-api/v5.2.json`).
+
+- 67ed2ea: An MCP server that failed at a session's first discovery is tried again at each later turn's first
+  segment, and joins the session's snapshot once it answers: its tools are offered from that turn on,
+  its diagnostic is replaced, and `mcp.discovered` names it again with `rejoined: true`. `session.mcp`
+  takes a later snapshot of servers the session lacks and merges them within `mcpSnapshotBytes`.
+- 67ed2ea: The memory index a session pinned is refreshed at its next turn's first segment (never mid-turn)
+  when another session of the Agent, or the API, wrote the Agent's memory since its last turn started:
+  `turn.start.memory.refresh` (Harness API), and our engine pins the index again (`runDurable`'s
+  `refreshPinned`). The Runtime keeps the newest memory version a turn saw on the session
+  (`Session.memoryIndex`, `memoryWritesSince`). A session's own writes leave its index as pinned.
+- 67ed2ea: A message's `removeTools` (Host feature `remove-tools`): the tools its turn may not use, by name. A
+  declared tool or an agent used as a tool by its name (in the agent and the agents it uses as tools),
+  an MCP server's tool as `<server>__<tool>`, a whole server by its name. The Runtime applies it to the
+  version the turn runs, after the turn's first segment re-pins the session to its Agent's version, so
+  a session that always sends it still moves to new versions; names that version lacks are ignored.
+  A message's turn manifest is validated again against the version a re-pin moves to; one that is no
+  variant of it keeps the turn on the version it pinned (`turn.version_kept`). A variant may narrow an
+  agent it uses as a tool (`isVariantOf`; `withoutTools` in `@nylorun/core/define`). An HTTP tool call
+  is checked against the turn's manifest. `session.input` and `session.inputParts` take
+  `removeTools`.
+- 67ed2ea: Secret routing: the agent folder names, the installation routes (Host feature `secret-routing`, no
+  protocol change). A `bearer` or `headers` secret slot (`runtime.json`, `runtime.secrets`) takes the
+  gateway's `toolPrefix`, with or without `via`, and a slot's value write
+  (`PUT /v1/agents/{id}/secrets/{name}` with `{ value }` or `{ headers }`) takes `via`, with the same
+  URL rules as a slot's. At each request the secret's `via` wins, else the slot's in the version the
+  Agent runs, else none (the slot's `url`); the slot's `toolPrefix` wins over the secret's and
+  applies only with a `via`; the slot's `url` still picks the credential, for MCP servers and HTTP
+  tools alike, and an HTTP tool whose URL has `{field}` parameters still fails behind a `via`. A
+  write whose `toolPrefix` differs from its slot's is accepted, with a warning in the log. A `via` a
+  write copied from its slot follows the slot when the Agent moves, and a fork keeps a secret's own
+  `via`. Secret views show the `via` and `toolPrefix` in force, never a value.
+  `client.agents.secrets.put` takes `{ value | headers, via?, toolPrefix? }` (`AgentSecretRouting`),
+  and `nylorun agents secrets put` takes `--via` and `--tool-prefix`, and a slot's JSON without a
+  `type`. The JSON Schemas that gained the slot's `toolPrefix` are published as
+  `agent-manifest/v8.2`, `runtime-manifest/v1.1` and `agent-folder/v1/runtime.1`, which `nylorun init`
+  maps; the old `$schema` URLs are still read.
+- 67ed2ea: A session records the model its turns call and why (`SessionModelRecord`): `model` on `GET
+/v1/sessions/{id}` is `{provider, model, source: "manifest" | "session" | "tenant", reason?,
+requested?}`, with the fallback's `reason` (`provider_not_connected`, `not_in_catalog`,
+  `invalid_model`) and the model `requested` by the manifest or the session. It is set when the
+  session opens, chooses or clears its model, and again at each segment's start, and each change
+  writes the new `session.model` event with the `previous` record. `SessionView.model` in
+  `@nylorun/agents`.
+
+### Patch Changes
+
+- 67ed2ea: A tool policy rule whose `agent` names the session's root agent (its manifest's name) also matches
+  the MCP and HTTP calls of the agents it uses as tools; a rule naming the subagent's id still matches
+  them. `PolicyCall.root` carries the root for a subagent's call. The `agent` selector's contract
+  comments say so.
+
 ## 0.33.0-beta
 
 ### Minor Changes
