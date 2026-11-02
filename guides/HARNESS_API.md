@@ -559,6 +559,12 @@ so no other v5 harness sees it; all within v5: `harness-api/v5.2.json`. D83 adde
 operation `triggers` and `turn.start.agent.triggers` (`true` when the session's version declares
 `harness.engine.triggers`: offer the root agent a tool whose calls name that target, or none), which
 a v5 harness may ignore: it offers no tool, and core receives no such call: `harness-api/v5.3.json`.
+ADR-105 changed no message: `turn.start.loop` may carry `ask: true` (offer the root agent a
+question tool whose first call is `interaction-required`, kind `response`, metadata
+`{kind: "question", choices?, why?}`, shown over A2A as a question), and a manifest's
+`harness.engine.plugins` names the Runtime's plugins the agent declares. A v5 harness may ignore
+both; one that presents the plugins' tools under other names (`nylorun__<tool>`) sends each call's
+effect with the tool's own name as `toolName` and its usual target.
 
 What v5 changed (protocol 16, agents from one manifest):
 

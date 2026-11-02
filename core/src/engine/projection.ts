@@ -38,11 +38,13 @@ import {
 } from "./blocks.js";
 import { engineFeaturesOf, type EngineFeatures } from "./features.js";
 import {
+  ASK_TOOL,
   DEFAULT_SANDBOX_TOOL_LIMITS,
   REQUEST_CONNECTION_TOOL,
   TRIGGERS_TOOL,
   UPDATE_PLAN_TOOL,
   artifactTools,
+  askToolOf,
   connectionToolOf,
   memoryToolOf,
   planToolOf,
@@ -53,6 +55,8 @@ import {
   type EngineTool,
   type SandboxToolLimits,
 } from "./tools.js";
+import { PLUGIN_NAMES, pluginOf, pluginSkills, runtimeToolName, type PluginName } from "../plugins/index.js";
+import type { HarnessEnginePlugin } from "../types/manifest.js";
 
 /** The harness's configuration of our engine's own tools that their definitions name. */
 export interface EngineToolLimits {
@@ -112,7 +116,10 @@ export function engineProjection(
   plan = false,
   connections = false,
   triggers = false,
+  ask = false,
 ): EngineProjection {
+  if (agent.engine?.plugins !== undefined)
+    return pluginProjection(agent, agent.engine.plugins, runsOn, options, memory, plan, connections, triggers, ask);
   const skills = Object.values(agent.skills ?? {});
   const workspace = runsOn?.sandbox?.workspace;
   const features = engineFeaturesOf(agent.engine, { computer: workspace !== undefined });
@@ -196,5 +203,111 @@ export function engineProjection(
     instructions,
     blocks,
     features,
+  };
+}
+
+/** The first line of server `nylorun`'s text (ADR-105). */
+export const RUNTIME_SERVER_HEADING =
+  "# Server nylorun\nThe Runtime's own tools, from the plugins this agent declares. Their names begin with nylorun__.";
+
+/** A sandbox section's network sentence: the hosts the runtime allows, or the policy note. */
+function networkSentence(hosts: readonly string[] | undefined): string {
+  if (hosts === undefined || hosts.length === 0)
+    return "Network egress is limited by policy; a failed download usually means the host is not allowed.";
+  return `It can reach only these hosts: ${hosts.join(", ")}. A download from any other host fails.`;
+}
+
+/**
+ * Our engine's tools and text for an agent that declares the Runtime's plugins (`agent-folder/3`,
+ * ADR-105). The same tools as without plugins, with the same effects, named `nylorun__<tool>` for
+ * the model; the Runtime's words are one text, server `nylorun`, built from the declared plugins'
+ * sections in their order; their skills join the agent's own. `outputs`, the skills' usage and
+ * catalog, and the skills' folder note stay our engine's blocks.
+ */
+function pluginProjection(
+  agent: Pick<AgentManifest, "skills" | "tools" | "engine">,
+  declared: readonly HarnessEnginePlugin[],
+  runsOn: Pick<TurnAgent, "sandbox" | "selfWake"> | undefined,
+  options: Pick<EngineToolLimits, "artifactPageBytes" | "sandboxTools">,
+  memory: EngineMemory | undefined,
+  plan: boolean,
+  connections: boolean,
+  triggers: boolean,
+  ask: boolean,
+): EngineProjection {
+  const names = PLUGIN_NAMES.filter((name) => declared.some((plugin) => plugin.name === name));
+  const on = (plugin: PluginName, tool: string) => declared.some((item) => item.name === plugin && item.tools.includes(tool));
+  const own = (name: string) => (agent.tools ?? []).some((tool) => tool.name === name);
+  const folderSkills = Object.values(agent.skills ?? {});
+  const extra = pluginSkills(names).filter((skill) => !folderSkills.some((item) => item.name === skill.name));
+  const catalog = [...folderSkills.map(({ name, description }) => ({ name, description })), ...extra.map(({ name, description }) => ({ name, description }))];
+  const workspace = runsOn?.sandbox?.workspace;
+  const features = engineFeaturesOf(agent.engine, { computer: workspace !== undefined });
+  const sandbox = features.sandbox.filter((tool) => on("nylorun-sandbox", tool));
+  const sandboxed = sandbox.length > 0;
+  const readArtifacts = features.artifactsRead && on("nylorun-artifacts", "read_artifact");
+  const saveArtifacts = features.artifactsSave && on("nylorun-artifacts", "save_artifact");
+  const triggering = triggers && on("nylorun-triggers", "triggers") && !own(TRIGGERS_TOOL);
+  const remembering = memory !== undefined && (memory.root === false || on("nylorun-memory", "memory"));
+  const writes = memory !== undefined && memory.root && memory.access === "read_write";
+  const planning = plan && on("nylorun-plan", UPDATE_PLAN_TOOL) && !own(UPDATE_PLAN_TOOL);
+  const asking = ask && on("nylorun-interactions", ASK_TOOL) && !own(ASK_TOOL);
+  const connecting = connections && on("nylorun-interactions", REQUEST_CONNECTION_TOOL) && !own(REQUEST_CONNECTION_TOOL);
+
+  const instructions: string[] = [];
+  const blocks: EngineBlockUse[] = [];
+  const use = (name: EngineBlockName) => blocks.push({ name, version: ENGINE_BLOCK_VERSIONS[name] });
+  if (catalog.length > 0) {
+    use("skills");
+    instructions.push(SKILLS_USAGE, formatSkillCatalog(catalog));
+  }
+  if (sandboxed && folderSkills.length > 0) {
+    use("skill_folder");
+    instructions.push(skillFolderNote(folderSkills));
+  }
+  if (features.outputs) {
+    use("outputs");
+    instructions.push(saveArtifacts ? OUTPUTS_AFTER_SAVE_TEXT : OUTPUTS_TEXT);
+  }
+  // Server nylorun: the declared plugins' sections, in plugin order.
+  const text = (plugin: PluginName, section: string) => pluginOf(plugin).instructions[section];
+  const sections: string[] = [];
+  if (remembering) sections.push(text("nylorun-memory", writes ? "memory" : "memory.view")!);
+  if (triggering) sections.push(text("nylorun-triggers", "triggers")!);
+  if (planning) sections.push(text("nylorun-plan", "update_plan")!);
+  if (asking || connecting)
+    sections.push([text("nylorun-interactions", "_")!, ...(asking ? [text("nylorun-interactions", "ask")!] : []), ...(connecting ? [text("nylorun-interactions", "request_connection")!] : [])].join("\n"));
+  if (readArtifacts || saveArtifacts)
+    sections.push([text("nylorun-artifacts", "_")!, ...(saveArtifacts ? [text("nylorun-artifacts", "save_artifact")!] : []), ...(readArtifacts ? [text("nylorun-artifacts", "read_artifact")!] : [])].join("\n"));
+  if (sandboxed) {
+    const hosts = declared.find((plugin) => plugin.name === "nylorun-sandbox")?.hosts;
+    sections.push(
+      text("nylorun-sandbox", "_")!
+        .replace("{workspace}", workspace!)
+        .replace("{tools}", sandbox.map(runtimeToolName).join(", "))
+        .replace("{network}", networkSentence(hosts)),
+    );
+  }
+  if (sections.length > 0) instructions.push([RUNTIME_SERVER_HEADING, ...sections].join("\n\n"));
+
+  const named = (tool: EngineTool): EngineTool => ({ ...tool, name: runtimeToolName(tool.name), effectName: tool.name });
+  const skillManifests = [
+    ...folderSkills,
+    ...extra.map((skill) => ({ name: skill.name, description: skill.description, files: { "SKILL.md": "sha256:" + "0".repeat(64) } })),
+  ];
+  return {
+    tools: [
+      ...(sandboxed ? sandboxTools(options.sandboxTools, workspace!, sandbox).map(named) : []),
+      ...skillTools(skillManifests),
+      ...artifactTools({ read: readArtifacts, save: saveArtifacts, sandboxed }, { pageBytes: options.artifactPageBytes }).map(named),
+      ...(triggering ? [named(triggersToolOf())] : []),
+      ...(remembering ? [named(memoryToolOf(writes))] : []),
+      ...(planning ? [named(planToolOf())] : []),
+      ...(asking ? [named(askToolOf())] : []),
+      ...(connecting ? [named(connectionToolOf())] : []),
+    ],
+    instructions,
+    blocks,
+    features: { ...features, sandbox, artifactsRead: readArtifacts, artifactsSave: saveArtifacts },
   };
 }

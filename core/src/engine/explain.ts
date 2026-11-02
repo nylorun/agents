@@ -19,7 +19,9 @@ import {
   TRIGGERS_TOOL,
   TOOL_SEARCH_TOOL,
   UPDATE_PLAN_TOOL,
+  ASK_TOOL,
 } from "./tools.js";
+import { runtimeToolOf } from "../plugins/index.js";
 import { READ_ARTIFACT_TOOL, SAVE_ARTIFACT_TOOL } from "../utils/runtime-tools.js";
 import { loopManifestOf } from "../definition/sections.js";
 
@@ -71,8 +73,19 @@ const TOOLS: Readonly<Record<EngineFeature, readonly string[]>> = {
   triggers: [TRIGGERS_TOOL],
   memory: [MEMORY_TOOL],
   plan: [UPDATE_PLAN_TOOL],
-  connections: [REQUEST_CONNECTION_TOOL],
+  connections: [REQUEST_CONNECTION_TOOL, ASK_TOOL],
   toolSearch: [TOOL_SEARCH_TOOL, TOOL_CALL_TOOL],
+};
+/** The Runtime plugin that declares each feature in an `agent-folder/3` folder (ADR-105). */
+const PLUGIN_OF: Readonly<Partial<Record<EngineFeature, string>>> = {
+  sandbox: "nylorun-sandbox",
+  "artifacts.save": "nylorun-artifacts",
+  "artifacts.read": "nylorun-artifacts",
+  selfWake: "nylorun-triggers",
+  triggers: "nylorun-triggers",
+  memory: "nylorun-memory",
+  plan: "nylorun-plan",
+  connections: "nylorun-interactions",
 };
 const BLOCKS: Readonly<Record<EngineFeature, readonly EngineBlockName[]>> = {
   skills: ["skills", "skill_folder"],
@@ -91,10 +104,12 @@ const BLOCKS: Readonly<Record<EngineFeature, readonly EngineBlockName[]>> = {
 function explainOne(
   id: string,
   preview: AgentTurnPreview,
-  facts: { readonly root: boolean; readonly pinned: boolean; readonly mcp: boolean },
+  facts: { readonly root: boolean; readonly pinned: boolean; readonly mcp: boolean; readonly plugins?: boolean },
 ): ExplainedAgent {
   const declared = preview.features.declared;
   const by = (feature: EngineFeature): string => {
+    // agent-folder/3: the plugin that brings it (ADR-105), or skills/ and the plugins' skills.
+    if (facts.plugins) return PLUGIN_OF[feature] ?? (feature === "skills" ? "skills/ and the plugins' skills" : `engine.${feature}`);
     switch (feature) {
       case "skills":
         return "skills/";
@@ -113,7 +128,8 @@ function explainOne(
     }
   };
   const blocks = new Set(preview.blocks.map((block) => block.name));
-  const tools = new Set(preview.engineTools);
+  // A Runtime plugin's tool by its own name: nylorun__memory is memory (ADR-105).
+  const tools = new Set(preview.engineTools.map((name) => runtimeToolOf(name) ?? name));
   const features = ENGINE_FEATURES.map((feature): ExplainedFeature => {
     const added = TOOLS[feature].filter((name) => tools.has(name));
     const text = BLOCKS[feature].filter((name) => blocks.has(name)).map((name) => `${name}@${ENGINE_BLOCK_VERSIONS[name]}`);
@@ -153,10 +169,11 @@ export function explainEngine(manifest: AgentManifestV8): ExplainedAgent[] {
   const preview = previewTurn(manifest);
   const loop = loopManifestOf(manifest) as AgentManifest;
   const mcpOf = (agent: AgentManifest) => Object.keys(agent.mcpServers ?? {}).length > 0;
-  const root = explainOne(manifest.name, preview, { root: true, pinned: preview.pinned.length > 0, mcp: mcpOf(loop) });
+  const plugins = manifest.harness.engine?.plugins !== undefined;
+  const root = explainOne(manifest.name, preview, { root: true, pinned: preview.pinned.length > 0, mcp: mcpOf(loop), plugins });
   const subagents = (loop.tools ?? []).flatMap((tool) =>
     tool.agent && !("kind" in tool.agent) && preview.agents[tool.agent.id]
-      ? [explainOne(tool.agent.id, preview.agents[tool.agent.id]!, { root: false, pinned: false, mcp: mcpOf(tool.agent) })]
+      ? [explainOne(tool.agent.id, preview.agents[tool.agent.id]!, { root: false, pinned: false, mcp: mcpOf(tool.agent), plugins })]
       : [],
   );
   return [root, ...subagents];

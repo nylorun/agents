@@ -1,0 +1,20 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "nylorun-artifacts",
+  "description": "The session's files: results too large to show, files tools return, files of earlier turns, and files the agent saves.",
+  "author": {
+    "name": "Nylorun"
+  },
+  "license": "Apache-2.0",
+  "extensions": {
+    "nylorun": {
+      "server": "nylorun",
+      "tools": [
+        "read_artifact",
+        "save_artifact"
+      ],
+      "requires": [],
+      "instructions": "instructions/"
+    }
+  }
+}

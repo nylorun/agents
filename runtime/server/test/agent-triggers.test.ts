@@ -14,6 +14,7 @@ import type { ModelProvider } from "../src/core/provider.js";
 import { triggerTimerKey } from "../src/tenant/triggers.js";
 import { runsCursor } from "../src/tenant/runs-stream.js";
 import { triggersRefusal } from "../src/tenant/agent-triggers.js";
+import { pluginOf } from "@nylorun/core/engine";
 import type { Session } from "../src/tenant/context.js";
 import { startTestTenant } from "./support/tenant.js";
 import { deploy, openSession, saveManifest, manifestOf } from "./support/agents.js";
@@ -40,8 +41,11 @@ const model: ModelProvider = async (effect) => {
     results.push(JSON.stringify(prompt.at(-1)));
     return { output: [{ type: "text", text: "done" }] };
   }
-  const call = last?.match(/^call (.*)$/s)?.[1];
-  if (call) return { output: [{ type: "tool-call", id: `call-${calls.length}`, name: "triggers", args: JSON.parse(call) }] };
+  // A run under the nylorun-triggers plugin starts with its [trigger] line (ADR-105).
+  const call = last?.match(/(?:^|\n)call (.*)$/s)?.[1];
+  // The plugin's tool is nylorun__triggers to the model (ADR-105).
+  const name = (input.tools ?? []).some((tool) => tool.name === "nylorun__triggers") ? "nylorun__triggers" : "triggers";
+  if (call) return { output: [{ type: "tool-call", id: `call-${calls.length}`, name, args: JSON.parse(call) }] };
   return { output: [{ type: "text", text: "ok" }] };
 };
 
@@ -511,5 +515,33 @@ describe("the Tenant runs stream", () => {
     const fresh = await streamed(undefined, 1);
     expect(fresh.events.map((event) => event.run.runId)).toEqual([run.body.run.id]);
     expect(fresh.events[0]!.cursor).toBe(runsCursor(generation, 0));
+  });
+});
+
+describe("the nylorun-triggers plugin (ADR-105)", () => {
+  const PLUGIN = { triggers: true, plugins: [{ name: "nylorun-triggers" as const, tools: ["triggers"], sha256: pluginOf("nylorun-triggers").sha256 }] };
+
+  it("answers with the time, frames a run, and lets a triggered turn set a one-off follow-up, never a schedule", async () => {
+    await deploy(runtime.url, headers, bot, { name: "planner3", id: "planner3", runtime: { kind: "none" } as RuntimeSection, engine: PLUGIN });
+    await open("p1", "planner3");
+    const listed = await tool("p1", { command: "list" });
+    expect(listed).toMatch(/\\"now\\":\\"\d{4}-\d{2}-\d{2}T/);
+    expect(calls.at(-1)!.tools).toContain("nylorun__triggers");
+    const follow = create({ id: "again", in: "2h", session: "this", prompt: "Look again." });
+    const schedule = create({ id: "daily", schedule: "0 9 * * *", session: "this", prompt: "Every day." });
+    await tool(
+      "p1",
+      create({ id: "wake", in: "1h", session: "this", title: "Deploy check", prompt: `call ${JSON.stringify(follow)}` }),
+    );
+    await fire("planner3", "wake");
+    await idle("p1");
+    expect(calls.findLast((item) => item.last?.includes("[trigger wake"))!.last).toMatch(/^\[trigger wake · Deploy check · nobody is watching\]\ncall /);
+    expect(await row("planner3", "again")).toMatchObject({ origin: "agent", status: "active" });
+    // A schedule from a triggered turn is still refused.
+    await tool("p1", create({ id: "wake2", in: "1h", session: "this", prompt: `call ${JSON.stringify(schedule)}` }));
+    await fire("planner3", "wake2");
+    await idle("p1");
+    expect(results.at(-1)).toContain("A run can't create triggers other than a one-off follow-up");
+    expect(await row("planner3", "daily")).toBeUndefined();
   });
 });

@@ -37,6 +37,8 @@ Agent manifests:
                                       (agent.manifest.json; reads no Runtime)
   migrate folder <dir> --to 2         make an agent folder agent-folder/2, declaring every
                                       engine feature it gets today, so nothing it gets changes
+  migrate folder <dir> --to 3         make an agent-folder/2 folder agent-folder/3, declaring
+                                      its Runtime features as plugins (plugins: [nylorun-...])
   export --folder <name>[@<version>] [--out <dir>]
                                       write the agent folder of a saved manifest (Runtime API)
   pull <name>[@<version>] [--out <dir>]

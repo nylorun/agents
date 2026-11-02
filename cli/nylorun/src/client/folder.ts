@@ -138,7 +138,10 @@ async function fixFolder(pack: PackedFolder, diagnostics: readonly AgentFolderDi
 export function explainLines(agents: readonly ExplainedAgent[]): string[] {
   const lines: string[] = [];
   for (const agent of agents) {
-    lines.push(`  ${agent.agent}: ${agent.declared ? "declares its engine features (agent-folder/2)" : "every engine feature by default (agent-folder/1)"}`);
+    const plugins = agent.features.some((item) => item.declaredBy.startsWith("nylorun-"));
+    lines.push(
+      `  ${agent.agent}: ${plugins ? "declares the Runtime's plugins (agent-folder/3)" : agent.declared ? "declares its engine features (agent-folder/2)" : "every engine feature by default (agent-folder/1)"}`,
+    );
     for (const item of agent.features) {
       const adds = [
         ...(item.tools.length > 0 ? [`tools ${item.tools.join(", ")}`] : []),

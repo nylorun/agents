@@ -1,3 +1,4 @@
+import { runtimeToolOf } from "../plugins/index.js";
 import type {
   AgentManifest,
   McpServerManifest,
@@ -137,7 +138,13 @@ export function withoutTools(manifest: AgentManifest, names: readonly string[]):
 }
 
 function narrowAgent(agent: AgentManifest, removed: ReadonlySet<string>, root: boolean): AgentManifest {
-  const { tools: _tools, mcpServers: _servers, ...rest } = agent;
+  const { tools: _tools, mcpServers: _servers, engine: _engine, ...rest } = agent;
+  // A Runtime plugin's tool by the name the model reads (ADR-105): `nylorun__ask` turns `ask` off.
+  const offPlugin = new Set([...removed].flatMap((name) => runtimeToolOf(name) ?? []));
+  const engine =
+    agent.engine?.plugins !== undefined && offPlugin.size > 0
+      ? { ...agent.engine, plugins: agent.engine.plugins.map((plugin) => ({ ...plugin, tools: plugin.tools.filter((tool) => !offPlugin.has(tool)) })) }
+      : agent.engine;
   const tools = agent.tools
     ?.filter((tool) => !removed.has(tool.name))
     .map((tool) => {
@@ -154,6 +161,7 @@ function narrowAgent(agent: AgentManifest, removed: ReadonlySet<string>, root: b
     ...rest,
     ...(tools === undefined ? {} : { tools }),
     ...(servers === undefined ? {} : { mcpServers: servers }),
+    ...(engine === undefined ? {} : { engine }),
   };
 }
 

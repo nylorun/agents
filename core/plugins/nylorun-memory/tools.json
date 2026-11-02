@@ -1,0 +1,9 @@
+{
+  "server": "nylorun",
+  "tools": [
+    {
+      "name": "memory",
+      "effect": "runtime"
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "server": "nylorun",
+  "tools": [
+    {
+      "name": "ask",
+      "effect": "harness"
+    },
+    {
+      "name": "request_connection",
+      "effect": "harness"
+    }
+  ]
+}

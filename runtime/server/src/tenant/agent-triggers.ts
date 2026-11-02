@@ -64,6 +64,14 @@ function reaches(row: AgentTriggerRow, sessionId: string): boolean {
   return row.createdSessionId === sessionId || (row.definition as Trigger | null)?.session === sessionId;
 }
 
+/** Whether the version session `s` runs declares the Runtime's `nylorun-triggers` plugin (ADR-105). */
+async function declaresTriggersPlugin(t: Tx, s: Pick<Session, "definition">): Promise<boolean> {
+  if (!s.definition) return false;
+  const body = (await t.agentManifest(s.definition.name, s.definition.version))?.body as AgentManifestV8 | undefined;
+  const plugins = (body?.harness as { engine?: { plugins?: { name?: unknown }[] } } | undefined)?.engine?.plugins;
+  return Array.isArray(plugins) && plugins.some((plugin) => plugin?.name === "nylorun-triggers");
+}
+
 /** Whether the version session `s` runs declares `harness.engine.triggers`. */
 async function declaresTriggers(t: Tx, s: Pick<Session, "definition">): Promise<boolean> {
   if (!s.definition) return false;
@@ -113,6 +121,7 @@ export async function serveTriggersTool(
   if (input.command === "list") {
     const rows = (await t.agentTriggers(s.agentId)).filter((row) => reaches(row, s.id));
     return completed({
+      now: new Date().toISOString(),
       triggers: rows.map((row) => {
         const trigger = row.definition as Trigger;
         return {
@@ -135,9 +144,20 @@ export async function serveTriggersTool(
     await t.agentEvent(s.agentId, "agent.trigger_deleted", { triggerId: input.id, sessionId: s.id });
     return completed({ id: input.id, deleted: true });
   }
-  // create: never from a turn a trigger or a booked wake started.
-  if (s.turnCause !== undefined)
-    return failed("tool.forbidden", "A run can't create triggers: this turn was started by a trigger. It may list and delete them.");
+  // create: never from a turn a trigger or a booked wake started. Under the `nylorun-triggers`
+  // plugin (ADR-105) such a turn may still set a one-off follow-up in its own session, as a woken
+  // turn books the next wake: never a schedule, never a session of its own.
+  if (s.turnCause !== undefined) {
+    const plugin = await declaresTriggersPlugin(t, s);
+    const followUp = plugin && input.schedule === undefined && input.session === "this";
+    if (!followUp)
+      return failed(
+        "tool.forbidden",
+        plugin
+          ? "A run can't create triggers other than a one-off follow-up here (in or at, with session: this): this turn was started by a trigger. It may list and delete them."
+          : "A run can't create triggers: this turn was started by a trigger. It may list and delete them.",
+      );
+  }
   const now = new Date();
   const stamp = now.toISOString();
   const session = triggerSessionOf(s.id, input.id, input.session);
@@ -208,5 +228,5 @@ export async function serveTriggersTool(
     ...(row.title === null ? {} : { title: row.title }),
     nextRunAt: row.nextFireAt,
   });
-  return completed({ id: input.id, status: row.status, nextRunAt: row.nextFireAt, session }, [row]);
+  return completed({ id: input.id, status: row.status, nextRunAt: row.nextFireAt, session, now: stamp }, [row]);
 }

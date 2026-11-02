@@ -100,10 +100,12 @@ export async function runTurn(ctx: RunContext, run: HarnessRun): Promise<void> {
     // `harness.loop.plan` and `harness.loop.connections`, for the root agent.
     const loop =
       start.engine === "agent"
-        ? (start.loop as { plan?: unknown; connections?: unknown } | undefined)
+        ? (start.loop as { plan?: unknown; connections?: unknown; ask?: unknown } | undefined)
         : undefined;
     const plan = loop?.plan === true;
     const connections = loop?.connections === true;
+    // `ask` (ADR-105, `nylorun-interactions`): the version's `harness.loop.ask`, for the root agent.
+    const ask = loop?.ask === true;
     // The triggers the agent sets up itself (D83): the version declares `harness.engine.triggers`,
     // for the root agent only.
     const triggers = start.engine === "agent" && start.agent?.triggers === true;
@@ -122,6 +124,7 @@ export async function runTurn(ctx: RunContext, run: HarnessRun): Promise<void> {
         plan && agent.id === rootId,
         connections && agent.id === rootId,
         triggers && agent.id === rootId,
+        ask && agent.id === rootId,
       );
     const mcp =
       start.engine === "agent" && start.mcp

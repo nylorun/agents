@@ -45,6 +45,7 @@ import {
 import { isToolSearch, runToolSearch } from "../tools/tool-search.js";
 import { isPlanTool, runPlanTool } from "../tools/plan.js";
 import { isConnectionTool, runConnectionTool } from "../tools/connection.js";
+import { isAskTool, runAskTool } from "../tools/ask.js";
 import { runAbortKind } from "./abort.js";
 import type { HarnessExecutors, HarnessRun } from "./executors.js";
 import type { LoopConfig } from "../loop/config.js";
@@ -247,6 +248,7 @@ export function apiHost(
       );
     if (isPlanTool(effect)) return runPlanTool(effect, { channel, run, signal });
     if (isConnectionTool(effect)) return Promise.resolve(runConnectionTool(effect));
+    if (isAskTool(effect)) return Promise.resolve(runAskTool(effect));
     if (isArtifactTool(effect.toolName))
       return runArtifactTool(effect, {
         channel,
@@ -320,7 +322,10 @@ function pause(ms: number, signal: AbortSignal): Promise<void> {
 }
 
 /** The agent of the turn's manifest an effect is for: the root, or an agent it uses as a tool. */
-function agentOf(manifest: AgentManifest, effect: HostEffect): Pick<AgentManifest, "skills"> {
+function agentOf(
+  manifest: AgentManifest,
+  effect: HostEffect,
+): Pick<AgentManifest, "skills" | "engine"> {
   if (effect.agent === undefined) return manifest;
   return (
     delegatesOf(manifest).find((delegate) => delegate.manifest.id === effect.agent!.id)?.manifest ??

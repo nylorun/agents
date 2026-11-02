@@ -71,7 +71,7 @@ export interface PreviewTurnOptions {
    */
   readonly triggers?: boolean;
   /** The harness's loop settings (`harness.loop`): `plan`, `connections`. Default: an agent manifest v8's. */
-  readonly loop?: { readonly plan?: boolean; readonly connections?: boolean };
+  readonly loop?: { readonly plan?: boolean; readonly connections?: boolean; readonly ask?: boolean };
   /** The harness's configuration of our engine's tools. Default: the harness's defaults. */
   readonly limits?: Partial<EngineToolLimits>;
   readonly mcpTools?: Partial<McpToolConfig>;
@@ -141,10 +141,11 @@ export function previewTurn(manifest: AgentManifestV8 | AgentManifest, options: 
               index: declared.index === false ? (false as const) : "",
             }
           : undefined;
-  const settings = (harness?.loop ?? {}) as { plan?: unknown; connections?: unknown };
+  const settings = (harness?.loop ?? {}) as { plan?: unknown; connections?: unknown; ask?: unknown };
   const plan = options.loop?.plan ?? settings.plan === true;
   const connections = options.loop?.connections ?? settings.connections === true;
   const triggers = options.triggers ?? harness?.engine?.triggers === true;
+  const ask = options.loop?.ask ?? settings.ask === true;
   const limits = { ...DEFAULT_ENGINE_TOOL_LIMITS, ...options.limits };
   const memoryOf = (agent: AgentManifest): EngineMemory | undefined =>
     memory && {
@@ -162,6 +163,7 @@ export function previewTurn(manifest: AgentManifestV8 | AgentManifest, options: 
       plan && agent.id === loop.id,
       connections && agent.id === loop.id,
       triggers && agent.id === loop.id,
+      ask && agent.id === loop.id,
     );
   const mcp = mcpToolSet(options.mcpFacts, loop, {
     config: mcpToolConfigOf(options.mcpTools),

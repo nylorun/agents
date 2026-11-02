@@ -77,6 +77,7 @@ export function engineToolsFor(
   plan = false,
   connections = false,
   triggers = false,
+  ask = false,
 ): EngineTools {
-  return engineProjection(agent, runsOn, options, memory, plan, connections, triggers);
+  return engineProjection(agent, runsOn, options, memory, plan, connections, triggers, ask);
 }

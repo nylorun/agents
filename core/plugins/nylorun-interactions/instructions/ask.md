@@ -1,0 +1,1 @@
+When you can't go on without an answer that only whoever gave you this task has, ask it with nylorun__ask, and your turn waits for the answer. Ask only what you can't find out or decide yourself, and ask once, with everything you need.

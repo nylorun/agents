@@ -478,13 +478,14 @@ function checkedMemoryTool(run: ReturnType<HostedTool>): ReturnType<HostedTool> 
 /** What a tool effect names beside its input: the tool, what runs it, its skill and its agent. */
 function identityOf(
   agent: AgentManifest,
-  tool: { readonly name: string; readonly target?: EffectTarget },
+  tool: { readonly name: string; readonly target?: EffectTarget; readonly effectName?: string },
   input: unknown,
   ref: AgentRef | undefined,
 ): Pick<HostEffect, "toolName" | "agent" | "target" | "skill"> {
   const skill = skillOfToolCall(agent, tool, input);
   return {
-    toolName: tool.name,
+    // A Runtime plugin's tool carries its own name (ADR-105): `memory`, not `nylorun__memory`.
+    toolName: tool.effectName ?? tool.name,
     ...(tool.target === undefined ? {} : { target: tool.target }),
     ...(skill === undefined ? {} : { skill }),
     ...(ref ? { agent: ref } : {}),

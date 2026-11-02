@@ -368,6 +368,17 @@ export const HarnessEngineSchema = z
       .optional()
       .meta({ description: "A block's wording replaced, by block name" }),
     blocks: z.array(engineBlockRefSchema).optional().meta({ description: "The engine text blocks the agent gets, with their hashes" }),
+    plugins: z
+      .array(
+        z.strictObject({
+          name: z.enum(["nylorun-memory", "nylorun-triggers", "nylorun-plan", "nylorun-interactions", "nylorun-artifacts", "nylorun-sandbox"]),
+          tools: z.array(z.string().min(1)),
+          sha256: z.string().regex(/^sha256:[0-9a-f]{64}$/),
+          hosts: z.array(z.string().min(1)).optional(),
+        }),
+      )
+      .optional()
+      .meta({ description: "The Runtime's plugins the agent declares (agent-folder/3, ADR-105): each with the tools left on and the hash of its files" }),
   })
   .meta({ id: "HarnessEngine" });
 const harnessEngineField = HarnessEngineSchema.optional();
@@ -2280,8 +2291,15 @@ export const TriggerToolItemSchema = z
   });
 /** What a `triggers` call answers: the trigger made, the list, or the one deleted. */
 export const TriggerToolOutputSchema = z.union([
-  z.strictObject({ id: z.string(), status: z.enum(TRIGGER_STATUSES), nextRunAt: z.string().nullable(), session: z.string() }),
-  z.strictObject({ triggers: z.array(TriggerToolItemSchema) }),
+  z.strictObject({
+    id: z.string(),
+    status: z.enum(TRIGGER_STATUSES),
+    nextRunAt: z.string().nullable(),
+    session: z.string(),
+    /** The Runtime's clock when it answered, so the model knows the time (ADR-105). */
+    now: z.string().optional(),
+  }),
+  z.strictObject({ triggers: z.array(TriggerToolItemSchema), now: z.string().optional() }),
   z.strictObject({ id: z.string(), deleted: z.literal(true) }),
 ]);
 export type TriggerToolOutput = z.infer<typeof TriggerToolOutputSchema>;

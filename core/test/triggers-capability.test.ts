@@ -161,7 +161,7 @@ describe("engine.triggers in an agent folder (D83)", () => {
       $id: string;
       properties: { engine: { properties: Record<string, unknown> } };
     };
-    expect(schema.$id).toBe("https://docs.nylorun.com/schemas/agent-folder/v1/agent-md.3.json");
+    expect(schema.$id).toBe("https://docs.nylorun.com/schemas/agent-folder/v1/agent-md.4.json");
     expect(schema.properties.engine.properties.triggers).toMatchObject({ type: "boolean" });
   });
 

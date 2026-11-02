@@ -32,6 +32,8 @@ import {
 import {
   LOAD_SKILL_TOOL,
   READ_SKILL_RESOURCE_TOOL,
+  pluginSkill,
+  pluginSkills,
   SKILLS_USAGE,
   formatSkillCatalog,
 } from "@nylorun/core/engine";
@@ -69,7 +71,7 @@ export interface SkillToolContext {
   readonly channel: Pick<HarnessChannel, "request">;
   readonly run: HarnessRun;
   /** The agent whose skill the call reads: the turn's agent, or the agent used as a tool. */
-  readonly agent: Pick<AgentManifest, "skills">;
+  readonly agent: Pick<AgentManifest, "skills" | "engine">;
   /**
    * The most bytes of one file read into the model's context: the harness's `skillReadBytes`.
    * The answer is also held to the run's `limits.recordEntryBytes`, since it is one record entry.
@@ -145,9 +147,31 @@ export async function runSkillTool(
   );
   const name = typeof input.name === "string" ? input.name : "";
   const skill = skills.get(name);
+  // A skill of a Runtime plugin the agent declares (ADR-105) is the plugin's: served from the bundle.
+  const declared = (context.agent.engine?.plugins ?? []).map((plugin) => plugin.name);
+  const ofPlugin = skill ? undefined : pluginSkill(declared, name);
+  if (ofPlugin)
+    return effect.toolName === LOAD_SKILL_TOOL
+      ? {
+          kind: "completed",
+          output: { name: ofPlugin.name, content: skillInstructions(ofPlugin.text) },
+        }
+      : failed(
+          "skill.unknown_resource",
+          `Skill '${ofPlugin.name}' has no resource '${typeof input.path === "string" ? input.path : ""}'.`,
+        );
   if (!skill)
     return effect.toolName === LOAD_SKILL_TOOL
-      ? { kind: "completed", output: { unknown: name, available: [...skills.keys()].sort() } }
+      ? {
+          kind: "completed",
+          output: {
+            unknown: name,
+            available: [
+              ...skills.keys(),
+              ...pluginSkills(declared).map((item) => item.name),
+            ].sort(),
+          },
+        }
       : failed("skill.unknown", `There is no skill '${name}'.`);
   const { sandboxed } = context;
   const recordBytes = context.run.start.limits.recordEntryBytes;

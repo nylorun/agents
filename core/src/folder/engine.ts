@@ -54,6 +54,10 @@ export interface EngineScopeFacts {
   readonly memory: boolean;
   /** The uploaded folder's runtime sets `selfWake`. */
   readonly selfWake: boolean;
+  /** The uploaded folder is `agent-folder/3` (ADR-105). */
+  readonly v3?: boolean;
+  /** Its plugins, under format 3: a subagent's are a subset. */
+  readonly plugins?: readonly { readonly name: import("../plugins/index.js").PluginName; readonly tools: readonly string[] }[];
 }
 
 type Fail = (code: string, message: string, path?: readonly PropertyKey[], options?: ReportOptions) => void;
@@ -237,6 +241,8 @@ export function engineBlocksOf(
     readonly connections: boolean;
     /** The root agent declares `engine.triggers` (D83). */
     readonly triggers?: boolean;
+    /** The root agent has `ask` (`agent-folder/3`, `harness.loop.ask`). */
+    readonly ask?: boolean;
   },
 ): EngineBlockName[] {
   const projection = engineProjection(
@@ -247,6 +253,7 @@ export function engineBlocksOf(
     facts.plan,
     facts.connections,
     facts.triggers === true,
+    facts.ask === true,
   );
   const names = projection.blocks.map((block) => block.name);
   const servers = Object.values(agent.mcpServers ?? {});

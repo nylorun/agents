@@ -57,6 +57,8 @@ import {
   type AgentManifestV8,
 } from "../contracts.js";
 import { cronScheduleIssue, isTimeZone, timeZoneNames } from "../definition/cron.js";
+import { RUNTIME_SERVER } from "../plugins/index.js";
+import { enginePlugins, isFolderV3, pluginSkillNames, v3Declarations, type V3Plugins } from "./v3.js";
 import { DELEGATE_NAME_PATTERN } from "../definition/delegate.js";
 import { sectionGapsAt } from "../definition/sections.js";
 import { DEFAULT_HARNESS } from "../utils/harness-id.js";
@@ -85,7 +87,7 @@ export const AGENT_FOLDER_COMPILER = "agent-folder/1";
  * The formats this compiler builds: `agent-folder/1`, and `agent-folder/2` (ADR-100), whose
  * folder declares every engine feature it uses (`folder/engine.ts`).
  */
-export const AGENT_FOLDER_FORMATS = ["agent-folder/1", "agent-folder/2"] as const;
+export const AGENT_FOLDER_FORMATS = ["agent-folder/1", "agent-folder/2", "agent-folder/3"] as const;
 export type AgentFolderFormat = (typeof AGENT_FOLDER_FORMATS)[number];
 
 /**
@@ -178,7 +180,7 @@ export const SCHEMA_URLS = {
   flow: [`${FOLDER_SCHEMAS}flow.json`],
 } as const;
 const SKILL_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
-export const AGENT_KEYS = ["name", "description", "format", "harness", "inputSchema", "outputSchema", "mcpServers", "skills", "memory", "loop", "model", "engine", "metadata"] as const;
+export const AGENT_KEYS = ["name", "description", "format", "harness", "inputSchema", "outputSchema", "mcpServers", "skills", "memory", "loop", "model", "engine", "plugins", "metadata"] as const;
 const SKILL_KEYS = ["name", "description", "license", "compatibility", "metadata", "allowed-tools"];
 export const TRIGGER_KEYS = ["schedule", "timezone", "at", "webhook", "session"] as const;
 export const MCP_KEYS = ["$schema", "mcpServers"] as const;
@@ -191,8 +193,8 @@ export const TOOL_KEYS = ["description", "inputSchema", "outputSchema", "http"] 
  * The loop settings our harness reads from `loop`: `plan` (`true` offers the agent `update_plan`)
  * and `connections` (`true` offers it `request_connection`). A custom harness reads its own.
  */
-const NYLORUN_LOOP_KEYS: readonly string[] = ["plan", "connections"];
-const LOOP_TOOLS: Readonly<Record<string, string>> = { plan: "update_plan", connections: "request_connection" };
+const NYLORUN_LOOP_KEYS: readonly string[] = ["plan", "connections", "ask"];
+const LOOP_TOOLS: Readonly<Record<string, string>> = { plan: "update_plan", connections: "request_connection", ask: "ask" };
 /** The runtime fields only a sandbox has, and the ones only a pod has. */
 const SANDBOX_FIELDS = ["image", "resources", "storage", "network", "setup", "files"] as const;
 const POD_FIELDS = ["image", "storage", "setup", "files"] as const;
@@ -365,6 +367,9 @@ export function compileAgentFolder(input: CompileAgentFolderInput, scope?: Folde
   const diagnostics: AgentFolderDiagnostic[] = [];
   /** The folder's format: the uploaded folder's `format`, which a folder inside it shares. */
   let format: 1 | 2 = scope?.engineFacts?.format ?? 1;
+  /** The folder is `agent-folder/3` (ADR-105): its plugins stand for v2 declarations (folder/v3.ts). */
+  let v3 = scope?.engineFacts?.v3 === true;
+  let v3Plugins: V3Plugins | undefined;
   const parsed = new Map<string, ParsedFile>();
   const report = (
     severity: AgentFolderDiagnostic["severity"],
@@ -496,6 +501,17 @@ export function compileAgentFolder(input: CompileAgentFolderInput, scope?: Folde
       return undefined;
     }
     return result.value;
+  };
+  /** Whether runtime.json names a computer, read quietly before the runtime section is (v3). */
+  const earlyComputer = (): boolean => {
+    const bytes = input.files.get(RUNTIME_FILE);
+    if (!bytes) return false;
+    try {
+      const value = JSON.parse(new TextDecoder().decode(bytes).replace(/^\uFEFF/, "")) as { kind?: unknown };
+      return value?.kind === "virtual" || value?.kind === "pod";
+    } catch {
+      return false;
+    }
   };
   const readMarkdown = (path: string) => {
     const text = textOf(path);
@@ -637,7 +653,10 @@ export function compileAgentFolder(input: CompileAgentFolderInput, scope?: Folde
     if (typeof front.description !== "string" || front.description.trim() === "")
       error("description_missing", "description is required: what the agent does, in a sentence", AGENT_FILE, front.description === undefined ? undefined : ["description"]);
     else description = front.description.trim();
-    if (!scope && folderFormatOf(front.format) === undefined)
+    if (!scope && isFolderV3(front.format)) {
+      v3 = true;
+      format = 2;
+    } else if (!scope && folderFormatOf(front.format) === undefined)
       error(
         "format_unsupported",
         `format ${JSON.stringify(front.format)} is not supported: this compiler builds ${AGENT_FOLDER_FORMATS.join(" and ")} (the default, ${AGENT_FOLDER_COMPILER})`,
@@ -645,6 +664,29 @@ export function compileAgentFolder(input: CompileAgentFolderInput, scope?: Folde
         ["format"],
       );
     else if (!scope) format = folderFormatOf(front.format)!;
+    // agent-folder/3 (ADR-105): the plugins stand for agent-folder/2's declarations.
+    if (v3 && scope?.role !== "plugin") {
+      const role = scope?.role === "subagent" ? "subagent" : "root";
+      v3Plugins = v3Declarations(front, {
+        error: (code, message, path, options) => error(code, message, AGENT_FILE, path, options),
+        computer: scope?.engineFacts ? scope.engineFacts.computer : earlyComputer(),
+        role,
+        ...(scope?.engineFacts?.plugins === undefined ? {} : { parent: scope.engineFacts.plugins }),
+      });
+      delete front.memory;
+      delete front.loop;
+      if (isObject(front.mcpServers)) {
+        const { [RUNTIME_SERVER]: _runtime, ...rest } = front.mcpServers;
+        if (Object.keys(rest).length > 0) front.mcpServers = rest;
+        else delete front.mcpServers;
+      }
+      if (v3Plugins) {
+        if (v3Plugins.memory) front.memory = v3Plugins.memory;
+        if (v3Plugins.loop) front.loop = v3Plugins.loop;
+        front.engine = v3Plugins.engine;
+      } else delete front.engine;
+    } else if (front.plugins !== undefined && scope?.role !== "plugin")
+      error("v3_key", "plugins names the Runtime's plugins, a key of agent-folder/3. Fix: add format: agent-folder/3 to AGENT.md, or run nylorun migrate folder <dir> --to 3", AGENT_FILE, ["plugins"], { key: true });
     if (front.harness !== undefined) {
       if (HarnessIdSchema.safeParse(front.harness).success) harness.id = front.harness;
       else error("harness_invalid", "harness is the id of the harness that runs the loop, such as nylorun", AGENT_FILE, ["harness"]);
@@ -726,6 +768,8 @@ export function compileAgentFolder(input: CompileAgentFolderInput, scope?: Folde
       const { $schema: _, extends: __, ...rest } = value;
       runtime = rest;
       origins.push([["runtime"], { file: RUNTIME_FILE, path: [] }]);
+      if (v3 && !scope && rest.selfWake !== undefined)
+        error("v3_refused", "selfWake is a key of agent-folder/2: in agent-folder/3, nylorun-triggers sets a follow-up (in or at, session: this). Fix: run nylorun migrate folder <dir> --to 3", RUNTIME_FILE, ["selfWake"], { key: true });
       if (isObject(rest.triggers))
         for (const [id, trigger] of Object.entries(rest.triggers))
           if (isObject(trigger)) checkSchedule(RUNTIME_FILE, ["triggers", id], trigger);
@@ -775,7 +819,12 @@ export function compileAgentFolder(input: CompileAgentFolderInput, scope?: Folde
           return trimmed;
         },
       });
-      if (declared && !scope && computer && (declared.engine.sandbox ?? []).length === 0)
+      if (declared && v3) {
+        const network = isObject(runtime) && isObject(runtime.network) ? runtime.network : undefined;
+        const hosts = Array.isArray(network?.allowedHosts) ? network.allowedHosts.filter((host): host is string => typeof host === "string") : undefined;
+        declared = { ...declared, engine: { ...declared.engine, plugins: enginePlugins(v3Plugins?.plugins ?? [], hosts) } };
+      }
+      if (declared && !scope && computer && !v3 && (declared.engine.sandbox ?? []).length === 0)
         warn(
           "sandbox_undeclared",
           `The runtime has a computer (kind ${JSON.stringify(runtimeKind)}), and engine.sandbox names no sandbox tool, so the agent gets no shell or file tools and no sandbox note. Fix: engine: { sandbox: [bash, read, write, edit, grep, glob] } (any of them), or a runtime without a computer`,
@@ -795,6 +844,7 @@ export function compileAgentFolder(input: CompileAgentFolderInput, scope?: Folde
       format,
       computer,
       ...(format === 2 && declared ? { engine: declared.engine } : {}),
+      ...(v3 ? { v3: true, plugins: v3Plugins?.plugins ?? [] } : {}),
       memory: isObject(front.memory),
       selfWake: isObject(runtime) && runtime.selfWake === true,
     };
@@ -995,6 +1045,8 @@ export function compileAgentFolder(input: CompileAgentFolderInput, scope?: Folde
           }
       }
   }
+  if (v3 && servers[RUNTIME_SERVER] !== undefined)
+    error("server_reserved", `${RUNTIME_SERVER} is the Runtime's own server, which its plugins share: name this server differently`, MCP_FILE, ["mcpServers", RUNTIME_SERVER], { key: true });
   if (Object.keys(servers).length > 0) harness.mcpServers = servers;
 
   // --- skills/ ---------------------------------------------------------------------------
@@ -1100,6 +1152,10 @@ export function compileAgentFolder(input: CompileAgentFolderInput, scope?: Folde
         origins.push([["harness", "skills", key, "secrets"], { file: AGENT_FILE, path: [...at, "secrets"] }]);
       }
   }
+  if (v3 && v3Plugins)
+    for (const name of pluginSkillNames(v3Plugins.plugins))
+      if (skills[name] !== undefined)
+        error("skill_reserved", `${name} is the skill of a plugin this folder declares: name the folder's skill differently`, `skills/${name}/SKILL.md`);
   if (Object.keys(skills).length > 0) harness.skills = skills;
 
   // --- tools/ ----------------------------------------------------------------------------
@@ -1174,7 +1230,7 @@ export function compileAgentFolder(input: CompileAgentFolderInput, scope?: Folde
   for (const [path, kind] of kinds) if (kind === "file") seeded[path.slice("files/".length)] = `sha256:${byPath.get(path)!.sha256}`;
 
   // --- agents/, flow.json and plugins/ (folder/nested.ts) ----------------------------------
-  if (!parts.compose()) return finish(format, diagnostics);
+  if (!parts.compose()) return finish(v3 ? 3 : format, diagnostics);
 
   // --- The engine blocks the agent gets (agent-folder/2) ------------------------------------
   if (declared && harness.kind !== "workflow") {
@@ -1201,6 +1257,7 @@ export function compileAgentFolder(input: CompileAgentFolderInput, scope?: Folde
         plan: role === "root" && loop.plan === true,
         connections: role === "root" && loop.connections === true,
         triggers: role === "root" && declared.engine.triggers === true,
+        ask: role === "root" && loop.ask === true,
       },
     );
     for (const name of unusedInstructions(declared.engine, names))
@@ -1232,7 +1289,7 @@ export function compileAgentFolder(input: CompileAgentFolderInput, scope?: Folde
 
   // --- Every field checked as the Runtime checks the manifest ------------------------------
   if (diagnostics.some((item) => item.severity === "error") || name === undefined || description === undefined)
-    return finish(format, diagnostics);
+    return finish(v3 ? 3 : format, diagnostics);
   const document = {
     manifestSchemaVersion: AGENT_MANIFEST_V8_SCHEMA_VERSION,
     name,
@@ -1271,9 +1328,9 @@ export function compileAgentFolder(input: CompileAgentFolderInput, scope?: Folde
       if (issue.path[0] === "runtime" && issue.path[1] === "triggers" && typeof issue.path[2] === "string" && issue.path[2] in triggers) continue;
       place(issue, [], fromOrigins);
     }
-    return finish(format, diagnostics);
+    return finish(v3 ? 3 : format, diagnostics);
   }
-  if (diagnostics.some((item) => item.severity === "error")) return finish(format, diagnostics);
+  if (diagnostics.some((item) => item.severity === "error")) return finish(v3 ? 3 : format, diagnostics);
   const manifest = checked.data as AgentManifestV8;
 
   // --- What the Runtime checks at save, where it needs no Tenant ---------------------------
@@ -1322,8 +1379,8 @@ export function compileAgentFolder(input: CompileAgentFolderInput, scope?: Folde
         { key: true, pointer: pointerOf(["runtime", field]) },
       );
     }
-  if (diagnostics.some((item) => item.severity === "error")) return finish(format, diagnostics);
-  return finish(format, diagnostics, manifest);
+  if (diagnostics.some((item) => item.severity === "error")) return finish(v3 ? 3 : format, diagnostics);
+  return finish(v3 ? 3 : format, diagnostics, manifest);
 
   /** A schema issue in the compiler's words, at the file and field that wrote it. */
   function place(issue: z.core.$ZodIssue, base: readonly PropertyKey[], where: Where) {
@@ -1480,7 +1537,7 @@ function issueMessage(issue: z.core.$ZodIssue, field: string, value: unknown): s
   }
 }
 
-function finish(format: 1 | 2, diagnostics: AgentFolderDiagnostic[], manifest?: AgentManifestV8): CompiledAgentFolder {
+function finish(format: 1 | 2 | 3, diagnostics: AgentFolderDiagnostic[], manifest?: AgentManifestV8): CompiledAgentFolder {
   const order = { error: 0, warning: 1, info: 2, note: 3 } as const;
   const sorted = [...diagnostics].sort(
     (a, b) =>

@@ -1,0 +1,26 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "nylorun-sandbox",
+  "description": "The agent's computer: a shell and file tools in its sandbox, under the network policy of its runtime.",
+  "author": {
+    "name": "Nylorun"
+  },
+  "license": "Apache-2.0",
+  "extensions": {
+    "nylorun": {
+      "server": "nylorun",
+      "tools": [
+        "bash",
+        "read",
+        "write",
+        "edit",
+        "grep",
+        "glob"
+      ],
+      "requires": [
+        "computer"
+      ],
+      "instructions": "instructions/"
+    }
+  }
+}

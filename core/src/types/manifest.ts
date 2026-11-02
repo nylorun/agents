@@ -200,6 +200,19 @@ export interface HarnessEngine {
   readonly instructions?: Readonly<Partial<Record<EngineBlockName, string>>>;
   /** The engine text blocks the agent gets, each with its version and the hash of its text. */
   readonly blocks?: readonly EngineBlockRef[];
+  /**
+   * The Runtime's plugins the agent declares (`agent-folder/3`, ADR-105), each with the tools left
+   * on and the hash of its files. With it, the engine presents its tools as the server `nylorun`.
+   */
+  readonly plugins?: readonly HarnessEnginePlugin[];
+}
+
+/** One of the Runtime's plugins as a manifest records it (`harness.engine.plugins`). */
+export interface HarnessEnginePlugin {
+  readonly name: "nylorun-memory" | "nylorun-triggers" | "nylorun-plan" | "nylorun-interactions" | "nylorun-artifacts" | "nylorun-sandbox";
+  readonly tools: readonly string[];
+  readonly sha256: string;
+  readonly hosts?: readonly string[];
 }
 
 /** One engine text block an agent gets: `memory@1`, the SHA-256 of its text, and its source. */

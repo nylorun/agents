@@ -17,6 +17,7 @@
  * document says less than the compiler only where JSON Schema cannot: that a path names a file of
  * the folder, a cron, a time zone, which server or skill a name means.
  */
+import { PLUGIN_NAMES } from "../plugins/index.js";
 import { z } from "zod";
 import {
   AGENT_MANIFEST_NAME_PATTERN,
@@ -80,11 +81,12 @@ function fromZod(schema: z.ZodType, defs: Json, description?: string): Json {
  * A kind's revision within format 1, when its document gained an optional key (a published `$id`
  * names one document for good): `AGENT.md` took `model` (Host feature `agent-model`), published
  * as `agent-md.1.json`, then `format: agent-folder/2` and `engine` (ADR-100), as `agent-md.2.json`,
- * then `engine.triggers` (D83), as `agent-md.3.json`;
+ * then `engine.triggers` (D83), as `agent-md.3.json`, then `format: agent-folder/3` and
+ * `plugins` (ADR-105), as `agent-md.4.json`;
  * `runtime.json` took a secret slot's `toolPrefix` (Host feature `secret-routing`), published as
  * `runtime.1.json`, then `limits.triggers` (D83), as `runtime.2.json`.
  */
-const REVISIONS: Partial<Record<AgentFolderSchemaKind, number>> = { "agent-md": 3, runtime: 2 };
+const REVISIONS: Partial<Record<AgentFolderSchemaKind, number>> = { "agent-md": 4, runtime: 2 };
 
 /** One document: its `$id` from its kind, then the body, then the `$defs` its parts named. */
 function document(kind: AgentFolderSchemaKind, title: string, description: string, body: Json, defs: Json): Json {
@@ -132,9 +134,9 @@ function agentMd(): Json {
     name: { type: "string", pattern: AGENT_MANIFEST_NAME_PATTERN.source, description: "The agent manifest's name, the folder's when it is saved under one" },
     description: { type: "string", minLength: 1, description: "What the agent does, in a sentence" },
     format: {
-      enum: [1, 2, "agent-folder/1", "agent-folder/2"],
+      enum: [1, 2, 3, "agent-folder/1", "agent-folder/2", "agent-folder/3"],
       description:
-        "The folder's format: agent-folder/1 (or 1, the default), which gets every engine feature by default, or agent-folder/2 (or 2), which declares each in engine",
+        "The folder's format: agent-folder/1 (or 1, the default), which gets every engine feature by default; agent-folder/2 (or 2), which declares each in engine; or agent-folder/3 (or 3), which declares the Runtime's features as plugins",
     },
     harness: fromZod(HarnessIdSchema, defs, "The harness that runs the loop: nylorun (ours, the default) or a custom harness's id"),
     inputSchema: ref("JsonSchemaOrPath", "A flow's input (a folder with flow.json); an agent's input is the message"),
@@ -159,6 +161,13 @@ function agentMd(): Json {
     loop: {
       type: "object",
       description: "The harness's own settings, passed to it each turn; the nylorun harness reads plan (true offers the agent update_plan) and connections (true offers it request_connection)",
+    },
+    plugins: {
+      type: "array",
+      items: { enum: [...PLUGIN_NAMES] },
+      uniqueItems: true,
+      description:
+        "agent-folder/3: the Runtime's plugins the agent uses, which share the server nylorun (mcpServers.nylorun.tools turns one of their tools off): nylorun-memory, nylorun-triggers, nylorun-plan, nylorun-interactions, nylorun-artifacts, nylorun-sandbox (needs a computer)",
     },
     model: fromZod(AgentModelSchema, defs, "The model the agent runs on: <provider>/<model>, such as anthropic/claude-sonnet-4-5"),
     engine: {
