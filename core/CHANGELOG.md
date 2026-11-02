@@ -1,5 +1,11 @@
 # @nylorun/core
 
+## 0.36.0-beta
+
+### Minor Changes
+
+- 2afa44d: The Runtime's primitives as its own Agent Plugins (ADR-105, D84). An `agent-folder/3` folder lists them under `plugins:` (`nylorun-memory`, `nylorun-triggers`, `nylorun-plan`, `nylorun-interactions`, `nylorun-artifacts`, `nylorun-sandbox`, which needs a computer), with no versions, and turns one of their tools off with `mcpServers.nylorun.tools.<tool>.enabled: false`. The compiler reads them as the `agent-folder/2` declarations they stand for (`memory`, `loop`, `engine.sandbox`, `engine.artifacts`, `engine.triggers`, which v3 refuses) and records them in `harness.engine.plugins`, each with its tools and the hash of its files. The engine presents their tools as the reserved server `nylorun`: the model reads `nylorun__memory` and the declared plugins' words as one text, with their skills (`memory`, `triggers`) in the catalog, served from the bundle; every effect keeps its target and `toolName`, so the record, tool policy (`kind: "runtime"` rules) and dispatch are unchanged. New: `ask` (`nylorun-interactions`, `harness.loop.ask`), a question that pauses the turn as an A2A `question`; `removeTools` takes `nylorun__<tool>`; `triggers` answers carry `now`; under `nylorun-triggers`, an agent-made trigger's run starts with a `[trigger <id> · <title> · nobody is watching]` line, and a turn a trigger started may set a one-off follow-up (`in` or `at`, `session: "this"`); the sandbox's instructions name the hosts `runtime.json` allows. `nylorun migrate folder <dir> --to 3` writes the plugins that keep an agent's tools and features, and `nylorun check --explain` names the plugin behind each. The JSON Schemas are republished as `agent-manifest/v8.4`, `harness-manifest/v1.4` and `agent-folder/v1/agent-md.4`.
+
 ## 0.35.0-beta
 
 ### Minor Changes

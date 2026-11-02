@@ -1,5 +1,18 @@
 # @nylorun/cli
 
+## 0.17.17-beta
+
+### Patch Changes
+
+- Pin nylorun to the tested release.
+- Updated dependencies [2afa44d]
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+- Updated dependencies
+  - nylorun@0.27.0-beta
+
 ## 0.17.16-beta
 
 ### Patch Changes
