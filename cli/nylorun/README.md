@@ -607,7 +607,7 @@ blocks the agent gets, with their versions and hashes (`harness.engine.blocks`).
 `nylorun migrate folder <dir> --to 2` writes the declarations that keep what an `agent-folder/1`
 folder gets, so nothing changes until you remove a line.
 
-**The Runtime's plugins (`agent-folder/3`, ADR-105).** A v3 folder names the Runtime's features
+**The Runtime's plugins (`agent-folder/3`, ADR-106).** A v3 folder names the Runtime's features
 as plugins instead of keys:
 
 ```yaml

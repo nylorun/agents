@@ -89,7 +89,7 @@ describe("nylorun migrate folder --to 2 (ADR-100)", () => {
     await expect(migrateCommand(deps, ["folder", "helper", "--to", "4"])).rejects.toMatchObject({ exitCode: 2 });
   });
 
-  it("makes an agent-folder/2 folder agent-folder/3 with the plugins it uses (ADR-105)", async () => {
+  it("makes an agent-folder/2 folder agent-folder/3 with the plugins it uses (ADR-106)", async () => {
     const { deps, dir } = await folder({
       "AGENT.md":
         "---\nname: helper\ndescription: Helps.\nformat: agent-folder/2\nmemory:\n  access: read_write\n  instructions: Keep notes short.\nloop: { plan: true }\nengine:\n  sandbox: [bash, read]\n  artifacts: { read: true, save: false }\n  outputs: true\n---\nHelp.\n",

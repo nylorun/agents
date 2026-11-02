@@ -33,7 +33,7 @@ feature the folder gets today by default (the sandbox tools, save_artifact and t
 when runtime.json has a computer, read_artifact, tool search). Nothing the model reads or may
 call changes, which it checks before it writes; then remove the lines the agent does not need.
 
-With --to 3, makes an agent-folder/2 folder agent-folder/3 (ADR-105): the Runtime's plugins
+With --to 3, makes an agent-folder/2 folder agent-folder/3 (ADR-106): the Runtime's plugins
 (plugins: [nylorun-memory, ...]) in place of memory, loop, runtime.selfWake and engine's
 sandbox, artifacts and triggers, with mcpServers.nylorun turning off the tools the folder left
 out, and memory's instructions moved to the end of AGENT.md's body. Every agent keeps the same
@@ -96,7 +96,7 @@ function effects(manifest: AgentManifestV8): string {
   return JSON.stringify({ root: tools(preview), pinned: preview.pinned.length, agents: Object.fromEntries(Object.entries(preview.agents).map(([id, item]) => [id, tools(item)])) });
 }
 
-/** `nylorun migrate folder <dir> --to 3` (ADR-105). */
+/** `nylorun migrate folder <dir> --to 3` (ADR-106). */
 async function migrateToV3(deps: StackDeps, dir: string): Promise<number> {
   const cwd = deps.cwd ?? process.cwd();
   const where = relative(cwd, dir) || ".";

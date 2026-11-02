@@ -82,7 +82,7 @@ function fromZod(schema: z.ZodType, defs: Json, description?: string): Json {
  * names one document for good): `AGENT.md` took `model` (Host feature `agent-model`), published
  * as `agent-md.1.json`, then `format: agent-folder/2` and `engine` (ADR-100), as `agent-md.2.json`,
  * then `engine.triggers` (D83), as `agent-md.3.json`, then `format: agent-folder/3` and
- * `plugins` (ADR-105), as `agent-md.4.json`;
+ * `plugins` (ADR-106), as `agent-md.4.json`;
  * `runtime.json` took a secret slot's `toolPrefix` (Host feature `secret-routing`), published as
  * `runtime.1.json`, then `limits.triggers` (D83), as `runtime.2.json`.
  */

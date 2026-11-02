@@ -76,7 +76,7 @@ const TOOLS: Readonly<Record<EngineFeature, readonly string[]>> = {
   connections: [REQUEST_CONNECTION_TOOL, ASK_TOOL],
   toolSearch: [TOOL_SEARCH_TOOL, TOOL_CALL_TOOL],
 };
-/** The Runtime plugin that declares each feature in an `agent-folder/3` folder (ADR-105). */
+/** The Runtime plugin that declares each feature in an `agent-folder/3` folder (ADR-106). */
 const PLUGIN_OF: Readonly<Partial<Record<EngineFeature, string>>> = {
   sandbox: "nylorun-sandbox",
   "artifacts.save": "nylorun-artifacts",
@@ -108,7 +108,7 @@ function explainOne(
 ): ExplainedAgent {
   const declared = preview.features.declared;
   const by = (feature: EngineFeature): string => {
-    // agent-folder/3: the plugin that brings it (ADR-105), or skills/ and the plugins' skills.
+    // agent-folder/3: the plugin that brings it (ADR-106), or skills/ and the plugins' skills.
     if (facts.plugins) return PLUGIN_OF[feature] ?? (feature === "skills" ? "skills/ and the plugins' skills" : `engine.${feature}`);
     switch (feature) {
       case "skills":
@@ -128,7 +128,7 @@ function explainOne(
     }
   };
   const blocks = new Set(preview.blocks.map((block) => block.name));
-  // A Runtime plugin's tool by its own name: nylorun__memory is memory (ADR-105).
+  // A Runtime plugin's tool by its own name: nylorun__memory is memory (ADR-106).
   const tools = new Set(preview.engineTools.map((name) => runtimeToolOf(name) ?? name));
   const features = ENGINE_FEATURES.map((feature): ExplainedFeature => {
     const added = TOOLS[feature].filter((name) => tools.has(name));

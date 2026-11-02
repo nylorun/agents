@@ -206,7 +206,7 @@ export function engineProjection(
   };
 }
 
-/** The first line of server `nylorun`'s text (ADR-105). */
+/** The first line of server `nylorun`'s text (ADR-106). */
 export const RUNTIME_SERVER_HEADING =
   "# Server nylorun\nThe Runtime's own tools, from the plugins this agent declares. Their names begin with nylorun__.";
 
@@ -219,7 +219,7 @@ function networkSentence(hosts: readonly string[] | undefined): string {
 
 /**
  * Our engine's tools and text for an agent that declares the Runtime's plugins (`agent-folder/3`,
- * ADR-105). The same tools as without plugins, with the same effects, named `nylorun__<tool>` for
+ * ADR-106). The same tools as without plugins, with the same effects, named `nylorun__<tool>` for
  * the model; the Runtime's words are one text, server `nylorun`, built from the declared plugins'
  * sections in their order; their skills join the agent's own. `outputs`, the skills' usage and
  * catalog, and the skills' folder note stay our engine's blocks.

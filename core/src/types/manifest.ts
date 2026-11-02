@@ -201,7 +201,7 @@ export interface HarnessEngine {
   /** The engine text blocks the agent gets, each with its version and the hash of its text. */
   readonly blocks?: readonly EngineBlockRef[];
   /**
-   * The Runtime's plugins the agent declares (`agent-folder/3`, ADR-105), each with the tools left
+   * The Runtime's plugins the agent declares (`agent-folder/3`, ADR-106), each with the tools left
    * on and the hash of its files. With it, the engine presents its tools as the server `nylorun`.
    */
   readonly plugins?: readonly HarnessEnginePlugin[];

@@ -1,5 +1,5 @@
 /**
- * `ask` (ADR-105, `nylorun-interactions`): the agent asks whoever gave it the task a question it
+ * `ask` (ADR-106, `nylorun-interactions`): the agent asks whoever gave it the task a question it
  * can't answer itself, and waits. Offered to the session's root agent when the version sets
  * `harness.loop.ask: true` (`turn.start.loop.ask`; in an `agent-folder/3` folder, the
  * `nylorun-interactions` plugin with its `ask` tool on).

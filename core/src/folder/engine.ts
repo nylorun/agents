@@ -54,7 +54,7 @@ export interface EngineScopeFacts {
   readonly memory: boolean;
   /** The uploaded folder's runtime sets `selfWake`. */
   readonly selfWake: boolean;
-  /** The uploaded folder is `agent-folder/3` (ADR-105). */
+  /** The uploaded folder is `agent-folder/3` (ADR-106). */
   readonly v3?: boolean;
   /** Its plugins, under format 3: a subagent's are a subset. */
   readonly plugins?: readonly { readonly name: import("../plugins/index.js").PluginName; readonly tools: readonly string[] }[];

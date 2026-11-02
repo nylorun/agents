@@ -8769,7 +8769,7 @@
               ],
               "additionalProperties": false
             },
-            "description": "The Runtime's plugins the agent declares (agent-folder/3, ADR-105): each with the tools left on and the hash of its files"
+            "description": "The Runtime's plugins the agent declares (agent-folder/3, ADR-106): each with the tools left on and the hash of its files"
           }
         },
         "additionalProperties": false

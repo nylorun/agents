@@ -1,5 +1,5 @@
 /**
- * `agent-folder/3` (ADR-105): a folder declares the Runtime's features as plugins, by name, and
+ * `agent-folder/3` (ADR-106): a folder declares the Runtime's features as plugins, by name, and
  * narrows their tools with the settings any MCP server takes:
  *
  * ```yaml

@@ -104,7 +104,7 @@ export async function runTurn(ctx: RunContext, run: HarnessRun): Promise<void> {
         : undefined;
     const plan = loop?.plan === true;
     const connections = loop?.connections === true;
-    // `ask` (ADR-105, `nylorun-interactions`): the version's `harness.loop.ask`, for the root agent.
+    // `ask` (ADR-106, `nylorun-interactions`): the version's `harness.loop.ask`, for the root agent.
     const ask = loop?.ask === true;
     // The triggers the agent sets up itself (D83): the version declares `harness.engine.triggers`,
     // for the root agent only.
