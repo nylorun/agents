@@ -367,7 +367,7 @@ export function compileAgentFolder(input: CompileAgentFolderInput, scope?: Folde
   const diagnostics: AgentFolderDiagnostic[] = [];
   /** The folder's format: the uploaded folder's `format`, which a folder inside it shares. */
   let format: 1 | 2 = scope?.engineFacts?.format ?? 1;
-  /** The folder is `agent-folder/3` (ADR-105): its plugins stand for v2 declarations (folder/v3.ts). */
+  /** The folder is `agent-folder/3` (ADR-106): its plugins stand for v2 declarations (folder/v3.ts). */
   let v3 = scope?.engineFacts?.v3 === true;
   let v3Plugins: V3Plugins | undefined;
   const parsed = new Map<string, ParsedFile>();
@@ -664,7 +664,7 @@ export function compileAgentFolder(input: CompileAgentFolderInput, scope?: Folde
         ["format"],
       );
     else if (!scope) format = folderFormatOf(front.format)!;
-    // agent-folder/3 (ADR-105): the plugins stand for agent-folder/2's declarations.
+    // agent-folder/3 (ADR-106): the plugins stand for agent-folder/2's declarations.
     if (v3 && scope?.role !== "plugin") {
       const role = scope?.role === "subagent" ? "subagent" : "root";
       v3Plugins = v3Declarations(front, {

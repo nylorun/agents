@@ -1,7 +1,7 @@
 # Agents declare the Runtime's features as plugins
 
 Additive: no protocol change. `agent-folder/1` and `agent-folder/2` folders compile and run as
-before (ADR-105, D84).
+before (ADR-106, D84).
 
 - **`agent-folder/3`.** A folder names the Runtime's plugins it uses under `plugins:` in
   `AGENT.md`: `nylorun-memory`, `nylorun-triggers`, `nylorun-plan`, `nylorun-interactions`

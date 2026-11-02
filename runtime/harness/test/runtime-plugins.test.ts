@@ -1,5 +1,5 @@
 /**
- * The Runtime's plugins in the harness (ADR-105): a plugin's tool keeps its effect name, so its
+ * The Runtime's plugins in the harness (ADR-106): a plugin's tool keeps its effect name, so its
  * calls are dispatched and recorded as without plugins; `ask` pauses the turn with a question;
  * a declared plugin's skill is served from the bundle.
  */

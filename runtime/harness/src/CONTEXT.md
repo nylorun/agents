@@ -142,7 +142,7 @@ session's MCP tools, with their text before the MCP tools' own, not hashed). Eac
 seam; `tool_search` over the run's MCP tools). An author tool of the same name fails the turn
 (`agentFrom`, `agent.build-failed`).
 
-**Runtime plugins** (ADR-105, D84): an agent whose manifest records `engine.plugins` (an
+**Runtime plugins** (ADR-106, D84): an agent whose manifest records `engine.plugins` (an
 `agent-folder/3` folder's `plugins:`) gets the same engine tools, with the same effects, presented
 as the reserved server `nylorun` (`engineProjection` in `@nylorun/core/engine`, plugin mode): each
 tool is `nylorun__<tool>` to the model and carries `effectName`, its own name, which its calls'

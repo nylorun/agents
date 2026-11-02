@@ -1076,7 +1076,7 @@ reconcile arms any it missed. _Avoid_: "routine" for the trigger (a routine is N
 one), "scheduler".
 
 
-**Triggers tool under the `nylorun-triggers` plugin** (ADR-105): for a version whose
+**Triggers tool under the `nylorun-triggers` plugin** (ADR-106): for a version whose
 `harness.engine.plugins` names `nylorun-triggers`, a run of an agent-made trigger starts with
 `[trigger <id> · <title> · nobody is watching]` (`triggerFrame`, `deliverRun`), and a turn a
 trigger started may create a one-off follow-up (`in` or `at`, `session: "this"`), never a schedule

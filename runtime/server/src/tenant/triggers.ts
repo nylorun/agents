@@ -183,13 +183,13 @@ async function pinnedOf(t: Tx, agent: Environment): Promise<{ triggers: Record<s
   return {
     triggers: (body?.runtime?.triggers ?? {}) as Record<string, Trigger>,
     declared: harness?.engine?.triggers === true,
-    // The version declares the Runtime's `nylorun-triggers` plugin (ADR-105).
+    // The version declares the Runtime's `nylorun-triggers` plugin (ADR-106).
     plugin: Array.isArray(plugins) && plugins.some((item) => item?.name === "nylorun-triggers"),
   };
 }
 
 /**
- * The line an agent-made trigger's run starts with under the `nylorun-triggers` plugin (ADR-105):
+ * The line an agent-made trigger's run starts with under the `nylorun-triggers` plugin (ADR-106):
  * which trigger woke the turn, and that nobody is watching.
  */
 export function triggerFrame(triggerId: string, title: string | null | undefined): string {
@@ -495,7 +495,7 @@ export async function deliverRun(
     title: row.title ?? null,
     streamedAt: null,
   };
-  // Under the `nylorun-triggers` plugin, an agent-made trigger's run is framed (ADR-105).
+  // Under the `nylorun-triggers` plugin, an agent-made trigger's run is framed (ADR-106).
   const framed = origin === "agent" && (await pinnedOf(t, agent)).plugin ? { ...trigger, prompt: `${triggerFrame(triggerId, row.title)}\n${trigger.prompt}` } : trigger;
   const outcome = await runOutcome(ctx, t, agent, triggerId, framed, row.kind, id, firedAt, cause.payload, row.createdSessionId ?? null);
   Object.assign(run, outcome);

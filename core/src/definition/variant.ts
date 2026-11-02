@@ -139,7 +139,7 @@ export function withoutTools(manifest: AgentManifest, names: readonly string[]):
 
 function narrowAgent(agent: AgentManifest, removed: ReadonlySet<string>, root: boolean): AgentManifest {
   const { tools: _tools, mcpServers: _servers, engine: _engine, ...rest } = agent;
-  // A Runtime plugin's tool by the name the model reads (ADR-105): `nylorun__ask` turns `ask` off.
+  // A Runtime plugin's tool by the name the model reads (ADR-106): `nylorun__ask` turns `ask` off.
   const offPlugin = new Set([...removed].flatMap((name) => runtimeToolOf(name) ?? []));
   const engine =
     agent.engine?.plugins !== undefined && offPlugin.size > 0

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Writes `src/plugins/bundle.generated.ts` from the first-party plugin folders in `plugins/`
- * (ADR-105): each plugin's description, tools, requirements, instruction sections, skills and the
+ * (ADR-106): each plugin's description, tools, requirements, instruction sections, skills and the
  * SHA-256 of its files, so every consumer (the compiler, the projection, the harness, the
  * Runtime) reads the same bytes, offline. `--check` fails when the file is stale.
  */

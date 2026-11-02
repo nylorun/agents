@@ -378,7 +378,7 @@ export const HarnessEngineSchema = z
         }),
       )
       .optional()
-      .meta({ description: "The Runtime's plugins the agent declares (agent-folder/3, ADR-105): each with the tools left on and the hash of its files" }),
+      .meta({ description: "The Runtime's plugins the agent declares (agent-folder/3, ADR-106): each with the tools left on and the hash of its files" }),
   })
   .meta({ id: "HarnessEngine" });
 const harnessEngineField = HarnessEngineSchema.optional();
@@ -2296,7 +2296,7 @@ export const TriggerToolOutputSchema = z.union([
     status: z.enum(TRIGGER_STATUSES),
     nextRunAt: z.string().nullable(),
     session: z.string(),
-    /** The Runtime's clock when it answered, so the model knows the time (ADR-105). */
+    /** The Runtime's clock when it answered, so the model knows the time (ADR-106). */
     now: z.string().optional(),
   }),
   z.strictObject({ triggers: z.array(TriggerToolItemSchema), now: z.string().optional() }),

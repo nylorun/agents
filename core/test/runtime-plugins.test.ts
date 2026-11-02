@@ -1,5 +1,5 @@
 /**
- * The Runtime's primitives as its own Agent Plugins (ADR-105, D84): an `agent-folder/3` folder
+ * The Runtime's primitives as its own Agent Plugins (ADR-106, D84): an `agent-folder/3` folder
  * declares them by name under `plugins:`, they compile to the `agent-folder/2` declarations they
  * stand for plus `harness.engine.plugins`, and the engine presents their tools as server
  * `nylorun`, each keeping its effect.

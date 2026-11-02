@@ -64,7 +64,7 @@ function reaches(row: AgentTriggerRow, sessionId: string): boolean {
   return row.createdSessionId === sessionId || (row.definition as Trigger | null)?.session === sessionId;
 }
 
-/** Whether the version session `s` runs declares the Runtime's `nylorun-triggers` plugin (ADR-105). */
+/** Whether the version session `s` runs declares the Runtime's `nylorun-triggers` plugin (ADR-106). */
 async function declaresTriggersPlugin(t: Tx, s: Pick<Session, "definition">): Promise<boolean> {
   if (!s.definition) return false;
   const body = (await t.agentManifest(s.definition.name, s.definition.version))?.body as AgentManifestV8 | undefined;
@@ -145,7 +145,7 @@ export async function serveTriggersTool(
     return completed({ id: input.id, deleted: true });
   }
   // create: never from a turn a trigger or a booked wake started. Under the `nylorun-triggers`
-  // plugin (ADR-105) such a turn may still set a one-off follow-up in its own session, as a woken
+  // plugin (ADR-106) such a turn may still set a one-off follow-up in its own session, as a woken
   // turn books the next wake: never a schedule, never a session of its own.
   if (s.turnCause !== undefined) {
     const plugin = await declaresTriggersPlugin(t, s);

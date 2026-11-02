@@ -39,7 +39,7 @@ export interface EngineTool {
   /** What runs its calls: their effects' `target` (an MCP tool's identity, our engine's `harness`). */
   readonly target?: EffectTarget;
   /**
-   * The name its calls' effects carry (`toolName`), when the model reads another (ADR-105): a
+   * The name its calls' effects carry (`toolName`), when the model reads another (ADR-106): a
    * Runtime plugin's tool is `nylorun__memory` to the model and `memory` to its effect, so the
    * record, tool policy and the harness's dispatch see it as without plugins.
    */
@@ -634,13 +634,13 @@ function definedOf<T extends object>(value: T): Partial<T> {
 
 // --- ask -------------------------------------------------------------------------------------
 
-/** The question tool's name (ADR-105, `nylorun-interactions`). */
+/** The question tool's name (ADR-106, `nylorun-interactions`). */
 export const ASK_TOOL = "ask";
 /** The most characters of a question, of a reason, and of one choice, and the most choices. */
 export const ASK_LIMITS = Object.freeze({ questionChars: 1000, whyChars: 280, choiceChars: 120, choices: 6 });
 
 /**
- * `ask` (ADR-105): the agent asks whoever gave it the task a question it can't answer itself,
+ * `ask` (ADR-106): the agent asks whoever gave it the task a question it can't answer itself,
  * and waits. It runs in the harness, as `request_connection` does: a first call pauses the turn
  * with an interaction of kind `response` whose metadata says `kind: "question"`, which the A2A
  * server shows as a question (`INPUT_REQUIRED`); the answer runs it again with the value.

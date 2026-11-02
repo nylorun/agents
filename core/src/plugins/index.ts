@@ -1,5 +1,5 @@
 /**
- * The Runtime's own Agent Plugins (ADR-105, D84): six plugins, one per Runtime primitive, which an
+ * The Runtime's own Agent Plugins (ADR-106, D84): six plugins, one per Runtime primitive, which an
  * `agent-folder/3` folder declares by name (`plugins:`) and which share one reserved server,
  * `nylorun`. Their files are in `core/plugins/`; `bundle.generated.ts` holds them as data, so the
  * compiler, the engine's projection, the harness and the Runtime read the same bytes offline.

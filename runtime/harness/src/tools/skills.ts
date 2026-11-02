@@ -147,7 +147,7 @@ export async function runSkillTool(
   );
   const name = typeof input.name === "string" ? input.name : "";
   const skill = skills.get(name);
-  // A skill of a Runtime plugin the agent declares (ADR-105) is the plugin's: served from the bundle.
+  // A skill of a Runtime plugin the agent declares (ADR-106) is the plugin's: served from the bundle.
   const declared = (context.agent.engine?.plugins ?? []).map((plugin) => plugin.name);
   const ofPlugin = skill ? undefined : pluginSkill(declared, name);
   if (ofPlugin)

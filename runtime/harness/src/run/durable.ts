@@ -484,7 +484,7 @@ function identityOf(
 ): Pick<HostEffect, "toolName" | "agent" | "target" | "skill"> {
   const skill = skillOfToolCall(agent, tool, input);
   return {
-    // A Runtime plugin's tool carries its own name (ADR-105): `memory`, not `nylorun__memory`.
+    // A Runtime plugin's tool carries its own name (ADR-106): `memory`, not `nylorun__memory`.
     toolName: tool.effectName ?? tool.name,
     ...(tool.target === undefined ? {} : { target: tool.target }),
     ...(skill === undefined ? {} : { skill }),
