@@ -1,0 +1,19 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "nylorun-triggers",
+  "description": "Triggers the agent sets up itself: follow-ups in this conversation and routines in a session of their own, kept by the Agent.",
+  "author": {
+    "name": "Nylorun"
+  },
+  "license": "Apache-2.0",
+  "extensions": {
+    "nylorun": {
+      "server": "nylorun",
+      "tools": [
+        "triggers"
+      ],
+      "requires": [],
+      "instructions": "instructions/"
+    }
+  }
+}

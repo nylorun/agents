@@ -1,0 +1,20 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "nylorun-interactions",
+  "description": "Asking whoever gave the task: a question, or an app to connect. The turn waits for the answer.",
+  "author": {
+    "name": "Nylorun"
+  },
+  "license": "Apache-2.0",
+  "extensions": {
+    "nylorun": {
+      "server": "nylorun",
+      "tools": [
+        "ask",
+        "request_connection"
+      ],
+      "requires": [],
+      "instructions": "instructions/"
+    }
+  }
+}

@@ -8726,6 +8726,50 @@
               "additionalProperties": false
             },
             "description": "The engine text blocks the agent gets, with their hashes"
+          },
+          "plugins": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "enum": [
+                    "nylorun-memory",
+                    "nylorun-triggers",
+                    "nylorun-plan",
+                    "nylorun-interactions",
+                    "nylorun-artifacts",
+                    "nylorun-sandbox"
+                  ]
+                },
+                "tools": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "sha256": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                },
+                "hosts": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              },
+              "required": [
+                "name",
+                "tools",
+                "sha256"
+              ],
+              "additionalProperties": false
+            },
+            "description": "The Runtime's plugins the agent declares (agent-folder/3, ADR-105): each with the tools left on and the hash of its files"
           }
         },
         "additionalProperties": false

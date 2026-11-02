@@ -87,7 +87,7 @@ export async function migrateCommand(deps: StackDeps, args: readonly string[]): 
     return 0;
   }
   if (version === "folder") {
-    // `--to 2`: an agent folder made agent-folder/2 in place (ADR-100).
+    // `--to 2` or `--to 3`: an agent folder made agent-folder/2 (ADR-100) or agent-folder/3 (ADR-105) in place.
     const to = rest.indexOf("--to");
     if (to < 0) return migrateFolderCommand(deps, rest);
     const value = rest[to + 1];

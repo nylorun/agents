@@ -38,6 +38,12 @@ export interface EngineTool {
   readonly instructions?: readonly string[];
   /** What runs its calls: their effects' `target` (an MCP tool's identity, our engine's `harness`). */
   readonly target?: EffectTarget;
+  /**
+   * The name its calls' effects carry (`toolName`), when the model reads another (ADR-105): a
+   * Runtime plugin's tool is `nylorun__memory` to the model and `memory` to its effect, so the
+   * record, tool policy and the harness's dispatch see it as without plugins.
+   */
+  readonly effectName?: string;
 }
 
 const SCHEMA = "http://json-schema.org/draft-07/schema#";
@@ -624,4 +630,43 @@ export function deferredToolsTools(config: { readonly toolSearchDefaultLimit: nu
 
 function definedOf<T extends object>(value: T): Partial<T> {
   return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined)) as Partial<T>;
+}
+
+// --- ask -------------------------------------------------------------------------------------
+
+/** The question tool's name (ADR-105, `nylorun-interactions`). */
+export const ASK_TOOL = "ask";
+/** The most characters of a question, of a reason, and of one choice, and the most choices. */
+export const ASK_LIMITS = Object.freeze({ questionChars: 1000, whyChars: 280, choiceChars: 120, choices: 6 });
+
+/**
+ * `ask` (ADR-105): the agent asks whoever gave it the task a question it can't answer itself,
+ * and waits. It runs in the harness, as `request_connection` does: a first call pauses the turn
+ * with an interaction of kind `response` whose metadata says `kind: "question"`, which the A2A
+ * server shows as a question (`INPUT_REQUIRED`); the answer runs it again with the value.
+ */
+export function askToolOf(): EngineTool {
+  return {
+    name: ASK_TOOL,
+    description: [
+      "Ask whoever gave you this task a question you can't answer yourself, and wait for the answer.",
+      "Give the question, optionally up to " + ASK_LIMITS.choices + " short choices to pick from, and why you need it. Ask once, with everything you need.",
+    ].join(" "),
+    inputSchema: {
+      type: "object",
+      properties: {
+        question: { type: "string", minLength: 1, description: `The question, at most ${ASK_LIMITS.questionChars} characters.` },
+        choices: {
+          type: "array",
+          maxItems: ASK_LIMITS.choices,
+          items: { type: "string", minLength: 1 },
+          description: `Answers to pick from, each at most ${ASK_LIMITS.choiceChars} characters; leave it out for a free answer.`,
+        },
+        why: { type: "string", description: `Why you need the answer, at most ${ASK_LIMITS.whyChars} characters.` },
+      },
+      required: ["question"],
+      additionalProperties: false,
+    },
+    target: HARNESS,
+  };
 }

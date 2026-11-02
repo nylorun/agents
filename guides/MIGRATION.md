@@ -1,3 +1,33 @@
+# Agents declare the Runtime's features as plugins
+
+Additive: no protocol change. `agent-folder/1` and `agent-folder/2` folders compile and run as
+before (ADR-105, D84).
+
+- **`agent-folder/3`.** A folder names the Runtime's plugins it uses under `plugins:` in
+  `AGENT.md`: `nylorun-memory`, `nylorun-triggers`, `nylorun-plan`, `nylorun-interactions`
+  (`ask`, `request_connection`), `nylorun-artifacts` and `nylorun-sandbox` (needs a computer), with
+  no versions: they follow the Runtime installed. `mcpServers.nylorun.tools.<tool>.enabled: false`
+  turns one of their tools off. The plugins replace `memory`, `loop`, `runtime.selfWake`, and
+  `engine.sandbox`, `engine.artifacts`, `engine.triggers` and `engine.instructions`, which v3
+  refuses; `engine:` keeps `outputs` and `toolSearch`. A folder skill named like a plugin's skill
+  (`memory`, `triggers`), and an `mcp.json` server named `nylorun`, are refused.
+- **What the model sees.** The plugins' tools are named `nylorun__<tool>`, the Runtime's words are
+  one text, `# Server nylorun`, built from the declared plugins, and their skills join the catalog.
+  Each call's effect is as before: same target, same `toolName`, so tool policy rules and the
+  record are unchanged.
+- **Migrating.** `nylorun migrate folder <dir> --to 3` writes the plugins that keep an
+  `agent-folder/2` folder's tools and features, turns off what it left out, and moves
+  `memory.instructions` to the end of the body; it refuses a read-only root memory,
+  `memory.index: false` and `engine.instructions`. Update instructions that name the tools by
+  their old names. `nylorun check --explain` names the plugin behind each feature.
+- **New for v3 agents.** `ask` (`nylorun-interactions`); `triggers` answers carry `now`; a run of an
+  agent-made trigger starts with `[trigger <id> · <title> · nobody is watching]`, and a turn a
+  trigger started may set a one-off follow-up (`in` or `at`, `session: "this"`), never a schedule;
+  the sandbox's text names the hosts `runtime.json` allows; `removeTools` takes `nylorun__<tool>`.
+  Every agent's `triggers` answers now carry `now`.
+- **Schemas.** `agent-manifest/v8.4` and `harness-manifest/v1.4` (`harness.engine.plugins`) and
+  `agent-folder/v1/agent-md.4` (`format: agent-folder/3`, `plugins`).
+
 # Agents set up their own triggers
 
 Additive: no protocol change. The Runtime advertises the optional Host feature `agent-triggers`.

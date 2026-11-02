@@ -176,10 +176,24 @@ async function triggersOf(t: Tx, agent: Environment): Promise<Record<string, Tri
 }
 
 /** What the manifest version an Agent runs says of triggers: its own, and whether it declares the capability. */
-async function pinnedOf(t: Tx, agent: Environment): Promise<{ triggers: Record<string, Trigger>; declared: boolean }> {
+async function pinnedOf(t: Tx, agent: Environment): Promise<{ triggers: Record<string, Trigger>; declared: boolean; plugin: boolean }> {
   const body = (await t.agentManifest(agent.manifestName, agent.manifestVersion))?.body as AgentManifestV8 | undefined;
-  const harness = body?.harness as { engine?: { triggers?: unknown } } | undefined;
-  return { triggers: (body?.runtime?.triggers ?? {}) as Record<string, Trigger>, declared: harness?.engine?.triggers === true };
+  const harness = body?.harness as { engine?: { triggers?: unknown; plugins?: { name?: unknown }[] } } | undefined;
+  const plugins = harness?.engine?.plugins;
+  return {
+    triggers: (body?.runtime?.triggers ?? {}) as Record<string, Trigger>,
+    declared: harness?.engine?.triggers === true,
+    // The version declares the Runtime's `nylorun-triggers` plugin (ADR-105).
+    plugin: Array.isArray(plugins) && plugins.some((item) => item?.name === "nylorun-triggers"),
+  };
+}
+
+/**
+ * The line an agent-made trigger's run starts with under the `nylorun-triggers` plugin (ADR-105):
+ * which trigger woke the turn, and that nobody is watching.
+ */
+export function triggerFrame(triggerId: string, title: string | null | undefined): string {
+  return `[trigger ${triggerId}${title ? ` · ${title}` : ""} · nobody is watching]`;
 }
 
 /** Where a row's definition comes from (D83): its origin, or `wake` for a booked wake written before origins. */
@@ -481,7 +495,9 @@ export async function deliverRun(
     title: row.title ?? null,
     streamedAt: null,
   };
-  const outcome = await runOutcome(ctx, t, agent, triggerId, trigger, row.kind, id, firedAt, cause.payload, row.createdSessionId ?? null);
+  // Under the `nylorun-triggers` plugin, an agent-made trigger's run is framed (ADR-105).
+  const framed = origin === "agent" && (await pinnedOf(t, agent)).plugin ? { ...trigger, prompt: `${triggerFrame(triggerId, row.title)}\n${trigger.prompt}` } : trigger;
+  const outcome = await runOutcome(ctx, t, agent, triggerId, framed, row.kind, id, firedAt, cause.payload, row.createdSessionId ?? null);
   Object.assign(run, outcome);
   await t.insertTriggerRun(run);
   await t.agentEvent(agent.id, "agent.run", {

@@ -86,7 +86,24 @@ describe("nylorun migrate folder --to 2 (ADR-100)", () => {
   it("refuses a folder that does not compile, and another --to", async () => {
     const { deps } = await folder({ "AGENT.md": "---\nname: helper\n---\nHelp.\n" });
     await expect(migrateCommand(deps, ["folder", "helper", "--to", "2"])).rejects.toMatchObject({ exitCode: 1 });
-    await expect(migrateCommand(deps, ["folder", "helper", "--to", "3"])).rejects.toMatchObject({ exitCode: 2 });
+    await expect(migrateCommand(deps, ["folder", "helper", "--to", "4"])).rejects.toMatchObject({ exitCode: 2 });
+  });
+
+  it("makes an agent-folder/2 folder agent-folder/3 with the plugins it uses (ADR-105)", async () => {
+    const { deps, dir } = await folder({
+      "AGENT.md":
+        "---\nname: helper\ndescription: Helps.\nformat: agent-folder/2\nmemory:\n  access: read_write\n  instructions: Keep notes short.\nloop: { plan: true }\nengine:\n  sandbox: [bash, read]\n  artifacts: { read: true, save: false }\n  outputs: true\n---\nHelp.\n",
+      "runtime.json": JSON.stringify({ kind: "virtual" }),
+    });
+    expect(await migrateCommand(deps, ["folder", "helper", "--to", "3"])).toBe(0);
+    const text = await readFile(join(dir, "helper", "AGENT.md"), "utf8");
+    expect(text).toContain("format: agent-folder/3");
+    expect(text).toContain("plugins: [ nylorun-memory, nylorun-plan, nylorun-artifacts, nylorun-sandbox ]");
+    expect(text).toContain("save_artifact:\n        enabled: false");
+    expect(text).toContain("write:\n        enabled: false");
+    expect(text).not.toContain("memory:\n  access");
+    expect(text.trimEnd().endsWith("Help.\n\nKeep notes short.")).toBe(true);
+    expect(await migrateCommand(deps, ["folder", "helper", "--to", "3"])).toBe(0);
   });
 
   it("replaces a format line and keeps the file's line ends", () => {

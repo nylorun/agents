@@ -60,6 +60,7 @@ nylorun chat <agent> [--session <id>] [--message <text>]   # send each line (or 
 nylorun migrate v8 <agent.json> [--runtime <environment-manifest.json>] [--name <name>] [--out <dir>]   # the three files from a v7 manifest; reads no Runtime
 nylorun migrate folder <dir> [--out <dir>]   # the agent folder of a three-file folder; reads no Runtime
 nylorun migrate folder <dir> --to 2   # make an agent folder agent-folder/2, declaring what it gets today
+nylorun migrate folder <dir> --to 3   # make an agent-folder/2 folder agent-folder/3, with the Runtime's plugins
 nylorun export --folder <name>[@<n>] [--out <dir>]   # the agent folder of a saved manifest (JSON or TypeScript)
 nylorun pull <name>[@<n>] [--out <dir>]   # the folder a version was saved from, byte for byte
 nylorun agent-manifests list [--json]       # name, latest version, runtime kind, harness, Agents
@@ -605,6 +606,24 @@ blocks the agent gets, with their versions and hashes (`harness.engine.blocks`).
 `previewTurn(manifest)` in `@nylorun/agents` returns the exact system text and tool list.
 `nylorun migrate folder <dir> --to 2` writes the declarations that keep what an `agent-folder/1`
 folder gets, so nothing changes until you remove a line.
+
+**The Runtime's plugins (`agent-folder/3`, ADR-105).** A v3 folder names the Runtime's features
+as plugins instead of keys:
+
+```yaml
+format: agent-folder/3
+plugins: [nylorun-memory, nylorun-triggers, nylorun-plan, nylorun-interactions, nylorun-artifacts, nylorun-sandbox]
+mcpServers:
+  nylorun:
+    tools: { save_artifact: { enabled: false } }   # one plugin tool turned off
+engine: { outputs: true, toolSearch: false }        # the harness's own, as in v2
+```
+
+Their tools reach the model as the server `nylorun` (`nylorun__memory`, `nylorun__bash`…), with
+the declared plugins' words and skills, and each call's effect is the one it was in v2. The plugins
+follow the Runtime installed, so they take no version. `nylorun-interactions` adds `ask`, a
+question to whoever gave the agent its task. `nylorun migrate folder <dir> --to 3` writes the
+plugins that keep an `agent-folder/2` folder's tools and features.
 
 The loop from an empty folder to an answer:
 

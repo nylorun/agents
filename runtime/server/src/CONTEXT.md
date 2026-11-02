@@ -1075,6 +1075,13 @@ a routine can't multiply itself. The record arms the rows it wrote after its com
 reconcile arms any it missed. _Avoid_: "routine" for the trigger (a routine is Nylorun Bot's word for
 one), "scheduler".
 
+
+**Triggers tool under the `nylorun-triggers` plugin** (ADR-105): for a version whose
+`harness.engine.plugins` names `nylorun-triggers`, a run of an agent-made trigger starts with
+`[trigger <id> · <title> · nobody is watching]` (`triggerFrame`, `deliverRun`), and a turn a
+trigger started may create a one-off follow-up (`in` or `at`, `session: "this"`), never a schedule
+and never `own` (`serveTriggersTool`). Every version's `list` and `create` answers carry `now`.
+
 **Runs stream** (D83, `tenant/runs-stream.ts`): The Tenant's `runs` stream in its current
 Durable Streams basin: every run of every Agent's triggers (`TenantRun`: the run, its Agent, its
 trigger's origin and title), kept 7 days (S2 retention, set on the stream with `ensureStream`; the

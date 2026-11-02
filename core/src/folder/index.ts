@@ -21,3 +21,5 @@ export {
 export { folderOfManifest, type FolderOfManifest, type FolderOfManifestOptions } from "./decompile.js";
 export { AGENT_FOLDER_SCHEMA_KINDS, agentFolderJsonSchemas, type AgentFolderSchemaKind } from "./schemas.js";
 export { applyFolderFixes, type AppliedFolderFixes } from "./fix.js";
+export { AGENT_FOLDER_V3, isFolderV3 } from "./v3.js";
+export { folderV3Edit, type FolderV3Edit } from "./migrate-v3.js";

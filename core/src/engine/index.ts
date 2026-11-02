@@ -12,3 +12,4 @@ export * from "./mcp.js";
 export * from "./projection.js";
 export * from "./preview.js";
 export * from "./explain.js";
+export * from "../plugins/index.js";

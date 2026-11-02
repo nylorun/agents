@@ -1,0 +1,19 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "nylorun-plan",
+  "description": "The agent's plan, kept with the task and shown to whoever gave it, as A2A progress.",
+  "author": {
+    "name": "Nylorun"
+  },
+  "license": "Apache-2.0",
+  "extensions": {
+    "nylorun": {
+      "server": "nylorun",
+      "tools": [
+        "update_plan"
+      ],
+      "requires": [],
+      "instructions": "instructions/"
+    }
+  }
+}

@@ -1,0 +1,1 @@
+Use nylorun__save_artifact to hand the user a file you made: a path in the sandbox, or text you pass as content. The user sees it as an artifact of this session and can download it; reply with its name, not its bytes.

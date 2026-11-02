@@ -1,0 +1,29 @@
+{
+  "server": "nylorun",
+  "tools": [
+    {
+      "name": "bash",
+      "effect": "sandbox"
+    },
+    {
+      "name": "read",
+      "effect": "sandbox"
+    },
+    {
+      "name": "write",
+      "effect": "sandbox"
+    },
+    {
+      "name": "edit",
+      "effect": "sandbox"
+    },
+    {
+      "name": "grep",
+      "effect": "sandbox"
+    },
+    {
+      "name": "glob",
+      "effect": "sandbox"
+    }
+  ]
+}

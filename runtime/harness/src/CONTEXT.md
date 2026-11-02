@@ -142,6 +142,25 @@ session's MCP tools, with their text before the MCP tools' own, not hashed). Eac
 seam; `tool_search` over the run's MCP tools). An author tool of the same name fails the turn
 (`agentFrom`, `agent.build-failed`).
 
+**Runtime plugins** (ADR-105, D84): an agent whose manifest records `engine.plugins` (an
+`agent-folder/3` folder's `plugins:`) gets the same engine tools, with the same effects, presented
+as the reserved server `nylorun` (`engineProjection` in `@nylorun/core/engine`, plugin mode): each
+tool is `nylorun__<tool>` to the model and carries `effectName`, its own name, which its calls'
+effects carry as `toolName` (`identityOf` in `run/durable.ts`), so the host's dispatch, the
+record, the tool policy and the sandbox executors see a call as without plugins. The Runtime's
+words come from the declared plugins' sections (`core/plugins/`, `bundle.generated.ts`), as one
+text, `# Server nylorun`; the `outputs`, `skills` and `skill_folder` blocks stay ours. A declared
+plugin's skill (`memory`, `triggers`) joins the catalog, and `load_skill` answers it from the
+bundle, never from `definition.file` (`tools/skills.ts`). Only the tools a declared plugin leaves
+on are offered; a turn's `removeTools` names one as `nylorun__<tool>` (`withoutTools`).
+
+**Ask**: `ask` (`nylorun-interactions`, `tools/ask.ts`): the root agent asks whoever gave it the
+task a question, with optional `choices` and `why`, when the version sets `harness.loop.ask`
+(`turn.start.loop.ask`). A `harness` tool, like `request_connection`: a first call is
+`interaction-required`, kind `response`, metadata `{kind: "question", choices?, why?}`, which the
+A2A server shows as a question (`TASK_STATE_INPUT_REQUIRED`); the answer runs it again in the next
+segment: `Answer: <value>`. Long input is cut to `ASK_LIMITS`, never refused.
+
 **Plan**: The agent's own list of steps, each a label, a state (`pending`, `active`, `done`,
 `blocked`, `skipped`) and an optional note (A2A profile v2, `progress/v1`; `tools/plan.ts`). Our
 engine offers `update_plan` (a `harness` tool, after the agent's other engine tools) to the

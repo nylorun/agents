@@ -1,0 +1,13 @@
+{
+  "server": "nylorun",
+  "tools": [
+    {
+      "name": "read_artifact",
+      "effect": "harness"
+    },
+    {
+      "name": "save_artifact",
+      "effect": "harness"
+    }
+  ]
+}
