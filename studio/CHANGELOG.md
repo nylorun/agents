@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.35.6-beta
+
+### Patch Changes
+
+- Pin agents to the tested release.
+- Pin admin to the tested release.
+- Updated dependencies [c649f33]
+- Updated dependencies
+- Updated dependencies
+  - @nylorun/agents@0.36.0-beta
+  - @nylorun/admin@0.19.13-beta
+
 ## 0.35.5-beta
 
 ### Patch Changes
