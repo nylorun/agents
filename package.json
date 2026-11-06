@@ -62,7 +62,7 @@
     "@changesets/read": "^1.0.1",
     "@manypkg/get-packages": "^3.1.0",
     "chokidar": "^5.0.0",
-    "semver": "^7.7.4"
+    "semver": "^7.8.6"
   },
   "dependencies": {
     "@ag-ui/client": "^1.0.3",
