@@ -285,6 +285,13 @@ export const OPTIONAL_HOST_FEATURES = [
    * `runtime.limits.triggers`; and `GET /v1/runs/stream`, the Tenant's runs as server-sent events.
    */
   "agent-triggers",
+  /**
+   * A message's `delivery: "steer"` (D85): to a busy agent session it waits in the session queue
+   * marked `steer`, and our engine takes it into the running turn before its next step (the
+   * `inputs` effect, Harness API 5.4). The answer and `message.queued` say which delivery applied;
+   * a steer the turn doesn't take starts the next turn, as a queued message does.
+   */
+  "steer",
 ] as const;
 export type OptionalHostFeature = (typeof OPTIONAL_HOST_FEATURES)[number];
 export interface ProtocolRange {

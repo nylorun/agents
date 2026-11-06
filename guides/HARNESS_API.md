@@ -249,6 +249,17 @@ What an intent carries:
     its raw tool name, or `tool` an HTTP tool's declared name, or, for a rule of `kind: "runtime"`,
     the operation core serves (`triggers`). The name you gave the model never matches.
   - `delegation` and `agent` belong to our engine's subagents and flows.
+  - `inputs` (D85, `harness-api/v5.4.json`): the messages steered into the running turn
+    (`delivery: "steer"`, Host feature `steer`), asked before a step. Input `{step}`, context
+    `{turnId, stepNumber}`, an effect id of the segment such as `…:inputs:step:<n>`. Core takes
+    the session's steered messages whose turn request is the running turn's, writes each one's
+    `command.message` and one `queue.taken {turnId, queuedMessageIds, step}`, and answers
+    `completed` with `{value: {events}}` at once: each message's input as it was sent (a string,
+    `{text, metadata?}` or `{content, metadata?}`, as `checkpoint.input` has), in order, or none.
+    It journals the answer, empty or not, so a replay takes the same. Write each as an `input`
+    transcript entry (§6) after the step's tool results, and give it to the model before the next
+    call. Ours asks before every step but a turn's first, for the root agent only. A harness that
+    never asks gets none: the turn's end takes them, with the rest of the queue.
 - **What the log records of a tool call.** Each one ends in one `tool.completed`, and a row at
   `GET /v1/sessions/{id}/calls/tool`:
   - `kind`: the target's kind;
@@ -558,7 +569,7 @@ sets `harness.memory.index: false`), and one optional field came with it, `turn.
 so no other v5 harness sees it; all within v5: `harness-api/v5.2.json`. D83 added the `runtime`
 operation `triggers` and `turn.start.agent.triggers` (`true` when the session's version declares
 `harness.engine.triggers`: offer the root agent a tool whose calls name that target, or none), which
-a v5 harness may ignore: it offers no tool, and core receives no such call: `harness-api/v5.3.json`.
+a v5 harness may ignore: it offers no tool, and core receives no such call: `harness-api/v5.3.json`. D85 added the effect kind `inputs` (§4): a v5 harness that never asks for it is unchanged, and its turn's steered messages start the next turn: `harness-api/v5.4.json`.
 ADR-106 changed no message: `turn.start.loop` may carry `ask: true` (offer the root agent a
 question tool whose first call is `interaction-required`, kind `response`, metadata
 `{kind: "question", choices?, why?}`, shown over A2A as a question), and a manifest's

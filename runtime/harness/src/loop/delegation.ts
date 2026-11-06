@@ -58,6 +58,12 @@ export interface ExecuteInternals {
   readonly yieldAfter?: { readonly steps?: number; readonly ms?: number };
   /** The loop's settings (compaction, a failed child's partial output). Default `DEFAULT_LOOP_CONFIG`. */
   readonly loop?: LoopConfig;
+  /**
+   * The messages steered into the running turn (D85), asked before every step but the turn's
+   * first: each one's input as its message gave it, which the loop reads as a user message. Set
+   * for the root invocation only; an agent used as a tool never takes them.
+   */
+  readonly takeInputs?: (turnId: string, stepNumber: number) => Promise<readonly unknown[]>;
 }
 
 /** Codes are curated: a child's provider error bodies never reach the parent's context. */

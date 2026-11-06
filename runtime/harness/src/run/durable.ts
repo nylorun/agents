@@ -1,5 +1,10 @@
 import { HarnessError } from "@nylorun/core/define";
-import { effectIdOf, type EffectTarget, type ModelDescriptor } from "@nylorun/core/harness-api";
+import {
+  effectIdOf,
+  HarnessApiError,
+  type EffectTarget,
+  type ModelDescriptor,
+} from "@nylorun/core/harness-api";
 import { engineFeaturesOf, type EngineTool } from "@nylorun/core/engine";
 import type { FileContext } from "../loop/model/files.js";
 import type { AgentManifest } from "@nylorun/core/define";
@@ -48,8 +53,10 @@ export interface HostEffect {
   /**
    * `delegation` journals when an agent used as a tool starts and settles; hosts record it and resolve it at once.
    * Flow effects: `agent` and `tool` (node) — each carries `path`, `key`, and `iterations`.
+   * `inputs` (D85) takes the messages steered into the running turn before a step; hosts answer it
+   * at once with `{events}`.
    */
-  readonly kind: "model" | "tool" | "delegation" | "agent";
+  readonly kind: "model" | "tool" | "delegation" | "agent" | "inputs";
   /** Set on work for an agent used as a tool; `agentId` stays the session's root agent. */
   readonly agent?: AgentRef;
   /** The name the model called a tool by, for display; the record routes by `target`. */
@@ -166,6 +173,12 @@ export async function runDurable(options: {
   refreshPinned?: boolean;
   /** Segment rollover (Model Calls §10): yield after this many steps or milliseconds. */
   yieldAfter?: { readonly steps?: number; readonly ms?: number };
+  /**
+   * Ask the host for the messages steered into the turn (D85) before every step but its first:
+   * an `inputs` effect, which a host that serves it answers at once with `{events}`. Off unless
+   * set; the Harness API run sets it, since core serves it. Not hashed.
+   */
+  takeInputs?: boolean;
   /** The model the turn's calls use (`turn.start.model`), for the root and every child. */
   model?: ModelDescriptor;
   /** How the turn's files reach the model (`representFiles`), for the root and every child. */
@@ -383,6 +396,32 @@ export async function runDurable(options: {
       });
     },
   };
+  /**
+   * The messages steered into the root's turn (D85), before step `stepNumber`: an `inputs`
+   * effect, journaled by core even when empty, so a replay takes the same at the same step. A
+   * core that doesn't know the kind (`invalid`) turns taking off for this run: its steers start
+   * the next turn instead.
+   */
+  let takesInputs = true;
+  const takeInputs = async (turnId: string, stepNumber: number): Promise<readonly unknown[]> => {
+    if (!takesInputs) return [];
+    try {
+      const outcome = await effect(
+        "inputs",
+        { step: stepNumber },
+        { turnId, stepNumber },
+        `step:${stepNumber}`,
+      );
+      const events = (outcome.value as { events?: unknown } | null | undefined)?.events;
+      return Array.isArray(events) ? events : [];
+    } catch (error) {
+      if (error instanceof HarnessApiError && error.code === "invalid") {
+        takesInputs = false;
+        return [];
+      }
+      throw error;
+    }
+  };
   const hosted = hostedDefinition(manifest);
   // Manifest reconstruction must retain definition identity, including schemas and instructions.
   if (hosted.hash !== checkpoint.manifestHash)
@@ -410,6 +449,7 @@ export async function runDurable(options: {
         },
         {
           delegation,
+          ...(options.takeInputs ? { takeInputs } : {}),
           ...(options.yieldAfter ? { yieldAfter: options.yieldAfter } : {}),
           ...(options.loop ? { loop: options.loop } : {}),
         },

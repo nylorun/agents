@@ -19,7 +19,10 @@
  * (`session_queue`, `message.queued`) unless it asks `delivery: "reject"`, which is
  * `409 session_busy`. A turn that ends takes every queued message in the same transaction
  * (`startQueuedTurn`): client messages and queued ones start a turn through one door,
- * `beginMessageTurn`, which writes each one's `command.message`.
+ * `beginMessageTurn`, which writes each one's `command.message`. A message that asks
+ * `delivery: "steer"` (D85) waits marked `steer`, and the running turn takes it before a step
+ * (`takeSteeredMessages`, the `inputs` effect); one it doesn't take starts the next turn like
+ * any other.
  */
 import { randomUUID } from "node:crypto";
 import type {
@@ -216,7 +219,15 @@ export async function command(
         // Every turn start on a sandbox: it exists, the token's grants reach it, and no other
         // session's turn holds it. A queued message is checked when it is queued, too.
         await checkAgentTurn(t, s, scope, ctx);
-        answer = await acceptMessage(ctx, t, s, id, await turnMessage(t, s, id, command, scope, options.trace), waiting);
+        answer = await acceptMessage(
+          ctx,
+          t,
+          s,
+          id,
+          await turnMessage(t, s, id, command, scope, options.trace),
+          waiting,
+          delivery === "steer" ? "steer" : "queue"
+        );
       } else if (
         command.type === "approve" &&
         (held = await heldCall(t, s, command.interactionId)) !== undefined
@@ -386,17 +397,22 @@ export interface MessageCause {
   runId: string;
 }
 
-/** How a message was taken: it started a turn, or waits in the session's queue. */
+/**
+ * How a message was taken: it started a turn, or waits in the session's queue, marked with the
+ * delivery that applied (D85): `steer` when the running turn may take it before a step.
+ */
 export type MessageAnswer =
   | { status: "accepted"; turnId: string; cursor: string }
-  | { status: "queued"; queuedMessageId: string; position: number; cursor: string };
+  | { status: "queued"; queuedMessageId: string; position: number; cursor: string; delivery: "queue" | "steer" };
 
 /**
  * Takes a resolved message on session `s` (locked) in transaction `t`: it starts a turn when the
  * session takes messages and none wait, else it waits in the queue behind them (protocol 17), and
  * an idle session whose queue was left waiting (its Agent was unavailable when the last turn
  * ended) starts a turn with all of them, this one last. Past `sessionQueuedMessages` it is
- * `429 queue_full`. `waiting` is the queue's length, read under the session's lock.
+ * `429 queue_full`. `waiting` is the queue's length, read under the session's lock. `asked`
+ * `steer` (D85) marks a waiting message so the running turn may take it before a step; a
+ * workflow session can't, so it waits as `queue`.
  */
 export async function acceptMessage(
   ctx: TenantContext,
@@ -404,7 +420,8 @@ export async function acceptMessage(
   s: Session,
   id: string,
   message: TurnMessage,
-  waiting?: number
+  waiting?: number,
+  asked: "queue" | "steer" = "queue"
 ): Promise<MessageAnswer> {
   const queued = waiting ?? (await t.countQueuedMessages(id));
   const takes = takesMessages(s);
@@ -421,6 +438,7 @@ export async function acceptMessage(
       { code: "queue_full" }
     );
   const queuedMessageId = randomUUID();
+  const delivery = asked === "steer" && !isWorkflowManifest(s.manifest) ? "steer" : "queue";
   await t.enqueueMessage({
     id: queuedMessageId,
     sessionId: id,
@@ -431,19 +449,68 @@ export async function acceptMessage(
     trace: message.trace ?? null,
     cause: message.cause ?? null,
     createdAt: new Date().toISOString(),
+    delivery,
   });
   const position = queued + 1;
   const event = await t.event(
     id,
     s.activeTurnId,
     "message.queued",
-    { queuedMessageId, position, requestId: message.command.requestId },
+    { queuedMessageId, position, requestId: message.command.requestId, delivery },
     message.writer
   );
   const started = takes ? await startQueuedTurn(ctx, t, s, id) : undefined;
   if (started?.taken.includes(queuedMessageId))
     return { status: "accepted", turnId: started.turnId, cursor: started.cursor };
-  return { status: "queued", queuedMessageId, position, cursor: event.cursor };
+  return { status: "queued", queuedMessageId, position, cursor: event.cursor, delivery };
+}
+
+/**
+ * Takes the messages steered into session `s`'s running turn (D85), before step `step`: the
+ * `inputs` effect, in the transaction that journals it (`harness-api/record.ts`). Only `steer`
+ * rows whose turn request (variant, `removeTools`) is the running turn's join it; the rest wait
+ * for the turn's end. Writes each one's `command.message` under the turn, then one `queue.taken`
+ * with the step, adds their file artifacts to the session's, and returns their inputs (each as its
+ * message gave it, which the engine reads as a user message) in order. A workflow session takes
+ * none.
+ */
+export async function takeSteeredMessages(
+  t: Tx,
+  s: Session,
+  id: string,
+  step: number
+): Promise<unknown[]> {
+  const turnId = s.activeTurnId;
+  if (turnId === null || isWorkflowManifest(s.manifest)) return [];
+  const running = s.turnRequest?.turnId === turnId ? s.turnRequest : undefined;
+  if (running?.manifest !== undefined) return [];
+  const runningTools = canonical([...new Set(running?.removeTools ?? [])].sort());
+  const rows = (await t.queuedMessages(id)).filter((row) => {
+    if (row.delivery !== "steer") return false;
+    const request = turnManifestRequestOf(row.command as MessageEventBody);
+    if (request?.manifest !== undefined) return false;
+    return canonical([...(request?.removeTools ?? [])].sort()) === runningTools;
+  });
+  if (rows.length === 0) return [];
+  const taken = rows.map((row) => row.id);
+  await t.deleteQueuedMessages(taken);
+  const named = rows.flatMap((row) => row.fileArtifacts as string[]);
+  if (named.length > 0) s.fileArtifacts = [...new Set([...(s.fileArtifacts ?? []), ...named])];
+  for (const row of rows)
+    await t.event(
+      id,
+      turnId,
+      "command.message",
+      {
+        ...(row.command as MessageEventBody),
+        queuedMessageId: row.id,
+        ...(row.trace ? { trace: row.trace as TraceContext } : {}),
+        ...(row.cause ? { cause: row.cause as MessageCause } : {}),
+      },
+      row.writer as EventWriter
+    );
+  await t.event(id, turnId, "queue.taken", { turnId, queuedMessageIds: taken, step });
+  return rows.map((row) => row.input);
 }
 
 /**

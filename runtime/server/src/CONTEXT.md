@@ -1013,6 +1013,19 @@ wait (`429 queue_full`); session reads count `queuedMessages`. The queue is per 
 of one Agent still run their turns side by side (D66).
 _Avoid_: "inbox", "backlog", "pending messages".
 
+**Steer** (D85, Host feature `steer`): A `message` with `delivery: "steer"` to a busy agent session
+waits in the session queue marked `steer` (`session_queue.delivery`); `message.queued` and the answer
+say `delivery: "steer"` (a workflow session's says `queue`, and waits as one). Our engine asks for the
+**`inputs` effect** before every step but a turn's first, root agent only (`runDurable`'s
+`takeInputs`, set by the Harness API run): `recordIntent` takes the steered rows whose turn request
+(variant, `removeTools`) is the running turn's (`takeSteeredMessages`, `tenant/commands.ts`), writes
+each one's `command.message` under the running turn and one `queue.taken {turnId, queuedMessageIds,
+step}`, adds their file artifacts to the session's, and journals `{value: {events}}`, empty or not,
+so a replay takes the same at the same step. The engine writes them as `input` transcript entries
+after the step's tool results. A steer the turn doesn't take is an ordinary queued row:
+`startQueuedTurn` takes it when the turn ends. D76's defaults never choose steer.
+_Avoid_: "interrupt" (R3.5, which stops the turn), "inject".
+
 **Trigger** (track T4, D74): What starts an Agent's turns with no client connected, declared in its
 manifest's `runtime.triggers` by id: a `schedule` (five-field cron in an IANA `timezone`, UTC by
 default) or an `at` (one time), each with the `session` its runs go to (a session id of the Agent,

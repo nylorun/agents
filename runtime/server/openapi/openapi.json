@@ -43,7 +43,8 @@
         "agent-model",
         "secret-routing",
         "remove-tools",
-        "agent-triggers"
+        "agent-triggers",
+        "steer"
       ]
     },
     "description": "For developers: agent manifests, Agents, sessions (with AG-UI and A2A) and artifacts, through `@nylorun/agents`. Every Tenant serves it on its one URL, beside the Management API (`/openapi/management.json`). Every request sends `Nylorun-Protocol`. Who may call each operation is its `security` and its `x-nylorun-credentials` and `x-nylorun-scopes` (the subject scopes that reach it) fields: an application key (servers) or a trusted issuer's token (browsers and apps)."
@@ -6336,6 +6337,13 @@
             "type": "integer",
             "exclusiveMinimum": 0
           },
+          "delivery": {
+            "type": "string",
+            "enum": [
+              "queue",
+              "steer"
+            ]
+          },
           "cursor": {
             "type": [
               "string",
@@ -6788,7 +6796,8 @@
                 "type": "string",
                 "enum": [
                   "queue",
-                  "reject"
+                  "reject",
+                  "steer"
                 ]
               },
               "content": {
@@ -7116,7 +7125,8 @@
                 "type": "string",
                 "enum": [
                   "queue",
-                  "reject"
+                  "reject",
+                  "steer"
                 ]
               },
               "data": {
@@ -7443,7 +7453,8 @@
                 "type": "string",
                 "enum": [
                   "queue",
-                  "reject"
+                  "reject",
+                  "steer"
                 ]
               },
               "parts": {
@@ -9700,7 +9711,8 @@
                 "type": "string",
                 "enum": [
                   "queue",
-                  "reject"
+                  "reject",
+                  "steer"
                 ]
               },
               "queuedMessageId": {
@@ -11856,6 +11868,13 @@
               },
               "requestId": {
                 "type": "string"
+              },
+              "delivery": {
+                "type": "string",
+                "enum": [
+                  "queue",
+                  "steer"
+                ]
               }
             },
             "required": [
@@ -12057,6 +12076,10 @@
                   "type": "string"
                 },
                 "minItems": 1
+              },
+              "step": {
+                "type": "integer",
+                "exclusiveMinimum": 0
               }
             },
             "required": [

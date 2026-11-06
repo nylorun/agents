@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { Agent, hashManifest, type AgentManifest } from "@nylorun/core/define";
+import { HarnessApiError } from "@nylorun/core/harness-api";
 import {
   createDurableCheckpoint,
   runDurable,
@@ -414,5 +415,104 @@ describe("segment rollover (Model Calls §10)", () => {
     expect(modelCalls).toBe(6);
     // Effect ids carry the segment, so no segment reads another's journal.
     expect(new Set([...journal.keys()].map((id) => id.split(":")[1])).size).toBe(3);
+  });
+});
+
+describe("steered messages (D85)", () => {
+  const manifest = Agent({ id: "steered", name: "Steered" })
+    .tools({ name: "job", inputSchema: z.object({}), execute: async () => "unused" })
+    .build().manifest;
+  /** User texts of a model call's prompt, and its item kinds in order. */
+  const promptOf = (effect: { input?: unknown }) => {
+    const prompt =
+      (
+        effect.input as {
+          prompt?: { kind?: string; role?: string; content?: { type: string; text?: string }[] }[];
+        }
+      )?.prompt ?? [];
+    return {
+      texts: prompt
+        .filter((item) => item.role === "user")
+        .flatMap((item) =>
+          (item.content ?? []).flatMap((part) => (part.type === "text" ? [part.text ?? ""] : [])),
+        ),
+      kinds: prompt.map((item) => (item.kind === "message" ? item.role : item.kind)),
+    };
+  };
+
+  it("takes them before every step but the first, after the tool results", async () => {
+    const asked: string[] = [];
+    const prompts: ReturnType<typeof promptOf>[] = [];
+    let models = 0;
+    const host: DurableHost = {
+      async resolveEffect(effect) {
+        if (effect.kind === "inputs") {
+          asked.push(effect.effectId.split(":").slice(-2).join(":"));
+          const events = asked.length === 1 ? ["only the first three"] : [];
+          return { status: "completed", outcome: { value: { events } } };
+        }
+        if (effect.kind === "tool")
+          return { status: "completed", outcome: { value: { kind: "completed", output: "ok" } } };
+        prompts.push(promptOf(effect));
+        const value =
+          models++ < 2
+            ? { output: [{ type: "tool-call", id: `c${models}`, name: "job", args: {} }] }
+            : "done";
+        return { status: "completed", outcome: { value } };
+      },
+    };
+    const checkpoint = createDurableCheckpoint({
+      manifest,
+      sessionId: "session",
+      turnId: "turn",
+      input: "go",
+    });
+    const result = await runDurable({ manifest, checkpoint, host, takeInputs: true });
+    expect(result.status).toBe("completed");
+    expect(asked).toEqual(["step:2", "step:3"]);
+    expect(prompts[0]!.texts).toEqual(["go"]);
+    expect(prompts[1]!.texts).toEqual(["go", "only the first three"]);
+    expect(prompts[1]!.kinds.lastIndexOf("tool-result")).toBeLessThan(
+      prompts[1]!.kinds.lastIndexOf("user"),
+    );
+    const transcript = (result as any).result.state.transcript as {
+      kind: string;
+      turnId: string;
+    }[];
+    expect(transcript.filter((entry) => entry.kind === "input")).toHaveLength(2);
+    expect(new Set(transcript.map((entry) => entry.turnId)).size).toBe(1);
+  });
+
+  it("asks nothing without takeInputs, and stops asking when the host refuses the kind", async () => {
+    let asked = 0;
+    let models = 0;
+    const host: DurableHost = {
+      async resolveEffect(effect) {
+        if (effect.kind === "inputs") {
+          asked++;
+          throw new HarnessApiError("invalid", "Invalid effect.intent request");
+        }
+        if (effect.kind === "tool")
+          return { status: "completed", outcome: { value: { kind: "completed", output: "ok" } } };
+        const value =
+          models++ < 2
+            ? { output: [{ type: "tool-call", id: `c${models}`, name: "job", args: {} }] }
+            : "done";
+        return { status: "completed", outcome: { value } };
+      },
+    };
+    const checkpoint = createDurableCheckpoint({
+      manifest,
+      sessionId: "session",
+      turnId: "turn",
+      input: "go",
+    });
+    expect((await runDurable({ manifest, checkpoint, host })).status).toBe("completed");
+    expect(asked).toBe(0);
+    models = 0;
+    expect((await runDurable({ manifest, checkpoint, host, takeInputs: true })).status).toBe(
+      "completed",
+    );
+    expect(asked).toBe(1);
   });
 });

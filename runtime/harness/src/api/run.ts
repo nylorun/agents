@@ -172,6 +172,8 @@ export async function runTurn(ctx: RunContext, run: HarnessRun): Promise<void> {
             // Another session wrote the memory since this one's last turn: its index again.
             ...(memory?.refresh ? { refreshPinned: true } : {}),
             ...(start.options.yieldAfter ? { yieldAfter: start.options.yieldAfter } : {}),
+            // Core answers the `inputs` effect (D85): messages steered into the turn.
+            takeInputs: true,
             ...(start.model ? { model: start.model } : {}),
             files: filesOf(ctx, run, start, (start.manifest as AgentManifest).engine),
             loop: ctx.engine.loop,

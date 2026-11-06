@@ -1,0 +1,2 @@
+ALTER TABLE "nylorun"."session_queue" ADD COLUMN "delivery" text DEFAULT 'queue' NOT NULL;--> statement-breakpoint
+ALTER TABLE "nylorun"."session_queue" ADD CONSTRAINT "session_queue_delivery_check" CHECK ("nylorun"."session_queue"."delivery" IN ('queue', 'steer'));

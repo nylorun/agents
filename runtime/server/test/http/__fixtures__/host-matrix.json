@@ -113,7 +113,8 @@
           "agent-model",
           "secret-routing",
           "remove-tools",
-          "agent-triggers"
+          "agent-triggers",
+          "steer"
         ]
       }
     },
@@ -202,7 +203,8 @@
           "agent-model",
           "secret-routing",
           "remove-tools",
-          "agent-triggers"
+          "agent-triggers",
+          "steer"
         ]
       }
     },
@@ -291,7 +293,8 @@
           "agent-model",
           "secret-routing",
           "remove-tools",
-          "agent-triggers"
+          "agent-triggers",
+          "steer"
         ]
       }
     },
@@ -380,7 +383,8 @@
           "agent-model",
           "secret-routing",
           "remove-tools",
-          "agent-triggers"
+          "agent-triggers",
+          "steer"
         ]
       }
     },
@@ -469,7 +473,8 @@
           "agent-model",
           "secret-routing",
           "remove-tools",
-          "agent-triggers"
+          "agent-triggers",
+          "steer"
         ]
       }
     },
@@ -558,7 +563,8 @@
           "agent-model",
           "secret-routing",
           "remove-tools",
-          "agent-triggers"
+          "agent-triggers",
+          "steer"
         ]
       }
     },
@@ -647,7 +653,8 @@
           "agent-model",
           "secret-routing",
           "remove-tools",
-          "agent-triggers"
+          "agent-triggers",
+          "steer"
         ]
       }
     },
@@ -736,7 +743,8 @@
           "agent-model",
           "secret-routing",
           "remove-tools",
-          "agent-triggers"
+          "agent-triggers",
+          "steer"
         ]
       }
     },
@@ -825,7 +833,8 @@
           "agent-model",
           "secret-routing",
           "remove-tools",
-          "agent-triggers"
+          "agent-triggers",
+          "steer"
         ]
       }
     },
@@ -914,7 +923,8 @@
           "agent-model",
           "secret-routing",
           "remove-tools",
-          "agent-triggers"
+          "agent-triggers",
+          "steer"
         ]
       }
     },
@@ -1003,7 +1013,8 @@
           "agent-model",
           "secret-routing",
           "remove-tools",
-          "agent-triggers"
+          "agent-triggers",
+          "steer"
         ]
       }
     },
@@ -1092,7 +1103,8 @@
           "agent-model",
           "secret-routing",
           "remove-tools",
-          "agent-triggers"
+          "agent-triggers",
+          "steer"
         ]
       }
     },
@@ -1214,7 +1226,8 @@
           "agent-model",
           "secret-routing",
           "remove-tools",
-          "agent-triggers"
+          "agent-triggers",
+          "steer"
         ]
       }
     },
@@ -1303,7 +1316,8 @@
           "agent-model",
           "secret-routing",
           "remove-tools",
-          "agent-triggers"
+          "agent-triggers",
+          "steer"
         ]
       }
     },
@@ -1392,7 +1406,8 @@
           "agent-model",
           "secret-routing",
           "remove-tools",
-          "agent-triggers"
+          "agent-triggers",
+          "steer"
         ]
       }
     },
@@ -1481,7 +1496,8 @@
           "agent-model",
           "secret-routing",
           "remove-tools",
-          "agent-triggers"
+          "agent-triggers",
+          "steer"
         ]
       }
     },
@@ -1570,7 +1586,8 @@
           "agent-model",
           "secret-routing",
           "remove-tools",
-          "agent-triggers"
+          "agent-triggers",
+          "steer"
         ]
       }
     },
@@ -1659,7 +1676,8 @@
           "agent-model",
           "secret-routing",
           "remove-tools",
-          "agent-triggers"
+          "agent-triggers",
+          "steer"
         ]
       }
     },
@@ -1748,7 +1766,8 @@
           "agent-model",
           "secret-routing",
           "remove-tools",
-          "agent-triggers"
+          "agent-triggers",
+          "steer"
         ]
       }
     },
