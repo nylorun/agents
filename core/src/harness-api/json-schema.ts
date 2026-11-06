@@ -76,9 +76,11 @@ export function harnessApiSchemas(): Record<string, z.ZodType> {
  * `turn.start.memory.index` absent for a version that pins none (ADR-100), and
  * `turn.start.memory.refresh` (an optional field a v5 harness may ignore, keeping the index it
  * pinned). Revision 3: `turn.start.agent.triggers` and the `runtime` operation `triggers` (D83),
- * which a v5 harness that offers no `triggers` tool never sees.
+ * which a v5 harness that offers no `triggers` tool never sees. Revision 4: the effect kind `inputs`
+ (D85): the messages steered into the running turn, which core answers at once and a v5 harness
+ that never asks for it never sees.
  */
-const SCHEMA_REVISION = 3;
+const SCHEMA_REVISION = 4;
 
 /** The JSON Schema document of the Harness API (draft 2020-12). */
 export function harnessApiJsonSchema(): Record<string, unknown> {

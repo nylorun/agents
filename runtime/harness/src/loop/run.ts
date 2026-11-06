@@ -4,7 +4,8 @@ import type { ExecutionSnapshot } from "./step/runtime.js";
 import { HarnessError, isHarnessError } from "@nylorun/core/define";
 import { runStep } from "./step/run.js";
 import { compact, contextBudget, estimateTokens } from "./compaction/index.js";
-import type { RunOptions, RunResult, SavedToolCall } from "../types/execution.js";
+import type { ExecutionInput, RunOptions, RunResult, SavedToolCall } from "../types/execution.js";
+import { normalizeInput } from "./state.js";
 import type { InputEvent } from "@nylorun/core/define";
 import type { JsonValue, Tripwire } from "@nylorun/core/define";
 import type { ToolResult } from "@nylorun/core/define";
@@ -128,6 +129,30 @@ export async function execute(
       ) {
         if (!invocation.state.turn) invocation.state = { ...invocation.state, turn: { turnId } };
         return finish({ status: "yielded" });
+      }
+      // Messages steered into the running turn (D85): every step but the turn's first may take
+      // them, after the tool results the model sees next, and never while a plan dispatches.
+      if (internals.takeInputs && stepNumber > 1 && !invocation.state.plan) {
+        // Each is a message's input as sent (text, or a user message with parts), as at turn start.
+        const steered = (await internals.takeInputs(turnId, stepNumber)).flatMap((value) => {
+          try {
+            const event = normalizeInput(value as ExecutionInput);
+            return event.kind === "user-message" ? [event] : [];
+          } catch {
+            return [];
+          }
+        });
+        if (steered.length > 0) {
+          invocation.state = {
+            ...invocation.state,
+            transcript: [
+              ...invocation.state.transcript,
+              ...steered.map((event) => ({ kind: "input" as const, turnId, event })),
+            ],
+          };
+          await record();
+          arrivals = steered;
+        }
       }
       stepsRun++;
       const stepId = createId("step");

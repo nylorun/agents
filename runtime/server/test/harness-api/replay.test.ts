@@ -99,7 +99,8 @@ it("replays a turn without its prompts: intents only for new effects, the transc
   const ids = intents.map((request) => request.p.effect.effectId);
   expect(new Set(ids).size).toBe(ids.length);
   const parent = intents.filter((request) => request.p.effect.sessionId === "s1");
-  const turn = ["model", "delegation", "agent", "delegation", "model"];
+  // Before step 2, the root asks for the messages steered into the turn (D85, `inputs`).
+  const turn = ["model", "delegation", "agent", "delegation", "inputs", "model"];
   expect(parent.map((request) => request.p.effect.kind)).toEqual([...turn, ...turn]);
   for (const intent of intents.filter((request) => request.p.effect.kind === "model")) {
     expect(intent.p.effect).not.toHaveProperty("input");

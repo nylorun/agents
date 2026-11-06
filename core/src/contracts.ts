@@ -3246,9 +3246,11 @@ const commandBase = {
 /**
  * What a message to a busy session does (protocol 17): `queue` waits for the running turn to
  * end and starts the next one; `reject` is refused with `409 session_busy`. A protocol 17 client's
- * default is `queue`, a protocol 16 client's `reject`.
+ * default is `queue`, a protocol 16 client's `reject`. `steer` (Host feature `steer`, D85) joins
+ * the running turn before its next step, when our engine runs it; a workflow session queues it,
+ * and one the turn doesn't take starts the next turn like a queued message.
  */
-export const MessageDeliverySchema = z.enum(["queue", "reject"]);
+export const MessageDeliverySchema = z.enum(["queue", "reject", "steer"]);
 export type MessageDelivery = z.infer<typeof MessageDeliverySchema>;
 /**
  * A message's `removeTools` (Host feature `remove-tools`): the tools its turn may not use, by
@@ -3474,12 +3476,15 @@ export const AcceptedResponseSchema = z.object({
 export type AcceptedResponse = z.infer<typeof AcceptedResponseSchema>;
 /**
  * A message the session queued because a turn runs or waits (protocol 17): it starts the next
- * turn when this one ends. `position` counts from 1, the first to go.
+ * turn when this one ends. `position` counts from 1, the first to go. `delivery` is what applied
+ * (D85): `steer` when the running turn takes it before a step, `queue` otherwise; a Host without
+ * the feature `steer` leaves it out.
  */
 export const QueuedResponseSchema = z.object({
   status: z.literal("queued"),
   queuedMessageId: z.string(),
   position: z.number().int().positive(),
+  delivery: z.enum(["queue", "steer"]).optional(),
   cursor: z.string().nullable(),
   requestId: z.string(),
 });
@@ -3779,10 +3784,15 @@ export const TurnCancelledPayloadSchema = z
 /**
  * `message.queued` (protocol 17): a message arrived while the session's turn ran or waited, and
  * waits in its queue. `position` counts from 1; the message's `command.message` is written when
- * a turn takes it.
+ * a turn takes it. `delivery` (D85) says whether the running turn may take it before a step.
  */
 export const MessageQueuedPayloadSchema = z
-  .object({ queuedMessageId: z.string(), position: z.number().int().positive(), requestId: z.string() })
+  .object({
+    queuedMessageId: z.string(),
+    position: z.number().int().positive(),
+    requestId: z.string(),
+    delivery: z.enum(["queue", "steer"]).optional(),
+  })
   .passthrough();
 /**
  * `wake.booked`: the session's agent booked its next turn with `schedule_wake`,
@@ -3815,9 +3825,16 @@ export type PlanStep = z.infer<typeof PlanStepSchema>;
 export const PlanUpdatedPayloadSchema = z
   .object({ steps: z.array(PlanStepSchema).max(PLAN_LIMITS.steps) })
   .passthrough();
-/** `queue.taken` (protocol 17): the turn that started with the queued messages, in order. */
+/**
+ * `queue.taken` (protocol 17): the turn that started with the queued messages, in order. With
+ * `step` (D85), the running turn took steered messages before that step instead.
+ */
 export const QueueTakenPayloadSchema = z
-  .object({ turnId: z.string(), queuedMessageIds: z.array(z.string()).min(1) })
+  .object({
+    turnId: z.string(),
+    queuedMessageIds: z.array(z.string()).min(1),
+    step: z.number().int().positive().optional(),
+  })
   .passthrough();
 /** Lifecycle of an agent used as a tool. `agent.delegationId` is the parent call's invocation. */
 export const DelegationPayloadSchema = z

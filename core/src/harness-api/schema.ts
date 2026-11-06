@@ -113,6 +113,11 @@ export const EffectTargetSchema = z.discriminatedUnion("kind", [
  * A model effect that writes a compaction's summary says so (`purpose: "summary"`): it is no
  * assistant message, and the compaction edit that follows names it (`CompactionFactsSchema`).
  *
+ * An `inputs` effect (D85, revision 4) asks core for the messages steered into the running turn
+ * (`delivery: "steer"`), before a step: core takes them in the transaction that journals the
+ * effect and answers `{value: {events}}` at once, the messages' input events in order (none when
+ * nothing waits). The journal keeps the answer, so a replay takes the same messages at that step.
+ *
  * An agent's tool effect names its `target` (what runs it: for an MCP or HTTP tool, its
  * identity) beside the name the model used (`toolName`, for display), and may name the `skill` it
  * ran (a skill tool's skill, or a sandbox call in a skill's folder): the record keeps the skill,
@@ -134,7 +139,7 @@ export const EffectIntentSchema = z
     turnId: id,
     agentId: id,
     manifestHash: z.string(),
-    kind: z.enum(["model", "tool", "delegation", "agent"]),
+    kind: z.enum(["model", "tool", "delegation", "agent", "inputs"]),
     agent: z.object({ id: z.string(), path: z.string(), delegationId: z.string().optional() }).strict().optional(),
     toolName: z.string().optional(),
     target: EffectTargetSchema.optional(),

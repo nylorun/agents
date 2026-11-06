@@ -303,6 +303,13 @@ stays in the transcript and fails the step `model.invalid_output`. `ModelCall` c
 **Segment rollover**: A long turn ending its durable segment at a step boundary (`yielded`)
 and continuing in the next segment of the same turn.
 
+**Steered messages** (D85): Messages a person sent into the running turn (`delivery: "steer"`). With
+`runDurable`'s `takeInputs` (the Harness API run sets it), the root loop asks the host for an
+`inputs` effect (`…:inputs:step:<n>`) before every step but the turn's first, and never while a
+plan dispatches; it writes what comes back as `input` entries after the tool results and gives them
+to the step as its `arrivals`. Agents used as tools never ask. A host that refuses the kind
+(`invalid`) turns it off for the run.
+
 ## Flow (workflows)
 
 **Flow engine**: Interprets a workflow manifest (`runtime/harness/src/flow/`). It returns

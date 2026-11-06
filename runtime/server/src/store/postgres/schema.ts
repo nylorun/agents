@@ -718,7 +718,8 @@ export const turns = nylorun.table(
 
 /**
  * Each session's queue (protocol 17, D76): messages that arrived while its turn ran or waited, in
- * order (`seq`), until a turn takes them. A row holds the command as sent, the turn input its
+ * order (`seq`), until a turn takes them: the next turn, or the running one before a step for a
+ * steered message (D85). A row holds the command as sent, the turn input its
  * message gives the engine (file parts pinned when it was queued), and who sent it.
  */
 export const sessionQueue = nylorun.table(
@@ -740,8 +741,16 @@ export const sessionQueue = nylorun.table(
     /** What sent it when not a client (track T4): a trigger's run, or the session's own wake. */
     cause: jsonText(),
     createdAt: textC().notNull(),
+    /**
+     * `steer` (D85): the running turn may take it before a step (the `inputs` effect); `queue`:
+     * it waits for the turn to end. Either starts the next turn if the running one didn't take it.
+     */
+    delivery: text({ enum: ["queue", "steer"] }).notNull().default("queue"),
   },
-  (t) => [uniqueIndex("session_queue_order").on(t.sessionId, t.seq)],
+  (t) => [
+    uniqueIndex("session_queue_order").on(t.sessionId, t.seq),
+    check("session_queue_delivery_check", sql`${t.delivery} IN ('queue', 'steer')`),
+  ],
 );
 
 /**

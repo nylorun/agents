@@ -44,6 +44,7 @@ import { sessionSandboxSpec } from "../sandbox/share.js";
 import { readRuntimeLimits } from "../tenant/runtime-limits.js";
 import { checkEntry } from "../record/index.js";
 import { turnManifestOf } from "../tenant/session.js";
+import { takeSteeredMessages } from "../tenant/commands.js";
 import { isEnabledIn, manifestFor, mcpToolIn } from "../mcp/snapshot.js";
 import { findServer } from "../mcp/pool.js";
 import { isHttpToolCall } from "../gates/http-tool.js";
@@ -190,6 +191,24 @@ export async function recordIntent(
       if (decided) return decided;
       await t.put("effects", request.effectId, row);
       return { status: "execute", traceparent: row.traceparent! };
+    }
+    if (request.kind === "inputs") {
+      // The messages steered into the running turn (D85), taken before a step: journaled with
+      // what was taken, empty or not, so a replay takes the same messages at the same step.
+      const step = Number((request.input as { step?: unknown } | null | undefined)?.step);
+      const events = await takeSteeredMessages(t, s, s.id, Number.isInteger(step) && step > 0 ? step : 1);
+      if (events.length > 0) await t.put("sessions", s.id, s);
+      const outcome = { value: { events } };
+      const at = new Date().toISOString();
+      await t.put("effects", request.effectId, {
+        request,
+        requestHash,
+        status: "completed",
+        outcome,
+        startedAt: at,
+        settledAt: at,
+      });
+      return { status: "completed", outcome };
     }
     if (request.kind === "delegation") {
       // Lifecycle points of an agent used as a tool: journaled once, so replays never re-emit.

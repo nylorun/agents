@@ -204,7 +204,8 @@ export type CommandOptions = {
 /**
  * A message's options. `delivery` says what a message to a busy session does (protocol 17):
  * `queue` (the default) waits for the running turn to end, `reject` is refused with
- * `409 session_busy`. `removeTools` names the tools the message's turn may not use (Host feature
+ * `409 session_busy`, and `steer` (Host feature `steer`, D85) joins the running turn before its next
+ * step; the queued answer's `delivery` says which applied. `removeTools` names the tools the message's turn may not use (Host feature
  * `remove-tools`): a declared tool or an agent used as a tool by its name (in the agent and in
  * the agents it uses as tools), an MCP server's tool as `<server>__<tool>`, a whole MCP server by
  * its name. It applies to the version the turn runs, so the session still moves to its Agent's
