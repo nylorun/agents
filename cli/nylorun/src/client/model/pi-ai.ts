@@ -1,18 +1,40 @@
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { nylorunHome } from "@nylorun/core/project";
 import { CliError } from "../../errors.js";
 
-/**
- * The pi-ai `nylorun tenant models set` loads; nylorun's devDependency has the same version
- * (scripts/check-package.mjs).
- */
-export const PI_AI_VERSION = "1.3.0";
 const PI_AI = "@earendil-works/pi-ai";
+
+/**
+ * The pi-ai `nylorun tenant models set` loads, read from nylorun's `@earendil-works/pi-ai`
+ * devDependency: the version the build and the tests used, so bumping the dependency (Dependabot,
+ * or by hand) moves the version the on-demand install pins with it. scripts/check-package.mjs
+ * asserts the dependency is an exact version.
+ */
+export const PI_AI_VERSION = piAiVersion();
+
+/** `src/client/model/*.ts` and `dist/client/model/*.js` both sit three levels below the package root. */
+function piAiVersion(): string {
+  const manifest = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "package.json");
+  let declared: unknown;
+  try {
+    declared = (
+      JSON.parse(readFileSync(manifest, "utf8")) as { devDependencies?: Record<string, unknown> }
+    ).devDependencies?.[PI_AI];
+  } catch (error) {
+    throw new CliError(
+      `Cannot read nylorun's package.json for the ${PI_AI} version: ${error instanceof Error ? error.message : String(error)}`,
+      1,
+    );
+  }
+  if (typeof declared !== "string" || declared.trim() === "")
+    throw new CliError(`nylorun's package.json is missing its "${PI_AI}" devDependency.`, 1);
+  return declared;
+}
 
 /** What `nylorun tenant models set` uses of pi-ai: its provider registry and login flows. */
 export interface PiAi {
