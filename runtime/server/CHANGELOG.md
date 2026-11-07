@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.44.0-beta
+
+### Minor Changes
+
+- 1d3a5c5: Queued messages no longer wait for good (Host feature `queue-recovery`). When a turn ends and its
+  Agent refuses to start the next one for the session's queued messages (its disk being copied, its
+  pod lost, the Agent deleted), the messages wait with the session's `queueStalled`, and the Tenant
+  sweep tries the start again (Host tuning `sweep.queueRetryMs`, 30 seconds), as does the end of the
+  Agent's disk copy. A message that has waited longer than the new Runtime limit `queuedStartMs`
+  (15 minutes) is removed with the new event `queue.failed` (`queue.start_expired`, with the
+  refusal's code as `reason`); a refusal no retry changes (a turn request the version no longer
+  resolves, another harness) fails the messages at once (`queue.start_refused`), and the messages
+  behind them are tried next. Before, nothing started such a queue until another message arrived.
+
+  On the A2A endpoint (profile v2), a queued task that fails is `TASK_STATE_FAILED` with a status
+  message saying why, in `GetTask`, its pushes and a blocking `SendMessage`. `CancelTask` on a queued
+  task now takes it out of the queue, whether a task runs in its context or not, and answers
+  `TASK_STATE_CANCELED` (the new event `queue.cancelled`), pushed; before, it was
+  `TaskNotCancelableError`.
+
+### Patch Changes
+
+- 63e0577: Every running pod Agent now has an idle timer, whatever woke it. A pod woken by a disk copy or by commands through the session's sandbox route, and one whose idle timer fired during a turn, no longer runs past its idle limit; the Tenant sweep arms the timer of a pod already running past it.
+- b23a75c: A pod's engine checks its NetworkPolicy quickly on a wake. When the pod's disk already holds the engine's volume id, one 150 ms probe of the API server (`harness.wakeNetworkProbeMs`, `harness.wakeNetworkConfirmations`) replaces three of a second, so a woken computer joins about 2.9 s sooner. A first start keeps the full check, and a wake whose probe connects goes back to it.
+- Pin core to the tested release.
+- Pin harness to the tested release.
+- Updated dependencies [1d3a5c5]
+- Updated dependencies
+  - @nylorun/core@0.38.0-beta
+  - @nylorun/harness@0.34.1-beta
+
 ## 0.43.0-beta
 
 ### Minor Changes
