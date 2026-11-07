@@ -18,7 +18,10 @@
  * - A message to a busy context is **queued** (`delivery: "queue"`, protocol 17) and answered
  *   with the task that will take it: `SUBMITTED`, its id the queued message's own until a turn
  *   takes it, then that turn's state. `metadata.delivery: "reject"` keeps v1's
- *   `UnsupportedOperationError` (reason `CONTEXT_BUSY`).
+ *   `UnsupportedOperationError` (reason `CONTEXT_BUSY`). A queued task never waits for good (Host
+ *   feature `queue-recovery`): one whose turn the Agent refused to start for longer than the
+ *   Runtime limit `queuedStartMs`, or for good, is `FAILED`; `CancelTask` takes one out of the
+ *   queue as `CANCELED`. Both are pushed.
  * - An open interaction shows on the status message under `interactions/v1`; the caller answers
  *   on the same task with `{ interactionId, approved }` (the Runtime's `approve`, recorded with
  *   the caller as `approvedBy`) or `{ interactionId, value }` (`respond`). Text never approves.
@@ -82,6 +85,8 @@ import {
   buildTask,
   callerTraceId,
   contextSessionId,
+  droppedTask,
+  endsQueued,
   newContextId,
   parseTaskId,
   pendingInteraction,
@@ -93,7 +98,7 @@ import {
 import { currentModelDescriptor } from "../../model/descriptor.js";
 import { decodeCursor } from "../../record/cursor.js";
 import { accessOf } from "../../tenant/auth.js";
-import { command } from "../../tenant/commands.js";
+import { cancelQueuedMessage, command } from "../../tenant/commands.js";
 import {
   loadSession,
   reachesAgent,
@@ -137,6 +142,8 @@ interface OwnedTask {
   readonly events: readonly LiveEvent[];
   /** Set while the task is a queued message no turn took yet. */
   readonly queued?: LiveEvent;
+  /** Set when the task was a queued message that failed or was cancelled before a turn took it. */
+  readonly dropped?: LiveEvent;
 }
 
 /** The A2A endpoint's route for a published agent, from the Runtime's base URL. */
@@ -347,7 +354,9 @@ async function indexedTask(
  * The caller's task `taskId`, found through the turn index. Its last part is a turn, or a queued
  * message's id: while the message waits the task is `SUBMITTED`, and once a turn took it (the
  * index keeps the queued messages each turn took) the task is that turn's, under the id the
- * caller knows. Only a message still in the queue is looked for in the session's history.
+ * caller knows. A queued message that failed or was cancelled before a turn took it (Host feature
+ * `queue-recovery`) is `FAILED` or `CANCELED`, from the event that ended it. Only a message still
+ * in the queue, or no longer in it and taken by no turn, is looked for in the session's history.
  */
 async function ownedTask(
   caller: Caller,
@@ -365,20 +374,16 @@ async function ownedTask(
     const taken = await t.turnOfQueuedMessage(sessionId, ids.turnId);
     return taken ? { turn: taken } : {};
   });
-  if (found.queued) {
-    const queued = (await sessionEvents(caller.ctx, sessionId)).find(
+  if (found.turn === undefined) {
+    // Queued, or a queued message that failed or was cancelled: its history says which.
+    const events = await sessionEvents(caller.ctx, sessionId);
+    const queued = events.find(
       (event) => event.type === "message.queued" && payloadOf(event).queuedMessageId === ids.turnId
     );
-    if (queued)
-      return {
-        task: submittedTask(ids.contextId, taskId, queued),
-        session,
-        sessionId,
-        contextId: ids.contextId,
-        turnId: ids.turnId,
-        events: [],
-        queued,
-      };
+    const dropped = queued ? events.find((event) => endsQueued(event, ids.turnId)) : undefined;
+    const owned = { session, sessionId, contextId: ids.contextId, turnId: ids.turnId, events: [] };
+    if (dropped) return { ...owned, task: droppedTask(ids.contextId, taskId, dropped), dropped };
+    if (queued && found.queued) return { ...owned, task: submittedTask(ids.contextId, taskId, queued), queued };
   }
   const row = found.turn ?? taskNotFound(taskId);
   const built =
@@ -763,13 +768,26 @@ function replyTarget(owned: OwnedTask): string {
   return pending.id;
 }
 
-async function cancelTask(caller: Caller, taskId: string): Promise<Task> {
+/**
+ * `CancelTask`. A queued task (`SUBMITTED`) leaves its context's queue and is `CANCELED`
+ * (`queue.cancelled`, pushed), whether a task runs in the context or not (Host feature
+ * `queue-recovery`); one a turn took meanwhile is cancelled as that turn. A running or waiting
+ * task's turn is cancelled. An ended task is not cancelable, unless it is `CANCELED` already.
+ */
+async function cancelTask(caller: Caller, taskId: string, again = true): Promise<Task> {
   const owned = await ownedTask(caller, taskId);
-  if (owned.queued)
-    return a2aFail("taskNotCancelable", "The task is queued and starts when the context's running task ends; cancel it then", {
-      taskId,
-      state: owned.task.status.state,
-    });
+  if (owned.queued) {
+    const cancelled = await cancelQueuedMessage(
+      caller.ctx,
+      owned.sessionId,
+      owned.turnId,
+      caller.scope,
+      "Canceled by the A2A client"
+    );
+    // Gone from the queue meanwhile: a turn took it, or it failed. Answer as the task is now.
+    if (!cancelled && again) return cancelTask(caller, taskId, false);
+    return (await ownedTask(caller, taskId)).task;
+  }
   if (owned.session.activeTurnId !== owned.turnId) {
     if (owned.task.status.state === "TASK_STATE_CANCELED") return owned.task;
     return a2aFail("taskNotCancelable", "The task has already finished and cannot be canceled", {
@@ -851,8 +869,8 @@ async function createPushConfig(
   requirePush(caller);
   const { taskId, config } = parseCreatePushParams(params);
   const owned = await ownedTask(caller, taskId);
-  const last = owned.queued ?? owned.events.at(-1);
-  const ended = owned.events.some((event) => ENDED.has(event.type));
+  const last = owned.dropped ?? owned.queued ?? owned.events.at(-1);
+  const ended = owned.dropped !== undefined || owned.events.some((event) => ENDED.has(event.type));
   const configId =
     config.id ?? createHash("sha256").update(`${config.url}\u0000${config.token ?? ""}`).digest("hex").slice(0, 16);
   return registerPush(
@@ -864,7 +882,7 @@ async function createPushConfig(
       taskId: owned.task.id,
       turnId: owned.turnId,
       nextSeq: last ? last.seq + 1 : 0,
-      ...(owned.queued ? {} : { traceId: await turnTraceId(caller.ctx, owned.sessionId, owned.turnId, owned.events) }),
+      ...(owned.queued || owned.dropped ? {} : { traceId: await turnTraceId(caller.ctx, owned.sessionId, owned.turnId, owned.events) }),
       done: ended,
     }
   );
@@ -917,7 +935,8 @@ async function deletePushConfig(caller: Caller, params: Record<string, unknown>)
  * Waits until the task's turn ends, pauses or has an uncertain effect, the caller hangs up, or
  * the Tenant's Runtime limit `a2aWaitMs` passes: after it, the task is returned as it is
  * (`WORKING`, or `SUBMITTED` while queued) and keeps running, and the caller polls `GetTask` or
- * waits for pushes. A queued message's task is followed to the turn that takes it. Follows the
+ * waits for pushes. A queued message's task is followed to the turn that takes it, or to its
+ * `queue.failed` or `queue.cancelled`. Follows the
  * session's shared stream from the command's cursor, so the events the task is built from are
  * there when it returns. A feed that ends (reset, deleted, closing) ends the wait: the task says
  * what the session says then.
@@ -947,6 +966,7 @@ async function settled(
         payloadOf(event).queuedMessageId === accepted.queuedMessageId
       )
         turnId = event.turnId;
+      if (turnId === undefined && endsQueued(event, accepted.queuedMessageId!)) return;
       if (turnId !== undefined && event.turnId === turnId && SETTLED_EVENTS.has(event.type)) return;
     }
   } finally {

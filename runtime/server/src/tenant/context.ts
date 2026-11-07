@@ -114,6 +114,13 @@ export interface Session {
    * own booked wake. A memory version written in the turn names its run (track T5).
    */
   turnCause?: { kind: "trigger" | "self"; triggerId: string; runId: string };
+  /**
+   * Set while the session's queued messages wait for an Agent that refused their turn's start
+   * (Host feature `queue-recovery`, `startQueuedTurn`): since when, and the last refusal. The
+   * Tenant sweep tries the start again, and fails them once `queuedStartMs` has passed since.
+   * Cleared when a turn starts, or when the queue empties.
+   */
+  queueStalled?: { since: string; code: string; message: string };
   creation: unknown;
   mcpSnapshot?: McpSnapshot;
   mcpDiagnostics?: readonly McpDiagnostic[];

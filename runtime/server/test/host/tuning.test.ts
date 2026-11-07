@@ -93,6 +93,7 @@ describe("the Host tuning schema", () => {
       outboxAttempts: 10,
       outboxRetry: { minMs: 5_000, maxMs: 600_000 },
       stalePodMs: 60_000,
+      queueRetryMs: 30_000,
     });
     expect(t.execution).toEqual({
       advanceDeadlineMs: 50 * 60_000,

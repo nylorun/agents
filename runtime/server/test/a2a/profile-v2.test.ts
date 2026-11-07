@@ -13,6 +13,9 @@ import { startTestTenant } from "../support/tenant.js";
 import { startToolServer, type ToolServer } from "../support/tool-server.js";
 import { setToolPolicy } from "../support/tool-policy.js";
 import { deploy } from "../support/agents.js";
+import { setLimits } from "../support/limits.js";
+import { withTestSessionStore } from "../support/store.js";
+import { DEFAULT_HOST_TUNING, hostTuningOf, useHostTuning } from "../../src/tuning.js";
 
 /**
  * The Nylorun A2A profile v2 conformance suite (A2A-E15): what a v2 caller (Nylorun Bot's
@@ -32,6 +35,8 @@ const SCRIPTS: Record<string, { steps: Step[]; closing: string }> = {
   support: { steps: [], closing: "Hello from support." },
   guarded: { steps: [{ call: { name: "save", args: { note: "hi" } } }], closing: "Saved." },
   slow: { steps: [{ text: "Starting.", call: { name: "wait", args: {} } }], closing: "Finished." },
+  // `slow` with a disk (kind virtual), which a disk copy holds.
+  disked: { steps: [{ text: "Starting.", call: { name: "wait", args: {} } }], closing: "Finished." },
   writer: {
     steps: [{ call: { name: "save_artifact", args: { content: "# Report", name: "report.md" } } }],
     closing: "Wrote the report.",
@@ -95,6 +100,8 @@ beforeAll(async () => {
   await new Promise<void>((resolve) => receiver.listen(0, "127.0.0.1", resolve));
   const port = (receiver.address() as AddressInfo).port;
   receiverBase = `http://127.0.0.1:${port}`;
+  // The sweep tries a refused queued start again at every pass (Host feature `queue-recovery`).
+  useHostTuning(hostTuningOf({ sweep: { queueRetryMs: 100 } }));
   runtime = await startTestTenant({
     applicationKey: APP,
     vaultKek: null,
@@ -125,10 +132,16 @@ beforeAll(async () => {
     name: "writer",
     runtime: { kind: "virtual" },
   });
+  const disked = Agent({ id: "disked", name: "Disked" }).tools(service.tool("wait", { input: z.object({}) })).build();
+  await deploy(runtime.url, { ...runtime.headers(), "content-type": "application/json" }, disked, {
+    name: "disked",
+    runtime: { kind: "virtual" },
+  });
   await setToolPolicy(runtime, [{ effect: "ask", tool: "save", agent: "guarded" }]);
 }, 60_000);
 
 afterAll(async () => {
+  useHostTuning(DEFAULT_HOST_TUNING);
   receiver?.closeAllConnections();
   await new Promise((resolve) => receiver?.close(resolve));
   await service?.close();
@@ -411,6 +424,163 @@ describe("a follow-up to a busy context", () => {
     const bodies = pushesTo(path).map(verify) as any[];
     expect(new Set(bodies.map((body) => (body.statusUpdate ?? body.artifactUpdate).taskId))).toEqual(new Set([queued.id]));
     expect(states(path)[0]).toBe("TASK_STATE_WORKING");
+  });
+});
+
+describe("a queued task whose turn the Agent refuses to start", () => {
+  /** Holds Agent `agent`'s disk as a snapshot does (`agent_busy`), or lets it go. */
+  const copying = (agent: string, on: boolean) =>
+    withTestSessionStore(runtime, (store) =>
+      store.tx(async (t) => {
+        await t.environment(agent, { lock: true });
+        const now = new Date();
+        await t.updateEnvironment(
+          agent,
+          {
+            diskOp: on
+              ? { kind: "snapshot", startedAt: now.toISOString(), until: new Date(now.getTime() + 600_000).toISOString() }
+              : null,
+          },
+          now.toISOString()
+        );
+      })
+    );
+  const limits = (queuedStartMs: number) => withTestSessionStore(runtime, (store) => setLimits(store, { queuedStartMs }));
+  const getTask = async (id: string) => (await rpc("GetTask", { id }, { agent: "disked" })).body.result;
+  const itemsOf = async (contextId: string) => {
+    const sessionId = contextSessionId("u:org:ada", "disked", contextId);
+    const page = (await (
+      await fetch(`${runtime.url}/v1/sessions/${sessionId}/items?limit=200`, { headers: runtime.headers() })
+    ).json()) as { items: { type: string; payload: any }[] };
+    return page.items;
+  };
+
+  /**
+   * A task that runs in a new context, a second message queued behind it with a push config, and
+   * the Agent's disk held when the first ends: the second's start is refused, and it waits.
+   */
+  async function refused(path: string) {
+    let release!: () => void;
+    held = new Promise((resolve) => (release = resolve));
+    const contextId = next("ctx");
+    const first = (
+      await rpc("SendMessage", { message: message("Go", { contextId }), configuration: { returnImmediately: true } }, { agent: "disked" })
+    ).body.result.task;
+    const queued = (
+      await rpc(
+        "SendMessage",
+        {
+          message: message("And then this", { contextId }),
+          configuration: { returnImmediately: true, taskPushNotificationConfig: { url: `${receiverBase}${path}` } },
+        },
+        { agent: "disked" }
+      )
+    ).body.result.task;
+    expect(queued.status.state).toBe("TASK_STATE_SUBMITTED");
+    await copying("disked", true);
+    release();
+    await until(() => getTask(first.id), (task) => task.status.state === "TASK_STATE_COMPLETED");
+    return { first, queued, contextId };
+  }
+
+  it("waits while the start is refused, and starts once the refusal clears", async () => {
+    const path = "/push/refused-then-started";
+    try {
+      const { queued, contextId } = await refused(path);
+      // Several sweeps try it; each is refused, and the task waits.
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+      expect((await getTask(queued.id)).status.state).toBe("TASK_STATE_SUBMITTED");
+      expect((await itemsOf(contextId)).map((item) => item.type)).not.toContain("queue.failed");
+      await copying("disked", false);
+      const done = await until(() => getTask(queued.id), (task) => task.status.state === "TASK_STATE_COMPLETED");
+      expect(done.history[0].parts).toEqual([{ text: "And then this" }]);
+      await until(() => states(path), (seen) => seen.includes("TASK_STATE_COMPLETED"));
+      expect(states(path)[0]).toBe("TASK_STATE_WORKING");
+    } finally {
+      await copying("disked", false);
+    }
+  });
+
+  it("fails with a reason once the start was refused for longer than queuedStartMs, with a push", async () => {
+    const path = "/push/refused-then-failed";
+    await limits(500);
+    try {
+      const { queued, contextId } = await refused(path);
+      const failed = await until(() => getTask(queued.id), (task) => task.status.state !== "TASK_STATE_SUBMITTED");
+      expect(failed.id).toBe(queued.id);
+      expect(failed.status.state).toBe("TASK_STATE_FAILED");
+      expect(failed.status.message.parts[0].text).toMatch(/never started a turn.*queuedStartMs/);
+      await until(() => states(path), (seen) => seen.includes("TASK_STATE_FAILED"));
+      expect(states(path)).toEqual(["TASK_STATE_FAILED"]);
+      const items = await itemsOf(contextId);
+      const event = items.find((item) => item.type === "queue.failed");
+      expect(event?.payload).toMatchObject({
+        queuedMessageIds: [queued.id.split(".").at(-1)],
+        error: { code: "queue.start_expired", reason: "agent_busy" },
+      });
+      // Once the disk is free again, nothing starts: the message is gone from the queue.
+      await copying("disked", false);
+      await new Promise((resolve) => setTimeout(resolve, 600));
+      expect((await getTask(queued.id)).status.state).toBe("TASK_STATE_FAILED");
+      expect((await itemsOf(contextId)).filter((item) => item.type === "queue.taken")).toEqual([]);
+      // A failed task is not cancelable.
+      const cancel = await rpc("CancelTask", { id: queued.id }, { agent: "disked" });
+      expect(cancel.body.error.code).toBe(-32002);
+    } finally {
+      await copying("disked", false);
+      await limits(15 * 60_000);
+    }
+  });
+
+  it("is taken out of the queue by CancelTask when no task runs, CANCELED with a push", async () => {
+    const path = "/push/refused-then-cancelled";
+    try {
+      const { queued, contextId } = await refused(path);
+      const cancelled = (await rpc("CancelTask", { id: queued.id }, { agent: "disked" })).body.result;
+      expect(cancelled).toMatchObject({ id: queued.id, status: { state: "TASK_STATE_CANCELED" } });
+      await until(() => states(path), (seen) => seen.includes("TASK_STATE_CANCELED"));
+      expect(states(path)).toEqual(["TASK_STATE_CANCELED"]);
+      // Cancelling again answers the same; a freed disk starts nothing.
+      expect((await rpc("CancelTask", { id: queued.id }, { agent: "disked" })).body.result.status.state).toBe(
+        "TASK_STATE_CANCELED"
+      );
+      await copying("disked", false);
+      await new Promise((resolve) => setTimeout(resolve, 600));
+      expect((await getTask(queued.id)).status.state).toBe("TASK_STATE_CANCELED");
+      const items = await itemsOf(contextId);
+      expect(items.filter((item) => item.type === "queue.taken")).toEqual([]);
+      expect(items.find((item) => item.type === "queue.cancelled")?.payload).toMatchObject({
+        queuedMessageIds: [queued.id.split(".").at(-1)],
+      });
+      // The context takes a new message at once.
+      const after = (
+        await rpc("SendMessage", { message: message("Fresh", { contextId }), configuration: { returnImmediately: true } }, { agent: "disked" })
+      ).body.result.task;
+      expect(after.status.state).toBe("TASK_STATE_WORKING");
+      await until(() => getTask(after.id), (task) => task.status.state === "TASK_STATE_COMPLETED");
+    } finally {
+      await copying("disked", false);
+    }
+  });
+
+  it("is taken out of the queue by CancelTask while the context's task runs", async () => {
+    let release!: () => void;
+    held = new Promise((resolve) => (release = resolve));
+    const contextId = next("ctx");
+    const first = (
+      await rpc("SendMessage", { message: message("Go", { contextId }), configuration: { returnImmediately: true } }, { agent: "disked" })
+    ).body.result.task;
+    const queued = (
+      await rpc("SendMessage", { message: message("Then this", { contextId }), configuration: { returnImmediately: true } }, { agent: "disked" })
+    ).body.result.task;
+    expect(queued.status.state).toBe("TASK_STATE_SUBMITTED");
+    const cancelled = (await rpc("CancelTask", { id: queued.id }, { agent: "disked" })).body.result;
+    expect(cancelled.status.state).toBe("TASK_STATE_CANCELED");
+    expect((await getTask(first.id)).status.state).toBe("TASK_STATE_WORKING");
+    release();
+    await until(() => getTask(first.id), (task) => task.status.state === "TASK_STATE_COMPLETED");
+    expect((await getTask(queued.id)).status.state).toBe("TASK_STATE_CANCELED");
+    expect((await itemsOf(contextId)).filter((item) => item.type === "queue.taken")).toEqual([]);
   });
 });
 

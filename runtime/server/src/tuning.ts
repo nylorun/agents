@@ -222,6 +222,11 @@ export const HostTuningSchema = z
       outboxRetry: backoff(5_000, 10 * MINUTE),
       /** How long a pod row may go unchanged before the sweep checks it. */
       stalePodMs: ms(MINUTE),
+      /**
+       * How often the sweep tries again the turn start of queued messages their Agent refused
+       * (Host feature `queue-recovery`); they fail after the Runtime limit `queuedStartMs`.
+       */
+      queueRetryMs: ms(30_000),
     }),
     /** The A2A server's push notifications (Host feature `a2a-profile-v2`). */
     a2a: group({

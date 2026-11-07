@@ -292,6 +292,16 @@ export const OPTIONAL_HOST_FEATURES = [
    * a steer the turn doesn't take starts the next turn, as a queued message does.
    */
   "steer",
+  /**
+   * Queued messages never wait for good: when the Agent refuses their turn's start (its disk being
+   * copied, its pod lost, the Agent deleted) the start is tried again, at every Tenant sweep and
+   * when a disk copy ends, and past the Runtime limit `queuedStartMs` they fail (`queue.failed`);
+   * a start no retry can make (a turn request the version no longer resolves, another harness)
+   * fails at once. The A2A endpoint's `CancelTask` removes a queued task from its context's
+   * queue (`queue.cancelled`), and a failed or cancelled queued task answers, and pushes,
+   * `FAILED` or `CANCELED`.
+   */
+  "queue-recovery",
 ] as const;
 export type OptionalHostFeature = (typeof OPTIONAL_HOST_FEATURES)[number];
 export interface ProtocolRange {

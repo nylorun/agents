@@ -156,6 +156,19 @@ export function interactionMessage(
 }
 
 export const ENDED: ReadonlySet<string> = new Set(["turn.completed", "turn.failed", "turn.cancelled"]);
+/**
+ * Events that end a queued message's task without a turn (Host feature `queue-recovery`): its
+ * start was refused past the Runtime limit `queuedStartMs`, or for good (`queue.failed`), or a
+ * client cancelled it (`queue.cancelled`). Each names the queued messages it ends.
+ */
+export const QUEUE_ENDED: ReadonlySet<string> = new Set(["queue.failed", "queue.cancelled"]);
+
+/** Whether `event` ends queued message `queuedMessageId`'s task (`QUEUE_ENDED`). */
+export function endsQueued(event: LiveEvent, queuedMessageId: string): boolean {
+  if (!QUEUE_ENDED.has(event.type)) return false;
+  const ids = (event.payload as { queuedMessageIds?: unknown } | null)?.queuedMessageIds;
+  return Array.isArray(ids) && ids.includes(queuedMessageId);
+}
 /** Events after which a blocking `SendMessage` returns: the turn ended or is interrupted. */
 export const SETTLED_EVENTS: ReadonlySet<string> = new Set([
   ...ENDED,
@@ -225,6 +238,12 @@ export function historyOf(events: readonly LiveEvent[], contextId: string, taskI
 
 function agentMessage(messageId: string, text: string, contextId: string, taskId: string): Message {
   return { messageId, role: "ROLE_AGENT", parts: [{ text }], contextId, taskId };
+}
+
+/** What a failed queued message's task says: why its turn never started. */
+function queueFailureText(payload: Record<string, any>): string {
+  const reason = typeof payload.error?.message === "string" ? ` ${payload.error.message}` : "";
+  return `The message never started a turn.${reason}`;
 }
 
 function failureText(code: unknown): string {
@@ -398,6 +417,15 @@ export function updatesOf(event: LiveEvent, view: TaskView): StreamResponse[] {
       const file = fileArtifact(payload, view.baseUrl);
       return file ? [artifact(file)] : [];
     }
+    case "queue.failed":
+      // A queued message's task that no turn will take (Host feature `queue-recovery`).
+      return [
+        status("TASK_STATE_FAILED", {
+          message: agentMessage(`${taskId}:failed`, queueFailureText(payload), contextId, taskId),
+        }),
+      ];
+    case "queue.cancelled":
+      return [status("TASK_STATE_CANCELED")];
     case "turn.completed":
     case "turn.failed":
     case "turn.cancelled": {
@@ -541,6 +569,22 @@ export function submittedTask(contextId: string, taskId: string, queued: LiveEve
     id: taskId,
     contextId,
     status: { state: "TASK_STATE_SUBMITTED", timestamp: queued.time },
+    history: [],
+  };
+}
+
+/**
+ * A queued message's task that ended without a turn (Host feature `queue-recovery`), from the
+ * `queue.failed` or `queue.cancelled` event that names it: `FAILED`, saying why it never started,
+ * or `CANCELED`.
+ */
+export function droppedTask(contextId: string, taskId: string, ended: LiveEvent): Task {
+  const [update] = updatesOf(ended, { contextId, taskId });
+  const status = update && "statusUpdate" in update ? update.statusUpdate.status : undefined;
+  return {
+    id: taskId,
+    contextId,
+    status: status ?? { state: "TASK_STATE_FAILED", timestamp: ended.time },
     history: [],
   };
 }

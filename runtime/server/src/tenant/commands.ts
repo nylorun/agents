@@ -19,7 +19,9 @@
  * (`session_queue`, `message.queued`) unless it asks `delivery: "reject"`, which is
  * `409 session_busy`. A turn that ends takes every queued message in the same transaction
  * (`startQueuedTurn`): client messages and queued ones start a turn through one door,
- * `beginMessageTurn`, which writes each one's `command.message`. A message that asks
+ * `beginMessageTurn`, which writes each one's `command.message`. A start the Agent refuses leaves
+ * the queue waiting, tried again by the Tenant sweep until the Runtime limit `queuedStartMs`, then
+ * failed (`queue.failed`, Host feature `queue-recovery`). A message that asks
  * `delivery: "steer"` (D85) waits marked `steer`, and the running turn takes it before a step
  * (`takeSteeredMessages`, the `inputs` effect); one it doesn't take starts the next turn like
  * any other.
@@ -408,8 +410,8 @@ export type MessageAnswer =
 /**
  * Takes a resolved message on session `s` (locked) in transaction `t`: it starts a turn when the
  * session takes messages and none wait, else it waits in the queue behind them (protocol 17), and
- * an idle session whose queue was left waiting (its Agent was unavailable when the last turn
- * ended) starts a turn with all of them, this one last. Past `sessionQueuedMessages` it is
+ * an idle session whose queue was left waiting (its Agent refused the start when the last turn
+ * ended, `startQueuedTurn`) tries the start again with all of them, this one last. Past `sessionQueuedMessages` it is
  * `429 queue_full`. `waiting` is the queue's length, read under the session's lock. `asked`
  * `steer` (D85) marks a waiting message so the running turn may take it before a step; a
  * workflow session can't, so it waits as `queue`.
@@ -607,6 +609,8 @@ async function beginMessageTurn(
     });
   }
   s.turnStartState = s.state;
+  // A turn holds the session now: its queue, if any, waits for the turn, not for the Agent.
+  delete s.queueStalled;
   // A new turn folds from the latest snapshot: a cancel or failure only reverts this turn.
   if (s.history?.snapshot !== undefined) s.history = { ...s.history, from: s.history.snapshot };
   s.activeTurnId = turnId;
@@ -645,57 +649,198 @@ async function beginMessageTurn(
 export const QUEUE_SCOPE: AuthScope = { kind: "application", principalId: "queue" };
 
 /**
+ * The refusals of a queued turn's start that a later try may get past (Host feature
+ * `queue-recovery`): the Agent's disk is being copied or it is being deleted (`agent_busy`), it
+ * can't run now or was deleted and may be made again (`agent_unavailable`), its pod was lost and
+ * may be reset (`agent_lost`). Any other refusal (a turn request the version no longer resolves,
+ * another harness, another owner's Agent) fails the messages at once.
+ */
+const RETRIED_REFUSALS: ReadonlySet<string> = new Set(["agent_busy", "agent_unavailable", "agent_lost"]);
+
+const retried = (error: HttpError): boolean =>
+  error.status === 429 ||
+  error.status === 503 ||
+  (error.status === 409 && RETRIED_REFUSALS.has(error.rejection.code ?? ""));
+
+/** A queued message row (`session_queue`). */
+type QueuedRow = Awaited<ReturnType<Tx["queuedMessages"]>>[number];
+
+/**
  * Starts the next turn of session `s` (locked) from its queue, when it takes messages and messages
- * wait (protocol 17, D76): in the transaction that ended the last turn, or a cancel's. Our engine
- * takes every queued message that carries the same turn manifest as the first, a workflow one.
- * Writes `queue.taken`. Returns nothing when nothing started: an empty queue, or an Agent that
- * cannot take a turn now, whose messages wait for the next message or turn end.
+ * wait (protocol 17, D76): in the transaction that ended the last turn, a cancel's, a message's
+ * that joined a queue left waiting, or the Tenant sweep's (`retryQueuedStarts`). Our engine takes
+ * every queued message that carries the same turn manifest as the first, a workflow one. Writes
+ * `queue.taken`. Returns nothing when nothing started: an empty queue, or an Agent that refused
+ * the start.
+ *
+ * A refusal a later try may get past (`RETRIED_REFUSALS`) leaves the messages waiting, with
+ * `s.queueStalled` saying since when and why (written here); the next message, the sweep and the
+ * end of a disk copy try again. A message that has waited longer than the Runtime limit
+ * `queuedStartMs` since the stall began (or since it was queued, when later) fails with
+ * `queue.failed` (`queue.start_expired`); a refusal no retry changes fails the messages it refused
+ * at once (`queue.start_refused`). Either way the messages behind them are tried next (Host
+ * feature `queue-recovery`).
  */
 export async function startQueuedTurn(
   ctx: TenantContext,
   t: Tx,
   s: Session,
-  id: string
+  id: string,
+  now = new Date()
 ): Promise<{ turnId: string; taken: string[]; cursor: string } | undefined> {
   if (s.closedReason !== undefined || !takesMessages(s) || s.activeTurnId !== null) return undefined;
-  const queued = await t.queuedMessages(id);
-  if (queued.length === 0) return undefined;
-  // Messages that ask the same of their turn's manifest (a variant, `removeTools`) share a turn.
-  const manifestOf = (row: (typeof queued)[number]) =>
-    canonical(turnManifestRequestOf(row.command as MessageEventBody) ?? null);
-  const batch = isWorkflowManifest(s.manifest) ? [queued[0]!] : [];
-  if (batch.length === 0)
-    for (const row of queued) {
-      if (manifestOf(row) !== manifestOf(queued[0]!)) break;
-      batch.push(row);
+  for (;;) {
+    const queued = await t.queuedMessages(id);
+    if (queued.length === 0) {
+      if (s.queueStalled !== undefined) {
+        delete s.queueStalled;
+        await t.put("sessions", id, s);
+      }
+      return undefined;
     }
-  try {
-    await checkAgentTurn(t, s, QUEUE_SCOPE, ctx);
-    await beginMessageTurn(
-      t,
-      s,
-      id,
-      batch.map((row) => ({
-        command: row.command as MessageEventBody,
-        input: row.input,
-        fileArtifacts: row.fileArtifacts as string[],
-        writer: row.writer as EventWriter,
-        queuedMessageId: row.id,
-        ...(row.trace ? { trace: row.trace as TraceContext } : {}),
-        ...(row.cause ? { cause: row.cause as MessageCause } : {}),
-      }))
-    );
-  } catch (error) {
-    if (error instanceof HttpError) return undefined;
-    throw error;
+    // Messages that ask the same of their turn's manifest (a variant, `removeTools`) share a turn.
+    const manifestOf = (row: QueuedRow) => canonical(turnManifestRequestOf(row.command as MessageEventBody) ?? null);
+    const batch = isWorkflowManifest(s.manifest) ? [queued[0]!] : [];
+    if (batch.length === 0)
+      for (const row of queued) {
+        if (manifestOf(row) !== manifestOf(queued[0]!)) break;
+        batch.push(row);
+      }
+    try {
+      await checkAgentTurn(t, s, QUEUE_SCOPE, ctx);
+      await beginMessageTurn(
+        t,
+        s,
+        id,
+        batch.map((row) => ({
+          command: row.command as MessageEventBody,
+          input: row.input,
+          fileArtifacts: row.fileArtifacts as string[],
+          writer: row.writer as EventWriter,
+          queuedMessageId: row.id,
+          ...(row.trace ? { trace: row.trace as TraceContext } : {}),
+          ...(row.cause ? { cause: row.cause as MessageCause } : {}),
+        }))
+      );
+    } catch (error) {
+      if (!(error instanceof HttpError)) throw error;
+      const reason = error.rejection.code ?? "request_rejected";
+      if (!retried(error)) {
+        await failQueued(t, id, batch, {
+          code: "queue.start_refused",
+          message: `The Agent refused these messages' turn: ${error.message}`,
+          reason,
+        });
+        continue;
+      }
+      const since = s.queueStalled?.since ?? now.toISOString();
+      const { queuedStartMs } = await readRuntimeLimits(t);
+      const waited = (row: QueuedRow) =>
+        now.getTime() - Math.max(Date.parse(since), Date.parse(row.createdAt));
+      const expired = batch.filter((row) => waited(row) >= queuedStartMs);
+      if (expired[0]?.id === batch[0]!.id) {
+        await failQueued(t, id, expired, {
+          code: "queue.start_expired",
+          message: `The Agent refused these messages' turn for longer than the Runtime limit queuedStartMs (${queuedStartMs} ms): ${error.message}`,
+          reason,
+        });
+        continue;
+      }
+      s.queueStalled = { since, code: reason, message: error.message };
+      await t.put("sessions", id, s);
+      return undefined;
+    }
+    const taken = batch.map((row) => row.id);
+    await t.deleteQueuedMessages(taken);
+    const event = await t.event(id, s.activeTurnId, "queue.taken", {
+      turnId: s.activeTurnId!,
+      queuedMessageIds: taken,
+    });
+    return { turnId: s.activeTurnId!, taken, cursor: event.cursor };
   }
-  const taken = batch.map((row) => row.id);
-  await t.deleteQueuedMessages(taken);
-  const event = await t.event(id, s.activeTurnId, "queue.taken", {
-    turnId: s.activeTurnId!,
-    queuedMessageIds: taken,
+}
+
+/** Removes queued messages no turn will take, with `queue.failed` (Host feature `queue-recovery`). */
+async function failQueued(
+  t: Tx,
+  id: string,
+  rows: readonly QueuedRow[],
+  error: { code: string; message: string; reason: string }
+): Promise<void> {
+  const ids = rows.map((row) => row.id);
+  await t.deleteQueuedMessages(ids);
+  await t.event(id, null, "queue.failed", { queuedMessageIds: ids, error });
+}
+
+/**
+ * Removes queued message `queuedMessageId` from session `id`'s queue, as `scope` (Host feature
+ * `queue-recovery`): `queue.cancelled`, written by the caller. A turn running or not, the message
+ * never starts one. Returns the event's cursor, or undefined when the message no longer waits (a
+ * turn took it, or it failed or was cancelled already).
+ */
+export async function cancelQueuedMessage(
+  ctx: TenantContext,
+  id: string,
+  queuedMessageId: string,
+  scope: AuthScope,
+  reason?: string
+): Promise<{ cursor: string } | undefined> {
+  return ctx.store.tx(async (t) => {
+    const s = await lockedSession(t, id, accessOf(scope));
+    const queued = await t.queuedMessages(id);
+    if (!queued.some((row) => row.id === queuedMessageId)) return undefined;
+    await t.deleteQueuedMessages([queuedMessageId]);
+    const event = await t.event(
+      id,
+      null,
+      "queue.cancelled",
+      { queuedMessageIds: [queuedMessageId], ...(reason === undefined ? {} : { reason }) },
+      commandWriter(scope)
+    );
+    if (queued.length === 1 && s.queueStalled !== undefined) {
+      delete s.queueStalled;
+      await t.put("sessions", id, s);
+    }
+    return { cursor: event.cursor };
   });
-  return { turnId: s.activeTurnId!, taken, cursor: event.cursor };
+}
+
+/**
+ * Tries again the turn start of every queue a refused start left waiting, one transaction per
+ * session (Host feature `queue-recovery`): the Tenant sweep's step, and what the end of an Agent's
+ * disk copy runs for that Agent's sessions (`environmentId`). Each start fails its messages past
+ * `queuedStartMs` (`startQueuedTurn`). Returns the sessions whose queue started a turn.
+ */
+export async function retryQueuedStarts(
+  ctx: TenantContext,
+  options: { environmentId?: string; now?: Date; batchSize?: number } = {}
+): Promise<string[]> {
+  const started: string[] = [];
+  const limit = options.batchSize ?? 100;
+  let after: string | undefined;
+  for (;;) {
+    const ids = await ctx.store.tx((t) =>
+      t.queuedSessions({
+        statuses: TAKES_MESSAGES,
+        limit,
+        ...(after === undefined ? {} : { after }),
+        ...(options.environmentId === undefined ? {} : { environmentId: options.environmentId }),
+      })
+    );
+    for (const id of ids) {
+      if (ctx.closing || ctx.closed) return started;
+      const turn = await ctx.store.tx(async (t) => {
+        const s = await t.lockSession<Session>(id);
+        if (!s) return undefined;
+        const begun = await startQueuedTurn(ctx, t, s, id, options.now ?? new Date());
+        if (begun) await t.put("sessions", id, s);
+        return begun;
+      });
+      if (turn) started.push(id);
+    }
+    if (ids.length < limit) return started;
+    after = ids.at(-1);
+  }
 }
 
 /** Core's own commands (R4.9): the flow host's, and a drain's cancels. */

@@ -673,7 +673,14 @@ in `timezone`, an IANA name, UTC by default), `at` (one time, RFC 3339 with an o
   `UnsupportedOperationError` with reason `CONTEXT_BUSY` ([A2A](#a2a-and-push-notifications)).
 - **Limits.** `triggersPerAgent`, `triggerMinIntervalMs`, `triggerRunsPerHour` (the guard against
   an Agent triggering itself), `triggerPromptChars`, `triggerRunRetentionMs`, `wakeMaxAheadMs`,
-  `wakeNoteChars`, `webhookBodyBytes` and `sessionQueuedMessages` ([Runtime limits](#runtime-limits)).
+  `wakeNoteChars`, `webhookBodyBytes`, `sessionQueuedMessages` and `queuedStartMs`
+  ([Runtime limits](#runtime-limits)).
+- **A refused start.** When the turn that ends leaves queued messages whose Agent refuses to start
+  the next turn (its disk being copied, its pod lost, the Agent deleted), the messages wait and the
+  Tenant sweep tries the start again (every 30 seconds, Host tuning `sweep.queueRetryMs`, and at
+  once when a disk copy ends). After `queuedStartMs` (15 minutes) they fail with `queue.failed`; a
+  refusal no retry changes fails them at once. A2A answers and pushes the task `FAILED`, and
+  `CancelTask` takes a queued task out of the queue (`CANCELED`) (Host feature `queue-recovery`).
   An hourly trigger on a hundred Agents is 2,400 turns a day: set model budgets before leaving
   Agents running unattended.
 
@@ -985,6 +992,7 @@ What only the Runtime checks:
 | `folderBytes` | Bytes of an agent folder's files together (`413 limit_exceeded` past it) | 50 MiB | A JavaScript number |
 | `folderTextFileBytes` | One Markdown or JSON file of an agent folder the compiler reads (`422 folder_invalid` past it) | 1 MiB | One string |
 | `sessionQueuedMessages` | Messages one session's queue holds while its turn runs or waits (`429 queue_full` past it) | 100 | A JavaScript number |
+| `queuedStartMs` | How long queued messages wait for an Agent that refuses their turn's start (a disk copy, a lost pod) before they fail (`queue.failed`) | 15 min | A JavaScript number |
 | `triggersPerAgent` | Triggers one agent manifest's `runtime.triggers` declares, checked when it is saved | 20 | One request body |
 | `triggerMinIntervalMs` | The shortest gap between two runs of one schedule, checked at save over its next fires | 60 s | A JavaScript number; floor 60 s (cron is minute grained) |
 | `triggerRunsPerHour` | Runs one Agent's triggers start or queue in any hour; later ones are skipped (`rate_limited`) | 60 | A JavaScript number |
