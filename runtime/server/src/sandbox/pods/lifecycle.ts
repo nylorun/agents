@@ -14,7 +14,11 @@
  *   is not the row's is applied again.
  * - **Idle** (`trigger: idle`): no turn on a session that names it, and none ended within its
  *   `lifecycle.idle` (at most the Tenant's `limits.idle`) → `Suspended` (`agent.suspended`,
- *   reason `idle`). The volume is kept; the next turn start asks for `Running` again.
+ *   reason `idle`). The volume is kept; the next turn start asks for `Running` again. Every
+ *   running, ready pod has its idle timer armed (at `lastActiveAt` + idle) whenever it is
+ *   reconciled, whichever path woke it: a turn's end arms it too, but a wake with no turn end
+ *   (a disk copy's `wakePod`, commands through the session's sandbox route) armed nothing and
+ *   ran on for days. A timer that fires during a turn looks again one idle period later.
  * - **Lost**: an incarnation that has run (a pod joined) whose Sandbox is gone or whose volume
  *   is missing is `lost` (`agent.lost`): its host epoch moves, its Sandbox is deleted, and
  *   only a reset brings the Environment back. agent-sandbox recreates a deleted claim empty, so
@@ -204,6 +208,10 @@ export function decide(facts: PodFacts): PodDecision {
       patch.hostEpoch = pod.hostEpoch + 1;
       events.push(event("agent.suspended", { reason: "idle" }));
     } else arm.push({ timer: "idle", at: due });
+  } else if (facts.trigger === "idle" && desired === "running") {
+    // Busy: a turn's end arms the timer again, but look again anyway, so a turn that never ends
+    // cleanly doesn't keep the pod running for good.
+    arm.push({ timer: "idle", at: now + facts.config.idleMs });
   }
 
   // An incarnation a pod has joined, whose Sandbox or volume is gone: lost.
@@ -258,6 +266,9 @@ export function decide(facts: PodFacts): PodDecision {
       // The image it runs, pinned by digest from now on (Q14).
       const digest = pod.imageDigest === undefined ? imageDigestOf(status.imageID, facts.image) : undefined;
       if (digest !== undefined) patch.imageDigest = digest;
+      // Whatever woke it, a running pod has an idle timer (the idle trigger armed its own above).
+      if (facts.trigger !== "idle")
+        arm.push({ timer: "idle", at: Date.parse(pod.lastActiveAt ?? row.createdAt) + facts.config.idleMs });
       return done();
     }
     const startedAt = Date.parse(pod.startedAt ?? row.updatedAt);
