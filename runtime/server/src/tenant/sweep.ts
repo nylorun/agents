@@ -61,7 +61,8 @@ import {
 import type { PendingRequest } from "../store/types.js";
 import type { TenantContext } from "./context.js";
 import { hostTuning } from "../tuning.js";
-import { sweepStartChecks } from "./agent-versions.js";
+import { idleMsOf, sweepStartChecks } from "./agent-versions.js";
+import { readSandboxConfig } from "../sandbox/tenant-config.js";
 import { pumpPushes, pushRetry } from "../api/a2a/push.js";
 import type { OutboxRequest } from "../store/types.js";
 
@@ -313,7 +314,8 @@ export async function wakeOrphanedSessions(
 
 /**
  * Pod sandboxes (F7.2) whose change has not finished (creating, deleting, an old volume still
- * to delete, an expiry not yet recorded), or that should run but whose engine is not connected,
+ * to delete, an expiry not yet recorded), that should run but whose engine is not connected, or
+ * that run past their idle limit (a wake that armed no idle timer: the reconcile arms it),
  * and whose row has not moved for `sweep.stalePodMs` (a minute), get a reconcile: a pod or volume deleted outside
  * the Runtime is found, and a change goes on whose reconcile the execution itself lost (its
  * retry timer, an invocation an operator killed, Restate's state wiped) or whose outbox row
@@ -321,8 +323,9 @@ export async function wakeOrphanedSessions(
  */
 async function reconcileStalePods(ctx: TenantContext, now: Date): Promise<void> {
   if (!ctx.pods) return;
-  const stale = await ctx.store.tx(async (t) =>
-    (await t.listEnvironments()).filter((row) => {
+  const stale = await ctx.store.tx(async (t) => {
+    const config = await readSandboxConfig(t);
+    return (await t.listEnvironments()).filter((row) => {
       const pod = row.pod;
       if (!pod || now.getTime() - Date.parse(row.updatedAt) < hostTuning().sweep.stalePodMs) return false;
       return (
@@ -332,9 +335,15 @@ async function reconcileStalePods(ctx: TenantContext, now: Date): Promise<void> 
         pod.observed === "deleting" ||
         (pod.desired === "suspended" && pod.observed !== "suspended") ||
         // Running, but its engine is not connected: the pod may be gone, or its volume.
-        (pod.desired === "running" && pod.observed === "running" && !ctx.harness.hosting(row.id))
+        (pod.desired === "running" && pod.observed === "running" && !ctx.harness.hosting(row.id)) ||
+        // Running past its idle limit: its idle timer is missing (or a turn holds it, which the
+        // reconcile leaves alone).
+        (pod.desired === "running" &&
+          pod.observed === "running" &&
+          now.getTime() - Date.parse(pod.lastActiveAt ?? row.createdAt) >
+            idleMsOf(config, row) + hostTuning().sweep.stalePodMs)
       );
-    }),
-  );
+    });
+  });
   for (const row of stale) await ctx.sandboxSignal(row.id, { kind: "reconcile" });
 }

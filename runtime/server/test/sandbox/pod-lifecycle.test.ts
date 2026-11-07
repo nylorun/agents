@@ -110,6 +110,27 @@ describe("pod lifecycle", () => {
     expect(decide(facts({ row: base, trigger: "idle", now: T0 + 61_000, busy: true })).patch.desired).toBeUndefined();
   });
 
+  it("arms the idle timer of every running, ready pod it reconciles, whatever woke it", () => {
+    // A wake with no turn end (a disk copy, commands through the sandbox route) arms nothing
+    // elsewhere: the reconcile that sees the pod ready arms it.
+    const woken = row({ observed: "creating", lastActiveAt: new Date(T0).toISOString() });
+    expect(decide(facts({ row: woken })).arm).toEqual([{ timer: "idle", at: T0 + 60_000 }]);
+    // A pod running long past its idle limit with no timer: due at once, so the timer suspends it.
+    const stuck = row({ observed: "running", podUid: "uid-1", lastActiveAt: new Date(T0).toISOString() });
+    const later = decide(facts({ row: stuck, now: T0 + 3 * 86_400_000 }));
+    expect(later.arm).toEqual([{ timer: "idle", at: T0 + 60_000 }]);
+    expect(decide(facts({ row: stuck, trigger: "idle", now: T0 + 3 * 86_400_000 })).patch.desired).toBe("suspended");
+    // Not while it starts or is suspended.
+    expect(decide(facts({ row: woken, status: status({ ready: false }) })).arm).toEqual([]);
+  });
+
+  it("looks again one idle period later when the timer fires during a turn", () => {
+    const base = row({ observed: "running", podUid: "uid-1", lastActiveAt: new Date(T0).toISOString() });
+    const busy = decide(facts({ row: base, trigger: "idle", now: T0 + 61_000, busy: true }));
+    expect(busy.patch.desired).toBeUndefined();
+    expect(busy.arm).toEqual([{ timer: "idle", at: T0 + 61_000 + 60_000 }]);
+  });
+
   it("is suspended once the pod is gone", () => {
     const suspended = decide(
       facts({
