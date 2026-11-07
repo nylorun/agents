@@ -9,13 +9,14 @@
  * records). `/health` answers on 127.0.0.1 only.
  *
  * In a pod sandbox (`NYLORUN_SANDBOX_KIND=pod`, F7.2) it is that sandbox's engine: it first waits
- * until the pod's NetworkPolicy is in force (`awaitNetworkPolicy`), then joins with the
+ * until the pod's NetworkPolicy is in force (`awaitNetworkPolicy`; quickly on a wake, when its
+ * disk already holds the volume id an earlier pod wrote), then joins with the
  * pod's join token instead of a harness token (`pod.ts`), runs its disk's setup on a new volume
  * (`setup.ts`), and runs its sandbox's tools in the pod itself (the `local` backend), with egress
  * through egress-gate. SIGTERM (tini forwards
  * it; the pod's grace is 10 s by default) gives its runs back and exits.
  */
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { createServer } from "node:http";
 import { join } from "node:path";
 import { httpModelGate } from "../gates/http-client.js";
@@ -49,11 +50,14 @@ export async function runHarness(
   let pod: PodHost | undefined;
   let prepare: (() => Promise<void>) | undefined;
   if (config.pod) {
-    const { waitedMs } = await awaitNetworkPolicy({
+    // A disk with a volume id has had a pod of this sandbox in this namespace: a wake.
+    const wake = existsSync(join(config.root, "volume-id"));
+    const { waitedMs, check } = await awaitNetworkPolicy({
       addresses: config.pod.blocked,
+      wake,
       log: (message, fields) => logger.info(message, fields),
     });
-    logger.info("sandbox_network_policy_in_force", { sandboxId: config.pod.sandboxId, waitedMs });
+    logger.info("sandbox_network_policy_in_force", { sandboxId: config.pod.sandboxId, waitedMs, wake, check });
     pod = podHost(config.pod, logger, {
       volumeFile: join(config.root, "volume-id"),
       caBundleFile: join(config.root, "egress-ca-bundle.pem"),
