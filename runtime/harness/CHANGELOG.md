@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.34.1-beta
+
+### Patch Changes
+
+- Pin core to the tested release.
+- Updated dependencies [1d3a5c5]
+  - @nylorun/core@0.38.0-beta
+
 ## 0.34.0-beta
 
 ### Minor Changes
