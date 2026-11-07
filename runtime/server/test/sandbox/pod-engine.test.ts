@@ -63,6 +63,42 @@ describe("the network gate", () => {
     expect((logs[0] as { openedBefore: number }).openedBefore).toBeGreaterThan(0);
   });
 
+  it("checks a wake with one quick probe", async () => {
+    const server = await listening();
+    const port = server.port;
+    await new Promise((resolve) => server.close(resolve));
+    servers.splice(0);
+    const logs: unknown[] = [];
+    const started = Date.now();
+    const result = await awaitNetworkPolicy({
+      addresses: [{ host: "127.0.0.1", port }],
+      wake: true,
+      attemptMs: 5_000,
+      confirmations: 3,
+      timeoutMs: 10_000,
+      log: (_message, fields) => logs.push(fields),
+    });
+    expect(result.check).toBe("wake");
+    expect(Date.now() - started).toBeLessThan(1_000);
+    expect(logs[0]).toMatchObject({ check: "wake", openedBefore: 0 });
+  });
+
+  it("goes back to the full check when a wake finds an address answering", async () => {
+    const server = await listening();
+    const gate = awaitNetworkPolicy({
+      addresses: [{ host: "127.0.0.1", port: server.port }],
+      wake: true,
+      attemptMs: 100,
+      confirmations: 3,
+      pauseMs: 20,
+      timeoutMs: 10_000,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    await new Promise((resolve) => server.close(resolve));
+    servers.splice(0);
+    expect((await gate).check).toBe("full");
+  });
+
   it("gives up while the policy is never in force", async () => {
     const server = await listening();
     await expect(

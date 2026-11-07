@@ -153,6 +153,8 @@ describe("the Host tuning schema", () => {
       podRenewMs: 5 * 60_000,
       networkPolicyTimeoutMs: 120_000,
       networkConfirmations: 3,
+      wakeNetworkProbeMs: 150,
+      wakeNetworkConfirmations: 1,
       setupReportTailChars: 4 * 1024,
       mcpListPages: 100,
       mcpDiagnosticChars: 500,

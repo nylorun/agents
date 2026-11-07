@@ -1278,6 +1278,8 @@ below the run token's, the host token's longer than `harness.podRenewMs`, and
 | `harness.networkProbeMs` | 1 s | One probe of an address the policy blocks |
 | `harness.networkPauseMs` | 250 ms | The pause after a probe that connected (0 allowed) |
 | `harness.networkConfirmations` | 3 | Failed probes in a row that prove an address blocked |
+| `harness.wakeNetworkProbeMs` | 150 ms | One probe on a wake, when the pod's disk already holds the engine's volume id |
+| `harness.wakeNetworkConfirmations` | 1 | Failed probes in a row that prove an address blocked on a wake; an address that answers turns it into the full check |
 | `harness.setupRetryPollMs` | 5 s | How often a failed setup of an Agent's pod asks whether to run again |
 | `harness.setupAfterSeedPollMs` | 1 s | How often a fork's setup asks whether its disk version is written |
 | `harness.setupReportTailChars` | 4096 | The characters of a failed setup command's output its report keeps |

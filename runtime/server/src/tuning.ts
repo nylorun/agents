@@ -515,6 +515,13 @@ export const HostTuningSchema = z
       networkProbeMs: ms(1_000),
       networkPauseMs: ms(250, 0),
       networkConfirmations: count(3),
+      /**
+       * The same check on a wake (the disk already holds the engine's volume id): each probe, and
+       * the failed probes in a row that prove an address blocked. A probe that connects turns the
+       * wake's check into the full one.
+       */
+      wakeNetworkProbeMs: ms(150),
+      wakeNetworkConfirmations: count(1),
       /** Environment setup: how often a failed setup is checked for a retry, and after a seed. */
       setupRetryPollMs: ms(5_000),
       setupAfterSeedPollMs: ms(1_000),
