@@ -1008,7 +1008,11 @@ and the AG-UI adapter, which streams the run it starts, take `reject`; the A2A e
 takes one), each its own user message (our engine's input `{kind: "messages", messages}`), with
 each one's `command.message` (its `queuedMessageId`) and `queue.taken`. A client's message and
 queued ones start a turn through one door, `beginMessageTurn`. When the Agent cannot take a turn
-then, the messages wait for the next message, which joins them. At most `sessionQueuedMessages`
+then, the messages wait for the next message, which joins them, or for the Tenant sweep: as often as
+its orphan scan, a session that takes messages but holds queued ones older than
+`sweep.queueGraceMs` gets its queue started again (`startWaitingQueues`), and a start refused again
+is logged once per session with the refusal. Without it, an idle session's queue (an A2A task
+`SUBMITTED`) would wait for good. At most `sessionQueuedMessages`
 wait (`429 queue_full`); session reads count `queuedMessages`. The queue is per session: sessions
 of one Agent still run their turns side by side (D66).
 _Avoid_: "inbox", "backlog", "pending messages".

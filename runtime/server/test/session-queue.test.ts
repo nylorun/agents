@@ -13,6 +13,7 @@ import { startTestTenant } from "./support/tenant.js";
 import { deploy, openSession } from "./support/agents.js";
 import { setLimits } from "./support/limits.js";
 import { withTestSessionStore } from "./support/store.js";
+import { DEFAULT_HOST_TUNING, hostTuningOf, useHostTuning } from "../src/tuning.js";
 
 const APP = "queue-app-key-aaaaaaaaaaaaaaaaaaaa";
 const headers = { authorization: `Bearer ${APP}`, "content-type": "application/json", [PROTOCOL_HEADER]: "17" };
@@ -40,6 +41,9 @@ let runtime: Awaited<ReturnType<typeof startTestTenant>>;
 beforeAll(async () => {
   runtime = await startTestTenant({ applicationKey: APP, vaultKek: null, modelProvider: model });
   await deploy(runtime.url, headers, Agent({ id: "queue", name: "Queue" }).instructions("Answer.").build(), {
+    runtime: { kind: "none" } as never,
+  });
+  await deploy(runtime.url, headers, Agent({ id: "strand", name: "Strand" }).instructions("Answer.").build(), {
     runtime: { kind: "none" } as never,
   });
 });
@@ -88,8 +92,8 @@ const running = (session: string, hold: string) =>
 const settled = (session: string) =>
   until(() => view(session), (v) => v.activeTurnId === null && v.queuedMessages === 0 && v.status === "completed");
 
-async function open(id: string) {
-  const opened = await openSession(runtime.url, headers, id, { agent: "queue", ownerUserId: "ada" });
+async function open(id: string, agent = "queue") {
+  const opened = await openSession(runtime.url, headers, id, { agent, ownerUserId: "ada" });
   expect(opened.status, await opened.clone().text()).toBe(200);
 }
 
@@ -194,5 +198,45 @@ describe("the queue", () => {
     await settled("q7");
     held.get("q6")!();
     await settled("q6");
+  });
+});
+
+describe("a queue left waiting", () => {
+  /** Sets Agent `strand`'s owner guard: another owner's sessions can't start a turn on it. */
+  const guard = (owner: string | null) =>
+    withTestSessionStore(runtime, (store) =>
+      store.tx(async (t) => {
+        await t.environment("strand", { lock: true });
+        await t.updateEnvironment("strand", { ownerUserId: owner }, new Date().toISOString());
+      }),
+    );
+
+  it("starts its turn from the sweep once its Agent can take one, after the start at the turn's end was refused", async () => {
+    // Every sweep pass checks the queues, and a queue is due at once.
+    useHostTuning(hostTuningOf({ sweep: { queueGraceMs: 0, orphanScanMs: 1 } }));
+    try {
+      await open("q-strand", "strand");
+      await send("q-strand", "hold:strand");
+      await running("q-strand", "strand");
+      const queued = await send("q-strand", "stranded");
+      expect(queued.body).toMatchObject({ status: "queued", position: 1 });
+      // The turn ends while its Agent can't take another: the queue's start is refused.
+      await guard("bob");
+      held.get("strand")!();
+      const ended = await until(() => view("q-strand"), (v) => v.activeTurnId === null && v.status === "completed");
+      expect(ended.queuedMessages).toBe(1);
+      // A sweep while it is still refused starts nothing.
+      await runtime.handle.worker!.sweep();
+      expect(await view("q-strand")).toMatchObject({ activeTurnId: null, queuedMessages: 1 });
+      // Nothing else would start it: no turn runs, and no message comes. The sweep does.
+      await guard(null);
+      await runtime.handle.worker!.sweep();
+      await settled("q-strand");
+      expect(prompts.at(-1)!.at(-1)).toBe("stranded");
+      const taken = (await eventTypes("q-strand")).filter((event) => event.type === "queue.taken");
+      expect(taken.at(-1)?.payload.queuedMessageIds).toEqual([queued.body.queuedMessageId]);
+    } finally {
+      useHostTuning(DEFAULT_HOST_TUNING);
+    }
   });
 });

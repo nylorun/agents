@@ -205,6 +205,8 @@ export function createPostgresSessionStore(
 }
 
 const OPEN_SESSION = ["running", "runnable"];
+/** Statuses in which a session takes a message as a new turn (`tenant/commands.ts`). */
+const TAKES_MESSAGES = ["idle", "completed", "failed", "cancelled"];
 /** Rows per statement when a folder version or a definition names many files (Host tuning). */
 const contentBatch = () => hostTuning().postgres.contentBatchRows;
 
@@ -1761,6 +1763,21 @@ class PostgresTx implements Tx {
   async deleteQueuedMessages(ids: readonly string[]): Promise<void> {
     this.check();
     if (ids.length > 0) await this.db.delete(sessionQueue).where(inArray(sessionQueue.id, [...ids]));
+  }
+
+  async waitingQueues(before: string, limit: number, after?: string): Promise<{ sessionId: string; since: string }[]> {
+    this.check();
+    const since = sql<string>`min(${sessionQueue.createdAt})`;
+    const rows = await this.db
+      .select({ sessionId: sessionQueue.sessionId, since })
+      .from(sessionQueue)
+      .innerJoin(sessions, eq(sessions.id, sessionQueue.sessionId))
+      .where(and(inArray(sessions.status, TAKES_MESSAGES), after === undefined ? undefined : gt(sessionQueue.sessionId, after)))
+      .groupBy(sessionQueue.sessionId)
+      .having(lte(since, before))
+      .orderBy(sessionQueue.sessionId)
+      .limit(limit);
+    return rows.map((row) => ({ sessionId: row.sessionId, since: row.since }));
   }
 
   // --- triggers (track T4) ----------------------------------------------------

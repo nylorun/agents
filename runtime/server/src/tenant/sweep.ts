@@ -38,12 +38,18 @@
  *    timer is armed, later overdue ones only, and runs past `triggerRunRetentionMs` are deleted.
  * 5. **Control signals.** Signals on the control bus older than `sweep.signalRetentionMs` are
  *    deleted: followers read back only the last two minutes (`store/postgres/control.ts`).
- * 6. **A2A pushes** (`api/a2a/push.ts`): every session with a push config still following its
+ * 6. **Queues left waiting** (protocol 17): as often as the orphan scan, every session that takes
+ *    messages but holds queued messages older than `sweep.queueGraceMs` gets its queue started
+ *    again (`startQueuedTurn`). A queue starts when a turn ends, on a cancel, or with a new
+ *    message; one whose start was refused then (its Agent's disk being copied, its pod not
+ *    placed) has none of those coming, and would wait for good: an A2A task `SUBMITTED` forever.
+ *    A start refused again is logged once per session on this process, with the refusal.
+ * 7. **A2A pushes** (`api/a2a/push.ts`): every session with a push config still following its
  *    task is pumped (its new events become `push` outbox rows, which step 1 of the next pass, or
  *    the delivery after commit, sends), and configs of tasks long finished are deleted. A push
  *    row that fails is retried with the Host tuning's `a2a.pushRetry` and dropped once it is
  *    `a2a.pushMaxAgeMs` old, never parked: the change feed covers what it said.
- * 7. **Hooks.** Callbacks registered with `ctx.onSweep`.
+ * 8. **Hooks.** Callbacks registered with `ctx.onSweep`.
  *
  * Every step runs one transaction per session it changes (a linked agent and its workflow
  * share one, child first), so the sweep follows the lock order in `store/types.ts`. A failing
@@ -64,6 +70,8 @@ import { hostTuning } from "../tuning.js";
 import { idleMsOf, sweepStartChecks } from "./agent-versions.js";
 import { readSandboxConfig } from "../sandbox/tenant-config.js";
 import { pumpPushes, pushRetry } from "../api/a2a/push.js";
+import { startQueuedTurn } from "./commands.js";
+import type { Session } from "./context.js";
 import type { OutboxRequest } from "../store/types.js";
 
 /*
@@ -87,8 +95,11 @@ import type { OutboxRequest } from "../store/types.js";
  */
 const passes = new WeakMap<
   TenantContext,
-  { orphansAt?: number; orphansAfter?: string; podsAt?: number }
+  { orphansAt?: number; orphansAfter?: string; podsAt?: number; queuesAt?: number; queuesAfter?: string }
 >();
+
+/** The sessions whose queue's refused start this process logged, per Tenant: logged once each. */
+const refusedQueues = new WeakMap<TenantContext, Set<string>>();
 
 type Step = [name: string, run: () => Promise<unknown>];
 
@@ -103,6 +114,10 @@ export async function sweep(ctx: TenantContext): Promise<void> {
     pass.orphansAfter !== undefined ||
     now.getTime() - pass.orphansAt >= hostTuning().sweep.orphanScanMs;
   const checkPods = pass.podsAt === undefined || now.getTime() - pass.podsAt >= hostTuning().sweep.orphanScanMs;
+  const checkQueues =
+    pass.queuesAt === undefined ||
+    pass.queuesAfter !== undefined ||
+    now.getTime() - pass.queuesAt >= hostTuning().sweep.orphanScanMs;
   const steps: Step[] = [
     ["outbox", () => deliverOutbox(ctx, first ? 0 : hostTuning().sweep.outboxGraceMs)],
     ["linked", () => reconcileLinkedAgents(ctx)],
@@ -136,6 +151,18 @@ export async function sweep(ctx: TenantContext): Promise<void> {
             async () => {
               await reconcileStalePods(ctx, now);
               pass.podsAt = now.getTime();
+            },
+          ] satisfies Step,
+        ]
+      : []),
+    ...(checkQueues
+      ? [
+          [
+            "queues",
+            async () => {
+              const scan = await startWaitingQueues(ctx, now, pass.queuesAfter);
+              pass.queuesAfter = scan.next;
+              if (scan.next === undefined) pass.queuesAt = now.getTime();
             },
           ] satisfies Step,
         ]
@@ -309,6 +336,54 @@ export async function wakeOrphanedSessions(
     }
     if (page.length < batchSize) return { woken };
     if (Date.now() >= deadline) return { woken, next: cursor! };
+  }
+}
+
+/**
+ * Starts again the queues no turn start took: sessions that take messages, holding queued messages
+ * older than `sweep.queueGraceMs`, page after page from the first id after `after`, until none is
+ * left or `budgetMs` is spent. Each in its own transaction under the session's lock, as a turn's
+ * end starts its queue. Returns the sessions whose queue started a turn, and the last id when the
+ * budget ran out first (`next`, where the next scan goes on).
+ */
+export async function startWaitingQueues(
+  ctx: TenantContext,
+  now = new Date(),
+  after?: string,
+  budgetMs = hostTuning().sweep.drainBudgetMs
+): Promise<{ started: string[]; next?: string }> {
+  const deadline = Date.now() + budgetMs;
+  const started: string[] = [];
+  const { batchSize, queueGraceMs } = hostTuning().sweep;
+  const before = new Date(now.getTime() - queueGraceMs).toISOString();
+  const logged = refusedQueues.get(ctx) ?? new Set<string>();
+  refusedQueues.set(ctx, logged);
+  let cursor = after;
+  for (;;) {
+    const page = await ctx.store.tx((t) => t.waitingQueues(before, batchSize, cursor));
+    for (const { sessionId, since } of page) {
+      cursor = sessionId;
+      let refusal: { status: number; code?: string; message: string } | undefined;
+      const turn = await ctx.store.tx(async (t) => {
+        const session = await t.lockSession<Session>(sessionId);
+        if (!session) return undefined;
+        const begun = await startQueuedTurn(ctx, t, session, sessionId, (error) => {
+          refusal = { status: error.status, ...(error.rejection.code ? { code: error.rejection.code } : {}), message: error.message };
+        });
+        if (begun) await t.put("sessions", sessionId, session);
+        return begun;
+      });
+      if (turn) {
+        started.push(sessionId);
+        logged.delete(sessionId);
+        ctx.config.logger.info("a queue left waiting started its turn", { sessionId, turnId: turn.turnId, queuedMessages: turn.taken.length, waitingSince: since });
+      } else if (refusal && !logged.has(sessionId)) {
+        logged.add(sessionId);
+        ctx.config.logger.warn("queued messages wait: their Agent can't take a turn", { sessionId, waitingSince: since, ...refusal });
+      }
+    }
+    if (page.length < batchSize) return { started };
+    if (Date.now() >= deadline) return { started, next: cursor! };
   }
 }
 

@@ -1122,12 +1122,13 @@ below the run token's, the host token's longer than `harness.podRenewMs`, and
 | `sweep.batchSize` | 100 | Rows one sweep query reads at a time |
 | `sweep.signalRetentionMs` | 1 h | How long a control signal is kept |
 | `sweep.outboxGraceMs` | 30 s | How old an outbox row is before the sweep delivers it (0 allowed) |
-| `sweep.orphanScanMs` | 60 s | How often the orphan scan and the stale pod check run |
+| `sweep.orphanScanMs` | 60 s | How often the orphan scan, the stale pod check and the waiting-queue check run |
 | `sweep.drainBudgetMs` | 2 s | How long one pass may spend on the outbox, and on orphaned sessions |
 | `sweep.armConcurrency` | 16 | Tenant sweeps the Host arms at once when it starts |
 | `sweep.outboxAttempts` | 10 | Failed deliveries after which an outbox row is parked |
 | `sweep.outboxRetry` | 5 s to 10 min | The wait after an outbox row's failed delivery |
 | `sweep.stalePodMs` | 60 s | How long a pod row may go unchanged before the sweep reconciles it |
+| `sweep.queueGraceMs` | 30 s | How long an idle session may hold queued messages no turn start took (its Agent couldn't take a turn then) before the sweep starts its queue again (0 allowed) |
 | `a2a.pushRetry` | 5 s to 10 min | The wait after an A2A push's failed delivery, doubled after each |
 | `a2a.pushMaxAgeMs` | 24 h | How long an A2A push is retried before it is dropped (the change feed covers it) |
 | `a2a.pushTimeoutMs` | 10 s | How long one A2A push's request may take |

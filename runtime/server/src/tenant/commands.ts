@@ -649,13 +649,15 @@ export const QUEUE_SCOPE: AuthScope = { kind: "application", principalId: "queue
  * wait (protocol 17, D76): in the transaction that ended the last turn, or a cancel's. Our engine
  * takes every queued message that carries the same turn manifest as the first, a workflow one.
  * Writes `queue.taken`. Returns nothing when nothing started: an empty queue, or an Agent that
- * cannot take a turn now, whose messages wait for the next message or turn end.
+ * cannot take a turn now (`refused` hears why), whose messages wait for the next message, a turn
+ * end, or the sweep, which starts a queue left waiting again (`tenant/sweep.ts`).
  */
 export async function startQueuedTurn(
   ctx: TenantContext,
   t: Tx,
   s: Session,
-  id: string
+  id: string,
+  refused?: (error: HttpError) => void
 ): Promise<{ turnId: string; taken: string[]; cursor: string } | undefined> {
   if (s.closedReason !== undefined || !takesMessages(s) || s.activeTurnId !== null) return undefined;
   const queued = await t.queuedMessages(id);
@@ -686,8 +688,9 @@ export async function startQueuedTurn(
       }))
     );
   } catch (error) {
-    if (error instanceof HttpError) return undefined;
-    throw error;
+    if (!(error instanceof HttpError)) throw error;
+    refused?.(error);
+    return undefined;
   }
   const taken = batch.map((row) => row.id);
   await t.deleteQueuedMessages(taken);
