@@ -1763,6 +1763,29 @@ class PostgresTx implements Tx {
     if (ids.length > 0) await this.db.delete(sessionQueue).where(inArray(sessionQueue.id, [...ids]));
   }
 
+  async queuedSessions(options: {
+    statuses: readonly string[];
+    limit: number;
+    after?: string;
+    environmentId?: string;
+  }): Promise<string[]> {
+    this.check();
+    const rows = await this.db
+      .selectDistinct({ id: sessionQueue.sessionId })
+      .from(sessionQueue)
+      .innerJoin(sessions, eq(sessions.id, sessionQueue.sessionId))
+      .where(
+        and(
+          inArray(sessions.status, [...options.statuses]),
+          options.after === undefined ? undefined : gt(sessionQueue.sessionId, options.after),
+          options.environmentId === undefined ? undefined : eq(sessions.environmentId, options.environmentId),
+        ),
+      )
+      .orderBy(sessionQueue.sessionId)
+      .limit(options.limit);
+    return rows.map((row) => row.id);
+  }
+
   // --- triggers (track T4) ----------------------------------------------------
 
   async agentTriggers(agentId: string): Promise<AgentTriggerRow[]> {

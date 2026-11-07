@@ -5,7 +5,9 @@
  *
  * - **Configs** (`a2a_push_configs`) are stored per session, task and config id. Each reads the
  *   session's events from its own `nextSeq` on and follows one turn (`turnId`); a queued
- *   message's config follows its message until a turn takes it (`command.message` names it).
+ *   message's config follows its message until a turn takes it (`command.message` names it), or
+ *   until it fails or is cancelled while queued (`queue.failed`, `queue.cancelled`: the task's
+ *   last update, `FAILED` or `CANCELED`).
  * - **The translator** (`updatesOf` in `tasks.ts`, the one mapping from events to A2A updates)
  *   turns each event of the turn into `statusUpdate`s and `artifactUpdate`s. The pump writes each
  *   one as an outbox row of kind `push` and moves the config on, in one transaction under the
@@ -40,7 +42,7 @@ import {
   type PushConfigInput,
   type TaskPushNotificationConfig,
 } from "./protocol.js";
-import { ENDED, callerTraceId, updatesOf } from "./tasks.js";
+import { ENDED, callerTraceId, endsQueued, updatesOf } from "./tasks.js";
 
 /** The most push configs one task keeps. A constant of the profile, not a setting. */
 export const MAX_PUSH_CONFIGS = 10;
@@ -242,6 +244,19 @@ export async function pumpSession(ctx: TenantContext, sessionId: string): Promis
           // A queued message's task follows the turn that takes it.
           if (event.type === "command.message" && event.turnId && payload.queuedMessageId === turnId)
             turnId = event.turnId;
+          // Or ends without one: it failed or was cancelled while queued (`queue-recovery`).
+          if (endsQueued(event, turnId)) {
+            const view = { contextId: config.contextId, taskId: config.taskId, baseUrl: config.baseUrl };
+            for (const update of updatesOf(event, view))
+              await t.enqueuePush({
+                sessionId,
+                taskId: config.taskId,
+                configId: config.configId,
+                body: JSON.stringify(keepExtensions(update, new Set(config.extensions as string[]))),
+              });
+            done = true;
+            break;
+          }
           if (event.turnId !== turnId) continue;
           if (event.type === "command.message" && traceId === null)
             traceId =

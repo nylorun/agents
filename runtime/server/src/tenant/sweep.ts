@@ -43,7 +43,11 @@
  *    the delivery after commit, sends), and configs of tasks long finished are deleted. A push
  *    row that fails is retried with the Host tuning's `a2a.pushRetry` and dropped once it is
  *    `a2a.pushMaxAgeMs` old, never parked: the change feed covers what it said.
- * 7. **Hooks.** Callbacks registered with `ctx.onSweep`.
+ * 7. **Queued messages** (Host feature `queue-recovery`): at most every `sweep.queueRetryMs`, the
+ *    turn start of every session queue an Agent's refusal left waiting is tried again
+ *    (`retryQueuedStarts`); a message past the Runtime limit `queuedStartMs` fails
+ *    (`queue.failed`). The end of a disk copy tries its Agent's sessions at once.
+ * 8. **Hooks.** Callbacks registered with `ctx.onSweep`.
  *
  * Every step runs one transaction per session it changes (a linked agent and its workflow
  * share one, child first), so the sweep follows the lock order in `store/types.ts`. A failing
@@ -51,6 +55,7 @@
  * reports it.
  */
 import { sweepUnusedAgents } from "./agents.js";
+import { retryQueuedStarts } from "./commands.js";
 import { reconcileTriggers } from "./triggers.js";
 import { streamMissedRuns } from "./runs-stream.js";
 import { sweepPendingSeeds } from "../artifacts/disk.js";
@@ -77,6 +82,7 @@ import type { OutboxRequest } from "../store/types.js";
  * - `drainBudgetMs`: how long one pass may spend draining the outbox, and paging through
  *   orphaned sessions. A backlog is worked off over several passes rather than holding one (and
  *   with it the Tenant's sweep object in the execution) for long.
+ * - `queueRetryMs`: how often the queues an Agent's refusal left waiting are tried again.
  * - `batchSize`, `signalRetentionMs`, `outboxAttempts`, `outboxRetry`, `stalePodMs`.
  */
 
@@ -87,7 +93,7 @@ import type { OutboxRequest } from "../store/types.js";
  */
 const passes = new WeakMap<
   TenantContext,
-  { orphansAt?: number; orphansAfter?: string; podsAt?: number }
+  { orphansAt?: number; orphansAfter?: string; podsAt?: number; queuesAt?: number }
 >();
 
 type Step = [name: string, run: () => Promise<unknown>];
@@ -103,6 +109,7 @@ export async function sweep(ctx: TenantContext): Promise<void> {
     pass.orphansAfter !== undefined ||
     now.getTime() - pass.orphansAt >= hostTuning().sweep.orphanScanMs;
   const checkPods = pass.podsAt === undefined || now.getTime() - pass.podsAt >= hostTuning().sweep.orphanScanMs;
+  const retryQueues = pass.queuesAt === undefined || now.getTime() - pass.queuesAt >= hostTuning().sweep.queueRetryMs;
   const steps: Step[] = [
     ["outbox", () => deliverOutbox(ctx, first ? 0 : hostTuning().sweep.outboxGraceMs)],
     ["linked", () => reconcileLinkedAgents(ctx)],
@@ -160,6 +167,17 @@ export async function sweep(ctx: TenantContext): Promise<void> {
       () =>
         ctx.store.tx((t) => t.pruneSignals(new Date(now.getTime() - hostTuning().sweep.signalRetentionMs))),
     ],
+    ...(retryQueues
+      ? [
+          [
+            "queues",
+            async () => {
+              pass.queuesAt = now.getTime();
+              await retryQueuedStarts(ctx, { now, batchSize: hostTuning().sweep.batchSize });
+            },
+          ] satisfies Step,
+        ]
+      : []),
     ...[...ctx.sweepHooks].map((hook): Step => ["hook", hook]),
   ];
   let failure: { error: unknown } | undefined;

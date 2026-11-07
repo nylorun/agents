@@ -187,6 +187,9 @@ const harnessLimits = {
  * Sessions:
  * - `sessionQueuedMessages`: the most messages one session's queue holds while its turn runs or
  *   waits (protocol 17); one more is `429 queue_full`.
+ * - `queuedStartMs`: how long queued messages wait for their Agent once no turn holds them and the
+ *   Agent refused their turn's start (its disk being copied, its pod lost, the Agent deleted); the
+ *   start is tried again meanwhile, and after it they fail (`queue.failed`).
  *
  * Flows (`workflows.md` §13):
  * - `flowConcurrency`: the most effects one flow turn runs at once; the rest wait their turn.
@@ -261,6 +264,7 @@ export const RuntimeLimitsSchema = z
     memoryIndexLines: z.number().int().positive(),
     memoryIndexBytes: z.number().int().positive(),
     sessionQueuedMessages: z.number().int().positive(),
+    queuedStartMs: z.number().int().positive(),
     flowConcurrency: z.number().int().positive(),
     flowMapItems: z.number().int().positive(),
     flowLoopIterations: z.number().int().positive(),
@@ -496,6 +500,7 @@ export const RUNTIME_LIMIT_CEILINGS: { readonly [K in RuntimeLimit]: Ceiling } =
     why: `the payload goes into one record entry, which holds at most ${recordEntryCeiling} bytes`,
   },
   sessionQueuedMessages: counted("entries", "queued messages are counted"),
+  queuedStartMs: counted("milliseconds", "the deadline is reckoned from the clock"),
   flowConcurrency: counted("effects", "running effects are counted"),
   flowMapItems: counted("entries", "items are counted"),
   flowLoopIterations: counted("iterations", "iterations are counted"),
@@ -582,6 +587,7 @@ export const RUNTIME_LIMIT_DEFAULTS: RuntimeLimits = Object.freeze({
   memoryIndexLines: 200,
   memoryIndexBytes: 25 * 1024,
   sessionQueuedMessages: 100,
+  queuedStartMs: 15 * 60_000,
   flowConcurrency: 8,
   flowMapItems: 1_000,
   flowLoopIterations: 100,

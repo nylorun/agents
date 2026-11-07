@@ -949,7 +949,10 @@ value }` (`respond`), and text never approves. A **connection** ask is an ask (`
 metadata says `kind: "connection"`. A **queued follow-up** is a message to a busy context: queued
 (`delivery: "queue"`), and its task is named by the queued message's id
 (`t1.<context>.<queuedMessageId>`), `SUBMITTED` until a turn takes it (its `command.message`
-names the message), then that turn's; `metadata.delivery: "reject"` keeps `CONTEXT_BUSY`.
+names the message), then that turn's; `metadata.delivery: "reject"` keeps `CONTEXT_BUSY`. One
+that fails or is cancelled before a turn takes it (`queue.failed`, `queue.cancelled`, Host feature
+`queue-recovery`) is `FAILED` or `CANCELED`, pushed; `CancelTask` takes a queued task out of the
+queue whether a task runs in its context or not.
 `plan.updated` events become `progress/v1` (the whole plan), a turn's end facts and trace id
 `telemetry/v1`, an uncertain effect `effects/v1`, and the files the turn wrote artifacts whose
 `url` is `GET /v1/a2a/files/{artifactId}/versions/{version}` (served only to the same subject)
@@ -1007,8 +1010,16 @@ and the AG-UI adapter, which streams the run it starts, take `reject`; the A2A e
 (`startQueuedTurn`): every queued message carrying the same turn manifest and `removeTools` as the first (a workflow
 takes one), each its own user message (our engine's input `{kind: "messages", messages}`), with
 each one's `command.message` (its `queuedMessageId`) and `queue.taken`. A client's message and
-queued ones start a turn through one door, `beginMessageTurn`. When the Agent cannot take a turn
-then, the messages wait for the next message, which joins them. At most `sessionQueuedMessages`
+queued ones start a turn through one door, `beginMessageTurn`. When the Agent refuses the turn
+then (Host feature `queue-recovery`), a refusal a retry may get past (`agent_busy`,
+`agent_unavailable`, `agent_lost`) leaves the messages waiting, with the session's `queueStalled`
+saying since when and why: the next message, the Tenant sweep (every `sweep.queueRetryMs`,
+`retryQueuedStarts`) and the end of the Agent's disk copy try again, and a message that has waited
+longer than the Runtime limit `queuedStartMs` since then is removed with `queue.failed
+{queuedMessageIds, error: {code: "queue.start_expired", message, reason}}`. Any other refusal (a
+turn request the version no longer resolves, another harness) fails the messages it refused at once
+(`queue.start_refused`). Either way the messages behind them are tried next. A2A's `CancelTask`
+removes a queued message (`queue.cancelled`, `cancelQueuedMessage`). At most `sessionQueuedMessages`
 wait (`429 queue_full`); session reads count `queuedMessages`. The queue is per session: sessions
 of one Agent still run their turns side by side (D66).
 _Avoid_: "inbox", "backlog", "pending messages".

@@ -246,6 +246,7 @@ export const LIMIT_GROUPS: readonly { title: string; limits: Readonly<Record<str
     title: "Sessions and flows",
     limits: {
       sessionQueuedMessages: "The most messages queued behind a running turn",
+      queuedStartMs: "How long queued messages wait for an Agent that refuses their turn",
       flowConcurrency: "The most effects one flow turn runs at once",
       flowMapItems: "The most items one map stage fans out to",
       flowLoopIterations: "The most iterations one loop stage runs",

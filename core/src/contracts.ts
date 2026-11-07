@@ -3836,6 +3836,24 @@ export const QueueTakenPayloadSchema = z
     step: z.number().int().positive().optional(),
   })
   .passthrough();
+/**
+ * `queue.failed` (Host feature `queue-recovery`): queued messages no turn will take. The Agent
+ * refused their turn's start for longer than the Runtime limit `queuedStartMs`, or in a way no
+ * retry changes; `error.code` says which (`queue.start_expired`, `queue.start_refused`) and
+ * `error.reason` is the refusal's own code. `queue.cancelled`: a client removed them (A2A
+ * `CancelTask`). Neither has a turn.
+ */
+export const QueueFailedPayloadSchema = z
+  .object({
+    queuedMessageIds: z.array(z.string()).min(1),
+    error: z
+      .object({ code: z.string(), message: z.string(), reason: z.string().optional() })
+      .passthrough(),
+  })
+  .passthrough();
+export const QueueCancelledPayloadSchema = z
+  .object({ queuedMessageIds: z.array(z.string()).min(1), reason: z.string().optional() })
+  .passthrough();
 /** Lifecycle of an agent used as a tool. `agent.delegationId` is the parent call's invocation. */
 export const DelegationPayloadSchema = z
   .object({
@@ -4230,6 +4248,8 @@ export const EVENT_CATALOG = {
   "session.model": { payload: SessionModelPayloadSchema, source: "api", version: 1 },
   "message.queued": { payload: MessageQueuedPayloadSchema, source: "api", version: 1 },
   "queue.taken": { payload: QueueTakenPayloadSchema, source: "api", version: 1 },
+  "queue.failed": { payload: QueueFailedPayloadSchema, source: "api", version: 1 },
+  "queue.cancelled": { payload: QueueCancelledPayloadSchema, source: "api", version: 1 },
   "wake.booked": { payload: WakeBookedPayloadSchema, source: "api", version: 1 },
   "wake.cancelled": { payload: WakeCancelledPayloadSchema, source: "api", version: 1 },
   "memory.updated": { payload: MemoryUpdatedPayloadSchema, source: "api", version: 1 },

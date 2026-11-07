@@ -159,7 +159,7 @@ harness writes, a count). The Runtime's own: request bodies and inline files
 the tool policy and budgets (`toolRules`, `toolRuleFieldChars`, `toolRuleTextChars`,
 `modelBudgets`), flows (`flowConcurrency`, `flowMapItems`, `flowLoopIterations`), agent folders
 (`folderFiles`, `folderBytes`, `folderTextFileBytes`), sessions
-(`sessionQueuedMessages`), triggers (`triggersPerAgent`, `triggerMinIntervalMs`,
+(`sessionQueuedMessages`, `queuedStartMs`), triggers (`triggersPerAgent`, `triggerMinIntervalMs`,
 `triggerRunsPerHour`, `triggerJitterPercent`, `triggerJitterMaxMs`, `triggerPromptChars`,
 `triggerRunRetentionMs`, `webhookBodyBytes`, `wakeMaxAheadMs`, `wakeNoteChars`), memory (`memoryBytes`, `memoriesPerAgent`, `memoryIndexLines`, `memoryIndexBytes`), disk versions (`diskVersionEntries`, `diskVersionBytes`,
 `diskLeaseMs`, `diskPodWaitMs`), model calls (`modelRequestMs`, `modelIdleMs`,

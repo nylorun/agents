@@ -37,6 +37,7 @@ import { effectiveSandboxConfig, readSandboxConfig } from "../sandbox/tenant-con
 import type { SandboxSessionRef } from "../sandbox/manager.js";
 import type { ArtifactRow, ArtifactVersionRow, DiskSeed, Environment, Tx } from "../store/types.js";
 import type { TenantContext } from "../tenant/context.js";
+import { retryQueuedStarts } from "../tenant/commands.js";
 import {
   assertReaches,
   diskHeld,
@@ -178,6 +179,14 @@ function heartbeat(ctx: TenantContext, id: string, limits: CopyLimits, ms = limi
         const next = !written ? {} : seed.setup ? { diskSeed: { ...seed, written: true as const } } : { diskSeed: null };
         await t.updateEnvironment(id, { diskOp: null, ...next }, new Date().toISOString());
       });
+      // Queued messages the copy held back start now (Host feature `queue-recovery`); the
+      // sweep tries again what this does not.
+      void retryQueuedStarts(ctx, { environmentId: id }).catch((error: unknown) =>
+        ctx.config.logger.warn("starting queued messages after a disk copy failed; the sweep tries again", {
+          environmentId: id,
+          message: error instanceof Error ? error.message : String(error),
+        })
+      );
     },
   };
 }

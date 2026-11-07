@@ -915,8 +915,18 @@ export interface Tx {
   /** A session's queued messages, first to go first. */
   queuedMessages(sessionId: string): Promise<QueuedMessageRow[]>;
   countQueuedMessages(sessionId: string): Promise<number>;
-  /** Removes queued messages a turn took. */
+  /** Removes queued messages: a turn took them, or they failed or were cancelled. */
   deleteQueuedMessages(ids: readonly string[]): Promise<void>;
+  /**
+   * The ids of sessions with queued messages whose status is one of `statuses` (no turn holds
+   * them), by id after `after`, optionally on one Environment: queues a refused start left waiting.
+   */
+  queuedSessions(options: {
+    statuses: readonly string[];
+    limit: number;
+    after?: string;
+    environmentId?: string;
+  }): Promise<string[]>;
   // Triggers (track T4, D74); runs are ordered by id, which `newRunId` makes increase with time.
   agentTriggers(agentId: string): Promise<AgentTriggerRow[]>;
   /** One trigger's state; with `lock`, its row is locked until the transaction ends. */
