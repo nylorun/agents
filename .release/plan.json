@@ -2,14 +2,15 @@
   "version": 1,
   "channel": "beta",
   "packages": {
-    "runtime": "0.44.1-beta",
-    "nylorun": "0.27.3-beta",
-    "cli": "0.17.20-beta",
-    "create-agent": "0.16.22-beta"
+    "harness": "0.35.0-beta",
+    "runtime": "0.44.2-beta",
+    "nylorun": "0.27.4-beta",
+    "cli": "0.17.21-beta",
+    "create-agent": "0.16.23-beta"
   },
   "compatibility": {
-    "harness": "0.34.1-beta",
-    "runtime": "0.44.1-beta",
+    "harness": "0.35.0-beta",
+    "runtime": "0.44.2-beta",
     "agents": "0.36.1-beta",
     "admin": "0.19.14-beta",
     "core": "0.38.0-beta"
