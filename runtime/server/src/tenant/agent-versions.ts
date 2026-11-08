@@ -408,13 +408,20 @@ export function idleMsOf(config: TenantSandboxConfig, agent: Environment): numbe
 
 /**
  * The harness of pod Agent `id` joined at host epoch `epoch` (its `hello`): a start on a new
- * version succeeded, setup included. Clears the start check and the failed version.
+ * version succeeded, setup included. Clears the start check and the failed version, and wakes
+ * every session on the Agent with a turn waiting: an advance refuses a segment while its pod
+ * starts on a new version (`segment.pod.starting`) and tries again only after
+ * `tenant.unavailableRetryMs`, so without the wake the turn waits up to that long after its
+ * engine is there. The wake's dedupe key is the epoch's: one wake per session per start.
  */
 export async function passStartCheck(ctx: TenantContext, id: string, epoch: number): Promise<void> {
   await ctx.store.tx(async (t) => {
     const agent = await t.environment(id, { lock: true });
     if (!agent?.startCheck || agent.pod?.hostEpoch !== epoch) return;
     await t.updateEnvironment(id, { startCheck: null, failedVersion: null }, new Date().toISOString());
+    for (const session of await t.sessionsOnEnvironment(id))
+      if (session.activeTurnId !== null)
+        await t.wake(session.id, { reason: "recover", dedupeKey: `start:${id}:${epoch}` });
   });
 }
 
