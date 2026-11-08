@@ -305,4 +305,45 @@ describe("a pod Agent's setup and input files", { timeout: 90_000 }, () => {
     await withTestSessionStore(runtime, (store) => sweepStartChecks(ctx(store), Date.now() + 11 * 60_000));
     expect((await call("GET", path(id))).body).toMatchObject({ resolvedVersion: 2, failedVersion: 3, startCheck: null });
   });
+
+  it("wakes a turn that waits for a new version's start as soon as the start passes", async () => {
+    const id = "setup/wakes";
+    const { name } = await createPod(id, { setup: [{ command: "echo one" }] });
+    const first = await hosts.join({ sandboxId: id, podUid: fake.podUid(name)!, joinToken: fake.joinToken(name)! });
+    await hosts.reportSetup(first.hostToken, { status: "ok" });
+    const ctx = (store: unknown) =>
+      ({ store, config: { logger: { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} } } }) as unknown as TenantContext;
+
+    // Version 2 waits for the pod's next start; a turn wakes it, and waits for the start.
+    expect((await save(id, { kind: "pod", setup: [{ command: "echo two" }] })).status).toBe(200);
+    expect((await call("POST", `${path(id)}/stop`)).status).toBe(200);
+    await until("suspended", async () => (await call("GET", path(id))).body, (body) => body.compute.pod.observed === "suspended");
+    expect((await call("PUT", "/v1/sessions/wakes-s1", { requestId: "s1", agent: id, ownerUserId: "app:ada" })).status).toBe(200);
+    const sent = await call("POST", "/v1/sessions/wakes-s1/commands", {
+      type: "message",
+      requestId: "m1",
+      idempotencyKey: "m1",
+      content: "go",
+    });
+    expect(sent.status).toBe(200);
+    expect((await call("GET", path(id))).body).toMatchObject({ resolvedVersion: 2, startCheck: { from: 1 } });
+
+    // The new pod's harness joins: the start passes and the waiting turn is woken at once.
+    const epoch = (await call("GET", path(id))).body.compute.pod.hostEpoch;
+    const wakes = await withTestSessionStore(runtime, async (store) => {
+      await passStartCheck(ctx(store), id, epoch);
+      const pending = await store.tx((t) => t.pendingOutbox(0, 1_000));
+      return pending.flatMap(({ request }) => (request.kind === "wake" ? [request] : []));
+    });
+    expect((await call("GET", path(id))).body).toMatchObject({ resolvedVersion: 2, startCheck: null });
+    expect(wakes).toContainEqual(
+      expect.objectContaining({
+        sessionId: "wakes-s1",
+        wake: expect.objectContaining({ reason: "recover", dedupeKey: `start:${id}:${epoch}` }),
+      }),
+    );
+
+    await call("POST", "/v1/sessions/wakes-s1/commands", { type: "cancel", requestId: "c1", idempotencyKey: "c1" });
+    await until("settled", async () => (await call("GET", "/v1/sessions/wakes-s1")).body, (body) => body.activeTurnId === null, 60_000);
+  });
 });
