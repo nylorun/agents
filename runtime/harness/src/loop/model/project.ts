@@ -13,6 +13,7 @@ import type { ToolResult } from "@nylorun/core/define";
 import { copyJson, freezeGraph } from "@nylorun/core/define";
 import { outputSchemaInstruction } from "@nylorun/core/engine";
 import { summaryPrompt } from "../compaction/index.js";
+import { planReminder } from "./plan-reminder.js";
 import {
   FILES_MESSAGE_HEADER,
   fileKeyOf,
@@ -28,7 +29,8 @@ import {
  * the context, in one user message: each file's line, then what `files` (`representFiles`)
  * made of it, a media part, a `<file>` block or a note. Without `files`, each goes as its media
  * part. Their content reaches the model only in their own turn. `readable` false for an agent
- * without `read_artifact` (ADR-100): no reference line offers it.
+ * without `read_artifact` (ADR-100): no reference line offers it. Last, when the turn's plan has
+ * fallen behind, one line reminds the model to keep it (`planReminder`).
  */
 export function projectModelCall(
   request: ModelRequest,
@@ -44,6 +46,7 @@ export function projectModelCall(
       ...request.transcript.flatMap((entry) => projectEntry(entry, request.turnId, readable)),
       ...projectContext(request.context),
       ...projectFiles(liveFilesOf(request, readable), files),
+      ...projectPlanReminder(request),
     ]),
     tools: Object.freeze(
       request.configuration.tools.map((tool): ModelCallTool =>
@@ -105,6 +108,14 @@ function projectInstructions(
 /** What a turn with an output schema asks of the model's final answer (`@nylorun/core/engine`). */
 export function schemaInstruction(schema: NonNullable<ModelRequest["outputSchema"]>): string {
   return outputSchemaInstruction(schema);
+}
+
+/** The reminder to keep the plan, last, when the turn's plan has fallen behind (`planReminder`). */
+function projectPlanReminder(request: ModelRequest): readonly PromptItem[] {
+  const reminder = planReminder(request);
+  return reminder === undefined
+    ? []
+    : [freezeItem({ kind: "context", role: "user", content: [textPart(reminder)] })];
 }
 
 function projectContext(context: ContextSnapshot): readonly PromptItem[] {
