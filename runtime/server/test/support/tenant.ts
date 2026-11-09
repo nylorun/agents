@@ -38,6 +38,8 @@ import { createFsBlobStore, type BlobStore } from "../../src/blob/index.js";
 import type { TenantConfig, TenantHandle } from "../../src/tenant/types.js";
 import type { SessionStore } from "../../src/store/types.js";
 import { MemoryStreams } from "../../src/streams/memory.js";
+import { MemoryExecution } from "../../src/execution/memory.js";
+import { TenantWorkers } from "../../src/tenant/worker.js";
 import type { DurableStreams } from "../../src/streams/types.js";
 import { dropTestTenant, openTestTenant, withTestSessionStore, testTenantPool } from "./store.js";
 import { modelCallLimits, setLimits } from "./limits.js";
@@ -73,6 +75,13 @@ export type StartTestTenantOptions = Partial<TenantConfig> & {
   /** Host-level execution and Worker id (ownership tests). */
   execution?: TenantOpenHooks["execution"];
   workerId?: string;
+  /**
+   * Record the Tenant's durable timers (`DurableExecution.timer`; only triggers arm them) in
+   * `timers` instead of arming them, so a trigger fires only when the test calls
+   * `handle.worker.fire`. A live `* * * * *` schedule would otherwise fire mid-test whenever a
+   * minute turns. Wakes and sweeps run as they do without it. Not with `execution`.
+   */
+  holdTimers?: boolean;
   /**
    * Durable Streams shared with other instances (or restarts); the caller closes them.
    * Default: `MemoryStreams` for this Tenant, kept for a restart on the same Host root while
@@ -158,6 +167,8 @@ export async function startTestTenant(
   handle: TenantHandle;
   /** The gates service, with `NYLORUN_TEST_MODEL_GATE=http`. */
   gate?: TestGate;
+  /** With `holdTimers`: each timer key and the time it was last armed for. */
+  timers?: ReadonlyMap<string, Date>;
   close(): Promise<void>;
 }> {
   const hostRoot =
@@ -233,12 +244,19 @@ export async function startTestTenant(
     logger,
   };
 
+  if (options.holdTimers && options.execution)
+    throw new Error("holdTimers runs its own execution: pass one or the other");
+  const held = options.holdTimers
+    ? heldTimersExecution(config.sweepIntervalMs, logger)
+    : undefined;
+
   const streamsKey = `${hostRoot}\u0000${tenantId}`;
   const defaultStreams = retainedStreams.get(streamsKey) ?? new MemoryStreams();
   const hooks: TenantOpenHooks = {
     ...opened,
     ...(options.modelProvider ? { modelProvider: options.modelProvider } : {}),
     ...(options.execution ? { execution: options.execution } : {}),
+    ...(held ? { execution: held } : {}),
     ...(options.workerId ? { workerId: options.workerId } : {}),
     streams: options.streams ?? defaultStreams,
     ...(options.retireGraceMs !== undefined ? { retireGraceMs: options.retireGraceMs } : {}),
@@ -314,6 +332,8 @@ export async function startTestTenant(
   }
 
   const handle = await openTenantRuntime(config, hooks);
+  // The runtime starts only the execution it makes itself; this one is the test's to start.
+  if (held) await held.execution.start(held.workers.handlers);
   const tenant = getRequestListener((request, node) => handle.fetch(request, node), {
     overrideGlobalObjects: false,
   });
@@ -369,8 +389,11 @@ export async function startTestTenant(
     root: hostRoot,
     handle,
     ...(gate ? { gate } : {}),
+    ...(held ? { timers: held.execution.held } : {}),
     async close() {
       await handle.close();
+      // After the Tenant unregistered, as its own execution stops (`detach`).
+      await held?.execution.stop();
       await gate?.close();
       if (!options.streams) {
         if (retainRoot) retainedStreams.set(streamsKey, defaultStreams);
@@ -484,4 +507,30 @@ export async function startTestGate(options: {
     token,
     authorizeMcp,
   });
+}
+
+/** `MemoryExecution` whose timers are recorded in `held`, never armed (`holdTimers`). */
+class HeldTimersExecution extends MemoryExecution {
+  readonly held = new Map<string, Date>();
+
+  override async timer(_tenantId: string, key: string, at: Date): Promise<void> {
+    this.held.set(key, at);
+  }
+}
+
+/** The execution the Tenant would make for itself (`openTenantRuntime`), holding its timers. */
+function heldTimersExecution(
+  sweepIntervalMs: number | undefined,
+  logger: TenantConfig["logger"]
+): { execution: HeldTimersExecution; workers: TenantWorkers } {
+  const workers = new TenantWorkers();
+  const execution = new HeldTimersExecution({
+    ...(sweepIntervalMs === undefined ? {} : { sweepIntervalMs }),
+    stopGraceMs: workers.graceMs,
+    onError: (error) =>
+      logger.error("tenant execution failed", {
+        message: error instanceof Error ? error.message : String(error),
+      }),
+  });
+  return { execution, workers };
 }
