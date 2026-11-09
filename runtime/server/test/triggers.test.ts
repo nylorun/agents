@@ -43,9 +43,12 @@ const inAnHour = new Date(Date.now() + 3_600_000).toISOString();
 const runtimeWith = (triggers: Record<string, Trigger>): RuntimeSection => ({ kind: "none", triggers }) as RuntimeSection;
 
 let runtime: Awaited<ReturnType<typeof startTestTenant>>;
+let deployedAt: number;
 
 beforeAll(async () => {
-  runtime = await startTestTenant({ applicationKey: APP, vaultKek: null, modelProvider: model });
+  // Held timers: `tick` is a live `* * * * *` schedule, and each test fires it by hand (`fireDue`).
+  runtime = await startTestTenant({ applicationKey: APP, vaultKek: null, modelProvider: model, holdTimers: true });
+  deployedAt = Date.now();
   await deploy(runtime.url, headers, bot, {
     name: "cron",
     runtime: runtimeWith({
@@ -102,11 +105,14 @@ describe("an Agent's triggers", () => {
     ]);
     const tick = list.find((t) => t.id === "tick");
     expect(tick).toMatchObject({ schedule: "* * * * *", timezone: "UTC", session: "inbox", lastRunAt: null });
+    // From the deploy: with the timer held, a minute may turn before this read without a fire.
     const next = Date.parse(tick.nextRunAt);
-    expect(next).toBeGreaterThan(Date.now());
-    expect(next).toBeLessThanOrEqual(Date.now() + 66_000);
+    expect(next).toBeGreaterThan(deployedAt);
+    expect(next).toBeLessThanOrEqual(deployedAt + 66_000);
     expect(list.find((t) => t.id === "once").nextRunAt).toBe(inAnHour);
     expect((await call("GET", "/v1/agents/cron")).body.nextWakeAt).toBe(tick.nextRunAt);
+    // Its timer is armed for that run (held, not live: see `beforeAll`).
+    expect(runtime.timers!.get(triggerTimerKey("cron", "tick"))?.toISOString()).toBe(tick.nextRunAt);
   });
 
   it("runs on the session it names, opened on the first run, and records one run per due time", async () => {
@@ -132,7 +138,6 @@ describe("an Agent's triggers", () => {
     const after = (await triggers()).find((t) => t.id === "tick");
     expect(Date.parse(after.nextRunAt)).toBeGreaterThan(firedAt);
     expect(after.lastRunAt).toEqual(expect.any(String));
-    // The live `* * * * *` schedule may start the next minute's run meanwhile, so find this one's.
     const events = (await call("GET", "/v1/agents/cron/events?types=agent.run")).body.events as any[];
     expect(events.find((e) => e.payload.runId === run.id)?.payload).toMatchObject({ triggerId: "tick", status: "started" });
   });
