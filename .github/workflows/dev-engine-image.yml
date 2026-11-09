@@ -2,7 +2,9 @@
 # (images/dev-engine, ADR-99 in nylorun/factory), a tag of the public ghcr.io/nylorun/dev package.
 # On a pull request that changes images/dev-engine: build it for amd64 on the newest beta Runtime
 # and run its smoke test. By hand, from main, with a Runtime version: build it for amd64 and arm64,
-# run the smoke test, and push the tag, once per version.
+# run the smoke test, and push the tag, once per version. A Runtime version already published can be
+# built again on a newer dev release with `rebuild` (that release's tag, which dev.image must pin):
+# it pushes engine-<runtime>-<rebuild>, so a deployment keeps its Runtime and gets the newer computer.
 name: Dev engine image
 
 on:
@@ -14,6 +16,10 @@ on:
     inputs:
       runtime:
         description: "The Runtime version whose engine it carries, as ghcr.io/nylorun/runtime tags it (e.g. 0.40.0-beta). Empty: the newest beta"
+        required: false
+        type: string
+      rebuild:
+        description: "Rebuild a published Runtime version on a newer dev release: that release's tag (YYYY.MM.DD), which images/dev-engine/dev.image must pin. Pushes engine-<runtime>-<rebuild>. Empty: engine-<runtime>"
         required: false
         type: string
       push:
@@ -42,15 +48,25 @@ jobs:
       - name: The Runtime version and the dev image
         env:
           REQUESTED: ${{ inputs.runtime }}
+          REBUILD: ${{ inputs.rebuild }}
         run: |
           set -euo pipefail
           runtime="${REQUESTED:-$(npm view nylorun@beta nylorun.runtime)}"
           [[ "$runtime" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]] || { echo "::error::\"$runtime\" isn't a Runtime version"; exit 1; }
           dev="$(tr -d '[:space:]' < images/dev-engine/dev.image)"
           [[ "$dev" =~ ^ghcr\.io/nylorun/dev@sha256:[0-9a-f]{64}$ ]] || { echo "::error::images/dev-engine/dev.image is ghcr.io/nylorun/dev@sha256:<64 hex>"; exit 1; }
-          echo "RUNTIME_VERSION=${runtime}" >> "$GITHUB_ENV"
-          echo "DEV=${dev}" >> "$GITHUB_ENV"
-          echo "Runtime ${runtime}, dev ${dev}"
+          tag="engine-${runtime}"
+          if [ -n "$REBUILD" ]; then
+            [[ "$REBUILD" =~ ^20[0-9]{2}\.[0-9]{2}\.[0-9]{2}(\.[0-9]+)?$ ]] || { echo "::error::rebuild is a dev release's tag, YYYY.MM.DD or YYYY.MM.DD.N"; exit 1; }
+            tag="engine-${runtime}-${REBUILD}"
+          fi
+          {
+            echo "RUNTIME_VERSION=${runtime}"
+            echo "DEV=${dev}"
+            echo "TAG=${tag}"
+            echo "REBUILD=${REBUILD}"
+          } >> "$GITHUB_ENV"
+          echo "Runtime ${runtime}, dev ${dev}, tag ${tag}"
 
       - name: Build for amd64
         run: |
@@ -67,8 +83,13 @@ jobs:
         run: |
           set -euo pipefail
           [ "$REF" = refs/heads/main ] || { echo "::error::Push from main only"; exit 1; }
-          if docker buildx imagetools inspect "ghcr.io/nylorun/dev:engine-${RUNTIME_VERSION}" >/dev/null 2>&1; then
-            echo "::error::ghcr.io/nylorun/dev:engine-${RUNTIME_VERSION} exists: each Runtime version is built once"; exit 1
+          if docker buildx imagetools inspect "ghcr.io/nylorun/dev:${TAG}" >/dev/null 2>&1; then
+            echo "::error::ghcr.io/nylorun/dev:${TAG} exists: each Runtime version is built once per dev release (a newer dev release: rebuild)"; exit 1
+          fi
+          # A rebuild's tag names its dev release, so dev.image must be exactly that release.
+          if [ -n "$REBUILD" ]; then
+            released="$(docker buildx imagetools inspect "ghcr.io/nylorun/dev:${REBUILD}" --format '{{json .Manifest.Digest}}' | tr -d '"')"
+            [ "ghcr.io/nylorun/dev@${released}" = "$DEV" ] || { echo "::error::images/dev-engine/dev.image is ${DEV}, not ghcr.io/nylorun/dev:${REBUILD} (${released})"; exit 1; }
           fi
 
       - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
@@ -94,11 +115,11 @@ jobs:
           build-args: |
             DEV=${{ env.DEV }}
             RUNTIME_VERSION=${{ env.RUNTIME_VERSION }}
-          tags: ghcr.io/nylorun/dev:engine-${{ env.RUNTIME_VERSION }}
+          tags: ghcr.io/nylorun/dev:${{ env.TAG }}
 
       - name: Summary
         if: github.event_name == 'workflow_dispatch' && inputs.push
         run: |
           set -euo pipefail
-          digest="$(docker buildx imagetools inspect "ghcr.io/nylorun/dev:engine-${RUNTIME_VERSION}" --format '{{json .Manifest.Digest}}' | tr -d '"')"
-          echo "Pushed ghcr.io/nylorun/dev:engine-${RUNTIME_VERSION}@${digest} (Runtime ${RUNTIME_VERSION}, ${DEV}). Pin ghcr.io/nylorun/dev@${digest} as the agent's image." >> "$GITHUB_STEP_SUMMARY"
+          digest="$(docker buildx imagetools inspect "ghcr.io/nylorun/dev:${TAG}" --format '{{json .Manifest.Digest}}' | tr -d '"')"
+          echo "Pushed ghcr.io/nylorun/dev:${TAG}@${digest} (Runtime ${RUNTIME_VERSION}, ${DEV}). Pin ghcr.io/nylorun/dev@${digest} as the agent's image." >> "$GITHUB_STEP_SUMMARY"
