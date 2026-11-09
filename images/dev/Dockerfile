@@ -57,7 +57,32 @@ RUN arch="$([ "$TARGETARCH" = arm64 ] && echo arm64 || echo x64)" \
  && echo "${sum}  /usr/local/bin/mise" | sha256sum -c - \
  && chmod 755 /usr/local/bin/mise
 
-# 4. Where the agent's own installs go: under HOME=/workspace, on the pod's volume. The pod sets
+# 4. A browser (Phase 1 in nylorun/factory research/browser-for-agents-2026-11-01.md): Chromium's
+#    libraries and base fonts (Playwright's ubuntu24.04 list for Chromium), @playwright/cli, and
+#    the headless shell and FFmpeg builds that CLI expects, under /opt/ms-playwright on the
+#    read-only root. The CLI defaults to the Google Chrome channel, which isn't here, so
+#    PLAYWRIGHT_MCP_CONFIG makes it launch Playwright's Chromium; NO_UPDATE_NOTIFIER stops it asking
+#    npm for updates on every run. Measured in nylorun/ops' beta lab E8 on beta's GKE cluster: about
+#    220 MiB compressed, and the CLI works as uid 1000 on a read-only root with no egress.
+ARG PLAYWRIGHT_CLI=0.1.23
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
+    apt-get update \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      libasound2t64 libatk-bridge2.0-0t64 libatk1.0-0t64 libatspi2.0-0t64 libcairo2 libcups2t64 \
+      libdbus-1-3 libdrm2 libgbm1 libglib2.0-0t64 libnspr4 libnss3 libpango-1.0-0 libx11-6 libxcb1 \
+      libxcomposite1 libxdamage1 libxext6 libxfixes3 libxkbcommon0 libxrandr2 \
+      libfontconfig1 libfreetype6 fonts-liberation fonts-noto-color-emoji fonts-freefont-ttf
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright \
+    PLAYWRIGHT_MCP_CONFIG=/etc/playwright/cli.config.json \
+    NO_UPDATE_NOTIFIER=1
+COPY cli.config.json /etc/playwright/cli.config.json
+RUN npm install -g --prefix /usr/local --no-audit --no-fund "@playwright/cli@${PLAYWRIGHT_CLI}" \
+ && playwright-cli install-browser chromium --only-shell \
+ && chmod -R a+rX /opt/ms-playwright \
+ && rm -rf /root/.npm /root/.cache /tmp/*
+
+# 5. Where the agent's own installs go: under HOME=/workspace, on the pod's volume. The pod sets
 #    HOME at run time, so these paths are literal. New releases wait 3 days before npm, pnpm and
 #    uv install them (min-release-age in days, minimumReleaseAge in minutes, exclude-newer): most
 #    malicious versions are found and pulled sooner. A task can override one install.
@@ -77,11 +102,12 @@ ENV LANG=C.UTF-8 \
     pnpm_config_minimum_release_age=4320 \
     UV_EXCLUDE_NEWER="3 days"
 
-# 5. What this image holds, for the agent and for tests.
+# 6. What this image holds, for the agent and for tests.
 RUN mkdir -p /etc/nylorun \
  && { echo "image: ghcr.io/nylorun/dev"; echo "os: $(. /etc/os-release; echo "$PRETTY_NAME")"; \
-      for t in git python3 pip3 uv node npm mise gcc make jq rg fd curl sqlite3; do \
-        printf '%s: %s\n' "$t" "$("$t" --version 2>&1 | head -1)"; done; } > /etc/nylorun/image.txt \
+      for t in git python3 pip3 uv node npm mise gcc make jq rg fd curl sqlite3 playwright-cli; do \
+        printf '%s: %s\n' "$t" "$("$t" --version 2>&1 | head -1)"; done; \
+      echo "browsers: $(ls /opt/ms-playwright | tr '\n' ' ')"; } > /etc/nylorun/image.txt \
  && rm -rf /workspace/.cache /workspace/.config /workspace/.local
 
 USER 1000:1000
