@@ -927,7 +927,7 @@ export interface Tx {
     after?: string;
     environmentId?: string;
   }): Promise<string[]>;
-  // Triggers (track T4, D74); runs are ordered by id, which `newRunId` makes increase with time.
+  // Triggers (track T4, D74); runs are ordered by id, which `newRunId` makes strictly increase within a process.
   agentTriggers(agentId: string): Promise<AgentTriggerRow[]>;
   /** One trigger's state; with `lock`, its row is locked until the transaction ends. */
   agentTrigger(agentId: string, triggerId: string, options?: { lock?: boolean }): Promise<AgentTriggerRow | undefined>;
