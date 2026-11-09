@@ -57,8 +57,11 @@ const TRUST_VARIABLES = [
 ] as const;
 
 export interface PodHost {
-  /** A current host token, for the next connection. Throws when neither renewal nor join works. */
-  token(): Promise<string>;
+  /**
+   * A current host token, for the next connection. Throws when neither renewal nor join works,
+   * or when `signal` drops the attempt.
+   */
+  token(signal?: AbortSignal): Promise<string>;
   /** `HTTPS_PROXY` and friends with the current egress token; none before the first join. */
   proxyEnv(): Record<string, string>;
   /** The host epoch of the tokens held. */
@@ -106,7 +109,8 @@ export function podHost(
   /** The CA in the bundle on disk, once one is written. */
   let bundled: string | undefined;
 
-  const post = async (path: string, init: { body?: unknown; bearer?: string }): Promise<Held> => {
+  const post = async (path: string, init: { body?: unknown; bearer?: string }, signal?: AbortSignal): Promise<Held> => {
+    const timeout = AbortSignal.timeout(hostTuning().harness.podJoinTimeoutMs);
     const response = await call(`${config.httpUrl}/nylorun/harness/v1/host/${path}`, {
       method: "POST",
       headers: {
@@ -116,7 +120,7 @@ export function podHost(
         ...(path === "join" && imageEngine ? { [IMAGE_ENGINE_HEADER]: RUNTIME_VERSION } : {}),
       },
       ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
-      signal: AbortSignal.timeout(hostTuning().harness.podJoinTimeoutMs),
+      signal: signal ? AbortSignal.any([timeout, signal]) : timeout,
     });
     const text = await response.text();
     if (response.status === 401 || response.status === 400) throw new Refused(`host/${path} refused: ${response.status}`);
@@ -171,17 +175,21 @@ export function podHost(
     }
   };
 
-  const join = async (): Promise<Held> => {
+  const join = async (signal?: AbortSignal): Promise<Held> => {
     const joinToken = (await readFile(config.joinFile, "utf8")).trim();
     const volume = await volumeId();
-    held = await post("join", {
-      body: {
-        sandboxId: config.sandboxId,
-        podUid: config.podUid,
-        joinToken,
-        ...(volume === undefined ? {} : { volumeId: volume }),
+    held = await post(
+      "join",
+      {
+        body: {
+          sandboxId: config.sandboxId,
+          podUid: config.podUid,
+          joinToken,
+          ...(volume === undefined ? {} : { volumeId: volume }),
+        },
       },
-    });
+      signal,
+    );
     logger.info("sandbox_host_joined", { sandboxId: config.sandboxId, epoch: held.epoch });
     return held;
   };
@@ -199,10 +207,10 @@ export function podHost(
     });
   };
 
-  const renew = async (): Promise<Held | undefined> => {
+  const renew = async (signal?: AbortSignal): Promise<Held | undefined> => {
     if (!held) return undefined;
     try {
-      held = await post("renew", { bearer: held.hostToken });
+      held = await post("renew", { bearer: held.hostToken }, signal);
       return held;
     } catch (error) {
       if (error instanceof Refused) {
@@ -222,8 +230,8 @@ export function podHost(
   timer.unref();
 
   return {
-    async token() {
-      const current = (await renew()) ?? (await join());
+    async token(signal?: AbortSignal) {
+      const current = (await renew(signal)) ?? (await join(signal));
       return current.hostToken;
     },
     proxyEnv(): Record<string, string> {

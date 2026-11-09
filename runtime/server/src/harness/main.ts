@@ -76,13 +76,15 @@ export async function runHarness(
     // A fork onto other setup (Q17) runs it after connecting: core writes its disk through the connection.
     if (!pod.afterSeed) await prepare();
   }
-  const token = pod ? () => pod.token() : config.token;
+  const token = pod ? (signal?: AbortSignal) => pod.token(signal) : config.token;
   if (token === undefined) throw new Error("--service harness needs NYLORUN_HARNESS_TOKEN");
 
   const runTokens = harnessRunTokens();
   const service = startHarnessService({
     url: config.url,
     token,
+    // A pod's engine may be frozen and resumed (an Agent Substrate restore): redial at once.
+    ...(pod ? { redialOnClockJump: true } : {}),
     ...(pod
       ? { sandboxBackends: [localBackend({ env: baseline, proxyEnv: () => pod.proxyEnv(), harnessRoot: config.root })] }
       : {}),
