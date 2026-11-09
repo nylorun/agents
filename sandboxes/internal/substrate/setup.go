@@ -93,8 +93,9 @@ func accessPolicy(atespace string, current *ateapi.AccessPolicy, principal strin
 	if meta == nil {
 		meta = map[string]any{}
 	}
+	// An atespace's access policy is global-scoped: Substrate refuses metadata.atespace.
 	meta["name"] = "default"
-	meta["atespace"] = atespace
+	delete(meta, "atespace")
 	doc["metadata"] = meta
 	raw, err := json.Marshal(doc)
 	if err != nil {
