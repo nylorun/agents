@@ -314,11 +314,15 @@ export async function installSubstrate(
 
   let hostAddress = input.hostAddress;
   if (!hostAddress) {
-    const lookup = await k.run(
-      ["run", "nylorun-host-lookup", "-n", namespace, "--rm", "-i", "--quiet", "--restart=Never", `--image=${PROBE_IMAGE}`, "--", "nslookup", "host.docker.internal"],
-      { timeoutMs: cliTuning().sandbox.probeExecMs * 3 },
-    );
-    hostAddress = parseNslookup(lookup.stdout);
+    // A pod's first lookup can find no IPv4 address on a cluster that just started (P1.8 rerun:
+    // once, while 10 of 10 by hand did), so it is tried three times before `enable` gives up.
+    for (let attempt = 0; attempt < 3 && !hostAddress; attempt += 1) {
+      const lookup = await k.run(
+        ["run", "nylorun-host-lookup", "-n", namespace, "--rm", "-i", "--quiet", "--restart=Never", `--image=${PROBE_IMAGE}`, "--", "nslookup", "host.docker.internal"],
+        { timeoutMs: cliTuning().sandbox.probeExecMs * 3 },
+      );
+      hostAddress = parseNslookup(lookup.stdout);
+    }
     if (!hostAddress)
       throw new CliError(
         `Refusing context ${input.context}: pods cannot resolve host.docker.internal. Pass --host-address with the Docker host's address as pods reach it (172.17.0.1 for kind on Linux).`,

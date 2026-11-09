@@ -28,7 +28,8 @@ const KIND_COREFILE = `.:53 {
 `;
 
 /** A kind cluster with Substrate installed. */
-function substrateCluster(options: { substrate?: boolean } = {}) {
+function substrateCluster(options: { substrate?: boolean; emptyLookups?: number } = {}) {
+  let emptyLookups = options.emptyLookups ?? 0;
   return fakeKubectl((full) => {
     if (full[0] !== "--context") return undefined;
     const args = full.slice(2);
@@ -39,7 +40,13 @@ function substrateCluster(options: { substrate?: boolean } = {}) {
       return options.substrate === false ? undefined : ok({ spec: { ports: [{ port: 443 }] } });
     if (/^get secret nylorun-sandboxes-token -n \S+ -o json$/.test(line))
       return ok({ data: { token: Buffer.from("sa-token").toString("base64") } });
-    if (args[0] === "run" && args.includes("nslookup")) return ok(NSLOOKUP);
+    if (args[0] === "run" && args.includes("nslookup")) {
+      if (emptyLookups > 0) {
+        emptyLookups -= 1;
+        return ok("Server:\t\t10.96.0.10\nAddress:\t10.96.0.10:53\n\n** server can't find host.docker.internal: NXDOMAIN\n");
+      }
+      return ok(NSLOOKUP);
+    }
     if (line === "get configmap coredns -n kube-system -o json") return ok({ data: { Corefile: KIND_COREFILE } });
     return undefined;
   });
@@ -79,6 +86,13 @@ describe("installSubstrate", () => {
     expect(patch?.args).toContain("coredns");
     const corefile = JSON.parse(patch!.args.at(-1)!).data.Corefile as string;
     expect(corefile).toContain("192.168.65.254 nylorun-sbx-shop.edge.nylorun.internal");
+  });
+
+  it("tries the host lookup again when a pod's first finds no address", async () => {
+    const kubectl = substrateCluster({ emptyLookups: 2 });
+    const result = await installSubstrate(await deps(kubectl), { context: "kind-kind", tenant: "shop", ports: PORTS, edgePorts: EDGE });
+    expect(result.cluster.hostAddress).toBe("192.168.65.254");
+    expect(kubectl.inContext("kind-kind").filter((c) => c.args[0] === "run" && c.args.includes("nslookup"))).toHaveLength(3);
   });
 
   it("refuses a cluster without Substrate", async () => {
