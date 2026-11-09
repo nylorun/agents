@@ -23,6 +23,12 @@ docker build --build-arg DEV="$(cat images/dev-engine/dev.image)" --build-arg RU
 bash images/dev-engine/smoke.sh dev-engine:local
 ```
 
+A Runtime version is built once per dev release. When a newer dev release comes out, move
+`dev.image` to it and run the workflow with `rebuild` set to that release's tag: it pushes
+`engine-<runtime>-<release>` (`engine-0.44.2-beta-2026.11.09`), with the same engine label, so a
+deployment gets the newer computer without changing its Runtime. The workflow refuses a rebuild
+whose `dev.image` isn't that release.
+
 The **Dev engine image** workflow builds and smoke-tests it on a pull request that changes this
 folder, and, run by hand from `main` with a Runtime version, publishes
 `ghcr.io/nylorun/dev:engine-<runtime>` for amd64 and arm64 once per version.
