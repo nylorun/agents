@@ -25,6 +25,8 @@ type fakeAPI struct {
 	uids       int
 	calls      []string
 	failResume error
+	// failResumeTimes makes the first n ResumeActor calls fail with failResume.
+	failResumeTimes int
 }
 
 func newFakeAPI() *fakeAPI {
@@ -149,7 +151,11 @@ func (f *fakeAPI) SuspendActor(_ context.Context, in *ateapi.SuspendActorRequest
 func (f *fakeAPI) ResumeActor(_ context.Context, in *ateapi.ResumeActorRequest, _ ...grpc.CallOption) (*ateapi.ResumeActorResponse, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if f.failResume != nil {
+	if f.failResume != nil && f.failResumeTimes != 0 {
+		if f.failResumeTimes > 0 {
+			f.failResumeTimes--
+		}
+		f.record("ResumeActor failed")
 		return nil, f.failResume
 	}
 	a, ok := f.actors[key(in.GetActor())]
