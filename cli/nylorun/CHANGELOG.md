@@ -1,5 +1,22 @@
 # nylorun
 
+## 0.29.2-beta
+
+### Patch Changes
+
+- f1ac19f: Pods on Agent Substrate (preview): a wake no longer waits on a DNS lookup of the edge. The sandboxes service pins the edge's name to the address `enable` found in each actor's `/etc/hosts` (when the image lets the engine's user write it), so a restored actor's first lookup, which can be lost, is never made; the exit test's rerun measured 1.15–1.51 s in four of ten wakes from that lookup's retry. `nylorun local sandbox enable --backend substrate` also tries the pod's lookup of the Docker host three times before refusing the context, since a pod's first lookup can find no address on a cluster that just started.
+- Pin core to the tested release.
+- Pin agents to the tested release.
+- Pin admin to the tested release.
+- Pin runtime to the tested release.
+- Pin studio to the tested release.
+- Updated dependencies [b6a7c1d]
+- Updated dependencies
+- Updated dependencies
+  - @nylorun/core@0.40.0-beta
+  - @nylorun/agents@0.36.3-beta
+  - @nylorun/admin@0.19.16-beta
+
 ## 0.29.1-beta
 
 ### Patch Changes
