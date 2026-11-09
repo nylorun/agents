@@ -3,12 +3,12 @@ import { cliTuning } from "../tuning.js";
 
 /**
  * What `nylorun local sandbox enable` installs into a cluster. The agent-sandbox controller is
- * pinned (D32, Experiment 2): v1.0.5, API agents.x-k8s.io/v1beta1, its release manifest
+ * pinned (D32, Experiment 2): v1.0.10, API agents.x-k8s.io/v1beta1, its release manifest
  * verified by sha256 before it is applied. It is never upgraded or uninstalled here.
  */
-export const CONTROLLER_VERSION = "v1.0.5";
+export const CONTROLLER_VERSION = "v1.0.10";
 export const CONTROLLER_URL = `https://github.com/kubernetes-sigs/agent-sandbox/releases/download/${CONTROLLER_VERSION}/sandbox.yaml`;
-export const CONTROLLER_SHA256 = "e89fd95c0aa57609fa24be4112bd52ce67fe8939ecf6f3c17edf2f1e8f1eb860";
+export const CONTROLLER_SHA256 = "ea8de87e7d71cf3df40bb71a71f3c4d095e7ae88dc43fe5f4050a717abd46066";
 export const CONTROLLER_NAMESPACE = "agent-sandbox-system";
 export const CONTROLLER_DEPLOYMENT = "agent-sandbox-controller";
 export const SANDBOX_CRD = "sandboxes.agents.x-k8s.io";

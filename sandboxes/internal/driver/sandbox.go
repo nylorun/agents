@@ -32,7 +32,7 @@ var (
 )
 
 const (
-	// APIVersion is the agent-sandbox API this service drives (controller v1.0.5).
+	// APIVersion is the agent-sandbox API this service drives (controller v1.0.10).
 	APIVersion = "agents.x-k8s.io/v1beta1"
 	// FieldManager owns every field this service applies.
 	FieldManager = "nylorun-sandboxes"

@@ -4,7 +4,7 @@
 // probe pod in the sandbox namespace (under the same NetworkPolicy as every sandbox pod), and
 // tokens minted by the gateway's keys service, as core mints them at join.
 //
-// Needs kubectl, a context with agent-sandbox v1.0.5 or none, the workspace builds, and the images
+// Needs kubectl, a context with agent-sandbox v1.0.10 or none, the workspace builds, and the images
 // sandbox pods use loaded into the cluster (CI: `kind load docker-image` of the runtime image,
 // python:3.13-slim and busybox:1.37.0).
 import assert from "node:assert/strict";

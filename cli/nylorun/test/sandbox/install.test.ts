@@ -46,7 +46,7 @@ describe("installCluster", () => {
       tlsServerName: "127.0.0.1",
       caData: "Q0E=",
       namespace: "nylorun-sbx-shop",
-      controllerVersion: "v1.0.5",
+      controllerVersion: "v1.0.10",
       hostAddress: "192.168.65.254",
       bindAddress: "127.0.0.1",
       ports: PORTS,
@@ -89,8 +89,8 @@ describe("installCluster", () => {
   });
 
   it("refuses another agent-sandbox version and never upgrades it", async () => {
-    const d = await deps(healthyCluster({ version: "v1.0.4" }));
-    await expect(install(d)).rejects.toThrow(/agent-sandbox v1\.0\.4 is installed; Nylorun needs v1\.0\.5/);
+    const d = await deps(healthyCluster({ version: "v1.0.5" }));
+    await expect(install(d)).rejects.toThrow(/agent-sandbox v1\.0\.5 is installed; Nylorun needs v1\.0\.10/);
     expect(d.kubectl.inContext("docker-desktop").some((c) => c.args[0] === "apply")).toBe(false);
   });
 

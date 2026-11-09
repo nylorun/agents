@@ -1,7 +1,7 @@
 # sandboxes
 
 The sandboxes service (F7.2, D32): a small Go service that drives
-[agent-sandbox](https://github.com/kubernetes-sigs/agent-sandbox) v1.0.5 Sandboxes
+[agent-sandbox](https://github.com/kubernetes-sigs/agent-sandbox) v1.0.10 Sandboxes
 (`agents.x-k8s.io/v1beta1`) in one namespace for one Tenant. It is the only holder of the
 cluster credentials; the Runtime's core calls it with a bearer token. It keeps no state: the
 operation id of the last apply is an annotation (`nylorun.dev/op`) on the Sandbox.

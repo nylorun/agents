@@ -13,7 +13,7 @@ func TestLoad(t *testing.T) {
 	dir := t.TempDir()
 	ca := base64.StdEncoding.EncodeToString([]byte("-----BEGIN CERTIFICATE-----\n"))
 	cluster := `{"context":"docker-desktop","server":"https://127.0.0.1:6443","dial":"host.docker.internal:6443",
-		"tlsServerName":"127.0.0.1","caData":"` + ca + `","namespace":"nylorun-sbx-shop","controllerVersion":"v1.0.5",
+		"tlsServerName":"127.0.0.1","caData":"` + ca + `","namespace":"nylorun-sbx-shop","controllerVersion":"v1.0.10",
 		"hostAddress":"192.168.65.254","bindAddress":"127.0.0.1","ports":{"harness":41001,"gates":41002,"egress":41003},
 		"networkPolicy":{"enforced":true,"probedAt":"2026-10-03T00:00:00Z"},"enabledAt":"2026-10-03T00:00:00Z"}`
 	if err := os.WriteFile(filepath.Join(dir, "cluster.json"), []byte(cluster), 0o600); err != nil {

@@ -29,7 +29,7 @@ func server(t *testing.T, synced bool) *httptest.Server {
 	}
 	s := &api.Server{
 		Driver: d,
-		Cluster: config.Cluster{Namespace: "nylorun-sbx-shop", Context: "kind-nylorun", ControllerVersion: "v1.0.5",
+		Cluster: config.Cluster{Namespace: "nylorun-sbx-shop", Context: "kind-nylorun", ControllerVersion: "v1.0.10",
 			HostAddress: "172.17.0.1", Ports: config.Ports{Harness: 1, Gates: 2, Egress: 3},
 			NetworkPolicy: config.NetworkPolicy{Enforced: true, ProbedAt: "2026-10-03T00:00:00Z"}},
 		Token: token,

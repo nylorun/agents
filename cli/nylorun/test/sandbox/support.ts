@@ -54,7 +54,7 @@ Address: 192.168.65.254
 
 `;
 
-/** A healthy Docker Desktop cluster with agent-sandbox v1.0.5 and an enforcing CNI. */
+/** A healthy Docker Desktop cluster with agent-sandbox v1.0.10 and an enforcing CNI. */
 export function healthyCluster(options: { enforced?: boolean; version?: string; crd?: boolean } = {}) {
   let restrictedPeerAttempts = 0;
   return fakeKubectl((full) => {
@@ -70,7 +70,7 @@ export function healthyCluster(options: { enforced?: boolean; version?: string; 
       return options.crd === false ? undefined : ok({ spec: { versions: [{ name: "v1beta1", served: true }] } });
     if (line === "get deployment agent-sandbox-controller -n agent-sandbox-system -o json")
       return ok({
-        spec: { template: { spec: { containers: [{ image: `registry.k8s.io/agent-sandbox/agent-sandbox-controller:${options.version ?? "v1.0.5"}` }] } } },
+        spec: { template: { spec: { containers: [{ image: `registry.k8s.io/agent-sandbox/agent-sandbox-controller:${options.version ?? "v1.0.10"}` }] } } },
       });
     if (/^get secret nylorun-sandboxes-token -n \S+ -o json$/.test(line))
       return ok({ data: { token: Buffer.from("sa-token").toString("base64") } });
