@@ -114,8 +114,9 @@ describe("pod lifecycle", () => {
   it("arms the idle timer of every running, ready pod it reconciles, whatever woke it", () => {
     // A wake with no turn end (a disk copy, commands through the sandbox route) arms nothing
     // elsewhere: the reconcile that sees the pod ready arms it.
+    // Becoming ready counts as activity: the timer runs from the reconcile that sees it ready.
     const woken = row({ observed: "creating", lastActiveAt: new Date(T0).toISOString() });
-    expect(decide(facts({ row: woken })).arm).toEqual([{ timer: "idle", at: T0 + 60_000 }]);
+    expect(decide(facts({ row: woken })).arm).toEqual([{ timer: "idle", at: T0 + 1_000 + 60_000 }]);
     // A pod running long past its idle limit with no timer: due at once, so the timer suspends it.
     const stuck = row({ observed: "running", podUid: "uid-1", lastActiveAt: new Date(T0).toISOString() });
     const later = decide(facts({ row: stuck, now: T0 + 3 * 86_400_000 }));
@@ -123,6 +124,18 @@ describe("pod lifecycle", () => {
     expect(decide(facts({ row: stuck, trigger: "idle", now: T0 + 3 * 86_400_000 })).patch.desired).toBe("suspended");
     // Not while it starts or is suspended.
     expect(decide(facts({ row: woken, status: status({ ready: false }) })).arm).toEqual([]);
+  });
+
+  it("runs the idle period from when a slow start became ready, not from the ask", () => {
+    // P1.8 rerun: a 56 s start on a cold node was suspended as idle 3.6 s after it ran.
+    const asked = row({ observed: "creating", lastActiveAt: new Date(T0).toISOString() });
+    const ready = decide(facts({ row: asked, now: T0 + 56_000 }));
+    expect(ready.patch).toMatchObject({ observed: "running", lastActiveAt: new Date(T0 + 56_000).toISOString() });
+    expect(ready.arm).toEqual([{ timer: "idle", at: T0 + 56_000 + 60_000 }]);
+    const running = row({ observed: "running", podUid: "uid-1", lastActiveAt: new Date(T0 + 56_000).toISOString() });
+    expect(decide(facts({ row: running, trigger: "idle", now: T0 + 60_000 })).patch.desired).toBeUndefined();
+    // A pod already running keeps its last activity: a reconcile is no activity.
+    expect(decide(facts({ row: running, now: T0 + 90_000 })).patch.lastActiveAt).toBeUndefined();
   });
 
   it("looks again one idle period later when the timer fires during a turn", () => {

@@ -62,7 +62,7 @@ and `edge` (`host`, `harnessPort`, `gatesPort`). The `/v1/pods` contract is the 
   `mode` maps to resume and suspend; `podUID` is the actor's UID, which the engine reads from
   Substrate's actor metadata. State (the last `opId`, `shutdownTime`) is a ConfigMap
   `<name>-state`. A sweep every 30 s applies `shutdownTime`. A resume that times out or finds Substrate busy is tried again every 5 s for 10 minutes while the sandbox's mode is still `Running` (a cold node's first resume pulls the image, which can outlast one 2-minute call).
-- **The actor's resolver** gets `RES_OPTIONS=timeout:1 attempts:3` (an Agent's own value wins), so a restored actor's lost first DNS packet costs 1 s, not glibc's 5 s.
+- **The actor's resolver** gets `RES_OPTIONS=timeout:1 attempts:3` (an Agent's own value wins), so a restored actor's lost first DNS packet costs 1 s, not glibc's 5 s. The edge itself needs no lookup: the wrapper pins `<host address> <edge host>` in the actor's `/etc/hosts` at a fresh start, when the file is writable (Substrate keeps the actor's own edits to it across restores, and its egress routes the edge by TLS name).
 - **Egress** is the Agent's network (`network` in the PUT body: `preset`, `hosts`, `suffixes`):
   the edge by TLS passthrough, each host on 443 (passthrough) and 80, or everything for `open`.
 - **The edge** listens on `:8443` (to `http://runtime:4200`) and `:8444` (to

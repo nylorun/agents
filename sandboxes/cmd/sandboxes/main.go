@@ -189,7 +189,7 @@ func substrateBackend(ctx context.Context, cfg config.Config, log *slog.Logger) 
 	harnessURL, gatesURL := cfg.Cluster.EdgeURLs()
 	d := substrate.New(client, substrate.Options{
 		Settings: substrate.Settings{
-			Atespace: sub.Atespace, HarnessURL: harnessURL, GatesURL: gatesURL, EdgeHost: sub.Edge.Host,
+			Atespace: sub.Atespace, HarnessURL: harnessURL, GatesURL: gatesURL, EdgeHost: sub.Edge.Host, EdgeAddress: cfg.Cluster.HostAddress,
 			EdgePorts: []int{sub.Edge.HarnessPort, sub.Edge.GatesPort}, EdgeCA: string(caPEM), WorkerSelector: sub.WorkerSelector,
 		},
 		Namespace: cfg.Cluster.Namespace, Kube: kube, Resolver: &substrate.RegistryResolver{}, Log: log,

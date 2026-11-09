@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -461,5 +464,87 @@ func TestResumeStopsWhenTheModeChanges(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 	if after := resumeFailures(r); after != before {
 		t.Fatalf("resumed again after the mode changed: %d -> %d", before, after)
+	}
+}
+
+func TestTemplatePinsTheEdgeOnlyForAnAddress(t *testing.T) {
+	images := Resolved{Image: "python@sha256:" + strings.Repeat("a", 64), Harness: "runtime@sha256:" + strings.Repeat("b", 64)}
+	for _, tc := range []struct{ address, want string }{{"192.168.65.254", "192.168.65.254"}, {"", ""}, {"not-an-ip", ""}} {
+		s := settings()
+		s.EdgeAddress = tc.address
+		sp := spec("op-1", "Running")
+		if err := sp.Normalize(); err != nil {
+			t.Fatal(err)
+		}
+		rendered, err := RenderTemplate(s, sp, images, "tok")
+		if err != nil {
+			t.Fatal(err)
+		}
+		tmpl, err := ToProto(rendered, sbx+"-tx")
+		if err != nil {
+			t.Fatal(err)
+		}
+		env := map[string]string{}
+		for _, e := range tmpl.GetContainers()[0].GetEnv() {
+			env[e.GetName()] = e.GetValue()
+		}
+		if env["NYLORUN_EDGE_ADDRESS"] != tc.want {
+			t.Fatalf("address %q: NYLORUN_EDGE_ADDRESS = %q, want %q", tc.address, env["NYLORUN_EDGE_ADDRESS"], tc.want)
+		}
+		if tc.want != "" && env["NYLORUN_EDGE_HOST"] != s.EdgeHost {
+			t.Fatalf("NYLORUN_EDGE_HOST = %q", env["NYLORUN_EDGE_HOST"])
+		}
+	}
+}
+
+// The wrapper itself, run by sh with its absolute paths moved into a temp directory: it pins the
+// edge in a writable hosts file, and leaves an unwritable one alone without failing.
+func TestWrapperPinsTheEdgeInHosts(t *testing.T) {
+	sh, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skip("no sh")
+	}
+	for _, writable := range []bool{true, false} {
+		dir := t.TempDir()
+		script := wrapper
+		for _, p := range []string{"/etc/hosts", InfoDir, TrustDir, JoinFile, CAFile, "/harness/home", "/workspace", "/skills"} {
+			script = strings.ReplaceAll(script, p, filepath.Join(dir, p))
+		}
+		hosts := filepath.Join(dir, "/etc/hosts")
+		if err := os.MkdirAll(filepath.Dir(hosts), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(hosts, []byte("127.0.0.1 localhost\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if !writable {
+			if err := os.Chmod(hosts, 0o444); err != nil {
+				t.Fatal(err)
+			}
+		}
+		for _, d := range []string{InfoDir, filepath.Dir(JoinFile)} {
+			if err := os.MkdirAll(filepath.Join(dir, d), 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := os.WriteFile(filepath.Join(dir, InfoDir, "actor-uid"), []byte("uid-1"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		cmd := exec.Command(sh, "-c", script, "nylorun-engine", "true")
+		cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "NYLORUN_EDGE_ADDRESS=192.168.65.254", "NYLORUN_EDGE_HOST=edge.shop.nylorun.internal"}
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("writable=%v: wrapper failed: %v\n%s", writable, err, out)
+		}
+		got, err := os.ReadFile(hosts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		pinned := strings.Contains(string(got), "192.168.65.254 edge.shop.nylorun.internal\n")
+		if os.Geteuid() == 0 && !writable {
+			continue // root writes a read-only file anyway
+		}
+		if pinned != writable {
+			t.Fatalf("writable=%v: hosts = %q", writable, got)
+		}
 	}
 }
