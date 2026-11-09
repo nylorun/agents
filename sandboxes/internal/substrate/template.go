@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net"
 	"sort"
 	"strconv"
 	"strings"
@@ -62,6 +63,11 @@ type Settings struct {
 	HarnessURL, GatesURL string
 	// EdgeHost is the edge's name, allowed through in every egress policy.
 	EdgeHost string
+	// EdgeAddress is the address EdgeHost resolves to (the Docker host's, as `enable` found it).
+	// The wrapper pins it in the actor's /etc/hosts, so reaching the edge needs no DNS lookup: a
+	// restored actor's first lookup can be lost (P1.8). Egress routes the edge by its TLS name,
+	// so the address only has to be one the actor can dial. Empty leaves the edge to DNS.
+	EdgeAddress string
 	// EdgePorts are the edge's ports.
 	EdgePorts []int
 	// EdgeCA is the PEM of the CA the edge's certificate chains to.
@@ -92,6 +98,9 @@ if [ -n "$ca" ]; then
 fi
 (umask 077 && printf '%s' "${NYLORUN_JOIN_TOKEN:-}" > ` + JoinFile + `)
 unset NYLORUN_JOIN_TOKEN NYLORUN_EDGE_CA
+if [ -n "${NYLORUN_EDGE_ADDRESS:-}" ] && [ -w /etc/hosts ]; then
+  printf '%s %s\n' "$NYLORUN_EDGE_ADDRESS" "$NYLORUN_EDGE_HOST" >> /etc/hosts || true
+fi
 export NYLORUN_SANDBOX_JOIN_FILE=` + JoinFile + `
 export NYLORUN_POD_UID="$(cat ` + InfoDir + `/actor-uid)"
 mkdir -p /harness/home /workspace /skills
@@ -155,6 +164,10 @@ func RenderTemplate(s Settings, spec driver.Spec, images Resolved, joinToken str
 	}
 	if s.EdgeCA != "" {
 		env["NYLORUN_EDGE_CA"] = s.EdgeCA
+	}
+	if ip := net.ParseIP(s.EdgeAddress); ip != nil && s.EdgeHost != "" {
+		env["NYLORUN_EDGE_ADDRESS"] = ip.String()
+		env["NYLORUN_EDGE_HOST"] = s.EdgeHost
 	}
 	if joinToken != "" {
 		env["NYLORUN_JOIN_TOKEN"] = joinToken
