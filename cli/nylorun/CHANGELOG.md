@@ -1,5 +1,28 @@
 # nylorun
 
+## 0.29.0-beta
+
+### Minor Changes
+
+- f87ba81: Pods on Agent Substrate (preview, ADR-138 Phase 1a). `nylorun local sandbox enable --context <name> --backend substrate` runs the Tenant's sandboxes as Agent Substrate v1.0 actors instead of agent-sandbox Sandboxes, on a Kubernetes 1.37 cluster with Substrate installed (Docker Desktop's kind cluster, or Substrate's own kind script). It creates the Tenant's namespace and the sandboxes service's RBAC, makes the Tenant's atespace with the service as its editor, gives actors a name for the edge in CoreDNS, and publishes the edge's two ports from the `sandboxes` service: a TLS front, in that container, through which actors reach the Harness API and the gates. The default backend stays agent-sandbox, and nothing changes for a Tenant that does not pass `--backend substrate`.
+
+  The sandboxes service drives Substrate's API: a template per pod incarnation, pinned by digest; an egress policy from the Agent's network (its preset, hosts and suffixes, which the core now sends with each pod); suspend and resume for `mode`; and the same `/v1/pods` contract, so the core is unchanged. Not yet on Substrate: keys injected at egress, builds and tags; those come in Phase 1b.
+
+### Patch Changes
+
+- 0c6634b: `GET /v1/tenant/sandbox`'s `cluster` names its `backend` (`agent-sandbox` or `substrate`) and, on Agent Substrate, its `atespace`. `nylorun doctor sandbox` prints the Tenant's pods line (backend, context, namespace, ready), and Studio's Sandbox section says Agent Substrate with the atespace.
+- Pin core to the tested release.
+- Pin agents to the tested release.
+- Pin admin to the tested release.
+- Pin runtime to the tested release.
+- Pin studio to the tested release.
+- Updated dependencies [0c6634b]
+- Updated dependencies
+- Updated dependencies
+  - @nylorun/core@0.39.0-beta
+  - @nylorun/agents@0.36.2-beta
+  - @nylorun/admin@0.19.15-beta
+
 ## 0.28.0-beta
 
 ### Minor Changes
