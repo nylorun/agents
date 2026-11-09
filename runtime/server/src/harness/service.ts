@@ -45,6 +45,7 @@ const METHODS: Readonly<Record<SandboxToolName, string>> = {
 export interface HarnessServiceOptions {
   readonly url: string;
   readonly token: HarnessClientOptions["token"];
+  readonly redialOnClockJump?: boolean;
   /** Where workspaces (and their records) live. */
   readonly paths: { readonly sandboxes: string };
   /** Every model call (the gates service's client; a scripted model's gate in tests). */
@@ -192,6 +193,7 @@ export function startHarnessService(options: HarnessServiceOptions): HarnessServ
   client = connectHarness({
     url: options.url,
     token: options.token,
+    ...(options.redialOnClockJump ? { redialOnClockJump: true } : {}),
     logger,
     executors,
     serve,
