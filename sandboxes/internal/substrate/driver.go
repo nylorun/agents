@@ -375,7 +375,7 @@ func (d *Driver) ensureEgress(ctx context.Context, name string, network Network)
 	if status.Code(err) != codes.AlreadyExists {
 		return err
 	}
-	current, err := d.api.GetActorEgressPolicy(cctx, &ateapi.GetActorEgressPolicyRequest{Actor: d.ref(name)})
+	current, err := d.api.GetActorEgressPolicy(cctx, &ateapi.GetActorEgressPolicyRequest{Actor: d.ref(name), Name: "default"})
 	if err != nil {
 		return err
 	}

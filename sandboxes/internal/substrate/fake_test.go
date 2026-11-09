@@ -208,6 +208,9 @@ func (f *fakeAPI) UpdateActorEgressPolicy(_ context.Context, in *ateapi.UpdateAc
 func (f *fakeAPI) GetActorEgressPolicy(_ context.Context, in *ateapi.GetActorEgressPolicyRequest, _ ...grpc.CallOption) (*ateapi.EgressPolicy, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if in.GetName() == "" { // as Substrate v1.0.0
+		return nil, status.Error(codes.InvalidArgument, "name: Required value")
+	}
 	p, ok := f.policies[key(in.GetActor())]
 	if !ok {
 		return nil, status.Error(codes.NotFound, "no policy")
@@ -239,6 +242,9 @@ func (f *fakeAPI) GetAtespaceAccessPolicy(_ context.Context, in *ateapi.GetAtesp
 func (f *fakeAPI) CreateAtespaceAccessPolicy(_ context.Context, in *ateapi.CreateAtespaceAccessPolicyRequest, _ ...grpc.CallOption) (*ateapi.AccessPolicy, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if in.GetAccessPolicy().GetMetadata().GetAtespace() != "" { // as Substrate v1.0.0: an atespace's policy is global-scoped
+		return nil, status.Error(codes.InvalidArgument, "access_policy.metadata.atespace: Forbidden: must not be set")
+	}
 	name := in.GetAtespace().GetName()
 	if _, ok := f.access[name]; ok {
 		return nil, status.Error(codes.AlreadyExists, "exists")
@@ -250,6 +256,9 @@ func (f *fakeAPI) CreateAtespaceAccessPolicy(_ context.Context, in *ateapi.Creat
 func (f *fakeAPI) UpdateAtespaceAccessPolicy(_ context.Context, in *ateapi.UpdateAtespaceAccessPolicyRequest, _ ...grpc.CallOption) (*ateapi.AccessPolicy, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if in.GetAccessPolicy().GetMetadata().GetAtespace() != "" { // as Substrate v1.0.0: an atespace's policy is global-scoped
+		return nil, status.Error(codes.InvalidArgument, "access_policy.metadata.atespace: Forbidden: must not be set")
+	}
 	f.access[in.GetAtespace().GetName()] = proto.Clone(in.GetAccessPolicy()).(*ateapi.AccessPolicy)
 	return f.access[in.GetAtespace().GetName()], nil
 }
