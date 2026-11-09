@@ -59,6 +59,11 @@ type Options struct {
 	PollInterval time.Duration
 	// CallTimeout bounds one Substrate call; default 2 min (a synchronous suspend writes a snapshot).
 	CallTimeout time.Duration
+	// ResumeFor is how long a resume that times out or finds Substrate busy is tried again;
+	// default 10 min (a cold node's first resume pulls the image, which can outlast one call).
+	ResumeFor time.Duration
+	// RetryWait is the pause between those tries; default 5 s.
+	RetryWait time.Duration
 }
 
 // Driver runs sandboxes as actors. It keeps each sandbox's last request (opId, mode, shutdown
@@ -81,6 +86,12 @@ func New(api API, o Options) *Driver {
 	}
 	if o.CallTimeout == 0 {
 		o.CallTimeout = 2 * time.Minute
+	}
+	if o.ResumeFor == 0 {
+		o.ResumeFor = 10 * time.Minute
+	}
+	if o.RetryWait == 0 {
+		o.RetryWait = 5 * time.Second
 	}
 	if o.Log == nil {
 		o.Log = slog.New(slog.DiscardHandler)
@@ -300,13 +311,37 @@ func (d *Driver) Put(ctx context.Context, name string, spec driver.Spec) (driver
 	return d.compute(name, actor, &next), nil
 }
 
-// drive brings the actor to `mode` in the background.
+// drive brings the actor to `mode` in the background. A resume that times out or finds Substrate
+// busy is tried again for ResumeFor, as long as the sandbox's recorded mode is still Running: a
+// cold node's first resume pulls the image and can outlast one call, and Substrate leaves the
+// actor RESUMING until it is asked again. The lock is held only for each try, so a later Put or
+// Delete is never kept waiting.
 func (d *Driver) drive(name, mode string) {
+	deadline := d.o.Now().Add(d.o.ResumeFor)
+	for try := 1; ; try++ {
+		again, err := d.driveOnce(name, mode)
+		if err == nil {
+			return
+		}
+		if !again || mode != "Running" || !d.o.Now().Before(deadline) {
+			d.o.Log.Warn("substrate", "name", name, "mode", mode, "try", try, "error", err)
+			return
+		}
+		d.o.Log.Info("substrate resume again", "name", name, "try", try, "error", err)
+		time.Sleep(d.o.RetryWait)
+	}
+}
+
+// driveOnce makes one try; again says whether a failure is worth another.
+func (d *Driver) driveOnce(name, mode string) (again bool, err error) {
 	defer d.lock(name)()
 	ctx := context.Background()
 	st, err := d.readState(ctx, name)
-	if err != nil || st == nil || st.Mode != mode {
-		return // a later request changed it
+	if err != nil {
+		return true, err
+	}
+	if st == nil || st.Mode != mode {
+		return false, nil // a later request changed it
 	}
 	if mode == "Running" {
 		cctx, cancel := d.call(ctx)
@@ -315,9 +350,13 @@ func (d *Driver) drive(name, mode string) {
 	} else {
 		err = d.suspend(ctx, name)
 	}
-	if err != nil && status.Code(err) != codes.FailedPrecondition {
-		d.o.Log.Warn("substrate", "name", name, "mode", mode, "error", err)
+	switch status.Code(err) {
+	case codes.OK, codes.FailedPrecondition:
+		return false, nil
+	case codes.DeadlineExceeded, codes.Unavailable, codes.ResourceExhausted, codes.Aborted:
+		return true, err
 	}
+	return false, err
 }
 
 func (d *Driver) suspend(ctx context.Context, name string) error {

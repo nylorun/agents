@@ -9,6 +9,8 @@ import (
 	"time"
 
 	ateapi "go.ate.dev/substrate/api/ateapi/v1"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
@@ -320,6 +322,9 @@ func TestTemplateRendersForEachEntrypoint(t *testing.T) {
 			harness["reconnect"].(map[string]any)["minMs"].(float64) != 1 || tuning["engine"] == nil {
 			t.Fatalf("%s tuning: %v", entry, tuning)
 		}
+		if env["RES_OPTIONS"] != ResolverOptions {
+			t.Fatalf("%s RES_OPTIONS: %q", entry, env["RES_OPTIONS"])
+		}
 		if env["NYLORUN_SANDBOX_BLOCKED_PROBE"] != BlockedProbe || env["NYLORUN_JOIN_TOKEN"] != "tok" || env["NYLORUN_EDGE_CA"] == "" {
 			t.Fatalf("%s env: %v", entry, env)
 		}
@@ -371,5 +376,90 @@ func TestTemplateNameFollowsTheSpec(t *testing.T) {
 	c, _ := TemplateName(sbx, map[string]any{"x": 2})
 	if a != b || a == c || len(a) > 63 {
 		t.Fatalf("%s %s %s", a, b, c)
+	}
+}
+
+func TestTemplateKeepsTheAgentsResolverOptions(t *testing.T) {
+	s := spec("op-1", "Running")
+	s.Env["RES_OPTIONS"] = "timeout:2"
+	if err := s.Normalize(); err != nil {
+		t.Fatal(err)
+	}
+	images := Resolved{Image: "python@sha256:" + strings.Repeat("a", 64), Harness: "runtime@sha256:" + strings.Repeat("b", 64)}
+	rendered, err := RenderTemplate(settings(), s, images, "tok")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl, err := ToProto(rendered, sbx+"-tx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range tmpl.GetContainers()[0].GetEnv() {
+		if e.GetName() == "RES_OPTIONS" && e.GetValue() != "timeout:2" {
+			t.Fatalf("RES_OPTIONS = %q, want the Agent's", e.GetValue())
+		}
+	}
+}
+
+func resumeFailures(r *rig) int {
+	r.api.mu.Lock()
+	defer r.api.mu.Unlock()
+	n := 0
+	for _, c := range r.api.calls {
+		if c == "ResumeActor failed" {
+			n++
+		}
+	}
+	return n
+}
+
+func TestResumeIsTriedAgainAfterATimeout(t *testing.T) {
+	r := newRig(t)
+	r.d.o.RetryWait = time.Millisecond
+	r.api.mu.Lock()
+	r.api.failResume, r.api.failResumeTimes = status.Error(codes.DeadlineExceeded, "context deadline exceeded"), 2
+	r.api.mu.Unlock()
+	if _, err := r.d.Put(context.Background(), sbx, spec("op-1", "Running")); err != nil {
+		t.Fatal(err)
+	}
+	r.wait(t, "ready")
+	if n := resumeFailures(r); n != 2 {
+		t.Fatalf("failed resumes: %d, want 2", n)
+	}
+}
+
+func TestResumeIsNotTriedAgainAfterAPermanentError(t *testing.T) {
+	r := newRig(t)
+	r.d.o.RetryWait = time.Millisecond
+	r.api.mu.Lock()
+	r.api.failResume, r.api.failResumeTimes = status.Error(codes.InvalidArgument, "bad"), -1
+	r.api.mu.Unlock()
+	if _, err := r.d.Put(context.Background(), sbx, spec("op-1", "Running")); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(100 * time.Millisecond)
+	if n := resumeFailures(r); n != 1 {
+		t.Fatalf("failed resumes: %d, want 1", n)
+	}
+}
+
+func TestResumeStopsWhenTheModeChanges(t *testing.T) {
+	r := newRig(t)
+	r.d.o.RetryWait = 5 * time.Millisecond
+	r.api.mu.Lock()
+	r.api.failResume, r.api.failResumeTimes = status.Error(codes.Unavailable, "busy"), -1
+	r.api.mu.Unlock()
+	if _, err := r.d.Put(context.Background(), sbx, spec("op-1", "Running")); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(30 * time.Millisecond)
+	if _, err := r.d.Put(context.Background(), sbx, spec("op-2", "Suspended")); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(30 * time.Millisecond)
+	before := resumeFailures(r)
+	time.Sleep(50 * time.Millisecond)
+	if after := resumeFailures(r); after != before {
+		t.Fatalf("resumed again after the mode changed: %d -> %d", before, after)
 	}
 }
