@@ -9,7 +9,7 @@
 # Compose runs it as the developer's UID:GID so it can read the 0600 token in
 # <Host root>/sandboxes; the image's own user is distroless's nonroot.
 
-ARG GO_IMAGE=golang:1.26-bookworm
+ARG GO_IMAGE=golang:1.27-bookworm
 
 FROM --platform=$BUILDPLATFORM ${GO_IMAGE} AS build
 ARG TARGETOS

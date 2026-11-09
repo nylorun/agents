@@ -6,7 +6,7 @@
 import { parseSandboxDuration, parseSandboxSize, type SandboxManifest } from "@nylorun/core/define";
 import { DEFAULT_HARNESS, type EnvironmentRecipe } from "@nylorun/core/contracts";
 import type { TenantSandboxConfig } from "../tenant-config.js";
-import { idleMsOf, memoryMiBOf } from "../policy.js";
+import { idleMsOf, memoryMiBOf, resolveNetwork } from "../policy.js";
 import { podTuningEnv } from "../../tuning.js";
 import type { SandboxPodState } from "../../store/types.js";
 import type { PodSpec } from "./client.js";
@@ -104,5 +104,12 @@ export function podSpecOf(input: PodSpecInput): PodSpec {
       ...podTuningEnv(),
     },
     ...(input.joinToken ? { joinToken: input.joinToken } : {}),
+    network: networkOf(spec),
   };
+}
+
+/** The spec's network as the sandboxes service reads it. */
+function networkOf(spec: PodSandboxSpec): NonNullable<PodSpec["network"]> {
+  const network = resolveNetwork(spec);
+  return { preset: network.preset, hosts: [...network.hosts], suffixes: [...network.suffixes] };
 }

@@ -446,6 +446,32 @@ then run `enable` again.
 the namespace and every sandbox in it). Sessions run in a pod when their
 Agent's manifest has `runtime.kind` `pod`.
 
+### Pods on Agent Substrate (preview)
+
+`nylorun local sandbox enable --context <name> --backend substrate` runs the Tenant's pods as
+[Agent Substrate](https://github.com/agent-substrate/substrate) v1.0 actors instead
+([ADR-138](https://github.com/nylorun/factory/blob/main/decisions/engine/2026-11-09-substrate-replaces-agent-sandbox.md),
+Phase 1). Actors suspend to a snapshot of their memory and resume where they stopped, which suits
+sessions that are short and mostly asleep. The cluster needs Kubernetes 1.37 with Substrate v1.0
+installed (its `ate-system` namespace and `api` Service): a kind cluster on Docker Desktop, made
+with Substrate's own kind script, works. `enable` refuses a context without Substrate.
+
+It only touches the context you name. It creates the namespace `nylorun-sbx-<tenant>` and a
+ServiceAccount allowed only what the sandboxes service uses (its state ConfigMaps, a token for
+itself, a port-forward to Substrate's API and Substrate's trust bundles), and adds a `hosts` entry
+to CoreDNS so that actors resolve the Tenant's edge, `nylorun-sbx-<tenant>.edge.nylorun.internal`,
+to the Docker host. The edge is a TLS front in the `sandboxes` container, published on two host
+ports (8793 and 8794 by default), through which actors reach the Harness API and the gates; its
+certificate is made for that name and its CA is given to each actor. Then, as one of Substrate's
+owners (a 10-minute token for `ate-system/ate-client`, deleted after use), it makes the Tenant's
+atespace with the sandboxes service as its editor.
+
+Each Agent's network (preset, hosts, suffixes) becomes its actors' egress policy: only the edge
+and the allowed hosts resolve and connect. Keys injected at egress, builds and tags are not on
+Substrate yet. `nylorun local sandbox status` names the backend, the atespace and the edge.
+`disable` works as for agent-sandbox; the atespace stays until you delete it with Substrate's
+tools.
+
 ## Host root
 
 The **Host root** is `~/.nylorun/tenants/<name>/`, or `NYLORUN_HOME`. It is

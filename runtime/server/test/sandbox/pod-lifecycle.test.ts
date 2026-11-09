@@ -9,6 +9,7 @@ import { decide, imageDigestOf, opIdOf, type PodFacts, type PodRow } from "../..
 import { hostTuning } from "../../src/tuning.js";
 import { podName } from "../../src/sandbox/pods/name.js";
 import { podLifecycleConfig, podSpecOf } from "../../src/sandbox/pods/spec.js";
+import { DEV_PRESET_HOSTS } from "../../src/sandbox/policy.js";
 
 const T0 = Date.parse("2026-10-03T10:00:00Z");
 const NAME = "sbx-aaaaaaaaaaaaaaaa-g0";
@@ -229,6 +230,18 @@ describe("pod lifecycle", () => {
       harnessImage: "ghcr.io/nylorun/runtime:0.15",
     });
     expect(spec.image).toBe(pulled);
+    // The resolved network rides along for the Substrate backend (ADR-138).
+    expect(spec.network).toMatchObject({ preset: "dev", suffixes: [] });
+    expect(spec.network?.hosts).toContain("pypi.org");
+    const open = podSpecOf({
+      environmentId: "team/a",
+      spec: { image: "python:3.13-slim", network: { preset: "open", allow: ["*.example.com", "api.acme.dev"] } } as never,
+      pod: pinned.pod,
+      config: {},
+      mode: "Running",
+      harnessImage: "ghcr.io/nylorun/runtime:0.15",
+    });
+    expect(open.network).toEqual({ preset: "open", hosts: ["api.acme.dev"], suffixes: [".example.com"] });
   });
 
   it("runs the engine an image the Tenant lists carries, and copies it in otherwise (ADR-99)", () => {
@@ -275,6 +288,7 @@ describe("pod lifecycle", () => {
       shutdownPolicy: "Retain",
       env: { NYLORUN_SANDBOX_ID: "team/a", NYLORUN_HARNESS_ROOT: "/harness" },
       joinToken: "secret",
+      network: { preset: "dev", hosts: [...DEV_PRESET_HOSTS].sort(), suffixes: [] },
     });
   });
 });

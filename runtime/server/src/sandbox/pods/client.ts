@@ -35,6 +35,15 @@ export interface PodSpec {
   readonly env?: Readonly<Record<string, string>>;
   /** Written to the Sandbox's join Secret before it is applied. */
   readonly joinToken?: string;
+  /**
+   * The Agent's resolved network. agent-sandbox ignores it (egress-gate enforces it); the
+   * Substrate backend renders the actor's egress policy from it (ADR-138).
+   */
+  readonly network?: {
+    readonly preset: string;
+    readonly hosts: readonly string[];
+    readonly suffixes: readonly string[];
+  };
 }
 
 /** A Sandbox as the service's informers see it (`driver.Status` in Go). */

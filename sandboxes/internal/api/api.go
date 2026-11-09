@@ -23,6 +23,8 @@ import (
 	"sync"
 	"time"
 
+	"google.golang.org/grpc/codes"
+	grpcstatus "google.golang.org/grpc/status"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 
 	"github.com/nylorun/agents/sandboxes/internal/config"
@@ -32,9 +34,21 @@ import (
 // MaxWait bounds GET ?wait=.
 const MaxWait = 30 * time.Second
 
-// Server serves the API over a driver.
+// Backend runs the sandboxes: agent-sandbox's driver, or Substrate's (ADR-138).
+type Backend interface {
+	Put(ctx context.Context, name string, spec driver.Spec) (driver.Status, error)
+	Delete(ctx context.Context, name string) (driver.Status, error)
+	Status(name string) (driver.Status, error)
+	Wait(ctx context.Context, name, want string, timeout time.Duration) (driver.Status, bool, error)
+	// Ping checks the backend's API answers and allows this service.
+	Ping(ctx context.Context) error
+	// Synced reports whether the backend has read its state once.
+	Synced() bool
+}
+
+// Server serves the API over a backend.
 type Server struct {
-	Driver  *driver.Driver
+	Driver  Backend
 	Cluster config.Cluster
 	Token   string
 	Log     *slog.Logger
@@ -46,6 +60,8 @@ type Server struct {
 
 // Info is GET /v1/info.
 type Info struct {
+	// Backend is agent-sandbox or substrate.
+	Backend           string               `json:"backend"`
 	Namespace         string               `json:"namespace"`
 	Context           string               `json:"context"`
 	ControllerVersion string               `json:"controllerVersion"`
@@ -53,6 +69,9 @@ type Info struct {
 	HostAddress       string               `json:"hostAddress"`
 	Ports             config.Ports         `json:"ports"`
 	NetworkPolicy     config.NetworkPolicy `json:"networkPolicy"`
+	// Atespace and SubstrateVersion, with backend substrate.
+	Atespace         string `json:"atespace,omitempty"`
+	SubstrateVersion string `json:"substrateVersion,omitempty"`
 }
 
 // Handler is the API's routes.
@@ -92,8 +111,8 @@ func (s *Server) auth(next http.HandlerFunc) http.HandlerFunc {
 
 // Ready is nil once the informers synced and the API server answered within the last 5 s.
 func (s *Server) Ready(ctx context.Context) error {
-	if !s.Driver.Cache().Synced() {
-		return errors.New("informers have not synced")
+	if !s.Driver.Synced() {
+		return errors.New("the backend has not synced")
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -117,10 +136,19 @@ func (s *Server) ready(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) info(w http.ResponseWriter, r *http.Request) {
 	c := s.Cluster
-	write(w, http.StatusOK, Info{
+	info := Info{
+		Backend:   c.Backend,
 		Namespace: c.Namespace, Context: c.Context, ControllerVersion: c.ControllerVersion,
 		APIVersion: driver.APIVersion, HostAddress: c.HostAddress, Ports: c.Ports, NetworkPolicy: c.NetworkPolicy,
-	})
+	}
+	if info.Backend == "" {
+		info.Backend = config.BackendAgentSandbox
+	}
+	if c.Substrate != nil {
+		info.APIVersion = "ateapi.v1"
+		info.Atespace, info.SubstrateVersion = c.Substrate.Atespace, c.Substrate.Version
+	}
+	write(w, http.StatusOK, info)
 }
 
 func (s *Server) put(w http.ResponseWriter, r *http.Request) {
@@ -220,6 +248,22 @@ func fail(w http.ResponseWriter, err error) {
 	case apierrors.IsTimeout(err), apierrors.IsServerTimeout(err), apierrors.IsServiceUnavailable(err),
 		errors.Is(err, context.DeadlineExceeded):
 		status, code = http.StatusServiceUnavailable, "unavailable"
+	default:
+		// Substrate's API answers with gRPC codes.
+		if st, ok := grpcstatus.FromError(err); ok {
+			switch st.Code() {
+			case codes.NotFound:
+				status, code = http.StatusNotFound, "not_found"
+			case codes.AlreadyExists, codes.Aborted, codes.FailedPrecondition:
+				status, code = http.StatusConflict, "conflict"
+			case codes.InvalidArgument:
+				status, code = http.StatusUnprocessableEntity, "invalid_spec"
+			case codes.PermissionDenied, codes.Unauthenticated:
+				status, code = http.StatusBadGateway, "forbidden"
+			case codes.Unavailable, codes.DeadlineExceeded:
+				status, code = http.StatusServiceUnavailable, "unavailable"
+			}
+		}
 	}
 	write(w, status, map[string]any{"error": map[string]string{"code": code, "message": err.Error()}})
 }

@@ -99,6 +99,17 @@ type Spec struct {
 	Env              map[string]string `json:"env,omitempty"`
 	// JoinToken, when set, is written to Secret <name>-join before the Sandbox is applied.
 	JoinToken string `json:"joinToken,omitempty"`
+	// Network is the Agent's resolved network. agent-sandbox ignores it (egress-gate enforces
+	// it); the Substrate backend renders the actor's egress policy from it.
+	Network *SpecNetwork `json:"network,omitempty"`
+}
+
+// SpecNetwork is an Agent's resolved network: a preset (dev or open), exact hosts and
+// ".suffix" patterns.
+type SpecNetwork struct {
+	Preset   string   `json:"preset,omitempty"`
+	Hosts    []string `json:"hosts,omitempty"`
+	Suffixes []string `json:"suffixes,omitempty"`
 }
 
 // PodURLs are the pod-facing addresses on the Docker host (empty until the stack publishes them).
@@ -431,6 +442,9 @@ func New(client dynamic.Interface, namespace string, urls PodURLs) *Driver {
 // Cache is the driver's namespace informers.
 func (d *Driver) Cache() *Cache { return d.cache }
 
+// Synced reports whether the informers have listed once.
+func (d *Driver) Synced() bool { return d.cache.Synced() }
+
 // Namespace is the namespace the driver manages.
 func (d *Driver) Namespace() string { return d.namespace }
 
@@ -539,7 +553,7 @@ func (d *Driver) Wait(ctx context.Context, name, want string, timeout time.Durat
 	if err := ValidateName(name); err != nil {
 		return Status{}, false, err
 	}
-	match, ok := waits[want]
+	match, ok := Waits[want]
 	if !ok {
 		return Status{}, false, invalid("wait must be ready, suspended, expired or gone")
 	}

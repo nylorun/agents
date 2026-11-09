@@ -36,18 +36,33 @@ import {
   tenantNamespace,
   TOKEN_SECRET,
 } from "./manifests.js";
-import { assertIPv4, parseProbePorts, runProbe, type ProbePorts } from "./probe.js";
+import { assertIPv4, defaultBind, parseNslookup, parseProbePorts, runProbe, type ProbePorts } from "./probe.js";
+import {
+  corefileWithEdge,
+  edgeHost,
+  PREFERRED_EDGE_PORTS,
+  SUBSTRATE_API_SERVICE,
+  SUBSTRATE_AUDIENCE,
+  SUBSTRATE_NAMESPACE,
+  SUBSTRATE_OWNER_ACCOUNT,
+  substrateManifests,
+} from "./substrate.js";
+import { PROBE_IMAGE, SERVICE_ACCOUNT } from "./manifests.js";
+import { join } from "node:path";
+import { rm, writeFile } from "node:fs/promises";
+import { sandboxesDir } from "./cluster-file.js";
 import { cliTuning } from "../tuning.js";
 
-export const sandboxUsage = `  sandbox enable --context <name> [--tenant <name>] [--host-address <ip>] [--bind-address <ip>] [--probe-ports <allowed>,<denied>] [--no-pull]
-                                      run the Tenant's sandboxes as pods on that kubeconfig context (agent-sandbox ${CONTROLLER_VERSION})
+export const sandboxUsage = `  sandbox enable --context <name> [--tenant <name>] [--backend agent-sandbox|substrate] [--host-address <ip>] [--bind-address <ip>] [--probe-ports <allowed>,<denied>] [--no-pull]
+                                      run the Tenant's sandboxes as pods on that kubeconfig context (agent-sandbox ${CONTROLLER_VERSION}),
+                                      or as Agent Substrate actors (--backend substrate, preview: Kubernetes 1.37 with Substrate v1.0 installed)
   sandbox disable [--tenant <name>] [--delete-namespace]
                                       stop the sandboxes service and forget the cluster
   sandbox status [--tenant <name>] [--json]
                                       the cluster, the sandboxes service's readiness and what it reports`;
 
 const ENABLE_USAGE =
-  "nylorun local sandbox enable --context <name> [--tenant <name>] [--host-address <ip>] [--bind-address <ip>] [--probe-ports <allowed>,<denied>] [--no-pull]";
+  "nylorun local sandbox enable --context <name> [--tenant <name>] [--backend agent-sandbox|substrate] [--host-address <ip>] [--bind-address <ip>] [--probe-ports <allowed>,<denied>] [--no-pull]";
 
 /** The default workload image (D36), pre-pulled with the Runtime image. */
 export const DEFAULT_SANDBOX_IMAGE = "python:3.13-slim";
@@ -160,7 +175,7 @@ interface Namespace {
 }
 
 /** The ServiceAccount token the token controller writes into the Secret. */
-async function serviceAccountToken(k: Kube, namespace: string, pollMs: number): Promise<string> {
+export async function serviceAccountToken(k: Kube, namespace: string, pollMs: number): Promise<string> {
   const deadline = Date.now() + cliTuning().sandbox.tokenWaitMs;
   for (;;) {
     const secret = await k.getJson<{ data?: { token?: string } }>(["secret", TOKEN_SECRET, "-n", namespace]);
@@ -255,11 +270,142 @@ export async function installCluster(
   };
 }
 
+/**
+ * `enable --backend substrate` against one context (ADR-138, preview): checks Substrate is
+ * installed, makes the Tenant's namespace and RBAC, finds the Docker host's address as pods see
+ * it, and names the edge for actors in CoreDNS. The atespace is made later, by the sandboxes
+ * image's substrate-setup, once cluster.json is written.
+ */
+export async function installSubstrate(
+  deps: SandboxDeps,
+  input: {
+    context: string;
+    tenant: string;
+    hostAddress?: string;
+    bindAddress?: string;
+    ports: { harness: number; gates: number; egress: number };
+    edgePorts: { harness: number; gates: number };
+  },
+): Promise<{ cluster: ClusterFile; token: string }> {
+  const k = kube(deps.kubectl, input.context);
+  const pollMs = deps.pollMs ?? cliTuning().sandbox.pollMs;
+  const { server, caData } = await readKubeconfig(k);
+  let route: { dial: string; tlsServerName: string };
+  try {
+    route = apiRoute(server);
+  } catch (error) {
+    throw new CliError(`Context ${input.context}: ${error instanceof Error ? error.message : String(error)}`, 6);
+  }
+  const service = await k.getJson<{ spec?: { ports?: { port?: number }[] } }>([
+    "service", SUBSTRATE_API_SERVICE, "-n", SUBSTRATE_NAMESPACE,
+  ]);
+  if (!service)
+    throw new CliError(
+      `Refusing context ${input.context}: Agent Substrate is not installed (no ${SUBSTRATE_NAMESPACE}/${SUBSTRATE_API_SERVICE} Service). Install Substrate v1.0 first; see "Pods on Agent Substrate" in the CLI README.`,
+      6,
+    );
+  const namespace = tenantNamespace(input.tenant);
+  const existing = await k.getJson<Namespace>(["namespace", namespace]);
+  const owner = existing?.metadata?.labels?.["dev.nylorun.tenant"];
+  if (existing && owner !== tenantLabel(input.tenant))
+    throw new CliError(`Namespace ${namespace} exists in ${input.context} but belongs to ${owner ?? "something else"}.`, 6);
+  await k.apply("Creating the Tenant's namespace and RBAC", [...tenantManifests(namespace, input.tenant), ...substrateManifests(namespace)]);
+  const token = await serviceAccountToken(k, namespace, pollMs);
+
+  let hostAddress = input.hostAddress;
+  if (!hostAddress) {
+    const lookup = await k.run(
+      ["run", "nylorun-host-lookup", "-n", namespace, "--rm", "-i", "--quiet", "--restart=Never", `--image=${PROBE_IMAGE}`, "--", "nslookup", "host.docker.internal"],
+      { timeoutMs: cliTuning().sandbox.probeExecMs * 3 },
+    );
+    hostAddress = parseNslookup(lookup.stdout);
+    if (!hostAddress)
+      throw new CliError(
+        `Refusing context ${input.context}: pods cannot resolve host.docker.internal. Pass --host-address with the Docker host's address as pods reach it (172.17.0.1 for kind on Linux).`,
+        6,
+      );
+  }
+  const bindAddress = input.bindAddress ?? defaultBind(input.context, hostAddress);
+  const host = edgeHost(namespace);
+
+  const coredns = await k.getJson<{ data?: { Corefile?: string } }>(["configmap", "coredns", "-n", "kube-system"]);
+  const corefile = coredns?.data?.Corefile;
+  const patched = corefile === undefined ? undefined : corefileWithEdge(corefile, host, hostAddress);
+  if (patched === undefined)
+    deps.stack.err(
+      `Warning: could not add ${host} -> ${hostAddress} to CoreDNS in ${input.context}; actors resolve the edge only once that name resolves (add it to the cluster's DNS).`,
+    );
+  else if (patched !== corefile)
+    await k.check("Naming the edge in CoreDNS", ["patch", "configmap", "coredns", "-n", "kube-system", "--type", "merge", "-p", JSON.stringify({ data: { Corefile: patched } })]);
+
+  return {
+    cluster: {
+      context: input.context,
+      server,
+      dial: route.dial,
+      tlsServerName: route.tlsServerName,
+      caData,
+      namespace,
+      controllerVersion: "",
+      hostAddress,
+      bindAddress,
+      ports: input.ports,
+      networkPolicy: { enforced: false, probedAt: "" },
+      enabledAt: new Date().toISOString(),
+      backend: "substrate",
+      substrate: {
+        atespace: namespace,
+        systemNamespace: SUBSTRATE_NAMESPACE,
+        apiService: SUBSTRATE_API_SERVICE,
+        serviceAccount: SERVICE_ACCOUNT,
+        edge: { host, harnessPort: input.edgePorts.harness, gatesPort: input.edgePorts.gates },
+      },
+    },
+    token,
+  };
+}
+
+
+/**
+ * The edge's certificate and the Tenant's atespace, with the sandboxes image: `edge-cert` writes
+ * the CA and certificate next to cluster.json, and `substrate-setup` makes the atespace and its
+ * access policy as Substrate's owner client, with a 10-minute token minted from the kubeconfig.
+ */
+async function prepareSubstrate(deps: SandboxDeps, root: string, cluster: ClusterFile, image: string): Promise<void> {
+  const { stack } = deps;
+  const dir = sandboxesDir(root);
+  const user = `${stack.uid}:${stack.gid}`;
+  const cert = await stack.docker.run([
+    "run", "--rm", "--user", user, "-v", `${dir}:/out`, image, "edge-cert", cluster.substrate!.edge.host, "/out",
+  ]);
+  if (cert.code !== 0) throw new CliError(`Making the edge's certificate failed: ${cert.stderr.trim() || cert.stdout.trim()}`, 1);
+  const k = kube(deps.kubectl, cluster.context);
+  const owner = (
+    await k.check("Minting Substrate's owner token", [
+      "create", "token", SUBSTRATE_OWNER_ACCOUNT, "-n", SUBSTRATE_NAMESPACE, "--audience", SUBSTRATE_AUDIENCE, "--duration", "10m",
+    ])
+  ).trim();
+  const tokenFile = join(dir, "owner-token");
+  await writeFile(tokenFile, owner, { mode: 0o600 });
+  try {
+    const setup = await stack.docker.run([
+      "run", "--rm", "--user", user, "--add-host", "host.docker.internal:host-gateway",
+      "-v", `${dir}:/run/nylorun/sandboxes:ro`, "-e", "NYLORUN_SUBSTRATE_OWNER_TOKEN_FILE=/run/nylorun/sandboxes/owner-token",
+      image, "substrate-setup",
+    ]);
+    if (setup.code !== 0)
+      throw new CliError(`Making the Tenant's atespace failed: ${setup.stderr.trim() || setup.stdout.trim()}`, 1);
+    stack.err(setup.stdout.trim());
+  } finally {
+    await rm(tokenFile, { force: true });
+  }
+}
+
 async function enable(deps: SandboxDeps, args: readonly string[]): Promise<number> {
   const { stack } = deps;
   const flags = parseStackFlags(
     args,
-    { booleans: ["--no-pull"], values: ["--context", "--tenant", "--host-address", "--bind-address", "--probe-ports"] },
+    { booleans: ["--no-pull"], values: ["--context", "--tenant", "--backend", "--host-address", "--bind-address", "--probe-ports"] },
     ENABLE_USAGE,
   );
   if (flags.rest.length) throw usageError(`Usage: ${ENABLE_USAGE}`);
@@ -268,6 +414,9 @@ async function enable(deps: SandboxDeps, args: readonly string[]): Promise<numbe
     throw usageError(
       `nylorun local sandbox enable needs --context <name>: the kubeconfig context to run pods in (never the current one implicitly). Usage: ${ENABLE_USAGE}`,
     );
+  const backend = flags.values.get("--backend") ?? "agent-sandbox";
+  if (backend !== "agent-sandbox" && backend !== "substrate")
+    throw usageError(`--backend must be agent-sandbox or substrate, not ${backend}. Usage: ${ENABLE_USAGE}`);
   const hostAddress = flags.values.get("--host-address");
   const bindAddress = flags.values.get("--bind-address");
   if (hostAddress) assertIPv4(hostAddress, "--host-address");
@@ -294,6 +443,47 @@ async function enable(deps: SandboxDeps, args: readonly string[]): Promise<numbe
     gates: await pick(PREFERRED_PORTS.gates, persisted?.gatesPort),
     egress: await pick(PREFERRED_PORTS.egress, persisted?.egressPort),
   };
+  if (backend === "substrate") {
+    const edgePorts = {
+      harness: await pick(PREFERRED_EDGE_PORTS.harness, persisted?.edgeHarnessPort),
+      gates: await pick(PREFERRED_EDGE_PORTS.gates, persisted?.edgeGatesPort),
+    };
+    const images = stackImages(stack.env, { runtime: stack.runtimeVersion, studio: stack.studioVersion });
+    const installed = await installSubstrate(deps, {
+      context,
+      tenant: tenant.name,
+      ...(hostAddress ? { hostAddress } : {}),
+      ...(bindAddress ? { bindAddress } : {}),
+      ports,
+      edgePorts,
+    });
+    await writeClusterFiles(tenant.paths.root, installed.cluster, installed.token);
+    await prepareSubstrate(deps, tenant.paths.root, installed.cluster, images.sandboxes);
+    const settings: SandboxStackEnv = {
+      token: persisted?.token ?? randomBytes(32).toString("hex"),
+      image: images.sandboxes,
+      harnessPort: ports.harness,
+      gatesPort: ports.gates,
+      egressPort: ports.egress,
+      hostAddress: installed.cluster.hostAddress,
+      bind: installed.cluster.bindAddress,
+      edgeHarnessPort: edgePorts.harness,
+      edgeGatesPort: edgePorts.gates,
+    };
+    await restartTenant(stack, { name: tenant.name, sandboxes: settings });
+    const ready = await stack.docker.stream(
+      tenant.compose("up", "--detach", "--wait", "--wait-timeout", String(cliTuning().sandbox.composeWaitSeconds), "sandboxes"),
+    );
+    if (ready !== 0)
+      throw new CliError(
+        `The sandboxes service did not become ready (image ${images.sandboxes}). See "nylorun local logs sandboxes" and "nylorun local sandbox status".`,
+        7,
+      );
+    const c = installed.cluster;
+    stack.out(`Sandboxes ${tenant.name}  enabled on ${c.context} (backend substrate, atespace ${c.substrate!.atespace}; preview)`);
+    stack.out(`Actors reach the edge ${c.substrate!.edge.host} (${c.hostAddress}) on ports ${edgePorts.harness} and ${edgePorts.gates}`);
+    return 0;
+  }
   if (probePorts && [probePorts.allowed, probePorts.denied].some((port) => taken.has(port)))
     throw usageError(
       `--probe-ports ${probePortsFlag} overlaps the sandbox ports ${ports.harness}, ${ports.gates} and ${ports.egress}; pick two others.`,
@@ -397,9 +587,16 @@ async function status(deps: SandboxDeps, args: readonly string[]): Promise<numbe
     stack.out(JSON.stringify({ enabled: true, cluster: recorded, ready, ...(info ? { info } : {}) }, null, 2));
   } else {
     stack.out(`Context     ${cluster.context}  (${cluster.server}, dialled at ${cluster.dial})`);
-    stack.out(`Namespace   ${cluster.namespace}  agent-sandbox ${cluster.controllerVersion}`);
-    stack.out(`Pods reach  ${cluster.hostAddress} ports ${cluster.ports.harness}, ${cluster.ports.gates}, ${cluster.ports.egress} (bound on ${cluster.bindAddress})`);
-    stack.out(`Policy      ${cluster.networkPolicy.enforced ? "enforced" : "NOT enforced"} (probed ${cluster.networkPolicy.probedAt})`);
+    if (cluster.backend === "substrate" && cluster.substrate) {
+      stack.out(`Namespace   ${cluster.namespace}  backend substrate (preview), atespace ${cluster.substrate.atespace}`);
+      stack.out(`Edge        ${cluster.substrate.edge.host} ports ${cluster.substrate.edge.harnessPort}, ${cluster.substrate.edge.gatesPort} (bound on ${cluster.bindAddress}, actors reach ${cluster.hostAddress})`);
+    } else {
+      stack.out(`Namespace   ${cluster.namespace}  agent-sandbox ${cluster.controllerVersion}`);
+    }
+    if (cluster.backend !== "substrate") {
+      stack.out(`Pods reach  ${cluster.hostAddress} ports ${cluster.ports.harness}, ${cluster.ports.gates}, ${cluster.ports.egress} (bound on ${cluster.bindAddress})`);
+      stack.out(`Policy      ${cluster.networkPolicy.enforced ? "enforced" : "NOT enforced"} (probed ${cluster.networkPolicy.probedAt})`);
+    }
     stack.out(`Service     ${ready ? "ready" : "not ready"}${info ? "" : " (no /v1/info answer)"}`);
   }
   return ready ? 0 : 3;
