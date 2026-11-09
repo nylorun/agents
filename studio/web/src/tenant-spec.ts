@@ -481,7 +481,7 @@ export function computeSections(
               {
                 label: "Cluster",
                 value: `namespace ${cluster.namespace} · context ${cluster.context}`,
-                note: [cluster.ready ? "ready" : "not ready", cluster.controllerVersion && `controller ${cluster.controllerVersion}`]
+                note: [cluster.ready ? "ready" : "not ready", cluster.backend === "substrate" ? `Agent Substrate${cluster.atespace ? ` · atespace ${cluster.atespace}` : ""}` : cluster.controllerVersion && `controller ${cluster.controllerVersion}`]
                   .filter(Boolean)
                   .join(" · "),
                 tone: (cluster.ready ? "ok" : "warn") as Tone,

@@ -20,6 +20,15 @@ export type SandboxReport = {
   config?: {
     limits?: { network?: readonly string[]; idle?: string; environments?: number };
   };
+  /** The Tenant's cluster for pod Agents (`nylorun local sandbox enable`), when it has one. */
+  cluster?: {
+    namespace: string;
+    context: string;
+    ready: boolean;
+    backend?: "agent-sandbox" | "substrate";
+    atespace?: string;
+    controllerVersion?: string;
+  } | null;
 };
 
 function platformLine(): string {
@@ -87,6 +96,18 @@ export async function doctorSandbox(
       ]
         .filter((item) => item !== undefined)
         .join(", ") || "-",
+    ]);
+  const cluster = report.cluster;
+  if (cluster)
+    rows.push([
+      "pods",
+      [
+        cluster.backend === "substrate"
+          ? `Agent Substrate (preview), atespace ${cluster.atespace ?? "?"}`
+          : `agent-sandbox${cluster.controllerVersion ? ` ${cluster.controllerVersion}` : ""}`,
+        `on ${cluster.context}, namespace ${cluster.namespace}`,
+        cluster.ready ? "ready" : "not ready",
+      ].join(", "),
     ]);
   rows.push([
     "selected",

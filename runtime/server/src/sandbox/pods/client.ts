@@ -74,6 +74,9 @@ export interface ClusterInfo {
   readonly context: string;
   readonly controllerVersion?: string;
   readonly apiVersion?: string;
+  /** `agent-sandbox` (also when absent: older services) or `substrate` (ADR-138, preview). */
+  readonly backend?: "agent-sandbox" | "substrate";
+  readonly atespace?: string;
   readonly hostAddress?: string;
   readonly ports?: Readonly<Record<string, number>>;
   readonly networkPolicy?: { readonly enforced: boolean; readonly probedAt?: string };
