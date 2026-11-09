@@ -19,6 +19,8 @@
  *   reconciled, whichever path woke it: a turn's end arms it too, but a wake with no turn end
  *   (a disk copy's `wakePod`, commands through the session's sandbox route) armed nothing and
  *   ran on for days. A timer that fires during a turn looks again one idle period later.
+ *   Becoming ready moves `lastActiveAt` to that moment, so a slow start doesn't use up the
+ *   idle period before the pod can take a turn.
  * - **Lost**: an incarnation that has run (a pod joined) whose Sandbox is gone or whose volume
  *   is missing is `lost` (`agent.lost`): its host epoch moves, its Sandbox is deleted, and
  *   only a reset brings the Environment back. agent-sandbox recreates a deleted claim empty, so
@@ -259,16 +261,24 @@ export function decide(facts: PodFacts): PodDecision {
     // though the pod itself is ready: its engine takes no turn meanwhile.
     if (pod.observed === "failed" && pod.reason?.startsWith(SETUP_FAILED)) return done();
     if (status.ready) {
+      // Becoming ready counts as activity: the idle period runs from when the pod could first take
+      // a turn, so a slow start (a cold node's image pull) doesn't use it up (P1.8 rerun: a 56 s
+      // start was suspended as idle 3.6 s after it ran).
+      let lastActive = Date.parse(pod.lastActiveAt ?? row.createdAt);
       if (pod.observed !== "running") {
         patch.observed = "running";
         patch.reason = null;
+        if (now > lastActive) {
+          patch.lastActiveAt = new Date(now).toISOString();
+          lastActive = now;
+        }
       }
       // The image it runs, pinned by digest from now on (Q14).
       const digest = pod.imageDigest === undefined ? imageDigestOf(status.imageID, facts.image) : undefined;
       if (digest !== undefined) patch.imageDigest = digest;
       // Whatever woke it, a running pod has an idle timer (the idle trigger armed its own above).
       if (facts.trigger !== "idle")
-        arm.push({ timer: "idle", at: Date.parse(pod.lastActiveAt ?? row.createdAt) + facts.config.idleMs });
+        arm.push({ timer: "idle", at: lastActive + facts.config.idleMs });
       return done();
     }
     const startedAt = Date.parse(pod.startedAt ?? row.updatedAt);
