@@ -10,6 +10,7 @@ the engine in, as for any image.
 | Tools | git, git-lfs, curl, wget, jq, ripgrep, fd, tree, unzip, zip, xz, zstd, sqlite3, build-essential, pkg-config, OpenSSL, libffi and zlib headers |
 | Runtimes | Python 3.12 with pip and venv; Node 24 with npm, npx and corepack (pnpm, yarn) |
 | Installers | uv, and mise for CLIs and other runtimes |
+| Browser | `@playwright/cli` and the Chromium headless shell build it expects, under `/opt/ms-playwright`, with Chromium's libraries and base fonts. `PLAYWRIGHT_MCP_CONFIG` points the CLI at that Chromium (its default is the Google Chrome channel). A project's own Playwright Test on another version expects another build: point it at the image's browser with `launchOptions.executablePath` |
 
 Everything the agent installs goes under `HOME=/workspace` (the pod's disk): `npm install -g` to
 `~/.local`, `pip install` to the user site, `uv tool install` and mise to `~/.local`. New releases
