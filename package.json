@@ -55,6 +55,16 @@
     "release:check": "node scripts/release/check.mjs"
   },
   "packageManager": "npm@11.15.0",
+  "overrides": {
+    "@scalar/json-magic": {
+      "undici": "7.30.1"
+    },
+    "just-bash": {
+      "guarded-fetch": {
+        "undici": "7.30.1"
+      }
+    }
+  },
   "devDependencies": {
     "@changesets/apply-release-plan": "^8.1.1",
     "@changesets/cli": "^3.0.3",
