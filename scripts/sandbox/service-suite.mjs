@@ -20,7 +20,7 @@
 // - no container of the Tenant and no pod mounts docker.sock or a host path;
 // - `nylorun sandbox disable --delete-namespace`, then `nylorun reset`.
 //
-// Needs kubectl, a context that runs agent-sandbox v1.0.5 or none, and the workspace builds
+// Needs kubectl, a context that runs agent-sandbox v1.0.10 or none, and the workspace builds
 // (`npm run build`). Images: NYLORUN_RUNTIME_IMAGE and NYLORUN_SANDBOXES_IMAGE when set
 // (CI), else built from this checkout. Only the named context is touched; the namespaces
 // this suite creates are deleted.

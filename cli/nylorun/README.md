@@ -426,7 +426,7 @@ on the Management API.
 
 `nylorun local sandbox enable --context <name>` prepares a Kubernetes context for the
 Tenant's sandboxes as pods ([agent-sandbox](https://github.com/kubernetes-sigs/agent-sandbox)
-v1.0.5): Docker Desktop's cluster (`--context docker-desktop`) or kind. It only
+v1.0.10): Docker Desktop's cluster (`--context docker-desktop`) or kind. It only
 touches the context you name. It installs the pinned agent-sandbox controller
 when the cluster has none (and refuses another version), creates the namespace
 `nylorun-sbx-<tenant>` with a ServiceAccount limited to Sandbox lifecycle, proves
@@ -438,6 +438,10 @@ The probe publishes two free ports on the Docker host. Behind a firewall that
 opens only named ports to the pods, such as a cloud VPC's, pass two of them with
 `--probe-ports <allowed>,<denied>`. Open both, so that only NetworkPolicy can
 block the denied one.
+A context that runs an earlier pin, such as v1.0.5, is refused too: upgrade its
+controller yourself with `kubectl apply --server-side -f
+https://github.com/kubernetes-sigs/agent-sandbox/releases/download/v1.0.10/sandbox.yaml`,
+then run `enable` again.
 `nylorun local sandbox disable` removes the service (`--delete-namespace` also deletes
 the namespace and every sandbox in it). Sessions run in a pod when their
 Agent's manifest has `runtime.kind` `pod`.

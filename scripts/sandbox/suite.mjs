@@ -28,7 +28,7 @@
 //   bound to receives the real header through egress-gate;
 // - no pod mounts a host path; `nylorun sandbox disable` → kind pod is `agent_unavailable`.
 //
-// Needs kubectl, a context with agent-sandbox v1.0.5 or none, the workspace builds (`npm run
+// Needs kubectl, a context with agent-sandbox v1.0.10 or none, the workspace builds (`npm run
 // build`), and the images pods use present on the cluster's node (CI: `kind load docker-image`
 // of the runtime image and python:3.13-slim). Images: NYLORUN_RUNTIME_IMAGE and
 // NYLORUN_SANDBOXES_IMAGE when set (CI), else built from this checkout. Only the named context

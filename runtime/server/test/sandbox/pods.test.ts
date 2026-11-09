@@ -160,7 +160,7 @@ describe("pod Agents", { timeout: 90_000 }, () => {
       namespace: "nylorun-sbx-test",
       context: "fake",
       ready: true,
-      controllerVersion: "v1.0.5",
+      controllerVersion: "v1.0.10",
       networkPolicy: { enforced: true, probedAt: new Date(0).toISOString() },
     });
     expect(tenant.config.placement).toEqual({ "*": { hosts: ["harness-container", "sandbox"] } });

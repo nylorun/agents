@@ -87,7 +87,7 @@ export function fakeSandboxes(): FakeSandboxes {
       return {
         namespace: "nylorun-sbx-test",
         context: "fake",
-        controllerVersion: "v1.0.5",
+        controllerVersion: "v1.0.10",
         networkPolicy: { enforced: true, probedAt: new Date(0).toISOString() },
       };
     },
