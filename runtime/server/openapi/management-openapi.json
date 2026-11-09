@@ -2258,6 +2258,16 @@
               "ready": {
                 "type": "boolean"
               },
+              "backend": {
+                "type": "string",
+                "enum": [
+                  "agent-sandbox",
+                  "substrate"
+                ]
+              },
+              "atespace": {
+                "type": "string"
+              },
               "controllerVersion": {
                 "type": "string"
               },

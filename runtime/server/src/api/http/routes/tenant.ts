@@ -136,6 +136,8 @@ async function clusterOf(ctx: TenantContext) {
       namespace: info.namespace,
       context: info.context,
       ready,
+      backend: info.backend === "substrate" ? ("substrate" as const) : ("agent-sandbox" as const),
+      ...(info.backend === "substrate" && info.atespace ? { atespace: info.atespace } : {}),
       ...(info.controllerVersion ? { controllerVersion: info.controllerVersion } : {}),
       ...(info.networkPolicy
         ? {

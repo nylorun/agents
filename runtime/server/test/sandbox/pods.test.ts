@@ -160,6 +160,7 @@ describe("pod Agents", { timeout: 90_000 }, () => {
       namespace: "nylorun-sbx-test",
       context: "fake",
       ready: true,
+      backend: "agent-sandbox",
       controllerVersion: "v1.0.10",
       networkPolicy: { enforced: true, probedAt: new Date(0).toISOString() },
     });

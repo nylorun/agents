@@ -5203,6 +5203,10 @@ export const TenantSandboxViewSchema = z
         namespace: z.string(),
         context: z.string(),
         ready: z.boolean(),
+        /** What runs the pods: `agent-sandbox` Sandboxes, or `substrate` actors (preview, ADR-138). */
+        backend: z.enum(["agent-sandbox", "substrate"]).optional(),
+        /** With backend `substrate`: the Tenant's atespace and Substrate's version. */
+        atespace: z.string().optional(),
         controllerVersion: z.string().optional(),
         networkPolicy: z.object({ enforced: z.boolean(), probedAt: z.string().optional() }).optional(),
       })

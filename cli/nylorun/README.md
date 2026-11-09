@@ -119,7 +119,7 @@ nylorun local ls [--json]          # the Tenants on this machine, with their sta
 nylorun local delete <tenant> --yes   # remove a Tenant: containers, volumes, Host root and vault key
 nylorun local logs [service] [--tenant <name>] [-f] [--tail <n>]   # postgres, restate, s2-lite, rustfs, gateway, runtime, harness, studio, sandboxes
 nylorun local reset [--tenant <name>] [--yes]   # delete the Tenant's volumes, Tenant directory and vault key; the next start creates it anew
-nylorun local sandbox enable --context <name> [--tenant <name>] [--host-address <ip>] [--bind-address <ip>] [--probe-ports <allowed>,<denied>] [--no-pull]
+nylorun local sandbox enable --context <name> [--tenant <name>] [--backend agent-sandbox|substrate] [--host-address <ip>] [--bind-address <ip>] [--probe-ports <allowed>,<denied>] [--no-pull]
 nylorun local sandbox disable [--tenant <name>] [--delete-namespace]
 nylorun local sandbox status [--tenant <name>] [--json]   # pods on a Kubernetes context (see Sandboxes)
 nylorun local telemetry [status|enable|disable]   # Studio's anonymous usage analytics
