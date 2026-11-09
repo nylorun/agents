@@ -40,6 +40,46 @@ type Cluster struct {
 	Ports         Ports         `json:"ports"`
 	NetworkPolicy NetworkPolicy `json:"networkPolicy"`
 	EnabledAt     string        `json:"enabledAt"`
+	// Backend is what runs the Tenant's sandboxes: agent-sandbox (the default when absent) or
+	// substrate (ADR-138, Phase 1: preview).
+	Backend string `json:"backend,omitempty"`
+	// Substrate is the Agent Substrate setup, with backend substrate.
+	Substrate *Substrate `json:"substrate,omitempty"`
+}
+
+// The backends.
+const (
+	BackendAgentSandbox = "agent-sandbox"
+	BackendSubstrate    = "substrate"
+)
+
+// Substrate is where the Tenant's actors live and how the service reaches Substrate's API.
+type Substrate struct {
+	// Atespace holds the Tenant's actors and templates (nylorun-<tenant>).
+	Atespace string `json:"atespace"`
+	// SystemNamespace is Substrate's control-plane namespace (ate-system).
+	SystemNamespace string `json:"systemNamespace"`
+	// APIService is ate-api-server's Service (api), port 443, reached by a port-forward unless
+	// Endpoint is set.
+	APIService string `json:"apiService"`
+	// Endpoint is a host:port that reaches ate-api-server directly, when one exists.
+	Endpoint string `json:"endpoint,omitempty"`
+	// ServiceAccount is the Tenant's ServiceAccount; the service mints its own Substrate token for it.
+	ServiceAccount string `json:"serviceAccount"`
+	// Version is the Substrate release `enable` found.
+	Version string `json:"version,omitempty"`
+	// Edge is the TLS front actors reach the Harness API and the gates through.
+	Edge Edge `json:"edge"`
+	// WorkerSelector picks the worker pool, e.g. {"ate.dev/sandbox-class": "gvisor"}; empty: any.
+	WorkerSelector map[string]string `json:"workerSelector,omitempty"`
+}
+
+// Edge is the service's TLS front for actors: Host is the name actors dial (in CoreDNS), and
+// HarnessPort and GatesPort are the ports published on the bind address.
+type Edge struct {
+	Host        string `json:"host"`
+	HarnessPort int    `json:"harnessPort"`
+	GatesPort   int    `json:"gatesPort"`
 }
 
 // Ports are the host ports pods may reach (the namespace's NetworkPolicy allows only these).
@@ -109,7 +149,31 @@ func ParseCluster(raw []byte) (Cluster, error) {
 	if _, err := base64.StdEncoding.DecodeString(c.CAData); err != nil {
 		return Cluster{}, fmt.Errorf("cluster.json: caData is not base64: %w", err)
 	}
+	switch c.Backend {
+	case "", BackendAgentSandbox:
+		c.Backend = BackendAgentSandbox
+	case BackendSubstrate:
+		s := c.Substrate
+		if s == nil || s.Atespace == "" || s.SystemNamespace == "" || s.APIService == "" || s.ServiceAccount == "" {
+			return Cluster{}, errors.New("cluster.json: backend substrate needs substrate.atespace, systemNamespace, apiService and serviceAccount")
+		}
+		if s.Edge.Host == "" || s.Edge.HarnessPort == 0 || s.Edge.GatesPort == 0 {
+			return Cluster{}, errors.New("cluster.json: backend substrate needs substrate.edge host, harnessPort and gatesPort")
+		}
+	default:
+		return Cluster{}, fmt.Errorf("cluster.json: backend %q is not agent-sandbox or substrate", c.Backend)
+	}
 	return c, nil
+}
+
+// EdgeURLs are what an actor dials for the Harness API and the gates: the edge's name and ports.
+func (c Cluster) EdgeURLs() (harness, gates string) {
+	if c.Substrate == nil {
+		return "", ""
+	}
+	e := c.Substrate.Edge
+	return "https://" + net.JoinHostPort(e.Host, strconv.Itoa(e.HarnessPort)),
+		"https://" + net.JoinHostPort(e.Host, strconv.Itoa(e.GatesPort))
 }
 
 // Rest is the client-go configuration: dial `Dial`, verify the certificate against

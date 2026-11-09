@@ -79,6 +79,12 @@ export interface SandboxStackEnv {
   hostAddress: string;
   /** Where the pod-facing ports are published (127.0.0.1 on Docker Desktop). */
   bind: string;
+  /**
+   * With the Substrate backend (ADR-138): the edge's host ports, the TLS front actors reach
+   * the Harness API and the gates through, served by the sandboxes container.
+   */
+  edgeHarnessPort?: number;
+  edgeGatesPort?: number;
 }
 
 export type HarnessMode = "remote" | "in-process";
@@ -91,6 +97,8 @@ const SANDBOX_KEYS = {
   egressPort: "NYLORUN_SANDBOX_EGRESS_PORT",
   hostAddress: "NYLORUN_SANDBOX_HOST_ADDRESS",
   bind: "NYLORUN_SANDBOX_BIND",
+  edgeHarnessPort: "NYLORUN_SANDBOX_EDGE_HARNESS_PORT",
+  edgeGatesPort: "NYLORUN_SANDBOX_EDGE_GATES_PORT",
 } as const satisfies Record<keyof SandboxStackEnv, string>;
 
 const KEYS = {
@@ -205,6 +213,13 @@ export function renderEnvFile(env: StackEnv): string {
           sandboxLine("egressPort"),
           sandboxLine("hostAddress"),
           sandboxLine("bind"),
+          ...(sandboxes.edgeHarnessPort && sandboxes.edgeGatesPort
+            ? [
+                "# The edge (backend substrate): the TLS ports actors reach the Runtime through.",
+                sandboxLine("edgeHarnessPort"),
+                sandboxLine("edgeGatesPort"),
+              ]
+            : []),
           "",
         ]
       : []),
@@ -261,7 +276,12 @@ function parseSandboxes(values: Map<string, string>): SandboxStackEnv | undefine
   if (!token || !/^[0-9a-f]{64,}$/i.test(token) || !image) return undefined;
   if (!harnessPort || !gatesPort || !egressPort) return undefined;
   if (!hostAddress || !IPV4.test(hostAddress) || !bind || !IPV4.test(bind)) return undefined;
-  return { token, image, harnessPort, gatesPort, egressPort, hostAddress, bind };
+  const edgeHarnessPort = port(values.get(SANDBOX_KEYS.edgeHarnessPort));
+  const edgeGatesPort = port(values.get(SANDBOX_KEYS.edgeGatesPort));
+  return {
+    token, image, harnessPort, gatesPort, egressPort, hostAddress, bind,
+    ...(edgeHarnessPort && edgeGatesPort ? { edgeHarnessPort, edgeGatesPort } : {}),
+  };
 }
 
 export function parsePersisted(text: string): PersistedStackEnv {

@@ -43,7 +43,8 @@ type Status struct {
 	Message string `json:"message,omitempty"`
 }
 
-var waits = map[string]func(Status) bool{
+// Waits are the states GET ?wait= can wait for.
+var Waits = map[string]func(Status) bool{
 	"ready":     func(s Status) bool { return s.Exists && !s.Deleting && s.Ready },
 	"suspended": func(s Status) bool { return s.Exists && s.Suspended && s.PodPhase == "" },
 	"expired":   func(s Status) bool { return s.Exists && s.Expired },

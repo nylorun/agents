@@ -92,6 +92,8 @@ export function renderComposeFile(
   name: string,
   options: {
     sandboxes?: true;
+    /** The sandboxes container serves the edge (backend substrate, ADR-138). */
+    sandboxEdge?: true;
     harness?: "remote" | "in-process";
     restateUi?: true;
     identity?: true;
@@ -339,7 +341,7 @@ ${healthcheck("runtime")}    restart: unless-stopped
     healthcheck: # /healthz needs no session; Host studio:3000 is accepted
       test: ["CMD", "node", "-e", "require('http').get({port:3000,path:'/healthz',headers:{host:'studio:3000'}},r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
 ${healthcheck("studio")}    restart: unless-stopped
-${remote ? harnessService(project) : ""}${sandboxes ? sandboxesService(project) : ""}
+${remote ? harnessService(project) : ""}${sandboxes ? sandboxesService(project, options.sandboxEdge === true) : ""}
 networks:
   default:
     name: ${project}
@@ -436,6 +438,16 @@ const SANDBOXES_GATES_PORT = `    ports:
       - "\${NYLORUN_SANDBOX_BIND:?run nylorun local sandbox enable}:\${NYLORUN_SANDBOX_EGRESS_PORT:?run nylorun local sandbox enable}:4200" # egress-gate, for sandbox pods (egress tokens)
 `;
 
+/**
+ * The edge (backend substrate, ADR-138): Substrate actors reach the Harness API and the gates
+ * over TLS that Substrate passes through; the sandboxes container terminates it and forwards to
+ * runtime:4200 and gateway:4100 on \`default\`.
+ */
+const SANDBOXES_EDGE_PORTS = `
+    ports:
+      - "\${NYLORUN_SANDBOX_BIND:?run nylorun local sandbox enable}:\${NYLORUN_SANDBOX_EDGE_HARNESS_PORT:?run nylorun local sandbox enable}:8443" # the edge: the Harness API, for actors
+      - "\${NYLORUN_SANDBOX_BIND:?run nylorun local sandbox enable}:\${NYLORUN_SANDBOX_EDGE_GATES_PORT:?run nylorun local sandbox enable}:8444" # the edge: the gates, for actors`;
+
 /** egress-gate (F7.2): pods' CONNECT proxy in the gateway. */
 const SANDBOXES_GATEWAY_ENV = `
       # egress-gate: the only way out of a sandbox pod, to the hosts its spec allows.
@@ -453,9 +465,9 @@ const SANDBOXES_RUNTIME_MOUNT = `
  * (NYLORUN_SANDBOX_*_PORT in .env), the Harness API's, the gates' and egress-gate's, are
  * published by the runtime and the gateway (above).
  */
-function sandboxesService(project: string): string {
+function sandboxesService(project: string, edge: boolean): string {
   return `
-  sandboxes: # agent-sandbox driver; the only holder of the cluster credentials; not published
+  sandboxes: # the sandboxes driver; the only holder of the cluster credentials; not published${edge ? ", but for its edge" : ""}
     image: \${NYLORUN_SANDBOXES_IMAGE:?run nylorun local sandbox enable}
     container_name: ${project}-sandboxes
     labels: *tenant
@@ -469,7 +481,7 @@ function sandboxesService(project: string): string {
     volumes:
       # cluster.json (API server, CA, namespace) and the ServiceAccount token, read-only.
       - \${NYLORUN_HOST_ROOT:?run nylorun start}/sandboxes:/run/nylorun/sandboxes:ro
-    networks: [default] # the cluster's API server, through host.docker.internal
+    networks: [default] # the cluster's API server, through host.docker.internal${edge ? SANDBOXES_EDGE_PORTS : ""}
     healthcheck: # /ready: informers synced and the API server answers
       test: ["CMD", "/sandboxes", "healthcheck"]
 ${healthcheck("sandboxes")}    restart: unless-stopped

@@ -26,6 +26,19 @@ export interface ClusterFile {
   ports: { harness: number; gates: number; egress: number };
   networkPolicy: { enforced: boolean; probedAt: string };
   enabledAt: string;
+  /** agent-sandbox when absent; substrate for Agent Substrate (ADR-138, preview). */
+  backend?: "agent-sandbox" | "substrate";
+  /** Agent Substrate: where the Tenant's actors live and the edge actors reach the Runtime by. */
+  substrate?: {
+    atespace: string;
+    systemNamespace: string;
+    apiService: string;
+    serviceAccount: string;
+    endpoint?: string;
+    version?: string;
+    edge: { host: string; harnessPort: number; gatesPort: number };
+    workerSelector?: Record<string, string>;
+  };
 }
 
 export function sandboxesDir(root: string): string {

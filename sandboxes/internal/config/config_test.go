@@ -50,3 +50,26 @@ func TestLoad(t *testing.T) {
 		}
 	}
 }
+
+func TestParseClusterSubstrate(t *testing.T) {
+	ca := base64.StdEncoding.EncodeToString([]byte("-----BEGIN CERTIFICATE-----\n"))
+	base := `"context":"kind-kind","server":"https://127.0.0.1:6443","dial":"host.docker.internal:6443","tlsServerName":"127.0.0.1","caData":"` + ca + `","namespace":"nylorun-sbx-shop"`
+	c, err := config.ParseCluster([]byte(`{` + base + `}`))
+	if err != nil || c.Backend != config.BackendAgentSandbox {
+		t.Fatalf("default backend: %v %v", c.Backend, err)
+	}
+	if _, err := config.ParseCluster([]byte(`{` + base + `,"backend":"substrate"}`)); err == nil {
+		t.Fatal("substrate without its settings parsed")
+	}
+	c, err = config.ParseCluster([]byte(`{` + base + `,"backend":"substrate","substrate":{"atespace":"nylorun-shop","systemNamespace":"ate-system","apiService":"api","serviceAccount":"nylorun-sandboxes","edge":{"host":"edge.shop.nylorun.internal","harnessPort":8793,"gatesPort":8794}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	h, g := c.EdgeURLs()
+	if h != "https://edge.shop.nylorun.internal:8793" || g != "https://edge.shop.nylorun.internal:8794" {
+		t.Fatalf("edge urls %s %s", h, g)
+	}
+	if _, err := config.ParseCluster([]byte(`{` + base + `,"backend":"other"}`)); err == nil {
+		t.Fatal("an unknown backend parsed")
+	}
+}
