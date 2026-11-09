@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.35.8-beta
+
+### Patch Changes
+
+- 0c6634b: `GET /v1/tenant/sandbox`'s `cluster` names its `backend` (`agent-sandbox` or `substrate`) and, on Agent Substrate, its `atespace`. `nylorun doctor sandbox` prints the Tenant's pods line (backend, context, namespace, ready), and Studio's Sandbox section says Agent Substrate with the atespace.
+- Pin agents to the tested release.
+- Pin admin to the tested release.
+- Updated dependencies
+- Updated dependencies
+  - @nylorun/agents@0.36.2-beta
+  - @nylorun/admin@0.19.15-beta
+
 ## 0.35.7-beta
 
 ### Patch Changes
