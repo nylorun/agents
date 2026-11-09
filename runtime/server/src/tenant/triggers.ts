@@ -77,9 +77,29 @@ export const newEndpointId = () => `wh_${randomBytes(16).toString("hex")}`;
 /** A webhook endpoint's path, under the Runtime API's origin. */
 export const webhookPath = (endpointId: string) => `/v1/webhooks/${endpointId}`;
 
-/** A new run id: increasing with time, so runs list newest first by id. */
+/** The last run id this process made: its time and 64-bit suffix, for `newRunId`'s tie-break. */
+let lastRunId: { ms: number; suffix: bigint } | undefined;
+const SUFFIX_MAX = (1n << 64n) - 1n;
+
+/**
+ * A new run id: its time in ms then a random 64-bit suffix, so runs list newest first by id. Ids
+ * this process makes strictly increase: one in the same ms as the last (or with the clock moved
+ * back) keeps the last's time and adds one to its suffix, so two runs fired back to back never
+ * list in the wrong order.
+ */
 export function newRunId(now = Date.now()): string {
-  return `run_${now.toString(36).padStart(9, "0")}${randomBytes(8).toString("hex")}`;
+  let ms = now;
+  let suffix = BigInt(`0x${randomBytes(8).toString("hex")}`);
+  if (lastRunId && ms <= lastRunId.ms) {
+    ms = lastRunId.ms;
+    suffix = lastRunId.suffix + 1n;
+    if (suffix > SUFFIX_MAX) {
+      ms += 1;
+      suffix = 0n;
+    }
+  }
+  lastRunId = { ms, suffix };
+  return `run_${ms.toString(36).padStart(9, "0")}${suffix.toString(16).padStart(16, "0")}`;
 }
 
 /** A schedule's cron in its time zone (UTC by default); throws on a bad pattern or zone. */

@@ -11,7 +11,7 @@ import { PROTOCOL_HEADER } from "@nylorun/core/compatibility";
 import type { RuntimeLimits, RuntimeSection, Trigger } from "@nylorun/core/contracts";
 import { RUNTIME_LIMIT_DEFAULTS } from "@nylorun/core/contracts";
 import type { ModelProvider } from "../src/core/provider.js";
-import { cronOf, jitterMs, nextFireAt, triggerIssues, triggerTimerKey } from "../src/tenant/triggers.js";
+import { cronOf, jitterMs, newRunId, nextFireAt, triggerIssues, triggerTimerKey } from "../src/tenant/triggers.js";
 import { startTestTenant } from "./support/tenant.js";
 import { deploy, manifestOf, writeManifest } from "./support/agents.js";
 import { setLimits } from "./support/limits.js";
@@ -292,6 +292,16 @@ describe("saving triggers", () => {
     });
     expect(put.status).toBe(400);
     expect(await put.text()).toContain("floor");
+  });
+});
+
+describe("run ids", () => {
+  it("strictly increase within a process, even in the same ms or with the clock moved back", () => {
+    const now = Date.now();
+    const ids = [newRunId(now), newRunId(now), newRunId(now), newRunId(now - 5_000), newRunId(now)];
+    for (let i = 1; i < ids.length; i++) expect(ids[i]! > ids[i - 1]!, `${ids[i]} after ${ids[i - 1]}`).toBe(true);
+    expect(newRunId(now + 1) > ids.at(-1)!).toBe(true);
+    for (const id of ids) expect(id).toMatch(/^run_[0-9a-z]{9}[0-9a-f]{16}$/);
   });
 });
 
