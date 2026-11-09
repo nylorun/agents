@@ -156,12 +156,18 @@ describe("an Agent's triggers", () => {
     });
     expect(sent.status).toBe(200);
     await until(async () => held.has("inbox"), Boolean);
-    await fireDue("cron", "tick", 2_000);
-    await fireDue("cron", "tick", 1_000);
-    const [second, first] = await runs();
-    expect(first).toMatchObject({ status: "queued", sessionId: "inbox" });
-    expect(first.queuedMessageId).toEqual(expect.any(String));
-    expect(second).toMatchObject({ status: "skipped", reason: "overlap" });
+    const earlier = new Set((await runs()).map((r) => r.id));
+    const firstDue = await fireDue("cron", "tick", 2_000);
+    const secondDue = await fireDue("cron", "tick", 1_000);
+    // The live `* * * * *` schedule may fire meanwhile too, and runs of the same millisecond list in
+    // either order, so judge every run since the session went busy, not the list's first two.
+    const fired = (await runs()).filter((r) => !earlier.has(r.id));
+    expect(fired.map((r) => r.dueAt)).toEqual(expect.arrayContaining([firstDue, secondDue]));
+    const [queued, ...more] = fired.filter((r) => r.status === "queued");
+    expect(more).toEqual([]);
+    expect(queued).toMatchObject({ status: "queued", sessionId: "inbox", queuedMessageId: expect.any(String) });
+    for (const run of fired.filter((r) => r !== queued)) expect(run).toMatchObject({ status: "skipped", reason: "overlap" });
+    expect(fired.find((r) => r.dueAt === secondDue)).toMatchObject({ status: "skipped", reason: "overlap" });
     expect((await session("inbox")).queuedMessages).toBe(1);
     held.get("inbox")!();
     await idle("inbox");
