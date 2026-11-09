@@ -31,6 +31,7 @@ import type { DurableHost, EffectResolution, HostEffect } from "../run/durable.j
 import { delegatesOf, type AgentManifest } from "@nylorun/core/define";
 import { engineFeaturesOf } from "@nylorun/core/engine";
 import { isArtifactTool, runArtifactTool } from "../tools/artifacts.js";
+import { mediaReadOf, runMediaRead } from "../tools/read-media.js";
 import { isSkillTool, mountSkills, runSkillTool } from "../tools/skills.js";
 import type { EngineToolOptions } from "../tools/engine-tools.js";
 import type { McpToolSet } from "../tools/mcp.js";
@@ -108,6 +109,7 @@ export function apiHost(
           : effect.target?.kind === "harness"
             ? await engineTool(effect)
             : ((await mounted(effect)) ??
+              (await media(effect)) ??
               (await executors.tool(effect, signal, run, traceparent ? { traceparent } : {})));
         const outcome = model ? value : await shape(effect, value);
         const answer = await ask("effect.outcome", {
@@ -239,6 +241,17 @@ export function apiHost(
     effect.target?.kind === "sandbox" && executors.files
       ? mountSkills(executors.files, channel, run, signal)
       : undefined;
+
+  /**
+   * A sandbox `read` of a file the model reads as media (ADR-139), which our engine runs over
+   * the run's sandbox files and the artifact seam: undefined for every other call.
+   */
+  const media = async (effect: HostEffect) => {
+    const target = executors.files ? mediaReadOf(effect) : undefined;
+    return target === undefined
+      ? undefined
+      : runMediaRead(effect, target, { channel, run, files: executors.files!, signal });
+  };
 
   /** Runs a call of one of our engine's own tools. */
   const engineTool = (effect: HostEffect): Promise<unknown> => {

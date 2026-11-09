@@ -1,0 +1,1 @@
+ALTER TABLE "nylorun"."artifacts" ADD COLUMN "audience" text;

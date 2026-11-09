@@ -150,7 +150,17 @@ export interface LiveFile {
   readonly key: string;
   readonly line: string;
   readonly part: FilePart;
+  /** Where it came from: a person's message, or a tool's result. Default: a tool's. */
+  readonly origin?: "uploaded" | "tool";
 }
+
+/**
+ * The most files from tool results one model call carries as media (ADR-139). A file the model
+ * looked at stays in the turn's files and is sent on every later call of the turn; past these,
+ * the oldest go as a note naming them, which `read_artifact` brings back. A person's own files
+ * are never capped.
+ */
+export const MODEL_CALL_TOOL_MEDIA = 6;
 
 /** The key a file goes by in one call: its artifact version, or its reference. */
 export function fileKeyOf(part: FilePart): string {
@@ -173,11 +183,42 @@ export async function representFiles(
 ): Promise<ReadonlyMap<string, readonly PromptContentPart[]>> {
   const out = new Map<string, readonly PromptContentPart[]>();
   let inlined = 0;
+  const views = new Map<string, FileView>();
+  for (const file of files)
+    if (!views.has(file.key))
+      views.set(
+        file.key,
+        context ? fileView(file.part, context.model, context.limits) : { kind: "media" },
+      );
+  // The newest tool files go as media; older ones past the cap, as a note (ADR-139).
+  const capped = new Set<string>();
+  if (context) {
+    let kept = 0;
+    for (const file of [...files].reverse()) {
+      if (
+        file.origin === "uploaded" ||
+        views.get(file.key)?.kind !== "media" ||
+        capped.has(file.key)
+      )
+        continue;
+      if (kept < MODEL_CALL_TOOL_MEDIA) kept += 1;
+      else capped.add(file.key);
+    }
+  }
   for (const file of files) {
     if (out.has(file.key)) continue;
-    const view: FileView = context
-      ? fileView(file.part, context.model, context.limits)
-      : { kind: "media" };
+    const view = views.get(file.key)!;
+    if (capped.has(file.key)) {
+      out.set(file.key, [
+        textPart(
+          noteFor(
+            file.part,
+            "newer files from tools took its place in this call; read_artifact shows it again",
+          ),
+        ),
+      ]);
+      continue;
+    }
     if (view.kind === "media") {
       out.set(file.key, [mediaPart(file.part)]);
       continue;

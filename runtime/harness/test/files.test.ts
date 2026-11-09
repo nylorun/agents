@@ -15,6 +15,7 @@ import {
   fileNote,
   fileView,
   mediaReferenceLine,
+  MODEL_CALL_TOOL_MEDIA,
   representFiles,
   type FileContext,
   type LiveFile,
@@ -150,6 +151,37 @@ const live = (key: string, mediaType: string, size: number, name = key): LiveFil
 
 describe("representFiles", () => {
   const encoder = new TextEncoder();
+  it("sends only the newest tool files as media, and never caps a person's (ADR-139)", async () => {
+    const { context } = seam({}, { model: model(["text", "image"]) });
+    const uploaded: LiveFile[] = [0, 1].map((i) => ({
+      ...live(`up${i}`, "image/png", 5),
+      origin: "uploaded",
+    }));
+    const tools: LiveFile[] = Array.from({ length: MODEL_CALL_TOOL_MEDIA + 2 }, (_, i) => ({
+      ...live(`shot${i}`, "image/png", 5),
+      origin: "tool",
+    }));
+    const shown = await representFiles([...uploaded, ...tools], context);
+    const kinds = [...uploaded, ...tools].map((file) => shown.get(file.key)![0]!.type);
+    // The person's two files and the newest tool files are media; the two oldest tool files, notes.
+    expect(kinds).toEqual([
+      "media",
+      "media",
+      "text",
+      "text",
+      ...Array(MODEL_CALL_TOOL_MEDIA).fill("media"),
+    ]);
+    expect(shown.get("shot0")).toEqual([
+      {
+        type: "text",
+        text: '(File "shot0", image/png, is not shown: newer files from tools took its place in this call; read_artifact shows it again.)',
+      },
+    ]);
+    // Without a context (a local run) nothing is capped.
+    const local = await representFiles(tools, undefined);
+    expect(tools.every((file) => local.get(file.key)![0]!.type === "media")).toBe(true);
+  });
+
   it("inlines text read in chunks, sends media as references, and notes the rest", async () => {
     const csv = encoder.encode("a,b\n1,2\n");
     const { context, reads } = seam(

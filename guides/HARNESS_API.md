@@ -301,13 +301,17 @@ helpers `readArtifact`, `openArtifactWrite` and `writeArtifactBytes` in
 
 | `op` | Params | Answer |
 | --- | --- | --- |
-| `begin` | `key`, then `name` (a new artifact) or `artifactId` (a new version); optional `contentType` (default: from the name), `size`, `effectId`, `base64` | `{status: "open", uploadId, maxBytes, received: 0}`, or `written` |
+| `begin` | `key`, then `name` (a new artifact) or `artifactId` (a new version); optional `contentType` (default: from the name), `size`, `effectId`, `base64`, `audience` | `{status: "open", uploadId, maxBytes, received: 0}`, or `written` |
 | `chunk` | `uploadId`, `offset`, `base64` | `{status: "open", uploadId, maxBytes, received}` |
 | `commit` | `uploadId` | `{status: "written", artifact, created}` |
 | `abort` | `uploadId` | `{status: "aborted"}` |
 
 - **One chunk** carries at most `turn.start.limits.chunkBytes`; a larger one is
   `limit_exceeded`. A `begin` with `base64` sends the whole body at once and commits it.
+- **For the model only.** `audience: "model"` on a new artifact's `begin` (ADR-139) stores a file
+  only so the model can see it, such as a sandbox image our engine's `read` shows it. Core keeps
+  it in the session, readable by id, but never lists it and never hands it back over A2A. Only
+  our own engine sends it.
 - **Offsets.** Each chunk's `offset` must be `received`. A repeat of the last chunk, whose answer
   you lost, is acknowledged and not taken twice; any other offset is `invalid`.
 - **Limits.** `maxBytes` is what the upload may hold when it opens: the file limit, or what is
@@ -569,7 +573,7 @@ sets `harness.memory.index: false`), and one optional field came with it, `turn.
 so no other v5 harness sees it; all within v5: `harness-api/v5.2.json`. D83 added the `runtime`
 operation `triggers` and `turn.start.agent.triggers` (`true` when the session's version declares
 `harness.engine.triggers`: offer the root agent a tool whose calls name that target, or none), which
-a v5 harness may ignore: it offers no tool, and core receives no such call: `harness-api/v5.3.json`. D85 added the effect kind `inputs` (§4): a v5 harness that never asks for it is unchanged, and its turn's steered messages start the next turn: `harness-api/v5.4.json`.
+a v5 harness may ignore: it offers no tool, and core receives no such call: `harness-api/v5.3.json`. D85 added the effect kind `inputs` (§4): a v5 harness that never asks for it is unchanged, and its turn's steered messages start the next turn: `harness-api/v5.4.json`. ADR-139 added `audience: "model"` to `artifact.write`'s `begin` (§4b), which core accepts and only our own engine sends: `harness-api/v5.5.json`.
 ADR-106 changed no message: `turn.start.loop` may carry `ask: true` (offer the root agent a
 question tool whose first call is `interaction-required`, kind `response`, metadata
 `{kind: "question", choices?, why?}`, shown over A2A as a question), and a manifest's

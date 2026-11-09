@@ -249,6 +249,33 @@ describe.each(["memory", "ws"] as const)("the artifact seam over %s", (transport
     ]);
   });
 
+  it("keeps a file stored for the model out of every list, and marks it for the model (ADR-139)", async () => {
+    const held = await hold(transport);
+    const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    const seen = await write(held, { op: "begin", key: "look1", name: "figure.png", contentType: "image/png", audience: "model", base64: toBase64(png) });
+    expect(seen).toMatchObject({ status: "written", created: true, artifact: { name: "figure.png", contentType: "image/png" } });
+    const artifactId = (seen as { artifact: { artifactId: string } }).artifact.artifactId;
+    const out = await write(held, { op: "begin", key: "out1", name: "report.md", base64: toBase64(new TextEncoder().encode("# Report")) });
+    const outId = (out as { artifact: { artifactId: string } }).artifact.artifactId;
+    // Readable by id, marked for the model.
+    const got = await call(held.runtime, "GET", `/v1/artifacts/${artifactId}`);
+    expect(got.status).toBe(200);
+    expect(got.body).toMatchObject({ artifactId, audience: "model" });
+    expect((await call(held.runtime, "GET", `/v1/artifacts/${outId}`)).body.audience).toBeUndefined();
+    // Never listed: not in the session's list, not in a page of the Tenant's.
+    const listed = (await call(held.runtime, "GET", "/v1/artifacts?sessionId=s1")).body.artifacts as { artifactId: string }[];
+    expect(listed.map((a) => a.artifactId)).toContain(outId);
+    expect(listed.map((a) => a.artifactId)).not.toContain(artifactId);
+    const paged = (await call(held.runtime, "GET", "/v1/artifacts?limit=100")).body.artifacts as { artifactId: string }[];
+    expect(paged.map((a) => a.artifactId)).not.toContain(artifactId);
+    // Its event says who it is for; an output's says nothing.
+    const created = (await items(held.runtime)).filter((item) => item.type === "artifact.created" && item.payload.source === "engine");
+    expect(created.map((item) => [item.payload.name, item.payload.audience])).toEqual([
+      ["figure.png", "model"],
+      ["report.md", undefined],
+    ]);
+  });
+
   it("writes a new version only of the session's own file artifacts", async () => {
     const held = await hold(transport);
     const again = await writeArtifactBytes(

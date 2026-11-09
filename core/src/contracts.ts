@@ -107,6 +107,7 @@ export {
   isModelImage,
   isOffice,
   isText,
+  matchesSignature,
   modelInputOf,
   normalizeContentType,
 } from "./utils/media-types.js";
@@ -4045,6 +4046,14 @@ export const TranscriptUpdatedPayloadSchema = z
 export const ArtifactSourceSchema = z.enum(["upload", "engine", "export", "snapshot"]);
 export type ArtifactSource = z.infer<typeof ArtifactSourceSchema>;
 /**
+ * Who an artifact is for (ADR-139): `model` for a file our engine stored only so its model could
+ * see it (a sandbox image or PDF it read). Such an artifact stays in the session, readable by id,
+ * but is no output: no A2A task file, no AG-UI history entry, not in a session's artifact list.
+ * Absent for everything else.
+ */
+export const ArtifactAudienceSchema = z.literal("model");
+export type ArtifactAudience = z.infer<typeof ArtifactAudienceSchema>;
+/**
  * What an artifact holds: one file, or a folder, whose versions are manifests of paths to
  * content-addressed files.
  */
@@ -4065,6 +4074,8 @@ export const ArtifactVersionPayloadSchema = z
     size: z.number().int().nonnegative(),
     sha256: z.string(),
     source: ArtifactSourceSchema,
+    /** `model`: stored only for the model to see (ADR-139); absent for an output. */
+    audience: ArtifactAudienceSchema.optional(),
     /** The tool call that saved it (`save_artifact`), when our engine did. */
     callId: z.string().optional(),
     /** A folder's number of files. */
@@ -5648,6 +5659,11 @@ export const ArtifactViewSchema = z
     agentId: z.string().optional(),
     latestVersion: z.number().int().positive(),
     labels: z.record(z.string(), z.string()).optional(),
+    /**
+     * `model`: our engine stored it only so its model could see it (ADR-139). Readable by id;
+     * never in a list of artifacts. Absent for every other artifact.
+     */
+    audience: ArtifactAudienceSchema.optional(),
     createdAt: z.string(),
     updatedAt: z.string(),
     /** Every version, oldest first (`GET /v1/artifacts/{id}` only). */

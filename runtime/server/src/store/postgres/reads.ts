@@ -260,6 +260,8 @@ export function createPostgresReadStore(source: PostgresClient, tenantId: string
                 ? undefined
                 : eq(artifacts.sessionId, filters.sessionId),
               filters.kind === undefined ? undefined : eq(artifacts.kind, filters.kind),
+              // A file stored only for the model (ADR-139) is never listed.
+              isNull(artifacts.audience),
               // Labels are a flat string map serialized by JSON.stringify. Match its exact
               // key/value pair: jsonb rejects NUL/unpaired surrogate escapes labels may hold.
               ...Object.entries(filters.labels).map(

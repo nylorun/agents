@@ -796,6 +796,11 @@ export const artifacts = nylorun.table(
     updatedAt: text().notNull(),
     /** The Agent whose disk versions this folder holds (R2d step 3); one per Agent. */
     environmentId: textC(),
+    /**
+     * `model`: our engine stored it only for its model to see (ADR-139); null for an output.
+     * Such an artifact is readable by id and never listed.
+     */
+    audience: text({ enum: ["model"] }),
   },
   (t) => [
     index("artifacts_session").on(t.sessionId, t.createdAt, t.id),

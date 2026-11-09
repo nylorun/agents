@@ -19,6 +19,7 @@
  */
 import { createHash, randomUUID } from "node:crypto";
 import type {
+  ArtifactAudience,
   ArtifactSource,
   ArtifactVersionView,
   ArtifactView,
@@ -64,6 +65,8 @@ export interface UploadInput {
   /** The body's declared length (`Content-Length`): one past the limits is refused unread. */
   readonly declaredBytes?: number;
   readonly source: ArtifactSource;
+  /** `model`: a new artifact stored only for the model to see (ADR-139). */
+  readonly audience?: ArtifactAudience;
   /** The turn that saved it (a harness's `artifact.write`), for the event. */
   readonly turnId?: string | null;
   /** The tool call that saved it, for the event. */
@@ -154,6 +157,7 @@ export function artifactView(row: ArtifactRow, versions?: ArtifactVersionRow[]):
     ...(row.environmentId === null ? {} : { agentId: row.environmentId }),
     latestVersion: row.latestVersion,
     ...(row.labelsJson === null ? {} : { labels: JSON.parse(row.labelsJson) as Record<string, string> }),
+    ...(row.audience === null ? {} : { audience: row.audience }),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     ...(versions === undefined ? {} : { versions: versions.map(versionView) }),
@@ -321,6 +325,7 @@ export async function uploadArtifact(
           createdAt,
           updatedAt: createdAt,
           environmentId: null,
+          audience: input.audience ?? null,
         };
         version = {
           artifactId,
@@ -349,6 +354,7 @@ export async function uploadArtifact(
             size: version.size,
             sha256: version.sha256,
             source: version.source,
+            ...(row.audience === null ? {} : { audience: row.audience }),
             ...(input.callId === undefined ? {} : { callId: input.callId }),
           },
         );
