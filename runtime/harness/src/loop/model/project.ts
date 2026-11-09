@@ -68,9 +68,9 @@ export function projectModelCall(
  */
 export function liveFilesOf(request: ModelRequest, readable = true): LiveFile[] {
   const live = new Map<string, LiveFile>();
-  const add = (line: string, part: FilePart) => {
+  const add = (line: string, part: FilePart, origin: "uploaded" | "tool") => {
     const key = fileKeyOf(part);
-    if (!live.has(key)) live.set(key, { key, line, part });
+    if (!live.has(key)) live.set(key, { key, line, part, origin });
   };
   for (const entry of request.transcript) {
     if (entry.turnId !== request.turnId) continue;
@@ -79,12 +79,13 @@ export function liveFilesOf(request: ModelRequest, readable = true): LiveFile[] 
       if ((event.kind !== "user-message" && event.kind !== "interrupt") || !("content" in event))
         continue;
       for (const part of event.content ?? [])
-        if (part.type === "media") add(mediaReferenceLine(part, "uploaded", readable), part);
+        if (part.type === "media")
+          add(mediaReferenceLine(part, "uploaded", readable), part, "uploaded");
     } else if (entry.kind === "tool-results")
       for (const result of entry.results)
         if (result.kind === "completed")
           for (const file of result.files ?? [])
-            add(mediaReferenceLine(file, { tool: result.toolName }, readable), file);
+            add(mediaReferenceLine(file, { tool: result.toolName }, readable), file, "tool");
   }
   return [...live.values()];
 }

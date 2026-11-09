@@ -2150,7 +2150,13 @@ class PostgresTx implements Tx {
     return this.db
       .select()
       .from(artifacts)
-      .where(filter.sessionId === undefined ? undefined : eq(artifacts.sessionId, filter.sessionId))
+      // A file stored only for the model (ADR-139) is never listed.
+      .where(
+        and(
+          isNull(artifacts.audience),
+          filter.sessionId === undefined ? undefined : eq(artifacts.sessionId, filter.sessionId),
+        ),
+      )
       .orderBy(artifacts.createdAt, artifacts.id);
   }
 

@@ -17563,6 +17563,12 @@
                   "snapshot"
                 ]
               },
+              "audience": {
+                "type": "string",
+                "enum": [
+                  "model"
+                ]
+              },
               "callId": {
                 "type": "string"
               },
@@ -17803,6 +17809,12 @@
                   "engine",
                   "export",
                   "snapshot"
+                ]
+              },
+              "audience": {
+                "type": "string",
+                "enum": [
+                  "model"
                 ]
               },
               "callId": {
@@ -25717,6 +25729,12 @@
                   "type": "string"
                 }
               },
+              "audience": {
+                "type": "string",
+                "enum": [
+                  "model"
+                ]
+              },
               "createdAt": {
                 "type": "string"
               },
@@ -25868,6 +25886,12 @@
                     "type": "string"
                   }
                 },
+                "audience": {
+                  "type": "string",
+                  "enum": [
+                    "model"
+                  ]
+                },
                 "createdAt": {
                   "type": "string"
                 },
@@ -25995,6 +26019,12 @@
               "type": "string"
             }
           },
+          "audience": {
+            "type": "string",
+            "enum": [
+              "model"
+            ]
+          },
           "createdAt": {
             "type": "string"
           },
@@ -26048,6 +26078,12 @@
             "additionalProperties": {
               "type": "string"
             }
+          },
+          "audience": {
+            "type": "string",
+            "enum": [
+              "model"
+            ]
           },
           "createdAt": {
             "type": "string"

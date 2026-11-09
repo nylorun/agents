@@ -321,12 +321,15 @@ export function fileUrl(baseUrl: string | undefined, artifactId: string, version
 
 /**
  * The A2A artifact of a file the turn wrote (`artifact.created`, `artifact.version.created`), with
- * `files/v1`, or undefined for the caller's own uploads. A folder is served as its zip.
+ * `files/v1`, or undefined for the caller's own uploads and for a file stored only for the model
+ * (ADR-139). A folder is served as its zip.
  */
 export function fileArtifact(payload: unknown, baseUrl: string | undefined): Artifact | undefined {
   if (!isRecord(payload) || typeof payload.artifactId !== "string" || typeof payload.name !== "string")
     return undefined;
   if (payload.source === "upload") return undefined;
+  // A file stored only for the model to see (ADR-139) is no output of the task.
+  if (payload.audience === "model") return undefined;
   const version = Number(payload.version);
   const folder = payload.kind === "folder";
   return {

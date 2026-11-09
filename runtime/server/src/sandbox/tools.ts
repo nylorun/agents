@@ -27,6 +27,18 @@ export interface SandboxToolReport {
  */
 export const helperCommandTimeoutMs = (): number => hostTuning().harness.helperCommandTimeoutMs;
 
+/**
+ * Whether decoded file content is binary: a NUL among its first 8000 characters, or a run of
+ * replacement characters where invalid UTF-8 was (more than 1 in 10). Text never has NULs.
+ */
+export function looksBinary(content: string): boolean {
+  const head = content.slice(0, 8000);
+  if (head.includes("\u0000")) return true;
+  let replaced = 0;
+  for (const char of head) if (char === "\ufffd") replaced += 1;
+  return head.length > 0 && replaced / head.length > 0.1;
+}
+
 export function quote(value: string): string {
   return `'${value.replaceAll("'", `'\\''`)}'`;
 }
@@ -102,6 +114,12 @@ export async function runSandboxTool(
       report({ path });
       const content = await handle.readFile(path);
       if (content === undefined) return failed("sandbox.not_found", `No file at ${path}`);
+      // A binary file decodes to garbage the model can't tell from text (ADR-139): say so instead.
+      if (looksBinary(content))
+        return failed(
+          "sandbox.binary_file",
+          `${path} is a binary file, not text. read shows text files, and images, PDFs and other files your model reads by their extension; use bash to inspect this one.`,
+        );
       const lines = content.split("\n");
       if (lines.at(-1) === "") lines.pop();
       const start = (input.offset ?? 1) - 1;

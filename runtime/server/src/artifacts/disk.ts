@@ -382,6 +382,7 @@ async function commitDiskVersion(
         createdAt,
         updatedAt: createdAt,
         environmentId: id,
+        audience: null,
       };
       await t.insertArtifact(artifact, version);
     }

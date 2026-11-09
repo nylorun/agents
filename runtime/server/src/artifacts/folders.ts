@@ -251,6 +251,7 @@ export async function commitFolderVersion(
           createdAt,
           updatedAt: createdAt,
           environmentId: null,
+          audience: null,
         };
         await t.insertArtifact(row, version);
       }

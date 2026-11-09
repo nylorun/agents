@@ -138,8 +138,10 @@ export function sandboxTools(
     {
       name: "read",
       description:
-        `Read a text file from the sandbox. ${relative} Returns numbered lines. ` +
-        "Use offset and limit to page through large files.",
+        `Read a file from the sandbox. ${relative} A text file returns numbered lines: use offset ` +
+        "and limit to page through a large one. An image, a PDF or another file your model reads, " +
+        "known by its extension, comes back as the file itself, shown to you and not to the user. " +
+        "Other binary files can't be read.",
       inputSchema: object(
         {
           path: pathField,

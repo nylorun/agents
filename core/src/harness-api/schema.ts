@@ -12,7 +12,13 @@ import {
   HARNESS_ERROR_CODES,
 } from "./messages.js";
 import { HarnessApiError } from "./errors.js";
-import { ARTIFACT_NAME_MAX, ENVIRONMENT_KINDS, EffectOutcomeSchema, ModelInputSchema } from "../contracts.js";
+import {
+  ARTIFACT_NAME_MAX,
+  ArtifactAudienceSchema,
+  ENVIRONMENT_KINDS,
+  EffectOutcomeSchema,
+  ModelInputSchema,
+} from "../contracts.js";
 import { HarnessLimitsSchema, RUNTIME_LIMIT_CEILINGS } from "../utils/runtime-limits.js";
 import { SANDBOX_TOOL_NAMES } from "../utils/sandbox.js";
 import { McpFactsSchema, McpSnapshotSchema } from "./mcp.js";
@@ -682,6 +688,11 @@ export const harnessRequests = {
           size: z.number().int().nonnegative().optional(),
           effectId: id.optional(),
           base64: z.string().optional(),
+          /**
+           * `model` (ADR-139, revision 5): a file stored only for the model to see, never an
+           * output. Only our own engine sends it; core accepts it within v5.
+           */
+          audience: ArtifactAudienceSchema.optional(),
         })
         .strict(),
       runId

@@ -83,6 +83,8 @@ export interface ArtifactWriteOptions {
   readonly effectId?: string;
   /** The body's size when known: core refuses one past its limits before a byte is sent. */
   readonly size?: number;
+  /** `model`: a new artifact stored only for the model to see, never an output (ADR-139). */
+  readonly audience?: "model";
   /** The most bytes one chunk carries: the run's `turn.start.limits.chunkBytes`. */
   readonly chunkBytes: number;
   readonly signal?: AbortSignal;
@@ -159,6 +161,7 @@ function beginOf(options: ArtifactWriteOptions): Extract<ParamsOf<"artifact.writ
     ...(options.contentType === undefined ? {} : { contentType: options.contentType }),
     ...(options.effectId === undefined ? {} : { effectId: options.effectId }),
     ...(options.size === undefined ? {} : { size: options.size }),
+    ...(options.audience === undefined ? {} : { audience: options.audience }),
   };
 }
 

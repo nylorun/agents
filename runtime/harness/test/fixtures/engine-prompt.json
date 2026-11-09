@@ -57,7 +57,7 @@
       },
       {
         "name": "read",
-        "description": "Read a text file from the sandbox. Relative paths resolve under /workspace. Returns numbered lines. Use offset and limit to page through large files.",
+        "description": "Read a file from the sandbox. Relative paths resolve under /workspace. A text file returns numbered lines: use offset and limit to page through a large one. An image, a PDF or another file your model reads, known by its extension, comes back as the file itself, shown to you and not to the user. Other binary files can't be read.",
         "inputSchema": {
           "$schema": "http://json-schema.org/draft-07/schema#",
           "type": "object",

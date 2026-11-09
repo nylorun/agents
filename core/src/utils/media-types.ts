@@ -120,6 +120,40 @@ export function isOffice(contentType: string): boolean {
   );
 }
 
+const ascii = (text: string): number[] => [...text].map((char) => char.charCodeAt(0));
+
+/** The first bytes a file of each type starts with, where the type has one. */
+const SIGNATURES: Readonly<Record<string, readonly (readonly (number | undefined)[])[]>> = {
+  "image/png": [[0x89, ...ascii("PNG\r\n"), 0x1a, 0x0a]],
+  "image/jpeg": [[0xff, 0xd8, 0xff]],
+  "image/gif": [ascii("GIF87a"), ascii("GIF89a")],
+  // RIFF, four bytes of size, then WEBP.
+  "image/webp": [[...ascii("RIFF"), undefined, undefined, undefined, undefined, ...ascii("WEBP")]],
+  "application/pdf": [ascii("%PDF-")],
+  // Old Office files are OLE compound documents; Open XML ones are zip archives.
+  "application/msword": [[0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]],
+  "application/vnd.ms-excel": [[0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]],
+  "application/vnd.ms-powerpoint": [[0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]],
+};
+const ZIP = [0x50, 0x4b, 0x03, 0x04];
+
+/**
+ * Whether `bytes` start as a file of `contentType` does: true or false for a type with a known
+ * signature (PNG, JPEG, GIF, WebP, PDF, Office), undefined for one without. A sandbox file is typed
+ * by its extension; this keeps a `.png` that isn't a PNG from reaching a model as an image.
+ */
+export function matchesSignature(contentType: string, bytes: Uint8Array): boolean | undefined {
+  const type = essence(contentType);
+  const signatures =
+    SIGNATURES[type] ?? (type.startsWith("application/vnd.openxmlformats-officedocument.") ? [ZIP] : undefined);
+  if (signatures === undefined) return undefined;
+  return signatures.some(
+    (signature) =>
+      bytes.byteLength >= signature.length &&
+      signature.every((byte, index) => byte === undefined || bytes[index] === byte),
+  );
+}
+
 /** The model input a file of `contentType` is, or undefined for a type no model reads. */
 export function modelInputOf(contentType: string): ModelInput | undefined {
   const type = essence(contentType);

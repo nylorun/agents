@@ -237,6 +237,17 @@ with `path`, streams the whole artifact into the sandbox (`executors.files.write
 `read_artifact` loads goes to the model as a file of the result when its **file view** is media,
 and is `artifact.unsupported` (with the view's reason) when it is a note.
 
+**Media read**: A sandbox `read` of a file the model reads as media, by its extension (an image,
+a PDF, an Office document, audio or video; `tools/read-media.ts`, ADR-139). The harness runs it
+instead of the host: it decides with the **file view** first (a note fails `sandbox.unreadable`,
+nothing read or stored), reads the bytes (`executors.files.read`, within `modelFileBytes`), checks
+they start as the type says (`matchesSignature`; otherwise `sandbox.binary_file`) and writes them
+with `audience: "model"`, keyed by the effect, so the artifact is the model's alone: never listed,
+never an A2A task file. The result is `{path, contentType, size}` with the file beside it. Text
+stays the host's `read`, which fails `sandbox.binary_file` on any other binary file. A model call
+carries at most `MODEL_CALL_TOOL_MEDIA` (6) files from tool results as media; older ones in the
+turn go as a note, and a person's files are never capped.
+
 **SDK client**: The shared application interface for communicating with a host.
 Authoring accompanies it in the agents SDK.
 

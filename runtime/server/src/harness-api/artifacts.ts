@@ -256,6 +256,7 @@ export function createArtifactSeam(ctx: TenantContext): ArtifactSeam {
       ...(contentType === undefined ? {} : { contentType }),
       sessionId,
       source: "engine" as const,
+      ...(params.audience === undefined || params.artifactId !== undefined ? {} : { audience: params.audience }),
       turnId: scope.turnId,
       ...(begun.callId === undefined ? {} : { callId: begun.callId }),
       writeKey,
