@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.46.0-beta
+
+### Minor Changes
+
+- b6a7c1d: An agent sees the images and PDFs it makes in its sandbox (ADR-139). `read` of a file the turn's model reads as media, known by its extension (an image, a PDF, an Office document, audio or video), comes back as the file itself, shown to the model in the turn's files, instead of numbered lines of decoded bytes. Our engine runs it in the harness: it reads the bytes, checks they start as the type says, and stores them as an artifact for the model only. A model that can't read the kind is told so before anything is read or stored (`sandbox.unreadable`), and a file that isn't what its name says fails `sandbox.binary_file`.
+
+  - **Model-only artifacts.** `artifact.write` `begin` takes `audience: "model"` (Harness API 5, schema revision 5, `harness-api/v5.5.json`; only our own engine sends it). Such an artifact is readable by id and carries `audience: "model"` in its view and its `artifact.created` event, but is never listed (`GET /v1/artifacts`, a session's artifacts, pages) and is no A2A task file. Runtime store migration 0046 (`artifacts.audience`, nullable) runs at start.
+  - **Binary files.** The sandbox's `read` of any other binary file fails `sandbox.binary_file`, in words, instead of answering decoded bytes as text.
+  - **A cap per call.** A model call carries at most the 6 newest files from tool results as media; older ones in the same turn go as a note naming them, which `read_artifact` brings back. A person's own files are never capped.
+  - `read`'s description says what it now does, so the prompt prefix of every agent with a sandbox changes once: its first call after the upgrade misses the prompt cache.
+
+### Patch Changes
+
+- b6a7c1d: Trigger runs fired in the same millisecond now list in the order they fired: run ids a Runtime makes strictly increase, instead of breaking a same-millisecond tie on their random part.
+- 522e6d7: A pod Agent's idle period now runs from when its pod became ready, not from when it was asked to start. A slow start, such as a cold node pulling the image, no longer uses up the idle period: on the Agent Substrate exit test, a pod that took 56 s to start was suspended as idle 3.6 s after it could first take a turn. Becoming ready moves the pod's last activity to that moment, which the idle timer, the idle decision and the Tenant's sweep all read.
+- f1ac19f: Pods on Agent Substrate (preview): a wake no longer waits on a DNS lookup of the edge. The sandboxes service pins the edge's name to the address `enable` found in each actor's `/etc/hosts` (when the image lets the engine's user write it), so a restored actor's first lookup, which can be lost, is never made; the exit test's rerun measured 1.15–1.51 s in four of ten wakes from that lookup's retry. `nylorun local sandbox enable --backend substrate` also tries the pod's lookup of the Docker host three times before refusing the context, since a pod's first lookup can find no address on a cluster that just started.
+- Pin core to the tested release.
+- Pin harness to the tested release.
+- Updated dependencies [b6a7c1d]
+- Updated dependencies
+  - @nylorun/core@0.40.0-beta
+  - @nylorun/harness@0.36.0-beta
+
 ## 0.45.1-beta
 
 ### Patch Changes
