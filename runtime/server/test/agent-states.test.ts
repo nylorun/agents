@@ -4,7 +4,8 @@
  * session behind it.
  */
 import { describe, expect, it } from "vitest";
-import { stateOf } from "../src/tenant/agents.js";
+import { ranOnThisAgent, stateOf } from "../src/tenant/agents.js";
+import type { Tx } from "../src/store/types.js";
 import type { SandboxPodState } from "../src/store/types.js";
 
 const on = { desiredState: "on" as const };
@@ -81,5 +82,18 @@ describe("stateOf", () => {
 
   it("is paused when its desired state is off, above everything", () => {
     expect(stateOf({ desiredState: "off", pod: pod("lost") }, [{ id: "f", status: "failed" }]).state).toBe("paused");
+  });
+
+  it("leaves out a session whose latest turn ran on an earlier Agent with this id", async () => {
+    const started: Record<string, string> = { old: "2026-11-01T00:00:00.000Z", here: "2026-11-10T12:00:00.000Z" };
+    const t = { turn: async (sessionId: string) => (started[sessionId] ? { startedAt: started[sessionId] } : undefined) } as unknown as Tx;
+    const agent = { createdAt: "2026-11-10T00:00:00.000Z" };
+    const sessions = [
+      { id: "old", activeTurnId: null, lastTurnId: "t1" },
+      { id: "here", activeTurnId: null, lastTurnId: "t2" },
+      { id: "unindexed", activeTurnId: null, lastTurnId: "t3" },
+      { id: "fresh", activeTurnId: null },
+    ];
+    expect((await ranOnThisAgent(t, agent, sessions)).map((s) => s.id)).toEqual(["here", "unindexed", "fresh"]);
   });
 });
