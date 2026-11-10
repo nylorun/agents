@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.47.0-beta
+
+### Minor Changes
+
+- fe118db: The Tenant's sandbox settings round-trip, and `engine.images` comes back (#588).
+
+  - **Breaking (`@nylorun/runtime`, `@nylorun/core`, `@nylorun/admin`): `config` is the settings as stored.** `GET` and `PUT /v1/tenant/sandbox` (`admin.settings.sandbox`) answer `config` as the Tenant set it, with no defaults, in exactly the shape `PUT` takes (`limits.resources.memory: "8GiB"`), so `put(get().config)` changes nothing and saves no default as a setting. The settings in force, every default filled in and sizes in MiB (`memoryMiB`), are `effective`, which is what `config` was. Before, `PUT` refused what `GET` answered (`unrecognized_keys "memoryMiB"`). Read the settings in force from `effective` (`view.effective.limits.resources.memoryMiB`), and build a `PUT` body from `view.config`. `TenantSandboxViewSchema` has `config: TenantEnvironmentsConfigSchema` and `effective: EffectiveSandboxConfigSchema`.
+  - **`engine.images` is answered.** A `PUT` with `engine.images` was stored and used, but left out of its answer and of the next `GET`. Both now carry it, in `config` as set and in `effective` (`[]` when unset).
+  - `@nylorun/studio`: Edit compute settings puts the stored settings with only the fields it changed, so it no longer erases `engine.images` set through the API, keeps `placement`, and saves no default as a setting; clearing idle, stop grace or most Agents puts back the default. The Compute tab lists the engine images.
+  - `nylorun`: `nylorun tenant settings sandbox put` takes what `get` printed and puts back its `config`. `nylorun doctor sandbox` reads the limits in force from `effective`, or from `config` on an older Runtime.
+
+### Patch Changes
+
+- fe118db: An A2A `SendMessage` with `returnImmediately` to a busy context answers `TASK_STATE_SUBMITTED` (#586), and `CancelTask` on a queued task answers `TASK_STATE_CANCELED` (#585), instead of `TaskNotFoundError` while the session's stream still lags behind the record. Both replies now wait, up to 5 s, for the stream to hold the request's own write, and a queued task's `GetTask` answers `SUBMITTED` from its queue row until then.
+- 71c6741: Pods on Agent Substrate (preview): a crashed sandbox is now recorded in the Agent's events. A running pod whose sandbox crashed is `failed` at once, rather than after the 5-minute ready deadline. A crash that an idle suspend finds is also recorded, where before the Agent showed only `agent.suspended`. In both cases `agent.failed` gives Substrate's crash message and says that what the Agent wrote since its last suspend is lost. The next turn reverts the sandbox to that suspend, as before. The sandboxes service now reports the crash's own message in place of the whole crash record.
+- fe118db: A message's `removeTools` turns a Runtime plugin's tool off by its own name too: `memory` now does what `nylorun__memory` does, so the name events and `check --explain` showed no longer leaves the tool on without a word (#589). `nylorun check --explain` lists a plugin's tools by the names the model reads (`nylorun__memory`, `nylorun__update_plan`), the ones `removeTools` and tool policy take, and its memory note says the index is pinned again at a turn after a write from elsewhere (#590, #591).
+- Pin core to the tested release.
+- Pin harness to the tested release.
+- Updated dependencies [fe118db]
+- Updated dependencies [fe118db]
+- Updated dependencies
+  - @nylorun/core@0.41.0-beta
+  - @nylorun/harness@0.36.1-beta
+
 ## 0.46.2-beta
 
 ### Patch Changes
