@@ -85,6 +85,9 @@ export function imageDigestOf(imageID: string | undefined, requested: string): s
 /** A setup failure's `reason` starts with this (`sandbox/setup.ts`); it is sticky. */
 export const SETUP_FAILED = "setup:";
 
+/** A crash's `reason` (see `crashReasonOf`) starts with this; it stays until a turn starts the pod. */
+export const CRASHED = "Crashed: ";
+
 /**
  * A sandbox that crashed (Agent Substrate: its worker went away, or a wake failed) lost what its
  * Agent wrote since its last suspend; the next start reverts it to that suspend. The reason
@@ -93,7 +96,7 @@ export const SETUP_FAILED = "setup:";
 export function crashReasonOf(status: PodStatus): string | undefined {
   if (status.reason !== "Crashed") return undefined;
   const what = status.message?.trim() || "the sandbox stopped";
-  return `Crashed: ${what}. What the Agent wrote since its last suspend is lost; its next turn starts it from that suspend.`;
+  return `${CRASHED}${what}. What the Agent wrote since its last suspend is lost; its next turn starts it from that suspend.`;
 }
 
 /** The lifecycle settings (D36), read each time a decision is made. */
