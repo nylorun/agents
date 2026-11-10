@@ -75,7 +75,7 @@
     "semver": "^7.8.6"
   },
   "dependencies": {
-    "@ag-ui/client": "^1.0.3",
+    "@ag-ui/client": "^1.0.4",
     "@scalar/openapi-parser": "^0.29.13",
     "@types/node": "^26.6.5",
     "@vitejs/plugin-react": "^6.1.2",
