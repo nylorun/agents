@@ -117,15 +117,23 @@ const budgetView = (row: ModelBudgetRow): ModelBudget => ({
   ...(row.limitTokens !== null ? { limitTokens: row.limitTokens } : {}),
 });
 
-/** `GET /v1/tenant/sandbox`: the backend report and the configuration with defaults applied. */
+/**
+ * `GET /v1/tenant/sandbox`: the backend report, the settings as stored (`config`, what `PUT`
+ * takes, so a client can put it back changed) and the configuration in force (`effective`).
+ */
 async function sandboxView(ctx: TenantContext): Promise<unknown> {
   const config = await ctx.store.tx((t) => readSandboxConfig(t));
   return {
     ...(await ctx.sandbox.report()),
-    config: effectiveSandboxConfig(config),
+    config,
+    effective: effectiveSandboxConfig(config),
     cluster: await clusterOf(ctx),
   };
 }
+
+/** What the sandbox routes answer, for their descriptions. */
+const SANDBOX_VIEW_TEXT =
+  "`config` is the Tenant's settings as stored: only what it set, in exactly the shape `PUT` takes, so a client changes one setting by putting `config` back with that change. `effective` is the configuration in force: `config` with every default filled in, sizes in MiB (`memoryMiB`).";
 
 /** The Tenant's cluster for pod sandboxes (F7.2), from the sandboxes service; null without one. */
 async function clusterOf(ctx: TenantContext) {
@@ -342,7 +350,10 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
       path: "/v1/tenant/sandbox",
       tags: ["Tenant"],
       summary: "Get the Tenant's sandbox backend and Agent compute settings",
-      responses: { 200: json(TenantSandboxView, "The backend in use and the configuration in force") },
+      description: SANDBOX_VIEW_TEXT,
+      responses: {
+        200: json(TenantSandboxView, "The backend in use, the settings as stored and the configuration in force"),
+      },
     },
     async (c) => jsonResponse(200, await sandboxView(c.env.tenant)),
   );
@@ -355,10 +366,11 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
       path: "/v1/tenant/sandbox",
       tags: ["Tenant"],
       summary: "Set the Tenant's Agent compute settings",
-      description:
-        "The limits every Agent's runtime must fit, the pods' stop grace and where harnesses may run (Tenant setting `environments.config`).",
+      description: `Replaces the Tenant's settings (Tenant setting \`environments.config\`): the limits every Agent's runtime must fit, the pods' stop grace, the images that carry the engine (\`engine.images\`) and where harnesses may run. A setting left out takes its default. Answers like \`GET\`: ${SANDBOX_VIEW_TEXT}`,
       request: { body: body(PutTenantEnvironmentsRequest) },
-      responses: { 200: json(TenantSandboxView, "The configuration now in force") },
+      responses: {
+        200: json(TenantSandboxView, "The settings now stored and the configuration now in force"),
+      },
     },
     async (c) => {
       const ctx = c.env.tenant;

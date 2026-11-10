@@ -24,7 +24,8 @@ export const settingsUsage = `  budgets [get | put <file|->] [--tenant <name>]
   tool-policy [get | put <file|->] [--tenant <name>]
                                       the Tool Gate's rules; put replaces them all
   settings sandbox [get | put <file|->] [--tenant <name>]
-                                      the Agents' environments: limits, stop grace, placement
+                                      the Agents' environments: limits, stop grace, engine
+                                      images, placement; put takes get's output back
   settings artifacts [get | put <file|->] [--tenant <name>]
                                       the artifact store's limits
   settings skills [get | put <file|->] [--tenant <name>]
@@ -45,6 +46,8 @@ interface Document<T> {
   schema: BodySchema<T>;
   /** Fields of what `get` prints that a `put` drops, so the output can be edited and put back. */
   readOnly?: readonly string[];
+  /** The field of what `get` prints that holds the body, for a view that wraps it (`config`). */
+  bodyField?: string;
   get(admin: ManagementClient): Promise<unknown>;
   put(admin: ManagementClient, body: T): Promise<unknown>;
 }
@@ -66,6 +69,9 @@ const toolPolicy: Document<Parameters<ManagementClient["toolPolicy"]["put"]>[0]>
 const sandbox: Document<Parameters<ManagementClient["settings"]["sandbox"]["put"]>[0]> = {
   name: "settings sandbox",
   schema: PutTenantEnvironmentsRequestSchema,
+  // `get` prints the backend report, the stored settings (`config`) and those in force
+  // (`effective`); `put` of that output puts its `config` back, so no default becomes an override.
+  bodyField: "config",
   get: (admin) => admin.settings.sandbox.get(),
   put: (admin, body) => admin.settings.sandbox.put(body),
 };
@@ -102,7 +108,10 @@ async function documentCommand<T>(
   const [verb = "get", ...operands] = flags.rest;
   if (!((verb === "get" && !operands.length) || (verb === "put" && operands.length === 1)))
     throw usageError(`Usage: ${usage}`);
-  const body = verb === "put" ? await readBody(deps, operands[0]!, document.schema, document.readOnly) : undefined;
+  const body =
+    verb === "put"
+      ? await readBody(deps, operands[0]!, document.schema, document.readOnly, document.bodyField)
+      : undefined;
   const admin = managementClient(deps, await connect(deps, "management", flags.values.get("--tenant")));
   printJson(deps, body === undefined ? await document.get(admin) : await document.put(admin, body));
   return 0;

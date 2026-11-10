@@ -121,7 +121,24 @@ if (preview.authRequired) console.log("needs a sign-in:", preview.authRequired.r
 `admin.settings.sandbox` reads and replaces the Tenant's settings for its
 Agents' environments (Tenant setting `environments.config`): `limits`
 (`network`, `resources`, `defaultResources`, `idle`, `environments`, the most
-Agents), the pods' `lifecycle.stopGrace` and `placement`.
+Agents), the pods' `lifecycle.stopGrace`, `engine.images` (the image
+repositories that carry the engine) and `placement`. `get()` and `put()` answer
+the backend report with the settings twice: `config` is what the Tenant set, in
+exactly the shape `put()` takes and with no defaults, and `effective` is the
+configuration in force, every default filled in and sizes in MiB
+(`memoryMiB`). `put()` replaces every setting, so change one by putting
+`config` back with that change:
+
+<!-- doc-test: typescript -->
+```ts
+import { createAdmin } from "@nylorun/admin";
+
+const admin = createAdmin();
+const { config } = await admin.settings.sandbox.get();
+const saved = await admin.settings.sandbox.put({ ...config, limits: { ...config.limits, idle: "30m" } });
+console.log(saved.effective.limits.idle, saved.effective.limits.resources.memoryMiB);
+```
+
 `admin.tenant.reset({ scope })` takes `sessions`, `agents` (the Agents, their
 vaults and disks, and their sessions) or `all`.
 

@@ -14,6 +14,8 @@ import {
   ruleNote,
   ruleTool,
   rulesFor,
+  sandboxForm,
+  sandboxPut,
   sortedRules,
   statusGroups,
   whenText,
@@ -95,7 +97,8 @@ test("compute lists the sandbox, the backends found, what an Agent may ask for, 
       reason: "Chosen: local",
       probes: [{ name: "local", available: true, isolation: "process" }, { name: "virtual", available: false, isolation: "process", reason: "No harness" }],
       defaultImage: "ghcr.io/nylorun/sandbox:0.29",
-      config: {
+      config: { limits: { network: ["github.com"] }, engine: { images: ["ghcr.io/nylorun/bot-worker"] } },
+      effective: {
         limits: {
           network: ["github.com"],
           resources: { cpus: 4, memoryMiB: 8192 },
@@ -104,6 +107,8 @@ test("compute lists the sandbox, the backends found, what an Agent may ask for, 
           environments: 100,
         },
         lifecycle: { stopGrace: "10s" },
+        placement: { "*": { hosts: ["harness-container", "sandbox"] } },
+        engine: { images: ["ghcr.io/nylorun/bot-worker"] },
       },
       cluster: null,
     },
@@ -116,7 +121,66 @@ test("compute lists the sandbox, the backends found, what an Agent may ask for, 
   const env = Object.fromEntries(sections[2].rows.map((row) => [row.label, [row.value, row.note]]));
   assert.deepEqual(env["Most resources"], ["4 CPUs · 8 GiB memory", undefined]);
   assert.deepEqual(env["Most Agents"], ["100", "22 in use"]);
+  assert.deepEqual(env["Engine images"], ["ghcr.io/nylorun/bot-worker", "pods run the engine built in"]);
   assert.equal(sections[3].rows[0].value, "The harness container and the sandbox");
+});
+
+/** A Tenant that set its network ceiling, a placement and engine images, and left the rest to the defaults. */
+const sandboxView = {
+  preference: "auto",
+  backend: "virtual",
+  isolation: "process",
+  reason: "",
+  probes: [],
+  defaultImage: "ghcr.io/nylorun/sandbox:0.29",
+  config: {
+    limits: { network: ["github.com"] },
+    placement: { nylorun: { hosts: ["sandbox"] } },
+    engine: { images: ["ghcr.io/nylorun/bot-worker"] },
+  },
+  effective: {
+    limits: {
+      network: ["github.com"],
+      resources: { cpus: 4, memoryMiB: 8192 },
+      defaultResources: { cpus: 1, memoryMiB: 1024 },
+      idle: "15m",
+      environments: 100,
+    },
+    lifecycle: { stopGrace: "10s" },
+    placement: { nylorun: { hosts: ["sandbox"] } },
+    engine: { images: ["ghcr.io/nylorun/bot-worker"] },
+  },
+  cluster: null,
+};
+
+test("the compute form shows the settings in force and saves only what changed, over the stored settings", () => {
+  const initial = sandboxForm(sandboxView);
+  assert.deepEqual(initial, {
+    network: "github.com",
+    cpus: "4",
+    memory: "8GiB",
+    defaultCpus: "1",
+    defaultMemory: "1GiB",
+    idle: "15m",
+    stopGrace: "10s",
+    environments: "100",
+  });
+  assert.deepEqual(sandboxPut(sandboxView.config, initial, initial), {});
+  // The form's other fields (the storage limits) are not the sandbox's.
+  assert.deepEqual(sandboxPut(sandboxView.config, initial, { ...initial, fileBytes: "1GiB" }), {});
+  // Engine images and placement, which the form does not show, are kept; no default becomes an override.
+  assert.deepEqual(sandboxPut(sandboxView.config, initial, { ...initial, idle: "30m", memory: "16GiB" }), {
+    put: {
+      limits: { network: ["github.com"], resources: { memory: "16384MiB" }, idle: "30m" },
+      placement: { nylorun: { hosts: ["sandbox"] } },
+      engine: { images: ["ghcr.io/nylorun/bot-worker"] },
+    },
+  });
+  // A field cleared goes back to its default.
+  const stored = { limits: { idle: "30m", environments: 5 }, lifecycle: { stopGrace: "20s" } };
+  assert.deepEqual(sandboxPut(stored, initial, { ...initial, idle: " ", stopGrace: "", environments: "" }), { put: {} });
+  assert.deepEqual(sandboxPut({}, initial, { ...initial, defaultCpus: "two" }), { error: "Default CPUs must be a whole number." });
+  assert.deepEqual(sandboxPut({}, initial, { ...initial, memory: "1.5KiB" }), { error: "Most memory must be a whole number of MiB." });
 });
 
 const rules = [

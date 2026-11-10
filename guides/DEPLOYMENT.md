@@ -375,7 +375,9 @@ which had agent definitions, environment manifests and Environments:
   Runtime image into the pod at each start. An image that already carries this Runtime's engine
   under `/opt/nylorun` (`bin/tini`, `bin/node` and `engine/`, copied from the Runtime image when
   the image was built) skips that copy: list its repository in the Tenant's `engine.images`
-  (`PUT /v1/tenant/sandbox`). Such an engine reports its Runtime version when it joins, and a pod
+  (`PUT /v1/tenant/sandbox`; `GET` answers it in `config`, the settings as stored, and in
+  `effective`, the settings in force). A `PUT` replaces every setting, so put `config` back with
+  the change, never `effective`, whose defaults would become settings. Such an engine reports its Runtime version when it joins, and a pod
   runs it only while that is the Runtime's own version; after an upgrade, pods copy the engine
   again until the image is rebuilt for the new version.
 - **Lifecycle**: `lifecycle.idle` stops a pod after that long without a turn (at most the

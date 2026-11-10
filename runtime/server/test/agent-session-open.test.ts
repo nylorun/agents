@@ -173,9 +173,10 @@ it("pins the Tenant's idle when the runtime section names none, and the section'
       body: JSON.stringify({ limits: { idle: "5m" } }),
     });
     expect(saved.ok, await saved.clone().text()).toBe(true);
-    const report = (await saved.json()) as { backend: string; config: Record<string, any> };
+    const report = (await saved.json()) as { backend: string; config: Record<string, any>; effective: Record<string, any> };
     expect(report.backend).toBe("virtual");
-    expect(report.config).toMatchObject({ limits: { idle: "5m" } });
+    expect(report.config).toEqual({ limits: { idle: "5m" } });
+    expect(report.effective).toMatchObject({ limits: { idle: "5m" } });
     // The Tenant default sandbox is gone (protocol 11).
     const old = await fetch(`${runtime.url}/v1/tenant/sandbox`, {
       method: "PUT",

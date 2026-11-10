@@ -420,7 +420,7 @@ runs, its kind, state, sessions, owner and labels; `nylorun agents rm <id>`
 deletes one, with its files and vault (refused while a turn runs on it). Neither
 starts a stopped Tenant (exit 3). The Tenant's limits for Agents
 (`limits.environments`, `idle`, resources, network) are `PUT /v1/tenant/sandbox`
-on the Management API.
+on the Management API (`nylorun tenant settings sandbox`).
 
 ### Pods on a cluster (preview)
 
@@ -843,8 +843,16 @@ nylorun tenant tool-policy get > tool-policy.json   # edit it, then
 nylorun tenant tool-policy put tool-policy.json
 ```
 
-`settings sandbox get` prints the effective settings and what the Host offers;
-its `put` takes the settings alone (`limits`, `lifecycle`, `placement`).
+`settings sandbox get` prints what the Host offers, the Tenant's settings as
+stored (`config`: only what it set, the body `put` takes) and the settings in
+force (`effective`: every default filled in, sizes in MiB). Its `put` takes the
+settings alone (`limits`, `lifecycle`, `engine`, `placement`), or what `get`
+printed, of which it puts back `config`, so no default becomes a setting:
+
+```sh
+nylorun tenant settings sandbox get > sandbox.json   # edit its config, then
+nylorun tenant settings sandbox put sandbox.json
+```
 
 `settings limits` is the Tenant's Runtime limits: the sizes, counts and
 deadlines the Runtime holds what crosses it to, such as `recordEntryBytes`,

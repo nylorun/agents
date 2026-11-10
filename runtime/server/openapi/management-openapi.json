@@ -2159,6 +2159,104 @@
                     "type": "object",
                     "properties": {
                       "cpus": {
+                        "type": "integer",
+                        "minimum": 1
+                      },
+                      "memory": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "defaultResources": {
+                    "type": "object",
+                    "properties": {
+                      "cpus": {
+                        "type": "integer",
+                        "minimum": 1
+                      },
+                      "memory": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "idle": {
+                    "type": "string"
+                  },
+                  "environments": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "additionalProperties": false
+              },
+              "lifecycle": {
+                "type": "object",
+                "properties": {
+                  "stopGrace": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false
+              },
+              "engine": {
+                "type": "object",
+                "properties": {
+                  "images": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 256,
+                      "pattern": "^[a-z0-9]([a-z0-9._:/-]*[a-z0-9])?$"
+                    },
+                    "maxItems": 32
+                  }
+                },
+                "additionalProperties": false
+              },
+              "placement": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "object",
+                  "properties": {
+                    "hosts": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "harness-container",
+                          "sandbox"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "hosts"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "additionalProperties": false
+          },
+          "effective": {
+            "type": "object",
+            "properties": {
+              "limits": {
+                "type": "object",
+                "properties": {
+                  "network": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "resources": {
+                    "type": "object",
+                    "properties": {
+                      "cpus": {
                         "type": "number"
                       },
                       "memoryMiB": {
@@ -2236,6 +2334,21 @@
                   ],
                   "additionalProperties": false
                 }
+              },
+              "engine": {
+                "type": "object",
+                "properties": {
+                  "images": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "required": [
+                  "images"
+                ],
+                "additionalProperties": false
               }
             },
             "required": [
@@ -2300,7 +2413,8 @@
           "reason",
           "probes",
           "defaultImage",
-          "config"
+          "config",
+          "effective"
         ],
         "additionalProperties": false
       },
@@ -6841,6 +6955,7 @@
           "Settings"
         ],
         "summary": "Get the Tenant's sandbox backend and Agent compute settings",
+        "description": "`config` is the Tenant's settings as stored: only what it set, in exactly the shape `PUT` takes, so a client changes one setting by putting `config` back with that change. `effective` is the configuration in force: `config` with every default filled in, sizes in MiB (`memoryMiB`).",
         "security": [
           {
             "managementKey": []
@@ -6864,7 +6979,7 @@
         ],
         "responses": {
           "200": {
-            "description": "The backend in use and the configuration in force",
+            "description": "The backend in use, the settings as stored and the configuration in force",
             "content": {
               "application/json": {
                 "schema": {
@@ -6940,7 +7055,7 @@
           "Settings"
         ],
         "summary": "Set the Tenant's Agent compute settings",
-        "description": "The limits every Agent's runtime must fit, the pods' stop grace and where harnesses may run (Tenant setting `environments.config`).",
+        "description": "Replaces the Tenant's settings (Tenant setting `environments.config`): the limits every Agent's runtime must fit, the pods' stop grace, the images that carry the engine (`engine.images`) and where harnesses may run. A setting left out takes its default. Answers like `GET`: `config` is the Tenant's settings as stored: only what it set, in exactly the shape `PUT` takes, so a client changes one setting by putting `config` back with that change. `effective` is the configuration in force: `config` with every default filled in, sizes in MiB (`memoryMiB`).",
         "security": [
           {
             "managementKey": []
@@ -6974,7 +7089,7 @@
         },
         "responses": {
           "200": {
-            "description": "The configuration now in force",
+            "description": "The settings now stored and the configuration now in force",
             "content": {
               "application/json": {
                 "schema": {

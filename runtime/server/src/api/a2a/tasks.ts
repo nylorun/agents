@@ -564,14 +564,14 @@ export function buildTask(input: BuildTaskInput): Task | undefined {
 }
 
 /**
- * A queued message's task while it waits (profile v2 §1): `SUBMITTED`, from its `message.queued`
- * event, until a turn takes it.
+ * A queued message's task while it waits (profile v2 §1): `SUBMITTED` since `queuedAt` (its
+ * `message.queued` event's time, or its queue row's), until a turn takes it.
  */
-export function submittedTask(contextId: string, taskId: string, queued: LiveEvent): Task {
+export function submittedTask(contextId: string, taskId: string, queuedAt: string): Task {
   return {
     id: taskId,
     contextId,
-    status: { state: "TASK_STATE_SUBMITTED", timestamp: queued.time },
+    status: { state: "TASK_STATE_SUBMITTED", timestamp: queuedAt },
     history: [],
   };
 }

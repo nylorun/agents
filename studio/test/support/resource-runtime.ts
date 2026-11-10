@@ -293,15 +293,41 @@ export async function resourceRuntime({ artifactReads = true } = {}) {
   let budgets: unknown[] = [{ scope: "tenant", period: "month", limitUsd: 250 }];
   let limitOverrides: Record<string, number> = { modelAttempts: 5 };
   const MiB = 1024 ** 2;
-  let sandboxConfig = {
-    limits: {
-      network: ["pypi.org", "github.com"],
-      resources: { cpus: 4, memoryMiB: 8192 },
-      defaultResources: { cpus: 1, memoryMiB: 1024 },
-      idle: "15m",
-      environments: 100,
-    },
-    lifecycle: { stopGrace: "10s" },
+  // The Tenant's sandbox settings as stored (`config`): what it set, as `PUT` takes them.
+  let sandboxConfig: {
+    limits?: {
+      network?: string[];
+      resources?: { cpus?: number; memory?: string };
+      defaultResources?: { cpus?: number; memory?: string };
+      idle?: string;
+      environments?: number;
+    };
+    lifecycle?: { stopGrace?: string };
+    engine?: { images?: string[] };
+  } = {
+    limits: { network: ["pypi.org", "github.com"] },
+    engine: { images: ["ghcr.io/nylorun/bot-worker"] },
+  };
+  /** The settings in force (`effective`): the stored ones over the defaults. */
+  const sandboxEffective = () => {
+    const mib = (size: string | undefined, fallback: number) =>
+      size === undefined ? fallback : Number.parseInt(size, 10) * (size.endsWith("GiB") ? 1024 : 1);
+    const limits = sandboxConfig.limits ?? {};
+    return {
+      limits: {
+        network: limits.network ?? [],
+        resources: { cpus: limits.resources?.cpus ?? 4, memoryMiB: mib(limits.resources?.memory, 8192) },
+        defaultResources: {
+          cpus: limits.defaultResources?.cpus ?? 1,
+          memoryMiB: mib(limits.defaultResources?.memory, 1024),
+        },
+        idle: limits.idle ?? "15m",
+        environments: limits.environments ?? 100,
+      },
+      lifecycle: { stopGrace: sandboxConfig.lifecycle?.stopGrace ?? "10s" },
+      placement: { "*": { hosts: ["harness-container", "sandbox"] } },
+      engine: { images: sandboxConfig.engine?.images ?? [] },
+    };
   };
   let memories = [
     {
@@ -689,19 +715,8 @@ export async function resourceRuntime({ artifactReads = true } = {}) {
     if (path === "/v1/tenant/limits") return send(200, { limits: { ...RUNTIME_LIMIT_DEFAULTS, ...limitOverrides } });
     if (path === "/v1/tenant/sandbox") {
       if (req.method === "PUT") {
-        const body = JSON.parse(raw);
-        const mib = (size: string) => Number.parseInt(size, 10) * (size.endsWith("GiB") ? 1024 : 1);
-        sandboxConfig = {
-          limits: {
-            ...body.limits,
-            resources: { cpus: body.limits.resources.cpus, memoryMiB: mib(body.limits.resources.memory) },
-            defaultResources: {
-              cpus: body.limits.defaultResources.cpus,
-              memoryMiB: mib(body.limits.defaultResources.memory),
-            },
-          },
-          lifecycle: body.lifecycle,
-        };
+        const { requestId: _requestId, ...body } = JSON.parse(raw);
+        sandboxConfig = body;
       }
       return send(200, {
         preference: "auto",
@@ -714,6 +729,7 @@ export async function resourceRuntime({ artifactReads = true } = {}) {
         ],
         defaultImage: "ghcr.io/nylorun/sandbox:0.29",
         config: sandboxConfig,
+        effective: sandboxEffective(),
         cluster: null,
       });
     }

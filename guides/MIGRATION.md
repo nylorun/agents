@@ -1,3 +1,21 @@
+# The Tenant's sandbox settings: `config` as stored, `effective` in force
+
+A Management API change, no protocol change (nylorun/agents#588). `GET` and
+`PUT /v1/tenant/sandbox` (`admin.settings.sandbox`, `nylorun tenant settings sandbox`) answer
+the settings twice:
+
+- **`config` is now the settings as stored**: only what the Tenant set, with no defaults, in
+  exactly the shape `PUT` takes (`limits.resources.memory: "8GiB"`, `engine.images`, `placement`).
+  `put(get().config)` changes nothing, so change one setting by putting `config` back with that
+  change. Before, `PUT` refused what `GET` answered (`memoryMiB`), and putting the defaults back
+  would have frozen them as settings.
+- **`effective` is what `config` was**: the settings in force, every default filled in, sizes in
+  MiB (`memoryMiB`), and now `engine.images` too, which `GET` and the `PUT` answer left out.
+- **Migrating.** Read the settings in force from `effective` instead of `config`
+  (`view.effective.limits.resources.memoryMiB`). Code that built a `PUT` body from the view
+  starts from `view.config`. Studio's compute settings form keeps `engine.images` and every
+  setting it does not change; `nylorun doctor sandbox` reads either Runtime.
+
 # Agents declare the Runtime's features as plugins
 
 Additive: no protocol change. `agent-folder/1` and `agent-folder/2` folders compile and run as

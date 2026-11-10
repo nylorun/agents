@@ -164,7 +164,7 @@ describe("pod Agents", { timeout: 90_000 }, () => {
       controllerVersion: "v1.0.10",
       networkPolicy: { enforced: true, probedAt: new Date(0).toISOString() },
     });
-    expect(tenant.config.placement).toEqual({ "*": { hosts: ["harness-container", "sandbox"] } });
+    expect(tenant.effective.placement).toEqual({ "*": { hosts: ["harness-container", "sandbox"] } });
   });
 
   it("creates a pod at once; its join token becomes a host token bound to the pod", async () => {

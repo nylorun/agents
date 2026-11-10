@@ -10,6 +10,8 @@ import { A2A_EXTENSIONS, keepExtensions, parseExtensions } from "../../src/api/a
 import { pushRetry } from "../../src/api/a2a/push.js";
 import { buildTask, contextSessionId, taskIdOf, updatesOf } from "../../src/api/a2a/tasks.js";
 import { startTestTenant } from "../support/tenant.js";
+import { FaultyStreams } from "../support/faulty-streams.js";
+import { MemoryStreams } from "../../src/streams/memory.js";
 import { startToolServer, type ToolServer } from "../support/tool-server.js";
 import { setToolPolicy } from "../support/tool-policy.js";
 import { deploy } from "../support/agents.js";
@@ -73,6 +75,8 @@ interface Received {
 
 let held: Promise<void> = Promise.resolve();
 let runtime: Awaited<ReturnType<typeof startTestTenant>>;
+/** The Tenant's session streams: a test holds their appends to lag behind the record. */
+const streams = new FaultyStreams(new MemoryStreams());
 let service: ToolServer;
 let receiver: Server;
 let receiverBase: string;
@@ -109,6 +113,7 @@ beforeAll(async () => {
     sandbox: { backend: "virtual" },
     sweepIntervalMs: 200,
     a2a: { push: { secret: SECRET, allowHosts: [`127.0.0.1:${port}`] } },
+    streams,
   });
   const client = createClient({ url: runtime.url, key: runtime.applicationKey, tenant: runtime.tenantId });
   service = await startToolServer({
@@ -146,6 +151,7 @@ afterAll(async () => {
   await new Promise((resolve) => receiver?.close(resolve));
   await service?.close();
   await runtime?.close();
+  await streams.close();
 });
 
 interface Call {
@@ -424,6 +430,76 @@ describe("a follow-up to a busy context", () => {
     const bodies = pushesTo(path).map(verify) as any[];
     expect(new Set(bodies.map((body) => (body.statusUpdate ?? body.artifactUpdate).taskId))).toEqual(new Set([queued.id]));
     expect(states(path)[0]).toBe("TASK_STATE_WORKING");
+  });
+});
+
+describe("a queued task while the session stream lags behind the record", () => {
+  /** Holds each append to the session streams for `ms`, as the Host's relay lags a commit. */
+  async function lagging<T>(ms: number, run: () => Promise<T>): Promise<T> {
+    streams.beforeAppend = () => new Promise((resolve) => setTimeout(resolve, ms));
+    try {
+      return await run();
+    } finally {
+      streams.beforeAppend = undefined;
+    }
+  }
+  const getTask = async (id: string) => (await rpc("GetTask", { id }, { agent: "slow" })).body.result;
+
+  /** A task that runs in a new context, held until `release` (#585, #586). */
+  async function busy() {
+    let release!: () => void;
+    held = new Promise((resolve) => (release = resolve));
+    const contextId = next("ctx");
+    const first = (
+      await rpc("SendMessage", { message: message("Go", { contextId }), configuration: { returnImmediately: true } }, { agent: "slow" })
+    ).body.result.task;
+    expect(first.status.state).toBe("TASK_STATE_WORKING");
+    return { first, contextId, release };
+  }
+
+  it("answers a follow-up sent with returnImmediately as SUBMITTED (#586)", async () => {
+    const { first, contextId, release } = await busy();
+    try {
+      const queued = await lagging(200, async () => {
+        const sent = (
+          await rpc(
+            "SendMessage",
+            { message: message("And then this", { contextId }), configuration: { returnImmediately: true } },
+            { agent: "slow" }
+          )
+        ).body;
+        expect(sent.error).toBeUndefined();
+        expect(sent.result.task.status.state).toBe("TASK_STATE_SUBMITTED");
+        expect((await getTask(sent.result.task.id)).status.state).toBe("TASK_STATE_SUBMITTED");
+        return sent.result.task;
+      });
+      release();
+      await until(() => getTask(first.id), (task) => task.status.state === "TASK_STATE_COMPLETED");
+      await until(() => getTask(queued.id), (task) => task.status.state === "TASK_STATE_COMPLETED");
+    } finally {
+      release();
+    }
+  });
+
+  it("answers CancelTask on a queued task as CANCELED, and GetTask agrees (#585)", async () => {
+    const { first, contextId, release } = await busy();
+    try {
+      const queued = (
+        await rpc("SendMessage", { message: message("Then this", { contextId }), configuration: { returnImmediately: true } }, { agent: "slow" })
+      ).body.result.task;
+      await until(() => getTask(queued.id), (task) => task?.status.state === "TASK_STATE_SUBMITTED");
+      await lagging(200, async () => {
+        const cancelled = (await rpc("CancelTask", { id: queued.id }, { agent: "slow" })).body;
+        expect(cancelled.error).toBeUndefined();
+        expect(cancelled.result).toMatchObject({ id: queued.id, status: { state: "TASK_STATE_CANCELED" } });
+        expect((await getTask(queued.id)).status.state).toBe("TASK_STATE_CANCELED");
+      });
+      release();
+      await until(() => getTask(first.id), (task) => task.status.state === "TASK_STATE_COMPLETED");
+      expect((await getTask(queued.id)).status.state).toBe("TASK_STATE_CANCELED");
+    } finally {
+      release();
+    }
   });
 });
 

@@ -74,3 +74,23 @@ it("F2-4: doctor sandbox prints Tenant API report (snapshot)", async () => {
   // The report request names no Tenant: the installation serves one.
   expect(tenantHeaders).toEqual([undefined]);
 });
+
+it("doctor sandbox prints the limits in force: effective, or config from a Runtime before #588", async () => {
+  const limits = { network: ["github.com", "pypi.org"], idle: "15m", environments: 100 };
+  for (const sent of [
+    // `config` is what the Tenant set; `effective` is in force.
+    { ...report, config: { limits: { network: ["github.com", "pypi.org"] } }, effective: { limits } },
+    // An older Runtime sent the settings in force as `config`.
+    { ...report, config: { limits } },
+  ]) {
+    const url = await runtime(sent);
+    const deps = testDeps(await temporaryHome(), {
+      fetch: (input, init) => fetch(input, init),
+    });
+    deps.env = { ...deps.env, NYLORUN_RUNTIME_URL: url, NYLORUN_MANAGEMENT_KEY: "key" };
+    await doctorSandbox(deps, { json: false });
+    expect(deps.lines.find((text) => text.trim().startsWith("limits"))).toContain(
+      "idle 15m, 100 Agents, 2 allowed hosts",
+    );
+  }
+});
