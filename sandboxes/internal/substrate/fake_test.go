@@ -27,6 +27,8 @@ type fakeAPI struct {
 	failResume error
 	// failResumeTimes makes the first n ResumeActor calls fail with failResume.
 	failResumeTimes int
+	// crashOnResume makes the next n resumes crash the actor.
+	crashOnResume int
 }
 
 func newFakeAPI() *fakeAPI {
@@ -162,9 +164,56 @@ func (f *fakeAPI) ResumeActor(_ context.Context, in *ateapi.ResumeActorRequest, 
 	if !ok {
 		return nil, status.Error(codes.NotFound, "no actor")
 	}
+	switch a.Status.State {
+	case ateapi.ActorState_ACTOR_STATE_RUNNING:
+		return &ateapi.ResumeActorResponse{Actor: proto.Clone(a).(*ateapi.Actor)}, nil
+	case ateapi.ActorState_ACTOR_STATE_SUSPENDED:
+	default:
+		f.record("ResumeActor refused " + a.Status.State.String())
+		return nil, status.Error(codes.FailedPrecondition, "not suspended")
+	}
 	f.record("ResumeActor " + a.GetMetadata().GetName())
 	a.Status.State = ateapi.ActorState_ACTOR_STATE_RUNNING
+	if f.crashOnResume > 0 {
+		f.crashOnResume--
+		a.Status.State = ateapi.ActorState_ACTOR_STATE_CRASHED
+		return nil, status.Error(codes.Internal, "the sandbox died while waking")
+	}
 	return &ateapi.ResumeActorResponse{Actor: proto.Clone(a).(*ateapi.Actor), Resumed: true}, nil
+}
+
+func (f *fakeAPI) RevertActor(_ context.Context, in *ateapi.RevertActorRequest, _ ...grpc.CallOption) (*ateapi.RevertActorResponse, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	a, ok := f.actors[key(in.GetActor())]
+	if !ok {
+		return nil, status.Error(codes.NotFound, "no actor")
+	}
+	if a.Status.State != ateapi.ActorState_ACTOR_STATE_CRASHED {
+		return nil, status.Error(codes.FailedPrecondition, "not crashed")
+	}
+	f.record("RevertActor " + a.GetMetadata().GetName())
+	a.Status.State = ateapi.ActorState_ACTOR_STATE_SUSPENDED
+	return &ateapi.RevertActorResponse{Actor: proto.Clone(a).(*ateapi.Actor)}, nil
+}
+
+// setState puts an actor in a state, as Substrate would on its own.
+func (f *fakeAPI) setState(name string, state ateapi.ActorState) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.actors[space+"/"+name].Status.State = state
+}
+
+func (f *fakeAPI) count(call string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	n := 0
+	for _, c := range f.calls {
+		if c == call {
+			n++
+		}
+	}
+	return n
 }
 
 func (f *fakeAPI) DeleteActor(_ context.Context, in *ateapi.DeleteActorRequest, _ ...grpc.CallOption) (*ateapi.Actor, error) {

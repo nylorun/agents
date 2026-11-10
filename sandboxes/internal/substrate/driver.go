@@ -34,6 +34,7 @@ type API interface {
 	UpdateActor(ctx context.Context, in *ateapi.UpdateActorRequest, opts ...grpc.CallOption) (*ateapi.Actor, error)
 	SuspendActor(ctx context.Context, in *ateapi.SuspendActorRequest, opts ...grpc.CallOption) (*ateapi.SuspendActorResponse, error)
 	ResumeActor(ctx context.Context, in *ateapi.ResumeActorRequest, opts ...grpc.CallOption) (*ateapi.ResumeActorResponse, error)
+	RevertActor(ctx context.Context, in *ateapi.RevertActorRequest, opts ...grpc.CallOption) (*ateapi.RevertActorResponse, error)
 	DeleteActor(ctx context.Context, in *ateapi.DeleteActorRequest, opts ...grpc.CallOption) (*ateapi.Actor, error)
 	CreateActorEgressPolicy(ctx context.Context, in *ateapi.CreateActorEgressPolicyRequest, opts ...grpc.CallOption) (*ateapi.EgressPolicy, error)
 	UpdateActorEgressPolicy(ctx context.Context, in *ateapi.UpdateActorEgressPolicyRequest, opts ...grpc.CallOption) (*ateapi.EgressPolicy, error)
@@ -58,17 +59,20 @@ type Options struct {
 	// PollInterval is how often a wait reads the actor again; default 250 ms.
 	PollInterval time.Duration
 	// CallTimeout bounds one Substrate call; default 2 min (a synchronous suspend writes a snapshot).
+	// A resume is not bound by it: see ResumeFor.
 	CallTimeout time.Duration
-	// ResumeFor is how long a resume that times out or finds Substrate busy is tried again;
-	// default 10 min (a cold node's first resume pulls the image, which can outlast one call).
+	// ResumeFor bounds bringing an actor to Running, all tries included; default 5 min, the
+	// Runtime's own ready deadline (pods.readyDeadlineMs), past which it no longer waits. One
+	// ResumeActor call may take all of it: a cold node's first resume pulls the image, and
+	// cancelling the call would cancel the restore in flight.
 	ResumeFor time.Duration
-	// RetryWait is the pause between those tries; default 5 s.
+	// RetryWait is the first pause before trying again; it doubles up to 5 s. Default 250 ms.
 	RetryWait time.Duration
 }
 
-// Driver runs sandboxes as actors. It keeps each sandbox's last request (opId, mode, shutdown
-// time and policy, template) in a ConfigMap <name>-state in the Tenant's namespace, so the
-// service stays stateless, as with agent-sandbox.
+// Driver runs sandboxes as actors. It keeps each sandbox's last request (opId, mode, template,
+// image) in a ConfigMap <name>-state in the Tenant's namespace, so the service keeps no state of
+// its own (Substrate's actors carry no labels or annotations to hold it).
 type Driver struct {
 	api    API
 	o      Options
@@ -76,7 +80,7 @@ type Driver struct {
 	synced atomic.Bool
 }
 
-// New returns a driver; Start runs its expiry sweep.
+// New returns a driver; Run checks Substrate answers.
 func New(api API, o Options) *Driver {
 	if o.Now == nil {
 		o.Now = time.Now
@@ -88,10 +92,10 @@ func New(api API, o Options) *Driver {
 		o.CallTimeout = 2 * time.Minute
 	}
 	if o.ResumeFor == 0 {
-		o.ResumeFor = 10 * time.Minute
+		o.ResumeFor = 5 * time.Minute
 	}
 	if o.RetryWait == 0 {
-		o.RetryWait = 5 * time.Second
+		o.RetryWait = 250 * time.Millisecond
 	}
 	if o.Log == nil {
 		o.Log = slog.New(slog.DiscardHandler)
@@ -128,8 +132,7 @@ func (d *Driver) Ping(ctx context.Context) error {
 
 // state is a sandbox's last request.
 type state struct {
-	OpID, Mode, ShutdownTime, ShutdownPolicy, Template, Image string
-	Expired                                                   bool
+	OpID, Mode, Template, Image string
 }
 
 const stateSuffix = "-state"
@@ -143,16 +146,11 @@ func (d *Driver) readState(ctx context.Context, name string) (*state, error) {
 		return nil, err
 	}
 	v := cm.Data
-	return &state{OpID: v["opId"], Mode: v["mode"], ShutdownTime: v["shutdownTime"], ShutdownPolicy: v["shutdownPolicy"],
-		Template: v["template"], Image: v["image"], Expired: v["expired"] == "true"}, nil
+	return &state{OpID: v["opId"], Mode: v["mode"], Template: v["template"], Image: v["image"]}, nil
 }
 
 func (d *Driver) writeState(ctx context.Context, name string, s state) error {
-	data := map[string]string{"opId": s.OpID, "mode": s.Mode, "shutdownTime": s.ShutdownTime,
-		"shutdownPolicy": s.ShutdownPolicy, "template": s.Template, "image": s.Image}
-	if s.Expired {
-		data["expired"] = "true"
-	}
+	data := map[string]string{"opId": s.OpID, "mode": s.Mode, "template": s.Template, "image": s.Image}
 	cm := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{Name: name + stateSuffix, Namespace: d.o.Namespace, Labels: map[string]string{
 			driver.ManagedLabel: driver.FieldManager, driver.SandboxLabel: name}},
@@ -227,7 +225,7 @@ func (d *Driver) Put(ctx context.Context, name string, spec driver.Spec) (driver
 		return driver.Status{}, &driver.Error{Status: http.StatusConflict, Code: "deleting", Message: "the sandbox is being deleted"}
 	}
 	if st != nil && actor != nil && st.OpID == spec.OpID {
-		return d.compute(name, actor, st), nil
+		return Compute(name, actor, st), nil
 	}
 
 	images := Resolved{}
@@ -297,64 +295,112 @@ func (d *Driver) Put(ctx context.Context, name string, spec driver.Spec) (driver
 		if err != nil {
 			return driver.Status{}, err
 		}
-		d.deleteTemplateLater(previous)
+		d.deleteTemplateLater(previous) // no actor names it now, and the actor's snapshot does not need it
 	}
 	if err := d.ensureEgress(ctx, name, networkOf(spec)); err != nil {
 		return driver.Status{}, err
 	}
-	next := state{OpID: spec.OpID, Mode: spec.Mode, ShutdownTime: spec.ShutdownTime, ShutdownPolicy: spec.ShutdownPolicy,
-		Template: templateName, Image: images.Image}
+	next := state{OpID: spec.OpID, Mode: spec.Mode, Template: templateName, Image: images.Image}
 	if err := d.writeState(ctx, name, next); err != nil {
 		return driver.Status{}, err
 	}
-	go d.drive(name, spec.Mode)
-	return d.compute(name, actor, &next), nil
+	go d.drive(name, spec.OpID, spec.Mode)
+	return Compute(name, actor, &next), nil
 }
 
-// drive brings the actor to `mode` in the background. A resume that times out or finds Substrate
-// busy is tried again for ResumeFor, as long as the sandbox's recorded mode is still Running: a
-// cold node's first resume pulls the image and can outlast one call, and Substrate leaves the
-// actor RESUMING until it is asked again. The lock is held only for each try, so a later Put or
-// Delete is never kept waiting.
-func (d *Driver) drive(name, mode string) {
-	deadline := d.o.Now().Add(d.o.ResumeFor)
+// drive brings the actor to `mode` for the request opID, in the background, until a later request
+// replaces it. A suspend is one call. A resume is tried again while Substrate is busy (Aborted,
+// Unavailable, ResourceExhausted) or the actor is still on its way between states (a suspend still
+// writing its snapshot), with a pause from RetryWait doubling to 5 s, for ResumeFor in all. A
+// crashed actor, or one a failed wake left crashed, is reverted to its last snapshot once and
+// resumed (Substrate refuses to resume a crashed one). The sandbox's lock is held only to read its state, never across a call: Substrate
+// orders concurrent changes to one actor itself.
+func (d *Driver) drive(name, opID, mode string) {
+	ctx, cancel := context.WithTimeout(context.Background(), d.o.ResumeFor)
+	defer cancel()
+	wait, reverted := d.o.RetryWait, false
 	for try := 1; ; try++ {
-		again, err := d.driveOnce(name, mode)
-		if err == nil {
+		again, err := d.driveOnce(ctx, name, opID, mode, &reverted)
+		if !again {
+			if err != nil {
+				d.o.Log.Warn("substrate", "name", name, "mode", mode, "try", try, "error", err)
+			}
 			return
 		}
-		if !again || mode != "Running" || !d.o.Now().Before(deadline) {
-			d.o.Log.Warn("substrate", "name", name, "mode", mode, "try", try, "error", err)
+		if ctx.Err() != nil {
+			d.o.Log.Warn("substrate resume gave up", "name", name, "try", try, "after", d.o.ResumeFor, "error", err)
 			return
 		}
-		d.o.Log.Info("substrate resume again", "name", name, "try", try, "error", err)
-		time.Sleep(d.o.RetryWait)
+		if err != nil {
+			d.o.Log.Info("substrate resume again", "name", name, "try", try, "error", err)
+		}
+		select {
+		case <-ctx.Done():
+		case <-time.After(wait):
+		}
+		wait = min(wait*2, 5*time.Second)
 	}
 }
 
-// driveOnce makes one try; again says whether a failure is worth another.
-func (d *Driver) driveOnce(name, mode string) (again bool, err error) {
-	defer d.lock(name)()
-	ctx := context.Background()
+// driveOnce makes one try; again says whether to try again.
+func (d *Driver) driveOnce(ctx context.Context, name, opID, mode string, reverted *bool) (again bool, err error) {
+	unlock := d.lock(name)
 	st, err := d.readState(ctx, name)
+	unlock()
 	if err != nil {
-		return true, err
+		return mode == "Running", err
 	}
-	if st == nil || st.Mode != mode {
-		return false, nil // a later request changed it
+	if st == nil || st.OpID != opID {
+		return false, nil // a later request replaced this one
 	}
-	if mode == "Running" {
-		cctx, cancel := d.call(ctx)
-		_, err = d.api.ResumeActor(cctx, &ateapi.ResumeActorRequest{Actor: d.ref(name)})
-		cancel()
-	} else {
-		err = d.suspend(ctx, name)
+	if mode != "Running" {
+		err = d.suspend(context.Background(), name)
+		if status.Code(err) == codes.FailedPrecondition {
+			return false, nil // not running: nothing to suspend
+		}
+		return false, err
 	}
+	start := d.o.Now()
+	res, err := d.api.ResumeActor(ctx, &ateapi.ResumeActorRequest{Actor: d.ref(name)})
 	switch status.Code(err) {
-	case codes.OK, codes.FailedPrecondition:
+	case codes.OK:
+		if res.GetResumed() {
+			d.o.Log.Info("substrate resumed", "name", name, "ms", d.o.Now().Sub(start).Milliseconds())
+		}
 		return false, nil
-	case codes.DeadlineExceeded, codes.Unavailable, codes.ResourceExhausted, codes.Aborted:
+	case codes.Aborted, codes.Unavailable, codes.ResourceExhausted:
 		return true, err
+	case codes.NotFound, codes.InvalidArgument, codes.PermissionDenied, codes.Unauthenticated, codes.DeadlineExceeded,
+		codes.Canceled:
+		return false, err
+	default:
+		// The actor is in no state to resume (FailedPrecondition), or the resume failed while
+		// waking it, which leaves it crashed: see which.
+		actor, gerr := d.getActor(ctx, name)
+		if gerr != nil || actor == nil {
+			return false, err
+		}
+		switch actor.GetStatus().GetState() {
+		case ateapi.ActorState_ACTOR_STATE_RUNNING:
+			return false, nil
+		case ateapi.ActorState_ACTOR_STATE_SUSPENDING, ateapi.ActorState_ACTOR_STATE_RESUMING,
+			ateapi.ActorState_ACTOR_STATE_REVERTING:
+			return true, err
+		case ateapi.ActorState_ACTOR_STATE_CRASHED:
+			if *reverted {
+				return false, fmt.Errorf("crashed again after a revert: %w", err)
+			}
+			*reverted = true
+			d.o.Log.Warn("substrate actor crashed: reverting to its last snapshot", "name", name,
+				"crash", strings.TrimSpace(actor.GetStatus().GetCrash().String()))
+			cctx, cancel := d.call(ctx)
+			_, rerr := d.api.RevertActor(cctx, &ateapi.RevertActorRequest{Actor: d.ref(name)})
+			cancel()
+			if rerr != nil {
+				return false, fmt.Errorf("revert: %w", rerr)
+			}
+			return true, nil
+		}
 	}
 	return false, err
 }
@@ -387,7 +433,7 @@ func (d *Driver) ensureTemplate(ctx context.Context, rendered map[string]any, na
 	return err
 }
 
-// deleteTemplateLater deletes a template no actor uses any more, after its snapshots settle.
+// deleteTemplateLater deletes, in the background, a template no actor names any more.
 func (d *Driver) deleteTemplateLater(name string) {
 	if name == "" {
 		return
@@ -397,7 +443,7 @@ func (d *Driver) deleteTemplateLater(name string) {
 		defer cancel()
 		_, err := d.api.DeleteActorTemplate(ctx, &ateapi.DeleteActorTemplateRequest{ActorTemplate: d.ref(name)})
 		if err != nil && status.Code(err) != codes.NotFound {
-			d.o.Log.Info("substrate: template kept", "template", name, "error", err)
+			d.o.Log.Warn("substrate: template kept", "template", name, "error", err)
 		}
 	}()
 }
@@ -501,7 +547,7 @@ func (d *Driver) status(ctx context.Context, name string) (driver.Status, error)
 	if err != nil {
 		return driver.Status{}, err
 	}
-	return d.compute(name, actor, st), nil
+	return Compute(name, actor, st), nil
 }
 
 // Compute maps an actor and the sandbox's state to the status core reads. The actor's uid
@@ -509,13 +555,7 @@ func (d *Driver) status(ctx context.Context, name string) (driver.Status, error)
 func Compute(name string, actor *ateapi.Actor, st *state) driver.Status {
 	s := driver.Status{Name: name, Volume: "missing"}
 	if st != nil {
-		s.OpID, s.Mode, s.ShutdownTime, s.Expired = st.OpID, st.Mode, st.ShutdownTime, st.Expired
-		if st.Image != "" {
-			s.ImageID = st.Image
-		}
-		if s.Expired {
-			s.Reason = "SandboxExpired"
-		}
+		s.OpID, s.Mode, s.ImageID = st.OpID, st.Mode, st.Image
 	}
 	if actor == nil {
 		return s
@@ -533,7 +573,7 @@ func Compute(name string, actor *ateapi.Actor, st *state) driver.Status {
 	case ateapi.ActorState_ACTOR_STATE_SUSPENDING:
 		s.PodPhase = "Terminating"
 	case ateapi.ActorState_ACTOR_STATE_SUSPENDED:
-		s.Suspended = s.Mode == "Suspended" || s.Expired
+		s.Suspended = s.Mode == "Suspended"
 	case ateapi.ActorState_ACTOR_STATE_DELETING:
 		s.Deleting = true
 		s.PodPhase = "Terminating"
@@ -544,10 +584,6 @@ func Compute(name string, actor *ateapi.Actor, st *state) driver.Status {
 		}
 	}
 	return s
-}
-
-func (d *Driver) compute(name string, actor *ateapi.Actor, st *state) driver.Status {
-	return Compute(name, actor, st)
 }
 
 // Wait polls the actor until it reaches `want` or the timeout passes.
@@ -580,58 +616,18 @@ func (d *Driver) Wait(ctx context.Context, name, want string, timeout time.Durat
 	}
 }
 
-// Sweep applies shutdown times: past one, a Delete policy deletes the sandbox; Retain suspends
-// it and marks it expired, as agent-sandbox does.
-func (d *Driver) Sweep(ctx context.Context) {
-	list, err := d.o.Kube.CoreV1().ConfigMaps(d.o.Namespace).List(ctx, metav1.ListOptions{
-		LabelSelector: driver.ManagedLabel + "=" + driver.FieldManager})
-	if err != nil {
-		d.o.Log.Warn("substrate sweep", "error", err)
-		return
-	}
-	now := d.o.Now()
-	for _, cm := range list.Items {
-		name := strings.TrimSuffix(cm.Name, stateSuffix)
-		at, err := time.Parse(time.RFC3339, cm.Data["shutdownTime"])
-		if err != nil || now.Before(at) || cm.Data["expired"] == "true" {
-			continue
-		}
-		if cm.Data["shutdownPolicy"] == "Delete" {
-			if _, err := d.Delete(ctx, name); err != nil {
-				d.o.Log.Warn("substrate sweep delete", "name", name, "error", err)
-			}
-			continue
-		}
-		if err := d.expire(ctx, name); err != nil {
-			d.o.Log.Warn("substrate sweep expire", "name", name, "error", err)
-		}
-	}
-}
-
-func (d *Driver) expire(ctx context.Context, name string) error {
-	defer d.lock(name)()
-	st, err := d.readState(ctx, name)
-	if err != nil || st == nil {
-		return err
-	}
-	if err := d.suspend(ctx, name); err != nil && status.Code(err) != codes.FailedPrecondition && status.Code(err) != codes.NotFound {
-		return err
-	}
-	st.Expired = true
-	return d.writeState(ctx, name, *st)
-}
-
-// Run sweeps every interval until ctx ends, and marks the driver synced once Substrate answers.
+// Run checks every interval, until Substrate has answered once, that it answers and lets this
+// service in; Synced reports it.
 func (d *Driver) Run(ctx context.Context, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
-		if !d.Synced() {
-			if err := d.Ping(ctx); err != nil && !errors.Is(err, context.Canceled) {
-				d.o.Log.Warn("substrate not ready", "error", err)
-			}
+		if d.Synced() {
+			return
 		}
-		d.Sweep(ctx)
+		if err := d.Ping(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			d.o.Log.Warn("substrate not ready", "error", err)
+		}
 		select {
 		case <-ctx.Done():
 			return
