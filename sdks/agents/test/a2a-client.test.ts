@@ -6,6 +6,7 @@ import {
   A2aPushVerificationError,
   createA2aClient,
   listTurnChanges,
+  readDelivery,
   readEffects,
   readFiles,
   readInteraction,
@@ -100,6 +101,18 @@ describe("createA2aClient", () => {
         },
       },
     });
+  });
+
+  it("sends delivery steer, and reads what applied from the task (a2a-steer)", async () => {
+    const steered: Task = { ...TASK, status: { state: "TASK_STATE_SUBMITTED" }, metadata: { delivery: "steered" } };
+    const { fetch, sent } = fakeAgent(() => ({ task: steered }));
+    const a2a = createA2aClient({ url: AGENT_URL, key: KEY, fetch });
+    const task = await a2a.send({ messageId: "m1", contextId: "ctx_1", parts: [{ text: "Only three" }], delivery: "steer" });
+    expect(sent[0]!.body.params.message.metadata).toEqual({ delivery: "steer" });
+    expect(readDelivery(task)).toBe("steered");
+    expect(readDelivery({ task: { ...TASK, metadata: { delivery: "queued" } } })).toBe("queued");
+    expect(readDelivery(TASK)).toBeUndefined();
+    expect(readDelivery({ ...TASK, metadata: { delivery: "steer" } })).toBeUndefined();
   });
 
   it("sends no subject or key headers it was not given, and only the extensions asked for", async () => {

@@ -23,6 +23,7 @@ export type { A2aPushFailure, PushHeaders, VerifyA2aPushOptions } from "./push.j
 export {
   A2A_EXTENSIONS,
   A2A_PROFILE_EXTENSIONS,
+  readDelivery,
   readEffects,
   readExtension,
   readFiles,
@@ -31,6 +32,7 @@ export {
   readTelemetry,
 } from "./profile.js";
 export type {
+  A2aDelivery,
   A2aEffects,
   A2aExtensionUri,
   A2aFile,

@@ -18,10 +18,13 @@
  * - A message to a busy context is **queued** (`delivery: "queue"`, protocol 17) and answered
  *   with the task that will take it: `SUBMITTED`, its id the queued message's own until a turn
  *   takes it, then that turn's state. `metadata.delivery: "reject"` keeps v1's
- *   `UnsupportedOperationError` (reason `CONTEXT_BUSY`). A queued task never waits for good (Host
- *   feature `queue-recovery`): one whose turn the Agent refused to start for longer than the
- *   Runtime limit `queuedStartMs`, or for good, is `FAILED`; `CancelTask` takes one out of the
- *   queue as `CANCELED`. Both are pushed.
+ *   `UnsupportedOperationError` (reason `CONTEXT_BUSY`). `metadata.delivery: "steer"` (Host
+ *   feature `a2a-steer`, ADR-140) is a session message's steer (D85): the running turn takes the
+ *   message before its next step, and its task is then that turn's; the task's `metadata.delivery`
+ *   answers `steered`, or `queued` when it started a turn or waits as a queued message. A queued
+ *   task never waits for good (Host feature `queue-recovery`): one whose turn the Agent refused to
+ *   start for longer than the Runtime limit `queuedStartMs`, or for good, is `FAILED`;
+ *   `CancelTask` takes one out of the queue as `CANCELED`. Both are pushed.
  * - An open interaction shows on the status message under `interactions/v1`; the caller answers
  *   on the same task with `{ interactionId, approved }` (the Runtime's `approve`, recorded with
  *   the caller as `approvedBy`) or `{ interactionId, value }` (`respond`). Text never approves.
@@ -409,10 +412,13 @@ async function ownedTask(
   };
 }
 
-/** What a session command answered: a turn that took it, or the queue it waits in. */
+/**
+ * What a session command answered: a turn that took it, or the queue it waits in, with the
+ * delivery that applied there (D85): `steer` when the running turn may take it before a step.
+ */
 type Accepted =
-  | { turnId: string; cursor: string; queuedMessageId?: undefined }
-  | { queuedMessageId: string; cursor: string; turnId?: undefined };
+  | { turnId: string; cursor: string; queuedMessageId?: undefined; delivery?: undefined }
+  | { queuedMessageId: string; cursor: string; turnId?: undefined; delivery?: "queue" | "steer" };
 
 /** Runs a session command as the caller, mapping the Runtime's refusals to A2A errors. */
 async function run(
@@ -421,8 +427,11 @@ async function run(
   input: SessionCommand,
   /** The error for a `409` conflict: the session is busy or no longer waiting. */
   conflict: () => Promise<A2aError>,
-  /** What a message to a busy session does: queued (profile v2), or `409`. */
-  delivery: "queue" | "reject" = "reject"
+  /**
+   * What a message to a busy session does: queued (profile v2), steered into its running turn
+   * (`a2a-steer`, D85; queued when no turn may take it), or `409`.
+   */
+  delivery: "queue" | "reject" | "steer" = "reject"
 ): Promise<Accepted> {
   try {
     const accepted = (await command(
@@ -431,9 +440,19 @@ async function run(
       SessionCommandSchema.parse(input),
       caller.scope,
       { ...(caller.trace ? { trace: caller.trace } : {}), delivery }
-    )) as { status: string; turnId?: string | null; queuedMessageId?: string; cursor: string };
+    )) as {
+      status: string;
+      turnId?: string | null;
+      queuedMessageId?: string;
+      cursor: string;
+      delivery?: "queue" | "steer";
+    };
     return accepted.status === "queued"
-      ? { queuedMessageId: accepted.queuedMessageId!, cursor: accepted.cursor }
+      ? {
+          queuedMessageId: accepted.queuedMessageId!,
+          cursor: accepted.cursor,
+          ...(accepted.delivery ? { delivery: accepted.delivery } : {}),
+        }
       : { turnId: accepted.turnId!, cursor: accepted.cursor };
   } catch (error) {
     if (!(error instanceof HttpError)) throw error;
@@ -565,6 +584,17 @@ async function sendMessage(
   if (send.returnImmediately) await caughtUp(caller.ctx, sessionId, accepted.cursor, signal);
   else await settled(caller.ctx, sessionId, accepted, signal);
   const { task } = await ownedTask(caller, taskId, send.historyLength);
+  // A new message that asked to steer (`a2a-steer`, ADR-140) is told what applied: `steered`
+  // when it waited marked `steer` behind a running turn, which takes it before its next step
+  // (D85); `queued` when it started a turn, or waits as an ordinary queued message (a workflow).
+  // A steer the turn doesn't take after all (past its last step) starts the next turn.
+  if (send.delivery === "steer" && send.taskId === undefined)
+    return {
+      task: {
+        ...task,
+        metadata: { ...task.metadata, delivery: accepted.delivery === "steer" ? "steered" : "queued" },
+      },
+    };
   return { task };
 }
 

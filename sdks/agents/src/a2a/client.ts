@@ -82,10 +82,12 @@ export interface A2aSendOptions {
   extensions?: string[];
   /**
    * What a message to a busy context does: `queue` (profile v2's default) is answered with the
-   * task that will take it; `reject` is `A2aError` with reason `CONTEXT_BUSY`. Sent as
+   * task that will take it; `reject` is `A2aError` with reason `CONTEXT_BUSY`; `steer` (Host
+   * feature `a2a-steer`) has the running turn take it before its next step, as a session
+   * message's steer, and the task answered says what applied (`readDelivery`). Sent as
    * `metadata.delivery`.
    */
-  delivery?: "queue" | "reject";
+  delivery?: "queue" | "reject" | "steer";
   /**
    * The tools this message's turn may not use, by name (Host feature `remove-tools`), as a
    * session message's `removeTools`. Sent as `metadata.removeTools`; a new message only.

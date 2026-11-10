@@ -150,6 +150,21 @@ export function readInteraction(source: unknown): A2aInteraction | undefined {
   };
 }
 
+/**
+ * What applied to a message sent with `delivery: "steer"` (Host feature `a2a-steer`), from the
+ * task `SendMessage` answered (its own `metadata.delivery`, not an extension's): `steered` when
+ * it waited behind a running turn that takes it before its next step, `queued` when it started a
+ * turn or waits as an ordinary queued message.
+ */
+export type A2aDelivery = "steered" | "queued";
+
+/** The task's `metadata.delivery` (`A2aDelivery`); undefined for a message that did not steer. */
+export function readDelivery(source: unknown): A2aDelivery | undefined {
+  const task = isObject(source) && isObject(source.task) ? source.task : source;
+  const delivery = isObject(task) && isObject(task.metadata) ? task.metadata.delivery : undefined;
+  return delivery === "steered" || delivery === "queued" ? delivery : undefined;
+}
+
 /** `effects/v1`: the effect whose outcome was lost. */
 export function readEffects(source: unknown): A2aEffects | undefined {
   const data = readExtension(source, A2A_EXTENSIONS.effects);

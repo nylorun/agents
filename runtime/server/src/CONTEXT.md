@@ -949,7 +949,10 @@ value }` (`respond`), and text never approves. A **connection** ask is an ask (`
 metadata says `kind: "connection"`. A **queued follow-up** is a message to a busy context: queued
 (`delivery: "queue"`), and its task is named by the queued message's id
 (`t1.<context>.<queuedMessageId>`), `SUBMITTED` until a turn takes it (its `command.message`
-names the message), then that turn's; `metadata.delivery: "reject"` keeps `CONTEXT_BUSY`. One
+names the message), then that turn's; `metadata.delivery: "reject"` keeps `CONTEXT_BUSY`, and
+`"steer"` (Host feature `a2a-steer`, ADR-140) is a **steer**: the running turn takes the message
+before its next step and the task is that turn's, the task `SendMessage` answers saying
+`metadata.delivery: "steered"` (or `"queued"` when it started a turn or waits unmarked). One
 that fails or is cancelled before a turn takes it (`queue.failed`, `queue.cancelled`, Host feature
 `queue-recovery`) is `FAILED` or `CANCELED`, pushed; `CancelTask` takes a queued task out of the
 queue whether a task runs in its context or not.
@@ -1034,7 +1037,8 @@ each one's `command.message` under the running turn and one `queue.taken {turnId
 step}`, adds their file artifacts to the session's, and journals `{value: {events}}`, empty or not,
 so a replay takes the same at the same step. The engine writes them as `input` transcript entries
 after the step's tool results. A steer the turn doesn't take is an ordinary queued row:
-`startQueuedTurn` takes it when the turn ends. D76's defaults never choose steer.
+`startQueuedTurn` takes it when the turn ends. D76's defaults never choose steer. The A2A endpoint's
+`message.metadata.delivery: "steer"` (Host feature `a2a-steer`, ADR-140) sends this delivery.
 _Avoid_: "interrupt" (R3.5, which stops the turn), "inject".
 
 **Trigger** (track T4, D74): What starts an Agent's turns with no client connected, declared in its
