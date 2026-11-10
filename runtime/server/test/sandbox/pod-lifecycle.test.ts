@@ -155,6 +155,35 @@ describe("pod lifecycle", () => {
     expect(suspended.patch).toMatchObject({ observed: "suspended" });
   });
 
+  it("fails a running pod at once when its sandbox crashed, saying what it lost", () => {
+    const running = row({ observed: "running", podUid: "uid-1", lastActiveAt: new Date(T0).toISOString() });
+    const crashed = status({ ready: false, podPhase: undefined, reason: "Crashed", message: "worker pod went away while hosting the actor" });
+    const decision = decide(facts({ row: running, status: crashed, now: T0 + 2_000 }));
+    expect(decision.patch).toMatchObject({ observed: "failed" });
+    expect(decision.patch.reason).toMatch(/^Crashed: worker pod went away while hosting the actor\. .*last suspend/);
+    expect(decision.events).toEqual([{ type: "agent.failed", payload: { reason: decision.patch.reason } }]);
+    expect(decision.apply).toBeUndefined();
+  });
+
+  it("leaves a crash during a wake to the wake, which reverts the sandbox", () => {
+    const waking = row({ observed: "creating", rev: 2, podUid: undefined, startedAt: new Date(T0).toISOString() });
+    const crashed = status({ opId: `${NAME}.r2`, ready: false, podPhase: undefined, reason: "Crashed", message: "x" });
+    const decision = decide(facts({ row: waking, status: crashed, now: T0 + 2_000 }));
+    expect(decision.events).toEqual([]);
+    expect(decision.patch.observed).toBeUndefined();
+    expect(decision.retryAfterMs).toBeDefined();
+  });
+
+  it("records a crash an idle suspend finds, once", () => {
+    const suspending = row({ desired: "suspended", rev: 2, observed: "running", podUid: "uid-1" });
+    const crashed = status({ opId: `${NAME}.r2`, mode: "Suspended", ready: false, podPhase: undefined, reason: "Crashed", message: "worker pod went away while hosting the actor" });
+    const first = decide(facts({ row: suspending, status: crashed }));
+    expect(first.patch).toMatchObject({ observed: "suspended" });
+    expect(first.events.map((e) => e.type)).toEqual(["agent.failed"]);
+    const recorded = row({ desired: "suspended", rev: 2, observed: "suspended", podUid: "uid-1", reason: first.patch.reason ?? undefined });
+    expect(decide(facts({ row: recorded, status: crashed })).events).toEqual([]);
+  });
+
   it("never expires: a running pod past any age arms only its idle timer", () => {
     const old = row({ observed: "running", podUid: "uid-1", hostEpoch: 2, lastActiveAt: new Date(T0).toISOString() });
     const decision = decide(facts({ row: old, trigger: "idle", now: T0 + 30_000 }));

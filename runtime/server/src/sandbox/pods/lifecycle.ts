@@ -21,6 +21,10 @@
  *   ran on for days. A timer that fires during a turn looks again one idle period later.
  *   Becoming ready moves `lastActiveAt` to that moment, so a slow start doesn't use up the
  *   idle period before the pod can take a turn.
+ * - **Crashed** (Agent Substrate): a running pod whose sandbox crashed is `failed` at once
+ *   (`agent.failed`, saying what the Agent lost); a crash an idle suspend finds is recorded the
+ *   same way. The next turn start asks for `Running`, and the sandboxes service reverts the
+ *   sandbox to its last suspend before resuming it.
  * - **Lost**: an incarnation that has run (a pod joined) whose Sandbox is gone or whose volume
  *   is missing is `lost` (`agent.lost`): its host epoch moves, its Sandbox is deleted, and
  *   only a reset brings the Environment back. agent-sandbox recreates a deleted claim empty, so
@@ -80,6 +84,17 @@ export function imageDigestOf(imageID: string | undefined, requested: string): s
 
 /** A setup failure's `reason` starts with this (`sandbox/setup.ts`); it is sticky. */
 export const SETUP_FAILED = "setup:";
+
+/**
+ * A sandbox that crashed (Agent Substrate: its worker went away, or a wake failed) lost what its
+ * Agent wrote since its last suspend; the next start reverts it to that suspend. The reason
+ * `agent.failed` records, or undefined when the sandbox has not crashed.
+ */
+export function crashReasonOf(status: PodStatus): string | undefined {
+  if (status.reason !== "Crashed") return undefined;
+  const what = status.message?.trim() || "the sandbox stopped";
+  return `Crashed: ${what}. What the Agent wrote since its last suspend is lost; its next turn starts it from that suspend.`;
+}
 
 /** The lifecycle settings (D36), read each time a decision is made. */
 export interface PodLifecycleConfig {
@@ -283,10 +298,20 @@ export function decide(facts: PodFacts): PodDecision {
     }
     const startedAt = Date.parse(pod.startedAt ?? row.updatedAt);
     if (pod.observed === "failed") return done();
+    // A pod that was running and crashed will not come back by itself: failed now, not at the
+    // ready deadline. One still starting is left to its wake, which reverts a crashed sandbox.
+    const crash = crashReasonOf(status);
+    if (crash !== undefined && pod.observed === "running") {
+      patch.observed = "failed";
+      patch.reason = crash;
+      events.push(event("agent.failed", { reason: crash }));
+      return done();
+    }
     if (now - startedAt >= readyDeadlineMs) {
       const reason =
-        [status.reason, status.message].filter(Boolean).join(": ") ||
-        `The pod was not ready within ${Math.round(readyDeadlineMs / 1000)} s`;
+        crash ??
+        ([status.reason, status.message].filter(Boolean).join(": ") ||
+          `The pod was not ready within ${Math.round(readyDeadlineMs / 1000)} s`);
       patch.observed = "failed";
       patch.reason = reason;
       events.push(event("agent.failed", { reason }));
@@ -300,6 +325,13 @@ export function decide(facts: PodFacts): PodDecision {
   // Suspended, applied: suspended once its pod is gone.
   if (status.suspended || !status.podPhase) {
     if (pod.observed !== "suspended") patch.observed = "suspended";
+    // A suspend can find the sandbox already crashed (the idle timer fired before anything saw
+    // the crash): record the crash once, so its owner learns what it lost.
+    const crash = crashReasonOf(status);
+    if (crash !== undefined && pod.reason !== crash) {
+      patch.reason = crash;
+      events.push(event("agent.failed", { reason: crash }));
+    }
     return done();
   }
   again(pollMs);
