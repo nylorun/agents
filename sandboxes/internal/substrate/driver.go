@@ -392,7 +392,7 @@ func (d *Driver) driveOnce(ctx context.Context, name, opID, mode string, reverte
 			}
 			*reverted = true
 			d.o.Log.Warn("substrate actor crashed: reverting to its last snapshot", "name", name,
-				"crash", strings.TrimSpace(actor.GetStatus().GetCrash().String()))
+				"crash", actor.GetStatus().GetCrash().GetMessage())
 			cctx, cancel := d.call(ctx)
 			_, rerr := d.api.RevertActor(cctx, &ateapi.RevertActorRequest{Actor: d.ref(name)})
 			cancel()
@@ -579,9 +579,7 @@ func Compute(name string, actor *ateapi.Actor, st *state) driver.Status {
 		s.PodPhase = "Terminating"
 	case ateapi.ActorState_ACTOR_STATE_CRASHED:
 		s.Reason = "Crashed"
-		if crash := actor.GetStatus().GetCrash(); crash != nil {
-			s.Message = strings.TrimSpace(crash.String())
-		}
+		s.Message = strings.TrimSpace(actor.GetStatus().GetCrash().GetMessage())
 	}
 	return s
 }

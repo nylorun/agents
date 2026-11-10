@@ -238,9 +238,10 @@ func TestDeleteRemovesActorStateAndTemplate(t *testing.T) {
 }
 
 func TestComputeCrashed(t *testing.T) {
-	a := &ateapi.Actor{Metadata: &ateapi.ResourceMetadata{Uid: "u"}, Status: &ateapi.ActorStatus{State: ateapi.ActorState_ACTOR_STATE_CRASHED}}
+	a := &ateapi.Actor{Metadata: &ateapi.ResourceMetadata{Uid: "u"}, Status: &ateapi.ActorStatus{State: ateapi.ActorState_ACTOR_STATE_CRASHED,
+		Crash: &ateapi.ActorCrash{Message: "worker pod went away while hosting the actor"}}}
 	s := Compute(sbx, a, &state{Mode: "Running"})
-	if s.Ready || s.Reason != "Crashed" || !s.Exists {
+	if s.Ready || s.Reason != "Crashed" || !s.Exists || s.Message != "worker pod went away while hosting the actor" || s.PodPhase != "" {
 		t.Fatalf("%+v", s)
 	}
 }
