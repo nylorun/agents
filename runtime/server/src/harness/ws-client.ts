@@ -5,6 +5,10 @@
  * core's `workspace.*` requests (`serve`). When the connection is lost its runs stop (core gives
  * their segments to the next advance, which resumes them by replay) and the client connects
  * again after a jittered backoff (`harness.reconnect` in the Host tuning, 0.5 to 10 s).
+ *
+ * A pod's engine (`redialOnClockJump`) also watches for a freeze and resume (an Agent Substrate
+ * restore): it drops the connection attempt in flight, token request included, and dials again
+ * at once, instead of waiting for TCP to resend what the freeze lost.
  */
 import { createChannel, type HarnessChannel, type RequestHandler } from "@nylorun/core/harness-api";
 import { createHarness, type Harness, type HarnessOptions } from "@nylorun/harness/api";
@@ -12,6 +16,7 @@ import { WebSocket } from "ws";
 import { HARNESS_API_HEADER, HARNESS_API_TRANSPORT, HARNESS_MAX_PAYLOAD } from "@nylorun/core/harness-api";
 import { wsPort, type WsPortOptions } from "./ws-port.js";
 import { hostTuning } from "../tuning.js";
+import { watchClockJumps } from "./clock-jump.js";
 
 export interface HarnessClientOptions
   extends Omit<HarnessOptions, "channel" | "logger"> {
@@ -19,9 +24,10 @@ export interface HarnessClientOptions
   readonly url: string;
   /**
    * `NYLORUN_HARNESS_TOKEN`, or, for a pod sandbox's engine (F7.2), a function that answers
-   * a current host token before each connection (it renews, or joins again).
+   * a current host token before each connection (it renews, or joins again). The signal aborts
+   * it when the attempt is dropped.
    */
-  readonly token: string | (() => Promise<string>);
+  readonly token: string | ((signal?: AbortSignal) => Promise<string>);
   readonly logger: {
     info(message: string, fields?: Record<string, unknown>): void;
     warn(message: string, fields?: Record<string, unknown>): void;
@@ -31,6 +37,13 @@ export interface HarnessClientOptions
   /** Reconnect backoff bounds. Default `harness.reconnect` (Host tuning, 500 ms to 10 s). */
   readonly backoff?: { readonly minMs: number; readonly maxMs: number };
   readonly liveness?: Omit<WsPortOptions, "ping">;
+  /**
+   * Drop an attempt in flight and dial again at once when the process was frozen and resumed
+   * (`clock-jump.ts`): a pod's engine, which Agent Substrate suspends to a memory snapshot.
+   */
+  readonly redialOnClockJump?: boolean;
+  /** The clock and timings `redialOnClockJump` watches with (tests set them). */
+  readonly clockJumps?: Parameters<typeof watchClockJumps>[1];
 }
 
 export interface HarnessClient {
@@ -52,12 +65,26 @@ export function connectHarness(options: HarnessClientOptions): HarnessClient {
   let connected = false;
   let current: { channel: HarnessChannel; harness: Harness } | undefined;
   let wake: (() => void) | undefined;
+  /** The connection attempt in flight (token, then handshake), until it opens or fails. */
+  let attempting: AbortController | undefined;
+  let attempt = 0;
   let markReady!: () => void;
   const ready = new Promise<void>((resolve) => (markReady = resolve));
 
   const open = async () => {
-    const token = typeof options.token === "string" ? options.token : await options.token();
-    return new Promise<WebSocket>((resolve, reject) => {
+    const controller = new AbortController();
+    attempting = controller;
+    try {
+      const token = typeof options.token === "string" ? options.token : await options.token(controller.signal);
+      controller.signal.throwIfAborted();
+      return await dial(token, controller.signal);
+    } finally {
+      if (attempting === controller) attempting = undefined;
+    }
+  };
+
+  const dial = (token: string, signal: AbortSignal) =>
+    new Promise<WebSocket>((resolve, reject) => {
       const socket = new WebSocket(options.url, {
         headers: { authorization: `Bearer ${token}`, [HARNESS_API_HEADER]: HARNESS_API_TRANSPORT },
         maxPayload: HARNESS_MAX_PAYLOAD,
@@ -75,8 +102,17 @@ export function connectHarness(options: HarnessClientOptions): HarnessClient {
         socket.terminate();
       });
       socket.once("error", reject);
+      signal.addEventListener(
+        "abort",
+        () => {
+          socket.removeAllListeners("error");
+          socket.on("error", () => undefined);
+          socket.terminate();
+          reject(signal.reason instanceof Error ? signal.reason : new Error("connection attempt dropped"));
+        },
+        { once: true },
+      );
     });
-  };
 
   const pause = (ms: number) =>
     new Promise<void>((resolve) => {
@@ -114,8 +150,17 @@ export function connectHarness(options: HarnessClientOptions): HarnessClient {
     }
   };
 
+  const watch = options.redialOnClockJump
+    ? watchClockJumps((jumpedMs) => {
+        const inFlight = attempting !== undefined;
+        logger.info("harness_clock_jumped", { jumpedMs, redial: inFlight || wake !== undefined });
+        attempt = 0;
+        attempting?.abort(new Error(`the process resumed after ${jumpedMs} ms`));
+        wake?.();
+      }, options.clockJumps)
+    : undefined;
+
   const loop = (async () => {
-    let attempt = 0;
     while (!stopped) {
       const started = Date.now();
       try {
@@ -144,6 +189,8 @@ export function connectHarness(options: HarnessClientOptions): HarnessClient {
     channel: () => current?.channel,
     async stop(waitMs = tuning.stopMs) {
       stopped = true;
+      watch?.stop();
+      attempting?.abort(new Error("harness stopped"));
       wake?.();
       const live = current;
       if (live) {

@@ -22,7 +22,7 @@ Image: `ghcr.io/nylorun/sandboxes:<runtime version>` (a change here needs a
 | `GET /ready` | informers synced and the API server answers (open; the Compose health check) |
 | `GET /v1/info` | `{namespace, context, controllerVersion, apiVersion, hostAddress, ports, networkPolicy}` |
 | `PUT /v1/pods/{name}` | create or update; body below; a recorded `opId` is a no-op; returns the status |
-| `GET /v1/pods/{name}` | the status; `?wait=ready\|suspended\|expired\|gone&timeoutMs=≤30000` blocks on informer events and adds `met` |
+| `GET /v1/pods/{name}` | the status; `?wait=ready\|suspended\|expired\|gone&timeoutMs=≤30000` blocks until then (on informer events with agent-sandbox; reading the actor every 250 ms with Substrate) and adds `met` |
 | `DELETE /v1/pods/{name}?opId=` | foreground delete (pod and claim go with the Sandbox) and the join Secret |
 
 `/v1/*` needs `Authorization: Bearer $NYLORUN_SANDBOXES_TOKEN`. Errors are
@@ -59,10 +59,21 @@ and `edge` (`host`, `harnessPort`, `gatesPort`). The `/v1/pods` contract is the 
 - **A pod is an actor** in the Tenant's atespace. Each incarnation gets an ActorTemplate
   `<name>-t<hash>`, its images pinned by digest (a HEAD to the registry), carrying the join token
   and the edge's CA; a new spec suspends the actor, repoints it and deletes the old template.
-  `mode` maps to resume and suspend; `podUID` is the actor's UID, which the engine reads from
-  Substrate's actor metadata. State (the last `opId`, `shutdownTime`) is a ConfigMap
-  `<name>-state`. A sweep every 30 s applies `shutdownTime`. A resume that times out or finds Substrate busy is tried again every 5 s for 10 minutes while the sandbox's mode is still `Running` (a cold node's first resume pulls the image, which can outlast one 2-minute call).
-- **The actor's resolver** gets `RES_OPTIONS=timeout:1 attempts:3` (an Agent's own value wins), so a restored actor's lost first DNS packet costs 1 s, not glibc's 5 s. The edge itself needs no lookup: the wrapper pins `<host address> <edge host>` in the actor's `/etc/hosts` at a fresh start, when the file is writable (Substrate keeps the actor's own edits to it across restores, and its egress routes the edge by TLS name).
+  `mode` maps to resume and suspend (synchronous, so the snapshot is in durable storage when it
+  returns); `podUID` is the actor's UID, which the engine reads from Substrate's actor metadata.
+  State (the last `opId`, `mode`, template and image) is a ConfigMap `<name>-state`: actors carry
+  no labels to hold it. `shutdownTime` and `shutdownPolicy` are not applied (the Runtime sends
+  none), so `expired` is never set. A resume is one `ResumeActor` call that may take up to
+  5 minutes, the Runtime's own ready deadline (a cold node's first resume pulls the image, and
+  cancelling the call would cancel the restore). It is tried again while Substrate is busy, or
+  while the actor is still suspending, until a later request replaces it. An actor that crashed,
+  or that a failed wake left crashed, is reverted to its last snapshot once and resumed
+  (Substrate refuses to resume a crashed actor). Each resume logs `substrate resumed` with its
+  time in `ms`.
+- **The edge needs no DNS lookup in the actor:** the wrapper pins `<host address> <edge host>`
+  in the actor's `/etc/hosts` at a fresh start, when the file is writable (Substrate keeps the
+  actor's own edits to it across restores, and its egress routes the edge by TLS name). A
+  restored actor's first lookup can be lost (P1.8).
 - **Egress** is the Agent's network (`network` in the PUT body: `preset`, `hosts`, `suffixes`):
   the edge by TLS passthrough, each host on 443 (passthrough) and 80, or everything for `open`.
 - **The edge** listens on `:8443` (to `http://runtime:4200`) and `:8444` (to

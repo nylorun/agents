@@ -37,12 +37,6 @@ const (
 	BlockedProbe = "169.254.169.254:80"
 )
 
-// ResolverOptions shortens glibc's DNS timeout from 5 s to 1 s, with three tries: a restored
-// actor's first lookup of the edge's name can lose its UDP packet, and the engine then waited
-// out the whole 5 s before rejoining (P1.8: 2 of 10 wakes took 5.4 s). An Agent's own
-// RES_OPTIONS wins; musl ignores the variable and already retries each second.
-const ResolverOptions = "timeout:1 attempts:3"
-
 // ReconnectTuning is the engine's reconnect without its 5 s wait after a restore (lab §3.8:
 // 4.9 s -> 0.22 s at p50). It is merged under the operator's own tuning.
 var ReconnectTuning = map[string]any{"harness": map[string]any{
@@ -160,7 +154,6 @@ func RenderTemplate(s Settings, spec driver.Spec, images Resolved, joinToken str
 		"NYLORUN_HARNESS_URL":           s.HarnessURL,
 		"NYLORUN_GATES_URL":             s.GatesURL,
 		"NYLORUN_SANDBOX_BLOCKED_PROBE": BlockedProbe,
-		"RES_OPTIONS":                   ResolverOptions,
 	}
 	if s.EdgeCA != "" {
 		env["NYLORUN_EDGE_CA"] = s.EdgeCA
