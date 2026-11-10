@@ -128,10 +128,12 @@ function explainOne(
     }
   };
   const blocks = new Set(preview.blocks.map((block) => block.name));
-  // A Runtime plugin's tool by its own name: nylorun__memory is memory (ADR-106).
-  const tools = new Set(preview.engineTools.map((name) => runtimeToolOf(name) ?? name));
+  // A Runtime plugin's tool matches by its own name (nylorun__memory is memory, ADR-106), and is
+  // shown by the name the model reads, the one `removeTools` and tool policy take.
+  const modelNames = new Map(preview.engineTools.map((name) => [runtimeToolOf(name) ?? name, name]));
+  const tools = new Set(modelNames.keys());
   const features = ENGINE_FEATURES.map((feature): ExplainedFeature => {
-    const added = TOOLS[feature].filter((name) => tools.has(name));
+    const added = TOOLS[feature].filter((name) => tools.has(name)).map((name) => modelNames.get(name) ?? name);
     const text = BLOCKS[feature].filter((name) => blocks.has(name)).map((name) => `${name}@${ENGINE_BLOCK_VERSIONS[name]}`);
     let on = added.length > 0 || text.length > 0;
     let note: string | undefined;
@@ -143,7 +145,7 @@ function explainOne(
       note = !facts.root
         ? "view only: the root agent's memory"
         : facts.pinned
-          ? "the memory index is pinned at the head of each session"
+          ? "the memory index is pinned at the head of each session, and again at a turn after a write from elsewhere"
           : "no memory index is pinned (memory.index: false)";
     if (feature === "toolSearch") {
       on = preview.features.toolSearch;

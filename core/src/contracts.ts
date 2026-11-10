@@ -3257,8 +3257,8 @@ export type MessageDelivery = z.infer<typeof MessageDeliverySchema>;
  * A message's `removeTools` (Host feature `remove-tools`): the tools its turn may not use, by
  * name. In the root agent and each agent it uses as a tool, a name removes the declared tool of
  * that name (an agent used as a tool included), `<server>__<tool>` disables an MCP server's tool
- * (the server's name and the tool's own name on it), and `<server>` every tool of that server.
- * Applied to the version the turn runs, after a turn's first segment re-pins the session to its
+ * (the server's name and the tool's own name on it), `<server>` every tool of that server, and a
+ * Runtime plugin's tool is named `nylorun__<tool>` or by its own name (`memory`). Applied to the version the turn runs, after a turn's first segment re-pins the session to its
  * Agent's version; names that version does not have are ignored. Any caller may send it: it
  * only narrows.
  */

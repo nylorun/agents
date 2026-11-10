@@ -18,6 +18,7 @@ import {
   PLUGIN_NAMES,
   RUNTIME_SERVER_HEADING,
   engineProjection,
+  explainEngine,
   pluginOf,
   pluginTools,
   previewTurn,
@@ -202,5 +203,23 @@ describe("server nylorun, as the model sees it", () => {
     const projection = engineProjection(narrowed, undefined, DEFAULT_ENGINE_TOOL_LIMITS, undefined, true, true, false, true);
     expect(projection.tools.map((tool) => tool.name)).toContain("nylorun__request_connection");
     expect(projection.tools.map((tool) => tool.name)).not.toContain("nylorun__ask");
+  });
+
+  it("lets removeTools leave a plugin's tool out by its own name too, the one events show (#589)", () => {
+    const loop = { ...(harnessOf(compiled.manifest) as object), id: "helper", manifestSchemaVersion: 7 } as unknown as AgentManifest;
+    const narrowed = withoutTools(loop, ["memory"]);
+    expect(narrowed.engine!.plugins!.find((plugin) => plugin.name === "nylorun-memory")!.tools).toEqual([]);
+    const projection = engineProjection(narrowed, undefined, DEFAULT_ENGINE_TOOL_LIMITS, undefined, true, true, false, true);
+    expect(projection.tools.map((tool) => tool.name)).not.toContain("nylorun__memory");
+    // A name no plugin has is still ignored.
+    expect(withoutTools(loop, ["nope"])).toBe(loop);
+  });
+
+  it("explains a plugin's tools by the names the model reads (#590)", () => {
+    const [root] = explainEngine(compiled.manifest!);
+    const tools = (feature: string) => root!.features.find((item) => item.feature === feature)!.tools;
+    expect(tools("memory")).toEqual(["nylorun__memory"]);
+    expect(tools("plan")).toEqual(["nylorun__update_plan"]);
+    expect(tools("connections")).toEqual(["nylorun__request_connection", "nylorun__ask"]);
   });
 });

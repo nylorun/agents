@@ -1,4 +1,4 @@
-import { runtimeToolOf } from "../plugins/index.js";
+import { pluginOfTool, runtimeToolOf } from "../plugins/index.js";
 import type {
   AgentManifest,
   McpServerManifest,
@@ -125,7 +125,9 @@ export function isVariantOf(
  * - the tool of that name: an agent used as a tool, an HTTP tool, any declared tool;
  * - `<server>__<tool>`, an MCP server's tool by the server's name and the tool's own name on it:
  *   disabled in the server's `tools` settings (`{enabled: false}`);
- * - `<server>`, an MCP server's name: every tool of it disabled (`"*"` and each entry).
+ * - `<server>`, an MCP server's name: every tool of it disabled (`"*"` and each entry);
+ * - a Runtime plugin's tool, by the name the model reads (`nylorun__memory`) or its own name
+ *   (`memory`): turned off in the declared plugin (ADR-106).
  *
  * A name that matches nothing is ignored: the version the turn runs may not have it. Returns
  * `manifest` itself when nothing matched.
@@ -139,8 +141,11 @@ export function withoutTools(manifest: AgentManifest, names: readonly string[]):
 
 function narrowAgent(agent: AgentManifest, removed: ReadonlySet<string>, root: boolean): AgentManifest {
   const { tools: _tools, mcpServers: _servers, engine: _engine, ...rest } = agent;
-  // A Runtime plugin's tool by the name the model reads (ADR-106): `nylorun__ask` turns `ask` off.
-  const offPlugin = new Set([...removed].flatMap((name) => runtimeToolOf(name) ?? []));
+  // A Runtime plugin's tool by the name the model reads (ADR-106): `nylorun__ask` turns `ask` off,
+  // and so does its own name `ask`, the one events and `check --explain` show.
+  const offPlugin = new Set(
+    [...removed].flatMap((name) => runtimeToolOf(name) ?? (pluginOfTool(name) === undefined ? [] : [name])),
+  );
   const engine =
     agent.engine?.plugins !== undefined && offPlugin.size > 0
       ? { ...agent.engine, plugins: agent.engine.plugins.map((plugin) => ({ ...plugin, tools: plugin.tools.filter((tool) => !offPlugin.has(tool)) })) }
