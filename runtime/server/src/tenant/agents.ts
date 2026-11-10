@@ -73,7 +73,7 @@ import { sandboxWorkspaceKey } from "../sandbox/records.js";
 import { effectiveSandboxConfig, readSandboxConfig } from "../sandbox/tenant-config.js";
 import { podName } from "../sandbox/pods/name.js";
 import { podLifecycleConfig } from "../sandbox/pods/spec.js";
-import { SETUP_FAILED } from "../sandbox/pods/lifecycle.js";
+import { CRASHED, SETUP_FAILED } from "../sandbox/pods/lifecycle.js";
 import { requirePods } from "../sandbox/placement.js";
 import type { SandboxRouteDeps } from "../core/sandbox-routes.js";
 import { deleteDiskArtifact, forkSeedOf, runPendingSeed, snapshotEnvironment } from "../artifacts/disk.js";
@@ -172,6 +172,10 @@ export function stateOf(
   const pod = agent.pod;
   if (pod && (pod.observed === "failed" || pod.observed === "lost") && pod.desired !== "deleted")
     attention.push({ state: "failing", reason: `compute ${pod.observed}${pod.reason ? `: ${pod.reason}` : ""}` });
+  // A crash an idle suspend found leaves the pod suspended, not failed: what the Agent wrote since
+  // its last suspend is gone all the same, so it is named until a turn starts the pod again.
+  else if (pod && pod.reason?.startsWith(CRASHED) && pod.desired !== "deleted")
+    attention.push({ state: "failing", reason: `compute crashed: ${pod.reason}` });
   // A start on a new version failed and went back (track T3): until a start on a new one succeeds.
   if (agent.failedVersion !== undefined)
     attention.push({ state: "failing", reason: `start_failed: version ${agent.failedVersion} did not start` });
