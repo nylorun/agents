@@ -96,7 +96,7 @@ import {
   type PendingInteraction,
 } from "./tasks.js";
 import { currentModelDescriptor } from "../../model/descriptor.js";
-import { decodeCursor } from "../../record/cursor.js";
+import { decodeCursor, encodeCursor } from "../../record/cursor.js";
 import { accessOf } from "../../tenant/auth.js";
 import { cancelQueuedMessage, command } from "../../tenant/commands.js";
 import {
@@ -111,7 +111,7 @@ import { agentGrantsOf, liveEnvironment } from "../../tenant/agents.js";
 import { HttpError, fail } from "../../tenant/http.js";
 import { observeSession, readHistory } from "../../tenant/session-streams.js";
 import { putSession } from "../../tenant/sessions.js";
-import type { TurnRow } from "../../store/types.js";
+import type { QueuedMessageRow, TurnRow } from "../../store/types.js";
 import { readRuntimeLimits } from "../../tenant/runtime-limits.js";
 import { traceKey } from "../../traces/key.js";
 import { parseTraceparent, traceIdOf, type TraceContext } from "../../traces/ids.js";
@@ -140,8 +140,11 @@ interface OwnedTask {
   readonly turnId: string;
   /** The task's events, in stream order. */
   readonly events: readonly LiveEvent[];
-  /** Set while the task is a queued message no turn took yet. */
-  readonly queued?: LiveEvent;
+  /**
+   * Set while the task is a queued message no turn took yet: its `message.queued`, or its queue
+   * row while the session's stream has not caught up with the record.
+   */
+  readonly queued?: LiveEvent | QueuedMessageRow;
   /** Set when the task was a queued message that failed or was cancelled before a turn took it. */
   readonly dropped?: LiveEvent;
 }
@@ -356,7 +359,8 @@ async function indexedTask(
  * index keeps the queued messages each turn took) the task is that turn's, under the id the
  * caller knows. A queued message that failed or was cancelled before a turn took it (Host feature
  * `queue-recovery`) is `FAILED` or `CANCELED`, from the event that ended it. Only a message still
- * in the queue, or no longer in it and taken by no turn, is looked for in the session's history.
+ * in the queue, or no longer in it and taken by no turn, is looked for in the session's history;
+ * one still in the queue is `SUBMITTED` from its row while the stream lags behind the record.
  */
 async function ownedTask(
   caller: Caller,
@@ -370,7 +374,8 @@ async function ownedTask(
     const turn = await t.turn(sessionId, ids.turnId);
     if (turn) return { turn };
     // Still queued, or taken: the queue is read first, so a message taken meanwhile is found.
-    if ((await t.queuedMessages(sessionId)).some((row) => row.id === ids.turnId)) return { queued: true };
+    const row = (await t.queuedMessages(sessionId)).find((row) => row.id === ids.turnId);
+    if (row) return { row };
     const taken = await t.turnOfQueuedMessage(sessionId, ids.turnId);
     return taken ? { turn: taken } : {};
   });
@@ -383,7 +388,10 @@ async function ownedTask(
     const dropped = queued ? events.find((event) => endsQueued(event, ids.turnId)) : undefined;
     const owned = { session, sessionId, contextId: ids.contextId, turnId: ids.turnId, events: [] };
     if (dropped) return { ...owned, task: droppedTask(ids.contextId, taskId, dropped), dropped };
-    if (queued && found.queued) return { ...owned, task: submittedTask(ids.contextId, taskId, queued), queued };
+    if (found.row) {
+      const since = queued?.time ?? found.row.createdAt;
+      return { ...owned, task: submittedTask(ids.contextId, taskId, since), queued: queued ?? found.row };
+    }
   }
   const row = found.turn ?? taskNotFound(taskId);
   const built =
@@ -553,8 +561,9 @@ async function sendMessage(
       nextSeq: decodeCursor(sessionId, accepted.cursor),
       ...(accepted.turnId !== undefined ? { traceId: await sendTraceId(caller, sessionId, accepted.turnId) } : {}),
     });
-  if (!send.returnImmediately)
-    await settled(caller.ctx, sessionId, accepted, signal);
+  // The task is read from the stream: it must hold the message this request wrote.
+  if (send.returnImmediately) await caughtUp(caller.ctx, sessionId, accepted.cursor, signal);
+  else await settled(caller.ctx, sessionId, accepted, signal);
   const { task } = await ownedTask(caller, taskId, send.historyLength);
   return { task };
 }
@@ -771,8 +780,9 @@ function replyTarget(owned: OwnedTask): string {
 /**
  * `CancelTask`. A queued task (`SUBMITTED`) leaves its context's queue and is `CANCELED`
  * (`queue.cancelled`, pushed), whether a task runs in the context or not (Host feature
- * `queue-recovery`); one a turn took meanwhile is cancelled as that turn. A running or waiting
- * task's turn is cancelled. An ended task is not cancelable, unless it is `CANCELED` already.
+ * `queue-recovery`); one a turn took meanwhile is cancelled as that turn. The answer waits for
+ * the stream to hold the `queue.cancelled` it wrote (`caughtUp`). A running or waiting task's turn
+ * is cancelled. An ended task is not cancelable, unless it is `CANCELED` already.
  */
 async function cancelTask(caller: Caller, taskId: string, again = true): Promise<Task> {
   const owned = await ownedTask(caller, taskId);
@@ -785,8 +795,21 @@ async function cancelTask(caller: Caller, taskId: string, again = true): Promise
       "Canceled by the A2A client"
     );
     // Gone from the queue meanwhile: a turn took it, or it failed. Answer as the task is now.
-    if (!cancelled && again) return cancelTask(caller, taskId, false);
-    return (await ownedTask(caller, taskId)).task;
+    if (!cancelled) return again ? cancelTask(caller, taskId, false) : (await ownedTask(caller, taskId)).task;
+    await caughtUp(caller.ctx, owned.sessionId, cancelled.cursor);
+    const after = await ownedTask(caller, taskId).catch((error: unknown) => {
+      if (error instanceof A2aError && error.kind === "taskNotFound") return undefined;
+      throw error;
+    });
+    // The stream still lags behind `queue.cancelled`: the cancel committed, so it is CANCELED.
+    return (
+      after?.task ?? {
+        id: taskId,
+        contextId: owned.contextId,
+        status: { state: "TASK_STATE_CANCELED", timestamp: new Date().toISOString() },
+        history: [],
+      }
+    );
   }
   if (owned.session.activeTurnId !== owned.turnId) {
     if (owned.task.status.state === "TASK_STATE_CANCELED") return owned.task;
@@ -869,7 +892,9 @@ async function createPushConfig(
   requirePush(caller);
   const { taskId, config } = parseCreatePushParams(params);
   const owned = await ownedTask(caller, taskId);
-  const last = owned.dropped ?? owned.queued ?? owned.events.at(-1);
+  // A queued task the stream has not caught up with is followed from the session's start.
+  const queued = owned.queued && "type" in owned.queued ? owned.queued : undefined;
+  const last = owned.dropped ?? queued ?? owned.events.at(-1);
   const ended = owned.dropped !== undefined || owned.events.some((event) => ENDED.has(event.type));
   const configId =
     config.id ?? createHash("sha256").update(`${config.url}\u0000${config.token ?? ""}`).digest("hex").slice(0, 16);
@@ -929,6 +954,42 @@ async function deletePushConfig(caller: Caller, params: Record<string, unknown>)
   // Idempotent: a config already gone is deleted.
   await caller.ctx.store.tx((t) => t.deletePushConfig(owned.sessionId, owned.task.id, ref.id));
   return {};
+}
+
+/** How long a reply waits for the session's stream to hold the request's own write. */
+const OWN_WRITE_WAIT_MS = 5_000;
+
+/**
+ * Waits until the session's stream holds the event at `cursor`, which this request wrote: the
+ * relay copies it from the record a little after the commit, and replies are read from the
+ * stream. Ends after `OWN_WRITE_WAIT_MS`, when the caller hangs up, or when the feed ends; the
+ * reply then says what the stream and the store say.
+ */
+async function caughtUp(
+  ctx: TenantContext,
+  sessionId: string,
+  cursor: string,
+  signal?: AbortSignal
+): Promise<void> {
+  const seq = decodeCursor(sessionId, cursor);
+  const stop = new AbortController();
+  const timer = setTimeout(() => stop.abort(), OWN_WRITE_WAIT_MS);
+  timer.unref();
+  const hangup = () => stop.abort();
+  signal?.addEventListener("abort", hangup, { once: true });
+  if (signal?.aborted) stop.abort();
+  try {
+    // The feed yields what follows a cursor: start from the event before.
+    const before = seq > 0 ? encodeCursor(sessionId, seq - 1) : undefined;
+    for await (const event of observeSession(ctx, sessionId, before, { signal: stop.signal }))
+      if (event.seq >= seq) return;
+  } catch (error) {
+    // A session or streams gone: the reply says so.
+    if (!(error instanceof HttpError)) throw error;
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", hangup);
+  }
 }
 
 /**
