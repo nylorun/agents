@@ -195,6 +195,28 @@ export function stateOf(
   return { state: attention[0]?.state ?? "sleeping", attention };
 }
 
+/**
+ * The sessions whose latest turn ran on this Agent. A deleted Agent's sessions keep its id
+ * (`deleteAgent`), so an Agent created again under that id would otherwise read `failing` or
+ * `input_required` from turns it never ran. A session whose latest turn started before this Agent
+ * was created is left out of its state until it takes a turn here; one with no turn in the turn
+ * index (Host feature `turns`) is kept.
+ */
+export async function ranOnThisAgent<T extends Pick<Session, "id" | "activeTurnId" | "lastTurnId">>(
+  t: Tx,
+  environment: Pick<Environment, "createdAt">,
+  sessions: readonly T[],
+): Promise<T[]> {
+  const kept: T[] = [];
+  for (const session of sessions) {
+    const turnId = session.activeTurnId ?? session.lastTurnId;
+    const turn = turnId ? await t.turn(session.id, turnId) : undefined;
+    if (turn !== undefined && Date.parse(turn.startedAt) < Date.parse(environment.createdAt)) continue;
+    kept.push(session);
+  }
+  return kept;
+}
+
 /** How an Agent names its manifest: `name` when it tracks it, `name@n` when pinned. */
 export function manifestRefOf(agent: Pick<Environment, "manifestName" | "manifestVersion" | "manifestRef">): string {
   return agent.manifestRef === "tracking" ? agent.manifestName : `${agent.manifestName}@${agent.manifestVersion}`;
@@ -216,7 +238,11 @@ async function viewOf(
       : undefined;
   const pod = environment.pod;
   const visible = sessions.filter((session) => owner === undefined || session.ownerUserId === owner);
-  const { state, attention } = stateOf(environment, visible, await unsetRequiredSecrets(t, environment));
+  const { state, attention } = stateOf(
+    environment,
+    await ranOnThisAgent(t, environment, visible),
+    await unsetRequiredSecrets(t, environment),
+  );
   return {
     id: environment.id,
     manifest: manifestRefOf(environment),
@@ -1081,7 +1107,8 @@ async function deleteKeys(ctx: TenantContext, keys: readonly string[]): Promise<
 /**
  * `DELETE /v1/agents/{id}`: deletes the Environment, its vault and its workspace. Refused
  * while a session that names it has an active turn. Sessions keep its id: their next turn is
- * refused (`agent_unavailable`) unless an Environment with this id exists again.
+ * refused (`agent_unavailable`) unless an Environment with this id exists again. An Agent created
+ * again under the id does not take their state until they take a turn on it (`ranOnThisAgent`).
  */
 export async function deleteAgent(
   ctx: TenantContext,
