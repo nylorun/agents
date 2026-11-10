@@ -3,9 +3,11 @@ import { cn } from "@/lib/utils";
 import { createTenantManagementClient } from "@/proxy-client";
 import { messageOf, useRead } from "@/resources/reads";
 import {
-  bytesText,
   computeSections,
   parseLimit,
+  sandboxForm,
+  sandboxPut,
+  sizeInput,
   type ArtifactsView,
   type SandboxView,
   type SkillsView,
@@ -14,8 +16,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ReadState } from "@/components/resource-layout";
 import { FormField, SidePanel, StatusDot, TableToolbar } from "@/components/data-table";
-
-const MiB = 1024 ** 2;
 
 /**
  * Where the Tenant's Agents run: the sandbox the Runtime chose and the backends it found, then
@@ -100,10 +100,11 @@ type SandboxPut = Parameters<ReturnType<typeof createTenantManagementClient>["se
 type ArtifactsPut = Parameters<ReturnType<typeof createTenantManagementClient>["settings"]["artifacts"]["put"]>[0];
 type SkillsPut = Parameters<ReturnType<typeof createTenantManagementClient>["settings"]["skills"]["put"]>[0];
 
-/** A size as the form shows it: `8GiB`, which the Runtime reads back. */
-const sizeInput = (bytes: number) => bytesText(bytes).replaceAll(",", "").replace(" ", "");
-
-/** The compute settings, as one form; only the parts it changes are saved. */
+/**
+ * The compute settings, as one form; only the parts it changes are saved. The sandbox settings
+ * it puts are the Tenant's stored ones with the changed fields set, so a setting the form does
+ * not show (`engine`, `placement`) or that the Tenant left to its default stays as it was.
+ */
 function EditCompute({
   sandbox,
   artifacts,
@@ -117,16 +118,9 @@ function EditCompute({
   onClose: () => void;
   save: (sandbox?: SandboxPut, artifacts?: ArtifactsPut, skills?: SkillsPut) => Promise<void>;
 }) {
-  const limits = sandbox.config.limits;
+  const effective = sandbox.effective;
   const initial = {
-    network: limits.network.join("\n"),
-    cpus: String(limits.resources.cpus),
-    memory: sizeInput(limits.resources.memoryMiB * MiB),
-    defaultCpus: String(limits.defaultResources.cpus),
-    defaultMemory: sizeInput(limits.defaultResources.memoryMiB * MiB),
-    idle: limits.idle,
-    stopGrace: sandbox.config.lifecycle?.stopGrace ?? "",
-    environments: limits.environments === undefined ? "" : String(limits.environments),
+    ...sandboxForm(sandbox),
     fileBytes: artifacts ? sizeInput(artifacts.limits.fileBytes) : "",
     totalBytes: artifacts ? sizeInput(artifacts.limits.totalBytes) : "",
     skillBytes: skills ? sizeInput(skills.limits.totalBytes) : "",
@@ -143,43 +137,13 @@ function EditCompute({
       setError(message);
       return undefined;
     };
-    const count = (text: string, what: string) => {
-      const value = parseLimit("count", text);
-      return value === undefined ? fail(`${what} must be a whole number.`) : value;
-    };
     const bytes = (text: string, what: string) => {
       const value = parseLimit("sizeBytes", text);
       return value === undefined ? fail(`${what} must be a size such as 512MiB or 2GiB.`) : value;
     };
-    const memory = (text: string, what: string) => {
-      const value = bytes(text, what);
-      if (value === undefined) return undefined;
-      return value % MiB === 0 ? `${value / MiB}MiB` : fail(`${what} must be a whole number of MiB.`);
-    };
-    const sandboxChanged = (
-      ["network", "cpus", "memory", "defaultCpus", "defaultMemory", "idle", "stopGrace", "environments"] as const
-    ).some((key) => form[key] !== initial[key]);
-    let sandboxPut: SandboxPut | undefined;
-    if (sandboxChanged) {
-      const cpus = count(form.cpus, "Most CPUs");
-      const max = memory(form.memory, "Most memory");
-      const defaultCpus = count(form.defaultCpus, "Default CPUs");
-      const defaultMemory = memory(form.defaultMemory, "Default memory");
-      const environments = form.environments.trim() === "" ? undefined : count(form.environments, "Most Agents");
-      if (cpus === undefined || max === undefined || defaultCpus === undefined || defaultMemory === undefined) return;
-      if (form.environments.trim() !== "" && environments === undefined) return;
-      sandboxPut = {
-        limits: {
-          network: form.network.split(/[\s,]+/u).filter(Boolean),
-          resources: { cpus, memory: max },
-          defaultResources: { cpus: defaultCpus, memory: defaultMemory },
-          idle: form.idle.trim(),
-          ...(environments === undefined ? {} : { environments }),
-        },
-        ...(form.stopGrace.trim() ? { lifecycle: { stopGrace: form.stopGrace.trim() } } : {}),
-        ...(sandbox.config.placement ? { placement: sandbox.config.placement } : {}),
-      };
-    }
+    const sandboxSaved = sandboxPut(sandbox.config, sandboxForm(sandbox), form);
+    if (sandboxSaved.error) return fail(sandboxSaved.error);
+    const sandboxBody: SandboxPut | undefined = sandboxSaved.put;
     let artifactsPut: ArtifactsPut | undefined;
     if (artifacts && (form.fileBytes !== initial.fileBytes || form.totalBytes !== initial.totalBytes)) {
       const fileBytes = bytes(form.fileBytes, "Artifact file");
@@ -193,10 +157,10 @@ function EditCompute({
       if (totalBytes === undefined) return;
       skillsPut = { limits: { totalBytes } };
     }
-    if (!sandboxPut && !artifactsPut && !skillsPut) return onClose();
+    if (!sandboxBody && !artifactsPut && !skillsPut) return onClose();
     setPending(true);
     try {
-      await save(sandboxPut, artifactsPut, skillsPut);
+      await save(sandboxBody, artifactsPut, skillsPut);
     } catch (cause) {
       setError(messageOf(cause));
     } finally {
@@ -243,8 +207,8 @@ function EditCompute({
           {field("defaultMemory", "Default memory")}
         </div>
         {field("idle", "Idle", "Stop compute after this long without a turn, such as 15m or 1h.")}
-        {sandbox.config.lifecycle ? field("stopGrace", "Stop grace", "How long a pod has to stop, such as 10s.") : null}
-        {limits.environments !== undefined ? field("environments", "Most Agents") : null}
+        {effective.lifecycle ? field("stopGrace", "Stop grace", "How long a pod has to stop, such as 10s.") : null}
+        {effective.limits.environments !== undefined ? field("environments", "Most Agents") : null}
         {artifacts ? (
           <div className="grid grid-cols-2 gap-3">
             {field("fileBytes", "Artifact file")}

@@ -257,8 +257,10 @@ the order an Agent's turn meets them (`?tab=`; it opens on **Status**):
 - **Compute**: the sandbox the Runtime chose and the backends it probed, the most an
   Agent's runtime section may ask for (allowed hosts, resources, idle, stop grace, how
   many Agents), where harnesses may run, and what artifacts and skills may hold
-  (`GET /v1/tenant/sandbox`, `/artifacts`, `/skills`). **Edit compute settings…**
-  saves only the parts it changes (`PUT` each).
+  (`GET /v1/tenant/sandbox`, `/artifacts`, `/skills`), and the images that carry the
+  engine. **Edit compute settings…** saves only the parts it changes (`PUT` each): the
+  sandbox settings it puts are the stored ones (`config`) with the changed fields set, so
+  `engine.images`, `placement` and every setting left to its default stay as they were.
 - **Tool policy**: the rules the Tool Gate applies to every MCP and HTTP tool call,
   strictest first (effect, tool, manifest, when, reason; `GET /v1/tenant/tool-policy`).
   A row opens it to edit; **Add rule** adds one; the policy is saved whole

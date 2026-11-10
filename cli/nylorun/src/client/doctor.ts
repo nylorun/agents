@@ -3,6 +3,10 @@ import { CliError } from "../errors.js";
 import type { StackDeps } from "../stack/commands.js";
 import { connect, managementClient } from "./target.js";
 
+type EffectiveLimits = {
+  limits?: { network?: readonly string[]; idle?: string; environments?: number };
+};
+
 export type SandboxReport = {
   preference: string;
   backend: string | null;
@@ -16,10 +20,12 @@ export type SandboxReport = {
     version?: string;
   }[];
   defaultImage?: string;
-  /** The Tenant's settings for Agents' environments in force (`environments.config`). */
-  config?: {
-    limits?: { network?: readonly string[]; idle?: string; environments?: number };
-  };
+  /**
+   * The Tenant's settings for Agents' environments in force (`environments.config` with the
+   * defaults). A Runtime before #588 sends them as `config`, which now holds the stored settings.
+   */
+  effective?: EffectiveLimits;
+  config?: EffectiveLimits;
   /** The Tenant's cluster for pod Agents (`nylorun local sandbox enable`), when it has one. */
   cluster?: {
     namespace: string;
@@ -85,7 +91,7 @@ export async function doctorSandbox(
     "sessions",
     "run on an Agent, with the sandbox its manifest's runtime.kind gives (createSession({ agent }))",
   ]);
-  const limits = report.config?.limits;
+  const limits = (report.effective ?? report.config)?.limits;
   if (limits)
     rows.push([
       "limits",

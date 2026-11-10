@@ -945,6 +945,7 @@ test("the Tenant's page: its header, then status, compute, tool policy, limits, 
     const environments = page.getByRole("region", { name: "Environments" });
     await environments.getByText("4 CPUs · 8 GiB memory", { exact: true }).waitFor();
     await environments.getByText("pypi.org, github.com", { exact: true }).waitFor();
+    await environments.getByText("ghcr.io/nylorun/bot-worker", { exact: true }).waitFor();
     await page.getByRole("region", { name: "Storage" }).getByText("12 MiB used", { exact: true }).waitFor();
 
     await page.getByRole("tab", { name: "Tool policy" }).click();
@@ -1045,15 +1046,15 @@ test("the Tenant's tool policy, limits, budgets and compute are edited in a pane
       await compute.getByLabel("Most memory").fill("16GiB");
       await compute.getByRole("button", { name: "Save" }).click();
       await page.getByRole("region", { name: "Environments" }).getByText("Stops after 30m without a turn", { exact: true }).waitFor();
+      // The stored settings with the two changed fields: the engine images set through the API
+      // stay, and no default becomes an override (#588).
       assert.deepEqual(put("/v1/tenant/sandbox"), {
         limits: {
           network: ["pypi.org", "github.com"],
-          resources: { cpus: 4, memory: "16384MiB" },
-          defaultResources: { cpus: 1, memory: "1024MiB" },
+          resources: { memory: "16384MiB" },
           idle: "30m",
-          environments: 100,
         },
-        lifecycle: { stopGrace: "10s" },
+        engine: { images: ["ghcr.io/nylorun/bot-worker"] },
       });
       // Only what changed is saved: the storage limits stay as they were.
       assert.equal(put("/v1/tenant/artifacts"), undefined);

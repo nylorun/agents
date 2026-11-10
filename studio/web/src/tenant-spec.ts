@@ -460,9 +460,11 @@ export function computeSections(
   skills?: SkillsView,
   agents?: number,
 ): ComputeSection[] {
-  const limits = sandbox.config.limits;
+  const effective = sandbox.effective;
+  const limits = effective.limits;
   const cluster = sandbox.cluster;
-  const placement = Object.entries(sandbox.config.placement ?? { "*": { hosts: ["harness-container", "sandbox"] } });
+  const placement = Object.entries(effective.placement ?? { "*": { hosts: ["harness-container", "sandbox"] } });
+  const engineImages = effective.engine?.images ?? [];
   return [
     {
       id: "sandbox",
@@ -527,7 +529,10 @@ export function computeSections(
         { label: "Most resources", value: resourcesText(limits.resources) },
         { label: "Default resources", value: resourcesText(limits.defaultResources), note: "when it asks for none" },
         { label: "Idle", value: `Stops after ${limits.idle} without a turn` },
-        ...(sandbox.config.lifecycle ? [{ label: "Stop grace", value: sandbox.config.lifecycle.stopGrace }] : []),
+        ...(effective.lifecycle ? [{ label: "Stop grace", value: effective.lifecycle.stopGrace }] : []),
+        ...(engineImages.length > 0
+          ? [{ label: "Engine images", value: engineImages.join(", "), note: "pods run the engine built in", mono: true }]
+          : []),
         ...(limits.environments !== undefined
           ? [
               {
@@ -572,6 +577,103 @@ export function computeSections(
         ]
       : []),
   ];
+}
+
+/** A size as the compute form shows it: `8GiB`, which the Runtime reads back. */
+export const sizeInput = (bytes: number) => bytesText(bytes).replaceAll(",", "").replace(" ", "");
+
+/** The Tenant's sandbox settings as stored: what `PUT /v1/tenant/sandbox` takes. */
+export type SandboxConfig = SandboxView["config"];
+/** The compute form's sandbox fields, as text. */
+export type SandboxForm = {
+  network: string;
+  cpus: string;
+  memory: string;
+  defaultCpus: string;
+  defaultMemory: string;
+  idle: string;
+  stopGrace: string;
+  environments: string;
+};
+
+/** The compute form's sandbox fields, filled with the configuration in force. */
+export function sandboxForm(sandbox: SandboxView): SandboxForm {
+  const { limits, lifecycle } = sandbox.effective;
+  return {
+    network: limits.network.join("\n"),
+    cpus: String(limits.resources.cpus),
+    memory: sizeInput(limits.resources.memoryMiB * MiB),
+    defaultCpus: String(limits.defaultResources.cpus),
+    defaultMemory: sizeInput(limits.defaultResources.memoryMiB * MiB),
+    idle: limits.idle,
+    stopGrace: lifecycle?.stopGrace ?? "",
+    environments: limits.environments === undefined ? "" : String(limits.environments),
+  };
+}
+
+/**
+ * The body that saves the compute form's sandbox fields: the Tenant's stored settings (`config`)
+ * with only the fields that changed set, so the rest (`engine`, `placement`, any setting left to
+ * its default) stays as it was. A field cleared that has a default (idle, stop grace, most
+ * Agents) goes back to it. No body when nothing changed; an error when a changed field does not
+ * read.
+ */
+export function sandboxPut(
+  config: SandboxConfig,
+  initial: SandboxForm,
+  form: SandboxForm,
+): { put?: SandboxConfig; error?: string } {
+  const changed = (key: keyof SandboxForm) => form[key] !== initial[key];
+  if (!(Object.keys(initial) as (keyof SandboxForm)[]).some(changed)) return {};
+  const count = (text: string, what: string) => {
+    const value = parseLimit("count", text);
+    if (value === undefined) throw new Error(`${what} must be a whole number.`);
+    return value;
+  };
+  const memory = (text: string, what: string) => {
+    const value = parseLimit("sizeBytes", text);
+    if (value === undefined) throw new Error(`${what} must be a size such as 512MiB or 2GiB.`);
+    if (value % MiB !== 0) throw new Error(`${what} must be a whole number of MiB.`);
+    return `${value / MiB}MiB`;
+  };
+  try {
+    const limits = { ...config.limits };
+    if (changed("network")) limits.network = form.network.split(/[\s,]+/u).filter(Boolean);
+    for (const [key, cpus, size, what] of [
+      ["resources", "cpus", "memory", "Most"],
+      ["defaultResources", "defaultCpus", "defaultMemory", "Default"],
+    ] as const) {
+      if (!changed(cpus) && !changed(size)) continue;
+      limits[key] = {
+        ...limits[key],
+        ...(changed(cpus) ? { cpus: count(form[cpus], `${what} CPUs`) } : {}),
+        ...(changed(size) ? { memory: memory(form[size], `${what} memory`) } : {}),
+      };
+    }
+    if (changed("idle")) {
+      if (form.idle.trim()) limits.idle = form.idle.trim();
+      else delete limits.idle;
+    }
+    if (changed("environments")) {
+      if (form.environments.trim()) limits.environments = count(form.environments, "Most Agents");
+      else delete limits.environments;
+    }
+    const lifecycle = { ...config.lifecycle };
+    if (changed("stopGrace")) {
+      if (form.stopGrace.trim()) lifecycle.stopGrace = form.stopGrace.trim();
+      else delete lifecycle.stopGrace;
+    }
+    const { limits: _limits, lifecycle: _lifecycle, ...rest } = config;
+    return {
+      put: {
+        ...rest,
+        ...(Object.keys(limits).length > 0 ? { limits } : {}),
+        ...(Object.keys(lifecycle).length > 0 ? { lifecycle } : {}),
+      },
+    };
+  } catch (error) {
+    return { error: (error as Error).message };
+  }
 }
 
 // --- Tool policy --------------------------------------------------------------------------

@@ -37,14 +37,16 @@ export async function readText(deps: StackDeps, source: string): Promise<string>
 
 /**
  * The JSON body in file `source`, or on standard input for `-`, as `schema` parses it. Fields
- * named in `readOnly` (a view's, so a `get` can be edited and put back) are dropped first. A
- * body that does not parse is a usage error, before any request.
+ * named in `readOnly` (a view's, so a `get` can be edited and put back) are dropped first. With
+ * `bodyField`, a view that holds the body in that field (`get`'s whole output) is read as that
+ * field. A body that does not parse is a usage error, before any request.
  */
 export async function readBody<T>(
   deps: StackDeps,
   source: string,
   schema: BodySchema<T>,
   readOnly: readonly string[] = [],
+  bodyField?: string,
 ): Promise<T> {
   let text: string;
   if (source === "-") {
@@ -63,6 +65,9 @@ export async function readBody<T>(
   } catch (error) {
     throw usageError(`${where} is not JSON: ${(error as Error).message}.`);
   }
+  const isObject = (item: unknown): item is Record<string, unknown> =>
+    Boolean(item) && typeof item === "object" && !Array.isArray(item);
+  if (bodyField && isObject(value) && isObject(value[bodyField])) value = value[bodyField];
   if (value && typeof value === "object" && !Array.isArray(value))
     value = Object.fromEntries(Object.entries(value).filter(([key]) => !readOnly.includes(key)));
   const parsed = schema.safeParse(value);

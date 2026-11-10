@@ -58,6 +58,16 @@ import {
 import { testIssuer, type TestIssuer } from "../support/issuer.js";
 import { testPool } from "../support/store.js";
 import { manifestOf } from "../support/agents.js";
+import {
+  DEFAULT_SANDBOX_CPUS,
+  DEFAULT_SANDBOX_IDLE,
+  DEFAULT_SANDBOX_MEMORY_MIB,
+} from "../../src/sandbox/policy.js";
+import {
+  DEFAULT_MAX_CPUS,
+  DEFAULT_MAX_ENVIRONMENTS,
+  DEFAULT_MAX_MEMORY_MIB,
+} from "../../src/sandbox/tenant-config.js";
 let issuer: TestIssuer;
 let root: string;
 let rt: EphemeralRuntime;
@@ -224,6 +234,76 @@ it("Tenant settings", async () => {
       limits: { resources: { cpus: 2, memory: "1GiB" }, idle: "5m" },
     },
   });
+});
+
+it("the Tenant's sandbox settings: GET's config puts back unchanged, and engine.images comes back (#588)", async () => {
+  const sandbox = (method: "GET" | "PUT", body?: Record<string, unknown>) =>
+    answer(TenantSandboxViewSchema, method, "/v1/tenant/sandbox", body ? { body } : {});
+  try {
+    // Nothing set: config is empty, effective holds every default, sizes in MiB.
+    const unset = await sandbox("PUT", { requestId: "sb-unset" });
+    expect(unset.config).toEqual({});
+    expect(unset.effective).toEqual({
+      limits: {
+        network: expect.arrayContaining(["registry.npmjs.org"]),
+        resources: { cpus: DEFAULT_MAX_CPUS, memoryMiB: DEFAULT_MAX_MEMORY_MIB },
+        defaultResources: { cpus: DEFAULT_SANDBOX_CPUS, memoryMiB: DEFAULT_SANDBOX_MEMORY_MIB },
+        idle: DEFAULT_SANDBOX_IDLE,
+        environments: DEFAULT_MAX_ENVIRONMENTS,
+      },
+      lifecycle: { stopGrace: "10s" },
+      placement: { "*": { hosts: ["harness-container", "sandbox"] } },
+      engine: { images: [] },
+    });
+    expect((await sandbox("GET")).config).toEqual({});
+
+    const settings = {
+      limits: {
+        network: ["github.com", "*.pypi.org"],
+        resources: { cpus: 3, memory: "8GiB" },
+        defaultResources: { memory: "512MiB" },
+        idle: "5m",
+      },
+      lifecycle: { stopGrace: "20s" },
+      engine: { images: ["ghcr.io/nylorun/bot-worker"] },
+      placement: { "*": { hosts: ["harness-container", "sandbox"] }, nylorun: { hosts: ["sandbox"] } },
+    };
+    const effective = {
+      limits: {
+        network: ["github.com", "*.pypi.org"],
+        resources: { cpus: 3, memoryMiB: 8192 },
+        defaultResources: { cpus: DEFAULT_SANDBOX_CPUS, memoryMiB: 512 },
+        idle: "5m",
+        environments: DEFAULT_MAX_ENVIRONMENTS,
+      },
+      lifecycle: { stopGrace: "20s" },
+      placement: settings.placement,
+      engine: { images: ["ghcr.io/nylorun/bot-worker"] },
+    };
+    // engine.images is in the PUT's answer and the next GET's, as set and in force.
+    const put = await sandbox("PUT", { requestId: "sb-set", ...settings });
+    expect(put.config).toEqual(settings);
+    expect(put.effective).toEqual(effective);
+    const got = await sandbox("GET");
+    expect(got.config).toEqual(settings);
+    expect(got.effective).toEqual(effective);
+
+    // GET's config is a PUT body that changes nothing, and saves no default as a setting.
+    const again = await sandbox("PUT", { requestId: "sb-again", ...got.config });
+    expect(again).toEqual(got);
+    expect(await sandbox("GET")).toEqual(got);
+
+    // The settings in force are not a body: their sizes are in MiB.
+    const refused = await fetch(`${rt.url}/v1/tenant/sandbox`, {
+      method: "PUT",
+      headers: { ...management(), "content-type": "application/json" },
+      body: JSON.stringify({ requestId: "sb-effective", ...got.effective }),
+    });
+    expect(refused.status).toBe(400);
+    expect(await refused.text()).toContain("memoryMiB");
+  } finally {
+    await sandbox("PUT", { requestId: "sb-reset" });
+  }
 });
 
 it("Agent secrets and credential coverage", async () => {

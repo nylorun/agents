@@ -5161,7 +5161,10 @@ export type ListProvidersResponse = z.infer<typeof ListProvidersResponseSchema>;
 const SandboxResourcesLimitSchema = z
   .object({ cpus: z.number(), memoryMiB: z.number() })
   .strict();
-/** A Tenant's Environment settings with every default applied (sizes in MiB). */
+/**
+ * A Tenant's Environment settings with every default applied (sizes in MiB): the configuration in
+ * force. `GET /v1/tenant/sandbox` answers it as `effective`, beside `config`, the settings as set.
+ */
 export const EffectiveSandboxConfigSchema = z
   .object({
     limits: z
@@ -5180,12 +5183,17 @@ export const EffectiveSandboxConfigSchema = z
     placement: z
       .record(z.string(), z.object({ hosts: z.array(z.enum(PLACEMENT_HOSTS)) }).strict())
       .optional(),
+    /** Pods: the image repositories that carry this Runtime's engine (ADR-99); none by default. */
+    engine: z.object({ images: z.array(z.string()) }).strict().optional(),
   })
   .strict();
 export type EffectiveSandboxConfig = z.infer<typeof EffectiveSandboxConfigSchema>;
 const SandboxBackendNameSchema = z.enum(["virtual", "local"]);
 const SandboxIsolationSchema = z.enum(["process", "container"]);
-/** `GET` and `PUT /v1/tenant/sandbox`: the backend chosen, and the configuration in force. */
+/**
+ * `GET` and `PUT /v1/tenant/sandbox`: the backend chosen, the Tenant's settings as it set them
+ * (`config`) and the configuration in force (`effective`).
+ */
 export const TenantSandboxViewSchema = z
   .object({
     preference: z.union([z.literal("auto"), SandboxBackendNameSchema]),
@@ -5204,7 +5212,14 @@ export const TenantSandboxViewSchema = z
         .strict(),
     ),
     defaultImage: z.string(),
-    config: EffectiveSandboxConfigSchema,
+    /**
+     * The Tenant's settings as stored (Tenant setting `environments.config`): only what it set,
+     * with no defaults, in exactly the shape `PUT /v1/tenant/sandbox` takes. Put it back, changed,
+     * to change one setting and keep the others. `{}` when the Tenant set nothing.
+     */
+    config: TenantEnvironmentsConfigSchema,
+    /** The configuration in force: `config` with every default filled in, sizes in MiB. */
+    effective: EffectiveSandboxConfigSchema,
     /**
      * The Tenant's cluster for pod sandboxes (`nylorun local sandbox enable`), as the sandboxes
      * service reports it; null without one, or when the service does not answer.

@@ -307,6 +307,29 @@ describe("nylorun tenant budgets, tool-policy and settings", () => {
     expect(puts[3]!.body).toMatchObject({ limits: { environments: 3 } });
   });
 
+  it("settings sandbox put of what get printed puts back its stored config, not the defaults in force (#588)", async () => {
+    const config = { limits: { idle: "30m" }, engine: { images: ["ghcr.io/nylorun/bot-worker"] } };
+    const view = {
+      preference: "auto",
+      backend: "virtual",
+      config,
+      effective: {
+        limits: {
+          network: [],
+          resources: { cpus: 4, memoryMiB: 8192 },
+          defaultResources: { cpus: 1, memoryMiB: 1024 },
+          idle: "30m",
+          environments: 100,
+        },
+        engine: { images: ["ghcr.io/nylorun/bot-worker"] },
+      },
+      cluster: null,
+    };
+    const deps = await remote(piped(JSON.stringify(view)));
+    expect(await tenantCommand(deps, ["settings", "sandbox", "put", "-"])).toBe(0);
+    expect(sent(deps)[0]!.body).toEqual({ requestId: expect.any(String), ...config });
+  });
+
   it("a body that is missing, not JSON or not valid is a usage error, before any request", async () => {
     const dir = await temporaryDir();
     await writeFile(join(dir, "bad.json"), "{");

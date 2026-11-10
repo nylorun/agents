@@ -143,8 +143,16 @@ export interface ManagementSigningKeys {
 
 export interface ManagementSettings {
   readonly sandbox: {
+    /**
+     * The sandbox backend, the Tenant's settings as stored (`config`, exactly what `put` takes)
+     * and the configuration in force (`effective`, with every default and sizes in MiB).
+     */
     get(): Promise<TenantSandboxView>;
-    /** The Tenant's settings for Agents' environments: limits, the pods' stop grace and placement. */
+    /**
+     * Replaces the Tenant's settings for Agents' environments: limits, the pods' stop grace,
+     * `engine.images` and placement. A setting left out takes its default, so change one by
+     * putting `get()`'s `config` back with that change.
+     */
     put(request: Body<PutTenantEnvironmentsRequest>): Promise<TenantSandboxView>;
   };
   readonly artifacts: {

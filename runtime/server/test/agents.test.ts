@@ -688,7 +688,8 @@ describe("the Tenant limit", { timeout: 60_000 }, () => {
       runtime.managementKey,
     );
     expect(saved.status, JSON.stringify(saved.body)).toBe(200);
-    expect(saved.body.config.limits.environments).toBe(count + 1);
+    expect(saved.body.config).toEqual({ limits: { environments: count + 1 } });
+    expect(saved.body.effective.limits.environments).toBe(count + 1);
     expect((await make("limit/one")).status).toBe(200);
     const refused = await make("limit/two");
     expect(refused.status).toBe(409);
