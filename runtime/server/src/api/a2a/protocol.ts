@@ -303,8 +303,12 @@ export type MessageInput =
   | { data: unknown }
   | { files: readonly ({ text: string } | RawFile | UrlFile)[] };
 
-/** What a message to a busy context does (profile v2 §1): queued, or refused with `CONTEXT_BUSY`. */
-export type Delivery = "queue" | "reject";
+/**
+ * What a message to a busy context does (profile v2 §1): queued, refused with `CONTEXT_BUSY`, or
+ * steered into the running turn before its next step (Host feature `a2a-steer`, ADR-140), as a
+ * session message's `delivery: "steer"` (D85).
+ */
+export type Delivery = "queue" | "reject" | "steer";
 
 /** A caller's answer to an open interaction (`interactions/v1` on the reply message). */
 export type InteractionAnswer =
@@ -435,12 +439,17 @@ function parseRemoveTools(metadata: Record<string, unknown>): readonly string[] 
   return value as string[];
 }
 
-/** `metadata.delivery`: `queue` (the default) or `reject`. */
+/** `metadata.delivery`: `queue` (the default), `reject` or `steer`. */
 function parseDelivery(metadata: Record<string, unknown>): Delivery {
   const delivery = metadata.delivery;
   if (delivery === undefined || delivery === null) return "queue";
-  if (delivery !== "queue" && delivery !== "reject")
-    return a2aFail("invalidParams", 'message.metadata.delivery must be "queue" or "reject"', {}, "message.metadata.delivery");
+  if (delivery !== "queue" && delivery !== "reject" && delivery !== "steer")
+    return a2aFail(
+      "invalidParams",
+      'message.metadata.delivery must be "queue", "reject" or "steer"',
+      {},
+      "message.metadata.delivery"
+    );
   return delivery;
 }
 

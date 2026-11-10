@@ -4,6 +4,7 @@ import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { Agent, createClient } from "@nylorun/agents";
+import { OPTIONAL_HOST_FEATURES } from "@nylorun/core/compatibility";
 import type { LiveEvent } from "@nylorun/core/contracts";
 import type { ModelProvider } from "../../src/core/provider.js";
 import { A2A_EXTENSIONS, keepExtensions, parseExtensions } from "../../src/api/a2a/extensions.js";
@@ -405,6 +406,8 @@ describe("a follow-up to a busy context", () => {
     expect(queued.status.state).toBe("TASK_STATE_SUBMITTED");
     expect(queued.id).not.toBe(first.id);
     expect(queued.contextId).toBe(contextId);
+    // Only a message that asked to steer is told which delivery applied (a2a-steer).
+    expect(queued.metadata?.delivery).toBeUndefined();
     expect((await rpc("GetTask", { id: queued.id }, { agent: "slow" })).body.result.status.state).toBe(
       "TASK_STATE_SUBMITTED"
     );
@@ -430,6 +433,78 @@ describe("a follow-up to a busy context", () => {
     const bodies = pushesTo(path).map(verify) as any[];
     expect(new Set(bodies.map((body) => (body.statusUpdate ?? body.artifactUpdate).taskId))).toEqual(new Set([queued.id]));
     expect(states(path)[0]).toBe("TASK_STATE_WORKING");
+  });
+});
+
+describe("a steer to a context (a2a-steer, ADR-140)", () => {
+  it("is a Host feature", () => {
+    expect(OPTIONAL_HOST_FEATURES).toContain("a2a-steer");
+  });
+
+  it("is taken by the busy context's running turn before its next step, and answered steered", async () => {
+    let release!: () => void;
+    held = new Promise((resolve) => (release = resolve));
+    try {
+      const contextId = next("ctx");
+      const first = (
+        await rpc("SendMessage", { message: message("Go", { contextId }), configuration: { returnImmediately: true } }, { agent: "slow" })
+      ).body.result.task;
+      expect(first.status.state).toBe("TASK_STATE_WORKING");
+      const sent = (
+        await rpc(
+          "SendMessage",
+          {
+            message: message("Only the first three", { contextId, metadata: { delivery: "steer" } }),
+            configuration: { returnImmediately: true },
+          },
+          { agent: "slow" }
+        )
+      ).body;
+      expect(sent.error).toBeUndefined();
+      const steered = sent.result.task;
+      expect(steered).toMatchObject({ contextId, status: { state: "TASK_STATE_SUBMITTED" }, metadata: { delivery: "steered" } });
+      expect(steered.id).not.toBe(first.id);
+      // It waits in the session queue marked steer (D85) until the turn's next step takes it.
+      const sessionId = contextSessionId("u:org:ada", "slow", contextId);
+      const queuedId = steered.id.split(".").at(-1);
+      const rows = await withTestSessionStore(runtime, (store) => store.tx((t) => t.queuedMessages(sessionId)));
+      expect(rows.find((row) => row.id === queuedId)?.delivery).toBe("steer");
+      release();
+      await until(
+        async () => (await rpc("GetTask", { id: first.id }, { agent: "slow" })).body.result,
+        (task) => task.status.state === "TASK_STATE_COMPLETED"
+      );
+      // The running turn took it before its second step: one turn, and the steered task is that turn's.
+      const taken = await withTestSessionStore(runtime, (store) =>
+        store.tx((t) => t.turnOfQueuedMessage(sessionId, queuedId!))
+      );
+      expect(taken?.turnId).toBe(first.id.split(".").at(-1));
+      const log = (
+        await (await fetch(`${runtime.url}/v1/sessions/${sessionId}/items?limit=200`, { headers: runtime.headers() })).json()
+      ).items as LiveEvent[];
+      expect(log.find((event) => event.type === "queue.taken")?.payload).toMatchObject({
+        queuedMessageIds: [queuedId],
+        step: 2,
+      });
+      expect(new Set(log.filter((event) => event.type === "command.message").map((event) => event.turnId)).size).toBe(1);
+      const done = (await rpc("GetTask", { id: steered.id }, { agent: "slow" })).body.result;
+      expect(done).toMatchObject({ id: steered.id, status: { state: "TASK_STATE_COMPLETED" } });
+    } finally {
+      release();
+    }
+  });
+
+  it("starts a turn on an idle context, answered queued", async () => {
+    const task = (
+      await rpc("SendMessage", { message: message("Hello", { contextId: next("ctx"), metadata: { delivery: "steer" } }) })
+    ).body.result.task;
+    expect(task).toMatchObject({ status: { state: "TASK_STATE_COMPLETED" }, metadata: { delivery: "queued" } });
+  });
+
+  it("is refused for a delivery the endpoint doesn't know", async () => {
+    const refused = await rpc("SendMessage", { message: message("Hello", { metadata: { delivery: "interrupt" } }) });
+    expect(refused.body.error).toMatchObject({ code: -32602 });
+    expect(refused.body.error.message).toContain('"queue", "reject" or "steer"');
   });
 });
 

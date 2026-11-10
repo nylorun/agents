@@ -222,6 +222,8 @@ describe("SendMessage params", () => {
     );
     expect(answer.answer).toEqual({ interactionId: "eff_1", approved: true });
     expect(parseSendParams({ ...message(), metadata: { delivery: "reject" } }).delivery).toBe("reject");
+    // a2a-steer (ADR-140): a session message's steer (D85).
+    expect(parseSendParams(message({ metadata: { delivery: "steer" } })).delivery).toBe("steer");
   });
 
   it.each([

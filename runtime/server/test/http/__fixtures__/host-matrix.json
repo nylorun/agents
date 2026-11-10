@@ -115,7 +115,8 @@
           "remove-tools",
           "agent-triggers",
           "steer",
-          "queue-recovery"
+          "queue-recovery",
+          "a2a-steer"
         ]
       }
     },
@@ -206,7 +207,8 @@
           "remove-tools",
           "agent-triggers",
           "steer",
-          "queue-recovery"
+          "queue-recovery",
+          "a2a-steer"
         ]
       }
     },
@@ -297,7 +299,8 @@
           "remove-tools",
           "agent-triggers",
           "steer",
-          "queue-recovery"
+          "queue-recovery",
+          "a2a-steer"
         ]
       }
     },
@@ -388,7 +391,8 @@
           "remove-tools",
           "agent-triggers",
           "steer",
-          "queue-recovery"
+          "queue-recovery",
+          "a2a-steer"
         ]
       }
     },
@@ -479,7 +483,8 @@
           "remove-tools",
           "agent-triggers",
           "steer",
-          "queue-recovery"
+          "queue-recovery",
+          "a2a-steer"
         ]
       }
     },
@@ -570,7 +575,8 @@
           "remove-tools",
           "agent-triggers",
           "steer",
-          "queue-recovery"
+          "queue-recovery",
+          "a2a-steer"
         ]
       }
     },
@@ -661,7 +667,8 @@
           "remove-tools",
           "agent-triggers",
           "steer",
-          "queue-recovery"
+          "queue-recovery",
+          "a2a-steer"
         ]
       }
     },
@@ -752,7 +759,8 @@
           "remove-tools",
           "agent-triggers",
           "steer",
-          "queue-recovery"
+          "queue-recovery",
+          "a2a-steer"
         ]
       }
     },
@@ -843,7 +851,8 @@
           "remove-tools",
           "agent-triggers",
           "steer",
-          "queue-recovery"
+          "queue-recovery",
+          "a2a-steer"
         ]
       }
     },
@@ -934,7 +943,8 @@
           "remove-tools",
           "agent-triggers",
           "steer",
-          "queue-recovery"
+          "queue-recovery",
+          "a2a-steer"
         ]
       }
     },
@@ -1025,7 +1035,8 @@
           "remove-tools",
           "agent-triggers",
           "steer",
-          "queue-recovery"
+          "queue-recovery",
+          "a2a-steer"
         ]
       }
     },
@@ -1116,7 +1127,8 @@
           "remove-tools",
           "agent-triggers",
           "steer",
-          "queue-recovery"
+          "queue-recovery",
+          "a2a-steer"
         ]
       }
     },
@@ -1240,7 +1252,8 @@
           "remove-tools",
           "agent-triggers",
           "steer",
-          "queue-recovery"
+          "queue-recovery",
+          "a2a-steer"
         ]
       }
     },
@@ -1331,7 +1344,8 @@
           "remove-tools",
           "agent-triggers",
           "steer",
-          "queue-recovery"
+          "queue-recovery",
+          "a2a-steer"
         ]
       }
     },
@@ -1422,7 +1436,8 @@
           "remove-tools",
           "agent-triggers",
           "steer",
-          "queue-recovery"
+          "queue-recovery",
+          "a2a-steer"
         ]
       }
     },
@@ -1513,7 +1528,8 @@
           "remove-tools",
           "agent-triggers",
           "steer",
-          "queue-recovery"
+          "queue-recovery",
+          "a2a-steer"
         ]
       }
     },
@@ -1604,7 +1620,8 @@
           "remove-tools",
           "agent-triggers",
           "steer",
-          "queue-recovery"
+          "queue-recovery",
+          "a2a-steer"
         ]
       }
     },
@@ -1695,7 +1712,8 @@
           "remove-tools",
           "agent-triggers",
           "steer",
-          "queue-recovery"
+          "queue-recovery",
+          "a2a-steer"
         ]
       }
     },
@@ -1786,7 +1804,8 @@
           "remove-tools",
           "agent-triggers",
           "steer",
-          "queue-recovery"
+          "queue-recovery",
+          "a2a-steer"
         ]
       }
     },

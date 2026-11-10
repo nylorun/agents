@@ -673,6 +673,10 @@ in `timezone`, an IANA name, UTC by default), `at` (one time, RFC 3339 with an o
   as before: a run is the turn it starts (`RUN_ERROR` `session_busy`). A2A queues it too and
   answers with the task that will take it (`SUBMITTED`); `metadata.delivery: "reject"` asks for
   `UnsupportedOperationError` with reason `CONTEXT_BUSY` ([A2A](#a2a-and-push-notifications)).
+  A session message's `delivery: "steer"` (Host feature `steer`), or A2A's
+  `metadata.delivery: "steer"` (Host feature `a2a-steer`), has the running turn take the message
+  before its next step; the A2A task answered says `metadata.delivery: "steered"`, or `"queued"`
+  when the message started a turn or waits as a queued one (a workflow's session).
 - **Limits.** `triggersPerAgent`, `triggerMinIntervalMs`, `triggerRunsPerHour` (the guard against
   an Agent triggering itself), `triggerPromptChars`, `triggerRunRetentionMs`, `wakeMaxAheadMs`,
   `wakeNoteChars`, `webhookBodyBytes`, `sessionQueuedMessages` and `queuedStartMs`

@@ -753,7 +753,7 @@ if (open?.kind === "approval")
 
 | Method | A2A operation |
 | --- | --- |
-| `send({ messageId, contextId?, taskId?, parts, metadata?, extensions?, delivery?, push?, returnImmediately?, historyLength?, traceparent? })` | `SendMessage`, answered with the task. A message to a busy context is queued; `delivery: "reject"` asks for `CONTEXT_BUSY` instead. `traceparent` joins the task to your trace |
+| `send({ messageId, contextId?, taskId?, parts, metadata?, extensions?, delivery?, push?, returnImmediately?, historyLength?, traceparent? })` | `SendMessage`, answered with the task. A message to a busy context is queued; `delivery: "reject"` asks for `CONTEXT_BUSY` instead, and `delivery: "steer"` (Host feature `a2a-steer`) has the running turn take it before its next step: `readDelivery(task)` is then `"steered"`, or `"queued"` when it started a turn or waits as a queued message. `traceparent` joins the task to your trace |
 | `get(taskId, { historyLength? })` | `GetTask` |
 | `list({ contextId?, status?, statusTimestampAfter?, pageSize?, pageToken? })`, `listAll(...)` | `ListTasks`: one page, or every task page after page |
 | `cancel(taskId)` | `CancelTask` |
@@ -813,6 +813,10 @@ files) when the data is missing, as from an agent outside Nylorun:
 | `readEffects` | `effects` | `{ uncertain? }`: the effect whose outcome was lost |
 | `readFiles` | `files` | `[{ artifact, file: { kind, path?, version?, size?, sha256? } }]` |
 | `readExtension(source, uri)` | any | The raw data under `uri` |
+
+`readDelivery(task)` reads the task's own `metadata.delivery`, not an extension: `"steered"` or
+`"queued"` on the task `send` answered a `delivery: "steer"` with (Host feature `a2a-steer`),
+else `undefined`.
 
 **The change feed.** `listTurnChanges` reads a Runtime's `GET /v1/turns`
 (Host feature `turns`): the turns that changed after a cursor, in the order

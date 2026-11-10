@@ -302,6 +302,14 @@ export const OPTIONAL_HOST_FEATURES = [
    * `FAILED` or `CANCELED`.
    */
   "queue-recovery",
+  /**
+   * The A2A endpoint's `message.metadata.delivery: "steer"` (ADR-140): a session message's steer
+   * (`steer`, D85). To a busy context the message waits marked `steer` and the running turn takes
+   * it before its next step, its task then that turn's; to an idle context, a workflow's, or a
+   * turn past its last step it is an ordinary queued message. The task `SendMessage` answers
+   * carries `metadata.delivery`: `steered` or `queued`.
+   */
+  "a2a-steer",
 ] as const;
 export type OptionalHostFeature = (typeof OPTIONAL_HOST_FEATURES)[number];
 export interface ProtocolRange {
