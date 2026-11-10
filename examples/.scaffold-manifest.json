@@ -1,9 +1,9 @@
 {
   "version": 1,
-  "creatorVersion": "0.16.32-beta",
+  "creatorVersion": "0.16.33-beta",
   "compatibility": {
     "harness": "0.36.2-beta",
-    "runtime": "0.48.0-beta",
+    "runtime": "0.48.1-beta",
     "agents": "0.37.0-beta",
     "admin": "0.20.1-beta",
     "core": "0.42.0-beta"
