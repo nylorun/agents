@@ -7,6 +7,7 @@ import type {
   ModelFailureCode,
   ModelFailureOutcome,
 } from "@nylorun/core/define";
+import { STREAM_CUT } from "./retry.js";
 
 const RATE_LIMITED = /\b429\b|rate.?limit|too many requests/i;
 const QUOTA = /insufficient_quota|quota exceeded|out of budget|billing|usage limit/i;
@@ -33,6 +34,9 @@ export function classifyAssistantError(
   if (QUOTA.test(text)) return failure("rate_limited", text, false);
   if (OVERLOADED.test(text)) return failure("overloaded", text, true);
   if (TIMEOUT.test(text)) return failure("timeout", text, true);
+  // A stream cut before its last chunk (a provider failing behind a gateway): nothing of the
+  // step ran, so it is the provider's transient failure, not the request's.
+  if (STREAM_CUT.test(text)) return failure("transient", text, true);
   if (CONTENT_POLICY.test(text)) return failure("content_policy", text, false);
   if (AUTH.test(text)) return failure("auth", text, false);
   if (isRetryableAssistantError(message)) return failure("transient", text, true);

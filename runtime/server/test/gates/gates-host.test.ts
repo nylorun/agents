@@ -167,6 +167,41 @@ describe("the gates service", () => {
     expect(JSON.stringify(logs)).not.toContain(grant.token);
   });
 
+  it("retries a provider stream cut before its terminal chunk and logs the retry", async () => {
+    let calls = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        calls++;
+        if (calls > 1) return completion("after the cut");
+        return new Response(
+          `data: ${JSON.stringify({ error: { message: "Upstream stream ended before terminal chunk" } })}\n\n`,
+          { headers: { "content-type": "text/event-stream" } },
+        );
+      }),
+    );
+    const server = await gate();
+    const grant = await running();
+    const response = await post(server, grant);
+    expect(await response.json()).toMatchObject({
+      outcome: { output: [{ type: "text", text: "after the cut" }] },
+    });
+    expect(calls).toBe(2);
+    expect(logs).toContainEqual({
+      message: "model_retry",
+      fields: expect.objectContaining({
+        session: grant.claims.sessionId,
+        effect: body.effectId,
+        attempt: 2,
+        error: expect.stringContaining("Upstream stream ended before terminal chunk"),
+      }),
+    });
+    expect(logs).toContainEqual({
+      message: "model_call",
+      fields: expect.objectContaining({ effect: body.effectId, attempts: 2, outcome: "ok" }),
+    });
+  }, 15_000);
+
   it("reads a file part only from the run token's session (protocol 6)", async () => {
     const providerBodies: string[] = [];
     vi.stubGlobal(

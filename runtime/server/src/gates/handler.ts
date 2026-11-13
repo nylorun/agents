@@ -3,7 +3,8 @@
  * Tenant; a call naming another is refused) and calls the model (the fixture model while the
  * Tenant's `model.fixture` is on, R4.3) through `inProcessModelGate`, the same code the loop ran before the gate, so outcomes,
  * retries, classification and redaction are unchanged. The meter records the call's usage in
- * the Tenant's ledger. Logs one line per call, never the prompt, the output or a credential.
+ * the Tenant's ledger. Logs one line per call, with its attempts, and one per retry, never the
+ * prompt, the output or a credential.
  */
 import { classifyThrown } from "../model/classify.js";
 import type { Logger } from "../tenant/types.js";
@@ -39,6 +40,8 @@ export function createModelCallHandler(options: ModelCallHandlerOptions): ModelC
       const started = Date.now();
       let request: ModelCallRequest = named;
       let outcome;
+      // Attempts the call made, the first included: more than 1 when it was retried.
+      let attempts = 1;
       try {
         const vault = await vaults.open(named.tenantId);
         const call = { ...named, tenantId: vault.tenantId };
@@ -51,11 +54,21 @@ export function createModelCallHandler(options: ModelCallHandlerOptions): ModelC
           settings: await modelCallSettings(vault.store),
           ...(blobs ? { files: callFiles(vault.store, blobs) } : {}),
           caller: callCaller(vault.store),
+          onRetry: (_request, retry) => {
+            attempts = retry.attempt;
+            logger.info("model_retry", {
+              ...fields(call),
+              attempt: retry.attempt,
+              of: retry.maxAttempts,
+              delayMs: retry.delayMs,
+              error: retry.errorMessage.slice(0, 300),
+            });
+          },
         });
         outcome = await meter.call(vault.store, call, () => serve(vault.store, gate, call, signal));
       } catch (error) {
         if (signal.aborted) {
-          logger.info("model_call", { ...fields(request), ms: Date.now() - started, outcome: "aborted" });
+          logger.info("model_call", { ...fields(request), ms: Date.now() - started, attempts, outcome: "aborted" });
           throw error;
         }
         outcome = error instanceof GateRefusal ? error.outcome : classifyThrown(error);
@@ -63,6 +76,7 @@ export function createModelCallHandler(options: ModelCallHandlerOptions): ModelC
       logger.info("model_call", {
         ...fields(request),
         ms: Date.now() - started,
+        attempts,
         outcome:
           typeof outcome === "object" && outcome !== null && "kind" in outcome
             ? outcome.code

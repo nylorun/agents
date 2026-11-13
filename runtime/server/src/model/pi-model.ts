@@ -1,5 +1,4 @@
 import {
-  retryAssistantCall,
   type AssistantMessage,
   type AuthContext,
   type Context,
@@ -32,6 +31,7 @@ import { essence, inputLabel, isModelImage, modelInputOf } from "@nylorun/core/c
 import { scrub } from "../redact.js";
 import type { HostModelSecret } from "../vault/service.js";
 import { classifyAssistantError, failure } from "./classify.js";
+import { retryModelCall, type ModelRetry } from "./retry.js";
 import { addedInputsOf, describeModel, selectionOf } from "./descriptor.js";
 import { modelsFor } from "./models.js";
 import { callHeaders, type ModelCaller } from "./call-headers.js";
@@ -98,6 +98,8 @@ export interface PiModelOptions {
    * come from it. Without it, a call sends none of them.
    */
   readonly caller?: () => Promise<ModelCaller | undefined>;
+  /** Hears each retry of a call before its delay: the gate logs it. Never changes the call. */
+  readonly onRetry?: (retry: ModelRetry) => void;
 }
 
 const OPENAI_COMPATIBLE_REASONING = /^reasoning(_content|_text)?$/;
@@ -285,14 +287,11 @@ export function piModel(options: PiModelOptions = {}): RuntimeModelAdapter {
         clearTimeout(timer);
       }
     };
-    const response = await retryAssistantCall(
+    const response = await retryModelCall(
       attempt,
-      {
-        enabled: settings.attempts > 1,
-        maxRetries: settings.attempts - 1,
-        baseDelayMs: settings.retryBaseDelayMs,
-      },
+      { attempts: settings.attempts, baseDelayMs: settings.retryBaseDelayMs },
       context.signal,
+      options.onRetry,
     );
     // An abort is never a failure outcome: the host decides what it means.
     context.signal.throwIfAborted();
