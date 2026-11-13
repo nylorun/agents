@@ -61,7 +61,7 @@ export async function runHarness(
     pod = podHost(config.pod, logger, {
       volumeFile: join(config.root, "volume-id"),
       caBundleFile: join(config.root, "egress-ca-bundle.pem"),
-      ...(process.env.NYLORUN_SANDBOX_EGRESS_CA_FILE ? { extraCaFile: process.env.NYLORUN_SANDBOX_EGRESS_CA_FILE } : {}),
+      ...(config.pod.egressCaFile ? { extraCaFile: config.pod.egressCaFile } : {}),
     });
     // Join, then make the disk ready (R2d step 2) before taking any turn.
     await pod.token();

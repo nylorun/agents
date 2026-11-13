@@ -211,6 +211,11 @@ export interface PodHostConfig {
   httpUrl: string;
   /** `NYLORUN_EGRESS_PROXY`: egress-gate's address, or undefined while it is not published. */
   egressProxy?: string;
+  /**
+   * `NYLORUN_SANDBOX_EGRESS_CA_FILE`: Agent Substrate's egress CA (ADR-142), which commands trust
+   * for the hosts whose keys Substrate's egress adds.
+   */
+  egressCaFile?: string;
   /** Addresses the pod's NetworkPolicy must block, probed before the engine starts. */
   blocked: BlockedAddress[];
 }
@@ -1025,6 +1030,7 @@ function parsePodHost(env: EnvSnapshot, url: string): { config: PodHostConfig; w
   const secure = base.protocol === "https:" || base.protocol === "wss:";
   const origin = `${secure ? "https" : "http"}://${base.host}`;
   const egress = read(env, "NYLORUN_EGRESS_PROXY");
+  const egressCa = read(env, "NYLORUN_SANDBOX_EGRESS_CA_FILE");
   return {
     wsUrl: `${secure ? "wss" : "ws"}://${base.host}/nylorun/harness/v1`,
     config: {
@@ -1033,6 +1039,7 @@ function parsePodHost(env: EnvSnapshot, url: string): { config: PodHostConfig; w
       joinFile: need("NYLORUN_SANDBOX_JOIN_FILE"),
       httpUrl: origin,
       ...(egress ? { egressProxy: egress.replace(/\/+$/, "") } : {}),
+      ...(egressCa ? { egressCaFile: egressCa } : {}),
       blocked: blockedAddresses(env),
     },
   };
