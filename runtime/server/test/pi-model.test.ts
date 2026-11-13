@@ -807,6 +807,79 @@ it("retries a rate-limited call and returns the answer", async () => {
   expect(calls).toBe(3);
 });
 
+// Vercel AI Gateway, when the provider behind it fails after the stream began: a first chunk, then
+// an error chunk and no finish_reason (beta, 13 Nov: Token Pass's 503 as finish_reason
+// stream_terminated).
+function cutStream() {
+  return new Response(
+    `data: ${JSON.stringify({ id: "test", choices: [{ index: 0, delta: { role: "assistant", content: "" }, finish_reason: null }] })}\n\n` +
+      `data: ${JSON.stringify({ error: { message: "Upstream stream ended before terminal chunk", type: "server_error" } })}\n\n`,
+    { headers: { "content-type": "text/event-stream" } },
+  );
+}
+
+it("retries a stream cut before its terminal chunk and returns the answer", async () => {
+  let calls = 0;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => {
+      calls++;
+      return calls === 1 ? cutStream() : response({ role: "assistant", content: "after the cut" });
+    }),
+  );
+  const retries: unknown[] = [];
+  const result = await piModel({
+    ...host(),
+    settings: { retryBaseDelayMs: 1 },
+    onRetry: (retry) => retries.push(retry),
+  })(call, { signal: signal() });
+  expect(result).toMatchObject({ output: [{ type: "text", text: "after the cut" }] });
+  expect(calls).toBe(2);
+  expect(retries).toEqual([
+    { attempt: 2, maxAttempts: 3, delayMs: 1, errorMessage: expect.stringContaining("Upstream stream ended before terminal chunk") },
+  ]);
+});
+
+it("reports a stream cut on every attempt as a transient failure", async () => {
+  let calls = 0;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => {
+      calls++;
+      return cutStream();
+    }),
+  );
+  expect(
+    await piModel({ ...host(), settings: { retryBaseDelayMs: 1, attempts: 2 } })(call, { signal: signal() }),
+  ).toMatchObject({
+    kind: "failed",
+    code: "transient",
+    retryable: true,
+    message: expect.stringContaining("Upstream stream ended before terminal chunk"),
+  });
+  expect(calls).toBe(2);
+});
+
+it("stops retrying when the call is cancelled during the delay", async () => {
+  const controller = new AbortController();
+  let calls = 0;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => {
+      calls++;
+      return cutStream();
+    }),
+  );
+  await expect(
+    piModel({
+      ...host(),
+      settings: { retryBaseDelayMs: 60_000 },
+      onRetry: () => queueMicrotask(() => controller.abort(new Error("cancelled"))),
+    })(call, { signal: controller.signal }),
+  ).rejects.toThrow();
+  expect(calls).toBe(1);
+});
+
 it.each([
   [503, "The server is overloaded", "overloaded", true],
   [401, "Incorrect API key provided", "auth", false],

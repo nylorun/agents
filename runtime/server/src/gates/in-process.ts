@@ -18,6 +18,7 @@ import { fixtureAnswer } from "./fixture-model.js";
 import type { BlobStore } from "../blob/index.js";
 import { isSubject } from "@nylorun/core/contracts";
 import type { ModelCaller } from "../model/call-headers.js";
+import type { ModelRetry } from "../model/retry.js";
 import type { Session } from "../tenant/context.js";
 
 export interface InProcessModelGateOptions {
@@ -32,6 +33,8 @@ export interface InProcessModelGateOptions {
   readonly files?: (request: ModelGateRequest) => FileResolver;
   /** Reads who makes a call, for a custom endpoint's per-call headers (#493). */
   readonly caller?: (request: ModelGateRequest) => Promise<ModelCaller | undefined>;
+  /** Hears each retry of a call (`piModel`'s `onRetry`): the gates service logs it. */
+  readonly onRetry?: (request: ModelGateRequest, retry: ModelRetry) => void;
 }
 
 /**
@@ -135,6 +138,7 @@ export function inProcessModelGate(options: InProcessModelGateOptions): ModelGat
         ...(options.settings ? { settings: options.settings } : {}),
         ...(options.files ? { files: options.files(request) } : {}),
         ...(options.caller ? { caller: () => options.caller!(request) } : {}),
+        ...(options.onRetry ? { onRetry: (retry: ModelRetry) => options.onRetry!(request, retry) } : {}),
       });
       return adapter(request.call, {
         // The Runtime never journals the provider request (harness `durable.ts`), and

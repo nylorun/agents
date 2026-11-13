@@ -623,6 +623,16 @@ before it is sent, and the call fails `invalid_request`. Neither is retried. The
 reported call or the transcript.
 _Avoid_: converting a file to text or images; a marker reaching a model.
 
+**Model call attempts**: One model call is tried up to the Tenant's `modelAttempts`, with
+`modelRetryDelayMs` doubling between attempts (`retryModelCall` in `model/retry.ts`), when it
+fails in a way another attempt may not: pi-ai's transient errors (`isRetryableAssistantError`:
+overload, rate limits, 5xx, timeouts, a lost connection), an idle stream, and a stream cut before
+its terminal chunk (`STREAM_CUT`: Vercel AI Gateway's `Upstream stream ended before terminal chunk`
+when the provider behind it fails mid-stream). A cut stream is `transient`, never
+`invalid_request`: nothing of the step ran. Each retry is the gate's `model_retry` log line, and
+`model_call` carries the call's `attempts`. An abort is never retried.
+_Avoid_: retrying a refusal the request itself caused; a turn failing on one provider hiccup.
+
 **Model inputs**: What a model reads (protocol 12): `text`, `image`, `pdf`, `office`, `audio`
 and `video` (`MODEL_INPUTS`). `capabilitiesOf(model, added)` (`model/capabilities.ts`) is its
 pi-ai catalog's `input` plus what the operator added, only where its API carries the input
