@@ -3,6 +3,7 @@ package substrate
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sync"
 
 	ateapi "go.ate.dev/substrate/api/ateapi/v1"
@@ -29,6 +30,8 @@ type fakeAPI struct {
 	failResumeTimes int
 	// crashOnResume makes the next n resumes crash the actor.
 	crashOnResume int
+	// refuseRepoint, when set, is UpdateActor's answer to any template change.
+	refuseRepoint error
 }
 
 func newFakeAPI() *fakeAPI {
@@ -132,6 +135,12 @@ func (f *fakeAPI) UpdateActor(_ context.Context, in *ateapi.UpdateActorRequest, 
 	if in.GetActor().GetMetadata().GetVersion() != a.GetMetadata().GetVersion() {
 		return nil, status.Error(codes.Aborted, "version")
 	}
+	if !proto.Equal(a.GetActorTemplate(), in.GetActor().GetActorTemplate()) {
+		if err := f.repointError(a, in.GetActor().GetActorTemplate()); err != nil {
+			f.record("UpdateActor refused " + a.GetMetadata().GetName())
+			return nil, err
+		}
+	}
 	a.ActorTemplate = in.GetActor().GetActorTemplate()
 	a.Metadata.Version++
 	f.record("UpdateActor " + a.GetMetadata().GetName() + " " + a.GetActorTemplate().GetName())
@@ -195,6 +204,44 @@ func (f *fakeAPI) RevertActor(_ context.Context, in *ateapi.RevertActorRequest, 
 	f.record("RevertActor " + a.GetMetadata().GetName())
 	a.Status.State = ateapi.ActorState_ACTOR_STATE_SUSPENDED
 	return &ateapi.RevertActorResponse{Actor: proto.Clone(a).(*ateapi.Actor)}, nil
+}
+
+// repointError is Substrate v1.0.0's answer to repointing actor a to template `to`
+// (controlapi.validatedActorMutation): only a suspended actor, only to a template that exists,
+// and only one with the same volumes and, for each container in both, the same volume mounts
+// (validateTemplateVolumesUnchanged). With its current template gone there is nothing to compare.
+func (f *fakeAPI) repointError(a *ateapi.Actor, to *ateapi.ObjectRef) error {
+	if state := a.GetStatus().GetState(); state != ateapi.ActorState_ACTOR_STATE_SUSPENDED {
+		return status.Errorf(codes.FailedPrecondition, "actor must be %s to change its actor template (got: %s)",
+			ateapi.ActorState_ACTOR_STATE_SUSPENDED, state)
+	}
+	next, ok := f.templates[key(to)]
+	if !ok {
+		return status.Error(codes.FailedPrecondition, "actor template not found")
+	}
+	if f.refuseRepoint != nil {
+		return f.refuseRepoint
+	}
+	old, ok := f.templates[key(a.GetActorTemplate())]
+	if !ok {
+		return nil
+	}
+	if !slices.EqualFunc(old.GetVolumes(), next.GetVolumes(), func(x, y *ateapi.Volume) bool { return proto.Equal(x, y) }) {
+		return status.Error(codes.FailedPrecondition,
+			"volumes differ between the current and the new actor template; volumes must be identical to repoint an actor")
+	}
+	containers := map[string]*ateapi.Container{}
+	for _, c := range next.GetContainers() {
+		containers[c.GetName()] = c
+	}
+	for _, c := range old.GetContainers() {
+		n, ok := containers[c.GetName()]
+		if ok && !slices.EqualFunc(c.GetVolumeMounts(), n.GetVolumeMounts(), func(x, y *ateapi.VolumeMount) bool { return proto.Equal(x, y) }) {
+			return status.Errorf(codes.FailedPrecondition,
+				"volume mounts of container %q differ between the current and the new actor template; volume mounts must be identical to repoint an actor", c.GetName())
+		}
+	}
+	return nil
 }
 
 // setState puts an actor in a state, as Substrate would on its own.

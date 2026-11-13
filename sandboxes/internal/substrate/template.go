@@ -11,12 +11,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
 
 	ateapi "go.ate.dev/substrate/api/ateapi/v1"
 	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/nylorun/agents/sandboxes/internal/driver"
 )
@@ -87,7 +89,8 @@ func KeyReference(provider, sandbox, host string) string {
 type Resolved struct {
 	// Image is the workload image as name@sha256:….
 	Image string
-	// Harness is the Runtime image the engine is mounted from, for entrypoint engine.
+	// Harness is the Runtime image the engine is mounted from, for entrypoint engine. An existing
+	// actor keeps the one it has (see Driver.Put).
 	Harness string
 }
 
@@ -228,8 +231,8 @@ func RenderTemplate(s Settings, spec driver.Spec, images Resolved, joinToken str
 			if images.Harness == "" {
 				return nil, &driver.Error{Status: 400, Code: "invalid_request", Message: "harnessImage is required for entrypoint engine"}
 			}
-			mounts = append(mounts, map[string]any{"name": "nylo", "mountPath": EngineDir})
-			volumes = append(volumes, map[string]any{"name": "nylo", "image": map[string]any{"reference": images.Harness}})
+			mounts = append(mounts, map[string]any{"name": EngineVolume, "mountPath": EngineDir})
+			volumes = append(volumes, map[string]any{"name": EngineVolume, "image": map[string]any{"reference": images.Harness}})
 		}
 		container["command"] = append([]string{"/bin/sh", "-c", wrapper, "nylorun-engine"}, engineArgs(spec.Entrypoint)...)
 	}
@@ -253,6 +256,69 @@ func RenderTemplate(s Settings, spec driver.Spec, images Resolved, joinToken str
 		t["workerSelector"] = map[string]any{"matchLabels": s.WorkerSelector}
 	}
 	return t, nil
+}
+
+// EngineVolume is the image volume the engine is mounted from (entrypoint engine).
+const EngineVolume = "nylo"
+
+// EngineReference is the Runtime image a template mounts the engine from, or "" without one.
+func EngineReference(t *ateapi.ActorTemplate) string {
+	for _, v := range t.GetVolumes() {
+		if v.GetName() == EngineVolume {
+			return v.GetImage().GetReference()
+		}
+	}
+	return ""
+}
+
+// RepointRefusal says why Substrate v1.0.0 would refuse to repoint an actor from template `from`
+// to `to`, or "" when it would not: the volumes must be identical, order included, and each
+// container in both must keep identical volume mounts (controlapi's
+// validateTemplateVolumesUnchanged). An image volume's reference is pinned by digest, so a
+// different image is a different volume.
+func RepointRefusal(from, to *ateapi.ActorTemplate) string {
+	if !slices.EqualFunc(from.GetVolumes(), to.GetVolumes(), func(a, b *ateapi.Volume) bool { return proto.Equal(a, b) }) {
+		return "its volumes would change (" + volumeChanges(from.GetVolumes(), to.GetVolumes()) + ")"
+	}
+	containers := map[string]*ateapi.Container{}
+	for _, c := range to.GetContainers() {
+		containers[c.GetName()] = c
+	}
+	for _, c := range from.GetContainers() {
+		next, ok := containers[c.GetName()]
+		if ok && !slices.EqualFunc(c.GetVolumeMounts(), next.GetVolumeMounts(), func(a, b *ateapi.VolumeMount) bool { return proto.Equal(a, b) }) {
+			return fmt.Sprintf("the volume mounts of container %q would change", c.GetName())
+		}
+	}
+	return ""
+}
+
+// volumeChanges names the volumes added, removed and changed between two lists.
+func volumeChanges(from, to []*ateapi.Volume) string {
+	before := map[string]*ateapi.Volume{}
+	for _, v := range from {
+		before[v.GetName()] = v
+	}
+	var parts []string
+	seen := map[string]bool{}
+	for _, v := range to {
+		seen[v.GetName()] = true
+		switch old, ok := before[v.GetName()]; {
+		case !ok:
+			parts = append(parts, "adds "+v.GetName())
+		case !proto.Equal(old, v):
+			parts = append(parts, "changes "+v.GetName())
+		}
+	}
+	for _, v := range from {
+		if !seen[v.GetName()] {
+			parts = append(parts, "removes "+v.GetName())
+		}
+	}
+	if len(parts) == 0 {
+		return "reorders them"
+	}
+	return strings.Join(parts, ", ")
 }
 
 // TemplateName is the template's name: the incarnation's, and a hash of what it renders, so a

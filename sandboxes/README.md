@@ -59,10 +59,17 @@ Substrate's egress are on. The `/v1/pods` contract is the same.
   ServiceAccount with audience `api.ate-system.svc`.
 - **A pod is an actor** in the Tenant's atespace. Each incarnation gets an ActorTemplate
   `<name>-t<hash>`, its images pinned by digest (a HEAD to the registry), carrying the join token
-  and the edge's CA; a new spec suspends the actor, repoints it and deletes the old template.
+  and the edge's CA; a new spec suspends the actor (or reverts a crashed one), repoints it and
+  deletes the old template. A repoint keeps the durable dirs (`/workspace`, `/harness`), and
+  Substrate allows it only to a template with the same volumes. So an actor keeps the engine
+  (the `nylo` image volume, pinned by digest) it was created with: a Runtime upgrade does not
+  move an existing pod to the new engine; a new incarnation (a reset) gets it. Any other volume
+  change, such as switching between `engine` and `builtin`, is not attempted: the request is
+  recorded and the sandbox reports `reason: RepointRefused` with why, so the Runtime's ready
+  deadline fails the start instead of the put being sent again for good.
   `mode` maps to resume and suspend (synchronous, so the snapshot is in durable storage when it
   returns); `podUID` is the actor's UID, which the engine reads from Substrate's actor metadata.
-  State (the last `opId`, `mode`, template and image) is a ConfigMap `<name>-state`: actors carry
+  State (the last `opId`, `mode`, template, image and any refusal) is a ConfigMap `<name>-state`: actors carry
   no labels to hold it. `shutdownTime` and `shutdownPolicy` are not applied (the Runtime sends
   none), so `expired` is never set. A resume is one `ResumeActor` call that may take up to
   5 minutes, the Runtime's own ready deadline (a cold node's first resume pulls the image, and
