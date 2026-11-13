@@ -721,9 +721,9 @@ describe("egress-gate helpers", () => {
       await t.createEnvironment(row("egress-virtual", "virtual", ["example.com"]), 100);
     });
     const store = storeEgressSandboxes(runs.store);
-    expect(await store.live("egress-pod")).toEqual({ epoch: 4, podUid: "pod-7", allow: ["*.example.com"] });
-    expect(await store.live("egress-pod-none")).toEqual({ epoch: 0, allow: [] });
-    expect(await store.live("egress-pod-pending")).toEqual({ epoch: 4, podUid: "pod-7", allow: ["a.example.com"] });
+    expect(await store.live("egress-pod")).toEqual({ epoch: 4, podUid: "pod-7", name: "sbx-x-g0", allow: ["*.example.com"] });
+    expect(await store.live("egress-pod-none")).toEqual({ epoch: 0, name: "sbx-x-g0", allow: [] });
+    expect(await store.live("egress-pod-pending")).toEqual({ epoch: 4, podUid: "pod-7", name: "sbx-x-g0", allow: ["a.example.com"] });
     for (const id of ["egress-pod-deleted", "egress-pod-lost", "egress-virtual", "egress-unknown"])
       expect(await store.live(id), id).toBeUndefined();
   });
@@ -756,17 +756,18 @@ describe("egress-gate helpers", () => {
     });
     const store = storeEgressSandboxes(runs.store);
     // No ceiling of the Tenant's own: none is read into the answer.
-    expect(await store.live("egress-owned")).toEqual({ epoch: 2, podUid: "pod-8", allow: ["a.example.com"], owner: "u:org:ada" });
+    expect(await store.live("egress-owned")).toEqual({ epoch: 2, podUid: "pod-8", name: "sbx-o-g0", allow: ["a.example.com"], owner: "u:org:ada" });
     await runs.store.tx((t) => writeSandboxConfig(t, { limits: { network: ["*.example.com", "api.vercel.com"] } }));
     expect(await store.live("egress-owned")).toEqual({
       epoch: 2,
       podUid: "pod-8",
+      name: "sbx-o-g0",
       allow: ["a.example.com"],
       owner: "u:org:ada",
       ceiling: ["*.example.com", "api.vercel.com"],
     });
     // An Agent with no owner is never asked about, so its ceiling is not read.
-    expect(await store.live("egress-pod")).toEqual({ epoch: 4, podUid: "pod-7", allow: ["*.example.com"] });
+    expect(await store.live("egress-pod")).toEqual({ epoch: 4, podUid: "pod-7", name: "sbx-x-g0", allow: ["*.example.com"] });
     await runs.store.tx((t) => writeSandboxConfig(t, {}));
   });
 

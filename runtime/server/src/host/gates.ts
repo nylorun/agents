@@ -279,6 +279,7 @@ export async function startEgress(options: StartEgressOptions): Promise<EgressGa
     ...(options.credentialProvider
       ? { provider: createCredentialProvider(options.credentialProvider, { logger: options.logger }) }
       : {}),
+    ...(options.egress.keysToken ? { keysToken: options.egress.keysToken } : {}),
     ...options.gate,
   });
 }

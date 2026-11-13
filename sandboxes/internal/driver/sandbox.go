@@ -102,6 +102,68 @@ type Spec struct {
 	// Network is the Agent's resolved network. agent-sandbox ignores it (egress-gate enforces
 	// it); the Substrate backend renders the actor's egress policy from it.
 	Network *SpecNetwork `json:"network,omitempty"`
+	// Keys are the hosts the sandbox has a key for (ADR-142). agent-sandbox ignores them
+	// (egress-gate adds keys); the Substrate backend renders an https rule per host whose
+	// header the keys provider fills.
+	Keys *SpecKeys `json:"keys,omitempty"`
+}
+
+// SpecKeys names the sandbox the keys provider asks the Tenant about, and its keyed hosts.
+type SpecKeys struct {
+	// Sandbox is the Runtime's id for the sandbox (the Environment); references carry it
+	// base64url-encoded, since an id may hold a slash.
+	Sandbox string    `json:"sandbox"`
+	Hosts   []KeyHost `json:"hosts,omitempty"`
+}
+
+// KeyHost is one keyed host (exact, or "*.suffix") and the header its key goes in.
+type KeyHost struct {
+	Host   string `json:"host"`
+	Header string `json:"header,omitempty"`
+}
+
+// MaxKeyHosts bounds a sandbox's keyed hosts, so its egress policy stays under Substrate's 256
+// rules.
+const MaxKeyHosts = 200
+
+// keyHostPattern is a lowercase DNS name, or one with "*" as its leftmost label.
+var keyHostPattern = regexp.MustCompile(`^(\*\.)?([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
+
+// keyHeaderPattern is an HTTP header name (RFC 9110 token).
+var keyHeaderPattern = regexp.MustCompile("^[!#$%&'*+.^_`|~0-9A-Za-z-]{1,128}$")
+
+func (k *SpecKeys) normalize() error {
+	if k == nil {
+		return nil
+	}
+	if k.Sandbox == "" || len(k.Sandbox) > 256 || strings.ContainsFunc(k.Sandbox, func(r rune) bool { return r < 0x20 || r == 0x7f }) {
+		return invalid("keys.sandbox must be 1 to 256 printable characters")
+	}
+	if len(k.Hosts) > MaxKeyHosts {
+		return invalid("keys.hosts holds at most %d hosts", MaxKeyHosts)
+	}
+	seen := map[string]bool{}
+	hosts := make([]KeyHost, 0, len(k.Hosts))
+	for _, h := range k.Hosts {
+		h.Host = strings.ToLower(strings.TrimSuffix(h.Host, "."))
+		if !keyHostPattern.MatchString(h.Host) || len(h.Host) > 253 {
+			return invalid("keys.hosts: %q is not a host name", h.Host)
+		}
+		if h.Header == "" {
+			h.Header = "Authorization"
+		}
+		if !keyHeaderPattern.MatchString(h.Header) {
+			return invalid("keys.hosts: %q is not a header name", h.Header)
+		}
+		if seen[h.Host] {
+			continue
+		}
+		seen[h.Host] = true
+		hosts = append(hosts, h)
+	}
+	sort.Slice(hosts, func(i, j int) bool { return hosts[i].Host < hosts[j].Host })
+	k.Hosts = hosts
+	return nil
 }
 
 // SpecNetwork is an Agent's resolved network: a preset (dev or open), exact hosts and
@@ -143,6 +205,9 @@ func (s *Spec) Normalize() error {
 	}
 	if s.Mode != "Running" && s.Mode != "Suspended" {
 		return invalid("mode must be Running or Suspended")
+	}
+	if err := s.Keys.normalize(); err != nil {
+		return err
 	}
 	if s.Image == "" {
 		s.Image = DefaultImage

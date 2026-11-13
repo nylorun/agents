@@ -45,7 +45,7 @@ let echo: TcpServer;
 let echoPort: number;
 
 /** What the provider lists now, and what it received. */
-let listed: string[] = [];
+let listed: unknown[] = [];
 let variables: unknown[] = [];
 const calls: { url: string; headers: IncomingHttpHeaders; body: string }[] = [];
 /** Requests the upstream (the vault's path) received. */
@@ -297,6 +297,25 @@ describe("egress-gate and the credential provider (CP-E)", () => {
     expect((await connectThrough(proxy, "10.0.0.1:443")).status).toBe(403);
     // The gate asked once, within the cache.
     expect(hostCalls()).toHaveLength(1);
+  });
+
+  it("reads v2 host entries with the header each key goes in (ADR-142), and v1 names as Authorization", async () => {
+    listed = [
+      { host: "api.github.com", header: "Authorization", format: "token {value}" },
+      { host: "API.Vercel.com.", header: "X-Api-Key" },
+      "pypi.example.test",
+      { host: "bad header.test", header: "X-Key" },
+      { host: "api.bad.test", header: "not a header" },
+      { header: "X-Key" },
+      { host: "api.github.com", header: "X-Other" },
+    ];
+    const client = createCredentialProvider({ url: providerUrl, token: TOKEN }, { logger });
+    expect(await client.keyedHosts!("sbx_1", OWNER)).toEqual([
+      { host: "api.github.com", header: "Authorization" },
+      { host: "api.vercel.com", header: "X-Api-Key" },
+      { host: "pypi.example.test", header: "Authorization" },
+    ]);
+    expect(await client.hosts("sbx_1", OWNER)).toEqual(["api.github.com", "api.vercel.com", "pypi.example.test"]);
   });
 
   it("keeps a `*.suffix` host inside the Tenant's egress ceiling", async () => {

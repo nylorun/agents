@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { installSubstrate } from "../../src/sandbox/commands.js";
-import { corefileWithEdge, edgeHost, substrateManifests } from "../../src/sandbox/substrate.js";
+import {
+  corefileWithEdge,
+  edgeHost,
+  KEYS_PROVIDER_ADDRESS,
+  KEYS_PROVIDER_FLAG,
+  keysProviderManifests,
+  keysProviderRegistered,
+  substrateManifests,
+} from "../../src/sandbox/substrate.js";
 import { renderComposeFile } from "../../src/stack/compose-file.js";
 import { parsePersisted, renderEnvFile } from "../../src/stack/env-file.js";
 import { fakeDocker, temporaryHome, testDeps } from "../stack/support.js";
@@ -142,6 +150,43 @@ describe("substrate settings", () => {
     expect(compose).toContain("NYLORUN_SANDBOX_EDGE_HARNESS_PORT");
     expect(compose).toContain(":8443\" # the edge: the Harness API, for actors");
     expect(renderComposeFile("nylorun-shop", "shop", { sandboxes: true })).not.toContain("EDGE_HARNESS_PORT");
+  });
+
+  it("keeps the keys port and token in .env, publishes the port and hands the token to the gateway (ADR-142)", () => {
+    const sandboxes = {
+      token: "a".repeat(64), image: "ghcr.io/nylorun/sandboxes:0.45.0-beta", harnessPort: 8790, gatesPort: 8791, egressPort: 8792,
+      hostAddress: "192.168.65.254", bind: "127.0.0.1", edgeHarnessPort: 8793, edgeGatesPort: 8794, edgeKeysPort: 8795, keysToken: "b".repeat(64),
+    };
+    const text = renderEnvFile({ ...envBase(), sandboxes } as never);
+    expect(text).toContain(`NYLORUN_EGRESS_KEYS_TOKEN=${"b".repeat(64)}`);
+    expect(parsePersisted(text).sandboxes).toMatchObject({ edgeKeysPort: 8795, keysToken: "b".repeat(64) });
+    const compose = renderComposeFile("nylorun-shop", "shop", { sandboxes: true, sandboxEdge: true, sandboxKeys: true });
+    expect(compose).toContain(":8445\" # the edge: egress-gate's decide route, for the keys provider");
+    expect(compose).toContain("NYLORUN_EGRESS_KEYS_TOKEN: ${NYLORUN_EGRESS_KEYS_TOKEN:-}");
+    expect(renderComposeFile("nylorun-shop", "shop", { sandboxes: true, sandboxEdge: true })).not.toContain("EDGE_KEYS_PORT");
+  });
+
+  it("deploys the keys provider beside Substrate's egress, admitting only the egress (ADR-142)", () => {
+    const manifests = keysProviderManifests("ghcr.io/nylorun/sandboxes:0.49.0-beta", {
+      "nylorun-sbx-shop": { decideUrl: "https://edge:8795/nylorun/v1/egress/decide", token: "t", edgeCa: "ca" },
+    }) as { kind: string; metadata: { namespace: string }; spec?: unknown; stringData?: Record<string, string> }[];
+    expect(manifests.map((m) => m.kind)).toEqual(["ServiceAccount", "Secret", "Deployment", "Service", "NetworkPolicy"]);
+    expect(manifests.every((m) => m.metadata.namespace === "ate-system")).toBe(true);
+    const config = JSON.parse(manifests[1]!.stringData!["config.json"]!) as { tenants: Record<string, unknown> };
+    expect(Object.keys(config.tenants)).toEqual(["nylorun-sbx-shop"]);
+    const policy = manifests[4]!.spec as { ingress: { from: { podSelector: { matchLabels: Record<string, string> } }[] }[] };
+    expect(policy.ingress[0]!.from[0]!.podSelector.matchLabels).toEqual({ app: "atenet-egress" });
+    const deployment = JSON.stringify(manifests[2]);
+    expect(deployment).toContain("servicedns.podcert.ate.dev/identity");
+    expect(deployment).toContain('"provider"');
+    expect(KEYS_PROVIDER_FLAG).toContain(KEYS_PROVIDER_ADDRESS);
+  });
+
+  it("tells whether Substrate's egress asks the keys provider", () => {
+    const egress = (args: string[]) => ({ spec: { template: { spec: { containers: [{ name: "router", args }] } } } });
+    expect(keysProviderRegistered(egress(["--credential-provider-name=keys.nylorun.dev", "--credential-provider-address=x"]))).toBe(true);
+    expect(keysProviderRegistered(egress(["--credential-provider-name=k8s.io"]))).toBe(false);
+    expect(keysProviderRegistered(undefined)).toBe(false);
   });
 });
 

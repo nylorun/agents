@@ -325,7 +325,7 @@ func TestTemplateRendersForEachEntrypoint(t *testing.T) {
 }
 
 func TestEgressPolicyOpenAndClosed(t *testing.T) {
-	open, err := EgressPolicy(settings(), Network{Open: true})
+	open, err := EgressPolicy(settings(), Network{Open: true}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -333,7 +333,7 @@ func TestEgressPolicyOpenAndClosed(t *testing.T) {
 	if !strings.Contains(string(raw), `"*"`) {
 		t.Fatalf("open: %s", raw)
 	}
-	closed, err := EgressPolicy(settings(), Network{})
+	closed, err := EgressPolicy(settings(), Network{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -574,5 +574,75 @@ func TestACrashLoopIsRevertedOnlyOnce(t *testing.T) {
 	}
 	if s, _ := r.d.Status(sbx); s.Reason != "Crashed" {
 		t.Fatalf("status: %+v", s)
+	}
+}
+
+func TestEgressPolicyKeyedHosts(t *testing.T) {
+	s := settings()
+	s.KeysProvider = DefaultKeysProvider
+	keys := &driver.SpecKeys{Sandbox: "sbx_01", Hosts: []driver.KeyHost{
+		{Host: "api.openai.com", Header: "Authorization"},
+		{Host: "*.example.com", Header: "X-Api-Key"},
+	}}
+	p, err := EgressPolicy(s, Network{Hosts: []string{"pypi.org", "api.openai.com"}, Suffixes: []string{".example.com"}}, keys)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var https []*ateapi.HttpsRule
+	var passed []string
+	for _, r := range p.GetRules() {
+		if h := r.GetHttps(); h != nil {
+			https = append(https, h)
+		}
+		if tp := r.GetTlsPassthrough(); tp != nil && tp.GetHostnames()[0] != s.EdgeHost {
+			passed = append(passed, tp.GetHostnames()...)
+		}
+	}
+	if len(https) != 2 {
+		t.Fatalf("want an https rule per keyed host: %v", https)
+	}
+	for _, h := range https {
+		inj := h.GetEffects().GetReplaceHeaders()[0]
+		want := KeyReference(DefaultKeysProvider, "sbx_01", h.GetHostnames()[0])
+		if inj.GetCredentialUri() != want || inj.GetPrefix() != "" {
+			t.Fatalf("injection %v, want %s", inj, want)
+		}
+	}
+	if strings.Join(passed, ",") != "pypi.org" {
+		t.Fatalf("keyed hosts must leave the passthrough rule: %v", passed)
+	}
+
+	// Keys off: keyed hosts are passed through like any other.
+	off, err := EgressPolicy(settings(), Network{Hosts: []string{"api.openai.com"}}, keys)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range off.GetRules() {
+		if r.GetHttps() != nil {
+			t.Fatalf("keys off renders no https rule: %v", r)
+		}
+	}
+}
+
+func TestSpecKeysValidation(t *testing.T) {
+	good := spec("op-1", "Running")
+	good.Keys = &driver.SpecKeys{Sandbox: "sbx_01", Hosts: []driver.KeyHost{{Host: "API.OpenAI.com."}, {Host: "api.openai.com"}}}
+	if err := good.Normalize(); err != nil {
+		t.Fatal(err)
+	}
+	if len(good.Keys.Hosts) != 1 || good.Keys.Hosts[0].Host != "api.openai.com" || good.Keys.Hosts[0].Header != "Authorization" {
+		t.Fatalf("normalized: %+v", good.Keys.Hosts)
+	}
+	for _, bad := range []*driver.SpecKeys{
+		{Sandbox: "", Hosts: []driver.KeyHost{{Host: "x.com"}}},
+		{Sandbox: "sbx_01", Hosts: []driver.KeyHost{{Host: "x.com/path"}}},
+		{Sandbox: "sbx_01", Hosts: []driver.KeyHost{{Host: "x.com", Header: "bad header"}}},
+		{Sandbox: "sbx_01", Hosts: []driver.KeyHost{{Host: "a.*.com"}}},
+	} {
+		s := spec("op-1", "Running")
+		s.Keys = bad
+		if err := s.Normalize(); err == nil {
+			t.Fatalf("accepted %+v", bad)
+		}
 	}
 }

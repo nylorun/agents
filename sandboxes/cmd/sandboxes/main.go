@@ -2,13 +2,16 @@
 // credentials, it runs the Tenant's sandboxes for the Runtime's core (D32): as agent-sandbox
 // Sandboxes, or as Agent Substrate actors (ADR-138, preview). `sandboxes healthcheck` probes
 // /ready for the Compose health check; `sandboxes substrate-setup` makes the Tenant's atespace
-// once, as one of Substrate's owners (`nylorun local sandbox enable --backend substrate`).
+// once, as one of Substrate's owners (`nylorun local sandbox enable --backend substrate`);
+// `sandboxes provider` is the keys provider Substrate's egress asks for keys (ADR-142), as a pod
+// in Substrate's namespace.
 package main
 
 import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"flag"
 	"fmt"
 	"log/slog"
 	"net"
@@ -21,6 +24,9 @@ import (
 	"syscall"
 	"time"
 
+	credprovider "go.ate.dev/substrate/api/credprovider/v1"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 
@@ -28,6 +34,7 @@ import (
 	"github.com/nylorun/agents/sandboxes/internal/config"
 	"github.com/nylorun/agents/sandboxes/internal/driver"
 	"github.com/nylorun/agents/sandboxes/internal/edge"
+	"github.com/nylorun/agents/sandboxes/internal/provider"
 	"github.com/nylorun/agents/sandboxes/internal/substrate"
 )
 
@@ -44,6 +51,13 @@ func main() {
 		}
 		if err := edge.WriteCert(os.Args[3], os.Args[2], time.Now()); err != nil {
 			fmt.Fprintln(os.Stderr, "edge-cert:", err)
+			os.Exit(1)
+		}
+		return
+	}
+	if len(os.Args) > 1 && os.Args[1] == "provider" {
+		if err := runProvider(log, os.Args[2:]); err != nil {
+			log.Error("keys provider stopped", "error", err)
 			os.Exit(1)
 		}
 		return
@@ -191,6 +205,7 @@ func substrateBackend(ctx context.Context, cfg config.Config, log *slog.Logger) 
 		Settings: substrate.Settings{
 			Atespace: sub.Atespace, HarnessURL: harnessURL, GatesURL: gatesURL, EdgeHost: sub.Edge.Host, EdgeAddress: cfg.Cluster.HostAddress,
 			EdgePorts: []int{sub.Edge.HarnessPort, sub.Edge.GatesPort}, EdgeCA: string(caPEM), WorkerSelector: sub.WorkerSelector,
+			KeysProvider: sub.KeysProvider,
 		},
 		Namespace: cfg.Cluster.Namespace, Kube: kube, Resolver: &substrate.RegistryResolver{}, Log: log,
 	})
@@ -206,6 +221,15 @@ func substrateBackend(ctx context.Context, cfg config.Config, log *slog.Logger) 
 		{Name: "harness", Listen: envOr("NYLORUN_SANDBOXES_EDGE_HARNESS_LISTEN", ":8443"), Upstream: harnessUp},
 		{Name: "gates", Listen: envOr("NYLORUN_SANDBOXES_EDGE_GATES_LISTEN", ":8444"), Upstream: gatesUp},
 	}}
+	if sub.Edge.KeysPort > 0 {
+		// The keys provider's way to the egress service's decide route (ADR-142); no actor rule
+		// allows this port.
+		keysUp, err := url.Parse(envOr("NYLORUN_SANDBOXES_EDGE_KEYS_UPSTREAM", "http://gateway:4200"))
+		if err != nil {
+			return nil, nil, err
+		}
+		front.Routes = append(front.Routes, edge.Route{Name: "keys", Listen: envOr("NYLORUN_SANDBOXES_EDGE_KEYS_LISTEN", ":8445"), Upstream: keysUp})
+	}
 	side := func(ctx context.Context) error {
 		defer closeConn()
 		go d.Run(ctx, 30*time.Second)
@@ -267,4 +291,61 @@ func substrateSetup() error {
 	}
 	fmt.Printf("atespace %s: %s is its editor\n", sub.Atespace, principal)
 	return nil
+}
+
+// runProvider serves the keys provider (ADR-142): FetchSecret over mutual TLS on --listen, and
+// /readyz on --health.
+func runProvider(log *slog.Logger, args []string) error {
+	fs := flag.NewFlagSet("provider", flag.ContinueOnError)
+	listen := fs.String("listen", ":50051", "gRPC address")
+	health := fs.String("health", ":9091", "health address (/readyz)")
+	name := fs.String("name", provider.DefaultName, "the provider's name: the host of its references")
+	serverBundle := fs.String("server-cred-bundle", "/run/servicedns.podcert.ate.dev/credential-bundle.pem", "this pod's servicedns certificate and key (PEM)")
+	clientCA := fs.String("client-ca-file", "/run/podidentity.podcert.ate.dev/trust-bundle.pem", "the CA callers' certificates chain to")
+	injector := fs.String("injector-identity", provider.DefaultInjector, "the only caller admitted: the egress gateway's SPIFFE ID")
+	configFile := fs.String("config", "/etc/nylorun-keys/config.json", "the Tenants: {tenants: {<atespace>: {decideUrl, token, edgeCa, outside?}}}")
+	budget := fs.Duration("budget", provider.DefaultBudget, "one FetchSecret's time, under the egress gateway's 5 s")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	server := &provider.Server{Name: *name, ConfigFile: *configFile, Budget: *budget, Log: log}
+	lis, err := net.Listen("tcp", *listen)
+	if err != nil {
+		return err
+	}
+	g := grpc.NewServer(grpc.Creds(credentials.NewTLS(provider.ServerTLS(*serverBundle, *clientCA, *injector))))
+	credprovider.RegisterCredentialProviderServer(g, server)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/readyz", func(w http.ResponseWriter, _ *http.Request) {
+		if _, err := os.Stat(*configFile); err != nil {
+			http.Error(w, "no config", http.StatusServiceUnavailable)
+			return
+		}
+		if _, err := os.Stat(*serverBundle); err != nil {
+			http.Error(w, "no certificate yet", http.StatusServiceUnavailable)
+			return
+		}
+		_, _ = w.Write([]byte("ok"))
+	})
+	healthServer := &http.Server{Addr: *health, Handler: mux, ReadHeaderTimeout: 5 * time.Second}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	errs := make(chan error, 2)
+	go func() { errs <- g.Serve(lis) }()
+	go func() {
+		if err := healthServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			errs <- err
+		}
+	}()
+	log.Info("keys provider listening", "listen", *listen, "name", *name, "injector", *injector)
+	select {
+	case <-ctx.Done():
+		g.GracefulStop()
+		_ = healthServer.Close()
+		return nil
+	case err := <-errs:
+		g.Stop()
+		_ = healthServer.Close()
+		return err
+	}
 }

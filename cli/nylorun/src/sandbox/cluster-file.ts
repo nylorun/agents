@@ -36,8 +36,11 @@ export interface ClusterFile {
     serviceAccount: string;
     endpoint?: string;
     version?: string;
-    edge: { host: string; harnessPort: number; gatesPort: number };
+    /** keysPort: where the keys provider reaches the egress service's decide route (ADR-142). */
+    edge: { host: string; harnessPort: number; gatesPort: number; keysPort?: number };
     workerSelector?: Record<string, string>;
+    /** The keys provider's name, once it is deployed and registered with Substrate's egress. */
+    keysProvider?: string;
   };
 }
 

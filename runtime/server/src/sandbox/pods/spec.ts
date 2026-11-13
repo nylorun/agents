@@ -65,6 +65,8 @@ export interface PodSpecInput {
   readonly harness?: string;
   /** The join token, when this apply rotates it. */
   readonly joinToken?: string;
+  /** The keyed hosts (`keys.ts`), for Agent Substrate's egress. */
+  readonly keys?: PodSpec["keys"];
 }
 
 export function podSpecOf(input: PodSpecInput): PodSpec {
@@ -105,6 +107,7 @@ export function podSpecOf(input: PodSpecInput): PodSpec {
     },
     ...(input.joinToken ? { joinToken: input.joinToken } : {}),
     network: networkOf(spec),
+    ...(input.keys ? { keys: input.keys } : {}),
   };
 }
 

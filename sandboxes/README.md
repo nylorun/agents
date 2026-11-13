@@ -51,7 +51,8 @@ The pod shape is rendered only here (`internal/driver/sandbox.go`, golden file
 
 `cluster.json`'s `backend` is `agent-sandbox` (the default) or `substrate`, with a `substrate`
 object: `atespace`, `systemNamespace` (`ate-system`), `apiService` (`api`), `serviceAccount`,
-and `edge` (`host`, `harnessPort`, `gatesPort`). The `/v1/pods` contract is the same.
+and `edge` (`host`, `harnessPort`, `gatesPort`, `keysPort`), and `keysProvider` once keys at
+Substrate's egress are on. The `/v1/pods` contract is the same.
 
 - **Reaching Substrate.** A port-forward to the `api` Service (or `endpoint`), TLS 1.3 against
   the live ClusterTrustBundle of Substrate's signer, and a token for the service's own
@@ -76,13 +77,46 @@ and `edge` (`host`, `harnessPort`, `gatesPort`). The `/v1/pods` contract is the 
   restored actor's first lookup can be lost (P1.8).
 - **Egress** is the Agent's network (`network` in the PUT body: `preset`, `hosts`, `suffixes`):
   the edge by TLS passthrough, each host on 443 (passthrough) and 80, or everything for `open`.
+- **Keys** ([ADR-142](https://github.com/nylorun/factory/blob/main/decisions/platform/2026-11-13-substrate-egress-adds-keys.md)):
+  with `keysProvider` set, each host in the PUT body's `keys` (`{sandbox, hosts: [{host,
+  header}]}`, at most 200) becomes an `https` rule on 443 whose `replaceHeaders` entry names the
+  header, an empty prefix, and the reference
+  `ate-secret://keys.nylorun.dev/<base64url sandbox id>/<host>`; the host leaves the passthrough
+  rule. Substrate's egress ends TLS with its own CA, which the template names in
+  `NYLORUN_SANDBOX_EGRESS_CA_FILE` for the engine's trust bundle, and asks the keys provider.
+  agent-sandbox ignores `keys` (egress-gate adds keys there).
 - **The edge** listens on `:8443` (to `http://runtime:4200`) and `:8444` (to
   `http://gateway:4100`) with `edge.crt`/`edge.key` from the directory, and passes WebSocket
-  upgrades, which Substrate's egress does not.
+  upgrades, which Substrate's egress does not. With `edge.keysPort`, it also listens on `:8445`
+  (to `http://gateway:4200`, egress-gate's decide route) for the keys provider; no actor's
+  policy allows that port.
+
+### The keys provider
+
+`sandboxes provider` is the keys provider (ADR-142): the one credential provider Substrate's
+egress asks for a keyed request's header, as a pod in `ate-system` beside it (`nylorun local
+sandbox enable` deploys it as `nylorun-keys-provider`). Like Substrate's own providers, it serves
+gRPC `FetchSecret` on `:50051` over mutual TLS with its servicedns pod certificate, admits only
+the egress's identity (`--injector-identity`, default
+`spiffe://cluster.local/ns/ate-system/sa/atenet-egress`), and reads values live. It stores
+nothing and decides nothing:
+
+1. the actor's atespace picks the Tenant in `--config` (`{tenants: {<atespace>: {decideUrl,
+   token, edgeCa, outside?: {url, token, ca?}}}}`, a Secret);
+2. it posts `{actor, sandboxId, host}` to the Tenant's decide route through the edge, with the
+   token: the answer is a vault value, or `fetch` with the Agent, owner and host of a person's key;
+3. for `fetch`, it posts `{agentId, owner, host}` to the outside credential source's `/v1/fetch`
+   and returns its `value`; the Runtime never sees it.
+
+A 403 or 401 answers `PermissionDenied` and a 404 `NotFound` (the egress answers 403); anything
+else, or no answer within `--budget` (3 s), answers `Unavailable` (503). Logs name the sandbox,
+host and outcome, never a value; `/readyz` on `:9091`. Substrate's egress learns it at Substrate's
+install: `--credential-provider='[{"name":"keys.nylorun.dev","address":"nylorun-keys-provider.ate-system.svc:50051"}]'`.
 
 Subcommands: `sandboxes edge-cert <host> <dir>` writes `edge-ca.pem`, `edge.crt` and `edge.key`;
 `sandboxes substrate-setup` makes the atespace and its editor binding with an owner token from
 `NYLORUN_SUBSTRATE_OWNER_TOKEN` or `NYLORUN_SUBSTRATE_OWNER_TOKEN_FILE`. Both are run by `enable`.
+`sandboxes provider` is the keys provider (above).
 
 ## Environment
 
@@ -91,8 +125,8 @@ Subcommands: `sandboxes edge-cert <host> <dir>` writes `edge-ca.pem`, `edge.crt`
 | `NYLORUN_SANDBOXES_TOKEN` | the bearer token (required, ≥ 32 characters) |
 | `NYLORUN_SANDBOXES_DIR` | where `cluster.json` and `token` are (default `/run/nylorun/sandboxes`) |
 | `NYLORUN_SANDBOXES_LISTEN` | listen address (default `:4300`) |
-| `NYLORUN_SANDBOXES_EDGE_HARNESS_LISTEN`, `_GATES_LISTEN` | the edge's listen addresses (substrate; `:8443`, `:8444`) |
-| `NYLORUN_SANDBOXES_EDGE_HARNESS_UPSTREAM`, `_GATES_UPSTREAM` | where the edge forwards (`http://runtime:4200`, `http://gateway:4100`) |
+| `NYLORUN_SANDBOXES_EDGE_HARNESS_LISTEN`, `_GATES_LISTEN`, `_KEYS_LISTEN` | the edge's listen addresses (substrate; `:8443`, `:8444`, `:8445`) |
+| `NYLORUN_SANDBOXES_EDGE_HARNESS_UPSTREAM`, `_GATES_UPSTREAM`, `_KEYS_UPSTREAM` | where the edge forwards (`http://runtime:4200`, `http://gateway:4100`, `http://gateway:4200`) |
 
 `sandboxes healthcheck` probes `/ready` (the image has no shell).
 

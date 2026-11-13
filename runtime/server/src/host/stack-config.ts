@@ -161,6 +161,11 @@ export interface GatesConfig {
 /** egress-gate's listener (`NYLORUN_EGRESS_LISTEN_HOST`, `NYLORUN_EGRESS_LISTEN_PORT`). */
 export interface EgressConfig {
   listen: { host: string; port: number };
+  /**
+   * NYLORUN_EGRESS_KEYS_TOKEN: the token Agent Substrate's keys provider presents to the decide
+   * route on this listener (ADR-142); none: the route is off. 32 bytes or more as hex.
+   */
+  keysToken?: string;
 }
 
 /** Where the loop reaches the gates service (`NYLORUN_GATES_URL`, `NYLORUN_GATES_TOKEN`). */
@@ -1054,7 +1059,13 @@ const REMOVED_RESOLVER_PREFIX = "NYLORUN_RESOLVER_";
 
 /** `StackConfig.egress` from `NYLORUN_EGRESS_LISTEN_*`. CONNECT has no Host header to check. */
 function parseEgress(env: EnvSnapshot): EgressConfig {
-  return { listen: parseListener(env, "NYLORUN_EGRESS_", DEFAULT_EGRESS_LISTEN_PORT) };
+  const keysToken = read(env, "NYLORUN_EGRESS_KEYS_TOKEN");
+  if (keysToken !== undefined && !/^[0-9a-f]{64,}$/i.test(keysToken))
+    throw new StackConfigError("NYLORUN_EGRESS_KEYS_TOKEN must be 32 bytes or more as hex (nylorun local sandbox enable makes it)");
+  return {
+    listen: parseListener(env, "NYLORUN_EGRESS_", DEFAULT_EGRESS_LISTEN_PORT),
+    ...(keysToken === undefined ? {} : { keysToken }),
+  };
 }
 
 /** `StackConfig.modelGate` from `NYLORUN_GATES_URL` and `NYLORUN_GATES_TOKEN`. */

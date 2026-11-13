@@ -85,6 +85,13 @@ export interface SandboxStackEnv {
    */
   edgeHarnessPort?: number;
   edgeGatesPort?: number;
+  /**
+   * With the Substrate backend: the edge's keys port, where the keys provider reaches
+   * egress-gate's decide route, and the token it presents there (ADR-142).
+   */
+  edgeKeysPort?: number;
+  /** NYLORUN_EGRESS_KEYS_TOKEN, 32 bytes as hex. */
+  keysToken?: string;
 }
 
 export type HarnessMode = "remote" | "in-process";
@@ -99,6 +106,8 @@ const SANDBOX_KEYS = {
   bind: "NYLORUN_SANDBOX_BIND",
   edgeHarnessPort: "NYLORUN_SANDBOX_EDGE_HARNESS_PORT",
   edgeGatesPort: "NYLORUN_SANDBOX_EDGE_GATES_PORT",
+  edgeKeysPort: "NYLORUN_SANDBOX_EDGE_KEYS_PORT",
+  keysToken: "NYLORUN_EGRESS_KEYS_TOKEN",
 } as const satisfies Record<keyof SandboxStackEnv, string>;
 
 const KEYS = {
@@ -220,6 +229,14 @@ export function renderEnvFile(env: StackEnv): string {
                 sandboxLine("edgeGatesPort"),
               ]
             : []),
+          ...(sandboxes.edgeKeysPort && sandboxes.keysToken
+            ? [
+                "# Keys at Substrate's egress (ADR-142): the edge's port for the keys provider,",
+                "# and the token it presents to egress-gate's decide route.",
+                sandboxLine("edgeKeysPort"),
+                sandboxLine("keysToken"),
+              ]
+            : []),
           "",
         ]
       : []),
@@ -278,9 +295,12 @@ function parseSandboxes(values: Map<string, string>): SandboxStackEnv | undefine
   if (!hostAddress || !IPV4.test(hostAddress) || !bind || !IPV4.test(bind)) return undefined;
   const edgeHarnessPort = port(values.get(SANDBOX_KEYS.edgeHarnessPort));
   const edgeGatesPort = port(values.get(SANDBOX_KEYS.edgeGatesPort));
+  const edgeKeysPort = port(values.get(SANDBOX_KEYS.edgeKeysPort));
+  const keysToken = values.get(SANDBOX_KEYS.keysToken);
   return {
     token, image, harnessPort, gatesPort, egressPort, hostAddress, bind,
     ...(edgeHarnessPort && edgeGatesPort ? { edgeHarnessPort, edgeGatesPort } : {}),
+    ...(edgeKeysPort && keysToken && /^[0-9a-f]{64,}$/i.test(keysToken) ? { edgeKeysPort, keysToken } : {}),
   };
 }
 

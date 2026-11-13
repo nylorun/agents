@@ -166,6 +166,7 @@ export async function prepareStack(input: {
       harness: env.harness,
       ...(env.sandboxes ? { sandboxes: true } : {}),
       ...(env.sandboxes?.edgeHarnessPort ? { sandboxEdge: true } : {}),
+      ...(env.sandboxes?.edgeHarnessPort && env.sandboxes.edgeKeysPort ? { sandboxKeys: true } : {}),
       ...(env.restateUi ? { restateUi: true } : {}),
       // The trusted issuers, when the operator wrote an identity file; a change takes a restart.
       ...(existsSync(paths.identity) ? { identity: true } : {}),

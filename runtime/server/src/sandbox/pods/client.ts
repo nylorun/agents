@@ -44,6 +44,14 @@ export interface PodSpec {
     readonly hosts: readonly string[];
     readonly suffixes: readonly string[];
   };
+  /**
+   * The hosts the sandbox has a key for, each with its header (ADR-142, `keys.ts`). agent-sandbox
+   * ignores them; on Agent Substrate each becomes an https rule the keys provider fills.
+   */
+  readonly keys?: {
+    readonly sandbox: string;
+    readonly hosts: readonly { readonly host: string; readonly header: string }[];
+  };
 }
 
 /** A Sandbox as the service's informers see it (`driver.Status` in Go). */

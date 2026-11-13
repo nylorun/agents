@@ -25,6 +25,7 @@ import { recoverLostVolume } from "../../artifacts/disk.js";
 import type { PodStatus } from "./client.js";
 import { decide, type PodRow, type PodTimer, type PodTrigger } from "./lifecycle.js";
 import { podLifecycleConfig, podSpecOf } from "./spec.js";
+import { podKeysOf } from "./keys.js";
 import { hostTuning } from "../../tuning.js";
 import { idleMsOf, revertStart } from "../../tenant/agent-versions.js";
 
@@ -83,6 +84,25 @@ export async function reconcileSandbox(
     current.k8sName === row.pod.k8sName &&
     current.desired === row.pod.desired;
 
+  let keys: Awaited<ReturnType<typeof podKeysOf>> | undefined;
+  if (decision.apply) {
+    // The keyed hosts are read at every apply (ADR-142): a host bound or connected later reaches
+    // the sandbox's rules on its next start, resume or reset.
+    try {
+      keys = await podKeysOf(ctx, {
+        sandboxId,
+        ...(row.ownerUserId === undefined ? {} : { owner: row.ownerUserId }),
+        ...(config.limits?.network === undefined ? {} : { ceiling: config.limits.network }),
+      });
+    } catch (error) {
+      ctx.config.logger.warn("sandbox keys unread", {
+        sandboxId,
+        message: error instanceof Error ? error.message : String(error),
+      });
+      return { retryAfterMs: decision.retryAfterMs ?? hostTuning().pods.reconcileRetryMs };
+    }
+  }
+
   // A new join token is recorded before the service writes it to the Sandbox's Secret.
   let joinToken: string | undefined;
   let rev = patch.rev ?? row.pod.rev;
@@ -126,6 +146,7 @@ export async function reconcileSandbox(
       harnessImage: pods.harnessImage,
       harness: row.applied.harness,
       ...(joinToken ? { joinToken } : {}),
+      keys,
     });
     try {
       await pods.client.put(row.pod.k8sName, spec);

@@ -72,14 +72,20 @@ type Substrate struct {
 	Edge Edge `json:"edge"`
 	// WorkerSelector picks the worker pool, e.g. {"ate.dev/sandbox-class": "gvisor"}; empty: any.
 	WorkerSelector map[string]string `json:"workerSelector,omitempty"`
+	// KeysProvider is the keys provider's name (keys.nylorun.dev) when `enable` deployed it and
+	// found it registered with Substrate's egress (ADR-142); empty: keys are off.
+	KeysProvider string `json:"keysProvider,omitempty"`
 }
 
 // Edge is the service's TLS front for actors: Host is the name actors dial (in CoreDNS), and
-// HarnessPort and GatesPort are the ports published on the bind address.
+// HarnessPort, GatesPort and KeysPort are the ports published on the bind address.
 type Edge struct {
 	Host        string `json:"host"`
 	HarnessPort int    `json:"harnessPort"`
 	GatesPort   int    `json:"gatesPort"`
+	// KeysPort is where the keys provider reaches the egress service's decide route (ADR-142).
+	// Actors' policies never allow it.
+	KeysPort int `json:"keysPort,omitempty"`
 }
 
 // Ports are the host ports pods may reach (the namespace's NetworkPolicy allows only these).

@@ -40,6 +40,12 @@ import { assertIPv4, defaultBind, parseNslookup, parseProbePorts, runProbe, type
 import {
   corefileWithEdge,
   edgeHost,
+  KEYS_PROVIDER,
+  KEYS_PROVIDER_FLAG,
+  KEYS_PROVIDER_NAME,
+  keysProviderManifests,
+  keysProviderRegistered,
+  type KeysProviderTenant,
   PREFERRED_EDGE_PORTS,
   SUBSTRATE_API_SERVICE,
   SUBSTRATE_AUDIENCE,
@@ -405,6 +411,47 @@ async function prepareSubstrate(deps: SandboxDeps, root: string, cluster: Cluste
   }
 }
 
+/**
+ * Keys at Substrate's egress (ADR-142): deploys the keys provider with this Tenant's entry (the
+ * edge's keys port, its token and CA, and the Host's outside credential source when the shell
+ * names one), keeping other Tenants' entries, and checks Substrate's egress asks it. Returns
+ * whether it does: when not, keys stay off and `enable` says how to turn them on.
+ */
+export async function deployKeysProvider(
+  deps: SandboxDeps,
+  root: string,
+  cluster: ClusterFile,
+  input: { image: string; port: number; token: string; outside?: { url: string; token: string } },
+): Promise<boolean> {
+  const k = kube(deps.kubectl, cluster.context);
+  const substrate = cluster.substrate!;
+  const edgeCa = await readFile(join(sandboxesDir(root), "edge-ca.pem"), "utf8");
+  const existing = await k.getJson<{ data?: Record<string, string> }>(["secret", KEYS_PROVIDER, "-n", SUBSTRATE_NAMESPACE]);
+  let tenants: Record<string, KeysProviderTenant> = {};
+  const raw = existing?.data?.["config.json"];
+  if (raw) {
+    try {
+      tenants = (JSON.parse(Buffer.from(raw, "base64").toString("utf8")) as { tenants?: Record<string, KeysProviderTenant> }).tenants ?? {};
+    } catch {
+      tenants = {};
+    }
+  }
+  tenants[substrate.atespace] = {
+    decideUrl: `https://${substrate.edge.host}:${input.port}/nylorun/v1/egress/decide`,
+    token: input.token,
+    edgeCa,
+    ...(input.outside ? { outside: input.outside } : {}),
+  };
+  await k.apply("Deploying the keys provider", keysProviderManifests(input.image, tenants));
+  const egress = await k.getJson(["deployment", "atenet-egress", "-n", SUBSTRATE_NAMESPACE]);
+  const registered = keysProviderRegistered(egress);
+  if (!registered)
+    deps.stack.err(
+      `Keys at Substrate's egress are off: Substrate's egress does not ask ${KEYS_PROVIDER_NAME}. Install Substrate with ${KEYS_PROVIDER_FLAG} (ate-setup deploy ate-system and deploy atenet), then run enable again. Until then keyed hosts are passed through with their stand-ins.`,
+    );
+  return registered;
+}
+
 async function enable(deps: SandboxDeps, args: readonly string[]): Promise<number> {
   const { stack } = deps;
   const flags = parseStackFlags(
@@ -451,7 +498,9 @@ async function enable(deps: SandboxDeps, args: readonly string[]): Promise<numbe
     const edgePorts = {
       harness: await pick(PREFERRED_EDGE_PORTS.harness, persisted?.edgeHarnessPort),
       gates: await pick(PREFERRED_EDGE_PORTS.gates, persisted?.edgeGatesPort),
+      keys: await pick(PREFERRED_EDGE_PORTS.keys, persisted?.edgeKeysPort),
     };
+    const keysToken = persisted?.keysToken ?? randomBytes(32).toString("hex");
     const images = stackImages(stack.env, { runtime: stack.runtimeVersion, studio: stack.studioVersion });
     const installed = await installSubstrate(deps, {
       context,
@@ -463,6 +512,17 @@ async function enable(deps: SandboxDeps, args: readonly string[]): Promise<numbe
     });
     await writeClusterFiles(tenant.paths.root, installed.cluster, installed.token);
     await prepareSubstrate(deps, tenant.paths.root, installed.cluster, images.sandboxes);
+    const outsideUrl = stack.env.NYLORUN_CREDENTIAL_PROVIDER_URL?.trim();
+    const outsideToken = stack.env.NYLORUN_CREDENTIAL_PROVIDER_TOKEN?.trim();
+    const keysOn = await deployKeysProvider(deps, tenant.paths.root, installed.cluster, {
+      image: images.sandboxes,
+      port: edgePorts.keys,
+      token: keysToken,
+      ...(outsideUrl && outsideToken ? { outside: { url: outsideUrl, token: outsideToken } } : {}),
+    });
+    installed.cluster.substrate!.edge.keysPort = edgePorts.keys;
+    if (keysOn) installed.cluster.substrate!.keysProvider = KEYS_PROVIDER_NAME;
+    await writeClusterFiles(tenant.paths.root, installed.cluster, installed.token);
     const settings: SandboxStackEnv = {
       token: persisted?.token ?? randomBytes(32).toString("hex"),
       image: images.sandboxes,
@@ -473,6 +533,8 @@ async function enable(deps: SandboxDeps, args: readonly string[]): Promise<numbe
       bind: installed.cluster.bindAddress,
       edgeHarnessPort: edgePorts.harness,
       edgeGatesPort: edgePorts.gates,
+      edgeKeysPort: edgePorts.keys,
+      keysToken,
     };
     await restartTenant(stack, { name: tenant.name, sandboxes: settings });
     const ready = await stack.docker.stream(
@@ -486,6 +548,11 @@ async function enable(deps: SandboxDeps, args: readonly string[]): Promise<numbe
     const c = installed.cluster;
     stack.out(`Sandboxes ${tenant.name}  enabled on ${c.context} (backend substrate, atespace ${c.substrate!.atespace}; preview)`);
     stack.out(`Actors reach the edge ${c.substrate!.edge.host} (${c.hostAddress}) on ports ${edgePorts.harness} and ${edgePorts.gates}`);
+    stack.out(
+      keysOn
+        ? `Keys at Substrate's egress: on (${KEYS_PROVIDER_NAME}, edge port ${edgePorts.keys})`
+        : `Keys at Substrate's egress: off (see above)`,
+    );
     return 0;
   }
   if (probePorts && [probePorts.allowed, probePorts.denied].some((port) => taken.has(port)))
@@ -594,6 +661,9 @@ async function status(deps: SandboxDeps, args: readonly string[]): Promise<numbe
     if (cluster.backend === "substrate" && cluster.substrate) {
       stack.out(`Namespace   ${cluster.namespace}  backend substrate (preview), atespace ${cluster.substrate.atespace}`);
       stack.out(`Edge        ${cluster.substrate.edge.host} ports ${cluster.substrate.edge.harnessPort}, ${cluster.substrate.edge.gatesPort} (bound on ${cluster.bindAddress}, actors reach ${cluster.hostAddress})`);
+      stack.out(
+        `Keys        ${cluster.substrate.keysProvider ? `on: ${cluster.substrate.keysProvider}, edge port ${cluster.substrate.edge.keysPort}` : "off: Substrate's egress does not ask the keys provider (see enable's output)"}`,
+      );
     } else {
       stack.out(`Namespace   ${cluster.namespace}  agent-sandbox ${cluster.controllerVersion}`);
     }
