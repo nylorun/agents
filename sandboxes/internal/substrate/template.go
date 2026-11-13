@@ -6,6 +6,7 @@ package substrate
 
 import (
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -68,6 +69,18 @@ type Settings struct {
 	EdgeCA string
 	// WorkerSelector picks the worker pool; empty for any.
 	WorkerSelector map[string]string
+	// KeysProvider is the keys provider's name, the host of its ate-secret:// references
+	// (ADR-142); empty when keys are off, and keyed hosts are then passed through like any other.
+	KeysProvider string
+}
+
+// DefaultKeysProvider is the keys provider's name when the cluster records it.
+const DefaultKeysProvider = "keys.nylorun.dev"
+
+// KeyReference is the credential URI of a keyed host: where the keys provider asks, never a value.
+// The sandbox id is base64url-encoded (an id may hold a slash; Substrate refuses percent-encoding).
+func KeyReference(provider, sandbox, host string) string {
+	return "ate-secret://" + provider + "/" + base64.RawURLEncoding.EncodeToString([]byte(sandbox)) + "/" + host
 }
 
 // Resolved are a spec's images pinned by digest (Substrate refuses tags).
@@ -154,6 +167,10 @@ func RenderTemplate(s Settings, spec driver.Spec, images Resolved, joinToken str
 		"NYLORUN_HARNESS_URL":           s.HarnessURL,
 		"NYLORUN_GATES_URL":             s.GatesURL,
 		"NYLORUN_SANDBOX_BLOCKED_PROBE": BlockedProbe,
+		// Substrate's egress CA, which commands must trust for hosts whose keys the egress adds
+		// (ADR-142): the engine writes it with the public roots into the bundle the trust
+		// variables name.
+		"NYLORUN_SANDBOX_EGRESS_CA_FILE": TrustDir + "/egress.pem",
 	}
 	if s.EdgeCA != "" {
 		env["NYLORUN_EDGE_CA"] = s.EdgeCA
@@ -275,9 +292,11 @@ func ToProto(rendered map[string]any, name string) (*ateapi.ActorTemplate, error
 }
 
 // EgressPolicy is the actor's singleton policy: the edge passed through (the engine's
-// WebSocket and its gates), and the Agent's hosts over TLS (passed through, 443) and cleartext
-// HTTP (80). Keys are not added here in Phase 1a.
-func EgressPolicy(s Settings, network Network) (*ateapi.EgressPolicy, error) {
+// WebSocket and its gates), the Agent's hosts over TLS (passed through, 443) and cleartext HTTP
+// (80), and, with keys on, an https rule per keyed host whose header Substrate's egress fills from
+// the keys provider (ADR-142). A keyed pattern leaves the passthrough rule: Substrate refuses two
+// rules that tie on a name and port, and an exact keyed host already wins over a wildcard.
+func EgressPolicy(s Settings, network Network, keys *driver.SpecKeys) (*ateapi.EgressPolicy, error) {
 	edgePorts := make([]any, 0, len(s.EdgePorts))
 	for _, port := range s.EdgePorts {
 		edgePorts = append(edgePorts, port)
@@ -303,9 +322,32 @@ func EgressPolicy(s Settings, network Network) (*ateapi.EgressPolicy, error) {
 			add("*" + suffix)
 		}
 	}
+	keyed := map[string]bool{}
+	if s.KeysProvider != "" && keys != nil {
+		for _, k := range keys.Hosts {
+			keyed[k.Host] = true
+			rules = append(rules, map[string]any{"https": map[string]any{
+				"hostnames": []any{k.Host},
+				"ports":     map[string]any{"numbers": []any{443}},
+				"effects": map[string]any{"replaceHeaders": []any{map[string]any{
+					"header":        k.Header,
+					"prefix":        "",
+					"credentialUri": KeyReference(s.KeysProvider, keys.Sandbox, k.Host),
+				}}},
+			}})
+		}
+	}
+	passed := make([]any, 0, len(hosts))
+	for _, h := range hosts {
+		if !keyed[h.(string)] {
+			passed = append(passed, h)
+		}
+	}
+	if len(passed) > 0 {
+		rules = append(rules, map[string]any{"tlsPassthrough": map[string]any{"hostnames": passed, "ports": map[string]any{"numbers": []any{443}}}})
+	}
 	if len(hosts) > 0 {
 		rules = append(rules,
-			map[string]any{"tlsPassthrough": map[string]any{"hostnames": hosts, "ports": map[string]any{"numbers": []any{443}}}},
 			map[string]any{"http": map[string]any{"hostnames": hosts, "ports": map[string]any{"numbers": []any{80}}}},
 		)
 	}

@@ -467,8 +467,21 @@ owners (a 10-minute token for `ate-system/ate-client`, deleted after use), it ma
 atespace with the sandboxes service as its editor.
 
 Each Agent's network (preset, hosts, suffixes) becomes its actors' egress policy: only the edge
-and the allowed hosts resolve and connect. Keys injected at egress, builds and tags are not on
-Substrate yet. `nylorun local sandbox status` names the backend, the atespace and the edge.
+and the allowed hosts resolve and connect.
+
+Keys reach commands through Substrate's own egress
+([ADR-142](https://github.com/nylorun/factory/blob/main/decisions/platform/2026-11-13-substrate-egress-adds-keys.md)):
+a command sends its stand-in (`Authorization: Bearer nylorun_managed`) with no proxy, and
+Substrate's egress replaces the header on each request to a host the Agent has a key for, asking
+the keys provider, which asks the Tenant. `enable` deploys the keys provider in `ate-system`
+(`nylorun-keys-provider`, from the sandboxes image), publishes a third edge port (8795 by
+default) for it, and keeps its token in `docker/.env` (`NYLORUN_EGRESS_KEYS_TOKEN`). Substrate's
+egress must be installed asking it:
+`ate-setup deploy ate-system` and `deploy atenet` with
+`--credential-provider='[{"name":"keys.nylorun.dev","address":"nylorun-keys-provider.ate-system.svc:50051"}]'`.
+Without that, `enable` says so and keys stay off. A person's connected keys come from the outside
+credential source the shell names (`NYLORUN_CREDENTIAL_PROVIDER_URL` and `_TOKEN`), which must
+answer `/v1/fetch` and be reachable from the cluster. Builds and tags are not on Substrate yet. `nylorun local sandbox status` names the backend, the atespace, the edge and whether keys are on.
 `disable` works as for agent-sandbox; the atespace stays until you delete it with Substrate's
 tools.
 

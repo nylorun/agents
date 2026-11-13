@@ -1591,3 +1591,33 @@ export function routingOf(
   const toolPrefix = routed?.toolPrefix ?? binding.toolPrefix;
   return toolPrefix === undefined ? { via } : { via, toolPrefix };
 }
+
+/**
+ * The hosts Environment `environmentId`'s sandbox has a key for (ADR-142), each with the header
+ * the key goes in: the hosts of its live `environment_secret`s and of its applied
+ * `environment_secret` slots, filled or not, so a slot whose value is removed still has its rule
+ * and fails closed. Read in `t` from the clear binding: no value is read and no key is needed.
+ */
+export async function environmentSecretHosts(t: Tx, environmentId: string): Promise<{ host: string; header: string }[]> {
+  const hosts = new Map<string, string>();
+  const add = (list: readonly string[] | undefined, header: string | undefined) => {
+    for (const host of list ?? []) {
+      const name = host.toLowerCase();
+      if (!hosts.has(name)) hosts.set(name, header ?? ENVIRONMENT_SECRET_DEFAULT_INJECT.header);
+    }
+  };
+  const slots = await appliedSlots(t, environmentId);
+  const vault = await t.vaultOfEnvironment(environmentId);
+  if (vault) {
+    const live = liveFilterOf(slots);
+    for (const row of await t.credentialsForVault(vault.id)) {
+      if (row.type !== "environment_secret" || !live(row)) continue;
+      const binding = credentialBinding(row as UserCredentialRow);
+      add(binding.allowedHosts, binding.inject?.header);
+    }
+  }
+  for (const slot of Object.values(slots ?? {})) {
+    if (slot.type === "environment_secret") add(slot.allowedHosts, slot.inject?.header);
+  }
+  return [...hosts.entries()].map(([host, header]) => ({ host, header }));
+}

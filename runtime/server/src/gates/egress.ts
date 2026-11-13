@@ -56,6 +56,7 @@ import { isPrivateAddress } from "../tenant/outbound.js";
 import { readSandboxConfig } from "../sandbox/tenant-config.js";
 import { withinCeiling } from "../sandbox/resolve.js";
 import type { CredentialProvider } from "./credential-provider.js";
+import { egressDecideHandler } from "./egress-decide.js";
 import type { Logger } from "../tenant/types.js";
 import { bindListener } from "../host/http.js";
 import { MAX_HELLO_BYTES, readClientHello } from "./client-hello.js";
@@ -79,6 +80,8 @@ export interface EgressSandboxes {
     | {
         readonly epoch: number;
         readonly podUid?: string;
+        /** The incarnation's name (`k8sName`): the actor's name on Agent Substrate. */
+        readonly name?: string;
         readonly allow: readonly string[];
         readonly owner?: string;
         readonly ceiling?: readonly string[];
@@ -139,6 +142,11 @@ export interface StartEgressGateOptions {
    * Agent's owner pass on 443 and are handed to it. Needs `credentials` (the leaf). None: off.
    */
   readonly provider?: CredentialProvider;
+  /**
+   * NYLORUN_EGRESS_KEYS_TOKEN: the keys provider's token for the decide route (ADR-142,
+   * `egress-decide.ts`). None: the route is off.
+   */
+  readonly keysToken?: string;
 }
 
 export interface EgressGate {
@@ -556,7 +564,17 @@ export async function startEgressGate(options: StartEgressGateOptions): Promise<
     return undefined;
   }
 
+  // Agent Substrate's keys provider asks here what to add to a keyed request (ADR-142).
+  const decideRoute = egressDecideHandler({
+    ...(options.keysToken ? { token: options.keysToken } : {}),
+    sandboxes: { live: (sandboxId) => sandboxes.live(sandboxId) },
+    release: (sandboxId, host) =>
+      options.credentials ? options.credentials.release(sandboxId, host) : Promise.resolve({ status: "none" as const }),
+    ...(options.provider ? { provider: options.provider } : {}),
+    logger,
+  });
   const server = createServer((req, res) => {
+    if (decideRoute(req, res)) return;
     logger.warn("egress_refused", { status: 405, reason: "not_connect", method: req.method });
     res.writeHead(405, { allow: "CONNECT", "content-type": "text/plain; charset=utf-8", connection: "close" });
     res.end("egress-gate: only CONNECT is served; set HTTPS_PROXY and HTTP_PROXY to this address\n");
@@ -618,6 +636,7 @@ export function storeEgressSandboxes(store: SessionStore): EgressSandboxes {
         return {
           epoch: pod.hostEpoch,
           ...(pod.podUid ? { podUid: pod.podUid } : {}),
+          name: pod.k8sName,
           // The applied allowlist: a recipe change writes it at once (Q8).
           allow: sandbox.applied.network?.allowedHosts ?? [],
           ...(owner === undefined ? {} : { owner }),

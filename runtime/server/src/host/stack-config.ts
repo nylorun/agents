@@ -161,6 +161,11 @@ export interface GatesConfig {
 /** egress-gate's listener (`NYLORUN_EGRESS_LISTEN_HOST`, `NYLORUN_EGRESS_LISTEN_PORT`). */
 export interface EgressConfig {
   listen: { host: string; port: number };
+  /**
+   * NYLORUN_EGRESS_KEYS_TOKEN: the token Agent Substrate's keys provider presents to the decide
+   * route on this listener (ADR-142); none: the route is off. 32 bytes or more as hex.
+   */
+  keysToken?: string;
 }
 
 /** Where the loop reaches the gates service (`NYLORUN_GATES_URL`, `NYLORUN_GATES_TOKEN`). */
@@ -206,6 +211,11 @@ export interface PodHostConfig {
   httpUrl: string;
   /** `NYLORUN_EGRESS_PROXY`: egress-gate's address, or undefined while it is not published. */
   egressProxy?: string;
+  /**
+   * `NYLORUN_SANDBOX_EGRESS_CA_FILE`: Agent Substrate's egress CA (ADR-142), which commands trust
+   * for the hosts whose keys Substrate's egress adds.
+   */
+  egressCaFile?: string;
   /** Addresses the pod's NetworkPolicy must block, probed before the engine starts. */
   blocked: BlockedAddress[];
 }
@@ -1020,6 +1030,7 @@ function parsePodHost(env: EnvSnapshot, url: string): { config: PodHostConfig; w
   const secure = base.protocol === "https:" || base.protocol === "wss:";
   const origin = `${secure ? "https" : "http"}://${base.host}`;
   const egress = read(env, "NYLORUN_EGRESS_PROXY");
+  const egressCa = read(env, "NYLORUN_SANDBOX_EGRESS_CA_FILE");
   return {
     wsUrl: `${secure ? "wss" : "ws"}://${base.host}/nylorun/harness/v1`,
     config: {
@@ -1028,6 +1039,7 @@ function parsePodHost(env: EnvSnapshot, url: string): { config: PodHostConfig; w
       joinFile: need("NYLORUN_SANDBOX_JOIN_FILE"),
       httpUrl: origin,
       ...(egress ? { egressProxy: egress.replace(/\/+$/, "") } : {}),
+      ...(egressCa ? { egressCaFile: egressCa } : {}),
       blocked: blockedAddresses(env),
     },
   };
@@ -1054,7 +1066,13 @@ const REMOVED_RESOLVER_PREFIX = "NYLORUN_RESOLVER_";
 
 /** `StackConfig.egress` from `NYLORUN_EGRESS_LISTEN_*`. CONNECT has no Host header to check. */
 function parseEgress(env: EnvSnapshot): EgressConfig {
-  return { listen: parseListener(env, "NYLORUN_EGRESS_", DEFAULT_EGRESS_LISTEN_PORT) };
+  const keysToken = read(env, "NYLORUN_EGRESS_KEYS_TOKEN");
+  if (keysToken !== undefined && !/^[0-9a-f]{64,}$/i.test(keysToken))
+    throw new StackConfigError("NYLORUN_EGRESS_KEYS_TOKEN must be 32 bytes or more as hex (nylorun local sandbox enable makes it)");
+  return {
+    listen: parseListener(env, "NYLORUN_EGRESS_", DEFAULT_EGRESS_LISTEN_PORT),
+    ...(keysToken === undefined ? {} : { keysToken }),
+  };
 }
 
 /** `StackConfig.modelGate` from `NYLORUN_GATES_URL` and `NYLORUN_GATES_TOKEN`. */

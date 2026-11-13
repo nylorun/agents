@@ -94,6 +94,8 @@ export function renderComposeFile(
     sandboxes?: true;
     /** The sandboxes container serves the edge (backend substrate, ADR-138). */
     sandboxEdge?: true;
+    /** The edge also serves the keys provider's port (ADR-142). */
+    sandboxKeys?: true;
     harness?: "remote" | "in-process";
     restateUi?: true;
     identity?: true;
@@ -341,7 +343,7 @@ ${healthcheck("runtime")}    restart: unless-stopped
     healthcheck: # /healthz needs no session; Host studio:3000 is accepted
       test: ["CMD", "node", "-e", "require('http').get({port:3000,path:'/healthz',headers:{host:'studio:3000'}},r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
 ${healthcheck("studio")}    restart: unless-stopped
-${remote ? harnessService(project) : ""}${sandboxes ? sandboxesService(project, options.sandboxEdge === true) : ""}
+${remote ? harnessService(project) : ""}${sandboxes ? sandboxesService(project, options.sandboxEdge === true, options.sandboxKeys === true) : ""}
 networks:
   default:
     name: ${project}
@@ -448,10 +450,20 @@ const SANDBOXES_EDGE_PORTS = `
       - "\${NYLORUN_SANDBOX_BIND:?run nylorun local sandbox enable}:\${NYLORUN_SANDBOX_EDGE_HARNESS_PORT:?run nylorun local sandbox enable}:8443" # the edge: the Harness API, for actors
       - "\${NYLORUN_SANDBOX_BIND:?run nylorun local sandbox enable}:\${NYLORUN_SANDBOX_EDGE_GATES_PORT:?run nylorun local sandbox enable}:8444" # the edge: the gates, for actors`;
 
+/**
+ * The edge's keys port (ADR-142): Substrate's keys provider reaches egress-gate's decide route on
+ * gateway:4200 through it. No actor's egress policy allows it.
+ */
+const SANDBOXES_EDGE_KEYS_PORT = `
+      - "\${NYLORUN_SANDBOX_BIND:?run nylorun local sandbox enable}:\${NYLORUN_SANDBOX_EDGE_KEYS_PORT:?run nylorun local sandbox enable}:8445" # the edge: egress-gate's decide route, for the keys provider`;
+
 /** egress-gate (F7.2): pods' CONNECT proxy in the gateway. */
 const SANDBOXES_GATEWAY_ENV = `
       # egress-gate: the only way out of a sandbox pod, to the hosts its spec allows.
-      NYLORUN_EGRESS_LISTEN_PORT: "4200"`;
+      NYLORUN_EGRESS_LISTEN_PORT: "4200"
+      # On Agent Substrate, the keys provider's token for egress-gate's decide route (ADR-142).
+      # Empty: the route is off.
+      NYLORUN_EGRESS_KEYS_TOKEN: \${NYLORUN_EGRESS_KEYS_TOKEN:-}`;
 
 /** Empty and read-only over the cluster credentials: only the sandboxes service reads them. */
 const SANDBOXES_RUNTIME_MOUNT = `
@@ -465,7 +477,7 @@ const SANDBOXES_RUNTIME_MOUNT = `
  * (NYLORUN_SANDBOX_*_PORT in .env), the Harness API's, the gates' and egress-gate's, are
  * published by the runtime and the gateway (above).
  */
-function sandboxesService(project: string, edge: boolean): string {
+function sandboxesService(project: string, edge: boolean, keys: boolean): string {
   return `
   sandboxes: # the sandboxes driver; the only holder of the cluster credentials; not published${edge ? ", but for its edge" : ""}
     image: \${NYLORUN_SANDBOXES_IMAGE:?run nylorun local sandbox enable}
@@ -481,7 +493,7 @@ function sandboxesService(project: string, edge: boolean): string {
     volumes:
       # cluster.json (API server, CA, namespace) and the ServiceAccount token, read-only.
       - \${NYLORUN_HOST_ROOT:?run nylorun start}/sandboxes:/run/nylorun/sandboxes:ro
-    networks: [default] # the cluster's API server, through host.docker.internal${edge ? SANDBOXES_EDGE_PORTS : ""}
+    networks: [default] # the cluster's API server, through host.docker.internal${edge ? SANDBOXES_EDGE_PORTS : ""}${edge && keys ? SANDBOXES_EDGE_KEYS_PORT : ""}
     healthcheck: # /ready: informers synced and the API server answers
       test: ["CMD", "/sandboxes", "healthcheck"]
 ${healthcheck("sandboxes")}    restart: unless-stopped

@@ -14,7 +14,7 @@ export const SUBSTRATE_OWNER_ACCOUNT = "ate-client";
 export const SUBSTRATE_AUDIENCE = `${SUBSTRATE_API_SERVICE}.${SUBSTRATE_NAMESPACE}.svc`;
 
 /** Preferred host ports for the edge: the Harness API's and the gates' TLS fronts. */
-export const PREFERRED_EDGE_PORTS = { harness: 8793, gates: 8794 } as const;
+export const PREFERRED_EDGE_PORTS = { harness: 8793, gates: 8794, keys: 8795 } as const;
 
 /** The name actors dial for the edge, unique to the Tenant's namespace. */
 export function edgeHost(namespace: string): string {
@@ -116,5 +116,129 @@ function block(entries: Map<string, string>): string[] {
     "      fallthrough",
     "    }",
     END,
+  ];
+}
+
+/**
+ * Keys at Substrate's egress (ADR-142): the keys provider, `sandboxes provider` from the sandboxes
+ * image, runs beside Substrate's egress in its namespace. One per cluster: its config Secret holds
+ * an entry per Tenant, by atespace. Substrate learns it at its own install
+ * (`--credential-provider`); `enable` deploys it and checks that registration, never changing
+ * Substrate's install.
+ */
+export const KEYS_PROVIDER_NAME = "keys.nylorun.dev";
+export const KEYS_PROVIDER = "nylorun-keys-provider";
+export const KEYS_PROVIDER_PORT = 50051;
+/** The address Substrate's egress dials, as `ate-setup`'s `--credential-provider` names it. */
+export const KEYS_PROVIDER_ADDRESS = `${KEYS_PROVIDER}.${SUBSTRATE_NAMESPACE}.svc:${KEYS_PROVIDER_PORT}`;
+/** The flag to install Substrate with, so its egress asks the keys provider. */
+export const KEYS_PROVIDER_FLAG = `--credential-provider='[{"name":"${KEYS_PROVIDER_NAME}","address":"${KEYS_PROVIDER_ADDRESS}"}]'`;
+
+/** One Tenant's entry in the keys provider's config. */
+export interface KeysProviderTenant {
+  readonly decideUrl: string;
+  readonly token: string;
+  readonly edgeCa: string;
+  readonly outside?: { readonly url: string; readonly token: string };
+}
+
+/** Whether Substrate's egress was installed with the keys provider among its providers. */
+export function keysProviderRegistered(deployment: unknown): boolean {
+  const containers =
+    (deployment as { spec?: { template?: { spec?: { containers?: { args?: unknown }[] } } } } | undefined)?.spec?.template?.spec
+      ?.containers ?? [];
+  return containers.some(
+    (c) => Array.isArray(c.args) && c.args.some((arg) => arg === `--credential-provider-name=${KEYS_PROVIDER_NAME}`),
+  );
+}
+
+const PODCERT = (name: string, signer: string) => ({
+  name,
+  projected: {
+    sources: [
+      { podCertificate: { signerName: `${signer}/identity`, keyType: "ECDSAP256", credentialBundlePath: "credential-bundle.pem" } },
+      {
+        clusterTrustBundle: {
+          signerName: `${signer}/identity`,
+          labelSelector: { matchLabels: { "podcert.ate.dev/canarying": "live" } },
+          path: "trust-bundle.pem",
+        },
+      },
+    ],
+  },
+});
+
+/**
+ * The keys provider: its ServiceAccount, Deployment, Service, a NetworkPolicy that admits only
+ * Substrate's egress, and its config Secret. Mutual TLS as Substrate's reference provider serves
+ * it: its servicedns pod certificate, callers' podidentity certificates.
+ */
+export function keysProviderManifests(image: string, tenants: Record<string, KeysProviderTenant>): object[] {
+  const labels = { app: KEYS_PROVIDER, ...MANAGED };
+  const ns = SUBSTRATE_NAMESPACE;
+  return [
+    { apiVersion: "v1", kind: "ServiceAccount", metadata: { name: KEYS_PROVIDER, namespace: ns, labels: MANAGED } },
+    {
+      apiVersion: "v1",
+      kind: "Secret",
+      metadata: { name: KEYS_PROVIDER, namespace: ns, labels: MANAGED },
+      type: "Opaque",
+      stringData: { "config.json": JSON.stringify({ tenants }) },
+    },
+    {
+      apiVersion: "apps/v1",
+      kind: "Deployment",
+      metadata: { name: KEYS_PROVIDER, namespace: ns, labels },
+      spec: {
+        replicas: 1,
+        selector: { matchLabels: { app: KEYS_PROVIDER } },
+        template: {
+          metadata: { labels },
+          spec: {
+            serviceAccountName: KEYS_PROVIDER,
+            securityContext: { runAsUser: 65532, runAsGroup: 65532, runAsNonRoot: true },
+            containers: [
+              {
+                name: "provider",
+                image,
+                args: ["provider", "--name", KEYS_PROVIDER_NAME, "--listen", `:${KEYS_PROVIDER_PORT}`, "--config", "/etc/nylorun-keys/config.json"],
+                ports: [
+                  { name: "grpc", containerPort: KEYS_PROVIDER_PORT },
+                  { name: "health", containerPort: 9091 },
+                ],
+                readinessProbe: { httpGet: { path: "/readyz", port: "health" }, periodSeconds: 10 },
+                securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: ["ALL"] } },
+                volumeMounts: [
+                  { name: "config", mountPath: "/etc/nylorun-keys", readOnly: true },
+                  { name: "servicedns", mountPath: "/run/servicedns.podcert.ate.dev", readOnly: true },
+                  { name: "podidentity", mountPath: "/run/podidentity.podcert.ate.dev", readOnly: true },
+                ],
+              },
+            ],
+            volumes: [
+              { name: "config", secret: { secretName: KEYS_PROVIDER } },
+              PODCERT("servicedns", "servicedns.podcert.ate.dev"),
+              PODCERT("podidentity", "podidentity.podcert.ate.dev"),
+            ],
+          },
+        },
+      },
+    },
+    {
+      apiVersion: "v1",
+      kind: "Service",
+      metadata: { name: KEYS_PROVIDER, namespace: ns, labels: MANAGED },
+      spec: { type: "ClusterIP", selector: { app: KEYS_PROVIDER }, ports: [{ name: "grpc", port: KEYS_PROVIDER_PORT, targetPort: "grpc", protocol: "TCP" }] },
+    },
+    {
+      apiVersion: "networking.k8s.io/v1",
+      kind: "NetworkPolicy",
+      metadata: { name: KEYS_PROVIDER, namespace: ns, labels: MANAGED },
+      spec: {
+        podSelector: { matchLabels: { app: KEYS_PROVIDER } },
+        policyTypes: ["Ingress"],
+        ingress: [{ from: [{ podSelector: { matchLabels: { app: "atenet-egress" } } }], ports: [{ protocol: "TCP", port: KEYS_PROVIDER_PORT }] }],
+      },
+    },
   ];
 }

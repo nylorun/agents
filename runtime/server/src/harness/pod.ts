@@ -96,6 +96,11 @@ export function podHost(
     volumeFile?: string;
     /** Where the engine writes the trust bundle: the public roots and the egress CA (R2c). */
     caBundleFile?: string;
+    /**
+     * Agent Substrate's egress CA (`NYLORUN_SANDBOX_EGRESS_CA_FILE`, ADR-142): Substrate's egress
+     * ends TLS for the hosts whose keys it adds, so commands trust it with no proxy in between.
+     */
+    extraCaFile?: string;
     /** Whether this engine runs from the workload image (default: from where its code is). */
     imageEngine?: boolean;
   } = {},
@@ -135,7 +140,7 @@ export function podHost(
       seeded?: boolean;
       afterSeed?: boolean;
     };
-    if (typeof body.caCertificate === "string") await writeBundle(body.caCertificate);
+    if (typeof body.caCertificate === "string" || options.extraCaFile) await writeBundle(body.caCertificate ?? "");
     if (path === "join") {
       setup = body.setup;
       seeded = body.seeded === true;
@@ -152,13 +157,22 @@ export function podHost(
 
   const writeBundle = async (ca: string): Promise<void> => {
     const file = options.caBundleFile;
-    if (!file || ca === bundled) return;
+    let extra = "";
+    if (options.extraCaFile) {
+      try {
+        extra = (await readFile(options.extraCaFile, "utf8")).trim();
+      } catch {
+        // Not mounted (yet): the bundle holds the roots and the join's CA.
+      }
+    }
+    const content = [ca.trim(), extra].filter((part) => part !== "").join("\n");
+    if (!file || content === bundled) return;
     await mkdir(dirname(file), { recursive: true });
     // Written beside it and renamed, so a command never reads half a bundle.
     const next = `${file}.${randomUUID()}`;
-    await writeFile(next, `${rootCertificates.join("\n")}\n${ca.trim()}\n`, { mode: 0o644 });
+    await writeFile(next, `${rootCertificates.join("\n")}\n${content}\n`, { mode: 0o644 });
     await rename(next, file);
-    bundled = ca;
+    bundled = content;
   };
 
   /** The volume's id, created on a volume that has none. */
@@ -235,7 +249,14 @@ export function podHost(
       return current.hostToken;
     },
     proxyEnv(): Record<string, string> {
-      if (!config.egressProxy || !held) return {};
+      if (!held) return {};
+      const trustOnly =
+        bundled !== undefined && options.caBundleFile
+          ? Object.fromEntries(TRUST_VARIABLES.map((name) => [name, options.caBundleFile!]))
+          : {};
+      // On Agent Substrate there is no proxy: Substrate's egress adds keys on its own (ADR-142),
+      // and commands only need to trust its CA.
+      if (!config.egressProxy) return options.extraCaFile ? trustOnly : {};
       const url = new URL(config.egressProxy);
       url.username = "nylorun";
       url.password = held.egressToken;

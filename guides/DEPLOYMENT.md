@@ -1857,9 +1857,10 @@ the Runtime then calls, each with `Authorization: Bearer <token>`:
 
 | Call | Body | Answer |
 | --- | --- | --- |
-| `POST <url>/v1/hosts` | `{ "agentId", "owner" }` | `{ "hosts": [...] }`: the hosts the owner's keys are bound to, each an exact host name or a `*.<suffix>` pattern such as `*.googleapis.com` |
+| `POST <url>/v1/hosts` | `{ "agentId", "owner" }` | `{ "hosts": [...] }`: the hosts the owner's keys are bound to, each an exact host name or a `*.<suffix>` pattern such as `*.googleapis.com`, or `{ "host", "header" }` naming the header the key goes in (`Authorization` when not named) |
 | `POST <url>/v1/environment` | `{ "agentId", "owner" }` | `{ "variables": [...] }`: the variables each command sees, each a name (set to `nylorun_managed`), `{ "name", "standIn" }` (set to that stand-in) or `{ "name", "value" }` (set to that plain value) |
-| `ANY <url>/v1/forward/<path and query>` | One request of the sandbox's | The upstream's answer, streamed |
+| `ANY <url>/v1/forward/<path and query>` | One request of the sandbox's | The upstream's answer, streamed (agent-sandbox only; retires with egress-gate) |
+| `POST <url>/v1/fetch` | `{ "agentId", "owner", "host" }` | `{ "value" }`: the whole header value of the owner's key for the host, `404` when there is none. Asked only by the keys provider beside Agent Substrate's egress, after the Runtime allowed the request ([ADR-142](https://github.com/nylorun/factory/blob/main/decisions/platform/2026-11-13-substrate-egress-adds-keys.md)); never by the Runtime |
 
 A host the provider lists passes the sandbox's allowlist on port 443, inside the Tenant's egress
 ceiling (`limits.network` of `environments.config`, when the Tenant sets one). egress-gate
@@ -1873,6 +1874,12 @@ same host wins, and a vault variable of the same name stays. Answers are kept pe
 `credentialProvider.cacheMs`. An Agent with no owner is never asked about. A provider that fails
 answers nothing, so its hosts are refused as before (`host_not_allowed`), logged once as
 `credential_provider_failed`.
+
+On Agent Substrate (preview) no proxy is involved: each host the provider lists becomes an `https`
+rule in the actor's egress policy, Substrate's egress asks the keys provider for each request's
+header, the Tenant's egress-gate decides (`POST /nylorun/v1/egress/decide`, which allows the owner's
+host with no value), and the keys provider calls `/v1/fetch`. The source must be reachable from
+the cluster and its token is kept in the keys provider's Secret in `ate-system`.
 
 A `*.<suffix>` host matches as one in `network.allow` does: `*.googleapis.com` holds
 `run.googleapis.com` and `a.b.googleapis.com`, never `googleapis.com` itself, and the forward

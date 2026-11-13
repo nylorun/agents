@@ -6,9 +6,9 @@
  * here runs.
  *
  * Three calls, each with `Authorization: Bearer <token>`:
- * - `POST <url>/v1/hosts` `{ agentId, owner }` → `{ hosts: string[] }`: the hosts the owner's keys
- *   are bound to, each an exact host name or a `*.<suffix>` pattern (`*.googleapis.com`, v0.26
- *   TM-E1). A pattern matches as `network.allow`'s do: `run.googleapis.com` and
+ * - `POST <url>/v1/hosts` `{ agentId, owner }` → `{ hosts: (string | { host, header?, format? })[] }`:
+ *   the hosts the owner's keys are bound to, each an exact host name or a `*.<suffix>` pattern
+ *   (`*.googleapis.com`, v0.26 TM-E1), with the header the key goes in (v2, ADR-142). A pattern matches as `network.allow`'s do: `run.googleapis.com` and
  *   `a.b.googleapis.com`, never `googleapis.com` itself. An IP literal or a malformed entry is
  *   dropped. egress-gate lets a pod Agent's sandbox reach them (inside the Tenant's egress
  *   ceiling), terminates TLS for them on 443 and hands each request on;
@@ -23,7 +23,11 @@
  *   sent them (its own `Authorization` or inject header included, which the provider replaces),
  *   plus `nylorun-provider-host`, `-agent`, `-owner` and, in place of a bearer the sandbox's own
  *   `Authorization` would clash with, `nylorun-provider-token`. The provider sends it on to
- *   `https://<host>/<path>` and streams the answer back (`egress-credentials.ts`).
+ *   `https://<host>/<path>` and streams the answer back (`egress-credentials.ts`). Retires with
+ *   egress-gate (ADR-142);
+ * - `POST <url>/v1/fetch` `{ agentId, owner, host }` → `{ value }` (v2, ADR-142): the whole header
+ *   value of the owner's key for `host`, asked by the keys provider beside Agent Substrate's
+ *   egress after the Tenant allowed it, never by the Runtime. `404` when there is no such key.
  *
  * Only an Agent with an owner (its owner guard) is asked about; one without gets nothing and no
  * call. An answer is kept per Agent and owner for `credentialProvider.cacheMs` (15 s). A call
@@ -60,6 +64,12 @@ const VARIABLE = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/;
 /** A stand-in or plain value: 1 to 1,024 printable characters, no control character or line break. */
 const VALUE = /^[^\p{Cc}\p{Cs}\p{Zl}\p{Zp}]{1,1024}$/u;
 
+/** A host an owner's key is bound to, and the header the key goes in. */
+export interface ProviderHost {
+  readonly host: string;
+  readonly header: string;
+}
+
 /** One variable a pod Agent's segments set: its name and the value the sandbox sees. */
 export interface ProviderVariable {
   readonly name: string;
@@ -88,6 +98,11 @@ export interface CredentialProvider {
    * match as `network.allow`'s do (`egressAllows`); none without an owner.
    */
   hosts(agentId: string, owner: string | undefined): Promise<readonly string[]>;
+  /**
+   * The same hosts, each with the header its key goes in (contract v2, ADR-142). Optional for a
+   * provider an embedder supplies: without it every host's key goes in `Authorization`.
+   */
+  keyedHosts?(agentId: string, owner: string | undefined): Promise<readonly ProviderHost[]>;
   /** Where one request to `path` (origin form, `/v2/projects?x=1`) is handed. */
   forwardUrl(path: string): URL;
   /** The headers that go with it, the provider's token among them. */
@@ -180,7 +195,8 @@ export function createCredentialProvider(
   return {
     url,
     environment: (agentId, owner) => answer("environment", agentId, owner) as Promise<readonly ProviderVariable[]>,
-    hosts: (agentId, owner) => answer("hosts", agentId, owner) as Promise<readonly string[]>,
+    hosts: async (agentId, owner) => ((await answer("hosts", agentId, owner)) as readonly ProviderHost[]).map((entry) => entry.host),
+    keyedHosts: (agentId, owner) => answer("hosts", agentId, owner) as Promise<readonly ProviderHost[]>,
     forwardUrl: (path) => new URL(`${url}/v1/forward${path.startsWith("/") ? path : `/${path}`}`),
     forwardHeaders: ({ host, agentId, owner }) => ({
       [PROVIDER_HEADERS.host]: host,
@@ -191,13 +207,33 @@ export function createCredentialProvider(
   };
 }
 
+/** An HTTP header name (RFC 9110 token). */
+const HEADER = /^[!#$%&'*+.^_`|~0-9A-Za-z-]{1,128}$/;
+
 /**
- * The hosts of a `/v1/hosts` answer: exact host names and `*.<suffix>` patterns, lowercase, without
- * a trailing root dot, once each; an IP literal or a malformed entry is dropped.
+ * The hosts of a `/v1/hosts` answer (contract v2, ADR-142): each entry is a host name or a
+ * `*.<suffix>` pattern, or `{ host, header?, format? }` naming the header the key goes in
+ * (`Authorization` by default; `format` is the source's own business). Lowercase, without a
+ * trailing root dot, once each, the first entry for a host winning; an IP literal or a malformed
+ * entry is dropped.
  */
-function hostsOf(list: readonly unknown[]): readonly string[] {
-  const items = list.filter((item): item is string => typeof item === "string").slice(0, ANSWER_MAX);
-  return [...new Set(items.map((host) => host.toLowerCase().replace(/\.$/, "")).filter(isSandboxHostPattern))];
+function hostsOf(list: readonly unknown[]): readonly ProviderHost[] {
+  const hosts = new Map<string, ProviderHost>();
+  for (const item of list) {
+    if (hosts.size >= ANSWER_MAX) break;
+    const entry =
+      typeof item === "string"
+        ? { host: item, header: undefined }
+        : item !== null && typeof item === "object" && typeof (item as { host?: unknown }).host === "string"
+          ? { host: (item as { host: string }).host, header: (item as { header?: unknown }).header }
+          : undefined;
+    if (!entry) continue;
+    const host = entry.host.toLowerCase().replace(/\.$/, "");
+    if (!isSandboxHostPattern(host) || hosts.has(host)) continue;
+    if (entry.header !== undefined && (typeof entry.header !== "string" || !HEADER.test(entry.header))) continue;
+    hosts.set(host, { host, header: (entry.header as string | undefined) ?? "Authorization" });
+  }
+  return [...hosts.values()];
 }
 
 /**

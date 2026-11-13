@@ -297,7 +297,7 @@ func (d *Driver) Put(ctx context.Context, name string, spec driver.Spec) (driver
 		}
 		d.deleteTemplateLater(previous) // no actor names it now, and the actor's snapshot does not need it
 	}
-	if err := d.ensureEgress(ctx, name, networkOf(spec)); err != nil {
+	if err := d.ensureEgress(ctx, name, networkOf(spec), spec.Keys); err != nil {
 		return driver.Status{}, err
 	}
 	next := state{OpID: spec.OpID, Mode: spec.Mode, Template: templateName, Image: images.Image}
@@ -448,8 +448,8 @@ func (d *Driver) deleteTemplateLater(name string) {
 	}()
 }
 
-func (d *Driver) ensureEgress(ctx context.Context, name string, network Network) error {
-	policy, err := EgressPolicy(d.o.Settings, network)
+func (d *Driver) ensureEgress(ctx context.Context, name string, network Network, keys *driver.SpecKeys) error {
+	policy, err := EgressPolicy(d.o.Settings, network, keys)
 	if err != nil {
 		return err
 	}
