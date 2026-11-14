@@ -1,5 +1,28 @@
 # nylorun
 
+## 0.30.4-beta
+
+### Patch Changes
+
+- 25164e8: `nylorun tenant models set` now takes the pi-ai version it installs on first use from nylorun's own `@earendil-works/pi-ai` devDependency, so a dependency bump moves the pin with it instead of leaving the two out of step.
+- 874cc83: Pods on Agent Substrate (preview): suspend before drain, following Substrate's eviction contract. A worker pod that stops (a drain, a GKE node upgrade or scale-down, a WorkerPool rollout, a deleted pod) sends each of its actors SIGTERM and gives them 30 minutes to be suspended; until now the engine exited on that signal, so the actor crashed and went back to its last suspend, losing everything since.
+
+  - `@nylorun/runtime`: on Substrate (`NYLORUN_SANDBOX_SUBSTRATE=1`, which the sandboxes service's template sets), the engine logs `harness_worker_stopping` on SIGTERM and keeps running, with its runs. The sandboxes service watches worker pods (label `ate.dev/worker-pool`) and, when one turns Terminating, suspends each of the Tenant's actors on it synchronously (eight at a time, trying again for up to 29 minutes), records `drainedAt`, and resumes a sandbox whose request is `Running` on another worker. While it moves, its status reason is `Moving`, and the pod lifecycle waits instead of failing it at the ready deadline. Each drain is recorded once, as `agent.suspended` with reason `drain` (the pod row's `drained_at`, store migration 0048, nullable, run at start). Not covered: a spot reclaim or a node that dies, which still crash and revert. An actor created by an earlier release keeps its engine (#643) until it is reset.
+  - `@nylorun/core`: `agent.suspended`'s `reason` may be `drain`.
+  - `nylorun`: `local sandbox enable --backend substrate` lets the sandboxes service read pods cluster-wide (`get`, `list`, `watch`), for the worker pods it watches.
+
+- Pin core to the tested release.
+- Pin agents to the tested release.
+- Pin admin to the tested release.
+- Pin runtime to the tested release.
+- Pin studio to the tested release.
+- Updated dependencies [874cc83]
+- Updated dependencies
+- Updated dependencies
+  - @nylorun/core@0.44.0-beta
+  - @nylorun/agents@0.37.2-beta
+  - @nylorun/admin@0.20.3-beta
+
 ## 0.30.3-beta
 
 ### Patch Changes
