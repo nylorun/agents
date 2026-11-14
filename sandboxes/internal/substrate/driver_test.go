@@ -646,3 +646,216 @@ func TestSpecKeysValidation(t *testing.T) {
 		}
 	}
 }
+
+// actorTemplate is the template the sandbox's actor names now.
+func (r *rig) actorTemplate() *ateapi.ActorTemplate {
+	r.api.mu.Lock()
+	defer r.api.mu.Unlock()
+	return r.api.templates[space+"/"+r.api.actors[space+"/"+sbx].GetActorTemplate().GetName()]
+}
+
+func (r *rig) actorUID() string {
+	r.api.mu.Lock()
+	defer r.api.mu.Unlock()
+	return r.api.actors[space+"/"+sbx].GetMetadata().GetUid()
+}
+
+// upgraded is spec on the next Runtime release: only the image the engine is mounted from changes.
+func upgraded(op string) driver.Spec {
+	s := spec(op, "Running")
+	s.JoinToken = ""
+	s.HarnessImage = "ghcr.io/nylorun/runtime:0.46.0-beta"
+	return s
+}
+
+func TestFakeRefusesARepointThatChangesTheEngine(t *testing.T) {
+	r := newRig(t)
+	if _, err := r.d.Put(context.Background(), sbx, spec("op-1", "Suspended")); err != nil {
+		t.Fatal(err)
+	}
+	r.wait(t, "suspended")
+	// The template the Runtime upgrade renders, as the driver did before it kept the engine (E12).
+	rendered, err := RenderTemplate(settings(), func() driver.Spec { s := upgraded("op-2"); _ = s.Normalize(); return s }(),
+		Resolved{Image: "python:3.13-slim@sha256:x", Harness: "ghcr.io/nylorun/runtime@sha256:" + strings.Repeat("b", 64)}, "join-token-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	name, _ := TemplateName(sbx, rendered)
+	proposed, err := ToProto(rendered, name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if why := RepointRefusal(r.actorTemplate(), proposed); why != "its volumes would change (changes nylo)" {
+		t.Fatalf("refusal = %q", why)
+	}
+	if _, err := r.api.CreateActorTemplate(context.Background(), &ateapi.CreateActorTemplateRequest{ActorTemplate: proposed}); err != nil {
+		t.Fatal(err)
+	}
+	actor, _ := r.api.GetActor(context.Background(), &ateapi.GetActorRequest{Actor: &ateapi.ObjectRef{Atespace: space, Name: sbx}})
+	actor.ActorTemplate = &ateapi.ObjectRef{Atespace: space, Name: name}
+	_, err = r.api.UpdateActor(context.Background(), &ateapi.UpdateActorRequest{Actor: actor})
+	if status.Code(err) != codes.FailedPrecondition || !strings.Contains(err.Error(), "volumes must be identical to repoint an actor") {
+		t.Fatalf("UpdateActor = %v", err)
+	}
+}
+
+func TestRuntimeUpgradeKeepsTheActorAndItsEngine(t *testing.T) {
+	r := newRig(t)
+	if _, err := r.d.Put(context.Background(), sbx, spec("op-1", "Running")); err != nil {
+		t.Fatal(err)
+	}
+	r.wait(t, "ready")
+	uid, before := r.actorUID(), r.actorTemplate()
+	engine := EngineReference(before)
+	if !strings.HasPrefix(engine, "ghcr.io/nylorun/runtime:0.45.0-beta@sha256:") {
+		t.Fatalf("engine = %q", engine)
+	}
+	s, err := r.d.Put(context.Background(), sbx, upgraded("op-2"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.OpID != "op-2" || s.Reason != "" {
+		t.Fatalf("status after the upgrade: %+v", s)
+	}
+	r.wait(t, "ready")
+	if r.actorUID() != uid {
+		t.Fatal("the upgrade replaced the actor")
+	}
+	after := r.actorTemplate()
+	if after.GetMetadata().GetName() != before.GetMetadata().GetName() || EngineReference(after) != engine {
+		t.Fatalf("template %s (engine %s), was %s", after.GetMetadata().GetName(), EngineReference(after), before.GetMetadata().GetName())
+	}
+	if n := r.api.count("UpdateActor refused " + sbx); n != 0 {
+		t.Fatalf("Substrate refused %d repoints", n)
+	}
+}
+
+func TestRuntimeUpgradeWithAnotherChangeRepointsKeepingTheEngine(t *testing.T) {
+	r := newRig(t)
+	if _, err := r.d.Put(context.Background(), sbx, spec("op-1", "Running")); err != nil {
+		t.Fatal(err)
+	}
+	r.wait(t, "ready")
+	uid, before := r.actorUID(), r.actorTemplate()
+	changed := upgraded("op-2")
+	changed.Image = "node:24-slim"
+	if _, err := r.d.Put(context.Background(), sbx, changed); err != nil {
+		t.Fatal(err)
+	}
+	ready := r.wait(t, "ready")
+	after := r.actorTemplate()
+	if r.actorUID() != uid || after.GetMetadata().GetName() == before.GetMetadata().GetName() {
+		t.Fatalf("expected the same actor on a new template: %s", after.GetMetadata().GetName())
+	}
+	if EngineReference(after) != EngineReference(before) || !strings.Contains(ready.ImageID, "node:24-slim@sha256:") {
+		t.Fatalf("engine %s, image %s", EngineReference(after), ready.ImageID)
+	}
+	if !strings.Contains(strings.Join(r.api.calls, "\n"), "SuspendActor "+sbx+"\nUpdateActor "+sbx+" "+after.GetMetadata().GetName()) {
+		t.Fatalf("expected a suspend then a repoint: %v", r.api.calls)
+	}
+}
+
+func TestAVolumeChangeIsReportedNotRetried(t *testing.T) {
+	r := newRig(t)
+	builtin := spec("op-1", "Running")
+	builtin.Entrypoint, builtin.HarnessImage = driver.EntrypointBuiltin, ""
+	if _, err := r.d.Put(context.Background(), sbx, builtin); err != nil {
+		t.Fatal(err)
+	}
+	r.wait(t, "ready")
+	templates := len(r.api.templates)
+	calls := len(r.api.calls)
+	// The image's engine is not the Runtime's any more: the Runtime asks for its own, an image volume.
+	engine := spec("op-2", "Running")
+	engine.JoinToken = ""
+	s, err := r.d.Put(context.Background(), sbx, engine)
+	if err != nil {
+		t.Fatalf("a refused change failed the put (the Runtime sends it again): %v", err)
+	}
+	if s.OpID != "op-2" || s.Ready || s.Reason != RepointRefused || !strings.Contains(s.Message, "adds nylo") {
+		t.Fatalf("status: %+v", s)
+	}
+	for _, c := range r.api.calls[calls:] {
+		if strings.HasPrefix(c, "SuspendActor") || strings.HasPrefix(c, "UpdateActor") || strings.HasPrefix(c, "CreateActorTemplate") {
+			t.Fatalf("a refused change called Substrate: %v", r.api.calls[calls:])
+		}
+	}
+	if len(r.api.templates) != templates {
+		t.Fatal("a refused change left a template")
+	}
+	again, err := r.d.Put(context.Background(), sbx, engine)
+	if err != nil || again.Reason != RepointRefused || len(r.api.calls) != calls {
+		t.Fatalf("the same request again: %+v %v %v", again, err, r.api.calls[calls:])
+	}
+	status, err := r.d.Status(sbx)
+	if err != nil || status.Ready || status.Reason != RepointRefused {
+		t.Fatalf("status: %+v %v", status, err)
+	}
+	// A suspend is still carried out; a later request that fits clears the reason.
+	suspend := spec("op-3", "Suspended")
+	suspend.JoinToken, suspend.Entrypoint, suspend.HarnessImage = "", driver.EntrypointEngine, "ghcr.io/nylorun/runtime:0.45.0-beta"
+	if _, err := r.d.Put(context.Background(), sbx, suspend); err != nil {
+		t.Fatal(err)
+	}
+	r.wait(t, "suspended")
+	back := builtin
+	back.OpID, back.JoinToken = "op-4", ""
+	if _, err := r.d.Put(context.Background(), sbx, back); err != nil {
+		t.Fatal(err)
+	}
+	if ready := r.wait(t, "ready"); ready.Reason != "" {
+		t.Fatalf("reason kept: %+v", ready)
+	}
+}
+
+func TestATemplateSubstrateRefusesIsReported(t *testing.T) {
+	r := newRig(t)
+	if _, err := r.d.Put(context.Background(), sbx, spec("op-1", "Running")); err != nil {
+		t.Fatal(err)
+	}
+	r.wait(t, "ready")
+	r.api.refuseRepoint = status.Error(codes.FailedPrecondition, "the storage location must be identical to repoint an actor that owns a snapshot")
+	old := r.actorTemplate().GetMetadata().GetName()
+	changed := spec("op-2", "Running")
+	changed.JoinToken, changed.Image = "", "node:24-slim"
+	s, err := r.d.Put(context.Background(), sbx, changed)
+	if err != nil {
+		t.Fatalf("put: %v", err)
+	}
+	if s.Reason != RepointRefused || !strings.Contains(s.Message, "storage location must be identical") || s.Ready {
+		t.Fatalf("status: %+v", s)
+	}
+	if r.actorTemplate().GetMetadata().GetName() != old {
+		t.Fatal("the actor changed template")
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		r.api.mu.Lock()
+		n := len(r.api.templates)
+		r.api.mu.Unlock()
+		if n == 1 {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("the refused template was not deleted: %d templates", len(r.api.templates))
+}
+
+func TestACrashedActorIsRevertedBeforeARepoint(t *testing.T) {
+	r := newRig(t)
+	if _, err := r.d.Put(context.Background(), sbx, spec("op-1", "Running")); err != nil {
+		t.Fatal(err)
+	}
+	r.wait(t, "ready")
+	r.api.setState(sbx, ateapi.ActorState_ACTOR_STATE_CRASHED)
+	changed := spec("op-2", "Running")
+	changed.JoinToken, changed.Image = "", "node:24-slim"
+	if _, err := r.d.Put(context.Background(), sbx, changed); err != nil {
+		t.Fatalf("put: %v", err)
+	}
+	r.wait(t, "ready")
+	calls := strings.Join(r.api.calls, "\n")
+	if !strings.Contains(calls, "RevertActor "+sbx+"\nUpdateActor "+sbx+" ") {
+		t.Fatalf("expected a revert then a repoint: %s", calls)
+	}
+}

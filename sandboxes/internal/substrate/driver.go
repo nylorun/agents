@@ -15,6 +15,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -133,6 +134,9 @@ func (d *Driver) Ping(ctx context.Context) error {
 // state is a sandbox's last request.
 type state struct {
 	OpID, Mode, Template, Image string
+	// Refused is why the request could not be applied (Substrate refuses its template change);
+	// the sandbox reports it until a later request replaces this one.
+	Refused string
 }
 
 const stateSuffix = "-state"
@@ -146,11 +150,14 @@ func (d *Driver) readState(ctx context.Context, name string) (*state, error) {
 		return nil, err
 	}
 	v := cm.Data
-	return &state{OpID: v["opId"], Mode: v["mode"], Template: v["template"], Image: v["image"]}, nil
+	return &state{OpID: v["opId"], Mode: v["mode"], Template: v["template"], Image: v["image"], Refused: v["refused"]}, nil
 }
 
 func (d *Driver) writeState(ctx context.Context, name string, s state) error {
 	data := map[string]string{"opId": s.OpID, "mode": s.Mode, "template": s.Template, "image": s.Image}
+	if s.Refused != "" {
+		data["refused"] = s.Refused
+	}
 	cm := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{Name: name + stateSuffix, Namespace: d.o.Namespace, Labels: map[string]string{
 			driver.ManagedLabel: driver.FieldManager, driver.SandboxLabel: name}},
@@ -239,17 +246,32 @@ func (d *Driver) Put(ctx context.Context, name string, spec driver.Spec) (driver
 				Message: fmt.Sprintf("harnessImage %s: %v", spec.HarnessImage, err)}
 		}
 	}
-	token := spec.JoinToken
-	if token == "" && actor != nil {
-		current, err := d.getTemplate(ctx, actor.GetActorTemplate().GetName())
+	// The actor's template now: its join token, its engine, and the volumes a repoint must keep.
+	var current *ateapi.ActorTemplate
+	if actor != nil {
+		current, err = d.getTemplate(ctx, actor.GetActorTemplate().GetName())
+		if status.Code(err) == codes.NotFound && spec.JoinToken != "" {
+			current, err = nil, nil // Substrate compares no volumes then, and the spec brings the token
+		}
 		if err != nil {
 			return driver.Status{}, err
 		}
+	}
+	token := spec.JoinToken
+	if token == "" && current != nil {
 		token = joinTokenOf(current)
 	}
 	if token == "" && actor == nil {
 		return driver.Status{}, &driver.Error{Status: http.StatusBadRequest, Code: "invalid_request",
 			Message: "joinToken is required to create a sandbox"}
+	}
+	// An actor keeps the engine it was created with. Substrate v1.0.0 repoints an actor only to a
+	// template with identical volumes, and the engine is an image volume pinned by digest, so a
+	// new Runtime image would strand every existing pod (E12). The pod then runs that engine until
+	// a new incarnation; the Runtime's Harness API check at hello still guards it.
+	if kept := EngineReference(current); kept != "" && images.Harness != "" && kept != images.Harness {
+		d.o.Log.Info("substrate: the actor keeps its engine", "name", name, "engine", kept, "asked", images.Harness)
+		images.Harness = kept
 	}
 	rendered, err := RenderTemplate(d.o.Settings, spec, images, token)
 	if err != nil {
@@ -259,7 +281,17 @@ func (d *Driver) Put(ctx context.Context, name string, spec driver.Spec) (driver
 	if err != nil {
 		return driver.Status{}, err
 	}
-	if err := d.ensureTemplate(ctx, rendered, templateName); err != nil {
+	proposed, err := ToProto(rendered, templateName)
+	if err != nil {
+		return driver.Status{}, err
+	}
+	repoint := actor != nil && actor.GetActorTemplate().GetName() != templateName
+	if repoint && current != nil {
+		if why := RepointRefusal(current, proposed); why != "" {
+			return d.refuse(ctx, name, spec, st, actor, why)
+		}
+	}
+	if err := d.ensureTemplate(ctx, proposed); err != nil {
 		return driver.Status{}, err
 	}
 
@@ -275,26 +307,47 @@ func (d *Driver) Put(ctx context.Context, name string, spec driver.Spec) (driver
 		if err != nil {
 			return driver.Status{}, err
 		}
-	case actor.GetActorTemplate().GetName() != templateName:
+	case repoint:
 		// A new template takes effect at the next resume and keeps only the durable
-		// directories (a template repoint): suspend first so the change applies now.
-		if actor.GetStatus().GetState() == ateapi.ActorState_ACTOR_STATE_RUNNING {
+		// directories (a template repoint), and Substrate changes it only on a suspended actor:
+		// suspend a running one so the change applies now, and revert a crashed one to its last
+		// suspend (its next resume would anyway).
+		switch actor.GetStatus().GetState() {
+		case ateapi.ActorState_ACTOR_STATE_RUNNING:
 			if err := d.suspend(ctx, name); err != nil {
 				return driver.Status{}, err
+			}
+		case ateapi.ActorState_ACTOR_STATE_CRASHED:
+			cctx, cancel := d.call(ctx)
+			_, err := d.api.RevertActor(cctx, &ateapi.RevertActorRequest{Actor: d.ref(name)})
+			cancel()
+			if err != nil {
+				return driver.Status{}, fmt.Errorf("revert before a template change: %w", err)
 			}
 		}
 		actor, err = d.getActor(ctx, name)
 		if err != nil {
 			return driver.Status{}, err
 		}
+		if actor == nil {
+			return driver.Status{}, &driver.Error{Status: http.StatusConflict, Code: "deleting", Message: "the sandbox is being deleted"}
+		}
 		previous := actor.GetActorTemplate().GetName()
-		actor.ActorTemplate = d.ref(templateName)
+		repointed := proto.Clone(actor).(*ateapi.Actor)
+		repointed.ActorTemplate = d.ref(templateName)
 		cctx, cancel := d.call(ctx)
-		actor, err = d.api.UpdateActor(cctx, &ateapi.UpdateActorRequest{Actor: actor})
+		updated, err := d.api.UpdateActor(cctx, &ateapi.UpdateActorRequest{Actor: repointed})
 		cancel()
+		if status.Code(err) == codes.FailedPrecondition && actor.GetStatus().GetState() == ateapi.ActorState_ACTOR_STATE_SUSPENDED {
+			// A suspended actor refused a template: a rule of Substrate's this driver does not
+			// check first. Trying again would not change the answer.
+			d.deleteTemplateLater(templateName)
+			return d.refuse(ctx, name, spec, st, actor, status.Convert(err).Message())
+		}
 		if err != nil {
 			return driver.Status{}, err
 		}
+		actor = updated
 		d.deleteTemplateLater(previous) // no actor names it now, and the actor's snapshot does not need it
 	}
 	if err := d.ensureEgress(ctx, name, networkOf(spec), spec.Keys); err != nil {
@@ -305,6 +358,30 @@ func (d *Driver) Put(ctx context.Context, name string, spec driver.Spec) (driver
 		return driver.Status{}, err
 	}
 	go d.drive(name, spec.OpID, spec.Mode)
+	return Compute(name, actor, &next), nil
+}
+
+// RepointRefused is the status reason of a sandbox whose request Substrate cannot apply to its
+// actor: the change needs a new incarnation.
+const RepointRefused = "RepointRefused"
+
+// refuse records a request whose template the actor cannot take, so the sandbox reports why
+// instead of the request failing (and being sent again) for good. The actor keeps its template;
+// a suspend is still carried out, a resume is not.
+func (d *Driver) refuse(ctx context.Context, name string, spec driver.Spec, previous *state, actor *ateapi.Actor, why string) (driver.Status, error) {
+	d.o.Log.Warn("substrate: the actor cannot take the new template", "name", name, "template", actor.GetActorTemplate().GetName(), "why", why)
+	next := state{OpID: spec.OpID, Mode: spec.Mode, Template: actor.GetActorTemplate().GetName(),
+		Refused: "Agent Substrate cannot move this sandbox to the requested template: " + why +
+			". It keeps its volumes for its life; only a new sandbox can take this change (reset the Agent's pod)."}
+	if previous != nil {
+		next.Image = previous.Image
+	}
+	if err := d.writeState(ctx, name, next); err != nil {
+		return driver.Status{}, err
+	}
+	if spec.Mode != "Running" {
+		go d.drive(name, spec.OpID, spec.Mode)
+	}
 	return Compute(name, actor, &next), nil
 }
 
@@ -419,14 +496,10 @@ func (d *Driver) getTemplate(ctx context.Context, name string) (*ateapi.ActorTem
 	return d.api.GetActorTemplate(ctx, &ateapi.GetActorTemplateRequest{ActorTemplate: d.ref(name)})
 }
 
-func (d *Driver) ensureTemplate(ctx context.Context, rendered map[string]any, name string) error {
-	t, err := ToProto(rendered, name)
-	if err != nil {
-		return err
-	}
+func (d *Driver) ensureTemplate(ctx context.Context, t *ateapi.ActorTemplate) error {
 	ctx, cancel := d.call(ctx)
 	defer cancel()
-	_, err = d.api.CreateActorTemplate(ctx, &ateapi.CreateActorTemplateRequest{ActorTemplate: t})
+	_, err := d.api.CreateActorTemplate(ctx, &ateapi.CreateActorTemplateRequest{ActorTemplate: t})
 	if status.Code(err) == codes.AlreadyExists {
 		return nil
 	}
@@ -580,6 +653,11 @@ func Compute(name string, actor *ateapi.Actor, st *state) driver.Status {
 	case ateapi.ActorState_ACTOR_STATE_CRASHED:
 		s.Reason = "Crashed"
 		s.Message = strings.TrimSpace(actor.GetStatus().GetCrash().GetMessage())
+	}
+	// A refused request is never ready: the actor still runs the previous one (core's ready
+	// deadline then fails the start with this reason).
+	if st != nil && st.Refused != "" && s.Reason == "" {
+		s.Ready, s.Reason, s.Message = false, RepointRefused, st.Refused
 	}
 	return s
 }
