@@ -136,7 +136,12 @@ describe("substrate settings", () => {
     const rules = substrateManifests("nylorun-sbx-shop")
       .filter((m) => (m as { kind: string }).kind.endsWith("Role"))
       .flatMap((m) => (m as { rules: { resources: string[] }[] }).rules.flatMap((r) => r.resources));
-    expect(rules.sort()).toEqual(["clustertrustbundles", "configmaps", "pods", "pods/portforward", "services", "serviceaccounts/token"].sort());
+    expect(rules.sort()).toEqual(["clustertrustbundles", "configmaps", "pods", "pods", "pods/portforward", "services", "serviceaccounts/token"].sort());
+    // Cluster-wide, pods are only read: the worker pods the drain watch follows.
+    const cluster = substrateManifests("nylorun-sbx-shop").find((m) => (m as { kind: string }).kind === "ClusterRole") as {
+      rules: { resources: string[]; verbs: string[] }[];
+    };
+    expect(cluster.rules.find((r) => r.resources.includes("pods"))?.verbs).toEqual(["get", "list", "watch"]);
   });
 
   it("keeps the edge ports in .env and publishes them from the sandboxes service", () => {

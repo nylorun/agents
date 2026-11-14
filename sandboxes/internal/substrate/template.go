@@ -165,8 +165,10 @@ func deepMerge(into, from map[string]any) {
 // until the incarnation is deleted (Phase 1b replaces it with an identity join).
 func RenderTemplate(s Settings, spec driver.Spec, images Resolved, joinToken string) (map[string]any, error) {
 	env := map[string]string{
-		"HOME":                          "/harness/home",
-		"NYLORUN_SANDBOX_KIND":          "pod",
+		"HOME":                 "/harness/home",
+		"NYLORUN_SANDBOX_KIND": "pod",
+		// The engine stays up on a stopping worker's SIGTERM, so it can be suspended (drain.go).
+		"NYLORUN_SANDBOX_SUBSTRATE":     "1",
 		"NYLORUN_HARNESS_URL":           s.HarnessURL,
 		"NYLORUN_GATES_URL":             s.GatesURL,
 		"NYLORUN_SANDBOX_BLOCKED_PROBE": BlockedProbe,

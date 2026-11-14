@@ -339,6 +339,11 @@ export interface SandboxPodState {
    * that digest is `imageDigest`.
    */
   engineImage?: { version: string; digest?: string };
+  /**
+   * When the sandbox was last suspended because its Agent Substrate worker stopped (the sandboxes
+   * service's `drainedAt`), so each drain is recorded once (`agent.suspended`, reason `drain`).
+   */
+  drainedAt?: string;
 }
 
 /** A change to a pod's columns: `null` clears an optional one. */

@@ -78,6 +78,20 @@ Substrate's egress are on. The `/v1/pods` contract is the same.
   or that a failed wake left crashed, is reverted to its last snapshot once and resumed
   (Substrate refuses to resume a crashed actor). Each resume logs `substrate resumed` with its
   time in `ms`.
+- **Suspend before drain** (Substrate's eviction contract, its API guide's "Eviction"): a worker
+  pod that stops (a drain, a GKE upgrade or scale-down, a WorkerPool rollout, a deleted pod)
+  sends each of its actors SIGTERM and gives them 30 minutes to be suspended; Substrate doesn't
+  suspend them itself. The template sets `NYLORUN_SANDBOX_SUBSTRATE=1`, so the engine logs
+  `harness_worker_stopping` and keeps running instead of exiting. The service watches every pod
+  labelled `ate.dev/worker-pool` (cluster-wide `get`, `list`, `watch` on pods); when one turns
+  Terminating, it suspends each of the Tenant's actors on it, synchronously, eight at a time,
+  trying again for up to 29 minutes after the pod's deletion. It records the time as
+  `drainedAt` in the state ConfigMap and the status, and resumes the sandbox when its request
+  is `Running`: Substrate places it only on an ACTIVE worker, so on another one. Until then the
+  status reason is `Moving`. Logs: `substrate drain: worker stopping`, `substrate drained` (with
+  `ms`). Not covered: a spot reclaim (15 s to 2 min) or a node that dies, which still crash and
+  revert. An actor keeps the engine it was created with (#643), so one made before this release
+  still exits on SIGTERM until it is reset.
 - **The edge needs no DNS lookup in the actor:** the wrapper pins `<host address> <edge host>`
   in the actor's `/etc/hosts` at a fresh start, when the file is writable (Substrate keeps the
   actor's own edits to it across restores, and its egress routes the edge by TLS name). A

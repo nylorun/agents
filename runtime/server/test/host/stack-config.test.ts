@@ -548,6 +548,13 @@ describe("sandbox pods (F7.2)", () => {
     NYLORUN_SANDBOX_JOIN_FILE: "/run/nylorun/join/token",
   };
 
+  it("marks an Agent Substrate actor's engine, which stays up on SIGTERM (suspend before drain)", () => {
+    expect(parseStackConfig(pod, ["--service", "harness"]).harness?.pod?.substrate).toBeUndefined();
+    expect(
+      parseStackConfig({ ...pod, NYLORUN_SANDBOX_SUBSTRATE: "1" }, ["--service", "harness"]).harness?.pod?.substrate,
+    ).toBe(true);
+  });
+
   it("runs a pod's engine without a harness token: it joins with its join file", () => {
     expect(parseStackConfig(pod, ["--service", "harness"]).harness).toEqual({
       url: "ws://192.168.65.254:47321/nylorun/harness/v1",

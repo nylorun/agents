@@ -79,6 +79,7 @@ type Driver struct {
 	o      Options
 	locks  sync.Map
 	synced atomic.Bool
+	drains drains
 }
 
 // New returns a driver; Run checks Substrate answers.
@@ -137,6 +138,8 @@ type state struct {
 	// Refused is why the request could not be applied (Substrate refuses its template change);
 	// the sandbox reports it until a later request replaces this one.
 	Refused string
+	// DrainedAt is when the sandbox was last suspended because its worker stopped (RFC 3339).
+	DrainedAt string
 }
 
 const stateSuffix = "-state"
@@ -150,13 +153,17 @@ func (d *Driver) readState(ctx context.Context, name string) (*state, error) {
 		return nil, err
 	}
 	v := cm.Data
-	return &state{OpID: v["opId"], Mode: v["mode"], Template: v["template"], Image: v["image"], Refused: v["refused"]}, nil
+	return &state{OpID: v["opId"], Mode: v["mode"], Template: v["template"], Image: v["image"], Refused: v["refused"],
+		DrainedAt: v["drainedAt"]}, nil
 }
 
 func (d *Driver) writeState(ctx context.Context, name string, s state) error {
 	data := map[string]string{"opId": s.OpID, "mode": s.Mode, "template": s.Template, "image": s.Image}
 	if s.Refused != "" {
 		data["refused"] = s.Refused
+	}
+	if s.DrainedAt != "" {
+		data["drainedAt"] = s.DrainedAt
 	}
 	cm := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{Name: name + stateSuffix, Namespace: d.o.Namespace, Labels: map[string]string{
@@ -354,12 +361,19 @@ func (d *Driver) Put(ctx context.Context, name string, spec driver.Spec) (driver
 		return driver.Status{}, err
 	}
 	next := state{OpID: spec.OpID, Mode: spec.Mode, Template: templateName, Image: images.Image}
+	if st != nil {
+		next.DrainedAt = st.DrainedAt // the Runtime records each drain once, by its time
+	}
 	if err := d.writeState(ctx, name, next); err != nil {
 		return driver.Status{}, err
 	}
 	go d.drive(name, spec.OpID, spec.Mode)
 	return Compute(name, actor, &next), nil
 }
+
+// Moving is the status reason of a sandbox suspended because its worker stopped (drain.go),
+// until it runs again on another worker.
+const Moving = "Moving"
 
 // RepointRefused is the status reason of a sandbox whose request Substrate cannot apply to its
 // actor: the change needs a new incarnation.
@@ -374,7 +388,7 @@ func (d *Driver) refuse(ctx context.Context, name string, spec driver.Spec, prev
 		Refused: "Agent Substrate cannot move this sandbox to the requested template: " + why +
 			". It keeps its volumes for its life; only a new sandbox can take this change (reset the Agent's pod)."}
 	if previous != nil {
-		next.Image = previous.Image
+		next.Image, next.DrainedAt = previous.Image, previous.DrainedAt
 	}
 	if err := d.writeState(ctx, name, next); err != nil {
 		return driver.Status{}, err
@@ -628,7 +642,7 @@ func (d *Driver) status(ctx context.Context, name string) (driver.Status, error)
 func Compute(name string, actor *ateapi.Actor, st *state) driver.Status {
 	s := driver.Status{Name: name, Volume: "missing"}
 	if st != nil {
-		s.OpID, s.Mode, s.ImageID = st.OpID, st.Mode, st.Image
+		s.OpID, s.Mode, s.ImageID, s.DrainedAt = st.OpID, st.Mode, st.Image, st.DrainedAt
 	}
 	if actor == nil {
 		return s
@@ -653,6 +667,11 @@ func Compute(name string, actor *ateapi.Actor, st *state) driver.Status {
 	case ateapi.ActorState_ACTOR_STATE_CRASHED:
 		s.Reason = "Crashed"
 		s.Message = strings.TrimSpace(actor.GetStatus().GetCrash().GetMessage())
+	}
+	// Suspended because its worker stopped, and on its way to another one (drain.go).
+	if st != nil && st.DrainedAt != "" && s.Mode == "Running" && s.Reason == "" &&
+		actor.GetStatus().GetState() != ateapi.ActorState_ACTOR_STATE_RUNNING {
+		s.Reason, s.Message = Moving, "suspended because its worker stopped; resuming on another worker"
 	}
 	// A refused request is never ready: the actor still runs the previous one (core's ready
 	// deadline then fails the start with this reason).

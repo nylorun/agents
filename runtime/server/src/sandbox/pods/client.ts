@@ -72,6 +72,11 @@ export interface PodStatus {
   readonly shutdownTime?: string;
   readonly reason?: string;
   readonly message?: string;
+  /**
+   * Agent Substrate: when the sandbox was last suspended because its worker stopped. While it
+   * moves to another worker, `reason` is `Moving`.
+   */
+  readonly drainedAt?: string;
   /** With `?wait=`: whether the state was reached before the timeout. */
   readonly met?: boolean;
 }

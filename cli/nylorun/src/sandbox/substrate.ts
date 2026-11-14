@@ -26,7 +26,9 @@ const MANAGED = { "app.kubernetes.io/managed-by": "nylorun" };
 /**
  * RBAC for the sandboxes service on Substrate: in the Tenant's namespace, its state ConfigMaps
  * and a token for its own ServiceAccount (its Substrate identity); in Substrate's namespace, a
- * port-forward to ate-api-server; cluster-wide, reading Substrate's trust bundles.
+ * port-forward to ate-api-server; cluster-wide, reading Substrate's trust bundles and watching
+ * worker pods (label `ate.dev/worker-pool`), so it can suspend the Tenant's actors on one that
+ * stops before Substrate's 30 minutes are up (suspend before drain).
  */
 export function substrateManifests(namespace: string): object[] {
   const subject = [{ kind: "ServiceAccount", name: SERVICE_ACCOUNT, namespace }];
@@ -69,7 +71,10 @@ export function substrateManifests(namespace: string): object[] {
       apiVersion: "rbac.authorization.k8s.io/v1",
       kind: "ClusterRole",
       metadata: { name, labels: MANAGED },
-      rules: [{ apiGroups: ["certificates.k8s.io"], resources: ["clustertrustbundles"], verbs: ["get", "list", "watch"] }],
+      rules: [
+        { apiGroups: ["certificates.k8s.io"], resources: ["clustertrustbundles"], verbs: ["get", "list", "watch"] },
+        { apiGroups: [""], resources: ["pods"], verbs: ["get", "list", "watch"] },
+      ],
     },
     {
       apiVersion: "rbac.authorization.k8s.io/v1",

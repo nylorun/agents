@@ -14,7 +14,9 @@
  * pod's join token instead of a harness token (`pod.ts`), runs its disk's setup on a new volume
  * (`setup.ts`), and runs its sandbox's tools in the pod itself (the `local` backend), with egress
  * through egress-gate. SIGTERM (tini forwards
- * it; the pod's grace is 10 s by default) gives its runs back and exits.
+ * it; the pod's grace is 10 s by default) gives its runs back and exits. On Agent Substrate
+ * (`NYLORUN_SANDBOX_SUBSTRATE=1`), SIGTERM means the worker pod is stopping: the engine logs it and
+ * keeps running, so the sandboxes service can suspend the actor within Substrate's 30 minutes.
  */
 import { existsSync, mkdirSync } from "node:fs";
 import { createServer } from "node:http";
@@ -116,8 +118,17 @@ export async function runHarness(
   logger.info("harness_ready", { health: `http://127.0.0.1:${config.healthPort}/health` });
 
   let stopping = false;
+  let workerStopping = false;
   for (const signal of ["SIGINT", "SIGTERM"] as const)
     process.on(signal, () => {
+      // On Agent Substrate, SIGTERM means the worker pod is stopping: the actor has 30 minutes to
+      // be suspended, and the sandboxes service suspends it. A process that exits can't be, so the
+      // engine keeps running, and keeps its runs (Substrate's eviction contract).
+      if (signal === "SIGTERM" && config.pod?.substrate) {
+        if (!workerStopping) logger.info("harness_worker_stopping", { sandboxId: config.pod.sandboxId });
+        workerStopping = true;
+        return;
+      }
       if (stopping) return;
       stopping = true;
       // Runs are given back (core resumes them in its next advance), then MCP and sandboxes stop.

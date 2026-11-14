@@ -337,6 +337,13 @@
       "when": 1794630124577,
       "tag": "0047_model_usage_attempts",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1794635246579,
+      "tag": "0048_sandbox_pod_drained_at",
+      "breakpoints": true
     }
   ]
 }

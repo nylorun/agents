@@ -32,6 +32,10 @@ type fakeAPI struct {
 	crashOnResume int
 	// refuseRepoint, when set, is UpdateActor's answer to any template change.
 	refuseRepoint error
+	// worker is the worker pod UID a resume places an actor on ("worker-a" when empty).
+	worker string
+	// failSuspendTimes makes the first n SuspendActor calls fail with Unavailable.
+	failSuspendTimes int
 }
 
 func newFakeAPI() *fakeAPI {
@@ -154,8 +158,14 @@ func (f *fakeAPI) SuspendActor(_ context.Context, in *ateapi.SuspendActorRequest
 	if !ok {
 		return nil, status.Error(codes.NotFound, "no actor")
 	}
+	if f.failSuspendTimes > 0 {
+		f.failSuspendTimes--
+		f.record("SuspendActor failed")
+		return nil, status.Error(codes.Unavailable, "atelet busy")
+	}
 	f.record("SuspendActor " + a.GetMetadata().GetName())
 	a.Status.State = ateapi.ActorState_ACTOR_STATE_SUSPENDED
+	a.Status.WorkerAssignment = nil
 	return &ateapi.SuspendActorResponse{Actor: proto.Clone(a).(*ateapi.Actor)}, nil
 }
 
@@ -183,6 +193,11 @@ func (f *fakeAPI) ResumeActor(_ context.Context, in *ateapi.ResumeActorRequest, 
 	}
 	f.record("ResumeActor " + a.GetMetadata().GetName())
 	a.Status.State = ateapi.ActorState_ACTOR_STATE_RUNNING
+	worker := f.worker
+	if worker == "" {
+		worker = "worker-a"
+	}
+	a.Status.WorkerAssignment = &ateapi.WorkerAssignment{WorkerPodUid: worker}
 	if f.crashOnResume > 0 {
 		f.crashOnResume--
 		a.Status.State = ateapi.ActorState_ACTOR_STATE_CRASHED
