@@ -78,9 +78,15 @@ NYLORUN_TOKEN).
                                       go (over the slot's via) and the gateway's tool prefix
   secrets rm <id> <name>
   triggers list <id>                  its triggers: status, next and last run, as JSON; with
-                                      the ones its agents made (origin agent)
+                                      the ones its agents made (origin agent) and clients put
+                                      (origin api)
   triggers pause|resume <id> <trigger>
-  triggers rm <id> <trigger>          delete a trigger its agent made (not a manifest's)
+  triggers put <id> <trigger> (--schedule <cron> [--timezone <zone>] | --at <time> | --webhook)
+            --session <id|new> --prompt <text> [--title <text>] | <trigger.json|->
+                                      create or replace the Agent's own trigger (origin api); the
+                                      same trigger again changes nothing
+  triggers rm <id> <trigger>          delete a trigger its agent made or a client put (not a
+                                      manifest's)
   triggers run <id> <trigger> [--idempotency-key <k>]
                                       run it once now, as if it fired
   triggers new-secret <id> <trigger>  a webhook trigger's new signing secret (whsec_…), shown
@@ -413,7 +419,7 @@ async function secrets(deps: StackDeps, args: readonly string[]): Promise<number
   throw usageError(`Usage: nylorun agents secrets <list|get|put|rm> …\n\n${agentsUsage}`);
 }
 
-/** `nylorun agents triggers <list|pause|resume|run|rm|new-secret> …` (track T4, D83). */
+/** `nylorun agents triggers <list|put|pause|resume|run|rm|new-secret> …` (track T4, D83, D88). */
 async function triggers(deps: StackDeps, args: readonly string[]): Promise<number> {
   const [verb, ...rest] = args;
   if (isHelp(verb)) throw new HelpRequest(usageLinesOf(agentsUsage, "triggers"));
@@ -423,6 +429,34 @@ async function triggers(deps: StackDeps, args: readonly string[]): Promise<numbe
     const [id] = positional(flags, 1, usage);
     const { client } = await runtimeClient(deps, flags);
     printJson(deps, await runtimeCall(() => client.agents.triggers(id!)));
+    return 0;
+  }
+  if (verb === "put") {
+    const usage =
+      "nylorun agents triggers put <id> <trigger> (--schedule <cron> [--timezone <zone>] | --at <time> | --webhook) --session <id|new> --prompt <text> [--title <text>] | <trigger.json|->";
+    const flags = parseFlags(
+      rest,
+      { values: ["--schedule", "--timezone", "--at", "--session", "--prompt", "--title"], booleans: ["--webhook"] },
+      usage,
+    );
+    if (flags.rest.length < 2 || flags.rest.length > 3) throw usageError(`Usage: ${usage}`);
+    const [id, triggerId, path] = flags.rest as [string, string, string | undefined];
+    const value = (name: string) => flags.values.get(name);
+    const trigger =
+      path === undefined
+        ? {
+            ...(value("--schedule") === undefined ? {} : { schedule: value("--schedule")! }),
+            ...(value("--timezone") === undefined ? {} : { timezone: value("--timezone")! }),
+            ...(value("--at") === undefined ? {} : { at: value("--at")! }),
+            ...(flags.booleans.has("--webhook") ? { webhook: "standard-webhooks" as const } : {}),
+            session: value("--session") ?? "",
+            prompt: value("--prompt") ?? "",
+            ...(value("--title") === undefined ? {} : { title: value("--title")! }),
+          }
+        : await readJson(path, "The trigger");
+    if (path === undefined && (!trigger.session || !trigger.prompt)) throw usageError(`--session and --prompt are required.\n\nUsage: ${usage}`);
+    const { client } = await runtimeClient(deps, flags);
+    printJson(deps, await runtimeCall(() => client.agents.putTrigger(id, triggerId, trigger as never)));
     return 0;
   }
   if (verb === "pause" || verb === "resume") {
@@ -467,7 +501,7 @@ async function triggers(deps: StackDeps, args: readonly string[]): Promise<numbe
     printJson(deps, await runtimeCall(() => client.agents.rotateWebhookSecret(id!, trigger!)));
     return 0;
   }
-  throw usageError(`Usage: nylorun agents triggers <list|pause|resume|run|rm|new-secret> …\n\n${agentsUsage}`);
+  throw usageError(`Usage: nylorun agents triggers <list|put|pause|resume|run|rm|new-secret> …\n\n${agentsUsage}`);
 }
 
 /** `nylorun agents memories <ls|cat|put|rm|versions> …` (track T5). */

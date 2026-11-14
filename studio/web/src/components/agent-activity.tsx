@@ -27,7 +27,43 @@ import {
 } from "@/components/data-table";
 
 /** The Agent's events: all of them, its lifecycle, or the connections its sandbox opened. */
-type View = "any" | "lifecycle" | "connections";
+type View = "any" | "lifecycle" | "triggers" | "connections";
+
+/** The changes to the Agent's own triggers (D83, D88). */
+const TRIGGER_TYPES: readonly AgentEventType[] = [
+  "agent.trigger_created",
+  "agent.trigger_updated",
+  "agent.trigger_deleted",
+  "agent.trigger_paused",
+  "agent.trigger_resumed",
+  "agent.trigger_secret_rotated",
+];
+
+/** Who changed a trigger, in words: a client by its principal, or an agent by its session. */
+function byWhom(payload: Record<string, unknown>): string {
+  if (typeof payload.principal === "string") return `API (${payload.principal})`;
+  if (typeof payload.sessionId === "string") return `An agent in ${payload.sessionId}`;
+  return payload.origin === "api" ? "A client" : "An agent";
+}
+
+/** A trigger change in words (D88): "API (app_x) changed daily: timezone, schedule". */
+export function triggerDetailOf(event: Pick<AgentEvent, "type" | "payload">): string | undefined {
+  const payload = event.payload as Record<string, unknown>;
+  const id = String(payload.triggerId ?? "");
+  const timing = [payload.schedule, payload.timezone, payload.at].filter((part) => typeof part === "string").join(" ");
+  switch (event.type) {
+    case "agent.trigger_created":
+      return `${byWhom(payload)} made ${id}${timing ? `: ${timing}` : ""}`;
+    case "agent.trigger_updated": {
+      const changed = Array.isArray(payload.changed) && payload.changed.length > 0 ? payload.changed.join(", ") : "it";
+      return `${byWhom(payload)} changed ${id}: ${changed}${timing ? ` (now ${timing})` : ""}`;
+    }
+    case "agent.trigger_deleted":
+      return `${byWhom(payload)} deleted ${id}`;
+    default:
+      return undefined;
+  }
+}
 
 /** Every type but egress: what happened to the Agent itself. */
 const LIFECYCLE_TYPES: readonly AgentEventType[] = AGENT_EVENT_TYPES.filter((type) => type !== "agent.egress");
@@ -37,6 +73,8 @@ function detailOf(event: AgentEvent): string {
   const egress = egressOf(event);
   if (egress)
     return `${egress.host}:${egress.port} · ${egress.outcome}${egress.reason ? ` · ${egress.reason}` : ""}`;
+  const trigger = triggerDetailOf(event);
+  if (trigger) return trigger;
   const payload = event.payload as Record<string, unknown>;
   const parts = Object.entries(payload)
     .filter(([, value]) => typeof value === "string" || typeof value === "number" || typeof value === "boolean")
@@ -81,7 +119,13 @@ function ActivityTable({
     async (signal: AbortSignal) => {
       const from = accumulated.current.reduce((n, e) => Math.max(n, e.seq + 1), 0);
       const types =
-        view === "connections" ? (["agent.egress"] as const) : view === "lifecycle" ? LIFECYCLE_TYPES : undefined;
+        view === "connections"
+          ? (["agent.egress"] as const)
+          : view === "lifecycle"
+            ? LIFECYCLE_TYPES
+            : view === "triggers"
+              ? TRIGGER_TYPES
+              : undefined;
       const next = await sdk.agents.events(id, { from, ...(types ? { types } : {}), signal });
       signal.throwIfAborted();
       accumulated.current = Array.from(new Map([...accumulated.current, ...next].map((e) => [e.seq, e])).values()).sort(
@@ -121,6 +165,7 @@ function ActivityTable({
           options={[
             { value: "any", label: "Any" },
             { value: "lifecycle", label: "Lifecycle" },
+            { value: "triggers", label: "Triggers" },
             { value: "connections", label: "Connections" },
           ]}
           onChange={onView}

@@ -50,10 +50,22 @@ function runDetail(run: TriggerRun): string {
   return `${run.status === "skipped" ? "Skipped" : "Failed"}${run.reason ? `: ${run.reason.replace(/_/gu, " ")}` : ""}${late}`;
 }
 
+/** Where a trigger came from (D83, D88): its definition's version, the agent that made it, or who put it. */
+export function triggerFrom(t: Pick<TriggerView, "origin" | "title" | "createdSessionId" | "principal" | "kind">, version: number | string): string {
+  if (t.kind === "wake" || t.origin === "wake") return "Self-wake";
+  if (t.origin === "agent") return `Agent · ${t.title ?? t.createdSessionId ?? "its session"}`;
+  if (t.origin === "api") return `API · ${t.principal ?? "a client"}`;
+  return `Definition · v${version}`;
+}
+
+/** A trigger an agent made or a client put: its own to delete (D88); a definition's is the definition's. */
+const deletable = (t: Pick<TriggerView, "origin">) => t.origin === "agent" || t.origin === "api";
+
 /**
- * What starts the Agent's turns with no client connected: the triggers its manifest version
- * declares (and self-wake), each one's status and next run, and every run they made, newest
- * first. A trigger can be paused, resumed or run now; a row opens its details, with its prompt.
+ * What starts the Agent's turns with no client connected: the triggers its definition declares,
+ * those its agents made and those clients put (and self-wake), each one's origin, status and next
+ * run, and every run they made, newest first. A trigger can be paused, resumed or run now, and one
+ * an agent made or a client put deleted; a row opens its details, with its prompt.
  */
 export function AgentTriggers({
   tenantId,
@@ -120,6 +132,16 @@ export function AgentTriggers({
       setList(undefined);
       return `Ran ${t.id}: ${runDetail(made).toLowerCase()}.`;
     });
+  const remove = (t: TriggerView) => {
+    if (!window.confirm(`Delete the trigger ${t.id}? It stops firing. Its runs stay, and the Agent's activity records who deleted it.`)) return;
+    void run(async () => {
+      await sdk.agents.deleteTrigger(id, t.id);
+      setSelected(undefined);
+      setList(undefined);
+      triggers.reload();
+      return `Deleted ${t.id}.`;
+    });
+  };
   const copyUrl = (t: TriggerView) =>
     run(async () => {
       await navigator.clipboard.writeText(t.webhookUrl ?? "");
@@ -135,6 +157,7 @@ export function AgentTriggers({
       : t.status === "paused"
         ? [{ label: "Resume", onSelect: () => void resume(t), disabled: acting }]
         : []),
+    ...(deletable(t) ? [{ label: "Delete", onSelect: () => remove(t), disabled: acting }] : []),
   ];
   const runActions = (r: TriggerRun): MenuAction[] =>
     r.sessionId
@@ -164,11 +187,12 @@ export function AgentTriggers({
       <TableFrame minWidth={760}>
         <thead>
           <tr>
-            <th className={`${headClass} w-[18%]`}>Trigger</th>
-            <th className={`${headClass} w-[11%]`}>Status</th>
+            <th className={`${headClass} w-[16%]`}>Trigger</th>
+            <th className={`${headClass} w-[16%]`}>From</th>
+            <th className={`${headClass} w-[10%]`}>Status</th>
             <th className={headClass}>When</th>
-            <th className={`${headClass} w-[20%]`}>Runs in</th>
-            <th className={`${headClass} w-[14%]`}>Next run</th>
+            <th className={`${headClass} w-[16%]`}>Runs in</th>
+            <th className={`${headClass} w-[12%]`}>Next run</th>
             <th className={`${headClass} w-12`}>
               <span className="sr-only">Actions</span>
             </th>
@@ -176,7 +200,7 @@ export function AgentTriggers({
         </thead>
         <tbody>
           {triggers.data && shown.length === 0 ? (
-            <EmptyRow columns={6}>Its manifest version declares no triggers.</EmptyRow>
+            <EmptyRow columns={7}>No triggers. A definition declares them, an agent makes them, or a client puts them.</EmptyRow>
           ) : null}
           {shown.map((t) => (
             <tr
@@ -187,6 +211,9 @@ export function AgentTriggers({
             >
               <td className={`${cellClass} font-mono text-[13px]`} title={t.id}>
                 {t.kind === "wake" ? "Self-wake" : t.id}
+              </td>
+              <td className={`${cellClass} text-muted-foreground`} title={triggerFrom(t, agent.resolvedVersion)}>
+                {triggerFrom(t, agent.resolvedVersion)}
               </td>
               <td className={cellClass} title={t.pausedReason ?? undefined}>
                 <StatusDot tone={t.status === "active" ? "ok" : t.status === "paused" ? "warn" : "idle"}>
@@ -270,7 +297,7 @@ export function AgentTriggers({
       {openTrigger ? (
         <SidePanel
           title={openTrigger.kind === "wake" ? "Self-wake" : openTrigger.id}
-          description={`${openTrigger.status[0]!.toUpperCase()}${openTrigger.status.slice(1)} · declared by v${agent.resolvedVersion}`}
+          description={`${openTrigger.status[0]!.toUpperCase()}${openTrigger.status.slice(1)} · ${triggerFrom(openTrigger, agent.resolvedVersion)}`}
           actions={triggerActions(openTrigger)}
           onClose={() => setSelected(undefined)}
         >
@@ -278,6 +305,8 @@ export function AgentTriggers({
             entries={[
               ["When", triggerWhen(openTrigger)],
               ...(openTrigger.schedule ? ([["Schedule", <code className="font-mono text-xs">{openTrigger.schedule}</code>]] as const) : []),
+              ...(openTrigger.timezone ? ([["Time zone", openTrigger.timezone]] as const) : []),
+              ["From", triggerFrom(openTrigger, agent.resolvedVersion)],
               ...(declared[openTrigger.id]?.webhook ? ([["Verified by", declared[openTrigger.id]!.webhook]] as const) : []),
               ...(openTrigger.webhookUrl
                 ? ([["Webhook URL", <span className="font-mono text-xs break-all">{openTrigger.webhookUrl}</span>]] as const)
@@ -288,10 +317,10 @@ export function AgentTriggers({
               ...(openTrigger.pausedReason ? ([["Paused by", openTrigger.pausedReason]] as const) : []),
             ]}
           />
-          {declared[openTrigger.id]?.prompt ? (
+          {(openTrigger.prompt ?? declared[openTrigger.id]?.prompt) ? (
             <div className="space-y-1.5">
               <p className="text-xs font-medium text-muted-foreground">Prompt</p>
-              <p className="text-sm whitespace-pre-wrap">{declared[openTrigger.id]!.prompt}</p>
+              <p className="text-sm whitespace-pre-wrap">{openTrigger.prompt ?? declared[openTrigger.id]!.prompt}</p>
             </div>
           ) : null}
         </SidePanel>

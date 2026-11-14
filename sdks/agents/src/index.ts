@@ -145,6 +145,7 @@ export type {
   ArtifactDiff,
   FolderEntry,
   TriggerView,
+  TriggerPut,
   TriggerOrigin,
   TriggerRun,
   TriggerRunPage,

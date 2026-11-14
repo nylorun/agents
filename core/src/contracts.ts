@@ -1392,6 +1392,28 @@ export const AGENT_EVENT_TYPES = [
   "agent.memory_updated",
 ] as const;
 export type AgentEventType = (typeof AGENT_EVENT_TYPES)[number];
+/** `agent.trigger_created` and `agent.trigger_updated`'s payload (D83, D88). */
+export const TriggerChangePayloadSchema = z
+  .object({
+    triggerId: z.string(),
+    kind: z.enum(["schedule", "at", "webhook"]),
+    /** Absent on events recorded before D88, which were all `agent`. */
+    origin: z.enum(["agent", "api"]).optional(),
+    /** The session whose agent made it: an `agent` trigger's. */
+    sessionId: z.string().optional(),
+    /** Who put it: an `api` trigger's. */
+    principal: z.string().optional(),
+    session: z.string(),
+    title: z.string().optional(),
+    schedule: z.string().optional(),
+    timezone: z.string().optional(),
+    at: z.string().optional(),
+    /** On `agent.trigger_updated` from D88: the definition's fields that changed. */
+    changed: z.array(z.string()).optional(),
+    nextRunAt: z.string().nullable(),
+  })
+  .passthrough();
+
 /** The payload of each Agent lifecycle event. */
 export const AGENT_EVENT_PAYLOADS = {
   "agent.created": z
@@ -1488,33 +1510,25 @@ export const AGENT_EVENT_PAYLOADS = {
   /** A webhook trigger's signing secret was made or replaced; the one before stopped working. */
   "agent.trigger_secret_rotated": z.object({ triggerId: z.string() }).passthrough(),
   /**
-   * An agent made a trigger with the `triggers` tool (D83), or replaced one with the same id
-   * (`agent.trigger_updated`): the session whose agent made it (`sessionId`), the session it runs
-   * in (`session`), its title and its next run.
+   * An agent made a trigger with the `triggers` tool (D83), or a client put one over the API
+   * (D88), or either replaced one with the same id (`agent.trigger_updated`): where it came from
+   * (`origin`), the session whose agent made it (`sessionId`, for `agent`) or who put it
+   * (`principal`, for `api`), the session it runs in (`session`), its timing, its title, its next
+   * run, and on an update the fields that changed (`changed`).
    */
-  "agent.trigger_created": z
-    .object({
-      triggerId: z.string(),
-      kind: z.enum(["schedule", "at"]),
-      sessionId: z.string(),
-      session: z.string(),
-      title: z.string().optional(),
-      nextRunAt: z.string().nullable(),
-    })
-    .passthrough(),
-  "agent.trigger_updated": z
-    .object({
-      triggerId: z.string(),
-      kind: z.enum(["schedule", "at"]),
-      sessionId: z.string(),
-      session: z.string(),
-      title: z.string().optional(),
-      nextRunAt: z.string().nullable(),
-    })
-    .passthrough(),
-  /** A trigger an agent made was deleted: by an agent of `sessionId`, or over the API (`principal`). */
+  "agent.trigger_created": TriggerChangePayloadSchema,
+  "agent.trigger_updated": TriggerChangePayloadSchema,
+  /**
+   * A trigger an agent made or a client put was deleted: by an agent of `sessionId`, or over the
+   * API (`principal`); `origin` says which kind of trigger it was (D88).
+   */
   "agent.trigger_deleted": z
-    .object({ triggerId: z.string(), sessionId: z.string().optional(), principal: z.string().optional() })
+    .object({
+      triggerId: z.string(),
+      origin: z.enum(["agent", "api"]).optional(),
+      sessionId: z.string().optional(),
+      principal: z.string().optional(),
+    })
     .passthrough(),
   /** A turn changed the Agent's memories (`memory.updated` in its session): which, and how. */
   "agent.memory_updated": MemoryUpdatedPayloadSchema.extend({ sessionId: z.string(), turnId: z.string() }),
@@ -2165,26 +2179,25 @@ export const WEBHOOK_SCHEMES = ["standard-webhooks"] as const;
  * The cron's smallest gap, the `at` time, the prompt's length and how many triggers a
  * manifest holds are checked against the Tenant's Runtime limits when it is saved.
  */
-export const TriggerSchema = z
-  .strictObject({
-    schedule: z
-      .string()
-      .regex(/^\S+(\s+\S+){4}$/, { message: "schedule is five cron fields: minute hour day-of-month month day-of-week" })
-      .optional(),
-    timezone: z.string().min(1).optional(),
-    at: z.iso.datetime({ offset: true, message: "at is an RFC 3339 time with an offset, such as 2026-11-01T09:00:00+05:30" }).optional(),
-    webhook: z.enum(WEBHOOK_SCHEMES).optional(),
-    session: z.string().min(1).max(200),
-    prompt: z.string().min(1),
-  })
-  .superRefine((trigger, ctx) => {
-    const kinds = [trigger.schedule, trigger.at, trigger.webhook].filter((value) => value !== undefined);
-    if (kinds.length !== 1)
-      ctx.addIssue({ code: "custom", message: "A trigger has exactly one of schedule, at or webhook" });
-    if (trigger.timezone !== undefined && trigger.schedule === undefined)
-      ctx.addIssue({ code: "custom", path: ["timezone"], message: "timezone goes with schedule" });
-  })
-  .meta({ id: "Trigger" });
+const TRIGGER_FIELDS = {
+  schedule: z
+    .string()
+    .regex(/^\S+(\s+\S+){4}$/, { message: "schedule is five cron fields: minute hour day-of-month month day-of-week" })
+    .optional(),
+  timezone: z.string().min(1).optional(),
+  at: z.iso.datetime({ offset: true, message: "at is an RFC 3339 time with an offset, such as 2026-11-01T09:00:00+05:30" }).optional(),
+  webhook: z.enum(WEBHOOK_SCHEMES).optional(),
+  session: z.string().min(1).max(200),
+  prompt: z.string().min(1),
+};
+/** A trigger has exactly one of `schedule`, `at` or `webhook`, and `timezone` only with `schedule`. */
+function checkTriggerKind(trigger: { schedule?: string; at?: string; webhook?: string; timezone?: string }, ctx: z.RefinementCtx): void {
+  const kinds = [trigger.schedule, trigger.at, trigger.webhook].filter((value) => value !== undefined);
+  if (kinds.length !== 1) ctx.addIssue({ code: "custom", message: "A trigger has exactly one of schedule, at or webhook" });
+  if (trigger.timezone !== undefined && trigger.schedule === undefined)
+    ctx.addIssue({ code: "custom", path: ["timezone"], message: "timezone goes with schedule" });
+}
+export const TriggerSchema = z.strictObject(TRIGGER_FIELDS).superRefine(checkTriggerKind).meta({ id: "Trigger" });
 export type Trigger = z.infer<typeof TriggerSchema>;
 /** What a trigger is: the field it has, or `wake` for a session's own booking. */
 export const TRIGGER_KINDS = ["schedule", "at", "webhook", "wake"] as const;
@@ -2200,11 +2213,12 @@ export function triggerKindOf(trigger: Trigger): Exclude<TriggerKind, "wake"> {
  */
 export const TRIGGER_STATUSES = ["active", "paused", "completed"] as const;
 /**
- * Where a trigger's definition comes from (D83): `manifest` (the version's `runtime.triggers`),
- * `agent` (made by an agent of the Agent's sessions with the `triggers` tool, kept by the Agent)
- * or `wake` (a session's booked wake, never listed).
+ * Where a trigger's definition comes from (D83, D88): `manifest` (the version's `runtime.triggers`),
+ * `agent` (made by an agent of the Agent's sessions with the `triggers` tool, kept by the Agent),
+ * `api` (put on the Agent by a client, `PUT /v1/agents/{id}/triggers/{triggerId}`, kept by the
+ * Agent with the principal that put it) or `wake` (a session's booked wake, never listed).
  */
-export const TRIGGER_ORIGINS = ["manifest", "agent", "wake"] as const;
+export const TRIGGER_ORIGINS = ["manifest", "agent", "api", "wake"] as const;
 export type TriggerOrigin = (typeof TRIGGER_ORIGINS)[number];
 /**
  * `GET /v1/agents/{id}/triggers`: one trigger, from its manifest entry (or, for one an agent made,
@@ -2215,10 +2229,12 @@ export const TriggerViewSchema = z
     id: z.string(),
     kind: z.enum(TRIGGER_KINDS),
     origin: z.enum(TRIGGER_ORIGINS),
-    /** The title an agent gave a trigger it made; null for a manifest's. */
+    /** The title an agent or a client gave a trigger it made; null for a manifest's. */
     title: z.string().nullable(),
-    /** The session whose agent made it; null for a manifest's. */
+    /** The session whose agent made it; null for a manifest's or an `api` trigger. */
     createdSessionId: z.string().nullable(),
+    /** Who put an `api` trigger (D88); null for every other origin. Absent from a Runtime before D88. */
+    principal: z.string().nullable().optional(),
     status: z.enum(TRIGGER_STATUSES),
     /** `manual`, `new` for one an upgrade added, `undeclared` for an agent's while the version lacks `engine.triggers`. */
     pausedReason: z.string().nullable(),
@@ -2244,10 +2260,21 @@ export const TriggerViewSchema = z
 export type TriggerView = z.infer<typeof TriggerViewSchema>;
 export const TriggerListSchema = z.object({ triggers: z.array(TriggerViewSchema) }).strict();
 
+/** The longest title an agent or a client gives a trigger it makes. */
+export const TRIGGER_TITLE_MAX = 80;
+
+/**
+ * The body of `PUT /v1/agents/{agentId}/triggers/{triggerId}` (D88): a `Trigger`, exactly as a
+ * definition's `runtime.triggers` entry holds it, and an optional `title`. It creates the Agent's
+ * `api` trigger with that id, or replaces it; the same body again changes nothing.
+ */
+export const TriggerPutSchema = z
+  .strictObject({ ...TRIGGER_FIELDS, title: z.string().min(1).max(TRIGGER_TITLE_MAX).optional() })
+  .superRefine(checkTriggerKind);
+export type TriggerPut = z.infer<typeof TriggerPutSchema>;
+
 /** `in` of the `triggers` tool (D83): a delay in minutes, hours or days, such as `30m`, `2h`, `1d`. */
 export const TRIGGER_DELAY_PATTERN = /^[1-9][0-9]*(m|h|d)$/;
-/** The longest title an agent gives a trigger it makes. */
-export const TRIGGER_TITLE_MAX = 80;
 /** Where an agent-made trigger runs: the calling session (`this`), or a session of its own (`own`). */
 export const TRIGGER_TOOL_SESSIONS = ["this", "own"] as const;
 const triggerCreateSchema = z

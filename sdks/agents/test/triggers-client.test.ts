@@ -1,6 +1,7 @@
 /**
  * The triggers capability's client calls (D83, Host feature `agent-triggers`):
- * `client.agents.deleteTrigger` and `client.runs.stream`.
+ * `client.agents.deleteTrigger` and `client.runs.stream`; and `client.agents.putTrigger` (D88,
+ * Host feature `api-triggers`).
  */
 import { describe, expect, it } from "vitest";
 import { HOST_PROTOCOL } from "@nylorun/core/compatibility";
@@ -49,6 +50,43 @@ const sse = (events: { cursor: string; run: TenantRun }[]) =>
   new Response(events.map((event) => `id: ${event.cursor}\nevent: run\ndata: ${JSON.stringify(event)}\n\n`).join(""), {
     headers: { "content-type": "text/event-stream" },
   });
+
+describe("client.agents.putTrigger", () => {
+  const daily = { schedule: "0 8 * * *", timezone: "Asia/Calcutta", session: "new", prompt: "Is the review due?", title: "Daily review" };
+
+  it("puts the trigger by an Agent id with slashes and answers its view", async () => {
+    const bodies: unknown[] = [];
+    const sent: string[] = [];
+    const client = new AgentsClient({
+      url: RUNTIME,
+      key: KEY,
+      fetch: async (input, init) => {
+        const url = new URL(String(input));
+        if (url.pathname === "/health") return Response.json({ status: "ok", protocol: HOST_PROTOCOL });
+        sent.push(`${init?.method} ${String(input).slice(RUNTIME.length)}`);
+        bodies.push(JSON.parse(String(init?.body)));
+        return Response.json({ id: "daily", kind: "schedule", origin: "api", principal: "app_bot", status: "active" });
+      },
+    });
+    const view = await client.agents.putTrigger("orgs/o/people/m/review", "daily", daily);
+    expect(view).toMatchObject({ id: "daily", origin: "api", principal: "app_bot" });
+    expect(sent).toEqual(["PUT /v1/agents/orgs%2Fo%2Fpeople%2Fm%2Freview/triggers/daily"]);
+    expect(bodies).toEqual([daily]);
+  });
+
+  it("throws the Runtime's 409 for another origin's id", async () => {
+    const { client } = fake(() => Response.json({ error: "taken", code: "trigger_conflict" }, { status: 409 }));
+    const error = await client.agents.putTrigger("bot", "nightly", daily).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(RuntimeError);
+    expect((error as RuntimeError).status).toBe(409);
+  });
+
+  it("needs a Runtime with api-triggers", async () => {
+    const { client, sent } = fake(() => Response.json({}), HOST_PROTOCOL.features.filter((feature) => feature !== "api-triggers"));
+    await expect(client.agents.putTrigger("bot", "daily", daily)).rejects.toThrow(/api-triggers/);
+    expect(sent).toEqual([]);
+  });
+});
 
 describe("client.agents.deleteTrigger", () => {
   it("deletes an agent's trigger by an Agent id with slashes", async () => {

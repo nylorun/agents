@@ -1082,19 +1082,28 @@ Checked at save (`triggerIssues`): `triggersPerAgent`, croner's cron and zone,
 `triggerPromptChars`. _Avoid_: "automation", "routine", "job", "cron job" for a trigger; "execution"
 for a run.
 
-Every trigger row has an **origin** (D83, `agent_triggers.origin`, `definitionOf` in
+Every trigger row has an **origin** (D83, D88, `agent_triggers.origin`, `definitionOf` in
 `tenant/triggers.ts`): `manifest` (its definition is the entry of the version the Agent runs),
 `agent` (made with the `triggers` tool: its definition, a `Trigger` as a manifest entry holds it,
-its title, and the session and turn that made it are on the row) or `wake` (a booked wake). Every
+its title, and the session and turn that made it are on the row), `api` (put by a client with
+`PUT /v1/agents/{id}/triggers/{triggerId}`, `tenant/api-triggers.ts`: its definition, its title
+and the `principal` that put it are on the row) or `wake` (a booked wake). Every
 origin fires through `fireTimer` and `deliverRun`; only where the definition comes from differs.
-An upgrade (`mergeAgentTriggers`) merges `manifest` rows only: an `agent` row never moves with
-the manifest, and a manifest trigger whose id an agent's holds is not added. While the version
+An upgrade (`mergeAgentTriggers`) merges `manifest` rows only: an `agent` or `api` row never moves
+with the manifest, and a manifest trigger whose id one of them holds is not added. A put creates
+the `api` row active or replaces it (a new `generation`, its status kept); the same body again
+changes nothing and records no event; an id another origin holds or the version declares is
+`409 trigger_conflict`; `runtime.limits.triggers.count` counts `agent` and `api` rows together
+(`422 trigger_limit`). While the version
 the Agent runs lacks `harness.engine.triggers`, an `agent` row does not fire: `fireTimer` pauses it
 (`pausedReason: undeclared`, never deleted), and a version that declares it again resumes it.
-`GET /v1/agents/{id}/triggers` lists `manifest` and `agent` rows (`origin`, `title`,
-`createdSessionId`, `prompt`), never wakes; pause, resume and run work on both; `DELETE
-/v1/agents/{id}/triggers/{triggerId}` deletes an `agent` row (`agent.trigger_deleted`) and refuses a
-manifest's (`409 trigger_from_manifest`). A sessions reset drops the `agent` rows with the wakes.
+`GET /v1/agents/{id}/triggers` lists `manifest`, `agent` and `api` rows (`origin`, `title`,
+`createdSessionId`, `principal`, `prompt`), never wakes; pause, resume and run work on all three;
+`DELETE /v1/agents/{id}/triggers/{triggerId}` deletes an `agent` or `api` row
+(`agent.trigger_deleted`, with `origin`) and refuses a manifest's (`409 trigger_from_manifest`).
+`agent.trigger_created` and `_updated` carry `origin`, the maker (`sessionId` or `principal`), the
+timing and, on an update, `changed`. A sessions reset drops the `agent` rows with the wakes; `api`
+rows are the Agent's and stay.
 Each run row keeps its trigger's `origin` and `title`, for the runs stream after the trigger is
 gone.
 
