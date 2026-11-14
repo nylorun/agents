@@ -86,6 +86,42 @@ export interface PodHost {
 
 class Refused extends Error {}
 
+/**
+ * The engine's first join, tried again while the edge can't be reached. On Agent Substrate a new
+ * actor can start before its egress policy reaches the egress gateway, so its first request to
+ * the edge fails at the network ("fetch failed"), and an engine that then exited stayed down: an
+ * actor's main process is not restarted the way a pod's container is (E13, 2 of 3 first starts on
+ * a GitHub runner). A refusal (400, 401) is final at once; anything else is tried again with a
+ * pause from 250 ms doubling to 5 s, until `budgetMs` (default 4 min, inside the Runtime's 5-minute
+ * ready deadline) has passed.
+ */
+export async function firstJoin(
+  host: Pick<PodHost, "token">,
+  log: (message: string, fields: Record<string, unknown>) => void,
+  options: { budgetMs?: number; firstWaitMs?: number; sleep?: (ms: number) => Promise<void>; now?: () => number } = {},
+): Promise<void> {
+  const now = options.now ?? Date.now;
+  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  const deadline = now() + (options.budgetMs ?? 240_000);
+  let wait = options.firstWaitMs ?? 250;
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      await host.token();
+      return;
+    } catch (error) {
+      if (error instanceof Refused || now() + wait > deadline) throw error;
+      log("sandbox_join_retry", { attempt, waitMs: wait, error: error instanceof Error ? error.message : String(error) });
+      await sleep(wait);
+      wait = Math.min(wait * 2, 5_000);
+    }
+  }
+}
+
+/** Whether `error` is the Runtime refusing a join or a renewal (final), not the network. */
+export function isRefused(error: unknown): boolean {
+  return error instanceof Refused;
+}
+
 export function podHost(
   config: PodHostConfig,
   logger: { info(message: string, fields?: Record<string, unknown>): void; warn(message: string, fields?: Record<string, unknown>): void },

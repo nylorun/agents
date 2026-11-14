@@ -28,7 +28,7 @@ import type { StackConfig } from "../host/stack-config.js";
 import { RUNTIME_VERSION } from "../version.js";
 import { localBackend, localExec } from "../adapters/sandbox/local.js";
 import { awaitNetworkPolicy } from "../sandbox/pods/network-gate.js";
-import { podHost, type PodHost } from "./pod.js";
+import { firstJoin, podHost, type PodHost } from "./pod.js";
 import { prepareDisk } from "./setup.js";
 import { harnessRunTokens } from "./run-tokens.js";
 import { startHarnessService } from "./service.js";
@@ -65,8 +65,9 @@ export async function runHarness(
       caBundleFile: join(config.root, "egress-ca-bundle.pem"),
       ...(config.pod.egressCaFile ? { extraCaFile: config.pod.egressCaFile } : {}),
     });
-    // Join, then make the disk ready (R2d step 2) before taking any turn.
-    await pod.token();
+    // Join, then make the disk ready (R2d step 2) before taking any turn. The first join is tried
+    // again while the edge can't be reached yet (a new Agent Substrate actor's egress policy).
+    await firstJoin(pod, (message, fields) => logger.warn(message, fields));
     const host = pod;
     prepare = () =>
       prepareDisk({
