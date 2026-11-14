@@ -598,7 +598,9 @@ export const signingKeys = nylorun.table(
  * when the provider sent none. `startedAt`, `endedAt` and `firstTokenMs` are the gate's own
  * timing of the call (R7.1, migration 0022); null on rows written before, and `firstTokenMs`
  * when the provider streamed nothing. The `cost*Usd` columns split `costUsd` by token kind, at the
- * prices the adapter applied (migration 0037); null on rows written before.
+ * prices the adapter applied (migration 0037); null on rows written before. `attempts` and
+ * `retries` say how many times the gate called the provider for the answer, and why again
+ * (migration 0047).
  */
 export const modelUsage = nylorun.table(
   "model_usage",
@@ -642,6 +644,13 @@ export const modelUsage = nylorun.table(
     costCacheWriteUsd: doublePrecision(),
     /** What the output cost. */
     costOutputUsd: doublePrecision(),
+    /**
+     * The provider calls the gate made for this answer, the first included (migration 0047);
+     * null on rows written before.
+     */
+    attempts: integer(),
+    /** Each retry before the answer: `{ attempt, delayMs, error }` (migration 0047); null when none. */
+    retries: jsonText(),
   },
   (t) => [
     index("model_usage_session").on(t.sessionId, t.createdAt, t.id),
@@ -1134,6 +1143,8 @@ export type ModelUsageWrite = Omit<
   | "costCacheReadUsd"
   | "costCacheWriteUsd"
   | "costOutputUsd"
+  | "attempts"
+  | "retries"
 > & {
   tokensReported?: boolean | null;
   costKnown?: boolean | null;
@@ -1144,4 +1155,6 @@ export type ModelUsageWrite = Omit<
   costCacheReadUsd?: number | null;
   costCacheWriteUsd?: number | null;
   costOutputUsd?: number | null;
+  attempts?: number | null;
+  retries?: unknown;
 };

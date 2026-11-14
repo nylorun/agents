@@ -630,7 +630,11 @@ overload, rate limits, 5xx, timeouts, a lost connection), an idle stream, and a 
 its terminal chunk (`STREAM_CUT`: Vercel AI Gateway's `Upstream stream ended before terminal chunk`
 when the provider behind it fails mid-stream). A cut stream is `transient`, never
 `invalid_request`: nothing of the step ran. Each retry is the gate's `model_retry` log line, and
-`model_call` carries the call's `attempts`. An abort is never retried.
+`model_call` carries the call's `attempts`. The call's event says so too: `message.assistant`
+carries `attempts` and `retries` (`{ attempt, delayMs, error }`, the error cut to 300 characters)
+from the gate's ledger row (`model_usage.attempts`, `retries`, migration 0047), and `model.failed`
+carries them from the failure outcome; a trace's chat span has `nylorun.model.attempts`. A retried
+call is metered once, as one call. An abort is never retried.
 _Avoid_: retrying a refusal the request itself caused; a turn failing on one provider hiccup.
 
 **Model inputs**: What a model reads (protocol 12): `text`, `image`, `pdf`, `office`, `audio`

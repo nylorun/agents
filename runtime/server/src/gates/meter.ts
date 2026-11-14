@@ -11,10 +11,12 @@
  *
  * The row also keeps the gate's own timing of the call (R7.1): `now()` before the call and
  * after it, and the adapter's `firstTokenMs` (`evidence.extras`), so a model call's span is
- * what the gate measured.
+ * what the gate measured; and the adapter's `attempts` and `retries`, so the call's event says
+ * how many times the provider was called for it, and why again.
  */
 import { randomUUID } from "node:crypto";
 import { failure } from "../model/classify.js";
+import { attemptFacts } from "../model/retry.js";
 import type {
   ModelBudgetRow,
   ModelUsageQuery,
@@ -185,8 +187,13 @@ export function usageRow(
       ? { firstTokenMs: Math.round(firstTokenMs) }
       : {}),
     ...costSplitColumns(outcome.evidence?.extras?.costSplit),
+    // How many times the gate called the provider for this answer, and why again.
+    ...attemptFacts(outcome.evidence?.extras?.attempts, outcome.evidence?.extras?.retries),
   };
 }
+
+
+
 
 /** The ledger's cost-by-kind columns from the adapter's `costSplit`; none unless all four are costs. */
 function costSplitColumns(split: unknown) {

@@ -26,6 +26,18 @@ function answer(content: string) {
   );
 }
 
+/**
+ * Vercel AI Gateway's answer when the provider behind it fails mid-stream: a first chunk, then
+ * an error chunk and no finish_reason.
+ */
+function cut() {
+  return new Response(
+    `data: ${JSON.stringify({ id: "r", choices: [{ index: 0, delta: { role: "assistant", content: "" }, finish_reason: null }] })}\n\n` +
+      `data: ${JSON.stringify({ error: { message: "Upstream stream ended before terminal chunk" } })}\n\n`,
+    { headers: { "content-type": "text/event-stream" } },
+  );
+}
+
 /** Answers provider requests with `reply`; every other request goes to the Runtime. */
 function provider(reply: () => Response) {
   let calls = 0;
@@ -128,6 +140,9 @@ describe.each([["in-process"], ["http"]] as const)("over the %s Model Gate", (tr
       meteredUsage: { inputTokens: 12, outputTokens: 3, totalTokens: 15 },
     });
     expect(payload.meteredUsage).not.toHaveProperty("costUsd");
+    // One provider call answered it: no retry to report (Model Calls §6).
+    expect(payload.attempts).toBe(1);
+    expect(payload).not.toHaveProperty("retries");
     const { startedAt, endedAt } = payload.gate as { startedAt: string; endedAt: string };
     expect(Date.parse(endedAt)).toBeGreaterThanOrEqual(Date.parse(startedAt));
     // The gate's call sits inside the journal's window.
@@ -144,6 +159,47 @@ describe.each([["in-process"], ["http"]] as const)("over the %s Model Gate", (tr
     expect(turn).toMatchObject({ calls: 1, tokens: 15 });
   });
 
+  it("puts a call's retries on its message.assistant and its ledger row (Model Calls §6)", async () => {
+    const counter = provider(() => (counter.calls() === 1 ? cut() : answer("after the cut")));
+    const { client, usage } = await tenant();
+    const session = await client.createSession({ id: "s1", agent: "bot", ownerUserId: "ada" });
+    await session.input("hello", { idempotencyKey: "m1" });
+    expect((await settle(session)).status).toBe("completed");
+    expect(counter.calls()).toBe(2);
+    const { items } = await session.history();
+    const message = items.find((item) => item.type === "message.assistant")!.payload as Record<string, unknown>;
+    expect(message).toMatchObject({
+      text: "after the cut",
+      attempts: 2,
+      retries: [{ attempt: 2, delayMs: 1, error: expect.stringContaining("Upstream stream ended before terminal chunk") }],
+    });
+    // The call is metered once, as one call, whatever it took.
+    expect((await usage()).body).toMatchObject({ calls: 1, tokens: 15 });
+  });
+
+  it("puts the retries on model.failed when every attempt is cut (Model Calls §6)", async () => {
+    const counter = provider(() => cut());
+    const { client } = await tenant();
+    const session = await client.createSession({ id: "s1", agent: "bot", ownerUserId: "ada" });
+    await session.input("hello", { idempotencyKey: "m1" });
+    expect((await settle(session)).status).toBe("failed");
+    expect(counter.calls()).toBe(3);
+    const { items } = await session.history();
+    const failed = items.find((item) => item.type === "model.failed")!.payload as Record<string, any>;
+    expect(failed).toMatchObject({
+      code: "transient",
+      retryable: true,
+      attempts: 3,
+      retries: [
+        { attempt: 2, delayMs: 1, error: expect.stringContaining("Upstream stream ended") },
+        { attempt: 3, delayMs: 2, error: expect.stringContaining("Upstream stream ended") },
+      ],
+    });
+    expect(items.find((item) => item.type === "turn.failed")!.payload).toMatchObject({
+      error: { code: "model.transient" },
+    });
+  });
+
   it("records nothing for a call that fails", async () => {
     provider(() => new Response(JSON.stringify({ error: { message: "bad request" } }), { status: 400 }));
     const { client, usage } = await tenant();
@@ -157,6 +213,9 @@ describe.each([["in-process"], ["http"]] as const)("over the %s Model Gate", (tr
     expect(failed).toMatchObject({ effectId: expect.any(String), durationMs: expect.any(Number) });
     expect(failed).not.toHaveProperty("gate");
     expect(failed).not.toHaveProperty("meteredUsage");
+    // A refusal the request caused is never retried: one attempt, no retries.
+    expect(failed).toMatchObject({ attempts: 1 });
+    expect(failed).not.toHaveProperty("retries");
     expect(items.find((item) => item.type === "turn.failed")!.payload).toMatchObject({
       agentId: "bot",
       totals: { steps: 0, tokens: 0, costUsd: 0 },

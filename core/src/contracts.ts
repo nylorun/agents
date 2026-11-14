@@ -3547,10 +3547,24 @@ export const MeteredUsageSchema = z
   })
   .passthrough();
 /**
+ * One retry of a model call (Model Calls §6): the attempt it started, the first counted as 1,
+ * the delay waited before it, and the error that ended the attempt before it, as the provider or
+ * its SDK worded it, cut to 300 characters.
+ */
+export const ModelRetrySchema = z
+  .object({
+    attempt: z.number().int().min(2),
+    delayMs: z.number().int().nonnegative(),
+    error: z.string(),
+  })
+  .passthrough();
+export type ModelRetry = z.infer<typeof ModelRetrySchema>;
+/**
  * The timing of a model call's outcome, on `message.assistant`, `model.failed` and
  * `context.compacted`. `durationMs` is the journal's window, from the intent to the outcome;
  * `gate`, `firstTokenMs` and `meteredUsage` are the meter's, absent when no gate metered the
- * call.
+ * call. `attempts` and `retries` are the gate's: how many times it called the provider, and why
+ * it called again; absent from a call a Runtime before 0.50 served.
  */
 const modelOutcomeFacts = {
   /** The model call's effect id. */
@@ -3561,6 +3575,10 @@ const modelOutcomeFacts = {
   /** From the gate's start of the call to the provider's first stream event. */
   firstTokenMs: z.number().int().nonnegative().optional(),
   meteredUsage: MeteredUsageSchema.optional(),
+  /** The provider calls the gate made for this one, the first included: more than 1 after a retry. */
+  attempts: z.number().int().positive().optional(),
+  /** Each retry, in order; absent when the first attempt was the last. */
+  retries: z.array(ModelRetrySchema).optional(),
 };
 /**
  * `message.assistant`: one completed model step. `invocationId` is the model call's.

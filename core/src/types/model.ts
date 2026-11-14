@@ -90,6 +90,10 @@ export interface ModelFailureOutcome {
   readonly message: string;
   readonly retryable: boolean;
   readonly retryAfterMs?: number;
+  /** The provider calls the gate made before it gave up, the first included. */
+  readonly attempts?: number;
+  /** Each retry the gate made before it gave up: the attempt it started, its delay, the error before it. */
+  readonly retries?: readonly { readonly attempt: number; readonly delayMs: number; readonly error: string }[];
 }
 
 export interface ModelControls {

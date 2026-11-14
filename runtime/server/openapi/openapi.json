@@ -13430,6 +13430,35 @@
                 ],
                 "additionalProperties": {}
               },
+              "attempts": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "retries": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "attempt": {
+                      "type": "integer",
+                      "minimum": 2
+                    },
+                    "delayMs": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "attempt",
+                    "delayMs",
+                    "error"
+                  ],
+                  "additionalProperties": {}
+                }
+              },
               "agent": {
                 "type": "object",
                 "properties": {
@@ -13715,6 +13744,35 @@
                   "totalTokens"
                 ],
                 "additionalProperties": {}
+              },
+              "attempts": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "retries": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "attempt": {
+                      "type": "integer",
+                      "minimum": 2
+                    },
+                    "delayMs": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "attempt",
+                    "delayMs",
+                    "error"
+                  ],
+                  "additionalProperties": {}
+                }
               },
               "agent": {
                 "type": "object",
@@ -14006,6 +14064,35 @@
                   "totalTokens"
                 ],
                 "additionalProperties": {}
+              },
+              "attempts": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "retries": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "attempt": {
+                      "type": "integer",
+                      "minimum": 2
+                    },
+                    "delayMs": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "attempt",
+                    "delayMs",
+                    "error"
+                  ],
+                  "additionalProperties": {}
+                }
               },
               "agent": {
                 "type": "object",

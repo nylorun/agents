@@ -868,6 +868,7 @@ export function storeContract(name: string, factory: StoreFactory): void {
           ...usage("u1"), duplicate: false, tokensReported: null, costKnown: null, txid: expect.any(String),
           startedAt: null, endedAt: null, firstTokenMs: null,
           costInputUsd: null, costCacheReadUsd: null, costCacheWriteUsd: null, costOutputUsd: null,
+          attempts: null, retries: null,
         });
         const again = await store.tx((t) =>
           t.recordModelUsage({ ...usage("u2"), effectKey: usage("u1").effectKey }),
@@ -886,6 +887,9 @@ export function storeContract(name: string, factory: StoreFactory): void {
           startedAt: "2030-01-01T00:00:00.000Z",
           endedAt: "2030-01-01T00:00:02.000Z",
           firstTokenMs: 400,
+          // The gate's attempts and retries (Model Calls §6, migration 0047), the error verbatim.
+          attempts: 2,
+          retries: [{ attempt: 2, delayMs: 2000, error: "Upstream stream ended before terminal chunk \u0000 \ud800" }],
         };
         await store.tx(async (t) => {
           await t.recordModelUsage({ ...usage("u1"), ...timing });

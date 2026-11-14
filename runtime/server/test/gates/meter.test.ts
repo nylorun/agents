@@ -68,6 +68,34 @@ describe("usageRow", () => {
     expect(untimed).not.toHaveProperty("firstTokenMs");
   });
 
+  it("keeps the adapter's attempts and retries, well-formed retries only (Model Calls §6)", () => {
+    const extras = (more: Record<string, unknown>) => ({
+      ...answered,
+      evidence: { ...answered.evidence, extras: { ...answered.evidence!.extras, ...more } },
+    });
+    expect(usageRow(request, extras({ attempts: 1 }), at)).toMatchObject({ attempts: 1 });
+    expect(usageRow(request, extras({ attempts: 1 }), at)).not.toHaveProperty("retries");
+    const retried = usageRow(
+      request,
+      extras({
+        attempts: 2,
+        retries: [
+          { attempt: 2, delayMs: 2000, error: "Upstream stream ended before terminal chunk" },
+          { attempt: 1, delayMs: 0, error: "not a retry" },
+          "junk",
+        ],
+      }),
+      at,
+    );
+    expect(retried).toMatchObject({
+      attempts: 2,
+      retries: [{ attempt: 2, delayMs: 2000, error: "Upstream stream ended before terminal chunk" }],
+    });
+    // An adapter that reports none (a Runtime before 0.50) leaves both unset.
+    expect(usageRow(request, answered, at)).not.toHaveProperty("attempts");
+    expect(usageRow(request, extras({ attempts: 0 }), at)).not.toHaveProperty("attempts");
+  });
+
   it("keeps the adapter's cost by token kind, only when all four parts are costs", () => {
     const split = { input: 0.0012, cacheRead: 0.0001, cacheWrite: 0, output: 0.0007 };
     const priced = { ...answered, evidence: { ...answered.evidence, extras: { ...answered.evidence!.extras, costSplit: split } } };

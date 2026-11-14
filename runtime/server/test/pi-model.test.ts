@@ -786,6 +786,24 @@ it("replays another model's history with its own producer, without its signature
   expect(text).toContain('"tool_calls"');
 });
 
+it("keeps the provider's key out of a retried attempt's error", async () => {
+  let calls = 0;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => {
+      calls++;
+      if (calls === 1)
+        return new Response(JSON.stringify({ error: { message: "Overloaded for key test-provider-secret" } }), { status: 503 });
+      return response({ role: "assistant", content: "ok" });
+    }),
+  );
+  const result = (await piModel({ ...host(), settings: { retryBaseDelayMs: 1, providerRetries: 0 } })(call, {
+    signal: signal(),
+  })) as { evidence: { extras: { retries: { error: string }[] } } };
+  expect(result.evidence.extras.retries).toHaveLength(1);
+  expect(result.evidence.extras.retries[0]!.error).not.toContain("test-provider-secret");
+});
+
 it("retries a rate-limited call and returns the answer", async () => {
   let calls = 0;
   vi.stubGlobal(
@@ -833,7 +851,15 @@ it("retries a stream cut before its terminal chunk and returns the answer", asyn
     settings: { retryBaseDelayMs: 1 },
     onRetry: (retry) => retries.push(retry),
   })(call, { signal: signal() });
-  expect(result).toMatchObject({ output: [{ type: "text", text: "after the cut" }] });
+  expect(result).toMatchObject({
+    output: [{ type: "text", text: "after the cut" }],
+    evidence: {
+      extras: {
+        attempts: 2,
+        retries: [{ attempt: 2, delayMs: 1, error: expect.stringContaining("Upstream stream ended before terminal chunk") }],
+      },
+    },
+  });
   expect(calls).toBe(2);
   expect(retries).toEqual([
     { attempt: 2, maxAttempts: 3, delayMs: 1, errorMessage: expect.stringContaining("Upstream stream ended before terminal chunk") },
@@ -856,6 +882,8 @@ it("reports a stream cut on every attempt as a transient failure", async () => {
     code: "transient",
     retryable: true,
     message: expect.stringContaining("Upstream stream ended before terminal chunk"),
+    attempts: 2,
+    retries: [{ attempt: 2, delayMs: 1, error: expect.stringContaining("Upstream stream ended") }],
   });
   expect(calls).toBe(2);
 });
