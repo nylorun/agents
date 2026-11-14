@@ -1,12 +1,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { resolve } from "node:path";
+import { readFile } from "node:fs/promises";
 import {
+  SERVED_WINDOW_MS,
   bannerField,
   composeServices,
   publicCreatorArguments,
   publicCreatorEnvironment,
   retryUntilServed,
+  waitForServed,
 } from "../release/smoke.mjs";
 import { execFileSync } from "node:child_process";
 import { parse } from "../../cli/create-agent/dist/arguments.js";
@@ -121,4 +124,101 @@ test("the publication smoke fails at once on anything but a version npm cannot f
   const run = scripted([{ code: 1, output: "npm error code E403\nnpm error 403 Forbidden" }]);
   assert.equal(await retryUntilServed(run.attempt, run.options), 1);
   assert.equal(run.seen.length, 1);
+});
+
+/**
+ * A registry whose creator version is served after `serves` polls of
+ * `registry.waitForInstall`, or never (`Infinity`). The poll sleeps through the
+ * `sleep` the smoke passes, so the smoke's window ends it, as the real one does.
+ */
+function stubbedRegistry(serves) {
+  const record = { polls: [], sleeps: [], reads: [] };
+  return {
+    record,
+    source: {
+      async waitForInstall(name, version, { sleep: pause }) {
+        record.polls.push(`${name}@${version}`);
+        for (let attempt = 0; serves === Infinity || attempt < serves; attempt++) {
+          await pause(5000);
+          record.sleeps.push(5000);
+        }
+      },
+      async lookup(name, version) {
+        record.reads.push(`lookup ${name}@${version}`);
+        return undefined;
+      },
+      async installable(name, version) {
+        record.reads.push(`installable ${name}@${version}`);
+        return false;
+      },
+    },
+  };
+}
+
+/** A clock the smoke's `sleep` advances, so a 15-minute window costs no time. */
+function clock(windowMs = 900_000) {
+  const state = { time: 0 };
+  return {
+    state,
+    options: {
+      windowMs,
+      now: () => state.time,
+      sleep: async (ms) => {
+        state.time += ms;
+      },
+    },
+  };
+}
+
+const creatorVersion = "0.16.21-beta";
+
+test("the publication smoke runs the creator at once when the registry already serves it", async () => {
+  const { record, source } = stubbedRegistry(0);
+  const run = clock();
+  await waitForServed(creatorVersion, { ...run.options, source });
+  // One poll of the exact version, no sleep and no state read before the creator.
+  assert.deepEqual(record.polls, [`create-agent@${creatorVersion}`]);
+  assert.deepEqual(record.sleeps, []);
+  assert.deepEqual(record.reads, []);
+  assert.equal(run.state.time, 0);
+});
+
+test("the publication smoke waits past publish.mjs's window for a version served late", async () => {
+  const { record, source } = stubbedRegistry(3);
+  const run = clock();
+  await waitForServed(creatorVersion, { ...run.options, source });
+  assert.deepEqual(record.sleeps, [5000, 5000, 5000]);
+  // 15 seconds, where the ETARGET retries of run 38868179065 ran 4 min 53 s.
+  assert.equal(run.state.time, 15_000);
+  assert.deepEqual(record.reads, []);
+});
+
+test("the publication smoke fails cleanly, naming the version, when the version is never served", async () => {
+  const { record, source } = stubbedRegistry(Infinity);
+  const run = clock();
+  await assert.rejects(waitForServed(creatorVersion, { ...run.options, source }), (error) => {
+    assert.match(error.message, /@nylorun\/create-agent@0\.16\.21-beta/);
+    assert.match(error.message, /after 900 s of waiting \(window 900 s\)/);
+    assert.match(error.message, /last state: listed by the registry document=false, installable through the CDN=false/);
+    return true;
+  });
+  // Bounded: the polls end with the window, not after 120 of them.
+  assert.equal(run.state.time, 900_000);
+  assert.equal(record.sleeps.length, 180);
+  assert.equal(record.polls.length, 1);
+  // One read of each state on the way out, no polling for the message.
+  assert.deepEqual(record.reads, [
+    `lookup create-agent@${creatorVersion}`,
+    `installable create-agent@${creatorVersion}`,
+  ]);
+});
+
+test("the smoke's wait leaves room inside the publish job", async () => {
+  const workflow = await readFile(new URL("../../.github/workflows/publish.yml", import.meta.url), "utf8");
+  const publish = workflow.slice(workflow.indexOf("\n  publish:\n"));
+  const timeout = Number(/timeout-minutes:\s*(\d+)/.exec(publish)[1]);
+  assert.equal(timeout, 60);
+  // Two 10-minute waits in publish.mjs before this one, and the smoke after it.
+  assert.equal(SERVED_WINDOW_MS, 15 * 60_000);
+  assert.ok(SERVED_WINDOW_MS / 60_000 + 20 + 10 < timeout, `wait ${SERVED_WINDOW_MS} ms in a ${timeout}-minute job`);
 });

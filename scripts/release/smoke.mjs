@@ -5,7 +5,9 @@
  * - `npm exec @nylorun/create-agent@<version> -- application --yes` from the
  *   public registry, with an empty npm config and cache and no publishing
  *   credentials in the environment. The creator installs the starter (only
- *   @nylorun/agents) and starts nothing.
+ *   @nylorun/agents) and starts nothing. Before it runs, the smoke waits for
+ *   the registry to serve that exact version here (`waitForServed`): the wait
+ *   `publish.mjs` makes is on another host's CDN edge.
  * - The published `nylorun` (with `nylo`) and `@nylorun/cli` (nylorun under another name),
  *   installed from the registry beside the project (what `npx` runs):
  *   `nylorun start` in the project
@@ -34,6 +36,75 @@ import {
   studioSession,
   withStack,
 } from "../lib/stack.mjs";
+import { registry } from "./registry.mjs";
+
+/** The creator's package name, as `npm exec` installs it. */
+const CREATOR = "create-agent";
+
+/**
+ * How long the smoke waits for the registry to serve the creator before running
+ * it: 15 minutes. The publish job is bounded at 60 (publish.yml), with the two
+ * registry waits `publish.mjs` makes (10 minutes each) before this one and the
+ * smoke's own image pulls and Tenant start after it.
+ */
+export const SERVED_WINDOW_MS = 900_000;
+
+/** `bounded` throws this once the window is spent, to end waitForInstall's poll. */
+class WindowEnded extends Error {
+  constructor(windowMs) {
+    super(`the ${Math.round(windowMs / 1000)} s window ended`);
+    this.name = "WindowEnded";
+  }
+}
+
+/** What the registry last said about `version`, for the failure message. */
+async function lastServedState(source, version) {
+  try {
+    const [listed, installable] = await Promise.all([
+      source.lookup(CREATOR, version),
+      source.installable(CREATOR, version),
+    ]);
+    return `last state: listed by the registry document=${Boolean(listed)}, installable through the CDN=${Boolean(installable)}`;
+  } catch (error) {
+    return `last state: reading the registry failed (${error.message})`;
+  }
+}
+
+/**
+ * Waits until this host's registry edge serves `version` to `npm exec`, through
+ * `registry.waitForInstall` (the abbreviated document, then a clean-cache
+ * `npm pack` — the client path the creator runs). `publish.mjs` waits for every
+ * published package once; the smoke reaches a different CDN edge, which can
+ * still answer `notarget` minutes later (run 38868179065: create-agent's version
+ * ETARGET 20 times, 15 s apart, then served after the smoke had given up).
+ * `sleep` here bounds the poll at `windowMs`, so a version the registry never
+ * serves fails the smoke with the version and the last state, rather than
+ * holding the job.
+ */
+export async function waitForServed(
+  version,
+  {
+    source = registry,
+    windowMs = SERVED_WINDOW_MS,
+    now = Date.now,
+    sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
+  } = {},
+) {
+  const started = now();
+  const bounded = async (milliseconds) => {
+    if (now() + milliseconds > started + windowMs) throw new WindowEnded(windowMs);
+    await sleep(milliseconds);
+  };
+  try {
+    await source.waitForInstall(CREATOR, version, { sleep: bounded });
+  } catch (error) {
+    const waited = Math.round((now() - started) / 1000);
+    throw new Error(
+      `The public registry does not serve @nylorun/create-agent@${version} to npm exec after ${waited} s of waiting (window ${Math.round(windowMs / 1000)} s); ${await lastServedState(source, version)}. Rerun this workflow for the same commit.`,
+      { cause: error },
+    );
+  }
+}
 
 /** `npm exec` arguments that run the published creator non-interactively. */
 export function publicCreatorArguments(version) {
@@ -118,8 +189,9 @@ export function composeServices(output) {
  * Create and start a project with the published creator, nylorun and CLI
  * `versions`. `pins` are the image versions this release ships
  * (cli/nylorun/package.json `nylorun`); the published nylorun must pin the same.
+ * `wait` is `waitForServed`'s options (tests pass a stubbed registry).
  */
-export async function publicCreatorSmoke(versions, pins) {
+export async function publicCreatorSmoke(versions, pins, { wait = {} } = {}) {
   const temporary = await mkdtemp(join(tmpdir(), "nylorun-published-"));
   const project = join(temporary, "application");
   const tools = join(temporary, "tools");
@@ -129,6 +201,10 @@ export async function publicCreatorSmoke(versions, pins) {
   try {
     await writeFile(npmrc, "");
     await writeFile(npmrc + ".global", "");
+    // The creator has to be served on this edge before `npm exec` runs it; the
+    // retries below stay as the answer to an edge that stops serving mid-run.
+    // A release without the creator keeps its old path.
+    if (versions.creator) await waitForServed(versions.creator, wait);
     const baseEnv = publicCreatorEnvironment(process.env, npmrc, {
       NPM_CONFIG_CACHE: join(temporary, "npm-cache"),
     });
