@@ -241,6 +241,8 @@ export function spanOf(row: LiveEvent, turn: TurnTrace, settings: SpanSettings):
         .str("gen_ai.agent.id", p.agent?.id)
         .str("nylorun.effect.id", p.effectId)
         .int("nylorun.effect.window_ms", p.durationMs)
+        // The gate's provider calls for this one (Model Calls §6): more than 1 after a retry.
+        .int("nylorun.model.attempts", typeof p.attempts === "number" ? p.attempts : undefined)
         .str("nylorun.compaction.trigger", row.type === "context.compacted" ? p.trigger : undefined)
         .str("error.type", row.type === "model.failed" ? p.code : undefined)
         .str("gen_ai.output.messages", output);

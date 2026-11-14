@@ -86,3 +86,42 @@ function wait(ms: number, signal: AbortSignal): Promise<boolean> {
     signal.addEventListener("abort", onAbort, { once: true });
   });
 }
+
+/** A retry as the ledger and the call's event keep it (Model Calls §6). */
+export interface RecordedRetry {
+  readonly attempt: number;
+  readonly delayMs: number;
+  readonly error: string;
+}
+
+/** The most retries a row keeps; `modelAttempts` is 3 unless a Tenant raised it. */
+const MAX_RETRIES = 10;
+
+/** A retry list as the ledger and the events keep it: well-formed entries only, at most 10. */
+export function modelRetries(value: unknown): RecordedRetry[] {
+  if (!Array.isArray(value)) return [];
+  const out: RecordedRetry[] = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== "object") continue;
+    const { attempt, delayMs, error } = entry as Record<string, unknown>;
+    if (typeof attempt !== "number" || !Number.isInteger(attempt) || attempt < 2) continue;
+    out.push({
+      attempt,
+      delayMs: typeof delayMs === "number" && Number.isFinite(delayMs) && delayMs >= 0 ? Math.round(delayMs) : 0,
+      error: typeof error === "string" ? error.slice(0, 300) : "",
+    });
+    if (out.length === MAX_RETRIES) break;
+  }
+  return out;
+}
+
+/**
+ * `attempts` and `retries` for a model call's event (Model Calls §6): how many times the gate
+ * called the provider, and each retry: the ledger's columns and the event's fields alike. None
+ * unless `attempts` is a positive whole number (a call a Runtime before 0.50 served).
+ */
+export function attemptFacts(attempts: unknown, retries: unknown) {
+  if (typeof attempts !== "number" || !Number.isInteger(attempts) || attempts < 1) return {};
+  const kept = modelRetries(retries);
+  return { attempts, ...(kept.length ? { retries: kept } : {}) };
+}

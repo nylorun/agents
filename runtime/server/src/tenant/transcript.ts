@@ -9,6 +9,7 @@ import type { TOOL_CALL_KINDS, TOOL_CALL_STATUSES } from "@nylorun/core/contract
 import { isModelFailureOutcome } from "@nylorun/core/define";
 import { HarnessApiError, type CompactionFacts } from "@nylorun/core/harness-api";
 import type { EffectDoc, Tx } from "../store/types.js";
+import { attemptFacts } from "../model/retry.js";
 
 export type ToolCallStatus = (typeof TOOL_CALL_STATUSES)[number];
 export type ToolCallKind = (typeof TOOL_CALL_KINDS)[number];
@@ -133,6 +134,8 @@ export function modelFailed(request: HostEffect, value: unknown) {
     code: value.code,
     message: value.message,
     retryable: value.retryable,
+    // How many times the gate called the provider before it gave up, and why again.
+    ...attemptFacts(value.attempts, value.retries),
     ...agentOf(request),
   };
 }
@@ -153,6 +156,10 @@ export interface MeteredCall {
   readonly totalTokens: number;
   readonly cachedTokens: number;
   readonly costUsd: number;
+  /** The provider calls the gate made for the answer (migration 0047); null on older rows. */
+  readonly attempts?: number | null;
+  /** Each retry before the answer (migration 0047); null when none. */
+  readonly retries?: unknown;
 }
 
 /** From `startedAt` to `endedAt` in whole milliseconds; undefined unless both are times. */
@@ -194,6 +201,7 @@ export function modelOutcomeFacts(
           },
         }
       : {}),
+    ...attemptFacts(metered?.attempts, metered?.retries),
   };
 }
 

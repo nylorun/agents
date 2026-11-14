@@ -89,7 +89,7 @@ function turnRows() {
     row("transcript.updated", { keep: 0, entries: [], length: 0 }, { visibility: "internal" }),
     row(
       "model.failed",
-      { invocationId: "inv_9", code: "rate_limited", message: "429 for alice", retryable: true, effectId: `${TURN}:1:model:inv_9`, durationMs: 50 },
+      { invocationId: "inv_9", code: "rate_limited", message: "429 for alice", retryable: true, effectId: `${TURN}:1:model:inv_9`, durationMs: 50, attempts: 3 },
       { time: "2026-10-11T09:14:07.000Z" },
     ),
     row("turn.paused", { interactions: [{ invocationId: "inv_10", interaction: { id: "i1", kind: "approval" } }] }),
@@ -188,6 +188,9 @@ describe("spanOf", () => {
     expect(failed).toMatchObject({ name: "chat", status: { code: STATUS.error } });
     expect(failed!.status.message).toBeUndefined();
     expect(attrs(failed)["error.type"]).toBe("rate_limited");
+    // The gate's provider calls for it (Model Calls §6); a call without them has none.
+    expect(attrs(failed)["nylorun.model.attempts"]).toBe("3");
+    expect(attrs(chat)).not.toHaveProperty("nylorun.model.attempts");
     expect(paused!.startTimeUnixNano).toBe(paused!.endTimeUnixNano);
     expect(approve).toMatchObject({ name: "command.approve" });
     expect(attrs(approve)).toMatchObject({ "nylorun.interaction.id": "i1", "nylorun.interaction.approved": true });

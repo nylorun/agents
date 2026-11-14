@@ -104,6 +104,9 @@ export interface PiModelOptions {
 
 const OPENAI_COMPATIBLE_REASONING = /^reasoning(_content|_text)?$/;
 
+/** How much of a retried attempt's error the outcome keeps. */
+const RETRY_ERROR_CHARS = 300;
+
 const emptyUsage = (): Usage => ({
   input: 0,
   output: 0,
@@ -287,27 +290,41 @@ export function piModel(options: PiModelOptions = {}): RuntimeModelAdapter {
         clearTimeout(timer);
       }
     };
+    // Each retry, for the outcome (Model Calls §6): the gate's ledger row and the call's event
+    // carry how many times the provider was called, and why again.
+    const retries: { attempt: number; delayMs: number; error: string }[] = [];
     const response = await retryModelCall(
       attempt,
       { attempts: settings.attempts, baseDelayMs: settings.retryBaseDelayMs },
       context.signal,
-      options.onRetry,
+      (retry) => {
+        retries.push({
+          attempt: retry.attempt,
+          delayMs: retry.delayMs,
+          error: String(scrub(retry.errorMessage, secrets)).slice(0, RETRY_ERROR_CHARS),
+        });
+        options.onRetry?.(retry);
+      },
     );
+    const tried = { attempts: retries.length + 1, ...(retries.length ? { retries } : {}) };
     // An abort is never a failure outcome: the host decides what it means.
     context.signal.throwIfAborted();
     if (natives.error) return redacted(failure("invalid_request", natives.error, false));
     if (response.stopReason === "aborted")
-      return redacted(failure("transient", "The provider stream was aborted.", true));
+      return { ...redacted(failure("transient", "The provider stream was aborted.", true)), ...tried };
     if (response.stopReason === "error") {
       const outcome = classifyAssistantError(response, selected.contextWindow);
-      return redacted(
-        outcome.code === "auth"
-          ? {
-              ...outcome,
-              message: `${outcome.message} Update the provider credential in Studio's Model Settings, or run nylorun tenant models set.`,
-            }
-          : outcome,
-      );
+      return {
+        ...redacted(
+          outcome.code === "auth"
+            ? {
+                ...outcome,
+                message: `${outcome.message} Update the provider credential in Studio's Model Settings, or run nylorun tenant models set.`,
+              }
+            : outcome,
+        ),
+        ...tried,
+      };
     }
     if (response.stopReason === "deferred")
       return failure(
@@ -370,6 +387,9 @@ export function piModel(options: PiModelOptions = {}): RuntimeModelAdapter {
           maxOutputTokens: selected.maxTokens,
           // From the call to the provider's first stream event (R7.1); absent when none came.
           ...(firstEventAt !== undefined ? { firstTokenMs: firstEventAt - calledAt } : {}),
+          // The provider calls this answer took, and each retry before it: the ledger keeps them.
+          attempts: tried.attempts,
+          ...(retries.length ? { retries: retries as JsonValue } : {}),
         },
       },
     };
