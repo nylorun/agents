@@ -21,6 +21,8 @@ interface FakeSandbox {
   readyAt?: number;
   volume: boolean;
   joinToken?: string;
+  /** Agent Substrate: when its worker last stopped under it (suspend before drain). */
+  drainedAt?: string;
 }
 
 export interface FakeSandboxes extends SandboxesClient {
@@ -72,6 +74,7 @@ export function fakeSandboxes(): FakeSandboxes {
       volume: sandbox.volume ? "present" : "missing",
       opId: sandbox.spec.opId,
       ...(sandbox.spec.shutdownTime ? { shutdownTime: sandbox.spec.shutdownTime } : {}),
+      ...(sandbox.drainedAt ? { drainedAt: sandbox.drainedAt } : {}),
     };
   };
   const fake: FakeSandboxes = {
