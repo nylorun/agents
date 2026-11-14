@@ -20,6 +20,7 @@ import { startHarnessService, type HarnessService } from "../../src/harness/serv
 import { HostAuthError, type HostAuthority } from "../../src/sandbox/join.js";
 import { podName } from "../../src/sandbox/pods/name.js";
 import { fakeSandboxes, type FakeSandboxes } from "../support/fake-sandboxes.js";
+import { attachHost } from "../support/custom-harness.js";
 import { startTestTenant } from "../support/tenant.js";
 import { deploy, manifestOf, saveManifest, writeManifest } from "../support/agents.js";
 import { RUNTIME_VERSION } from "../../src/version.js";
@@ -380,6 +381,38 @@ describe("pod Agents", { timeout: 90_000 }, () => {
         expect(refused.status, `${kind} ${action}`).toBe(400);
         expect(refused.body.message).toContain("only a pod Agent stops and resets");
       }
+    }
+  });
+
+  it("records a drain once, when the moved pod's engine connects again (suspend before drain)", async () => {
+    const { name } = await createPod("drain/one");
+    await joinAs("drain/one", name);
+    const cleanups: (() => unknown)[] = [];
+    const drains = async () =>
+      ((await call("GET", `${path("drain/one")}/events`)).body.events as { type: string; payload: any }[]).filter(
+        (event) => event.type === "agent.suspended" && event.payload?.reason === "drain",
+      ).length;
+    try {
+      // Running with its engine connected: the sweep leaves it alone.
+      attachHost(runtime, "drain/one", cleanups);
+      await until("running", async () => (await view("drain/one")).compute.pod.observed, (observed) => observed === "running");
+      // Let the start's last polls finish: from here only a timer or a signal reconciles it.
+      await new Promise((resolve) => setTimeout(resolve, 8_000));
+      // Agent Substrate suspended it as its worker stopped and resumed it on another worker. Its
+      // engine is the same process, connected again; nothing has looked at the pod yet.
+      fake.sandboxes.get(name)!.drainedAt = new Date().toISOString();
+      await new Promise((resolve) => setTimeout(resolve, 3_000));
+      expect(await drains()).toBe(0);
+      // The restored engine redials with its host token (no join): that asks for a reconcile.
+      attachHost(runtime, "drain/one", cleanups);
+      await until("the drain recorded", drains, (n) => n === 1, 2_000);
+      // Another connect, or another reconcile, records nothing new.
+      attachHost(runtime, "drain/one", cleanups);
+      await reconcile("drain/one");
+      expect(await drains()).toBe(1);
+      expect(await events("drain/one")).not.toContain("agent.failed");
+    } finally {
+      for (const cleanup of cleanups) await cleanup();
     }
   });
 

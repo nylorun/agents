@@ -580,7 +580,22 @@ export class TenantRuntime implements TenantHandle {
   }
 
   attachHarness(channel: HarnessChannel, peer: HarnessPeer): () => void {
-    return this.ctx.harness.attach(channel, peer);
+    const detach = this.ctx.harness.attach(channel, peer);
+    // A pod's engine that (re)connects asks for its sandbox's reconcile: after a drain (Agent
+    // Substrate's eviction contract) the restored engine redials with its host token and no join,
+    // and this is what lets the Runtime see the move (`drainedAt`, `agent.suspended` reason
+    // `drain`) at once rather than at the next turn or idle timer.
+    const sandboxId = peer.host?.sandboxId;
+    if (sandboxId !== undefined)
+      void this.ctx.store
+        .tx((t) => t.signalSandbox(sandboxId, { kind: "reconcile" }))
+        .catch((error: unknown) =>
+          this.ctx.config.logger.warn("sandbox reconcile after connect failed", {
+            sandboxId,
+            error: error instanceof Error ? error.message : String(error),
+          }),
+        );
+    return detach;
   }
 
   harnessStatus(): HarnessStatus {
