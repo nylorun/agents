@@ -10,6 +10,8 @@ import {
   SessionModelViewSchema,
   QueuedResponseSchema,
   TriggerListSchema,
+  TriggerPutSchema,
+  TriggerViewSchema,
   MemoryListSchema,
   MemorySchema,
   PutMemoryRequestSchema,
@@ -209,6 +211,8 @@ export const SessionCommand = named("SessionCommand", SessionCommandSchema);
 export const AcceptedResponse = named("AcceptedResponse", AcceptedResponseSchema);
 export const QueuedResponse = named("QueuedResponse", QueuedResponseSchema);
 export const TriggerList = named("TriggerList", TriggerListSchema);
+export const TriggerView = named("TriggerView", TriggerViewSchema);
+export const PutTriggerRequest = named("PutTriggerRequest", TriggerPutSchema);
 export const MemoryList = named("MemoryList", MemoryListSchema);
 export const MemoryView = named("Memory", MemorySchema);
 export const PutMemoryRequest = named("PutMemoryRequest", PutMemoryRequestSchema);

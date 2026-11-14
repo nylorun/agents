@@ -18,9 +18,10 @@
  *
  * Triggers: what its manifest's `runtime.triggers` declares starts its turns with
  * no client connected, and so do the triggers its agents set up with the `triggers` tool
- * (`engine.triggers`, origin `agent`). `triggers(id)` lists them with their status and next run,
- * `pauseTrigger`, `resumeTrigger` and `runTrigger` change or run one, `deleteTrigger` deletes one
- * an agent made, `rotateWebhookSecret` makes a webhook trigger's signing secret, and `runs(id)`
+ * (`engine.triggers`, origin `agent`), and those a client puts on it (origin `api`, D88).
+ * `triggers(id)` lists them with their status and next run, `putTrigger` creates or replaces the
+ * Agent's own trigger, `pauseTrigger`, `resumeTrigger` and `runTrigger` change or run one,
+ * `deleteTrigger` deletes one an agent made or a client put, `rotateWebhookSecret` makes a webhook trigger's signing secret, and `runs(id)`
  * pages what each fire came to. `client.runs.stream()` follows every Agent's runs.
  *
  * Memory: an Agent whose manifest sets `harness.memory` keeps Markdown files under
@@ -53,6 +54,7 @@ import {
   type PutAgentSecretRequest,
   type TriggerRun,
   type TriggerRunPage,
+  type TriggerPut,
   type TriggerView,
 } from "@nylorun/core/contracts";
 import { definitionFileHash } from "./files.js";
@@ -455,9 +457,21 @@ export class AgentInstancesClient {
   }
 
   /**
+   * Creates or replaces the Agent's trigger `triggerId` of origin `api` (D88; Host feature
+   * `api-triggers`): a `Trigger` exactly as a definition's `runtime.triggers` entry holds it, and an
+   * optional `title`. A replaced one keeps its status; the same trigger again changes nothing. An
+   * id the definition declares, or one an agent made, is refused (`409 trigger_conflict`); past
+   * `limits.triggers.count`, `422 trigger_limit`. Answers the trigger as `triggers(id)` shows it.
+   */
+  async putTrigger(agentId: string, triggerId: string, trigger: TriggerPut, options: { signal?: AbortSignal } = {}): Promise<TriggerView> {
+    await this.transport.requireFeature("api-triggers", options.signal);
+    return this.transport.json<TriggerView>(`${this.path(agentId)}/triggers/${segment(triggerId)}`, "PUT", trigger, options.signal);
+  }
+
+  /**
    * Deletes trigger `triggerId`, one of the Agent's agents made with the `triggers` tool (origin
-   * `agent`; Host feature `agent-triggers`). One its manifest declares is refused
-   * (`409 trigger_from_manifest`): save a version without it, or pause it.
+   * `agent`; Host feature `agent-triggers`) or a client put (origin `api`). One its manifest
+   * declares is refused (`409 trigger_from_manifest`): save a version without it, or pause it.
    */
   async deleteTrigger(agentId: string, triggerId: string, options: { signal?: AbortSignal } = {}): Promise<void> {
     await this.transport.requireFeature("agent-triggers", options.signal);

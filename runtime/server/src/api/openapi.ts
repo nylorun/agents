@@ -211,6 +211,7 @@ const RUNTIME_TAGS: readonly Tag[] = [
       "What starts an Agent's turns with no client connected: the schedules, one-shot times and webhook endpoints its manifest's `runtime.triggers` declare, and the schedules and follow-ups its agents set up with the `triggers` tool (`engine.triggers`). Each trigger's status is the Agent's: pause and resume it, run it now, delete one an agent made, make a webhook trigger's signing secret, and read its runs (`started`, `queued`, `skipped` or `failed`, with a reason), an Agent's or the whole Tenant's as a stream. In `@nylorun/agents` and `nylorun agents triggers`.",
     operations: [
       "GET /v1/agents/{agentId}/triggers",
+      "PUT /v1/agents/{agentId}/triggers/{triggerId}",
       "POST /v1/agents/{agentId}/triggers/{triggerId}/pause",
       "POST /v1/agents/{agentId}/triggers/{triggerId}/resume",
       "POST /v1/agents/{agentId}/triggers/{triggerId}/run",

@@ -191,7 +191,7 @@ export function triggerIssues(
 }
 
 /** The triggers of the manifest version an Agent runs. */
-async function triggersOf(t: Tx, agent: Environment): Promise<Record<string, Trigger>> {
+export async function triggersOf(t: Tx, agent: Environment): Promise<Record<string, Trigger>> {
   return (await pinnedOf(t, agent)).triggers;
 }
 
@@ -223,7 +223,7 @@ export function originOf(row: Pick<AgentTriggerRow, "origin" | "kind">): AgentTr
 
 /**
  * The definition trigger row `row` fires with (D83): a booked wake's, from its session and note;
- * an agent-made trigger's own, from the row; a manifest trigger's, the entry of the version the
+ * an agent-made or put trigger's own, from the row (D88); a manifest trigger's, the entry of the version the
  * Agent runs (`manifest`, read once by the caller). Undefined when it has none.
  */
 export function definitionOf(row: AgentTriggerRow, manifest: Readonly<Record<string, Trigger>>): Trigger | undefined {
@@ -231,6 +231,7 @@ export function definitionOf(row: AgentTriggerRow, manifest: Readonly<Record<str
     case "wake":
       return wakeTriggerOf(row);
     case "agent":
+    case "api":
       return (row.definition ?? undefined) as Trigger | undefined;
     default:
       return manifest[row.triggerId];
@@ -238,7 +239,7 @@ export function definitionOf(row: AgentTriggerRow, manifest: Readonly<Record<str
 }
 
 /** The columns a row of origin `manifest` or `wake` leaves empty. */
-const NO_AGENT_FIELDS = { title: null, definition: null, createdSessionId: null, createdTurnId: null } as const;
+const NO_AGENT_FIELDS = { title: null, definition: null, createdSessionId: null, createdTurnId: null, principal: null } as const;
 
 /**
  * Writes the state of a new Agent's triggers (D74): every trigger of the version it is made from
@@ -414,8 +415,8 @@ export async function fireTimer(ctx: TenantContext, key: string): Promise<void> 
     const trigger = definitionOf(row, pinned.triggers);
     if (!trigger) {
       // A manifest's that the version no longer has, or a wake with nothing to say. An agent's
-      // row always holds its definition.
-      if (origin !== "agent") await t.deleteAgentTrigger(agentId, triggerId);
+      // or a put row always holds its definition.
+      if (origin !== "agent" && origin !== "api") await t.deleteAgentTrigger(agentId, triggerId);
       return undefined;
     }
     // An agent's trigger runs only while the version declares the capability: until one does, it
@@ -665,6 +666,7 @@ export function triggerView(row: AgentTriggerRow, trigger: Trigger, origin = "")
     origin: from,
     title: row.title,
     createdSessionId: row.createdSessionId,
+    principal: row.principal,
     status: row.status,
     pausedReason: row.pausedReason,
     ...(trigger.schedule === undefined ? {} : { schedule: trigger.schedule, timezone: trigger.timezone ?? "UTC" }),
@@ -732,7 +734,11 @@ export async function setTriggerStatus(
       fail(
         409,
         `Trigger ${triggerId} was due at ${trigger.at} and does not run again: ${
-          originOf(row) === "agent" ? "the agent creates it again with a new time" : "save a manifest version with a new time"
+          originOf(row) === "agent"
+            ? "the agent creates it again with a new time"
+            : originOf(row) === "api"
+              ? "put it again with a new time"
+              : "save a manifest version with a new time"
         }.`,
         { code: "trigger_expired" },
       );
@@ -753,19 +759,24 @@ export async function setTriggerStatus(
 }
 
 /**
- * `DELETE /v1/agents/{id}/triggers/{triggerId}` (D83): deletes a trigger one of the Agent's agents
- * made (origin `agent`), with `agent.trigger_deleted`. A manifest's is the manifest's to drop
- * (`409 trigger_from_manifest`); its runs stay.
+ * `DELETE /v1/agents/{id}/triggers/{triggerId}` (D83, D88): deletes a trigger one of the Agent's
+ * agents made (origin `agent`) or a client put (origin `api`), with `agent.trigger_deleted`. A
+ * manifest's is the manifest's to drop (`409 trigger_from_manifest`); its runs stay.
  */
 export async function deleteTrigger(ctx: TenantContext, agentId: string, triggerId: string, principal?: string): Promise<void> {
   await ctx.store.tx(async (t) => {
     const { row } = await lockedTrigger(t, agentId, triggerId);
-    if (originOf(row) !== "agent")
+    const origin = originOf(row);
+    if (origin !== "agent" && origin !== "api")
       fail(409, `Trigger ${triggerId} is declared by the Agent's manifest: save a version without it, or pause it.`, {
         code: "trigger_from_manifest",
       });
     await t.deleteAgentTrigger(agentId, triggerId);
-    await t.agentEvent(agentId, "agent.trigger_deleted", { triggerId, ...(principal === undefined ? {} : { principal }) });
+    await t.agentEvent(agentId, "agent.trigger_deleted", {
+      triggerId,
+      origin: origin as "agent" | "api",
+      ...(principal === undefined ? {} : { principal }),
+    });
   });
 }
 

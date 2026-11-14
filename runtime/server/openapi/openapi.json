@@ -44,6 +44,7 @@
         "secret-routing",
         "remove-tools",
         "agent-triggers",
+        "api-triggers",
         "steer",
         "queue-recovery",
         "a2a-steer"
@@ -23102,6 +23103,7 @@
                   "enum": [
                     "manifest",
                     "agent",
+                    "api",
                     "wake"
                   ]
                 },
@@ -23112,6 +23114,12 @@
                   ]
                 },
                 "createdSessionId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "principal": {
                   "type": [
                     "string",
                     "null"
@@ -23183,6 +23191,152 @@
         },
         "required": [
           "triggers"
+        ],
+        "additionalProperties": false
+      },
+      "TriggerView": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "schedule",
+              "at",
+              "webhook",
+              "wake"
+            ]
+          },
+          "origin": {
+            "type": "string",
+            "enum": [
+              "manifest",
+              "agent",
+              "api",
+              "wake"
+            ]
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdSessionId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "principal": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "paused",
+              "completed"
+            ]
+          },
+          "pausedReason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "schedule": {
+            "type": "string"
+          },
+          "timezone": {
+            "type": "string"
+          },
+          "at": {
+            "type": "string"
+          },
+          "session": {
+            "type": "string"
+          },
+          "nextRunAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "lastRunAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "webhookUrl": {
+            "type": "string"
+          },
+          "secretSet": {
+            "type": "boolean"
+          },
+          "prompt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "origin",
+          "title",
+          "createdSessionId",
+          "status",
+          "pausedReason",
+          "session",
+          "nextRunAt",
+          "lastRunAt"
+        ],
+        "additionalProperties": false
+      },
+      "PutTriggerRequest": {
+        "type": "object",
+        "properties": {
+          "schedule": {
+            "type": "string",
+            "pattern": "^\\S+(\\s+\\S+){4}$"
+          },
+          "timezone": {
+            "type": "string",
+            "minLength": 1
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "webhook": {
+            "type": "string",
+            "enum": [
+              "standard-webhooks"
+            ]
+          },
+          "session": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "prompt": {
+            "type": "string",
+            "minLength": 1
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          }
+        },
+        "required": [
+          "session",
+          "prompt"
         ],
         "additionalProperties": false
       },
@@ -23440,6 +23594,7 @@
                 "enum": [
                   "manifest",
                   "agent",
+                  "api",
                   "wake"
                 ]
               },
@@ -31997,7 +32152,7 @@
           "Triggers"
         ],
         "summary": "List an Agent's triggers",
-        "description": "Each trigger its manifest declares, and each its agents made with the `triggers` tool (`origin: agent`, with the title and the session that made it), with what the Agent holds of it: its status (`active`, `paused` with a reason, `completed` for an `at` that ran), its prompt, when it runs next and last ran. A session's booked wake is not listed.",
+        "description": "Each trigger its manifest declares, each its agents made with the `triggers` tool (`origin: agent`, with the title and the session that made it), and each a client put over the API (`origin: api`, with the title and the `principal` that put it), with what the Agent holds of it: its status (`active`, `paused` with a reason, `completed` for an `at` that ran), its prompt, when it runs next and last ran. A session's booked wake is not listed.",
         "security": [
           {
             "applicationKey": []
@@ -32108,6 +32263,300 @@
                 }
               }
             }
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/agents/{agentId}/triggers/{triggerId}": {
+      "put": {
+        "tags": [
+          "Triggers"
+        ],
+        "summary": "Put a trigger on an Agent",
+        "description": "Creates or replaces the Agent's trigger `triggerId` of origin `api`: a `Trigger` exactly as a definition's `runtime.triggers` entry holds it (one of `schedule` with `timezone`, `at` or `webhook`; `session`; `prompt`), and an optional `title`. A new one is active with its next time; a replaced one gets its next time again and keeps its status, so a paused one stays paused. The same body again changes nothing and records no event. The checks and limits are a definition's; `runtime.limits.triggers.count` covers the triggers the Agent's agents made and those put here. Upgrades never touch it; `DELETE` removes it. Records `agent.trigger_created` or `agent.trigger_updated` (with `changed`) on the Agent's events. Host feature `api-triggers`.",
+        "security": [
+          {
+            "applicationKey": []
+          },
+          {
+            "issuerToken": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "application",
+          "subject",
+          "token"
+        ],
+        "x-nylorun-scopes": [
+          "agents:write"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The Agent id, percent-encoded"
+            },
+            "required": true,
+            "description": "The Agent id, percent-encoded",
+            "name": "agentId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The trigger's id: in the manifest's `runtime.triggers`, or the one its agent gave it"
+            },
+            "required": true,
+            "description": "The trigger's id: in the manifest's `runtime.triggers`, or the one its agent gave it",
+            "name": "triggerId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `18`"
+            },
+            "required": true,
+            "description": "The protocol version, `18`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The person an application key acts for"
+            },
+            "required": false,
+            "description": "The person an application key acts for",
+            "name": "Nylorun-Subject",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The subject's space-separated scopes; required with a subject"
+            },
+            "required": false,
+            "description": "The subject's space-separated scopes; required with a subject",
+            "name": "Nylorun-Scopes",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutTriggerRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The trigger, as the list shows it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TriggerView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Not a trigger, or one the checks refuse: a bad cron or time zone, runs closer than the minimum interval, an `at` not in the future, a prompt too long"
+          },
+          "401": {
+            "description": "No credential (`credential_required`), one the Tenant does not accept (`credential_invalid`), a token that expired (`token_expired`), or a token whose issuer's keys cannot be fetched now (`issuer_unavailable`). `WWW-Authenticate: Bearer` names the protected resource metadata (`resource_metadata`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such Agent"
+          },
+          "409": {
+            "description": "The definition declares this id, or an agent's trigger or a booked wake holds it (`trigger_conflict`)"
+          },
+          "422": {
+            "description": "The Agent holds as many triggers its agents or clients made as `limits.triggers.count` allows (`trigger_limit`)"
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Triggers"
+        ],
+        "summary": "Delete a trigger an agent made or a client put",
+        "description": "Deletes a trigger one of the Agent's agents made with the `triggers` tool (`origin: agent`) or a client put (`origin: api`), with `agent.trigger_deleted` on the Agent's events; its runs stay. A trigger its manifest declares is refused (`trigger_from_manifest`): save a version without it, or pause it.",
+        "security": [
+          {
+            "applicationKey": []
+          },
+          {
+            "issuerToken": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "application",
+          "subject",
+          "token"
+        ],
+        "x-nylorun-scopes": [
+          "agents:write"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The Agent id, percent-encoded"
+            },
+            "required": true,
+            "description": "The Agent id, percent-encoded",
+            "name": "agentId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The trigger's id: in the manifest's `runtime.triggers`, or the one its agent gave it"
+            },
+            "required": true,
+            "description": "The trigger's id: in the manifest's `runtime.triggers`, or the one its agent gave it",
+            "name": "triggerId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `18`"
+            },
+            "required": true,
+            "description": "The protocol version, `18`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The person an application key acts for"
+            },
+            "required": false,
+            "description": "The person an application key acts for",
+            "name": "Nylorun-Subject",
+            "in": "header"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The subject's space-separated scopes; required with a subject"
+            },
+            "required": false,
+            "description": "The subject's space-separated scopes; required with a subject",
+            "name": "Nylorun-Scopes",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeletedResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid headers, path, body or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No credential (`credential_required`), one the Tenant does not accept (`credential_invalid`), a token that expired (`token_expired`), or a token whose issuer's keys cannot be fetched now (`issuer_unavailable`). `WWW-Authenticate: Bearer` names the protected resource metadata (`resource_metadata`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The Agent has no such trigger"
+          },
+          "409": {
+            "description": "The manifest declares it (`trigger_from_manifest`)"
           },
           "426": {
             "description": "`Nylorun-Protocol` missing or unsupported",
@@ -32571,151 +33020,6 @@
                 }
               }
             }
-          },
-          "426": {
-            "description": "`Nylorun-Protocol` missing or unsupported",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProtocolRejected"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "The Tenant's storage or streams are unavailable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/agents/{agentId}/triggers/{triggerId}": {
-      "delete": {
-        "tags": [
-          "Triggers"
-        ],
-        "summary": "Delete a trigger an agent made",
-        "description": "Deletes a trigger one of the Agent's agents made with the `triggers` tool (`origin: agent`), with `agent.trigger_deleted` on the Agent's events; its runs stay. A trigger its manifest declares is refused (`trigger_from_manifest`): save a version without it, or pause it.",
-        "security": [
-          {
-            "applicationKey": []
-          },
-          {
-            "issuerToken": []
-          }
-        ],
-        "x-nylorun-credentials": [
-          "application",
-          "subject",
-          "token"
-        ],
-        "x-nylorun-scopes": [
-          "agents:write"
-        ],
-        "parameters": [
-          {
-            "schema": {
-              "type": "string",
-              "description": "The Agent id, percent-encoded"
-            },
-            "required": true,
-            "description": "The Agent id, percent-encoded",
-            "name": "agentId",
-            "in": "path"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The trigger's id: in the manifest's `runtime.triggers`, or the one its agent gave it"
-            },
-            "required": true,
-            "description": "The trigger's id: in the manifest's `runtime.triggers`, or the one its agent gave it",
-            "name": "triggerId",
-            "in": "path"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The protocol version, `18`"
-            },
-            "required": true,
-            "description": "The protocol version, `18`",
-            "name": "Nylorun-Protocol",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The person an application key acts for"
-            },
-            "required": false,
-            "description": "The person an application key acts for",
-            "name": "Nylorun-Subject",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "The subject's space-separated scopes; required with a subject"
-            },
-            "required": false,
-            "description": "The subject's space-separated scopes; required with a subject",
-            "name": "Nylorun-Scopes",
-            "in": "header"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Deleted",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DeletedResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid headers, path, body or cursor",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "No credential (`credential_required`), one the Tenant does not accept (`credential_invalid`), a token that expired (`token_expired`), or a token whose issuer's keys cannot be fetched now (`issuer_unavailable`). `WWW-Authenticate: Bearer` names the protected resource metadata (`resource_metadata`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Not allowed for this credential or subject scope (`scope_required`; a token also gets `WWW-Authenticate: Bearer error=\"insufficient_scope\"` and the scope), a key of the other API (`key_role_mismatch`), or an application key from a browser (`origin_rejected`)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "The Agent has no such trigger"
-          },
-          "409": {
-            "description": "The manifest declares it (`trigger_from_manifest`)"
           },
           "426": {
             "description": "`Nylorun-Protocol` missing or unsupported",

@@ -286,6 +286,13 @@ export const OPTIONAL_HOST_FEATURES = [
    */
   "agent-triggers",
   /**
+   * Triggers a client puts on one Agent (D88): `PUT /v1/agents/{id}/triggers/{triggerId}` with a
+   * `Trigger` and an optional `title` creates or replaces the Agent's `api` trigger; `DELETE`
+   * removes it; the list shows `origin: api` and its `principal`; the trigger events carry `origin`,
+   * `principal` and `changed`.
+   */
+  "api-triggers",
+  /**
    * A message's `delivery: "steer"` (D85): to a busy agent session it waits in the session queue
    * marked `steer`, and our engine takes it into the running turn before its next step (the
    * `inputs` effect, Harness API 5.4). The answer and `message.queued` say which delivery applied;

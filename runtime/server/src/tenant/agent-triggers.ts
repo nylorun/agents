@@ -141,7 +141,7 @@ export async function serveTriggersTool(
     const row = await t.agentTrigger(s.agentId, input.id, { lock: true });
     if (!row || !reaches(row, s.id)) return failed("tool.not-found", `This session has no trigger ${input.id}: list shows the ones it has.`);
     await t.deleteAgentTrigger(s.agentId, input.id);
-    await t.agentEvent(s.agentId, "agent.trigger_deleted", { triggerId: input.id, sessionId: s.id });
+    await t.agentEvent(s.agentId, "agent.trigger_deleted", { triggerId: input.id, origin: "agent", sessionId: s.id });
     return completed({ id: input.id, deleted: true });
   }
   // create: never from a turn a trigger or a booked wake started. Under the `nylorun-triggers`
@@ -185,7 +185,8 @@ export async function serveTriggersTool(
   const agent = await liveEnvironment(t, s.agentId);
   const inForce = triggerLimitsInForce(runtime, agent?.applied?.limits);
   if (!existing) {
-    const made = (await t.agentTriggers(s.agentId)).filter((row) => originOf(row) === "agent").length;
+    // One count for every trigger not from the definition: the tool's and the API's (D88).
+    const made = (await t.agentTriggers(s.agentId)).filter((row) => originOf(row) === "agent" || originOf(row) === "api").length;
     if (made >= inForce.count)
       return failed("tool.limit", `This Agent has ${made} triggers, the most it can have. Delete one to add another.`);
   }
@@ -212,6 +213,7 @@ export async function serveTriggersTool(
     note: null,
     effectId: request.effectId,
     origin: "agent",
+    principal: null,
     title: input.title ?? null,
     definition,
     createdSessionId: s.id,
@@ -223,6 +225,7 @@ export async function serveTriggersTool(
   await t.agentEvent(s.agentId, existing ? "agent.trigger_updated" : "agent.trigger_created", {
     triggerId: input.id,
     kind: definition.schedule === undefined ? "at" : "schedule",
+    origin: "agent",
     sessionId: s.id,
     session,
     ...(row.title === null ? {} : { title: row.title }),
