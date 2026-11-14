@@ -76,12 +76,12 @@
   },
   "dependencies": {
     "@ag-ui/client": "^1.0.4",
-    "@scalar/openapi-parser": "^0.29.13",
-    "@types/node": "^26.6.5",
-    "@vitejs/plugin-react": "^6.1.2",
-    "lucide-react": "^1.58.0",
+    "@scalar/openapi-parser": "^0.29.21",
+    "@types/node": "^26.6.6",
+    "@vitejs/plugin-react": "^6.3.0",
+    "lucide-react": "^1.71.0",
     "radix-ui": "^1.8.1",
-    "vite": "^8.3.4",
-    "vitest": "^5.0.5"
+    "vite": "^8.3.8",
+    "vitest": "^5.1.0"
   }
 }
