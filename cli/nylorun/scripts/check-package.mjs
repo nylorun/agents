@@ -15,10 +15,17 @@ if (JSON.stringify(deps) !== JSON.stringify(expected)) {
   );
 }
 // `nylo configure` installs pi-ai on first use (client/model/pi-ai.ts), at the version the
-// build and the tests used.
-if (pkg.devDependencies?.["@earendil-works/pi-ai"] !== PI_AI_VERSION)
+// build and the tests used: PI_AI_VERSION, read from this devDependency. It must stay an exact
+// version — a range would make the on-demand install fetch a pi-ai the build and the tests never
+// ran against.
+const declared = pkg.devDependencies?.["@earendil-works/pi-ai"];
+if (declared !== PI_AI_VERSION)
   throw new Error(
-    `nylorun's @earendil-works/pi-ai devDependency must equal PI_AI_VERSION (${PI_AI_VERSION})`,
+    `nylorun's @earendil-works/pi-ai devDependency must equal PI_AI_VERSION (${PI_AI_VERSION}); got ${declared}`,
+  );
+if (typeof declared !== "string" || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(declared))
+  throw new Error(
+    `nylorun's @earendil-works/pi-ai devDependency must be an exact version, not "${declared}": nylo configure installs that version on first use`,
   );
 for (const name of ["runtime", "studio"])
   if (typeof pkg.nylorun?.[name] !== "string")
