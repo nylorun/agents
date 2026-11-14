@@ -41,6 +41,9 @@ type Status struct {
 	// Reason and Message are the Ready condition's.
 	Reason  string `json:"reason,omitempty"`
 	Message string `json:"message,omitempty"`
+	// DrainedAt (Agent Substrate) is when the sandbox was last suspended because its worker
+	// stopped (RFC 3339); while it moves to another worker, Reason is Moving.
+	DrainedAt string `json:"drainedAt,omitempty"`
 }
 
 // Waits are the states GET ?wait= can wait for.

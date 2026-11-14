@@ -233,6 +233,7 @@ func substrateBackend(ctx context.Context, cfg config.Config, log *slog.Logger) 
 	side := func(ctx context.Context) error {
 		defer closeConn()
 		go d.Run(ctx, 30*time.Second)
+		go d.WatchWorkers(ctx) // suspend before drain: Substrate's eviction contract
 		return front.Run(ctx)
 	}
 	return d, side, nil

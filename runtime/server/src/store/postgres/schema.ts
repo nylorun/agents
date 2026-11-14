@@ -263,6 +263,8 @@ export const agents = nylorun.table(
     imageDigest: textC(),
     /** The engine the image carries (ADR-99): `{ version, digest? }`, from a join of its engine. */
     engineImage: jsonText(),
+    /** When its Agent Substrate worker last stopped under it (the sandboxes service's `drainedAt`). */
+    drainedAt: text(),
     /**
      * The disk lease (R2d step 3): `{ kind, version?, startedAt, until }` while a snapshot, a
      * restore or a seed copies the disk; turns are refused until it ends or `until` passes.

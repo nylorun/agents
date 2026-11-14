@@ -216,6 +216,12 @@ export interface PodHostConfig {
    * for the hosts whose keys Substrate's egress adds.
    */
   egressCaFile?: string;
+  /**
+   * `NYLORUN_SANDBOX_SUBSTRATE=1`: the pod is an Agent Substrate actor. A stopping worker sends
+   * it SIGTERM and gives it 30 minutes to be suspended, which the sandboxes service does; the
+   * engine stays up instead of exiting (suspend before drain).
+   */
+  substrate?: boolean;
   /** Addresses the pod's NetworkPolicy must block, probed before the engine starts. */
   blocked: BlockedAddress[];
 }
@@ -1040,6 +1046,7 @@ function parsePodHost(env: EnvSnapshot, url: string): { config: PodHostConfig; w
       httpUrl: origin,
       ...(egress ? { egressProxy: egress.replace(/\/+$/, "") } : {}),
       ...(egressCa ? { egressCaFile: egressCa } : {}),
+      ...(read(env, "NYLORUN_SANDBOX_SUBSTRATE") === "1" ? { substrate: true } : {}),
       blocked: blockedAddresses(env),
     },
   };

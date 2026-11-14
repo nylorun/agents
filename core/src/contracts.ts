@@ -1419,8 +1419,12 @@ export const AGENT_EVENT_PAYLOADS = {
     .passthrough(),
   /** A pod joined and serves the Agent. */
   "agent.running": z.object({ hostEpoch: z.number().int() }).passthrough(),
-  /** Stopped (`POST .../stop`, or idle): the volume is kept; the next turn starts it again. */
-  "agent.suspended": z.object({ reason: z.enum(["stop", "idle", "restart"]) }).passthrough(),
+  /**
+   * Stopped (`POST .../stop`, or idle): the volume is kept; the next turn starts it again.
+   * `drain` (Agent Substrate): its worker stopped, so it was suspended with everything it held
+   * and resumed on another worker; nothing was lost.
+   */
+  "agent.suspended": z.object({ reason: z.enum(["stop", "idle", "restart", "drain"]) }).passthrough(),
   /** Its pod was replaced (same volume): the old pod's host token no longer works. */
   "agent.relaunched": z.object({ hostEpoch: z.number().int() }).passthrough(),
   /** Its volume or node is gone: turns are refused until a reset. */

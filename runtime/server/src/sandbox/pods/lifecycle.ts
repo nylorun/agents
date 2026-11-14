@@ -25,6 +25,10 @@
  *   (`agent.failed`, saying what the Agent lost); a crash an idle suspend finds is recorded the
  *   same way. The next turn start asks for `Running`, and the sandboxes service reverts the
  *   sandbox to its last suspend before resuming it.
+ * - **Drained** (Agent Substrate): a worker that stops gives its actors 30 minutes to be
+ *   suspended. The sandboxes service suspends each, records `drainedAt` and resumes it on
+ *   another worker; a new `drainedAt` is `agent.suspended` (reason `drain`), once, and a pod
+ *   that is `Moving` waits rather than fail at the ready deadline.
  * - **Lost**: an incarnation that has run (a pod joined) whose Sandbox is gone or whose volume
  *   is missing is `lost` (`agent.lost`): its host epoch moves, its Sandbox is deleted, and
  *   only a reset brings the Environment back. agent-sandbox recreates a deleted claim empty, so
@@ -81,6 +85,12 @@ export function imageDigestOf(imageID: string | undefined, requested: string): s
   if (at <= 0 || !/^[0-9a-f]{64}$/.test(id.slice(at + 8))) return undefined;
   return repositoryOf(id) === repositoryOf(requested) ? id : undefined;
 }
+
+/**
+ * The sandboxes service's reason for a sandbox suspended because its Agent Substrate worker
+ * stopped, until it runs on another one.
+ */
+export const MOVING = "Moving";
 
 /** A setup failure's `reason` starts with this (`sandbox/setup.ts`); it is sticky. */
 export const SETUP_FAILED = "setup:";
@@ -255,6 +265,12 @@ export function decide(facts: PodFacts): PodDecision {
     again(pollMs);
     return done();
   }
+  // Agent Substrate: its worker stopped, and the sandboxes service suspended it with everything it
+  // held and resumes it on another worker (suspend before drain). Recorded once per drain.
+  if (status.drainedAt !== undefined && status.drainedAt !== pod.drainedAt) {
+    patch.drainedAt = status.drainedAt;
+    events.push(event("agent.suspended", { reason: "drain" }));
+  }
   const opId = opIdOf({ k8sName: pod.k8sName, rev });
   if (desired === "suspended" && !status.exists) {
     if (pod.observed !== "suspended") patch.observed = "suspended";
@@ -308,6 +324,11 @@ export function decide(facts: PodFacts): PodDecision {
       patch.observed = "failed";
       patch.reason = crash;
       events.push(event("agent.failed", { reason: crash }));
+      return done();
+    }
+    // On its way to another worker after a drain: neither failed nor starting.
+    if (status.reason === MOVING) {
+      again(pollMs);
       return done();
     }
     if (now - startedAt >= readyDeadlineMs) {

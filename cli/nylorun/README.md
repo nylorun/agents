@@ -458,7 +458,8 @@ with Substrate's own kind script, works. `enable` refuses a context without Subs
 
 It only touches the context you name. It creates the namespace `nylorun-sbx-<tenant>` and a
 ServiceAccount allowed only what the sandboxes service uses (its state ConfigMaps, a token for
-itself, a port-forward to Substrate's API and Substrate's trust bundles), and adds a `hosts` entry
+itself, a port-forward to Substrate's API, Substrate's trust bundles, and reading worker pods),
+and adds a `hosts` entry
 to CoreDNS so that actors resolve the Tenant's edge, `nylorun-sbx-<tenant>.edge.nylorun.internal`,
 to the Docker host. The edge is a TLS front in the `sandboxes` container, published on two host
 ports (8793 and 8794 by default), through which actors reach the Harness API and the gates; its
@@ -468,6 +469,14 @@ atespace with the sandboxes service as its editor.
 
 Each Agent's network (preset, hosts, suffixes) becomes its actors' egress policy: only the edge
 and the allowed hosts resolve and connect.
+
+A worker pod that stops (`kubectl drain`, a node upgrade or scale-down, a WorkerPool rollout, a
+deleted pod) gives its actors 30 minutes to be suspended. The sandboxes service suspends each of
+the Tenant's actors on it, with its memory and files, and resumes the running ones on another
+worker; the Agent records `agent.suspended` with reason `drain`, and nothing is lost. A spot node
+that is reclaimed (15 s to 2 min) or a node that dies still crashes its actors, which go back to
+their last suspend, so don't run workers on spot nodes. An actor created by an earlier release
+keeps an engine that exits on that signal; reset the Agent's pod to update it.
 
 Keys reach commands through Substrate's own egress
 ([ADR-142](https://github.com/nylorun/factory/blob/main/decisions/platform/2026-11-13-substrate-egress-adds-keys.md)):

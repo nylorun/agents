@@ -165,6 +165,27 @@ describe("pod lifecycle", () => {
     expect(decision.apply).toBeUndefined();
   });
 
+  it("records a drain once, and waits for a moving pod instead of failing it (suspend before drain)", () => {
+    const drainedAt = "2026-10-03T12:00:00.5Z";
+    // Long past the ready deadline: a pod that has run for days.
+    const later = T0 + 3 * 24 * 3600_000;
+    const running = row({ observed: "running", podUid: "uid-1", lastActiveAt: new Date(later).toISOString() });
+    const moving = status({ ready: false, podPhase: undefined, reason: "Moving", message: "suspended because its worker stopped", drainedAt });
+    const first = decide(facts({ row: running, status: moving, now: later }));
+    expect(first.patch).toEqual({ drainedAt });
+    expect(first.events).toEqual([{ type: "agent.suspended", payload: { reason: "drain" } }]);
+    expect(first.retryAfterMs).toBeDefined();
+    expect(first.apply).toBeUndefined();
+    // Recorded: no second event while it moves, and none once it runs again.
+    const recorded = row({ observed: "running", podUid: "uid-1", lastActiveAt: new Date(later).toISOString(), drainedAt });
+    const again = decide(facts({ row: recorded, status: moving, now: later + 1_000 }));
+    expect(again.events).toEqual([]);
+    expect(again.patch.observed).toBeUndefined();
+    const back = decide(facts({ row: recorded, status: status({ drainedAt }), now: later + 2_000 }));
+    expect(back.events).toEqual([]);
+    expect(back.patch.observed).toBeUndefined();
+  });
+
   it("leaves a crash during a wake to the wake, which reverts the sandbox", () => {
     const waking = row({ observed: "creating", rev: 2, podUid: undefined, startedAt: new Date(T0).toISOString() });
     const crashed = status({ opId: `${NAME}.r2`, ready: false, podPhase: undefined, reason: "Crashed", message: "x" });
