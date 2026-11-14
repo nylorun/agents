@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.16.38-beta
+
+### Patch Changes
+
+- Update the tested Harness, SDK, Admin and Runtime compatibility combination.
+
 ## 0.16.37-beta
 
 ### Patch Changes
