@@ -1,6 +1,6 @@
 {
   "harness": "0.36.4-beta",
-  "runtime": "0.51.1-beta",
+  "runtime": "0.51.2-beta",
   "agents": "0.37.2-beta",
   "admin": "0.20.3-beta",
   "core": "0.44.0-beta"
