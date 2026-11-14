@@ -107,7 +107,7 @@ const MANIFESTS = [
 ];
 
 /** A running Tenant whose Runtime answers the Agent and agent manifest routes. */
-async function running(options: { up?: boolean } = {}) {
+async function running(options: { up?: boolean; features?: readonly string[] } = {}) {
   const home = await temporaryHome();
   const keys: FakeKeys = new Map();
   const operate = fakeOperate(() => keys);
@@ -120,9 +120,11 @@ async function running(options: { up?: boolean } = {}) {
         status: "ok",
         version: "0.10.0-beta",
         hostId: hostId(home),
-        protocol: { min: PROTOCOL_VERSION, max: PROTOCOL_VERSION, features: [...PROTOCOL_FEATURES] },
+        protocol: { min: PROTOCOL_VERSION, max: PROTOCOL_VERSION, features: [...(options.features ?? PROTOCOL_FEATURES)] },
       });
     if (url.endsWith("/ready")) return readyResponse();
+    if (/\/v1\/agents\/[^/]+\/triggers\/[^/]+$/.test(new URL(url).pathname) && init?.method === "PUT")
+      return json({ id: new URL(url).pathname.split("/").at(-1), origin: "api", status: "active", ...JSON.parse(String(init.body)) });
     if (url.endsWith("/_studio/login-tokens")) return json({ token: "t" }, 201);
     const path = new URL(url).pathname;
     if (path === "/v1/me")
@@ -298,6 +300,33 @@ describe("nylorun agents", () => {
       "  set before use: PYPI (nylorun agents secrets put team-a/proj-43 <name>)",
     ]);
     await expect(agentsCommand(deps, ["fork", "team-a/proj-42", "x", "--disk", "soon"])).rejects.toMatchObject({ exitCode: 2 });
+  });
+
+  it("puts an api trigger from flags or a file, and asks for its session and prompt", async () => {
+    const { deps, fetch } = await running({ features: [...PROTOCOL_FEATURES, "api-triggers"] });
+    expect(
+      await agentsCommand(deps, [
+        "triggers", "put", "team-a/proj-42", "weekly",
+        "--schedule", "0 9 * * 1", "--timezone", "Europe/Berlin", "--session", "new", "--prompt", "Write the report.", "--title", "Weekly",
+      ]),
+    ).toBe(0);
+    const put = fetch.requests.find((item) => item.url.endsWith("/triggers/weekly"))!;
+    expect(new URL(put.url).pathname).toBe("/v1/agents/team-a%2Fproj-42/triggers/weekly");
+    expect(put.init!.method).toBe("PUT");
+    expect(JSON.parse(String(put.init!.body))).toEqual({
+      schedule: "0 9 * * 1",
+      timezone: "Europe/Berlin",
+      session: "new",
+      prompt: "Write the report.",
+      title: "Weekly",
+    });
+    expect(JSON.parse(deps.lines.join("\n"))).toMatchObject({ id: "weekly", origin: "api" });
+    const file = join(mkdtempSync(join(tmpdir(), "nylorun-trigger-")), "hook.json");
+    writeFileSync(file, JSON.stringify({ webhook: "standard-webhooks", session: "s_77", prompt: "A payment event." }));
+    expect(await agentsCommand(deps, ["triggers", "put", "bot", "acct-77", file])).toBe(0);
+    const hook = fetch.requests.find((item) => item.url.endsWith("/triggers/acct-77"))!;
+    expect(JSON.parse(String(hook.init!.body))).toEqual({ webhook: "standard-webhooks", session: "s_77", prompt: "A payment event." });
+    await expect(agentsCommand(deps, ["triggers", "put", "bot", "x", "--schedule", "0 9 * * *"])).rejects.toMatchObject({ exitCode: 2 });
   });
 
   it("writes a slot's value from standard input", async () => {

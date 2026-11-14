@@ -344,11 +344,14 @@ export const agentTriggers = nylorun.table(
     note: text(),
     effectId: text(),
     /**
-     * Where its definition comes from (D83): `manifest` (the version's `runtime.triggers`),
-     * `agent` (`definition`, made with the `triggers` tool) or `wake` (a booked wake).
+     * Where its definition comes from (D83, D88): `manifest` (the version's `runtime.triggers`),
+     * `agent` (`definition`, made with the `triggers` tool), `api` (`definition`, put by a client
+     * over the API) or `wake` (a booked wake).
      */
-    origin: text({ enum: ["manifest", "agent", "wake"] }).notNull().default("manifest"),
-    /** An agent-made trigger's title, its definition, and the session and turn that made it. */
+    origin: text({ enum: ["manifest", "agent", "api", "wake"] }).notNull().default("manifest"),
+    /** Who put an `api` trigger (D88): the caller's principal. */
+    principal: text(),
+    /** An agent-made or put trigger's title, its definition, and the session and turn that made it. */
     title: text(),
     definition: jsonText(),
     createdSessionId: textC(),
@@ -357,7 +360,7 @@ export const agentTriggers = nylorun.table(
     updatedAt: textC().notNull(),
   },
   (t) => [
-    check("agent_triggers_origin_check", sql`${t.origin} IN ('manifest', 'agent', 'wake')`),
+    check("agent_triggers_origin_check", sql`${t.origin} IN ('manifest', 'agent', 'api', 'wake')`),
     primaryKey({ name: "agent_triggers_pkey", columns: [t.agentId, t.triggerId] }),
     index("agent_triggers_created_session").on(t.agentId, t.createdSessionId).where(sql`created_session_id IS NOT NULL`),
     index("agent_triggers_due").on(t.status, t.nextFireAt),
@@ -436,8 +439,8 @@ export const triggerRuns = nylorun.table(
     sessionId: textC(),
     turnId: textC(),
     queuedMessageId: textC(),
-    /** Its trigger's origin and title when it ran (D83), for the runs stream after the trigger is gone. */
-    origin: text({ enum: ["manifest", "agent", "wake"] }).notNull().default("manifest"),
+    /** Its trigger's origin and title when it ran (D83, D88), for the runs stream after the trigger is gone. */
+    origin: text({ enum: ["manifest", "agent", "api", "wake"] }).notNull().default("manifest"),
     title: text(),
     /** When it was appended to the Tenant's `runs` stream (ISO), or null until then. */
     streamedAt: textC(),

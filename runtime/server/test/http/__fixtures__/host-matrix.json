@@ -114,6 +114,7 @@
           "secret-routing",
           "remove-tools",
           "agent-triggers",
+          "api-triggers",
           "steer",
           "queue-recovery",
           "a2a-steer"
@@ -206,6 +207,7 @@
           "secret-routing",
           "remove-tools",
           "agent-triggers",
+          "api-triggers",
           "steer",
           "queue-recovery",
           "a2a-steer"
@@ -298,6 +300,7 @@
           "secret-routing",
           "remove-tools",
           "agent-triggers",
+          "api-triggers",
           "steer",
           "queue-recovery",
           "a2a-steer"
@@ -390,6 +393,7 @@
           "secret-routing",
           "remove-tools",
           "agent-triggers",
+          "api-triggers",
           "steer",
           "queue-recovery",
           "a2a-steer"
@@ -482,6 +486,7 @@
           "secret-routing",
           "remove-tools",
           "agent-triggers",
+          "api-triggers",
           "steer",
           "queue-recovery",
           "a2a-steer"
@@ -574,6 +579,7 @@
           "secret-routing",
           "remove-tools",
           "agent-triggers",
+          "api-triggers",
           "steer",
           "queue-recovery",
           "a2a-steer"
@@ -666,6 +672,7 @@
           "secret-routing",
           "remove-tools",
           "agent-triggers",
+          "api-triggers",
           "steer",
           "queue-recovery",
           "a2a-steer"
@@ -758,6 +765,7 @@
           "secret-routing",
           "remove-tools",
           "agent-triggers",
+          "api-triggers",
           "steer",
           "queue-recovery",
           "a2a-steer"
@@ -850,6 +858,7 @@
           "secret-routing",
           "remove-tools",
           "agent-triggers",
+          "api-triggers",
           "steer",
           "queue-recovery",
           "a2a-steer"
@@ -942,6 +951,7 @@
           "secret-routing",
           "remove-tools",
           "agent-triggers",
+          "api-triggers",
           "steer",
           "queue-recovery",
           "a2a-steer"
@@ -1034,6 +1044,7 @@
           "secret-routing",
           "remove-tools",
           "agent-triggers",
+          "api-triggers",
           "steer",
           "queue-recovery",
           "a2a-steer"
@@ -1126,6 +1137,7 @@
           "secret-routing",
           "remove-tools",
           "agent-triggers",
+          "api-triggers",
           "steer",
           "queue-recovery",
           "a2a-steer"
@@ -1251,6 +1263,7 @@
           "secret-routing",
           "remove-tools",
           "agent-triggers",
+          "api-triggers",
           "steer",
           "queue-recovery",
           "a2a-steer"
@@ -1343,6 +1356,7 @@
           "secret-routing",
           "remove-tools",
           "agent-triggers",
+          "api-triggers",
           "steer",
           "queue-recovery",
           "a2a-steer"
@@ -1435,6 +1449,7 @@
           "secret-routing",
           "remove-tools",
           "agent-triggers",
+          "api-triggers",
           "steer",
           "queue-recovery",
           "a2a-steer"
@@ -1527,6 +1542,7 @@
           "secret-routing",
           "remove-tools",
           "agent-triggers",
+          "api-triggers",
           "steer",
           "queue-recovery",
           "a2a-steer"
@@ -1619,6 +1635,7 @@
           "secret-routing",
           "remove-tools",
           "agent-triggers",
+          "api-triggers",
           "steer",
           "queue-recovery",
           "a2a-steer"
@@ -1711,6 +1728,7 @@
           "secret-routing",
           "remove-tools",
           "agent-triggers",
+          "api-triggers",
           "steer",
           "queue-recovery",
           "a2a-steer"
@@ -1803,6 +1821,7 @@
           "secret-routing",
           "remove-tools",
           "agent-triggers",
+          "api-triggers",
           "steer",
           "queue-recovery",
           "a2a-steer"

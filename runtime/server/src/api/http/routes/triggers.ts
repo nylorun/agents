@@ -7,12 +7,14 @@
  */
 import type { OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
-import { isAgentId } from "@nylorun/core/contracts";
+import { isAgentId, TriggerIdSchema, TriggerPutSchema } from "@nylorun/core/contracts";
 import {
   DeletedResponse,
+  PutTriggerRequest,
   RunTriggerResponse,
   TriggerList,
   TriggerRunPage,
+  TriggerView,
   WebhookAcceptedResponse,
   WebhookSecretResponse,
 } from "../../components.js";
@@ -28,7 +30,8 @@ import {
   setTriggerStatus,
 } from "../../../tenant/triggers.js";
 import { readRuntimeLimits } from "../../../tenant/runtime-limits.js";
-import { readBytes } from "../body.js";
+import { readBytes, readJson } from "../body.js";
+import { putTrigger } from "../../../tenant/api-triggers.js";
 import type { TenantBindings, TenantEnv } from "../app.js";
 import type { AuthScope } from "../../../tenant/context.js";
 import { tenantRoute, type RouteAccess } from "../define.js";
@@ -78,7 +81,7 @@ export function triggerRoutes(api: OpenAPIHono<TenantEnv>): void {
       tags: ["Triggers"],
       summary: "List an Agent's triggers",
       description:
-        "Each trigger its manifest declares, and each its agents made with the `triggers` tool (`origin: agent`, with the title and the session that made it), with what the Agent holds of it: its status (`active`, `paused` with a reason, `completed` for an `at` that ran), its prompt, when it runs next and last ran. A session's booked wake is not listed.",
+        "Each trigger its manifest declares, each its agents made with the `triggers` tool (`origin: agent`, with the title and the session that made it), and each a client put over the API (`origin: api`, with the title and the `principal` that put it), with what the Agent holds of it: its status (`active`, `paused` with a reason, `completed` for an `at` that ran), its prompt, when it runs next and last ran. A session's booked wake is not listed.",
       request: { params: agentId },
       responses: { 200: json(TriggerList, "The triggers") },
     },
@@ -119,12 +122,49 @@ export function triggerRoutes(api: OpenAPIHono<TenantEnv>): void {
     api,
     WRITE,
     {
+      method: "put",
+      path: "/v1/agents/{agentId}/triggers/{triggerId}",
+      tags: ["Triggers"],
+      summary: "Put a trigger on an Agent",
+      description:
+        "Creates or replaces the Agent's trigger `triggerId` of origin `api`: a `Trigger` exactly as a definition's `runtime.triggers` entry holds it (one of `schedule` with `timezone`, `at` or `webhook`; `session`; `prompt`), and an optional `title`. A new one is active with its next time; a replaced one gets its next time again and keeps its status, so a paused one stays paused. The same body again changes nothing and records no event. The checks and limits are a definition's; `runtime.limits.triggers.count` covers the triggers the Agent's agents made and those put here. Upgrades never touch it; `DELETE` removes it. Records `agent.trigger_created` or `agent.trigger_updated` (with `changed`) on the Agent's events. Host feature `api-triggers`.",
+      request: {
+        params: triggerPath,
+        body: { required: true, content: { "application/json": { schema: PutTriggerRequest } } },
+      },
+      responses: {
+        200: json(TriggerView, "The trigger, as the list shows it"),
+        400: { description: "Not a trigger, or one the checks refuse: a bad cron or time zone, runs closer than the minimum interval, an `at` not in the future, a prompt too long" },
+        404: { description: "No such Agent" },
+        409: { description: "The definition declares this id, or an agent's trigger or a booked wake holds it (`trigger_conflict`)" },
+        422: { description: "The Agent holds as many triggers its agents or clients made as `limits.triggers.count` allows (`trigger_limit`)" },
+      },
+    },
+    async (c) => {
+      const id = idOf(c.req.param("agentId"));
+      const scope = c.get("scope");
+      assertReaches(scope, id);
+      const triggerId = TriggerIdSchema.safeParse(c.req.param("triggerId"));
+      if (!triggerId.success) fail(400, triggerId.error.issues[0]?.message ?? "Not a trigger id");
+      const body = TriggerPutSchema.safeParse(await readJson(c));
+      if (!body.success)
+        fail(400, body.error.issues.map((issue) => `${issue.path.join(".") || "body"}: ${issue.message}`).join("; "), {
+          code: "invalid_request",
+        });
+      return jsonResponse(200, await putTrigger(c.env.tenant, id, triggerId.data!, body.data!, principalOf(scope), originOf(c)));
+    },
+  );
+
+  tenantRoute(
+    api,
+    WRITE,
+    {
       method: "delete",
       path: "/v1/agents/{agentId}/triggers/{triggerId}",
       tags: ["Triggers"],
-      summary: "Delete a trigger an agent made",
+      summary: "Delete a trigger an agent made or a client put",
       description:
-        "Deletes a trigger one of the Agent's agents made with the `triggers` tool (`origin: agent`), with `agent.trigger_deleted` on the Agent's events; its runs stay. A trigger its manifest declares is refused (`trigger_from_manifest`): save a version without it, or pause it.",
+        "Deletes a trigger one of the Agent's agents made with the `triggers` tool (`origin: agent`) or a client put (`origin: api`), with `agent.trigger_deleted` on the Agent's events; its runs stay. A trigger its manifest declares is refused (`trigger_from_manifest`): save a version without it, or pause it.",
       request: { params: triggerPath },
       responses: {
         200: json(DeletedResponse, "Deleted"),
