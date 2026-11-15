@@ -293,6 +293,12 @@ export const RunRoutingSchema = z
          * the sentinel `nylorun_managed`, and each `environment_variable`'s value. Never a secret.
          */
         environment: z.record(z.string(), z.string()).optional(),
+        /**
+         * The sandbox is a computer (ADR-149, Harness API 5.6): an Agent Substrate actor whose
+         * engine runs no loop. A harness opens it with `computer.open` and sends its sandbox
+         * calls to it through the sandbox gateway.
+         */
+        computer: z.literal(true).optional(),
       })
       .strict()
       .optional(),
@@ -623,6 +629,17 @@ export const harnessRequests = {
       })
       .strict(),
     result: z.object({ base64: z.string() }).strict(),
+  },
+  /**
+   * Opens the computer of the run's session (ADR-149, Harness API 5.6): `environmentId` must be
+   * the run's `routing.sandbox.environmentId` with `computer: true`. Core wakes it, waits until it
+   * is ready, writes a seed onto a new disk and runs the disk's setup when needed, and answers the
+   * sandbox gateway's URL for it, a ticket the gateway and the computer check, and when the ticket
+   * expires (ms since the epoch). A harness opens it again before then.
+   */
+  "computer.open": {
+    params: runId.extend({ environmentId: id }).strict(),
+    result: z.object({ url: z.string().url(), ticket: z.string().min(1), expiresAt: z.number().int() }).strict(),
   },
   /**
    * An artifact the run's session may read (the artifact seam, protocol 15): one of the session's

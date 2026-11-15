@@ -5,7 +5,8 @@
  * Runtime's harness: in process, or the harness container) and `sandbox` (the engine in a pod).
  * Default: both. `"*": { hosts: [] }` refuses every harness the map does not name (R4.1).
  *
- * A session on a pod Environment runs on `sandbox`; every other session (a virtual or `none`
+ * A session on a pod Environment runs on `sandbox` (on `harness-container` when pod Agents are
+ * computers, ADR-149); every other session (a virtual or `none`
  * Environment, or none) on `harness-container` (D52). A host the Tenant does not allow is
  * `409 placement_refused`. A pod Environment needs sandbox pods: without a cluster (`nylorun
  * sandbox enable`), or with the sandboxes service not ready, it is `409 agent_unavailable`.
@@ -42,8 +43,10 @@ export function checkPlacement(
   config: TenantSandboxConfig,
   kind: EnvironmentKind | undefined,
   harness: string = HARNESS_ID,
+  /** Pod Agents are computers (ADR-149): their harness runs in the harness container. */
+  computers = false,
 ): void {
-  const host: SandboxPlacementHost = kind === "pod" ? "sandbox" : "harness-container";
+  const host: SandboxPlacementHost = kind === "pod" && !computers ? "sandbox" : "harness-container";
   const allowed = placementOf(config, harness);
   if (allowed.includes(host)) return;
   const where = allowed.length === 0 ? "it may run nowhere" : `placement allows ${allowed.join(", ")}`;

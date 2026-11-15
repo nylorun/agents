@@ -12,6 +12,8 @@
  *   stop idle workspaces and list them (`workspace.sweep`), decides which owners are gone, and
  *   removes theirs (`workspace.remove`); it also keeps the `sandboxes` table in step with the
  *   list.
+ * - **Computers** (ADR-149): a pod Agent's workspace when the Tenant's pod Agents are computers,
+ *   through a SandboxManager on the computer backend (`sandbox/computer.ts`).
  * - **Pod sandboxes** (F7.2, `withPodWorkspaces`): a session attached to a pod sandbox has its
  *   workspace in the pod, served by the sandbox's engine (its host connection). Its tool calls
  *   and disk operations go there whatever serves the other workspaces; with the pod stopped or
@@ -226,11 +228,18 @@ export function withPodWorkspaces(
   base: WorkspacePort,
   options: Omit<RemoteWorkspaceOptions, "pod"> & {
     readonly isPod: (environmentId: string) => Promise<boolean>;
+    /**
+     * Computers (ADR-149): a pod Agent's workspace, reached through the sandbox gateway rather
+     * than a pod's host connection.
+     */
+    readonly computer?: (environmentId: string) => WorkspacePort;
   }
 ): WorkspacePort {
   const routed = async (session: SandboxSessionRef): Promise<WorkspacePort> =>
     session.environmentId !== undefined && (await options.isPod(session.environmentId))
-      ? remoteWorkspace({
+      ? options.computer
+        ? options.computer(session.environmentId)
+        : remoteWorkspace({
           ...options,
           pod: session.environmentId,
           ...(session.hostEpoch === undefined ? {} : { minEpoch: session.hostEpoch }),

@@ -95,3 +95,15 @@ export function fileSandboxRecords(path: string): SandboxRecords {
     count: async () => records.size,
   };
 }
+
+/** Records kept in memory: a computer's compute is core's pod row, not a `sandboxes` row. */
+export function memorySandboxRecords(): SandboxRecords {
+  const rows = new Map<string, SandboxRecord>();
+  return {
+    get: async (key) => rows.get(key),
+    put: async (record) => void rows.set(record.key, record),
+    delete: async (key) => void rows.delete(key),
+    list: async () => [...rows.values()],
+    count: async () => rows.size,
+  };
+}

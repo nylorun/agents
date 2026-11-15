@@ -53,13 +53,14 @@ import { LOOPBACK_HOSTS } from "@nylorun/core/contracts";
 import { blockedAddresses, type BlockedAddress } from "../sandbox/pods/network-gate.js";
 import { HostTuningError, parseHostTuning, type HostTuning } from "../tuning.js";
 import { HOST_IDENTITY_PROVIDERS } from "../vault/host-identity.js";
+import type { ComputerServiceConfig } from "../harness/computer.js";
 
 /** A Runtime service this release has. */
-export type RuntimeService = "core" | "loop" | "gates" | "keys" | "egress" | "harness";
+export type RuntimeService = "core" | "loop" | "gates" | "keys" | "egress" | "harness" | "computer";
 
 export type RuntimeServices = ReadonlySet<RuntimeService>;
 
-export const RUNTIME_SERVICES: readonly RuntimeService[] = ["core", "loop", "gates", "keys", "egress", "harness"];
+export const RUNTIME_SERVICES: readonly RuntimeService[] = ["core", "loop", "gates", "keys", "egress", "harness", "computer"];
 
 /**
  * Services that may share a process (D12): they hold the same secrets and parse the same
@@ -70,6 +71,7 @@ const SERVICE_GROUPS: readonly (readonly RuntimeService[])[] = [
   ["core", "loop"],
   ["gates", "keys", "egress"],
   ["harness"],
+  ["computer"],
 ];
 
 /** Where the gates service listens by default. */
@@ -194,6 +196,12 @@ export interface SandboxesConfig {
   token: string;
   /** `NYLORUN_SANDBOX_HARNESS_IMAGE` (the stack sets it to the Runtime image). */
   harnessImage: string;
+  /**
+   * Computers (ADR-149): `NYLORUN_SANDBOX_GATEWAY_URL`, the sandbox gateway, and
+   * `NYLORUN_COMPUTER_TICKET_KEY_FILE`, the key core signs tickets with. With them, every pod
+   * Agent is a computer: its runs go to the harness container.
+   */
+  computer?: { gatewayUrl: string; ticketKeyFile: string };
 }
 
 /**
@@ -269,6 +277,8 @@ export interface StackConfig {
   egress?: EgressConfig;
   /** Present when the process runs the harness service (`--service harness`). */
   harness?: HarnessServiceConfig;
+  /** `--service computer` (ADR-149): the engine in a computer. */
+  computer?: ComputerServiceConfig;
   /**
    * `NYLORUN_HARNESS` (`in-process` or `remote`; absent means `in-process`), for a process running
    * core or loop: whether the Tenant runs its own harness, or harnesses connect to
@@ -629,6 +639,8 @@ export function parseStackConfig(
   const tuning = parseTuning(env);
   if (services.has("harness"))
     return { services, harness: parseHarnessService(env), endpoints: {}, ...(tuning ? { tuning } : {}) };
+  if (services.has("computer"))
+    return { services, computer: parseComputerService(env), endpoints: {}, ...(tuning ? { tuning } : {}) };
   // The image sets NYLORUN_LISTEN_*: only the API's processes read them.
   const servesApi = services.has("core") || services.has("loop");
   const listen = servesApi ? parseListen(env) : undefined;
@@ -954,7 +966,18 @@ function parseSandboxes(env: EnvSnapshot): SandboxesConfig | undefined {
     throw new StackConfigError(
       "NYLORUN_SANDBOX_HARNESS_IMAGE is required with NYLORUN_SANDBOXES_URL: the Runtime image sandbox pods copy the engine from (`nylorun start` sets it)",
     );
-  return { url: url.replace(/\/+$/, ""), token, harnessImage };
+  const gatewayUrl = parseUrl(env, "NYLORUN_SANDBOX_GATEWAY_URL", ["http:", "https:"]);
+  const ticketKeyFile = read(env, "NYLORUN_COMPUTER_TICKET_KEY_FILE");
+  if ((gatewayUrl === undefined) !== (ticketKeyFile === undefined))
+    throw new StackConfigError(
+      "NYLORUN_SANDBOX_GATEWAY_URL and NYLORUN_COMPUTER_TICKET_KEY_FILE go together: computers need the sandbox gateway and the key core signs their tickets with",
+    );
+  return {
+    url: url.replace(/\/+$/, ""),
+    token,
+    harnessImage,
+    ...(gatewayUrl && ticketKeyFile ? { computer: { gatewayUrl: gatewayUrl.replace(/\/+$/, ""), ticketKeyFile } } : {}),
+  };
 }
 
 /**
@@ -975,6 +998,35 @@ function parseHarnessListener(env: EnvSnapshot, tokenRequired = true): HarnessLi
 
 /** What a harness process must not hold: it runs next to agent code. */
 const HARNESS_REFUSED = ["NYLORUN_DATABASE_URL", "NYLORUN_GATES_TOKEN", "NYLORUN_KEYS_URL"];
+
+/**
+ * The engine in a computer (ADR-149), from the variables its template carries: the port, the
+ * ticket key's public half and the file with the actor's name. It holds no Runtime credential.
+ */
+function parseComputerService(env: EnvSnapshot): ComputerServiceConfig {
+  const held = [...HARNESS_REFUSED, "NYLORUN_HARNESS_TOKEN", "NYLORUN_JOIN_TOKEN"].filter((name) => read(env, name) !== undefined);
+  if (held.length > 0)
+    throw new StackConfigError(`--service computer refuses to start with ${held.join(", ")} set: a computer holds no Runtime credential`);
+  const ticketKey = read(env, "NYLORUN_COMPUTER_TICKET_KEY");
+  if (ticketKey === undefined || !ticketKey.includes("PUBLIC KEY"))
+    throw new StackConfigError("NYLORUN_COMPUTER_TICKET_KEY is required for --service computer: the PEM public key tickets are checked with");
+  const nameFile = read(env, "NYLORUN_COMPUTER_NAME_FILE");
+  if (nameFile === undefined)
+    throw new StackConfigError("NYLORUN_COMPUTER_NAME_FILE is required for --service computer: the file holding the actor's name");
+  const rawPort = read(env, "NYLORUN_COMPUTER_PORT");
+  const root = read(env, "NYLORUN_HARNESS_ROOT") ?? "/harness";
+  if (!root.startsWith("/"))
+    throw new StackConfigError(`NYLORUN_HARNESS_ROOT must be an absolute path, not ${root}`);
+  const egressCaFile = read(env, "NYLORUN_SANDBOX_EGRESS_CA_FILE");
+  return {
+    port: rawPort === undefined ? 8080 : parsePort("NYLORUN_COMPUTER_PORT", rawPort),
+    ticketKey,
+    nameFile,
+    root,
+    ...(egressCaFile ? { egressCaFile } : {}),
+    substrate: read(env, "NYLORUN_SANDBOX_SUBSTRATE") === "1",
+  };
+}
 
 /** `StackConfig.harness` from `NYLORUN_HARNESS_*` and `NYLORUN_GATES_URL`. */
 function parseHarnessService(env: EnvSnapshot): HarnessServiceConfig {

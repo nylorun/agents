@@ -34,6 +34,11 @@ export interface HarnessExecutorsOptions {
   /** The SandboxManager; a harness process creates it once `hello` names the Tenant. */
   readonly sandbox: () => SandboxManager;
   /**
+   * The manager of a run whose sandbox is a computer (`routing.sandbox.computer`, ADR-149): one on
+   * the computer backend, opened with `computer.open`. Absent: such a run's sandbox calls fail.
+   */
+  readonly computer?: (run: HarnessRun) => SandboxManager;
+  /**
    * The sandbox tools' limits the calls run with: the harness's configuration, the same it gives
    * `createHarness({ sandboxTools })`. Each left out is its default.
    */
@@ -41,6 +46,12 @@ export interface HarnessExecutorsOptions {
 }
 
 export function harnessExecutors(options: HarnessExecutorsOptions): HarnessExecutors {
+  /** The run's SandboxManager: its computer's, or the harness's own. */
+  const managerOf = (run: HarnessRun): SandboxManager => {
+    if (run.start.routing.sandbox?.computer !== true) return options.sandbox();
+    if (!options.computer) throw new Error("This harness can't reach computers: the run's sandbox is one");
+    return options.computer(run);
+  };
   const recoversTools = options.toolGate.recovers === true;
   const sandboxTools = sandboxToolLimitsOf(options.sandboxTools);
   const atGate = (effect: Parameters<HarnessExecutors["tool"]>[0], run: HarnessRun) => {
@@ -65,7 +76,7 @@ export function harnessExecutors(options: HarnessExecutorsOptions): HarnessExecu
       // A sandbox command joins its call's span (R7.4): a CLI that reads TRACEPARENT traces under it.
       if (effect.target?.kind === "sandbox")
         return callSandboxTool(
-          options.sandbox(),
+          managerOf(run),
           traceparent ? { ...routing, environment: { ...routing.environment, TRACEPARENT: traceparent } } : routing,
           effect,
           signal,
@@ -100,12 +111,12 @@ export function harnessExecutors(options: HarnessExecutorsOptions): HarnessExecu
     prepare: (run, record) => prepareMcp(options.mcp, run, record),
     files: {
       read: (run, path, maxBytes, signal) =>
-        withSandbox(run, (session, spec) => options.sandbox().readBytes(session, spec, path, maxBytes, signal)),
+        withSandbox(run, (session, spec) => managerOf(run).readBytes(session, spec, path, maxBytes, signal)),
       write: (run, path, body, signal) =>
-        withSandbox(run, (session, spec) => options.sandbox().writeBytes(session, spec, path, body, signal)),
+        withSandbox(run, (session, spec) => managerOf(run).writeBytes(session, spec, path, body, signal)),
       list: (run, dir, maxEntries, signal) =>
         withSandbox(run, async (session, spec) => {
-          const listed = await options.sandbox().listFiles(session, spec, dir, maxEntries, signal);
+          const listed = await managerOf(run).listFiles(session, spec, dir, maxEntries, signal);
           return listed.kind === "listed"
             ? { kind: "listed" as const, entries: listed.listing.entries, truncated: listed.listing.truncated }
             : listed.kind === "missing"
@@ -114,7 +125,7 @@ export function harnessExecutors(options: HarnessExecutorsOptions): HarnessExecu
         }),
       mount: (run, folder, files, read, signal) =>
         withSandbox(run, (session, spec) =>
-          options.sandbox().mountFolder(session, spec, folder, files, read, signal)
+          managerOf(run).mountFolder(session, spec, folder, files, read, signal)
         ),
     },
   };

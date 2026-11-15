@@ -153,6 +153,8 @@ export async function startSegment(
         ...workspace,
         ...(Object.keys(environment).length > 0 ? { environment } : {}),
         ...(current.sandbox === undefined ? {} : { spec: current.sandbox }),
+        // A pod Agent's sandbox is a computer when the Tenant's are (ADR-149).
+        ...(resource?.kind === "pod" && ctx.pods?.computer ? { computer: true as const } : {}),
       };
       const turnId = current.activeTurnId;
       const noted = current.memoryIndex;

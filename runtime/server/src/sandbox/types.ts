@@ -4,8 +4,11 @@
  */
 import type { SandboxNetworkPreset } from "@nylorun/core/define";
 
-/** `virtual` (just-bash, in process); `local` (the pod sandbox the engine runs in, F7.2). */
-export type SandboxBackendName = "virtual" | "local";
+/**
+ * `virtual` (just-bash, in process); `local` (the pod sandbox the engine runs in, F7.2);
+ * `computer` (an Agent Substrate computer, reached through the sandbox gateway, ADR-149).
+ */
+export type SandboxBackendName = "virtual" | "local" | "computer";
 /** What separates a sandbox from its host: the Runtime process, or a container boundary. */
 export type SandboxIsolation = "process" | "container";
 

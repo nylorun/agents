@@ -133,7 +133,8 @@ export async function openSessionIn(
   await checkSkillLimit(t, pin.manifest, agent);
   const config = await readSandboxConfig(t);
   // Placement (D38, D52): where this session's harness may run, decided now and kept.
-  checkPlacement(config, agent.kind, pin.harness);
+  // A computer's harness runs in the harness container (ADR-149).
+  checkPlacement(config, agent.kind, pin.harness, ctx.pods?.computer !== undefined);
   if (agent.kind === "pod") await requirePods(ctx.pods, `Agent ${agent.id}`);
   // The model the version names (`harness.model`, Host feature `agent-model`) is the new
   // session's own, as `chooseSessionModel` would make it, when the Tenant can use it now.
