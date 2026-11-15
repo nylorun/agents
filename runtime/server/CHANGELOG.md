@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.53.0-beta
+
+### Minor Changes
+
+- 5b49361: A pod Agent on an Agent Substrate cluster can be a computer (ADR-149, ADR-150): with `NYLORUN_SANDBOX_GATEWAY_URL` and `NYLORUN_COMPUTER_TICKET_KEY_FILE` set (the Runtime's Helm chart sets both), its sessions' runs go to the harness container, and their sandbox tools, file reads and writes, skill folders and disk versions reach the Agent's actor through the sandbox gateway and `atenet-router`, with a ticket core signs (Ed25519). The engine's `--service computer` runs no loop: it serves commands (a start and attaches, each under 50 s) and files on port 8080, checks each ticket against the key its template carries, and answers the wake-up probe on `/ready`. A harness opens a computer with `computer.open`; core wakes it, waits until it is ready, writes a seed onto a new disk, runs the disk's setup through it and passes a version's start check. The tools, `runtime.json` and every other backend are unchanged.
+
+  - `@nylorun/core`: Harness API 5.6 (`harness-api/v5.6.json`): `routing.sandbox.computer` and the request `computer.open`.
+  - `@nylorun/runtime`: `--service computer`; the `computer` sandbox backend; `NYLORUN_SANDBOX_GATEWAY_URL` and `NYLORUN_COMPUTER_TICKET_KEY_FILE`.
+
+- 0cb752d: The Runtime's Helm chart, `charts/nylorun-runtime` (ADR-147, the Runtime on Kubernetes plan): the Runtime on an Agent Substrate cluster, with computers. It installs core, the gateway, the harness, Studio, the sandboxes service in the cluster, the sandbox gateway (atenet-router's client), Restate on a disk and s2-lite with its streams in the object store; Postgres and the object store are an external URL and S3 endpoint, or bundled (Postgres, RustFS). It makes the Runtime's secrets once and keeps them, and optionally pre-pulls images on worker nodes and makes the Tenant's atespace. Its README says what Substrate needs (the router's allowlist, the atespace) and has a GCP example.
+- f2ef233: The sandboxes service runs in the cluster it drives, and Agent Substrate sandboxes can be computers (ADR-149, the Runtime on Kubernetes plan). `cluster.json`'s `inCluster: true` uses the pod's ServiceAccount and reaches Substrate's API by its Service with a projected token; `substrate.computer` renders every sandbox as a computer: its engine runs `--service computer`, with no join token, edge or edge rule, a wake-up probe on `/ready`, and the ticket key's public half. `sandboxes gateway` is the sandbox gateway (ADR-148): it checks a computer ticket and proxies to the computer through an mTLS CONNECT tunnel to `atenet-router`.
+
+### Patch Changes
+
+- becf6a2: A computer runs our engine whatever harness drives its Agent: an Agent with a custom harness runs it through the Harness API, and its image is its computer. The chart sets numeric users for `runAsNonRoot`, uses the sandboxes service's `/health` for readiness (its `/ready` waits for the atespace the post-install Job makes), and says that Substrate's API admits only namespaces labelled `ate.dev/api-access=true`. Docs: Harness API §9b (computers), Kubernetes in SELF_HOSTING.md, and a MIGRATION entry.
+- Pin core to the tested release.
+- Pin harness to the tested release.
+- Updated dependencies [5b49361]
+- Updated dependencies
+  - @nylorun/core@0.46.0-beta
+  - @nylorun/harness@0.36.6-beta
+
 ## 0.52.0-beta
 
 ### Minor Changes
