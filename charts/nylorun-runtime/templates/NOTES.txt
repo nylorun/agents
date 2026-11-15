@@ -1,5 +1,9 @@
 The Nylorun Runtime is installing in {{ .Release.Namespace }}.
 
+0. Substrate's API admits this namespace only with its label:
+
+     kubectl label namespace {{ .Release.Namespace }} ate.dev/api-access=true
+
 1. The sandbox gateway must be atenet-router's client. Install (or update) Agent Substrate with
    ATE_INGRESS_ALLOWED_SPIFFE_IDS including:
 

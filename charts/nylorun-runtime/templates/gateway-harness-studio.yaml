@@ -17,6 +17,8 @@ spec:
       labels: {{- include "nylorun.selector" (dict "root" . "component" "gateway") | nindent 8 }}
     spec:
       {{- include "nylorun.podSecurity" . | nindent 6 }}
+        runAsUser: 1000
+        runAsGroup: 1000
         fsGroup: 1000
       {{- include "nylorun.placement" . | nindent 6 }}
       enableServiceLinks: false
@@ -79,6 +81,8 @@ spec:
       labels: {{- include "nylorun.selector" (dict "root" . "component" "harness") | nindent 8 }}
     spec:
       {{- include "nylorun.podSecurity" . | nindent 6 }}
+        runAsUser: 1000
+        runAsGroup: 1000
         fsGroup: 1000
       {{- include "nylorun.placement" . | nindent 6 }}
       enableServiceLinks: false
@@ -116,6 +120,8 @@ spec:
       labels: {{- include "nylorun.selector" (dict "root" . "component" "studio") | nindent 8 }}
     spec:
       {{- include "nylorun.podSecurity" . | nindent 6 }}
+        runAsUser: 1000
+        runAsGroup: 1000
         fsGroup: 1000
       {{- include "nylorun.placement" . | nindent 6 }}
       enableServiceLinks: false
