@@ -63,7 +63,7 @@ import {
   pendingAgentEffects,
   reconcilePendingAgentEffect,
 } from "../core/flow-host.js";
-import type { PendingRequest } from "../store/types.js";
+import type { PendingRequest, SandboxPodState } from "../store/types.js";
 import type { TenantContext } from "./context.js";
 import { hostTuning } from "../tuning.js";
 import { idleMsOf, sweepStartChecks } from "./agent-versions.js";
@@ -341,28 +341,47 @@ export async function wakeOrphanedSessions(
  */
 async function reconcileStalePods(ctx: TenantContext, now: Date): Promise<void> {
   if (!ctx.pods) return;
+  const computer = ctx.pods.computer !== undefined;
   const stale = await ctx.store.tx(async (t) => {
     const config = await readSandboxConfig(t);
-    return (await t.listEnvironments()).filter((row) => {
-      const pod = row.pod;
-      if (!pod || now.getTime() - Date.parse(row.updatedAt) < hostTuning().sweep.stalePodMs) return false;
-      return (
-        pod.desired === "deleted" ||
-        pod.retiring !== undefined ||
-        pod.observed === "creating" ||
-        pod.observed === "deleting" ||
-        (pod.desired === "suspended" && pod.observed !== "suspended") ||
-        // Running, but its engine is not connected: the pod may be gone, or its volume.
-        // (A computer has no engine connection, ADR-149.)
-        (pod.desired === "running" && pod.observed === "running" && !ctx.pods?.computer && !ctx.harness.hosting(row.id)) ||
-        // Running past its idle limit: its idle timer is missing (or a turn holds it, which the
-        // reconcile leaves alone).
-        (pod.desired === "running" &&
-          pod.observed === "running" &&
-          now.getTime() - Date.parse(pod.lastActiveAt ?? row.createdAt) >
-            idleMsOf(config, row) + hostTuning().sweep.stalePodMs)
-      );
-    });
+    return (await t.listEnvironments()).filter((row) =>
+      podWantsReconcile(row, {
+        now: now.getTime(),
+        staleMs: hostTuning().sweep.stalePodMs,
+        idleMs: idleMsOf(config, row),
+        computer,
+        hosting: ctx.harness.hosting(row.id),
+      }),
+    );
   });
   for (const row of stale) await ctx.sandboxSignal(row.id, { kind: "reconcile" });
+}
+
+/**
+ * Whether the sweep asks for a reconcile of `row`'s pod (`reconcileStalePods`): its row has not
+ * moved for `staleMs`, and its change is unfinished, its engine is not connected, or it runs
+ * past its idle limit. A running computer (ADR-149) always qualifies: nothing else looks at it
+ * while a harness holds a ticket, so the sweep is what finds it drained to another worker
+ * (`drainedAt`, recorded once) or deleted outside the Runtime.
+ */
+export function podWantsReconcile(
+  row: { readonly updatedAt: string; readonly createdAt: string; readonly pod?: SandboxPodState },
+  facts: { now: number; staleMs: number; idleMs: number; computer: boolean; hosting: boolean },
+): boolean {
+  const pod = row.pod;
+  if (!pod || facts.now - Date.parse(row.updatedAt) < facts.staleMs) return false;
+  const running = pod.desired === "running" && pod.observed === "running";
+  return (
+    pod.desired === "deleted" ||
+    pod.retiring !== undefined ||
+    pod.observed === "creating" ||
+    pod.observed === "deleting" ||
+    (pod.desired === "suspended" && pod.observed !== "suspended") ||
+    // Running, but its engine is not connected: the pod may be gone, or its volume. A computer
+    // has no engine connection: look at it every time.
+    (running && (facts.computer || !facts.hosting)) ||
+    // Running past its idle limit: its idle timer is missing (or a turn holds it, which the
+    // reconcile leaves alone).
+    (running && facts.now - Date.parse(pod.lastActiveAt ?? row.createdAt) > facts.idleMs + facts.staleMs)
+  );
 }
