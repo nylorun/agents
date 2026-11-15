@@ -3,11 +3,15 @@ import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { readFile, writeFile } from "node:fs/promises";
 import {
+  CHART,
+  assertChartPins,
   assertRuntimeImagePin,
   assertStudioImagePin,
   assertRuntimePins,
   assertStudioImageOnly,
+  syncChartPins,
   syncImagePins,
 } from "../release/pins.mjs";
 import { imageRelease, registryHas } from "../release/images.mjs";
@@ -200,4 +204,43 @@ test("registryHas treats only a missing or unreadable tag as absent", async () =
     () => registryHas("t", failing("dial tcp: i/o timeout")),
     /docker failed/,
   );
+});
+
+const CHART_FIXTURE = `apiVersion: v2
+name: nylorun-runtime
+version: 0.8.0-beta
+appVersion: 0.8.0-beta
+annotations:
+  licenses: Apache-2.0
+`;
+
+async function withChart(body) {
+  await withRepo({ pins: { runtime: "0.9.0-beta", studio: "0.4.0-beta" } }, async (root) => {
+    await mkdir(join(root, "charts/nylorun-runtime"), { recursive: true });
+    await writeFile(join(root, CHART), CHART_FIXTURE);
+    await body(root);
+  });
+}
+
+test("assertRuntimePins fails when the chart's versions lag the pins", () =>
+  withChart((root) =>
+    assert.rejects(() => assertRuntimePins(root), /Chart\.yaml version \(0\.8\.0-beta\) must equal 0\.9\.0-beta/),
+  ));
+
+test("syncChartPins writes the Runtime's version and Studio's annotation, idempotently", () =>
+  withChart(async (root) => {
+    const pins = { runtime: "0.9.0-beta", studio: "0.4.0-beta" };
+    await syncChartPins(root, pins);
+    await syncChartPins(root, pins);
+    const text = await readFile(join(root, CHART), "utf8");
+    assert.match(text, /^version: 0\.9\.0-beta$/m);
+    assert.match(text, /^appVersion: 0\.9\.0-beta$/m);
+    assert.equal(text.match(/nylorun\.com\/studio-version/g).length, 1);
+    await assertChartPins(root, pins);
+    assert.deepEqual(await assertRuntimePins(root), pins);
+  }));
+
+test("the repo's chart matches its pins", async () => {
+  const { root } = await import("../lib/repo.mjs");
+  await assertRuntimePins(root);
 });

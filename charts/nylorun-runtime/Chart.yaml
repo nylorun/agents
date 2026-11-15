@@ -2,7 +2,8 @@ apiVersion: v2
 name: nylorun-runtime
 description: The Nylorun Runtime on an Agent Substrate cluster, with computers (ADR-147, ADR-148, ADR-149)
 type: application
-# Versioned with @nylorun/runtime: the release sets both (scripts/release).
+# Versioned with @nylorun/runtime; Studio's image tag is the annotation. The release sets all
+# three (scripts/release/pins.mjs).
 version: 0.53.0-beta
 appVersion: 0.53.0-beta
 kubeVersion: ">=1.37.0-0"
@@ -10,4 +11,5 @@ home: https://github.com/nylorun/agents
 sources:
   - https://github.com/nylorun/agents/tree/main/charts/nylorun-runtime
 annotations:
+  nylorun.com/studio-version: "0.36.1-beta"
   licenses: Apache-2.0
