@@ -1,0 +1,238 @@
+{{- $n := include "nylorun.name" . -}}
+{{- $secret := include "nylorun.secret" . -}}
+{{- $atespace := include "nylorun.atespace" . -}}
+{{- $cluster := dict "namespace" .Release.Namespace "inCluster" true "backend" "substrate" "substrate" (dict "atespace" $atespace "systemNamespace" .Values.substrate.systemNamespace "apiService" .Values.substrate.apiService "serviceAccount" (printf "%s-sandboxes" $n) "workerSelector" .Values.substrate.workerSelector "computer" (dict "port" .Values.computer.port)) -}}
+# The sandboxes service in the cluster (ADR-147): each computer's lifecycle through Substrate's
+# API, as editor of the Tenant's atespace, and the drain watch. One replica: it holds no lock.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $n }}-sandboxes
+  labels: {{- include "nylorun.labels" . | nindent 4 }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $n }}-sandboxes
+  labels: {{- include "nylorun.labels" . | nindent 4 }}
+data:
+  cluster.json: {{ toJson $cluster | quote }}
+---
+# Its state: a ConfigMap per sandbox.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $n }}-sandboxes
+  labels: {{- include "nylorun.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [configmaps]
+    verbs: [get, list, watch, create, update, patch, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $n }}-sandboxes
+  labels: {{- include "nylorun.labels" . | nindent 4 }}
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: Role, name: {{ $n }}-sandboxes }
+subjects: [{ kind: ServiceAccount, name: {{ $n }}-sandboxes, namespace: {{ .Release.Namespace }} }]
+---
+# Suspend before drain: it watches Substrate's worker pods.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Release.Namespace }}-{{ $n }}-sandboxes
+  labels: {{- include "nylorun.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Release.Namespace }}-{{ $n }}-sandboxes
+  labels: {{- include "nylorun.labels" . | nindent 4 }}
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: {{ .Release.Namespace }}-{{ $n }}-sandboxes }
+subjects: [{ kind: ServiceAccount, name: {{ $n }}-sandboxes, namespace: {{ .Release.Namespace }} }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $n }}-sandboxes
+  labels: {{- include "nylorun.labels" . | nindent 4 }}
+    app.kubernetes.io/component: sandboxes
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: {{- include "nylorun.selector" (dict "root" . "component" "sandboxes") | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "nylorun.selector" (dict "root" . "component" "sandboxes") | nindent 8 }}
+      annotations:
+        checksum/cluster: {{ toJson $cluster | sha256sum | trunc 16 }}
+    spec:
+      serviceAccountName: {{ $n }}-sandboxes
+      {{- include "nylorun.podSecurity" . | nindent 6 }}
+      {{- include "nylorun.placement" . | nindent 6 }}
+      enableServiceLinks: false
+      containers:
+        - name: sandboxes
+          image: {{ include "nylorun.image.sandboxes" . }}
+          {{- include "nylorun.containerSecurity" . | nindent 10 }}
+          ports: [{ name: api, containerPort: 4300 }]
+          env:
+            - name: NYLORUN_SANDBOXES_TOKEN
+              valueFrom: { secretKeyRef: { name: {{ $secret }}, key: sandboxesToken } }
+            - { name: NYLORUN_SANDBOXES_DIR, value: /run/nylorun/sandboxes }
+            - { name: NYLORUN_SANDBOXES_LISTEN, value: ":4300" }
+            - { name: NYLORUN_COMPUTER_TICKET_KEY_FILE, value: /run/nylorun/computer/ticket.key }
+            - { name: NYLORUN_SUBSTRATE_TOKEN_FILE, value: /var/run/secrets/ate/token }
+            - { name: NYLORUN_SUBSTRATE_CA_FILE, value: /var/run/secrets/ate/ca.pem }
+          readinessProbe:
+            httpGet: { path: /ready, port: api }
+            periodSeconds: 5
+          {{- with .Values.resources.sandboxes }}
+          resources: {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - { name: cluster, mountPath: /run/nylorun/sandboxes, readOnly: true }
+            - { name: ticket, mountPath: /run/nylorun/computer, readOnly: true }
+            - { name: ate, mountPath: /var/run/secrets/ate, readOnly: true }
+      volumes:
+        - name: cluster
+          configMap: { name: {{ $n }}-sandboxes }
+        - name: ticket
+          secret:
+            secretName: {{ $secret }}
+            items: [{ key: ticketKey, path: ticket.key }]
+        # Substrate's API: a token with its audience, and its service-DNS signer's bundle.
+        - name: ate
+          projected:
+            sources:
+              - serviceAccountToken:
+                  audience: {{ printf "%s.%s.svc" .Values.substrate.apiService .Values.substrate.systemNamespace }}
+                  expirationSeconds: 3600
+                  path: token
+              - clusterTrustBundle:
+                  signerName: servicedns.podcert.ate.dev/identity
+                  labelSelector: { matchLabels: { podcert.ate.dev/canarying: live } }
+                  path: ca.pem
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $n }}-sandboxes
+  labels: {{- include "nylorun.labels" . | nindent 4 }}
+spec:
+  selector: {{- include "nylorun.selector" (dict "root" . "component" "sandboxes") | nindent 4 }}
+  ports: [{ name: api, port: 4300, targetPort: api }]
+---
+# The sandbox gateway (ADR-148): the computers' one way in, and atenet-router's only client the
+# Runtime adds. Its SPIFFE ID must be in the router's allowlist (NOTES).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $n }}-sandbox-gateway
+  labels: {{- include "nylorun.labels" . | nindent 4 }}
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $n }}-sandbox-gateway
+  labels: {{- include "nylorun.labels" . | nindent 4 }}
+    app.kubernetes.io/component: sandbox-gateway
+spec:
+  replicas: {{ .Values.sandboxGateway.replicas }}
+  selector:
+    matchLabels: {{- include "nylorun.selector" (dict "root" . "component" "sandbox-gateway") | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "nylorun.selector" (dict "root" . "component" "sandbox-gateway") | nindent 8 }}
+    spec:
+      serviceAccountName: {{ $n }}-sandbox-gateway
+      {{- include "nylorun.podSecurity" . | nindent 6 }}
+      {{- include "nylorun.placement" . | nindent 6 }}
+      enableServiceLinks: false
+      containers:
+        - name: gateway
+          image: {{ include "nylorun.image.sandboxes" . }}
+          args:
+            - gateway
+            - --atespace={{ $atespace }}
+            - --computer-port={{ .Values.computer.port }}
+            - --router={{ .Values.substrate.router }}
+            - --router-name={{ .Values.substrate.routerName }}
+          {{- include "nylorun.containerSecurity" . | nindent 10 }}
+          ports: [{ name: http, containerPort: 4400 }]
+          env:
+            - { name: NYLORUN_COMPUTER_TICKET_KEY_FILE, value: /run/nylorun/computer/ticket.key }
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 5
+          {{- with .Values.sandboxGateway.resources }}
+          resources: {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - { name: ticket, mountPath: /run/nylorun/computer, readOnly: true }
+            - { name: router-client, mountPath: /run/router-client, readOnly: true }
+      volumes:
+        - name: ticket
+          secret:
+            secretName: {{ $secret }}
+            items: [{ key: ticketKey, path: ticket.key }]
+        - name: router-client
+          projected:
+            sources:
+              - podCertificate:
+                  signerName: podidentity.podcert.ate.dev/identity
+                  keyType: ECDSAP256
+                  credentialBundlePath: credential-bundle.pem
+              - clusterTrustBundle:
+                  signerName: servicedns.podcert.ate.dev/identity
+                  labelSelector: { matchLabels: { podcert.ate.dev/canarying: live } }
+                  path: router-ca.pem
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $n }}-sandbox-gateway
+  labels: {{- include "nylorun.labels" . | nindent 4 }}
+spec:
+  selector: {{- include "nylorun.selector" (dict "root" . "component" "sandbox-gateway") | nindent 4 }}
+  ports: [{ name: http, port: 4400, targetPort: http }]
+---
+# Only the runtime and the harness reach the sandbox gateway.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $n }}-sandbox-gateway
+  labels: {{- include "nylorun.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels: {{- include "nylorun.selector" (dict "root" . "component" "sandbox-gateway") | nindent 6 }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: { matchLabels: { app.kubernetes.io/instance: {{ .Release.Name }}, app.kubernetes.io/component: runtime } }
+        - podSelector: { matchLabels: { app.kubernetes.io/instance: {{ .Release.Name }}, app.kubernetes.io/component: harness } }
+      ports: [{ port: 4400 }]
+---
+# The Restate worker port: only Restate calls it.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $n }}-runtime-worker
+  labels: {{- include "nylorun.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels: {{- include "nylorun.selector" (dict "root" . "component" "runtime") | nindent 6 }}
+  policyTypes: [Ingress]
+  ingress:
+    - ports: [{ port: 4000 }]
+    - from: [{ podSelector: { matchLabels: { app.kubernetes.io/instance: {{ .Release.Name }}, app.kubernetes.io/component: harness } } }]
+      ports: [{ port: 4200 }]
+    - from: [{ podSelector: { matchLabels: { app.kubernetes.io/instance: {{ .Release.Name }}, app.kubernetes.io/component: restate } } }]
+      ports: [{ port: 9080 }]

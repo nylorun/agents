@@ -435,6 +435,17 @@ jobs:
           test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
           go vet ./...
           go test ./...
+      # The Runtime's Helm chart (charts/nylorun-runtime) lints and renders, bundled and on GCP.
+      - uses: azure/setup-helm@v4
+        if: matrix.leg == 'service'
+        with:
+          version: v3.19.0
+      - name: helm lint and template
+        if: matrix.leg == 'service'
+        run: |
+          helm lint charts/nylorun-runtime
+          helm template t charts/nylorun-runtime --kube-version 1.37.0 >/dev/null
+          helm template t charts/nylorun-runtime --kube-version 1.37.0 -f charts/nylorun-runtime/values-gcp.example.yaml >/dev/null
       - uses: actions/setup-node@v6
         with:
           node-version-file: .node-version

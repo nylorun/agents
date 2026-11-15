@@ -1,0 +1,56 @@
+# Google Cloud: GKE with Agent Substrate, Cloud SQL and GCS (what the test cluster runs).
+# Fill in the <…>; keep secrets in the Secrets named here, never in this file.
+
+images:
+  runtime: ghcr.io/nylorun/runtime@sha256:<digest>
+  studio: ghcr.io/nylorun/studio@sha256:<digest>
+  sandboxes: ghcr.io/nylorun/sandboxes@sha256:<digest>
+
+tenant:
+  name: default
+
+ingress:
+  enabled: true
+  className: gce
+  host: runtime.example.com
+  annotations:
+    networking.gke.io/managed-certificates: nylorun-runtime
+
+# Cloud SQL for PostgreSQL, private IP: flag cloudsql.logical_decoding=on, a C-collation
+# database, a user with REPLICATION. The Secret holds `url`.
+postgres:
+  existingSecret: nylorun-postgres
+  bundled:
+    enabled: false
+
+# GCS through its S3 API, with an HMAC key. The Secret holds `accessKey` and `secretKey`.
+objectStore:
+  endpoint: https://storage.googleapis.com
+  bucket: <project>-nylorun
+  region: auto
+  existingSecret: nylorun-object-store
+  bundled:
+    enabled: false
+
+s2:
+  objectStore: true
+  path: s2
+
+substrate:
+  workerSelector: {}
+
+# The chart's own pool, tainted for it.
+placement:
+  nodeSelector:
+    cloud.google.com/gke-nodepool: nylorun-runtime
+  tolerations:
+    - { key: nylorun.dev/workloadType, operator: Equal, value: runtime, effect: NoSchedule }
+
+prepull:
+  enabled: true
+  substrateCommit: b34fbee742906494b5eb4f1f36987176bf8770a4
+  images: [python:3.13-slim]
+  nodeSelector:
+    cloud.google.com/gke-nodepool: nylorun-workers
+  tolerations:
+    - { key: ate.dev/sandboxClass, operator: Equal, value: gvisor, effect: NoSchedule }

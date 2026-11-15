@@ -1,0 +1,150 @@
+{{- $n := include "nylorun.name" . -}}
+{{- $secret := include "nylorun.secret" . -}}
+# The gateway (`--service gates,keys`): the Model and Tool Gates and keys. The only holder of the
+# vault key and of credentials.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $n }}-gateway
+  labels: {{- include "nylorun.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {{- include "nylorun.selector" (dict "root" . "component" "gateway") | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "nylorun.selector" (dict "root" . "component" "gateway") | nindent 8 }}
+    spec:
+      {{- include "nylorun.podSecurity" . | nindent 6 }}
+        fsGroup: 1000
+      {{- include "nylorun.placement" . | nindent 6 }}
+      enableServiceLinks: false
+      containers:
+        - name: gateway
+          image: {{ include "nylorun.image.runtime" . }}
+          args: ["--service", "gates,keys"]
+          {{- include "nylorun.containerSecurity" . | nindent 10 }}
+          ports: [{ name: gates, containerPort: 4100 }]
+          env:
+            - { name: NYLORUN_HOME, value: /nylorun }
+            - { name: NYLORUN_PACKING, value: combined }
+            - { name: NYLORUN_GATES_LISTEN_HOST, value: 0.0.0.0 }
+            - { name: NYLORUN_GATES_LISTEN_PORT, value: "4100" }
+            - { name: NYLORUN_GATES_ALLOWED_HOSTS, value: "{{ $n }}-gateway:4100" }
+            - name: NYLORUN_GATES_TOKEN
+              valueFrom: { secretKeyRef: { name: {{ $secret }}, key: gatesToken } }
+            - name: NYLORUN_DATABASE_URL
+              valueFrom: { secretKeyRef: { name: {{ include "nylorun.postgres.secret" . }}, key: url } }
+            {{- include "nylorun.objectStore.env" . | nindent 12 }}
+          readinessProbe:
+            httpGet: { path: /ready, port: gates }
+            periodSeconds: 5
+          {{- with .Values.resources.gateway }}
+          resources: {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - { name: home, mountPath: /nylorun }
+            - { name: kek, mountPath: /nylorun/keys, readOnly: true }
+      volumes:
+        - { name: home, emptyDir: {} }
+        - name: kek
+          secret:
+            secretName: {{ $secret }}
+            defaultMode: 0440
+            items: [{ key: vaultKek, path: vault-kek }]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $n }}-gateway
+  labels: {{- include "nylorun.labels" . | nindent 4 }}
+spec:
+  selector: {{- include "nylorun.selector" (dict "root" . "component" "gateway") | nindent 4 }}
+  ports: [{ name: gates, port: 4100, targetPort: gates }]
+---
+# The harness (`--service harness`): every loop (ADR-149). It holds the harness token only.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $n }}-harness
+  labels: {{- include "nylorun.labels" . | nindent 4 }}
+    app.kubernetes.io/component: harness
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {{- include "nylorun.selector" (dict "root" . "component" "harness") | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "nylorun.selector" (dict "root" . "component" "harness") | nindent 8 }}
+    spec:
+      {{- include "nylorun.podSecurity" . | nindent 6 }}
+        fsGroup: 1000
+      {{- include "nylorun.placement" . | nindent 6 }}
+      enableServiceLinks: false
+      containers:
+        - name: harness
+          image: {{ include "nylorun.image.runtime" . }}
+          args: ["--service", "harness"]
+          {{- include "nylorun.containerSecurity" . | nindent 10 }}
+          env:
+            - { name: NYLORUN_HARNESS_URL, value: "ws://{{ $n }}-runtime:4200/nylorun/harness/v1" }
+            - name: NYLORUN_HARNESS_TOKEN
+              valueFrom: { secretKeyRef: { name: {{ $secret }}, key: harnessToken } }
+            - { name: NYLORUN_GATES_URL, value: "http://{{ $n }}-gateway:4100" }
+            - { name: NYLORUN_HARNESS_ROOT, value: /harness }
+          {{- with .Values.resources.harness }}
+          resources: {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts: [{ name: root, mountPath: /harness }]
+      volumes: [{ name: root, emptyDir: {} }]
+{{- if .Values.studio.enabled }}
+---
+# Studio, for operators: no public route (a port-forward, or a route of your own behind sign-in).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $n }}-studio
+  labels: {{- include "nylorun.labels" . | nindent 4 }}
+    app.kubernetes.io/component: studio
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {{- include "nylorun.selector" (dict "root" . "component" "studio") | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "nylorun.selector" (dict "root" . "component" "studio") | nindent 8 }}
+    spec:
+      {{- include "nylorun.podSecurity" . | nindent 6 }}
+        fsGroup: 1000
+      {{- include "nylorun.placement" . | nindent 6 }}
+      enableServiceLinks: false
+      containers:
+        - name: studio
+          image: {{ include "nylorun.image.studio" . }}
+          {{- include "nylorun.containerSecurity" . | nindent 10 }}
+          ports: [{ name: http, containerPort: 3000 }]
+          env:
+            - { name: NYLORUN_RUNTIME_URL, value: "http://{{ $n }}-runtime:4000" }
+            - { name: NYLORUN_ADMIN_KEY_FILE, value: /run/nylorun/host-credentials.json }
+            - { name: PORT, value: "3000" }
+            - { name: NYLORUN_STUDIO_PUBLIC_PORT, value: "3000" }
+            - { name: NYLORUN_STUDIO_SESSION_COOKIE, value: "nylorun_studio_{{ .Values.tenant.name }}" }
+          {{- with .Values.resources.studio }}
+          resources: {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - { name: secrets, mountPath: /run/nylorun/host-credentials.json, subPath: host-credentials.json, readOnly: true }
+      volumes:
+        - name: secrets
+          secret: { secretName: {{ $secret }}, defaultMode: 0440 }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $n }}-studio
+  labels: {{- include "nylorun.labels" . | nindent 4 }}
+spec:
+  selector: {{- include "nylorun.selector" (dict "root" . "component" "studio") | nindent 4 }}
+  ports: [{ name: http, port: 3000, targetPort: http }]
+{{- end }}
