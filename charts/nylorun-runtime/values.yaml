@@ -3,7 +3,8 @@
 # commands and files reach the Agent's actor through the sandbox gateway and atenet-router.
 
 # The Runtime, Studio and sandboxes images. Pin them by digest in production
-# (`ghcr.io/nylorun/runtime@sha256:…`); empty uses the chart's appVersion tag.
+# (`ghcr.io/nylorun/runtime@sha256:…`); empty uses the chart's appVersion tag (Studio: its own
+# version, the chart's `nylorun.com/studio-version` annotation).
 images:
   runtime: ""
   studio: ""

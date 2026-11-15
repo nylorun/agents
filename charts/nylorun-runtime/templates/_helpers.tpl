@@ -13,7 +13,7 @@ app.kubernetes.io/component: {{ .component }}
 {{- end -}}
 
 {{- define "nylorun.image.runtime" -}}{{ .Values.images.runtime | default (printf "ghcr.io/nylorun/runtime:%s" .Chart.AppVersion) }}{{- end -}}
-{{- define "nylorun.image.studio" -}}{{ .Values.images.studio | default (printf "ghcr.io/nylorun/studio:%s" .Chart.AppVersion) }}{{- end -}}
+{{- define "nylorun.image.studio" -}}{{ .Values.images.studio | default (printf "ghcr.io/nylorun/studio:%s" (index .Chart.Annotations "nylorun.com/studio-version")) }}{{- end -}}
 {{- define "nylorun.image.sandboxes" -}}{{ .Values.images.sandboxes | default (printf "ghcr.io/nylorun/sandboxes:%s" .Chart.AppVersion) }}{{- end -}}
 
 {{- define "nylorun.atespace" -}}{{ .Values.substrate.atespace | default (printf "nylorun-%s" .Release.Namespace) }}{{- end -}}
