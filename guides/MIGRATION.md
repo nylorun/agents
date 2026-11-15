@@ -1,3 +1,21 @@
+# Computers on Kubernetes: the Runtime's Helm chart
+
+Additive: no breaking change (ADR-147, ADR-149, ADR-150). Compose, `nylorun local`, agent-sandbox
+and the local `--backend substrate` preview with its edge run as before.
+
+- **The chart.** [`charts/nylorun-runtime`](../charts/nylorun-runtime/README.md) installs the
+  Runtime into an Agent Substrate cluster, with Postgres and the object store as settings.
+- **Computers.** On it, a pod Agent is a computer: its runs go to the harness container, and its
+  `bash`, `read`, `write`, `edit`, `grep` and `glob` calls, skill folders and disk versions reach
+  its actor through the sandbox gateway. `runtime.json` and the tools are unchanged. The actor
+  runs our engine in computer mode whatever harness drives the Agent: an Agent with a custom
+  harness runs that harness through the Harness API, outside, and its image is its computer.
+- **A custom harness** gets `routing.sandbox.computer: true` and opens the computer with
+  `computer.open` (Harness API 5.6, [§9b](./HARNESS_API.md#9b-computers-harness-api-56)).
+- **Moving a Substrate preview Tenant.** Its pod Agents keep their loop inside until it is
+  installed with the chart. Their disks don't move: start the Tenant on the chart, then create
+  its Agents again (or restore a disk version into them).
+
 # The Tenant's sandbox settings: `config` as stored, `effective` in force
 
 A Management API change, no protocol change (nylorun/agents#588). `GET` and
