@@ -40,7 +40,7 @@ spec:
               valueFrom: { secretKeyRef: { name: {{ include "nylorun.postgres.secret" . }}, key: url } }
             {{- include "nylorun.objectStore.env" . | nindent 12 }}
           readinessProbe:
-            httpGet: { path: /ready, port: gates }
+            httpGet: { path: /ready, port: gates, httpHeaders: [{ name: Host, value: "localhost:4100" }] }
             periodSeconds: 5
           {{- with .Values.resources.gateway }}
           resources: {{- toYaml . | nindent 12 }}
@@ -92,7 +92,7 @@ spec:
           args: ["--service", "harness"]
           {{- include "nylorun.containerSecurity" . | nindent 10 }}
           env:
-            - { name: NYLORUN_HARNESS_URL, value: "ws://{{ $n }}-runtime:4200/nylorun/harness/v1" }
+            - { name: NYLORUN_HARNESS_URL, value: "ws://{{ $n }}-runtime-internal:4200/nylorun/harness/v1" }
             - name: NYLORUN_HARNESS_TOKEN
               valueFrom: { secretKeyRef: { name: {{ $secret }}, key: harnessToken } }
             - { name: NYLORUN_GATES_URL, value: "http://{{ $n }}-gateway:4100" }
