@@ -360,8 +360,9 @@ async function reconcileStalePods(ctx: TenantContext, now: Date): Promise<void> 
 /**
  * Whether the sweep asks for a reconcile of `row`'s pod (`reconcileStalePods`): its row has not
  * moved for `staleMs`, and its change is unfinished, its engine is not connected, or it runs
- * past its idle limit. A running computer (ADR-149) always qualifies: nothing else looks at it
- * while a harness holds a ticket, so the sweep is what finds it drained to another worker
+ * past its idle limit. A computer (ADR-149) the Runtime wants running qualifies on every pass,
+ * whatever its row says: nothing else looks at it while a harness holds a ticket (its row's
+ * `observed` doesn't follow a resume), so the sweep is what finds it drained to another worker
  * (`drainedAt`, recorded once) or deleted outside the Runtime.
  */
 export function podWantsReconcile(
@@ -369,7 +370,9 @@ export function podWantsReconcile(
   facts: { now: number; staleMs: number; idleMs: number; computer: boolean; hosting: boolean },
 ): boolean {
   const pod = row.pod;
-  if (!pod || facts.now - Date.parse(row.updatedAt) < facts.staleMs) return false;
+  if (!pod) return false;
+  if (facts.computer && pod.desired === "running") return true;
+  if (facts.now - Date.parse(row.updatedAt) < facts.staleMs) return false;
   const running = pod.desired === "running" && pod.observed === "running";
   return (
     pod.desired === "deleted" ||
