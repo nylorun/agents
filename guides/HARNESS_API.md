@@ -539,6 +539,36 @@ Every command the harness starts uses the egress proxy, with the egress token as
 and the CA certificate added to its trust bundle. The workload runs as uid 1000, on a read-only
 root, with `/workspace`, `/harness`, `/tmp` and `/skills` writable.
 
+## §9b Computers (Harness API 5.6)
+
+On an Agent Substrate cluster installed with the Runtime's Helm chart (`charts/nylorun-runtime`),
+a pod Agent's sandbox is a **computer** (ADR-149): an actor whose engine runs no loop. Its
+sessions' runs go to a harness like any other, with `routing.sandbox.computer: true`, and the
+harness drives the computer:
+
+1. `computer.open` with `{runId, environmentId}` (the run's `routing.sandbox.environmentId`).
+   Core wakes the computer if it sleeps, waits until it answers, writes a disk version it starts
+   from, runs the Agent's setup on a new disk, and answers `{url, ticket, expiresAt}`: the sandbox
+   gateway's URL for this computer, a ticket for it, and when the ticket expires (ms since the
+   epoch). Open it again a minute before then, or after a `401`.
+2. Every request to the computer carries `x-nylorun-ticket: <ticket>`:
+
+   | Route | |
+   | --- | --- |
+   | `POST {url}/v1/exec` | `{id, command, cwd, timeoutMs, env?, waitMs?}`: starts command `id`, or joins it while it runs; answers within `waitMs` (at most 50 s) `{state: "running"}`, `{state: "done", result: {exitCode, stdout, stderr, killed, timedOut}}` or `{state: "failed", message}` |
+   | `POST {url}/v1/exec/{id}/attach` | `{waitMs?}`: the same answer again; `404` for a command the computer doesn't know (lost with a restart from a snapshot) |
+   | `POST {url}/v1/exec/{id}/cancel` | Kills its process group |
+   | `GET {url}/v1/files?path=&maxBytes=` | The file's bytes; `404` missing, `413` larger than `maxBytes` |
+   | `PUT {url}/v1/files?path=` | Writes the body; the parent directory must exist |
+   | `GET {url}/v1/list?dir=&maxEntries=` | `{entries: [{path, size}], truncated}` |
+   | `GET {url}/v1/info` | `{workspace, diskRoots}` |
+
+   Send a dropped request again with the same `id`: after a drain the computer runs on another
+   worker, its commands moved with it. A `502 computer_unreachable` from the gateway is worth
+   sending again.
+
+Our engine does this through its `computer` sandbox backend; the tools are unchanged (ADR-150).
+
 ## §10 Workspace (optional)
 
 A harness that declares `features.workspace` serves sandbox workspaces: core sends it
@@ -573,7 +603,7 @@ sets `harness.memory.index: false`), and one optional field came with it, `turn.
 so no other v5 harness sees it; all within v5: `harness-api/v5.2.json`. D83 added the `runtime`
 operation `triggers` and `turn.start.agent.triggers` (`true` when the session's version declares
 `harness.engine.triggers`: offer the root agent a tool whose calls name that target, or none), which
-a v5 harness may ignore: it offers no tool, and core receives no such call: `harness-api/v5.3.json`. D85 added the effect kind `inputs` (§4): a v5 harness that never asks for it is unchanged, and its turn's steered messages start the next turn: `harness-api/v5.4.json`. ADR-139 added `audience: "model"` to `artifact.write`'s `begin` (§4b), which core accepts and only our own engine sends: `harness-api/v5.5.json`.
+a v5 harness may ignore: it offers no tool, and core receives no such call: `harness-api/v5.3.json`. D85 added the effect kind `inputs` (§4): a v5 harness that never asks for it is unchanged, and its turn's steered messages start the next turn: `harness-api/v5.4.json`. ADR-139 added `audience: "model"` to `artifact.write`'s `begin` (§4b), which core accepts and only our own engine sends: `harness-api/v5.5.json`. ADR-149 added `routing.sandbox.computer` and the request `computer.open` (§9b), which a v5 harness never sees unless the Tenant's pod Agents are computers: `harness-api/v5.6.json`.
 ADR-106 changed no message: `turn.start.loop` may carry `ask: true` (offer the root agent a
 question tool whose first call is `interaction-required`, kind `response`, metadata
 `{kind: "question", choices?, why?}`, shown over A2A as a question), and a manifest's
