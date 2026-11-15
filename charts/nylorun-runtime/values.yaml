@@ -33,8 +33,8 @@ ingress:
   annotations: {}
   tls: []
 
-# The Runtime's Postgres. External (any managed Postgres with logical replication on and
-# a C collation database), or a bundled StatefulSet.
+# The Runtime's Postgres. External (any managed Postgres with logical replication on; any
+# collation), or a bundled StatefulSet.
 postgres:
   # postgres://user:password@host:5432/nylorun
   url: ""

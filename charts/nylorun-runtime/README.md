@@ -62,7 +62,7 @@ Back up the Secret `<release>-secrets`: without its vault key, the Tenant's secr
 
 4. **Postgres** (when not bundled) needs:
    - logical replication (`wal_level=logical`; on Cloud SQL, the flag `cloudsql.logical_decoding=on`);
-   - a database with C collation;
+   - a database (any collation: the schema sets `COLLATE "C"` on the columns it compares as text);
    - a user with the `REPLICATION` attribute.
 5. **The object store** (when not bundled) is any S3 API: a bucket and an access key. On GCS, an HMAC
    key for a service account with `roles/storage.objectAdmin` on the bucket, endpoint
