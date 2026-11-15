@@ -72,6 +72,9 @@ type Info struct {
 	// Atespace and SubstrateVersion, with backend substrate.
 	Atespace         string `json:"atespace,omitempty"`
 	SubstrateVersion string `json:"substrateVersion,omitempty"`
+	// Computer says every sandbox is a computer (ADR-149): core sends its runs to the harness
+	// container and reaches its workspace through the sandbox gateway.
+	Computer bool `json:"computer,omitempty"`
 }
 
 // Handler is the API's routes.
@@ -147,6 +150,7 @@ func (s *Server) info(w http.ResponseWriter, r *http.Request) {
 	if c.Substrate != nil {
 		info.APIVersion = "ateapi.v1"
 		info.Atespace, info.SubstrateVersion = c.Substrate.Atespace, c.Substrate.Version
+		info.Computer = c.Substrate.Computer != nil
 	}
 	write(w, http.StatusOK, info)
 }

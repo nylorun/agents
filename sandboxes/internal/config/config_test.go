@@ -73,3 +73,20 @@ func TestParseClusterSubstrate(t *testing.T) {
 		t.Fatal("an unknown backend parsed")
 	}
 }
+
+func TestParseClusterInClusterComputer(t *testing.T) {
+	raw := `{"namespace":"nylorun","inCluster":true,"backend":"substrate","substrate":{"atespace":"nylorun","systemNamespace":"ate-system","apiService":"api","serviceAccount":"nylorun-sandboxes","computer":{}}}`
+	c, err := config.ParseCluster([]byte(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !c.InCluster || c.Substrate.ComputerPort() != config.DefaultComputerPort {
+		t.Fatalf("in cluster %v, computer port %d", c.InCluster, c.Substrate.ComputerPort())
+	}
+	if _, err := config.ParseCluster([]byte(`{"namespace":"nylorun","inCluster":true}`)); err == nil {
+		t.Fatal("inCluster with agent-sandbox parsed")
+	}
+	if _, err := config.ParseCluster([]byte(`{"namespace":"nylorun","backend":"substrate","substrate":{"atespace":"a","systemNamespace":"ate-system","apiService":"api","serviceAccount":"s","computer":{}}}`)); err == nil {
+		t.Fatal("outside the cluster without dial and caData parsed")
+	}
+}

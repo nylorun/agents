@@ -29,13 +29,16 @@ import (
 	"google.golang.org/grpc/credentials"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 
 	"github.com/nylorun/agents/sandboxes/internal/api"
 	"github.com/nylorun/agents/sandboxes/internal/config"
 	"github.com/nylorun/agents/sandboxes/internal/driver"
 	"github.com/nylorun/agents/sandboxes/internal/edge"
+	"github.com/nylorun/agents/sandboxes/internal/gateway"
 	"github.com/nylorun/agents/sandboxes/internal/provider"
 	"github.com/nylorun/agents/sandboxes/internal/substrate"
+	"github.com/nylorun/agents/sandboxes/internal/ticket"
 )
 
 func main() {
@@ -58,6 +61,13 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "provider" {
 		if err := runProvider(log, os.Args[2:]); err != nil {
 			log.Error("keys provider stopped", "error", err)
+			os.Exit(1)
+		}
+		return
+	}
+	if len(os.Args) > 1 && os.Args[1] == "gateway" {
+		if err := runGateway(log, os.Args[2:]); err != nil {
+			log.Error("sandbox gateway stopped", "error", err)
 			os.Exit(1)
 		}
 		return
@@ -184,38 +194,96 @@ func substrateBackend(ctx context.Context, cfg config.Config, log *slog.Logger) 
 	if err != nil {
 		return nil, nil, err
 	}
+	client, closeConn, err := substrate.Dial(ctx, connOptions(cfg, restConfig, kube))
+	if err != nil {
+		return nil, nil, err
+	}
+	settings := substrate.Settings{Atespace: sub.Atespace, WorkerSelector: sub.WorkerSelector, KeysProvider: sub.KeysProvider}
+	var front *edge.Server
+	if port := sub.ComputerPort(); port > 0 {
+		// Computers (ADR-149): no edge; the template carries the key tickets are checked with.
+		private, err := ticket.LoadPrivate(envOr("NYLORUN_COMPUTER_TICKET_KEY_FILE", "/run/nylorun/computer/ticket.key"))
+		if err != nil {
+			closeConn()
+			return nil, nil, err
+		}
+		public, err := ticket.PublicPEM(private)
+		if err != nil {
+			closeConn()
+			return nil, nil, err
+		}
+		settings.ComputerPort, settings.TicketKey = port, public
+	} else {
+		front, err = edgeFront(cfg, &settings, log)
+		if err != nil {
+			closeConn()
+			return nil, nil, err
+		}
+	}
+	d := substrate.New(client, substrate.Options{
+		Settings: settings, Namespace: cfg.Cluster.Namespace, Kube: kube, Resolver: &substrate.RegistryResolver{}, Log: log,
+	})
+	side := func(ctx context.Context) error {
+		defer closeConn()
+		go d.Run(ctx, 30*time.Second)
+		go d.WatchWorkers(ctx) // suspend before drain: Substrate's eviction contract
+		if front == nil {
+			<-ctx.Done()
+			return nil
+		}
+		return front.Run(ctx)
+	}
+	return d, side, nil
+}
+
+// connOptions say how to reach Substrate's API: in the cluster, its Service with the pod's
+// projected token and the signer's bundle; outside, a port-forward and a token the service mints.
+func connOptions(cfg config.Config, restConfig *rest.Config, kube kubernetes.Interface) substrate.ConnOptions {
+	sub := cfg.Cluster.Substrate
+	o := substrate.ConnOptions{
+		Rest: restConfig, Kube: kube, SystemNamespace: sub.SystemNamespace, APIService: sub.APIService,
+		Endpoint: sub.Endpoint, Namespace: cfg.Cluster.Namespace, ServiceAccount: sub.ServiceAccount,
+	}
+	if cfg.Cluster.InCluster {
+		if o.Endpoint == "" {
+			o.Endpoint = o.InClusterEndpoint()
+		}
+		o.TokenFile = envOr("NYLORUN_SUBSTRATE_TOKEN_FILE", "/var/run/secrets/ate/token")
+		if ca := envOr("NYLORUN_SUBSTRATE_CA_FILE", "/var/run/secrets/ate/ca.pem"); fileExists(ca) {
+			o.CAFile = ca
+		}
+	}
+	return o
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+// edgeFront is the edge (the Substrate preview's loop inside the actor, retiring with the
+// agent-sandbox cut-over): the TLS front actors reach the Harness API and the gates through.
+func edgeFront(cfg config.Config, settings *substrate.Settings, log *slog.Logger) (*edge.Server, error) {
+	sub := cfg.Cluster.Substrate
 	dir := envOr("NYLORUN_SANDBOXES_DIR", config.DefaultDir)
 	caPEM, err := os.ReadFile(filepath.Join(dir, "edge-ca.pem"))
 	if err != nil {
-		return nil, nil, fmt.Errorf("read the edge's CA (run nylorun local sandbox enable): %w", err)
+		return nil, fmt.Errorf("read the edge's CA (run nylorun local sandbox enable): %w", err)
 	}
 	cert, err := tls.LoadX509KeyPair(filepath.Join(dir, "edge.crt"), filepath.Join(dir, "edge.key"))
 	if err != nil {
-		return nil, nil, fmt.Errorf("read the edge's certificate: %w", err)
-	}
-	client, closeConn, err := substrate.Dial(ctx, substrate.ConnOptions{
-		Rest: restConfig, Kube: kube, SystemNamespace: sub.SystemNamespace, APIService: sub.APIService,
-		Endpoint: sub.Endpoint, Namespace: cfg.Cluster.Namespace, ServiceAccount: sub.ServiceAccount,
-	})
-	if err != nil {
-		return nil, nil, err
+		return nil, fmt.Errorf("read the edge's certificate: %w", err)
 	}
 	harnessURL, gatesURL := cfg.Cluster.EdgeURLs()
-	d := substrate.New(client, substrate.Options{
-		Settings: substrate.Settings{
-			Atespace: sub.Atespace, HarnessURL: harnessURL, GatesURL: gatesURL, EdgeHost: sub.Edge.Host, EdgeAddress: cfg.Cluster.HostAddress,
-			EdgePorts: []int{sub.Edge.HarnessPort, sub.Edge.GatesPort}, EdgeCA: string(caPEM), WorkerSelector: sub.WorkerSelector,
-			KeysProvider: sub.KeysProvider,
-		},
-		Namespace: cfg.Cluster.Namespace, Kube: kube, Resolver: &substrate.RegistryResolver{}, Log: log,
-	})
+	settings.HarnessURL, settings.GatesURL, settings.EdgeHost, settings.EdgeAddress = harnessURL, gatesURL, sub.Edge.Host, cfg.Cluster.HostAddress
+	settings.EdgePorts, settings.EdgeCA = []int{sub.Edge.HarnessPort, sub.Edge.GatesPort}, string(caPEM)
 	harnessUp, err := url.Parse(envOr("NYLORUN_SANDBOXES_EDGE_HARNESS_UPSTREAM", "http://runtime:4200"))
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	gatesUp, err := url.Parse(envOr("NYLORUN_SANDBOXES_EDGE_GATES_UPSTREAM", "http://gateway:4100"))
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	front := &edge.Server{Cert: cert, Log: log, Routes: []edge.Route{
 		{Name: "harness", Listen: envOr("NYLORUN_SANDBOXES_EDGE_HARNESS_LISTEN", ":8443"), Upstream: harnessUp},
@@ -226,17 +294,11 @@ func substrateBackend(ctx context.Context, cfg config.Config, log *slog.Logger) 
 		// allows this port.
 		keysUp, err := url.Parse(envOr("NYLORUN_SANDBOXES_EDGE_KEYS_UPSTREAM", "http://gateway:4200"))
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		front.Routes = append(front.Routes, edge.Route{Name: "keys", Listen: envOr("NYLORUN_SANDBOXES_EDGE_KEYS_LISTEN", ":8445"), Upstream: keysUp})
 	}
-	side := func(ctx context.Context) error {
-		defer closeConn()
-		go d.Run(ctx, 30*time.Second)
-		go d.WatchWorkers(ctx) // suspend before drain: Substrate's eviction contract
-		return front.Run(ctx)
-	}
-	return d, side, nil
+	return front, nil
 }
 
 // substrateSetup makes the Tenant's atespace and its access policy with the owner token in
@@ -278,10 +340,9 @@ func substrateSetup() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	sub := cluster.Substrate
-	client, closeConn, err := substrate.Dial(ctx, substrate.ConnOptions{
-		Rest: restConfig, Kube: kube, SystemNamespace: sub.SystemNamespace, APIService: sub.APIService,
-		Endpoint: sub.Endpoint, StaticToken: owner,
-	})
+	o := connOptions(cfg, restConfig, kube)
+	o.StaticToken, o.TokenFile = owner, ""
+	client, closeConn, err := substrate.Dial(ctx, o)
 	if err != nil {
 		return err
 	}
@@ -349,4 +410,44 @@ func runProvider(log *slog.Logger, args []string) error {
 		_ = healthServer.Close()
 		return err
 	}
+}
+
+// runGateway serves the sandbox gateway (ADR-148): the computers' one way in, through
+// atenet-router, for callers with a computer ticket.
+func runGateway(log *slog.Logger, args []string) error {
+	fs := flag.NewFlagSet("gateway", flag.ContinueOnError)
+	listen := fs.String("listen", ":4400", "address")
+	atespace := fs.String("atespace", os.Getenv("NYLORUN_SUBSTRATE_ATESPACE"), "the Tenant's atespace")
+	port := fs.Int("computer-port", config.DefaultComputerPort, "the engine's port in a computer")
+	key := fs.String("ticket-key", envOr("NYLORUN_COMPUTER_TICKET_KEY_FILE", "/run/nylorun/computer/ticket.key"), "the ticket key (PKCS #8 PEM Ed25519)")
+	router := fs.String("router", "atenet-router.ate-system.svc:8444", "atenet-router's CONNECT listener")
+	routerName := fs.String("router-name", "atenet-router.ate-system.svc", "the name its certificate is checked against")
+	credential := fs.String("credential-bundle", "/run/router-client/credential-bundle.pem", "this pod's podidentity certificate and key")
+	routerCA := fs.String("router-ca", "/run/router-client/router-ca.pem", "the router's serving CA")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *atespace == "" {
+		return errors.New("--atespace (or NYLORUN_SUBSTRATE_ATESPACE) is required")
+	}
+	public, err := gateway.LoadPublic(*key)
+	if err != nil {
+		return err
+	}
+	g := &gateway.Server{Public: public, Atespace: *atespace, Port: *port, Log: log,
+		Router: gateway.Router{Address: *router, ServerName: *routerName, CredentialFile: *credential, CAFile: *routerCA}}
+	server := &http.Server{Addr: *listen, Handler: g.Handler(), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 90 * time.Second}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	go func() {
+		<-ctx.Done()
+		shutdown, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+		_ = server.Shutdown(shutdown)
+	}()
+	log.Info("sandbox gateway listening", "listen", *listen, "atespace", *atespace, "router", *router)
+	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		return err
+	}
+	return nil
 }
