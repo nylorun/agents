@@ -52,7 +52,9 @@ spec:
               valueFrom: { secretKeyRef: { name: {{ include "nylorun.postgres.secret" . }}, key: url } }
             - { name: NYLORUN_RESTATE_INGRESS_URL, value: "http://{{ $n }}-restate:8080" }
             - { name: NYLORUN_RESTATE_ADMIN_URL, value: "http://{{ $n }}-restate:9070" }
-            - { name: NYLORUN_WORKER_URL, value: "http://{{ $n }}-runtime:9080" }
+            # Restate and the harness reach the runtime before it is ready (it registers with
+            # Restate, then reports ready), so through the internal Service, which keeps it.
+            - { name: NYLORUN_WORKER_URL, value: "http://{{ $n }}-runtime-internal:9080" }
             - { name: NYLORUN_S2_ENDPOINT, value: "http://{{ $n }}-s2:8080" }
             - { name: NYLORUN_S2_TOKEN, value: ignored }
             - { name: NYLORUN_WORKSPACE_STORE_URL, value: "file:///workspaces" }
@@ -60,7 +62,7 @@ spec:
             - { name: NYLORUN_HARNESS, value: remote }
             - { name: NYLORUN_HARNESS_LISTEN_HOST, value: 0.0.0.0 }
             - { name: NYLORUN_HARNESS_LISTEN_PORT, value: "4200" }
-            - { name: NYLORUN_HARNESS_ALLOWED_HOSTS, value: "{{ $n }}-runtime:4200" }
+            - { name: NYLORUN_HARNESS_ALLOWED_HOSTS, value: "{{ $n }}-runtime-internal:4200" }
             - name: NYLORUN_HARNESS_TOKEN
               valueFrom: { secretKeyRef: { name: {{ $secret }}, key: harnessToken } }
             # Pod Agents are computers on this cluster (ADR-149).
@@ -70,12 +72,13 @@ spec:
             - { name: NYLORUN_SANDBOX_HARNESS_IMAGE, value: {{ include "nylorun.image.runtime" . | quote }} }
             - { name: NYLORUN_SANDBOX_GATEWAY_URL, value: "http://{{ $n }}-sandbox-gateway:4400" }
             - { name: NYLORUN_COMPUTER_TICKET_KEY_FILE, value: /run/nylorun/computer/ticket.key }
+          # The probes name a loopback Host: the API admits only NYLORUN_ALLOWED_HOSTS and those.
           readinessProbe:
-            httpGet: { path: /ready, port: api }
+            httpGet: { path: /ready, port: api, httpHeaders: [{ name: Host, value: "localhost:4000" }] }
             periodSeconds: 5
             failureThreshold: 3
           livenessProbe:
-            httpGet: { path: /health, port: api }
+            httpGet: { path: /health, port: api, httpHeaders: [{ name: Host, value: "localhost:4000" }] }
             initialDelaySeconds: 30
             periodSeconds: 10
             failureThreshold: 6
@@ -108,5 +111,17 @@ spec:
   selector: {{- include "nylorun.selector" (dict "root" . "component" "runtime") | nindent 4 }}
   ports:
     - { name: api, port: 4000, targetPort: api }
+---
+# The Harness API and the Restate worker, published before the runtime is ready: it becomes ready
+# only once Restate has called its worker, and the harness connects while it starts.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $n }}-runtime-internal
+  labels: {{- include "nylorun.labels" . | nindent 4 }}
+spec:
+  publishNotReadyAddresses: true
+  selector: {{- include "nylorun.selector" (dict "root" . "component" "runtime") | nindent 4 }}
+  ports:
     - { name: harness, port: 4200, targetPort: harness }
     - { name: worker, port: 9080, targetPort: worker }
