@@ -444,7 +444,11 @@ jobs:
         if: matrix.leg == 'service'
         run: |
           helm lint charts/nylorun-runtime
-          helm template t charts/nylorun-runtime --kube-version 1.37.0 >/dev/null
+          helm template t charts/nylorun-runtime --kube-version 1.37.0 > /tmp/chart.yaml
+          # The engine takes its tokens and admin key only as 32 bytes of hex.
+          for key in gatesToken harnessToken sandboxesToken adminKey; do
+            grep -Eq "^  ${key}: \"[0-9a-f]{64}\"$" /tmp/chart.yaml || { echo "${key} is not 32 bytes of hex"; exit 1; }
+          done
           helm template t charts/nylorun-runtime --kube-version 1.37.0 -f charts/nylorun-runtime/values-gcp.example.yaml >/dev/null
       - uses: actions/setup-node@v6
         with:
