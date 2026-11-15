@@ -1,7 +1,8 @@
 {{- $n := include "nylorun.name" . -}}
 {{- $secret := include "nylorun.secret" . -}}
-# The gateway (`--service gates,keys`): the Model and Tool Gates and keys. The only holder of the
-# vault key and of credentials.
+# The gateway (`--service gates,keys,egress`): the Model and Tool Gates, keys, and the egress
+# service's decide route the keys provider asks (ADR-142). The only holder of the vault key and of
+# credentials.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -25,9 +26,11 @@ spec:
       containers:
         - name: gateway
           image: {{ include "nylorun.image.runtime" . }}
-          args: ["--service", "gates,keys"]
+          args: ["--service", "gates,keys,egress"]
           {{- include "nylorun.containerSecurity" . | nindent 10 }}
-          ports: [{ name: gates, containerPort: 4100 }]
+          ports:
+            - { name: gates, containerPort: 4100 }
+            - { name: egress, containerPort: 4200 }
           env:
             - { name: NYLORUN_HOME, value: /nylorun }
             - { name: NYLORUN_PACKING, value: combined }
@@ -36,6 +39,10 @@ spec:
             - { name: NYLORUN_GATES_ALLOWED_HOSTS, value: "{{ $n }}-gateway:4100" }
             - name: NYLORUN_GATES_TOKEN
               valueFrom: { secretKeyRef: { name: {{ $secret }}, key: gatesToken } }
+            - { name: NYLORUN_EGRESS_LISTEN_HOST, value: 0.0.0.0 }
+            - { name: NYLORUN_EGRESS_LISTEN_PORT, value: "4200" }
+            - name: NYLORUN_EGRESS_KEYS_TOKEN
+              valueFrom: { secretKeyRef: { name: {{ $secret }}, key: keysToken } }
             - name: NYLORUN_DATABASE_URL
               valueFrom: { secretKeyRef: { name: {{ include "nylorun.postgres.secret" . }}, key: url } }
             {{- include "nylorun.objectStore.env" . | nindent 12 }}
@@ -63,7 +70,29 @@ metadata:
   labels: {{- include "nylorun.labels" . | nindent 4 }}
 spec:
   selector: {{- include "nylorun.selector" (dict "root" . "component" "gateway") | nindent 4 }}
-  ports: [{ name: gates, port: 4100, targetPort: gates }]
+  ports:
+    - { name: gates, port: 4100, targetPort: gates }
+    - { name: egress, port: 4200, targetPort: egress }
+---
+# The gates for the runtime and the harness; the decide route for the keys provider alone.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $n }}-gateway
+  labels: {{- include "nylorun.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels: {{- include "nylorun.selector" (dict "root" . "component" "gateway") | nindent 6 }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: { matchLabels: { app.kubernetes.io/instance: {{ .Release.Name }}, app.kubernetes.io/component: runtime } }
+        - podSelector: { matchLabels: { app.kubernetes.io/instance: {{ .Release.Name }}, app.kubernetes.io/component: harness } }
+      ports: [{ port: 4100 }]
+    - from:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: {{ .Values.substrate.systemNamespace }} } }
+          podSelector: { matchLabels: { app: nylorun-keys-provider } }
+      ports: [{ port: 4200 }]
 ---
 # The harness (`--service harness`): every loop (ADR-149). It holds the harness token only.
 apiVersion: apps/v1

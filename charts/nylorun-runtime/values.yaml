@@ -65,6 +65,12 @@ restate:
   storage: 10Gi
   storageClass: ""
   resources: {}
+  # Partition snapshots to the object store (ADR-147 decision 11), under `path`: on a new disk
+  # Restate restores from the latest. `interval` writes one each time it passes; empty: none.
+  snapshots:
+    enabled: true
+    path: restate
+    interval: 1h
 
 s2:
   # Keep s2-lite's streams in the object store (no disk); false keeps them on a disk.
@@ -88,6 +94,14 @@ substrate:
   setup:
     enabled: false
     ownerTokenSecret: ""
+
+# The keys provider (ADR-141, ADR-142): Substrate's egress asks it for the header of a keyed
+# request, and it asks the gateway's decide route. It runs in Substrate's namespace, one per
+# cluster, so one release enables it. Install Substrate with
+#   --credential-provider='[{"name":"keys.nylorun.dev","address":"nylorun-keys-provider.<systemNamespace>.svc:50051"}]'
+keysProvider:
+  enabled: false
+  resources: {}
 
 computer:
   port: 8080

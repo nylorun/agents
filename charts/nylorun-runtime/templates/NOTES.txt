@@ -8,6 +8,12 @@ The Nylorun Runtime is installing in {{ .Release.Namespace }}.
    ATE_INGRESS_ALLOWED_SPIFFE_IDS including:
 
      spiffe://cluster.local/ns/{{ .Release.Namespace }}/sa/{{ include "nylorun.name" . }}-sandbox-gateway
+{{- if .Values.keysProvider.enabled }}
+
+   and ate-setup's --credential-provider naming the keys provider:
+
+     [{"name":"keys.nylorun.dev","address":"nylorun-keys-provider.{{ .Values.substrate.systemNamespace }}.svc:50051"}]
+{{- end }}
 
 2. The Tenant's atespace is {{ include "nylorun.atespace" . }}.{{ if not .Values.substrate.setup.enabled }} Make it once, as one of
    Substrate's owners (substrate.setup in values, or the README's command).{{ end }}

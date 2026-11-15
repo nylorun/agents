@@ -2,6 +2,7 @@
 {{- $secret := include "nylorun.secret" . -}}
 {{- $atespace := include "nylorun.atespace" . -}}
 {{- $cluster := dict "namespace" .Release.Namespace "inCluster" true "backend" "substrate" "substrate" (dict "atespace" $atespace "systemNamespace" .Values.substrate.systemNamespace "apiService" .Values.substrate.apiService "serviceAccount" (printf "%s-sandboxes" $n) "workerSelector" .Values.substrate.workerSelector "computer" (dict "port" .Values.computer.port)) -}}
+{{- if .Values.keysProvider.enabled }}{{ $_ := set $cluster.substrate "keysProvider" "keys.nylorun.dev" }}{{ end -}}
 # The sandboxes service in the cluster (ADR-147): each computer's lifecycle through Substrate's
 # API, as editor of the Tenant's atespace, and the drain watch. One replica: it holds no lock.
 apiVersion: v1

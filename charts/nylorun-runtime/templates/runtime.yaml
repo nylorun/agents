@@ -72,6 +72,8 @@ spec:
             - { name: NYLORUN_SANDBOX_HARNESS_IMAGE, value: {{ include "nylorun.image.runtime" . | quote }} }
             - { name: NYLORUN_SANDBOX_GATEWAY_URL, value: "http://{{ $n }}-sandbox-gateway:4400" }
             - { name: NYLORUN_COMPUTER_TICKET_KEY_FILE, value: /run/nylorun/computer/ticket.key }
+            # The key Restate signs with: the worker accepts only its requests.
+            - { name: NYLORUN_RESTATE_IDENTITY_KEY_FILE, value: /run/nylorun/restate/identity.pem }
           # The probes name a loopback Host: the API admits only NYLORUN_ALLOWED_HOSTS and those.
           readinessProbe:
             httpGet: { path: /ready, port: api, httpHeaders: [{ name: Host, value: "localhost:4000" }] }
@@ -90,6 +92,7 @@ spec:
             - { name: secrets, mountPath: /nylorun/host.json, subPath: host.json, readOnly: true }
             - { name: secrets, mountPath: /nylorun/host-credentials.json, subPath: host-credentials.json, readOnly: true }
             - { name: ticket, mountPath: /run/nylorun/computer, readOnly: true }
+            - { name: restate-identity, mountPath: /run/nylorun/restate, readOnly: true }
             - { name: workspaces, mountPath: /workspaces }
       volumes:
         - { name: home, emptyDir: {} }
@@ -101,6 +104,11 @@ spec:
             secretName: {{ $secret }}
             defaultMode: 0440
             items: [{ key: ticketKey, path: ticket.key }]
+        - name: restate-identity
+          secret:
+            secretName: {{ $secret }}
+            defaultMode: 0440
+            items: [{ key: restateIdentity, path: identity.pem }]
 ---
 apiVersion: v1
 kind: Service

@@ -1,4 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { generateKeyPairSync } from "node:crypto";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { base58btc } from "../../src/host/restate-identity.js";
 import {
   parseServices,
   parseStackConfig,
@@ -274,6 +279,33 @@ describe("parseStackConfig", () => {
       expect(() =>
         parseStackConfig({ NYLORUN_RESTATE_IDENTITY_KEY: bad }, []),
       ).toThrow(/NYLORUN_RESTATE_IDENTITY_KEY must be publickeyv1_/);
+  });
+
+  it("computes a Restate identity key from NYLORUN_RESTATE_IDENTITY_KEY_FILE", () => {
+    const dir = mkdtempSync(join(tmpdir(), "nylorun-identity-"));
+    const { privateKey, publicKey } = generateKeyPairSync("ed25519");
+    const privatePem = join(dir, "private.pem");
+    const publicPem = join(dir, "public.pem");
+    writeFileSync(privatePem, privateKey.export({ format: "pem", type: "pkcs8" }).toString());
+    writeFileSync(publicPem, publicKey.export({ format: "pem", type: "spki" }).toString());
+    const fromPrivate = parseStackConfig({ NYLORUN_RESTATE_IDENTITY_KEY_FILE: privatePem }, []).endpoints.restateIdentityKeys;
+    const fromPublic = parseStackConfig({ NYLORUN_RESTATE_IDENTITY_KEY_FILE: publicPem }, []).endpoints.restateIdentityKeys;
+    expect(fromPrivate).toHaveLength(1);
+    expect(fromPrivate![0]).toMatch(/^publickeyv1_[1-9A-HJ-NP-Za-km-z]{32,64}$/);
+    expect(fromPublic).toEqual(fromPrivate);
+    const rsa = join(dir, "rsa.pem");
+    writeFileSync(rsa, generateKeyPairSync("rsa", { modulusLength: 1024 }).privateKey.export({ format: "pem", type: "pkcs8" }).toString());
+    expect(() => parseStackConfig({ NYLORUN_RESTATE_IDENTITY_KEY_FILE: rsa }, [])).toThrow(
+      /NYLORUN_RESTATE_IDENTITY_KEY_FILE .* is not an Ed25519 PEM/,
+    );
+  });
+
+  it("encodes a known key as Restate does", () => {
+    // 32 bytes: one leading zero, then 1..31.
+    const raw = Uint8Array.from({ length: 32 }, (_, i) => i);
+    expect(base58btc(raw).startsWith("1")).toBe(true);
+    expect(base58btc(Uint8Array.from([0, 0, 1]))).toBe("112");
+    expect(base58btc(Uint8Array.from([255]))).toBe("5Q");
   });
 
   it("treats blank values as unset", () => {

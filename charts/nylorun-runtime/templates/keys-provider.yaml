@@ -1,0 +1,96 @@
+{{- if .Values.keysProvider.enabled }}
+{{- $ns := .Values.substrate.systemNamespace -}}
+# The keys provider (ADR-142), `sandboxes provider`, beside Substrate's egress in its namespace:
+# mutual TLS with its servicedns pod certificate, admitting only the egress's identity. It asks
+# this release's decide route (its config Secret, in secrets.yaml). Substrate names it at its own
+# install (--credential-provider, keys.nylorun.dev at nylorun-keys-provider.<ns>.svc:50051).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: nylorun-keys-provider
+  namespace: {{ $ns }}
+  labels: {{- include "nylorun.labels" . | nindent 4 }}
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nylorun-keys-provider
+  namespace: {{ $ns }}
+  labels: {{- include "nylorun.labels" . | nindent 4 }}
+    app: nylorun-keys-provider
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: nylorun-keys-provider }
+  template:
+    metadata:
+      labels: { app: nylorun-keys-provider }
+      annotations:
+        checksum/config: {{ include "nylorun.atespace" . | sha256sum | trunc 16 }}
+    spec:
+      serviceAccountName: nylorun-keys-provider
+      {{- include "nylorun.podSecurity" . | nindent 6 }}
+        runAsUser: 65532
+        runAsGroup: 65532
+      enableServiceLinks: false
+      containers:
+        - name: provider
+          image: {{ include "nylorun.image.sandboxes" . }}
+          args: ["provider", "--name", "keys.nylorun.dev", "--listen", ":50051", "--config", "/etc/nylorun-keys/config.json"]
+          {{- include "nylorun.containerSecurity" . | nindent 10 }}
+          ports:
+            - { name: grpc, containerPort: 50051 }
+            - { name: health, containerPort: 9091 }
+          readinessProbe:
+            httpGet: { path: /readyz, port: health }
+            periodSeconds: 10
+          {{- with .Values.keysProvider.resources }}
+          resources: {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - { name: config, mountPath: /etc/nylorun-keys, readOnly: true }
+            - { name: servicedns, mountPath: /run/servicedns.podcert.ate.dev, readOnly: true }
+            - { name: podidentity, mountPath: /run/podidentity.podcert.ate.dev, readOnly: true }
+      volumes:
+        - name: config
+          secret: { secretName: nylorun-keys-provider }
+        {{- range $signer := list "servicedns" "podidentity" }}
+        - name: {{ $signer }}
+          projected:
+            sources:
+              - podCertificate:
+                  signerName: {{ $signer }}.podcert.ate.dev/identity
+                  keyType: ECDSAP256
+                  credentialBundlePath: credential-bundle.pem
+              - clusterTrustBundle:
+                  signerName: {{ $signer }}.podcert.ate.dev/identity
+                  labelSelector: { matchLabels: { podcert.ate.dev/canarying: live } }
+                  path: trust-bundle.pem
+        {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nylorun-keys-provider
+  namespace: {{ $ns }}
+  labels: {{- include "nylorun.labels" . | nindent 4 }}
+spec:
+  selector: { app: nylorun-keys-provider }
+  ports: [{ name: grpc, port: 50051, targetPort: grpc }]
+---
+# Only Substrate's egress reaches it.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: nylorun-keys-provider
+  namespace: {{ $ns }}
+  labels: {{- include "nylorun.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels: { app: nylorun-keys-provider }
+  policyTypes: [Ingress]
+  ingress:
+    - from: [{ podSelector: { matchLabels: { app: atenet-egress } } }]
+      ports: [{ port: 50051 }]
+{{- end }}
