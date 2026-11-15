@@ -47,7 +47,7 @@ export interface DiskSetupReport {
 }
 
 /** The variables CLIs read their trust bundle from: OpenSSL, Node, Python, curl, git, AWS. */
-const TRUST_VARIABLES = [
+export const TRUST_VARIABLES = [
   "SSL_CERT_FILE",
   "NODE_EXTRA_CA_CERTS",
   "REQUESTS_CA_BUNDLE",

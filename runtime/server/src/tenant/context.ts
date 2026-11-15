@@ -14,6 +14,7 @@
  * `wake` goes to `DurableExecution.wake`, which calls the Tenant's `advance` (`advance.ts`)
  * under ownership (§10.6); `abortLocal` aborts an advance running on this process.
  */
+import type { TenantComputers } from "../sandbox/computer.js";
 import type { SessionHistory } from "./history.js";
 import { DEFAULT_HARNESS, agentGranted } from "@nylorun/core/contracts";
 import type {
@@ -431,6 +432,8 @@ export interface TenantPods {
   readonly client: SandboxesClient;
   /** The Runtime image the pods copy the engine from (`NYLORUN_SANDBOX_HARNESS_IMAGE`). */
   readonly harnessImage: string;
+  /** Computers (ADR-149): every pod Agent is one, reached through the sandbox gateway. */
+  readonly computer?: TenantComputers;
 }
 
 /** The harness a session runs (R4.1): the one it pinned, else ours. */

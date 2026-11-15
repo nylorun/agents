@@ -79,9 +79,11 @@ export function harnessApiSchemas(): Record<string, z.ZodType> {
  * which a v5 harness that offers no `triggers` tool never sees. Revision 4: the effect kind `inputs`
  (D85): the messages steered into the running turn, which core answers at once and a v5 harness
  that never asks for it never sees. Revision 5: `artifact.write` `begin` may carry
- `audience: "model"` (ADR-139), which core accepts and only our own engine sends.
+ `audience: "model"` (ADR-139), which core accepts and only our own engine sends. Revision 6:
+ `routing.sandbox.computer` and the request `computer.open` (ADR-149), which a v5 harness never
+ sees unless the Tenant's pod Agents are computers.
  */
-const SCHEMA_REVISION = 5;
+const SCHEMA_REVISION = 6;
 
 /** The JSON Schema document of the Harness API (draft 2020-12). */
 export function harnessApiJsonSchema(): Record<string, unknown> {

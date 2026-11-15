@@ -353,7 +353,8 @@ async function reconcileStalePods(ctx: TenantContext, now: Date): Promise<void> 
         pod.observed === "deleting" ||
         (pod.desired === "suspended" && pod.observed !== "suspended") ||
         // Running, but its engine is not connected: the pod may be gone, or its volume.
-        (pod.desired === "running" && pod.observed === "running" && !ctx.harness.hosting(row.id)) ||
+        // (A computer has no engine connection, ADR-149.)
+        (pod.desired === "running" && pod.observed === "running" && !ctx.pods?.computer && !ctx.harness.hosting(row.id)) ||
         // Running past its idle limit: its idle timer is missing (or a turn holds it, which the
         // reconcile leaves alone).
         (pod.desired === "running" &&

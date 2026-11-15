@@ -20,6 +20,7 @@
  * Nothing here runs inside a transaction but the lease and the commit. No event type is new:
  * a restore or recovery is `agent.reset` with `reason` and `from`.
  */
+import { computerAccess } from "../sandbox/computer.js";
 import { createHash, randomUUID } from "node:crypto";
 import { newArtifactId } from "@nylorun/core/compatibility";
 import {
@@ -193,6 +194,11 @@ function heartbeat(ctx: TenantContext, id: string, limits: CopyLimits, ms = limi
 
 /** Waits until the engine of pod Environment `id` is connected, starting the pod when it is stopped. */
 async function awaitEngine(ctx: TenantContext, id: string, waitMs: number): Promise<void> {
+  // A computer (ADR-149) has no engine connection: it is ready once it answers through the gateway.
+  if (ctx.pods?.computer) {
+    await computerAccess(ctx, id);
+    return;
+  }
   await wakePod(ctx, id);
   const deadline = Date.now() + waitMs;
   while (!ctx.harness.hosting(id)) {
@@ -528,7 +534,8 @@ export async function runPendingSeed(ctx: TenantContext, id: string): Promise<vo
     const seed = environment?.diskSeed;
     if (!environment || !seed || seed.written) return;
     const limits = await copyLimits(ctx, environment);
-    if (environment.kind === "pod") {
+    if (environment.kind === "pod" && ctx.pods?.computer) await computerAccess(ctx, id);
+    else if (environment.kind === "pod") {
       const deadline = Date.now() + limits.podWaitMs;
       // The engine on the new volume: the old one's connection may still be open.
       while (!ctx.harness.hosting(id, environment.pod?.hostEpoch)) {
@@ -563,7 +570,7 @@ export async function sweepPendingSeeds(ctx: TenantContext): Promise<void> {
       environment.diskSeed !== undefined && !environment.diskSeed.written && environment.pod?.desired !== "deleted",
   );
   for (const environment of pending)
-    if (environment.kind !== "pod" || ctx.harness.hosting(environment.id, environment.pod?.hostEpoch))
+    if (environment.kind !== "pod" || ctx.pods?.computer || ctx.harness.hosting(environment.id, environment.pod?.hostEpoch))
       void runPendingSeed(ctx, environment.id);
 }
 

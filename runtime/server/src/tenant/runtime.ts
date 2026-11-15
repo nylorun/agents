@@ -14,6 +14,7 @@
  * one, the Tenant runs its own in-process `MemoryExecution`. No lock file: several processes may open a Tenant, and ownership of each
  * session (§10.6) keeps its advances apart.
  */
+import { computerManagers } from "../sandbox/computer.js";
 import type { ServerResponse, IncomingMessage } from "node:http";
 import { mkdirSync } from "node:fs";
 import type { HarnessStatus, TenantEnvelope } from "@nylorun/core/contracts";
@@ -348,6 +349,24 @@ export class TenantRuntime implements TenantHandle {
             preference,
             isPod: async (sandboxId) =>
               (await opened.tx((t) => t.environment(sandboxId)))?.kind === "pod",
+            ...(hooks.pods.computer
+              ? {
+                  computer: (() => {
+                    const managerOf = computerManagers(
+                      () => ctx,
+                      async (sessionId, turnId, type, payload) => {
+                        if (ctx.closed) return;
+                        try {
+                          await opened.tx((t) => t.event(sessionId, turnId, type, payload));
+                        } catch {
+                          /* the session is gone (reset) or the store closed */
+                        }
+                      }
+                    );
+                    return (environmentId: string) => localWorkspace(managerOf(environmentId));
+                  })(),
+                }
+              : {}),
           })
         : workspaces;
 

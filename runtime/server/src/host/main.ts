@@ -72,6 +72,8 @@ import type { ObjectStoreConfig, StackConfig } from "./stack-config.js";
 import { createS3BlobStore, type S3BlobStore } from "../blob/index.js";
 import { createRunGrants } from "../tenant/run-grants.js";
 import { runHarness } from "../harness/main.js";
+import { runComputer } from "../harness/computer.js";
+import { loadTicketKey, TICKET_TTL_MS } from "../sandbox/computer.js";
 import { startHarnessListener, type HarnessListener } from "../harness-api/ws-server.js";
 import { httpSandboxesClient } from "../sandbox/pods/client.js";
 import { createCredentialProvider } from "../gates/credential-provider.js";
@@ -264,6 +266,7 @@ export async function main(): Promise<void> {
   if (stack.services.has("gates") || stack.services.has("keys") || stack.services.has("egress"))
     return runGates(stack);
   if (stack.services.has("harness")) return runHarness(stack, baselineEnvironment(process.env));
+  if (stack.computer) return runComputer(stack.computer, baselineEnvironment(process.env));
   const hostRoot = resolveHostRoot();
   const paths = hostPaths(hostRoot);
   mkdirSync(paths.home, { recursive: true });
@@ -426,6 +429,15 @@ export async function main(): Promise<void> {
     ? {
         client: httpSandboxesClient({ url: stack.sandboxes.url, token: stack.sandboxes.token }),
         harnessImage: stack.sandboxes.harnessImage,
+        ...(stack.sandboxes.computer
+          ? {
+              computer: {
+                gatewayUrl: stack.sandboxes.computer.gatewayUrl,
+                ticketKey: loadTicketKey(stack.sandboxes.computer.ticketKeyFile),
+                ttlMs: TICKET_TTL_MS,
+              },
+            }
+          : {}),
       }
     : undefined;
   // The outside credential provider: each pod Agent segment's variables it names (CP-E).

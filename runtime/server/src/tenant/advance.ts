@@ -335,12 +335,15 @@ async function runRemoteSegment(
     // A pod Environment's segment runs in its pod (F7.2), or fails when the pod cannot run it.
     const unusable = podUnusable(ctx, segment);
     if (unusable) throw new Error(unusable);
+    // A computer's run goes to the harness container (ADR-149); `computer.open` waits for its
+    // seed, runs its setup and passes its start check.
+    const computer = ctx.pods?.computer !== undefined;
     // A new volume being seeded from a disk version takes no turn until it holds it (R2d step 3).
-    if (segment.pod?.seeding) throw new HarnessUnavailable();
+    if (!computer && segment.pod?.seeding) throw new HarnessUnavailable();
     // A pod starting on a new version takes no turn until its harness joins (track T3): a start
     // that fails goes back to the version it ran, and the turn's first segment re-pins to it.
-    if (segment.pod?.starting) throw new HarnessUnavailable();
-    const pod = segment.pod?.id;
+    if (!computer && segment.pod?.starting) throw new HarnessUnavailable();
+    const pod = computer ? undefined : segment.pod?.id;
     if (started.environmentId !== undefined) placed.environment = started.environmentId;
     end = await ctx.harness.offer({
       lease,

@@ -24,8 +24,10 @@ import type { HarnessOptions } from "@nylorun/harness/api";
 import type { ModelGate } from "../gates/model-gate.js";
 import { openMcpThrough, type ToolGate } from "../gates/tool-gate.js";
 import { McpPool } from "../mcp/pool.js";
-import { SandboxManager } from "../sandbox/manager.js";
-import { fileSandboxRecords, workspacePrefix } from "../sandbox/records.js";
+import { SandboxManager, type SandboxManagerOptions } from "../sandbox/manager.js";
+import { computerBackend } from "../adapters/sandbox/computer.js";
+import type { HarnessRun } from "@nylorun/harness/api";
+import { fileSandboxRecords, memorySandboxRecords, workspacePrefix } from "../sandbox/records.js";
 import { defaultSandboxBackends } from "../sandbox/select.js";
 import type { SandboxBackend } from "../sandbox/types.js";
 import { harnessExecutors } from "./executors.js";
@@ -111,6 +113,61 @@ export function startHarnessService(options: HarnessServiceOptions): HarnessServ
     return manager;
   };
 
+  // A claim core refuses (its run ended, the session is gone) is dropped, as core's own
+  // SandboxManager drops an event it cannot write.
+  const emit: SandboxManagerOptions["emit"] = async (sessionId, turnId, type, payload, meta) => {
+    const channel = client.channel();
+    if (!channel) return;
+    await channel
+      .request("event", {
+        ...(meta.claim === undefined ? {} : { runId: meta.claim }),
+        sessionId,
+        turnId,
+        type,
+        payload,
+        ...(meta.record ? { record: meta.record } : {}),
+      })
+      .catch((error: unknown) =>
+        logger.warn("harness sandbox event not claimed", {
+          sessionId,
+          type,
+          message: error instanceof Error ? error.message : String(error),
+        })
+      );
+  };
+
+  // Computers (ADR-149): one manager per computer, on the computer backend, opened with
+  // `computer.open` for the latest run that used it.
+  const computers = new Map<string, { manager: SandboxManager; runId: string }>();
+  const computerOf = (run: HarnessRun): SandboxManager => {
+    const environmentId = run.start.routing.sandbox?.environmentId;
+    if (environmentId === undefined) throw new HarnessApiError("invalid", "A computer's run names its Environment");
+    const known = computers.get(environmentId);
+    if (known) {
+      known.runId = run.runId;
+      return known.manager;
+    }
+    const entry: { manager?: SandboxManager; runId: string } = { runId: run.runId };
+    entry.manager = new SandboxManager({
+      scope: tenantId,
+      records: memorySandboxRecords(),
+      backends: [
+        computerBackend({
+          open: async (signal) => {
+            const channel = client.channel();
+            if (!channel) throw new HarnessApiError("unavailable", "Not connected to core");
+            return channel.request("computer.open", { runId: entry.runId, environmentId }, signal);
+          },
+        }),
+      ],
+      preference: "auto",
+      ephemeral: false,
+      emit,
+    });
+    computers.set(environmentId, entry as { manager: SandboxManager; runId: string });
+    return entry.manager;
+  };
+
   const pool = new McpPool({ openRemote: openMcpThrough(options.toolGate) });
   // How often the harness closes MCP connections idle past their timeout.
   const sweep = setInterval(
@@ -133,6 +190,7 @@ export function startHarnessService(options: HarnessServiceOptions): HarnessServ
     toolGate: options.toolGate,
     mcp: pool,
     sandbox,
+    computer: (run) => computerOf(run),
     ...(sandboxTools ? { sandboxTools } : {}),
   });
 
@@ -211,28 +269,7 @@ export function startHarnessService(options: HarnessServiceOptions): HarnessServ
         backends,
         preference: answer.sandbox.backend ?? "auto",
         ephemeral: options.ephemeral === true,
-        // A claim core refuses (its run ended, the session is gone) is dropped, as core's own
-        // SandboxManager drops an event it cannot write.
-        emit: async (sessionId, turnId, type, payload, meta) => {
-          const channel = client.channel();
-          if (!channel) return;
-          await channel
-            .request("event", {
-              ...(meta.claim === undefined ? {} : { runId: meta.claim }),
-              sessionId,
-              turnId,
-              type,
-              payload,
-              ...(meta.record ? { record: meta.record } : {}),
-            })
-            .catch((error: unknown) =>
-              logger.warn("harness sandbox event not claimed", {
-                sessionId,
-                type,
-                message: error instanceof Error ? error.message : String(error),
-              })
-            );
-        },
+        emit,
       });
     },
     ...(options.onGrant ? { onGrant: options.onGrant } : {}),

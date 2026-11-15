@@ -27,6 +27,8 @@
  * the sandbox's (`revokeHost`: a new join, a stop, a loss) is closed; its runs end as
  * `connection.lost`.
  */
+import { openComputer } from "../sandbox/computer.js";
+import { HttpError } from "../tenant/http.js";
 import { randomUUID } from "node:crypto";
 import {
   DEFAULT_HARNESS,
@@ -362,6 +364,20 @@ export function createHarnessApiServer(
           return recordMcp(run, p as ParamsOf<"session.mcp">);
         case "definition.file":
           return definitionFile(run, p as ParamsOf<"definition.file">, signal);
+        case "computer.open": {
+          // Only the computer of the run's own session (ADR-149).
+          const { environmentId } = p as ParamsOf<"computer.open">;
+          const sandbox = run.offer.start.routing.sandbox;
+          if (sandbox?.computer !== true || sandbox.environmentId !== environmentId)
+            throw new HarnessApiError("invalid", "This run has no such computer");
+          try {
+            return await openComputer(ctx, environmentId, signal);
+          } catch (error) {
+            if (error instanceof HttpError)
+              throw new HarnessApiError(error.status === 409 || error.status === 503 ? "unavailable" : "invalid", error.message);
+            throw error;
+          }
+        }
         case "artifact.read":
           return artifacts.read(artifactScope(run), p as ParamsOf<"artifact.read">, signal);
         case "artifact.write":

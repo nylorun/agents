@@ -601,6 +601,55 @@ describe("sandbox pods (F7.2)", () => {
       parseStackConfig({ NYLORUN_SANDBOXES_URL: "http://sandboxes:4300", NYLORUN_SANDBOXES_TOKEN: "ef".repeat(32) }, []),
     ).toThrow(/NYLORUN_SANDBOX_HARNESS_IMAGE is required/);
   });
+
+  it("reaches computers through the sandbox gateway with a ticket key (ADR-149)", () => {
+    const base = {
+      NYLORUN_SANDBOXES_URL: "http://sandboxes:4300",
+      NYLORUN_SANDBOXES_TOKEN: "ef".repeat(32),
+      NYLORUN_SANDBOX_HARNESS_IMAGE: "ghcr.io/nylorun/runtime:0.53.0",
+      NYLORUN_HARNESS_LISTEN_HOST: "0.0.0.0",
+      NYLORUN_HARNESS_ALLOWED_HOSTS: "runtime:4200",
+    };
+    const stack = parseStackConfig(
+      { ...base, NYLORUN_SANDBOX_GATEWAY_URL: "http://sandbox-gateway:4400/", NYLORUN_COMPUTER_TICKET_KEY_FILE: "/run/nylorun/computer/ticket.key" },
+      [],
+    );
+    expect(stack.sandboxes?.computer).toEqual({
+      gatewayUrl: "http://sandbox-gateway:4400",
+      ticketKeyFile: "/run/nylorun/computer/ticket.key",
+    });
+    expect(() => parseStackConfig({ ...base, NYLORUN_SANDBOX_GATEWAY_URL: "http://sandbox-gateway:4400" }, [])).toThrow(
+      /go together/,
+    );
+  });
+});
+
+describe("--service computer", () => {
+  const computer = {
+    NYLORUN_COMPUTER_TICKET_KEY: "-----BEGIN PUBLIC KEY-----\nx\n-----END PUBLIC KEY-----\n",
+    NYLORUN_COMPUTER_NAME_FILE: "/run/nylorun/actor/actor-name",
+    NYLORUN_SANDBOX_SUBSTRATE: "1",
+  };
+
+  it("runs alone, with its port, key and name file", () => {
+    const stack = parseStackConfig(computer, ["--service", "computer"]);
+    expect(stack.computer).toEqual({
+      port: 8080,
+      ticketKey: computer.NYLORUN_COMPUTER_TICKET_KEY.trim(),
+      nameFile: "/run/nylorun/actor/actor-name",
+      root: "/harness",
+      substrate: true,
+    });
+    expect(() => parseServices(["--service", "computer,harness"])).toThrow(StackConfigError);
+  });
+
+  it("refuses a Runtime credential and needs its key", () => {
+    expect(() => parseStackConfig({ ...computer, NYLORUN_HARNESS_TOKEN: "x".repeat(40) }, ["--service", "computer"])).toThrow(
+      /holds no Runtime credential/,
+    );
+    const { NYLORUN_COMPUTER_TICKET_KEY: _key, ...keyless } = computer;
+    expect(() => parseStackConfig(keyless, ["--service", "computer"])).toThrow(/NYLORUN_COMPUTER_TICKET_KEY is required/);
+  });
 });
 
 describe("NYLORUN_ADMIN_LISTEN_*", () => {
