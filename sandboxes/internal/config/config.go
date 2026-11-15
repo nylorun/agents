@@ -45,6 +45,9 @@ type Cluster struct {
 	Backend string `json:"backend,omitempty"`
 	// Substrate is the Agent Substrate setup, with backend substrate.
 	Substrate *Substrate `json:"substrate,omitempty"`
+	// InCluster says the service runs in the cluster it drives (the Runtime's Helm chart): it
+	// uses the pod's own Kubernetes credentials, and Dial, TLSServerName and CAData are unused.
+	InCluster bool `json:"inCluster,omitempty"`
 }
 
 // The backends.
@@ -68,13 +71,37 @@ type Substrate struct {
 	ServiceAccount string `json:"serviceAccount"`
 	// Version is the Substrate release `enable` found.
 	Version string `json:"version,omitempty"`
-	// Edge is the TLS front actors reach the Harness API and the gates through.
+	// Edge is the TLS front actors reach the Harness API and the gates through. Unused with
+	// Computer: a computer dials nothing to the Runtime.
 	Edge Edge `json:"edge"`
+	// Computer, when set, makes every sandbox a computer (ADR-149): its engine runs no loop and
+	// serves commands and files on Port, reached through the sandbox gateway and atenet-router.
+	Computer *Computer `json:"computer,omitempty"`
 	// WorkerSelector picks the worker pool, e.g. {"ate.dev/sandbox-class": "gvisor"}; empty: any.
 	WorkerSelector map[string]string `json:"workerSelector,omitempty"`
 	// KeysProvider is the keys provider's name (keys.nylorun.dev) when `enable` deployed it and
 	// found it registered with Substrate's egress (ADR-142); empty: keys are off.
 	KeysProvider string `json:"keysProvider,omitempty"`
+}
+
+// Computer is how computers are rendered.
+type Computer struct {
+	// Port is where the engine listens in the actor (default 8080).
+	Port int `json:"port,omitempty"`
+}
+
+// DefaultComputerPort is the engine's port in a computer.
+const DefaultComputerPort = 8080
+
+// ComputerPort is the computer's port, or 0 when sandboxes aren't computers.
+func (s *Substrate) ComputerPort() int {
+	if s == nil || s.Computer == nil {
+		return 0
+	}
+	if s.Computer.Port > 0 {
+		return s.Computer.Port
+	}
+	return DefaultComputerPort
 }
 
 // Edge is the service's TLS front for actors: Host is the name actors dial (in CoreDNS), and
@@ -146,25 +173,33 @@ func ParseCluster(raw []byte) (Cluster, error) {
 	if err := json.Unmarshal(raw, &c); err != nil {
 		return Cluster{}, fmt.Errorf("cluster.json: %w", err)
 	}
-	if c.Namespace == "" || c.Dial == "" || c.CAData == "" {
-		return Cluster{}, errors.New("cluster.json: namespace, dial and caData are required")
+	if c.Namespace == "" {
+		return Cluster{}, errors.New("cluster.json: namespace is required")
 	}
-	if _, port, err := net.SplitHostPort(c.Dial); err != nil || port == "" {
-		return Cluster{}, fmt.Errorf("cluster.json: dial %q is not host:port", c.Dial)
-	}
-	if _, err := base64.StdEncoding.DecodeString(c.CAData); err != nil {
-		return Cluster{}, fmt.Errorf("cluster.json: caData is not base64: %w", err)
+	if !c.InCluster {
+		if c.Dial == "" || c.CAData == "" {
+			return Cluster{}, errors.New("cluster.json: dial and caData are required (or inCluster)")
+		}
+		if _, port, err := net.SplitHostPort(c.Dial); err != nil || port == "" {
+			return Cluster{}, fmt.Errorf("cluster.json: dial %q is not host:port", c.Dial)
+		}
+		if _, err := base64.StdEncoding.DecodeString(c.CAData); err != nil {
+			return Cluster{}, fmt.Errorf("cluster.json: caData is not base64: %w", err)
+		}
 	}
 	switch c.Backend {
 	case "", BackendAgentSandbox:
 		c.Backend = BackendAgentSandbox
+		if c.InCluster {
+			return Cluster{}, errors.New("cluster.json: inCluster needs backend substrate")
+		}
 	case BackendSubstrate:
 		s := c.Substrate
 		if s == nil || s.Atespace == "" || s.SystemNamespace == "" || s.APIService == "" || s.ServiceAccount == "" {
 			return Cluster{}, errors.New("cluster.json: backend substrate needs substrate.atespace, systemNamespace, apiService and serviceAccount")
 		}
-		if s.Edge.Host == "" || s.Edge.HarnessPort == 0 || s.Edge.GatesPort == 0 {
-			return Cluster{}, errors.New("cluster.json: backend substrate needs substrate.edge host, harnessPort and gatesPort")
+		if s.Computer == nil && (s.Edge.Host == "" || s.Edge.HarnessPort == 0 || s.Edge.GatesPort == 0) {
+			return Cluster{}, errors.New("cluster.json: backend substrate needs substrate.edge host, harnessPort and gatesPort, or substrate.computer")
 		}
 	default:
 		return Cluster{}, fmt.Errorf("cluster.json: backend %q is not agent-sandbox or substrate", c.Backend)
@@ -186,6 +221,14 @@ func (c Cluster) EdgeURLs() (harness, gates string) {
 // `TLSServerName` and the recorded CA, authenticate with the ServiceAccount token file
 // (re-read by client-go when it changes).
 func (c Config) Rest() (*rest.Config, error) {
+	if c.Cluster.InCluster {
+		rc, err := rest.InClusterConfig()
+		if err != nil {
+			return nil, fmt.Errorf("inCluster: %w", err)
+		}
+		rc.Timeout, rc.UserAgent, rc.QPS, rc.Burst = 20*time.Second, "nylorun-sandboxes", 20, 40
+		return rc, nil
+	}
 	ca, err := base64.StdEncoding.DecodeString(c.Cluster.CAData)
 	if err != nil {
 		return nil, err

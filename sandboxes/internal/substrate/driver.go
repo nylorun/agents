@@ -268,7 +268,7 @@ func (d *Driver) Put(ctx context.Context, name string, spec driver.Spec) (driver
 	if token == "" && current != nil {
 		token = joinTokenOf(current)
 	}
-	if token == "" && actor == nil {
+	if token == "" && actor == nil && !d.o.Settings.Computer() {
 		return driver.Status{}, &driver.Error{Status: http.StatusBadRequest, Code: "invalid_request",
 			Message: "joinToken is required to create a sandbox"}
 	}

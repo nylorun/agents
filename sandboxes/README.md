@@ -112,6 +112,38 @@ Substrate's egress are on. The `/v1/pods` contract is the same.
   (to `http://gateway:4200`, egress-gate's decide route) for the keys provider; no actor's
   policy allows that port.
 
+### In the cluster, with computers (ADR-149)
+
+The Runtime's Helm chart runs the service in the cluster it drives. Its `cluster.json` sets
+`inCluster: true` and `substrate.computer` (`{port}`, default 8080):
+
+- **Reaching Kubernetes and Substrate.** The pod's own ServiceAccount; Substrate's API by its
+  Service (`api.ate-system.svc:443`) with a projected token of audience `api.ate-system.svc`
+  (`NYLORUN_SUBSTRATE_TOKEN_FILE`, default `/var/run/secrets/ate/token`) and the service-DNS
+  signer's bundle (`NYLORUN_SUBSTRATE_CA_FILE`, default `/var/run/secrets/ate/ca.pem`, a
+  `clusterTrustBundle` projected volume). No port-forward, no token it mints.
+- **Every sandbox is a computer.** Its engine runs `--service computer` (no loop, no join, no edge):
+  it serves commands and files on the computer port, and a wake-up probe on `/ready` makes
+  `ResumeActor` return only once it answers. The template carries the public half of the ticket
+  key (`NYLORUN_COMPUTER_TICKET_KEY_FILE`, default `/run/nylorun/computer/ticket.key`, PKCS #8 PEM
+  Ed25519) for the engine to check tickets with. No join token is needed, there is no edge and
+  no edge rule, and `entrypoint: image` is refused (a computer runs the Runtime's engine).
+  `GET /v1/info` says `computer: true`.
+
+### The sandbox gateway
+
+`sandboxes gateway` is the computers' one way in (ADR-148), as its own Deployment with no
+Kubernetes rights. It serves `/{sandbox}/{path}` on `:4400`: it checks the
+`X-Nylorun-Ticket` header (a compact JWS core signs with the ticket key: `aud`
+`nylorun-computer`, `sub` the sandbox's name, `exp`), opens an mTLS CONNECT tunnel to
+`atenet-router.ate-system.svc:8444` with `ate-target-actor: <atespace>/<sandbox>` and authority
+`<sandbox>:<computer port>`, and proxies the request inside it, ticket included, so the engine
+checks it too. Its client certificate is a `podCertificate` projected volume
+(`--credential-bundle`, read on each handshake) and the router's CA a `clusterTrustBundle` one
+(`--router-ca`). Its SPIFFE ID must be the router's `--ingress-allowed-spiffe-ids` entry.
+A ticket for another sandbox, an expired or a missing one is `401`; a tunnel the router refuses
+is `502 computer_unreachable`.
+
 ### The keys provider
 
 `sandboxes provider` is the keys provider (ADR-142): the one credential provider Substrate's

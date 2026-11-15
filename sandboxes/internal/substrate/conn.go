@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -48,19 +50,34 @@ type ConnOptions struct {
 	Namespace, ServiceAccount string
 	// StaticToken, when set, is sent instead (substrate-setup, as one of Substrate's owners).
 	StaticToken string
+	// TokenFile, when set, is a projected ServiceAccount token with Substrate's audience, read
+	// before each call (kubelet rotates it): the service in the cluster, which mints nothing.
+	TokenFile string
+	// CAFile, when set, is the service-DNS signer's bundle (a clusterTrustBundle projected
+	// volume), read instead of listing ClusterTrustBundles.
+	CAFile string
 }
 
 func (o ConnOptions) serverName() string { return o.APIService + "." + o.SystemNamespace + ".svc" }
 
 // Dial connects to ate-api-server. The connection re-establishes its port-forward when it drops.
 func Dial(ctx context.Context, o ConnOptions) (ateapi.ControlClient, func(), error) {
-	roots, err := ServerTrust(ctx, o.Kube)
+	var roots *x509.CertPool
+	var err error
+	if o.CAFile != "" {
+		roots, err = trustFromFile(o.CAFile)
+	} else {
+		roots, err = ServerTrust(ctx, o.Kube)
+	}
 	if err != nil {
 		return nil, nil, err
 	}
 	var tokens credentials.PerRPCCredentials = &tokenSource{kube: o.Kube, namespace: o.Namespace, account: o.ServiceAccount, audience: o.serverName()}
-	if o.StaticToken != "" {
+	switch {
+	case o.StaticToken != "":
 		tokens = staticToken(o.StaticToken)
+	case o.TokenFile != "":
+		tokens = fileToken(o.TokenFile)
 	}
 	opts := []grpc.DialOption{
 		grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS13, RootCAs: roots, ServerName: o.serverName()})),
@@ -140,6 +157,37 @@ func (t *tokenSource) GetRequestMetadata(ctx context.Context, _ ...string) (map[
 }
 
 func (t *tokenSource) RequireTransportSecurity() bool { return true }
+
+// trustFromFile is a PEM bundle as a pool.
+func trustFromFile(path string) (*x509.CertPool, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read Substrate's service-DNS bundle: %w", err)
+	}
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(raw) {
+		return nil, fmt.Errorf("%s holds no certificate", path)
+	}
+	return pool, nil
+}
+
+// fileToken reads a projected token before each call.
+type fileToken string
+
+func (t fileToken) GetRequestMetadata(context.Context, ...string) (map[string]string, error) {
+	raw, err := os.ReadFile(string(t))
+	if err != nil {
+		return nil, fmt.Errorf("read the Substrate token: %w", err)
+	}
+	return map[string]string{"authorization": "Bearer " + strings.TrimSpace(string(raw))}, nil
+}
+
+func (t fileToken) RequireTransportSecurity() bool { return true }
+
+// InClusterEndpoint is ate-api-server's Service as a pod reaches it.
+func (o ConnOptions) InClusterEndpoint() string {
+	return net.JoinHostPort(o.serverName(), strconv.Itoa(apiPort))
+}
 
 type staticToken string
 

@@ -74,6 +74,123 @@ type Settings struct {
 	// KeysProvider is the keys provider's name, the host of its ate-secret:// references
 	// (ADR-142); empty when keys are off, and keyed hosts are then passed through like any other.
 	KeysProvider string
+	// ComputerPort, when not 0, makes every sandbox a computer (ADR-149): its engine runs
+	// `--service computer` on this port, with no join token, edge or loop.
+	ComputerPort int
+	// TicketKey is the PEM public key the computer checks tickets with (with ComputerPort).
+	TicketKey string
+}
+
+// Computer says whether sandboxes are computers.
+func (s Settings) Computer() bool { return s.ComputerPort > 0 }
+
+// computerWrapper is the container's command for a computer's engine: no join token, no edge,
+// only the dirs its workspace needs, then the engine under tini as PID 1.
+const computerWrapper = `set -e
+umask 022
+mkdir -p /harness/home /workspace /skills
+cd /workspace
+exec "$@"`
+
+// computerArgs is what the wrapper execs for a computer.
+func computerArgs(entrypoint string) []string {
+	args := engineArgs(entrypoint)
+	return append(args[:len(args)-1], "computer")
+}
+
+// renderComputer is a computer's template (see RenderTemplate).
+func renderComputer(s Settings, spec driver.Spec, images Resolved) (map[string]any, error) {
+	if spec.Entrypoint == driver.EntrypointImage {
+		return nil, &driver.Error{Status: 400, Code: "invalid_request",
+			Message: "a computer runs the Runtime's engine: entrypoint image (a custom harness in the image) is not a computer"}
+	}
+	env := map[string]string{
+		"HOME": "/harness/home",
+		// The engine stays up on a stopping worker's SIGTERM, so it can be suspended (drain.go).
+		"NYLORUN_SANDBOX_SUBSTRATE":      "1",
+		"NYLORUN_SANDBOX_EGRESS_CA_FILE": TrustDir + "/egress.pem",
+		"NYLORUN_COMPUTER_PORT":          strconv.Itoa(s.ComputerPort),
+		"NYLORUN_COMPUTER_TICKET_KEY":    s.TicketKey,
+		"NYLORUN_COMPUTER_NAME_FILE":     InfoDir + "/actor-name",
+	}
+	for key, value := range spec.Env {
+		env[key] = value
+	}
+	keys := make([]string, 0, len(env))
+	for key := range env {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	envList := make([]any, 0, len(keys))
+	for _, key := range keys {
+		envList = append(envList, map[string]any{"name": key, "value": env[key]})
+	}
+	mounts, volumes := baseVolumes()
+	container := map[string]any{"name": "workload", "image": images.Image, "env": envList}
+	if len(spec.Command) > 0 {
+		container["command"] = spec.Command
+	} else {
+		if spec.Entrypoint == driver.EntrypointEngine {
+			if images.Harness == "" {
+				return nil, &driver.Error{Status: 400, Code: "invalid_request", Message: "harnessImage is required for entrypoint engine"}
+			}
+			mounts = append(mounts, map[string]any{"name": EngineVolume, "mountPath": EngineDir})
+			volumes = append(volumes, map[string]any{"name": EngineVolume, "image": map[string]any{"reference": images.Harness}})
+		}
+		container["command"] = append([]string{"/bin/sh", "-c", computerWrapper, "nylorun-computer"}, computerArgs(spec.Entrypoint)...)
+		// ResumeActor returns only once the engine answers (ADR-148 decision 4).
+		container["wakeupProbe"] = map[string]any{
+			"httpGet":        map[string]any{"path": "/ready", "port": s.ComputerPort},
+			"timeoutSeconds": 120,
+		}
+	}
+	container["volumeMounts"] = mounts
+	return finishTemplate(s, spec, container, volumes), nil
+}
+
+// baseVolumes are every sandbox's mounts and volumes: its identity, Substrate's egress CA, and
+// its two durable dirs.
+func baseVolumes() ([]any, []any) {
+	mounts := []any{
+		map[string]any{"name": "info", "mountPath": InfoDir},
+		map[string]any{"name": "trust", "mountPath": TrustDir},
+		map[string]any{"name": "workspace", "mountPath": "/workspace"},
+		map[string]any{"name": "harness", "mountPath": "/harness"},
+	}
+	volumes := []any{
+		map[string]any{"name": "info", "systemInfo": map[string]any{"dataSources": []any{map[string]any{
+			"actorMetadata": map[string]any{"items": []any{
+				map[string]any{"field": "ACTOR_METADATA_FIELD_NAME", "path": "actor-name"},
+				map[string]any{"field": "ACTOR_METADATA_FIELD_UID", "path": "actor-uid"},
+			}}}}}},
+		map[string]any{"name": "trust", "systemInfo": map[string]any{"dataSources": []any{map[string]any{
+			"trustBundle": map[string]any{"names": []any{"egress-mitm.ate.dev"}, "path": "egress.pem"}}}}},
+		map[string]any{"name": "workspace", "durableDir": map[string]any{}},
+		map[string]any{"name": "harness", "durableDir": map[string]any{}},
+	}
+	return mounts, volumes
+}
+
+// finishTemplate wraps a container into a template: resources, snapshots and the worker pool.
+func finishTemplate(s Settings, spec driver.Spec, container map[string]any, volumes []any) map[string]any {
+	t := map[string]any{
+		"metadata":   map[string]any{"atespace": s.Atespace},
+		"containers": []any{container},
+		"volumes":    volumes,
+		"resources": map[string]any{"limits": map[string]any{
+			"cpuMillicores": strconv.FormatInt(int64(spec.CPUs*1000), 10),
+			"memoryBytes":   strconv.FormatInt(spec.MemoryMiB<<20, 10),
+		}},
+		"snapshotConfig": map[string]any{
+			"preferredFidelity": "SNAPSHOT_FIDELITY_MEMORY",
+			// Each incarnation is its own: a golden snapshot would share one engine's state.
+			"goldenSnapshotConfig": map[string]any{"mode": "GOLDEN_SNAPSHOT_MODE_DISABLED"},
+		},
+	}
+	if len(s.WorkerSelector) > 0 {
+		t["workerSelector"] = map[string]any{"matchLabels": s.WorkerSelector}
+	}
+	return t
 }
 
 // DefaultKeysProvider is the keys provider's name when the cluster records it.
@@ -164,6 +281,9 @@ func deepMerge(into, from map[string]any) {
 // spec is normalized. joinToken is the incarnation's; it lives in the template's environment
 // until the incarnation is deleted (Phase 1b replaces it with an identity join).
 func RenderTemplate(s Settings, spec driver.Spec, images Resolved, joinToken string) (map[string]any, error) {
+	if s.Computer() {
+		return renderComputer(s, spec, images)
+	}
 	env := map[string]string{
 		"HOME":                 "/harness/home",
 		"NYLORUN_SANDBOX_KIND": "pod",
@@ -369,8 +489,12 @@ func EgressPolicy(s Settings, network Network, keys *driver.SpecKeys) (*ateapi.E
 	for _, port := range s.EdgePorts {
 		edgePorts = append(edgePorts, port)
 	}
-	rules := []any{map[string]any{"tlsPassthrough": map[string]any{
-		"hostnames": []any{s.EdgeHost}, "ports": map[string]any{"numbers": edgePorts}}}}
+	// A computer dials nothing to the Runtime: no edge rule.
+	rules := []any{}
+	if s.EdgeHost != "" && !s.Computer() {
+		rules = append(rules, map[string]any{"tlsPassthrough": map[string]any{
+			"hostnames": []any{s.EdgeHost}, "ports": map[string]any{"numbers": edgePorts}}})
+	}
 	var hosts []any
 	if network.Open {
 		hosts = []any{"*"}
