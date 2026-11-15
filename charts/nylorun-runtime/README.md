@@ -47,20 +47,27 @@ Back up the Secret `<release>-secrets`: without its vault key, the Tenant's secr
    - an `ate-system-infra` pool for its control plane;
    - a pool for this chart;
    - worker pools of one CPU platform with node auto-upgrade off.
-2. **The router's allowlist** names the sandbox gateway. Install or update Substrate with:
+2. **The namespace may call Substrate's API.** Substrate's NetworkPolicy admits callers of
+   `ate-api-server` only from namespaces labelled `ate.dev/api-access=true`:
+
+   ```sh
+   kubectl label namespace <namespace> ate.dev/api-access=true
+   ```
+
+3. **The router's allowlist** names the sandbox gateway. Install or update Substrate with:
 
    ```sh
    ATE_INGRESS_ALLOWED_SPIFFE_IDS=spiffe://cluster.local/ns/<namespace>/sa/<release>-sandbox-gateway
    ```
 
-3. **Postgres** (when not bundled) needs:
+4. **Postgres** (when not bundled) needs:
    - logical replication (`wal_level=logical`; on Cloud SQL, the flag `cloudsql.logical_decoding=on`);
    - a database with C collation;
    - a user with the `REPLICATION` attribute.
-4. **The object store** (when not bundled) is any S3 API: a bucket and an access key. On GCS, an HMAC
+5. **The object store** (when not bundled) is any S3 API: a bucket and an access key. On GCS, an HMAC
    key for a service account with `roles/storage.objectAdmin` on the bucket, endpoint
    `https://storage.googleapis.com`.
-5. **The atespace.** One of Substrate's owners makes it once: set `substrate.setup.enabled` with a
+6. **The atespace.** One of Substrate's owners makes it once: set `substrate.setup.enabled` with a
    Secret (`substrate.setup.ownerTokenSecret`, key `token`) holding an owner's Substrate token, and
    the chart runs `sandboxes substrate-setup` as a hook Job. It is safe to run again.
 

@@ -327,6 +327,10 @@ describe("pod lifecycle", () => {
     // Not listed: copied, as for any image. A custom harness keeps its own entrypoint.
     expect(podSpecOf({ ...input, config: {}, pod: row().pod })).not.toHaveProperty("entrypoint");
     expect(podSpecOf({ ...input, harness: "acme", pod: row().pod }).entrypoint).toBe("image");
+    // A computer runs our engine whatever harness drives it (ADR-149): the harness runs outside.
+    const computer = podSpecOf({ ...input, config: {}, harness: "acme", computer: true, pod: row().pod });
+    expect(computer).not.toHaveProperty("entrypoint");
+    expect(computer).toMatchObject({ harnessImage: "ghcr.io/nylorun/runtime:0.38.0-beta" });
   });
 
   it("renders the service's PUT body with the Tenant's lifecycle settings", () => {

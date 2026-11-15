@@ -75,6 +75,8 @@ spec:
     spec:
       serviceAccountName: {{ $n }}-sandboxes
       {{- include "nylorun.podSecurity" . | nindent 6 }}
+        runAsUser: 65532
+        runAsGroup: 65532
       {{- include "nylorun.placement" . | nindent 6 }}
       enableServiceLinks: false
       containers:
@@ -90,8 +92,10 @@ spec:
             - { name: NYLORUN_COMPUTER_TICKET_KEY_FILE, value: /run/nylorun/computer/ticket.key }
             - { name: NYLORUN_SUBSTRATE_TOKEN_FILE, value: /var/run/secrets/ate/token }
             - { name: NYLORUN_SUBSTRATE_CA_FILE, value: /var/run/secrets/ate/ca.pem }
+          # /health, not /ready: /ready needs the atespace, which the post-install setup Job makes
+          # after the release's pods are ready (the Runtime reads /ready itself).
           readinessProbe:
-            httpGet: { path: /ready, port: api }
+            httpGet: { path: /health, port: api }
             periodSeconds: 5
           {{- with .Values.resources.sandboxes }}
           resources: {{- toYaml . | nindent 12 }}
@@ -154,6 +158,8 @@ spec:
     spec:
       serviceAccountName: {{ $n }}-sandbox-gateway
       {{- include "nylorun.podSecurity" . | nindent 6 }}
+        runAsUser: 65532
+        runAsGroup: 65532
       {{- include "nylorun.placement" . | nindent 6 }}
       enableServiceLinks: false
       containers:

@@ -48,6 +48,20 @@ It leaves out, on purpose:
 Nothing calls Nylorun. Studio's anonymous page-view analytics is the only outbound call, and
 nothing depends on it (`nylorun local telemetry disable`, or `NYLORUN_TELEMETRY_DISABLED=1`).
 
+## On Kubernetes
+
+The Runtime's Helm chart, [`charts/nylorun-runtime`](../charts/nylorun-runtime/README.md),
+installs it into an [Agent Substrate](https://github.com/agent-substrate/substrate) cluster.
+Every Agent with a sandbox gets a computer: the loop runs in the harness, and commands and files
+run in the Agent's own actor, reached through the sandbox gateway and Substrate's router.
+
+- **Stores:** Postgres and the object store are settings, a managed service or the bundled ones.
+- **Tested:** on Google Cloud (GKE, Cloud SQL, GCS); the chart's README has a GCP example values
+  file.
+- **Other providers:** guides for AWS, Azure and any Kubernetes cluster come later in the docs.
+- **What Substrate needs:** the router's allowlist naming the sandbox gateway, and the Tenant's
+  atespace; the chart's README says how.
+
 ## Front doors
 
 Every Tenant serves two APIs on one URL: the **Runtime API** (agent manifests,

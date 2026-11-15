@@ -103,6 +103,8 @@ spec:
       restartPolicy: Never
       serviceAccountName: {{ $n }}-sandboxes
       {{- include "nylorun.podSecurity" . | nindent 6 }}
+        runAsUser: 65532
+        runAsGroup: 65532
       {{- include "nylorun.placement" . | nindent 6 }}
       containers:
         - name: setup

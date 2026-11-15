@@ -67,6 +67,11 @@ export interface PodSpecInput {
   readonly joinToken?: string;
   /** The keyed hosts (`keys.ts`), for Agent Substrate's egress. */
   readonly keys?: PodSpec["keys"];
+  /**
+   * The pod is a computer (ADR-149): our engine runs there in computer mode whatever harness the
+   * Agent runs, since every harness runs outside it.
+   */
+  readonly computer?: boolean;
 }
 
 export function podSpecOf(input: PodSpecInput): PodSpec {
@@ -74,7 +79,7 @@ export function podSpecOf(input: PodSpecInput): PodSpec {
   const lifecycle = podLifecycleConfig(config);
   // Pinned by digest once a pod ran it (Q14).
   const image = pod.imageDigest ?? spec.image;
-  const ours = (input.harness ?? DEFAULT_HARNESS) === DEFAULT_HARNESS;
+  const ours = input.computer === true || (input.harness ?? DEFAULT_HARNESS) === DEFAULT_HARNESS;
   // Our engine, built into an image the Tenant lists, while it is this Runtime's (ADR-99).
   const builtin =
     ours &&

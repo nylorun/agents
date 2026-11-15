@@ -21,6 +21,8 @@ spec:
         checksum/values: {{ toJson .Values | sha256sum | trunc 16 }}
     spec:
       {{- include "nylorun.podSecurity" . | nindent 6 }}
+        runAsUser: 1000
+        runAsGroup: 1000
         fsGroup: 1000
       {{- include "nylorun.placement" . | nindent 6 }}
       enableServiceLinks: false
