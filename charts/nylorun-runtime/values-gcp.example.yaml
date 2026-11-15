@@ -16,8 +16,8 @@ ingress:
   annotations:
     networking.gke.io/managed-certificates: nylorun-runtime
 
-# Cloud SQL for PostgreSQL, private IP: flag cloudsql.logical_decoding=on, a C-collation
-# database, a user with REPLICATION. The Secret holds `url`.
+# Cloud SQL for PostgreSQL, private IP: flag cloudsql.logical_decoding=on, a database
+# (the default collation will do), a user with REPLICATION. The Secret holds `url`.
 postgres:
   existingSecret: nylorun-postgres
   bundled:
