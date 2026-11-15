@@ -23,6 +23,26 @@ spec:
         - name: restate
           image: {{ .Values.images.restate }}
           args: ["--node-name=restate-1"]
+          env:
+            # Restate signs each request to the runtime's worker; the runtime verifies it.
+            - { name: RESTATE_WORKER__INVOKER__REQUEST_IDENTITY_PRIVATE_KEY_PEM_FILE, value: /run/nylorun/restate/identity.pem }
+            {{- if .Values.restate.snapshots.enabled }}
+            {{- $endpoint := include "nylorun.objectStore.endpoint" . }}
+            # Partition snapshots in the object store (ADR-147 decision 11).
+            - { name: RESTATE_WORKER__SNAPSHOTS__DESTINATION, value: {{ printf "s3://%s/%s" .Values.objectStore.bucket .Values.restate.snapshots.path | quote }} }
+            {{- with .Values.restate.snapshots.interval }}
+            - { name: RESTATE_WORKER__SNAPSHOTS__SNAPSHOT_INTERVAL, value: {{ . | quote }} }
+            {{- end }}
+            - { name: RESTATE_WORKER__SNAPSHOTS__AWS_ENDPOINT_URL, value: {{ $endpoint | quote }} }
+            - { name: RESTATE_WORKER__SNAPSHOTS__AWS_REGION, value: {{ .Values.objectStore.region | quote }} }
+            - name: RESTATE_WORKER__SNAPSHOTS__AWS_ACCESS_KEY_ID
+              valueFrom: { secretKeyRef: { name: {{ include "nylorun.objectStore.secret" . }}, key: accessKey } }
+            - name: RESTATE_WORKER__SNAPSHOTS__AWS_SECRET_ACCESS_KEY
+              valueFrom: { secretKeyRef: { name: {{ include "nylorun.objectStore.secret" . }}, key: secretKey } }
+            {{- if hasPrefix "http://" $endpoint }}
+            - { name: RESTATE_WORKER__SNAPSHOTS__AWS_ALLOW_HTTP, value: "true" }
+            {{- end }}
+            {{- end }}
           ports:
             - { name: ingress, containerPort: 8080 }
             - { name: admin, containerPort: 9070 }
@@ -32,7 +52,15 @@ spec:
           {{- with .Values.restate.resources }}
           resources: {{- toYaml . | nindent 12 }}
           {{- end }}
-          volumeMounts: [{ name: data, mountPath: /restate-data }]
+          volumeMounts:
+            - { name: data, mountPath: /restate-data }
+            - { name: identity, mountPath: /run/nylorun/restate, readOnly: true }
+      volumes:
+        - name: identity
+          secret:
+            secretName: {{ $secret }}
+            defaultMode: 0440
+            items: [{ key: restateIdentity, path: identity.pem }]
   volumeClaimTemplates:
     - metadata: { name: data }
       spec:

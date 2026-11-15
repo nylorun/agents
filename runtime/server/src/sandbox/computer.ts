@@ -84,6 +84,10 @@ export async function computerAccess(ctx: TenantContext, id: string, signal?: Ab
       return fail(409, `Agent ${id}'s computer failed: ${pod.reason ?? "it did not start"}.`, { code: "agent_unavailable" });
     const status = await pods.client.status(pod.k8sName, { wait: "ready", timeoutMs: 20_000 }).catch(() => undefined);
     if (status?.ready && status.podUID) {
+      // A drain the reconcile hasn't recorded yet (suspend before drain resumed it elsewhere,
+      // ready at once): the reconcile records it, once.
+      if (status.drainedAt !== undefined && status.drainedAt !== pod.drainedAt)
+        await ctx.sandboxSignal(id, { kind: "reconcile" }).catch(() => undefined);
       await firstContact(ctx, id, status.podUID);
       const expiresAt = Date.now() + computers.ttlMs;
       return {

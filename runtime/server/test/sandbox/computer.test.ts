@@ -8,7 +8,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import { computerBackend } from "../../src/adapters/sandbox/computer.js";
 import { localBackend } from "../../src/adapters/sandbox/local.js";
 import { checkTicket, computerHandler, ComputerCommands } from "../../src/harness/computer.js";
-import { signTicket } from "../../src/sandbox/computer.js";
+import { computerAccess, signTicket } from "../../src/sandbox/computer.js";
+import type { TenantContext } from "../../src/tenant/context.js";
 import type { SandboxHandle } from "../../src/sandbox/types.js";
 
 const NAME = "sbx-ub6g5m7mvjlct6r7-g0";
@@ -124,5 +125,42 @@ describe("the computer backend through the computer's routes", () => {
     const result = await handle.exec({ command: "echo again", cwd: c.handle.workspace!, timeoutMs: 10_000 }, new AbortController().signal);
     expect(result.stdout).toBe("again\n");
     expect(opened).toBe(2);
+  });
+});
+
+describe("computer access", () => {
+  // A Tenant with one running computer whose service reports `drainedAt`.
+  const context = (recorded: string | undefined, reported: string | undefined) => {
+    const pod = { desired: "running", observed: "running", k8sName: NAME, hostEpoch: 1, podUid: "uid-1", rev: 1, drainedAt: recorded };
+    const signals: unknown[] = [];
+    const t = {
+      environment: async () => ({ id: "local/probe", pod }),
+      updateEnvironmentPod: async () => undefined,
+      agentEvent: async () => undefined,
+    };
+    const ctx = {
+      store: { tx: async (fn: (tx: typeof t) => unknown) => fn(t) },
+      pods: {
+        client: { status: async () => ({ ready: true, podUID: "uid-1", ...(reported ? { drainedAt: reported } : {}) }) },
+        computer: { gatewayUrl: "http://sandbox-gateway:4400", ticketKey: keys().privateKey, ttlMs: 600_000 },
+      },
+      sandboxSignal: async (id: string, signal: unknown) => void signals.push({ id, signal }),
+    } as unknown as TenantContext;
+    return { ctx, signals };
+  };
+
+  it("asks the reconcile to record a drain it hasn't yet", async () => {
+    const { ctx, signals } = context(undefined, "2026-11-15T16:54:40Z");
+    const access = await computerAccess(ctx, "local/probe");
+    expect(access.url).toBe(`http://sandbox-gateway:4400/${NAME}`);
+    expect(signals).toEqual([{ id: "local/probe", signal: { kind: "reconcile" } }]);
+  });
+
+  it("leaves a recorded drain, and no drain, alone", async () => {
+    for (const [recorded, reported] of [["2026-11-15T16:54:40Z", "2026-11-15T16:54:40Z"], [undefined, undefined]] as const) {
+      const { ctx, signals } = context(recorded, reported);
+      await computerAccess(ctx, "local/probe");
+      expect(signals).toEqual([]);
+    }
   });
 });

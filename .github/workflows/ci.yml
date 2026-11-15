@@ -450,6 +450,7 @@ jobs:
             grep -Eq "^  ${key}: \"[0-9a-f]{64}\"$" /tmp/chart.yaml || { echo "${key} is not 32 bytes of hex"; exit 1; }
           done
           helm template t charts/nylorun-runtime --kube-version 1.37.0 -f charts/nylorun-runtime/values-gcp.example.yaml >/dev/null
+          helm template t charts/nylorun-runtime --kube-version 1.37.0 --set keysProvider.enabled=true --set restate.snapshots.enabled=false >/dev/null
       - uses: actions/setup-node@v6
         with:
           node-version-file: .node-version

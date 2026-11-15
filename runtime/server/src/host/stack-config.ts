@@ -54,6 +54,8 @@ import { blockedAddresses, type BlockedAddress } from "../sandbox/pods/network-g
 import { HostTuningError, parseHostTuning, type HostTuning } from "../tuning.js";
 import { HOST_IDENTITY_PROVIDERS } from "../vault/host-identity.js";
 import type { ComputerServiceConfig } from "../harness/computer.js";
+import { readFileSync } from "node:fs";
+import { restateIdentityKeyOf } from "./restate-identity.js";
 
 /** A Runtime service this release has. */
 export type RuntimeService = "core" | "loop" | "gates" | "keys" | "egress" | "harness" | "computer";
@@ -615,13 +617,28 @@ function parseListen(env: EnvSnapshot): ContainerListen | undefined {
 
 const IDENTITY_KEY = /^publickeyv1_[1-9A-HJ-NP-Za-km-z]{32,64}$/;
 
+/**
+ * The keys Restate signs with: NYLORUN_RESTATE_IDENTITY_KEY (`publickeyv1_…`, comma-separated),
+ * and NYLORUN_RESTATE_IDENTITY_KEY_FILE, a PEM of the key (Restate's private key as the Helm chart
+ * mounts it, or the public key) whose `publickeyv1_…` the Runtime computes.
+ */
 function parseIdentityKeys(env: EnvSnapshot): string[] | undefined {
   const raw = read(env, "NYLORUN_RESTATE_IDENTITY_KEY");
-  if (raw === undefined) return undefined;
-  const keys = raw
+  const file = read(env, "NYLORUN_RESTATE_IDENTITY_KEY_FILE");
+  if (raw === undefined && file === undefined) return undefined;
+  const keys = (raw ?? "")
     .split(",")
     .map((key) => key.trim())
     .filter((key) => key !== "");
+  if (file !== undefined) {
+    try {
+      keys.push(restateIdentityKeyOf(readFileSync(file, "utf8")));
+    } catch (error) {
+      throw new StackConfigError(
+        `NYLORUN_RESTATE_IDENTITY_KEY_FILE ${file} is not an Ed25519 PEM: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
   for (const key of keys)
     if (!IDENTITY_KEY.test(key))
       throw new StackConfigError(
