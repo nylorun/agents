@@ -1,0 +1,219 @@
+{{- $n := include "nylorun.name" . -}}
+{{- $secret := include "nylorun.secret" . -}}
+# Restate: one node, its log and state on a persistent disk (ADR-147 decision 11).
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $n }}-restate
+  labels: {{- include "nylorun.labels" . | nindent 4 }}
+    app.kubernetes.io/component: restate
+spec:
+  replicas: 1
+  serviceName: {{ $n }}-restate
+  selector:
+    matchLabels: {{- include "nylorun.selector" (dict "root" . "component" "restate") | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "nylorun.selector" (dict "root" . "component" "restate") | nindent 8 }}
+    spec:
+      {{- include "nylorun.placement" . | nindent 6 }}
+      securityContext: { fsGroup: 1000 }
+      enableServiceLinks: false
+      containers:
+        - name: restate
+          image: {{ .Values.images.restate }}
+          args: ["--node-name=restate-1"]
+          ports:
+            - { name: ingress, containerPort: 8080 }
+            - { name: admin, containerPort: 9070 }
+          readinessProbe:
+            httpGet: { path: /health, port: admin }
+            periodSeconds: 5
+          {{- with .Values.restate.resources }}
+          resources: {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts: [{ name: data, mountPath: /restate-data }]
+  volumeClaimTemplates:
+    - metadata: { name: data }
+      spec:
+        accessModes: [ReadWriteOnce]
+        {{- with .Values.restate.storageClass }}
+        storageClassName: {{ . }}
+        {{- end }}
+        resources: { requests: { storage: {{ .Values.restate.storage }} } }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $n }}-restate
+  labels: {{- include "nylorun.labels" . | nindent 4 }}
+spec:
+  selector: {{- include "nylorun.selector" (dict "root" . "component" "restate") | nindent 4 }}
+  ports:
+    - { name: ingress, port: 8080, targetPort: ingress }
+    - { name: admin, port: 9070, targetPort: admin }
+---
+# s2-lite: the Runtime's streams, in the object store under `s2.path` (no disk), or on a disk.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $n }}-s2
+  labels: {{- include "nylorun.labels" . | nindent 4 }}
+    app.kubernetes.io/component: s2
+spec:
+  replicas: 1
+  serviceName: {{ $n }}-s2
+  selector:
+    matchLabels: {{- include "nylorun.selector" (dict "root" . "component" "s2") | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "nylorun.selector" (dict "root" . "component" "s2") | nindent 8 }}
+    spec:
+      {{- include "nylorun.placement" . | nindent 6 }}
+      securityContext: { fsGroup: 65532 }
+      enableServiceLinks: false
+      containers:
+        - name: s2
+          image: {{ .Values.images.s2 }}
+          {{- if .Values.s2.objectStore }}
+          args: ["lite", "--bucket", {{ .Values.objectStore.bucket | quote }}, "--path", {{ .Values.s2.path | quote }}, "--port", "8080"]
+          env:
+            - { name: AWS_ENDPOINT_URL_S3, value: {{ include "nylorun.objectStore.endpoint" . | quote }} }
+            - { name: AWS_REGION, value: {{ .Values.objectStore.region | quote }} }
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom: { secretKeyRef: { name: {{ include "nylorun.objectStore.secret" . }}, key: accessKey } }
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom: { secretKeyRef: { name: {{ include "nylorun.objectStore.secret" . }}, key: secretKey } }
+          {{- else }}
+          args: ["lite", "--local-root", "/home/nonroot/data", "--port", "8080"]
+          volumeMounts: [{ name: data, mountPath: /home/nonroot }]
+          {{- end }}
+          ports: [{ name: http, containerPort: 8080 }]
+  {{- if not .Values.s2.objectStore }}
+  volumeClaimTemplates:
+    - metadata: { name: data }
+      spec:
+        accessModes: [ReadWriteOnce]
+        {{- with .Values.s2.storageClass }}
+        storageClassName: {{ . }}
+        {{- end }}
+        resources: { requests: { storage: {{ .Values.s2.storage }} } }
+  {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $n }}-s2
+  labels: {{- include "nylorun.labels" . | nindent 4 }}
+spec:
+  selector: {{- include "nylorun.selector" (dict "root" . "component" "s2") | nindent 4 }}
+  ports: [{ name: http, port: 8080, targetPort: http }]
+{{- if and .Values.postgres.bundled.enabled (not .Values.postgres.url) (not .Values.postgres.existingSecret) }}
+---
+# Postgres, bundled: logical replication on (the stream relay), C collation.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $n }}-postgres
+  labels: {{- include "nylorun.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgres
+spec:
+  replicas: 1
+  serviceName: {{ $n }}-postgres
+  selector:
+    matchLabels: {{- include "nylorun.selector" (dict "root" . "component" "postgres") | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "nylorun.selector" (dict "root" . "component" "postgres") | nindent 8 }}
+    spec:
+      {{- include "nylorun.placement" . | nindent 6 }}
+      securityContext: { fsGroup: 999 }
+      enableServiceLinks: false
+      containers:
+        - name: postgres
+          image: {{ .Values.images.postgres }}
+          args: ["postgres", "-c", "wal_level=logical", "-c", "max_slot_wal_keep_size=1024"]
+          env:
+            - { name: POSTGRES_USER, value: nylorun }
+            - { name: POSTGRES_DB, value: nylorun }
+            - { name: POSTGRES_INITDB_ARGS, value: "--locale=C" }
+            - { name: PGDATA, value: /var/lib/postgresql/data/pgdata }
+            - name: POSTGRES_PASSWORD
+              valueFrom: { secretKeyRef: { name: {{ $secret }}, key: postgresPassword } }
+          ports: [{ name: pg, containerPort: 5432 }]
+          readinessProbe:
+            exec: { command: [pg_isready, -U, nylorun, -d, nylorun] }
+            periodSeconds: 5
+          volumeMounts: [{ name: data, mountPath: /var/lib/postgresql/data }]
+  volumeClaimTemplates:
+    - metadata: { name: data }
+      spec:
+        accessModes: [ReadWriteOnce]
+        {{- with .Values.postgres.bundled.storageClass }}
+        storageClassName: {{ . }}
+        {{- end }}
+        resources: { requests: { storage: {{ .Values.postgres.bundled.storage }} } }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $n }}-postgres
+  labels: {{- include "nylorun.labels" . | nindent 4 }}
+spec:
+  selector: {{- include "nylorun.selector" (dict "root" . "component" "postgres") | nindent 4 }}
+  ports: [{ name: pg, port: 5432, targetPort: pg }]
+{{- end }}
+{{- if and .Values.objectStore.bundled.enabled (not .Values.objectStore.endpoint) }}
+---
+# RustFS, bundled: the object store when no S3 endpoint is given.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $n }}-rustfs
+  labels: {{- include "nylorun.labels" . | nindent 4 }}
+    app.kubernetes.io/component: rustfs
+spec:
+  replicas: 1
+  serviceName: {{ $n }}-rustfs
+  selector:
+    matchLabels: {{- include "nylorun.selector" (dict "root" . "component" "rustfs") | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "nylorun.selector" (dict "root" . "component" "rustfs") | nindent 8 }}
+    spec:
+      {{- include "nylorun.placement" . | nindent 6 }}
+      securityContext: { fsGroup: 10001 }
+      enableServiceLinks: false
+      containers:
+        - name: rustfs
+          image: {{ .Values.images.rustfs }}
+          env:
+            - name: RUSTFS_ACCESS_KEY
+              valueFrom: { secretKeyRef: { name: {{ include "nylorun.objectStore.secret" . }}, key: accessKey } }
+            - name: RUSTFS_SECRET_KEY
+              valueFrom: { secretKeyRef: { name: {{ include "nylorun.objectStore.secret" . }}, key: secretKey } }
+            - { name: RUSTFS_CONSOLE_ENABLE, value: "false" }
+            - { name: RUSTFS_OBS_LOG_DIRECTORY, value: "" }
+          ports: [{ name: s3, containerPort: 9000 }]
+          readinessProbe:
+            httpGet: { path: /health, port: s3 }
+            periodSeconds: 5
+          volumeMounts: [{ name: data, mountPath: /data }]
+  volumeClaimTemplates:
+    - metadata: { name: data }
+      spec:
+        accessModes: [ReadWriteOnce]
+        {{- with .Values.objectStore.bundled.storageClass }}
+        storageClassName: {{ . }}
+        {{- end }}
+        resources: { requests: { storage: {{ .Values.objectStore.bundled.storage }} } }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $n }}-rustfs
+  labels: {{- include "nylorun.labels" . | nindent 4 }}
+spec:
+  selector: {{- include "nylorun.selector" (dict "root" . "component" "rustfs") | nindent 4 }}
+  ports: [{ name: s3, port: 9000, targetPort: s3 }]
+{{- end }}

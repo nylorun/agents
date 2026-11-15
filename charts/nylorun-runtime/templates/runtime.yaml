@@ -1,0 +1,110 @@
+{{- $n := include "nylorun.name" . -}}
+{{- $secret := include "nylorun.secret" . -}}
+{{- $ingressHost := .Values.ingress.host -}}
+# Core and the loop (`--service core,loop`): the Runtime and Management APIs, the Harness API
+# the harness connects to, and the Restate worker.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $n }}-runtime
+  labels: {{- include "nylorun.labels" . | nindent 4 }}
+    app.kubernetes.io/component: runtime
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: {{- include "nylorun.selector" (dict "root" . "component" "runtime") | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "nylorun.selector" (dict "root" . "component" "runtime") | nindent 8 }}
+      annotations:
+        checksum/values: {{ toJson .Values | sha256sum | trunc 16 }}
+    spec:
+      {{- include "nylorun.podSecurity" . | nindent 6 }}
+        fsGroup: 1000
+      {{- include "nylorun.placement" . | nindent 6 }}
+      enableServiceLinks: false
+      containers:
+        - name: runtime
+          image: {{ include "nylorun.image.runtime" . }}
+          args: ["--service", "core,loop"]
+          {{- include "nylorun.containerSecurity" . | nindent 10 }}
+          ports:
+            - { name: api, containerPort: 4000 }
+            - { name: harness, containerPort: 4200 }
+            - { name: worker, containerPort: 9080 }
+          env:
+            - { name: NYLORUN_HOME, value: /nylorun }
+            - { name: NYLORUN_PACKING, value: combined }
+            - { name: NYLORUN_TENANT_NAME, value: {{ .Values.tenant.name | quote }} }
+            - { name: NYLORUN_GATES_URL, value: "http://{{ $n }}-gateway:4100" }
+            - { name: NYLORUN_KEYS_URL, value: "http://{{ $n }}-gateway:4100" }
+            - name: NYLORUN_GATES_TOKEN
+              valueFrom: { secretKeyRef: { name: {{ $secret }}, key: gatesToken } }
+            - { name: NYLORUN_LISTEN_HOST, value: 0.0.0.0 }
+            - { name: NYLORUN_LISTEN_PORT, value: "4000" }
+            - name: NYLORUN_ALLOWED_HOSTS
+              value: {{ printf "%s-runtime:4000,%s-runtime.%s.svc:4000,localhost:4000,127.0.0.1:4000%s" $n $n .Release.Namespace (ternary (printf ",%s" $ingressHost) "" (ne $ingressHost "")) | quote }}
+            - { name: NYLORUN_PUBLIC_URL, value: {{ include "nylorun.publicUrl" . | quote }} }
+            - name: NYLORUN_DATABASE_URL
+              valueFrom: { secretKeyRef: { name: {{ include "nylorun.postgres.secret" . }}, key: url } }
+            - { name: NYLORUN_RESTATE_INGRESS_URL, value: "http://{{ $n }}-restate:8080" }
+            - { name: NYLORUN_RESTATE_ADMIN_URL, value: "http://{{ $n }}-restate:9070" }
+            - { name: NYLORUN_WORKER_URL, value: "http://{{ $n }}-runtime:9080" }
+            - { name: NYLORUN_S2_ENDPOINT, value: "http://{{ $n }}-s2:8080" }
+            - { name: NYLORUN_S2_TOKEN, value: ignored }
+            - { name: NYLORUN_WORKSPACE_STORE_URL, value: "file:///workspaces" }
+            {{- include "nylorun.objectStore.env" . | nindent 12 }}
+            - { name: NYLORUN_HARNESS, value: remote }
+            - { name: NYLORUN_HARNESS_LISTEN_HOST, value: 0.0.0.0 }
+            - { name: NYLORUN_HARNESS_LISTEN_PORT, value: "4200" }
+            - { name: NYLORUN_HARNESS_ALLOWED_HOSTS, value: "{{ $n }}-runtime:4200" }
+            - name: NYLORUN_HARNESS_TOKEN
+              valueFrom: { secretKeyRef: { name: {{ $secret }}, key: harnessToken } }
+            # Pod Agents are computers on this cluster (ADR-149).
+            - { name: NYLORUN_SANDBOXES_URL, value: "http://{{ $n }}-sandboxes:4300" }
+            - name: NYLORUN_SANDBOXES_TOKEN
+              valueFrom: { secretKeyRef: { name: {{ $secret }}, key: sandboxesToken } }
+            - { name: NYLORUN_SANDBOX_HARNESS_IMAGE, value: {{ include "nylorun.image.runtime" . | quote }} }
+            - { name: NYLORUN_SANDBOX_GATEWAY_URL, value: "http://{{ $n }}-sandbox-gateway:4400" }
+            - { name: NYLORUN_COMPUTER_TICKET_KEY_FILE, value: /run/nylorun/computer/ticket.key }
+          readinessProbe:
+            httpGet: { path: /ready, port: api }
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: { path: /health, port: api }
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 6
+          {{- with .Values.resources.runtime }}
+          resources: {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - { name: home, mountPath: /nylorun }
+            - { name: secrets, mountPath: /nylorun/host.json, subPath: host.json, readOnly: true }
+            - { name: secrets, mountPath: /nylorun/host-credentials.json, subPath: host-credentials.json, readOnly: true }
+            - { name: ticket, mountPath: /run/nylorun/computer, readOnly: true }
+            - { name: workspaces, mountPath: /workspaces }
+      volumes:
+        - { name: home, emptyDir: {} }
+        - { name: workspaces, emptyDir: {} }
+        - name: secrets
+          secret: { secretName: {{ $secret }}, defaultMode: 0440 }
+        - name: ticket
+          secret:
+            secretName: {{ $secret }}
+            defaultMode: 0440
+            items: [{ key: ticketKey, path: ticket.key }]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $n }}-runtime
+  labels: {{- include "nylorun.labels" . | nindent 4 }}
+spec:
+  selector: {{- include "nylorun.selector" (dict "root" . "component" "runtime") | nindent 4 }}
+  ports:
+    - { name: api, port: 4000, targetPort: api }
+    - { name: harness, port: 4200, targetPort: harness }
+    - { name: worker, port: 9080, targetPort: worker }

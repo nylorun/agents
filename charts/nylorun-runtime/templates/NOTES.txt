@@ -1,0 +1,18 @@
+The Nylorun Runtime is installing in {{ .Release.Namespace }}.
+
+1. The sandbox gateway must be atenet-router's client. Install (or update) Agent Substrate with
+   ATE_INGRESS_ALLOWED_SPIFFE_IDS including:
+
+     spiffe://cluster.local/ns/{{ .Release.Namespace }}/sa/{{ include "nylorun.name" . }}-sandbox-gateway
+
+2. The Tenant's atespace is {{ include "nylorun.atespace" . }}.{{ if not .Values.substrate.setup.enabled }} Make it once, as one of
+   Substrate's owners (substrate.setup in values, or the README's command).{{ end }}
+
+3. The Runtime API: {{ include "nylorun.publicUrl" . }}
+   Its admin key:
+     kubectl -n {{ .Release.Namespace }} get secret {{ include "nylorun.secret" . }} -o jsonpath='{.data.adminKey}' | base64 -d
+{{- if .Values.studio.enabled }}
+
+4. Studio, for operators:
+     kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "nylorun.name" . }}-studio 3000
+{{- end }}

@@ -1,0 +1,81 @@
+{{- define "nylorun.name" -}}{{ .Release.Name | trunc 40 | trimSuffix "-" }}{{- end -}}
+
+{{- define "nylorun.labels" -}}
+app.kubernetes.io/part-of: nylorun-runtime
+app.kubernetes.io/instance: {{ .Release.Name }}
+app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" }}
+{{- end -}}
+
+{{- define "nylorun.selector" -}}
+app.kubernetes.io/instance: {{ .root.Release.Name }}
+app.kubernetes.io/component: {{ .component }}
+{{- end -}}
+
+{{- define "nylorun.image.runtime" -}}{{ .Values.images.runtime | default (printf "ghcr.io/nylorun/runtime:%s" .Chart.AppVersion) }}{{- end -}}
+{{- define "nylorun.image.studio" -}}{{ .Values.images.studio | default (printf "ghcr.io/nylorun/studio:%s" .Chart.AppVersion) }}{{- end -}}
+{{- define "nylorun.image.sandboxes" -}}{{ .Values.images.sandboxes | default (printf "ghcr.io/nylorun/sandboxes:%s" .Chart.AppVersion) }}{{- end -}}
+
+{{- define "nylorun.atespace" -}}{{ .Values.substrate.atespace | default (printf "nylorun-%s" .Release.Namespace) }}{{- end -}}
+
+{{/* Service names */}}
+{{- define "nylorun.svc" -}}{{ include "nylorun.name" .root }}-{{ .name }}{{- end -}}
+
+{{- define "nylorun.secret" -}}{{ include "nylorun.name" . }}-secrets{{- end -}}
+
+{{- define "nylorun.publicUrl" -}}
+{{- if .Values.publicUrl -}}{{ .Values.publicUrl }}
+{{- else if and .Values.ingress.enabled .Values.ingress.host -}}https://{{ .Values.ingress.host }}
+{{- else -}}http://{{ include "nylorun.name" . }}-runtime:4000{{- end -}}
+{{- end -}}
+
+{{/* The Postgres URL: from a Secret (external or generated). */}}
+{{- define "nylorun.postgres.secret" -}}
+{{- if .Values.postgres.existingSecret -}}{{ .Values.postgres.existingSecret }}{{- else -}}{{ include "nylorun.secret" . }}{{- end -}}
+{{- end -}}
+
+{{- define "nylorun.objectStore.secret" -}}
+{{- if .Values.objectStore.existingSecret -}}{{ .Values.objectStore.existingSecret }}{{- else -}}{{ include "nylorun.secret" . }}{{- end -}}
+{{- end -}}
+
+{{- define "nylorun.objectStore.endpoint" -}}
+{{- if .Values.objectStore.endpoint -}}{{ .Values.objectStore.endpoint }}{{- else -}}http://{{ include "nylorun.name" . }}-rustfs:9000{{- end -}}
+{{- end -}}
+
+{{/* The object store's variables for the runtime and the gateway. */}}
+{{- define "nylorun.objectStore.env" -}}
+- name: NYLORUN_OBJECT_STORE_ENDPOINT
+  value: {{ include "nylorun.objectStore.endpoint" . | quote }}
+- name: NYLORUN_OBJECT_STORE_BUCKET
+  value: {{ .Values.objectStore.bucket | quote }}
+- name: NYLORUN_OBJECT_STORE_REGION
+  value: {{ .Values.objectStore.region | quote }}
+- name: NYLORUN_OBJECT_STORE_ACCESS_KEY
+  valueFrom: { secretKeyRef: { name: {{ include "nylorun.objectStore.secret" . }}, key: accessKey } }
+- name: NYLORUN_OBJECT_STORE_SECRET_KEY
+  valueFrom: { secretKeyRef: { name: {{ include "nylorun.objectStore.secret" . }}, key: secretKey } }
+{{- end -}}
+
+{{- define "nylorun.placement" -}}
+{{- with .Values.placement.nodeSelector }}
+nodeSelector: {{ toYaml . | nindent 2 }}
+{{- end }}
+{{- with .Values.placement.tolerations }}
+tolerations: {{ toYaml . | nindent 2 }}
+{{- end }}
+{{- with .Values.imagePullSecrets }}
+imagePullSecrets: {{ toYaml . | nindent 2 }}
+{{- end }}
+{{- end -}}
+
+{{- define "nylorun.podSecurity" -}}
+securityContext:
+  runAsNonRoot: true
+  seccompProfile: { type: RuntimeDefault }
+{{- end -}}
+
+{{- define "nylorun.containerSecurity" -}}
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities: { drop: [ALL] }
+{{- end -}}
