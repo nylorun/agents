@@ -147,6 +147,7 @@ export async function reconcileSandbox(
       harness: row.applied.harness,
       ...(joinToken ? { joinToken } : {}),
       keys,
+      ...(pods.computer ? { computer: true } : {}),
     });
     try {
       await pods.client.put(row.pod.k8sName, spec);
