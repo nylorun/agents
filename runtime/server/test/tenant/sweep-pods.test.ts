@@ -17,13 +17,18 @@ const facts = (over: Partial<{ computer: boolean; hosting: boolean }> = {}) => (
 });
 
 describe("podWantsReconcile", () => {
-  it("looks at a running computer each time its row has rested, so a drain or a deletion is found", () => {
+  it("looks at a computer the Runtime wants running on every pass, whatever its row says", () => {
     expect(podWantsReconcile(row(running), facts({ computer: true, hosting: false }))).toBe(true);
+    // A resumed computer whose row still reads suspended, and one whose row just moved.
+    expect(podWantsReconcile(row({ ...running, observed: "suspended" } as SandboxPodState), facts({ computer: true }))).toBe(true);
+    expect(podWantsReconcile(row(running, 10_000), facts({ computer: true }))).toBe(true);
+    // One the Runtime wants suspended and that is: left alone.
+    expect(podWantsReconcile(row({ ...running, desired: "suspended", observed: "suspended" } as SandboxPodState), facts({ computer: true }))).toBe(false);
   });
 
-  it("leaves a running pod whose engine is connected, and any row that just moved", () => {
+  it("leaves a running pod whose engine is connected, and a pod row that just moved", () => {
     expect(podWantsReconcile(row(running), facts({ computer: false, hosting: true }))).toBe(false);
-    expect(podWantsReconcile(row(running, 10_000), facts({ computer: true }))).toBe(false);
+    expect(podWantsReconcile(row(running, 10_000), facts({ computer: false, hosting: false }))).toBe(false);
   });
 
   it("looks at a running pod whose engine is not connected, and at unfinished changes", () => {
