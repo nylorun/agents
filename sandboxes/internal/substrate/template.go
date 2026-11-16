@@ -156,6 +156,10 @@ func baseVolumes() ([]any, []any) {
 		map[string]any{"name": "trust", "mountPath": TrustDir},
 		map[string]any{"name": "workspace", "mountPath": "/workspace"},
 		map[string]any{"name": "harness", "mountPath": "/harness"},
+		// The engine writes the session's skills here (track R2 M4), as the pods driver's volume.
+		// A volume, not a directory the wrapper makes at the root: an image that runs as a user
+		// other than root (ghcr.io/nylorun/dev, 1000:1000) can't create /skills.
+		map[string]any{"name": "skills", "mountPath": "/skills"},
 	}
 	volumes := []any{
 		map[string]any{"name": "info", "systemInfo": map[string]any{"dataSources": []any{map[string]any{
@@ -167,6 +171,7 @@ func baseVolumes() ([]any, []any) {
 			"trustBundle": map[string]any{"names": []any{"egress-mitm.ate.dev"}, "path": "egress.pem"}}}}},
 		map[string]any{"name": "workspace", "durableDir": map[string]any{}},
 		map[string]any{"name": "harness", "durableDir": map[string]any{}},
+		map[string]any{"name": "skills", "durableDir": map[string]any{}},
 	}
 	return mounts, volumes
 }
@@ -330,6 +335,10 @@ func RenderTemplate(s Settings, spec driver.Spec, images Resolved, joinToken str
 		map[string]any{"name": "trust", "mountPath": TrustDir},
 		map[string]any{"name": "workspace", "mountPath": "/workspace"},
 		map[string]any{"name": "harness", "mountPath": "/harness"},
+		// The engine writes the session's skills here (track R2 M4), as the pods driver's volume.
+		// A volume, not a directory the wrapper makes at the root: an image that runs as a user
+		// other than root (ghcr.io/nylorun/dev, 1000:1000) can't create /skills.
+		map[string]any{"name": "skills", "mountPath": "/skills"},
 	}
 	volumes := []any{
 		map[string]any{"name": "info", "systemInfo": map[string]any{"dataSources": []any{map[string]any{
@@ -341,6 +350,7 @@ func RenderTemplate(s Settings, spec driver.Spec, images Resolved, joinToken str
 			"trustBundle": map[string]any{"names": []any{"egress-mitm.ate.dev"}, "path": "egress.pem"}}}}},
 		map[string]any{"name": "workspace", "durableDir": map[string]any{}},
 		map[string]any{"name": "harness", "durableDir": map[string]any{}},
+		map[string]any{"name": "skills", "durableDir": map[string]any{}},
 	}
 	container := map[string]any{"name": "workload", "image": images.Image, "env": envList}
 	switch {
