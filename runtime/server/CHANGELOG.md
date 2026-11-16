@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.53.5-beta
+
+### Patch Changes
+
+- 77b82dd: The Runtime accepts a `Host` header with no port when `NYLORUN_ALLOWED_HOSTS` lists that name with
+  port 443 or 80, as a load balancer or ingress in front of it sends it. The Helm chart lists
+  `ingress.host` as `<host>:443`, which the Runtime requires (it refused to start with `ingress.host` set).
+- 6376665: The Helm chart takes `extraEnv.runtime`, `.gateway` and `.harness` (env entries, values or Secret
+  references) for the Runtime settings it doesn't set, a `serviceAccount.annotations` for the runtime's,
+  gateway's and harness's new ServiceAccount (`<name>-runtime`, no API token: GKE Workload Identity for
+  a model on the host's identity), and `service.type`, `.annotations` and `.loadBalancerSourceRanges`
+  for the runtime's Service (a cloud load balancer behind your own proxy), and `hostAliases` for those
+  pods.
+
 ## 0.53.4-beta
 
 ### Patch Changes
