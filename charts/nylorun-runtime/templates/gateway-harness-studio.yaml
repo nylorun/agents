@@ -23,6 +23,9 @@ spec:
         fsGroup: 1000
       {{- include "nylorun.placement" . | nindent 6 }}
       serviceAccountName: {{ $n }}-runtime
+      {{- with .Values.hostAliases }}
+      hostAliases: {{- toYaml . | nindent 8 }}
+      {{- end }}
       enableServiceLinks: false
       containers:
         - name: gateway
@@ -119,6 +122,9 @@ spec:
         fsGroup: 1000
       {{- include "nylorun.placement" . | nindent 6 }}
       serviceAccountName: {{ $n }}-runtime
+      {{- with .Values.hostAliases }}
+      hostAliases: {{- toYaml . | nindent 8 }}
+      {{- end }}
       enableServiceLinks: false
       containers:
         - name: harness
