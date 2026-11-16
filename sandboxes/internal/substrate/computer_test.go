@@ -53,6 +53,43 @@ func TestComputerTemplateRunsTheEngineWithoutAJoin(t *testing.T) {
 	}
 }
 
+// An image that runs as a user other than root (ghcr.io/nylorun/dev runs as 1000:1000) can't make
+// /skills at the root: both templates mount it, as the pods driver does, so the wrapper's mkdir
+// finds it there.
+func TestTemplatesMountSkills(t *testing.T) {
+	for _, computer := range []bool{true, false} {
+		settings := Settings{Atespace: "a"}
+		if computer {
+			settings = computerSettings()
+		}
+		s := spec("op-1", "Running")
+		s.Entrypoint = driver.EntrypointEngine
+		rendered, err := RenderTemplate(settings, s, Resolved{Image: "ghcr.io/nylorun/dev@sha256:1", Harness: "runtime@sha256:2"}, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		tmpl, err := ToProto(rendered, "t")
+		if err != nil {
+			t.Fatal(err)
+		}
+		mounted := false
+		for _, m := range tmpl.GetContainers()[0].GetVolumeMounts() {
+			if m.GetMountPath() == "/skills" && m.GetName() == "skills" {
+				mounted = true
+			}
+		}
+		durable := false
+		for _, v := range tmpl.GetVolumes() {
+			if v.GetName() == "skills" && v.GetDurableDir() != nil {
+				durable = true
+			}
+		}
+		if !mounted || !durable {
+			t.Fatalf("computer=%v: /skills mounted %v, a durable-dir volume %v", computer, mounted, durable)
+		}
+	}
+}
+
 func TestComputerEgressHasNoEdge(t *testing.T) {
 	p, err := EgressPolicy(computerSettings(), Network{Hosts: []string{"pypi.org"}}, nil)
 	if err != nil {
