@@ -1,6 +1,18 @@
 {{- $n := include "nylorun.name" . -}}
 {{- $secret := include "nylorun.secret" . -}}
 {{- $ingressHost := .Values.ingress.host -}}
+# The runtime's, the gateway's and the harness's ServiceAccount: no Kubernetes API token, and
+# `serviceAccount.annotations` for a cloud identity (GKE Workload Identity: the model's).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $n }}-runtime
+  labels: {{- include "nylorun.labels" . | nindent 4 }}
+  {{- with .Values.serviceAccount.annotations }}
+  annotations: {{- toYaml . | nindent 4 }}
+  {{- end }}
+automountServiceAccountToken: false
+---
 # Core and the loop (`--service core,loop`): the Runtime and Management APIs, the Harness API
 # the harness connects to, and the Restate worker.
 apiVersion: apps/v1
@@ -25,6 +37,7 @@ spec:
         runAsGroup: 1000
         fsGroup: 1000
       {{- include "nylorun.placement" . | nindent 6 }}
+      serviceAccountName: {{ $n }}-runtime
       enableServiceLinks: false
       containers:
         - name: runtime
@@ -74,6 +87,9 @@ spec:
             - { name: NYLORUN_COMPUTER_TICKET_KEY_FILE, value: /run/nylorun/computer/ticket.key }
             # The key Restate signs with: the worker accepts only its requests.
             - { name: NYLORUN_RESTATE_IDENTITY_KEY_FILE, value: /run/nylorun/restate/identity.pem }
+            {{- with .Values.extraEnv.runtime }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
           # The probes name a loopback Host: the API admits only NYLORUN_ALLOWED_HOSTS and those.
           readinessProbe:
             httpGet: { path: /ready, port: api, httpHeaders: [{ name: Host, value: "localhost:4000" }] }
@@ -115,7 +131,14 @@ kind: Service
 metadata:
   name: {{ $n }}-runtime
   labels: {{- include "nylorun.labels" . | nindent 4 }}
+  {{- with .Values.service.annotations }}
+  annotations: {{- toYaml . | nindent 4 }}
+  {{- end }}
 spec:
+  type: {{ .Values.service.type }}
+  {{- with .Values.service.loadBalancerSourceRanges }}
+  loadBalancerSourceRanges: {{- toYaml . | nindent 4 }}
+  {{- end }}
   selector: {{- include "nylorun.selector" (dict "root" . "component" "runtime") | nindent 4 }}
   ports:
     - { name: api, port: 4000, targetPort: api }

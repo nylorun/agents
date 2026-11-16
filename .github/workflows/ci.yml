@@ -451,6 +451,13 @@ jobs:
           done
           helm template t charts/nylorun-runtime --kube-version 1.37.0 -f charts/nylorun-runtime/values-gcp.example.yaml >/dev/null
           helm template t charts/nylorun-runtime --kube-version 1.37.0 --set keysProvider.enabled=true --set restate.snapshots.enabled=false >/dev/null
+          # extraEnv, the runtime's ServiceAccount annotations and a load balancer Service.
+          helm template t charts/nylorun-runtime --kube-version 1.37.0 --set service.type=LoadBalancer \
+            --set 'serviceAccount.annotations.iam\.gke\.io/gcp-service-account=x@p.iam.gserviceaccount.com' \
+            --set 'extraEnv.runtime[0].name=NYLORUN_TUNING' --set 'extraEnv.runtime[0].value={}' > /tmp/chart-extra.yaml
+          grep -q 'name: NYLORUN_TUNING' /tmp/chart-extra.yaml
+          grep -q 'type: LoadBalancer' /tmp/chart-extra.yaml
+          grep -q 'iam.gke.io/gcp-service-account: x@p.iam.gserviceaccount.com' /tmp/chart-extra.yaml
       - uses: actions/setup-node@v6
         with:
           node-version-file: .node-version

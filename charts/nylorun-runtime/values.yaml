@@ -27,6 +27,14 @@ tenant:
 # ingress's host over https, else the in-cluster Service.
 publicUrl: ""
 
+# The runtime's Service, which the ingress or a load balancer in front of it reaches. A
+# load balancer of the cloud's own: type LoadBalancer with its annotations, such as GKE's
+# internal one (networking.gke.io/load-balancer-type: Internal), and the ranges it admits.
+service:
+  type: ClusterIP
+  annotations: {}
+  loadBalancerSourceRanges: []
+
 ingress:
   enabled: false
   className: ""
@@ -126,6 +134,23 @@ prepull:
 
 studio:
   enabled: true
+
+# The runtime's, gateway's and harness's ServiceAccount (`<name>-runtime`), which mounts no
+# Kubernetes API token. Annotate it for a cloud identity, such as GKE Workload Identity's
+# iam.gke.io/gcp-service-account, which a model on the host's identity uses
+# (NYLORUN_MODEL_HOST_IDENTITY in extraEnv.runtime).
+serviceAccount:
+  annotations: {}
+
+# More environment for each engine container, as Kubernetes env entries (a value, or valueFrom a
+# Secret): the Runtime's settings the chart doesn't set (SELF_HOSTING.md's table), such as
+# NYLORUN_MODEL_HOST_IDENTITY, NYLORUN_CREDENTIAL_PROVIDER_URL and _TOKEN (gateway and runtime),
+# NYLORUN_A2A_PUSH_SECRET and _ALLOW_HOSTS, or NYLORUN_TUNING. Don't repeat a name the chart
+# sets.
+extraEnv:
+  runtime: []
+  gateway: []
+  harness: []
 
 resources:
   runtime: {}
