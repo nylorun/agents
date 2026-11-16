@@ -152,6 +152,11 @@ extraEnv:
   gateway: []
   harness: []
 
+# Names the runtime, gateway and harness pods resolve to fixed addresses (Kubernetes
+# hostAliases), such as a host the Runtime calls inside a private network whose public name
+# points elsewhere: [{ ip: 10.0.0.10, hostnames: [tools.example.com] }].
+hostAliases: []
+
 resources:
   runtime: {}
   gateway: {}
