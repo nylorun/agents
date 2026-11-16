@@ -62,7 +62,7 @@ spec:
             - { name: NYLORUN_LISTEN_HOST, value: 0.0.0.0 }
             - { name: NYLORUN_LISTEN_PORT, value: "4000" }
             - name: NYLORUN_ALLOWED_HOSTS
-              value: {{ printf "%s-runtime:4000,%s-runtime.%s.svc:4000,localhost:4000,127.0.0.1:4000%s" $n $n .Release.Namespace (ternary (printf ",%s" $ingressHost) "" (ne $ingressHost "")) | quote }}
+              value: {{ printf "%s-runtime:4000,%s-runtime.%s.svc:4000,localhost:4000,127.0.0.1:4000%s" $n $n .Release.Namespace (ternary (printf ",%s:443" $ingressHost) "" (ne $ingressHost "")) | quote }}
             - { name: NYLORUN_PUBLIC_URL, value: {{ include "nylorun.publicUrl" . | quote }} }
             - name: NYLORUN_DATABASE_URL
               valueFrom: { secretKeyRef: { name: {{ include "nylorun.postgres.secret" . }}, key: url } }

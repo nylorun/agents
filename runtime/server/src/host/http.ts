@@ -132,7 +132,9 @@ export function protocolRejectedResponse(
  * configured host when `allowNonLoopback` is set.
  *
  * An explicit `allowedHosts` list (container mode) replaces that rule: only
- * those exact `name:port` values are accepted.
+ * those exact `name:port` values are accepted. A `Host` with no port names its
+ * scheme's default (RFC 9110 §7.2): it matches a `name:443` or `name:80` entry,
+ * as a load balancer or ingress in front sends it.
  */
 export function isAllowedRequestHost(
   hostHeader: string | undefined,
@@ -146,8 +148,11 @@ export function isAllowedRequestHost(
   if (hostHeader === undefined) return false;
   const normalized = hostHeader.trim().toLowerCase();
   if (options.allowedHosts !== undefined) {
-    return options.allowedHosts.some(
-      (entry) => entry.trim().toLowerCase() === normalized,
+    const candidates = /:\d+$/.test(normalized)
+      ? [normalized]
+      : [`${normalized}:443`, `${normalized}:80`];
+    return options.allowedHosts.some((entry) =>
+      candidates.includes(entry.trim().toLowerCase()),
     );
   }
   const port = String(options.port);

@@ -471,6 +471,16 @@ describe("isAllowedRequestHost with an explicit allowlist", () => {
     ).toBe(false);
   });
 
+  it("matches a Host with no port to its scheme's default port", () => {
+    const fronted = [...allowedHosts, "runtime.example.dev:443", "plain.example.dev:80"];
+    for (const host of ["runtime.example.dev", "RUNTIME.example.dev", "plain.example.dev", "runtime.example.dev:443"]) {
+      expect(isAllowedRequestHost(host, { port: 4000, host: "0.0.0.0", allowedHosts: fronted }), host).toBe(true);
+    }
+    for (const host of ["runtime", "runtime.example.dev:80", "other.example.dev", "runtime.example.dev:4000"]) {
+      expect(isAllowedRequestHost(host, { port: 4000, host: "0.0.0.0", allowedHosts: fronted }), host).toBe(false);
+    }
+  });
+
   it("keeps the loopback rule when no allowlist is given", () => {
     expect(isAllowedRequestHost("localhost:4000", { port: 4000, host: "127.0.0.1" })).toBe(true);
     expect(isAllowedRequestHost("runtime:4000", { port: 4000, host: "127.0.0.1" })).toBe(false);
