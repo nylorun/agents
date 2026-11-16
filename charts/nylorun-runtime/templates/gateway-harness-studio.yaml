@@ -22,6 +22,7 @@ spec:
         runAsGroup: 1000
         fsGroup: 1000
       {{- include "nylorun.placement" . | nindent 6 }}
+      serviceAccountName: {{ $n }}-runtime
       enableServiceLinks: false
       containers:
         - name: gateway
@@ -41,6 +42,9 @@ spec:
               valueFrom: { secretKeyRef: { name: {{ $secret }}, key: gatesToken } }
             - { name: NYLORUN_EGRESS_LISTEN_HOST, value: 0.0.0.0 }
             - { name: NYLORUN_EGRESS_LISTEN_PORT, value: "4200" }
+            {{- with .Values.extraEnv.gateway }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
             - name: NYLORUN_EGRESS_KEYS_TOKEN
               valueFrom: { secretKeyRef: { name: {{ $secret }}, key: keysToken } }
             - name: NYLORUN_DATABASE_URL
@@ -114,6 +118,7 @@ spec:
         runAsGroup: 1000
         fsGroup: 1000
       {{- include "nylorun.placement" . | nindent 6 }}
+      serviceAccountName: {{ $n }}-runtime
       enableServiceLinks: false
       containers:
         - name: harness
@@ -126,6 +131,9 @@ spec:
               valueFrom: { secretKeyRef: { name: {{ $secret }}, key: harnessToken } }
             - { name: NYLORUN_GATES_URL, value: "http://{{ $n }}-gateway:4100" }
             - { name: NYLORUN_HARNESS_ROOT, value: /harness }
+            {{- with .Values.extraEnv.harness }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
           {{- with .Values.resources.harness }}
           resources: {{- toYaml . | nindent 12 }}
           {{- end }}
