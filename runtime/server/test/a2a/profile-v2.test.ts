@@ -875,6 +875,17 @@ describe("the translator", () => {
     ],
   };
 
+  it("sends a computer's wake as environment.state on WORKING updates, and nothing for other backends", () => {
+    const waking = updatesOf(event("environment.state", { state: "creating", backend: "computer" }), view) as any[];
+    expect(waking).toHaveLength(1);
+    expect(waking[0].statusUpdate.status.state).toBe("TASK_STATE_WORKING");
+    expect(waking[0].statusUpdate.metadata["environment.state"]).toEqual({ state: "creating", backend: "computer" });
+    const ready = updatesOf(event("environment.state", { state: "running", backend: "computer" }), view) as any[];
+    expect(ready[0].statusUpdate.metadata["environment.state"]).toEqual({ state: "running", backend: "computer" });
+    expect(updatesOf(event("environment.state", { state: "creating", backend: "virtual" }), view)).toEqual([]);
+    expect(updatesOf(event("environment.state", { state: "stopped", backend: "computer" }), view)).toEqual([]);
+  });
+
   it("sends plan.updated as progress/v1 on a WORKING update, and keeps the latest on the task", () => {
     const updates = updatesOf(event("plan.updated", plan), view) as any[];
     expect(updates).toHaveLength(1);
