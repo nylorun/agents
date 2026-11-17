@@ -192,4 +192,15 @@ describe("client.agents", () => {
       info: { plan: "pro" },
     });
   });
+
+  it("opens a session on a model role", async () => {
+    const { client, sent } = fake();
+    await client.createSession({ id: "task-1", agent: "users/alice/bot", ownerUserId: "alice", role: "builder" });
+    expect(sent[0]!.body).toEqual({
+      requestId: expect.any(String),
+      agent: "users/alice/bot",
+      ownerUserId: "alice",
+      role: "builder",
+    });
+  });
 });

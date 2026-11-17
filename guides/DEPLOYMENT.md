@@ -338,7 +338,7 @@ tracks the manifest (its latest version now, and each version saved later), `"an
 version 3. It runs **one version at a time and moves in place**: a `PUT` naming
 another version moves it, a save moves every Agent that tracks the manifest, and each session's
 next turn runs the version the Agent runs then. Its kind, harness and storage are fixed: a fork
-changes those. Every session names its Agent when it opens (`agent: "<id>"`). No session is special: making an Agent opens none, and the
+changes those, but for one kind change ([becoming a computer](#becoming-a-computer)). Every session names its Agent when it opens (`agent: "<id>"`). No session is special: making an Agent opens none, and the
 app picks session ids (to keep one conversation going, reuse one). Upgrading from protocol 15,
 which had agent definitions, environment manifests and Environments:
 [MIGRATION.md](./MIGRATION.md#agents-from-one-manifest-protocol-16-harness-api-5).
@@ -435,6 +435,25 @@ which had agent definitions, environment manifests and Environments:
   of that Agent, after a stop, a relaunch or a reset, runs that digest: a tag that moves never
   changes what an Agent runs. A fork pulls the tag afresh. An image loaded onto the node without
   a registry pins nothing.
+- <a id="becoming-a-computer"></a>**Becoming a computer** (Host feature `computer-move`, ADR-154).
+  On a Runtime whose pod Agents are computers (Agent Substrate with the sandbox gateway), a
+  `PUT /v1/agents/{id}` that names a `pod` version of a `virtual` Agent's manifest makes it a
+  computer in place: its id, sessions, memory, vault, triggers, events and labels stay, and its
+  next turns' commands run on the new computer. `from` (`{ "agent": "<id>", "version": 3 }`, or
+  `"latest"`) seeds the new volume from a disk version of another Agent with the same owner, as a
+  fork's disk starts. Its virtual workspace is deleted: what a person keeps is saved elsewhere.
+  The move is `agent.version_changed` with `kindFrom` and `kindTo`. It is refused while a turn
+  runs or its disk is copied (`409 agent_busy`), on a version that would wait for a secret
+  (`409 request_rejected`), and for any other kind change or on a Runtime without computers
+  (`409 agent_fixed_field`). A manifest save never changes an Agent's kind: a tracking Agent
+  stays on its version until a `PUT` moves it.
+- **A computer wakes on its first command** (ADR-154). A turn on a computer that sleeps reaches
+  its model without waking it; the run's first command wakes it (`environment.state` `creating`,
+  then `running`), and only a failed computer is asked to run by a turn. Before an idle suspend
+  the Runtime measures the computer's disk (`du` of `/workspace` and `/skills`, at most 20 s)
+  and records it as `diskBytes` on `agent.suspended`; the host log has `computer suspended`
+  (with `diskBytes`) and `computer ready` (with `waitedMs`), and the sandboxes service logs
+  `substrate suspended` (with `ms`, or the error).
 - **Forking.** An Agent's kind, harness and storage are fixed for its life, so a change to those
   is a fork: `POST /v1/agents/{id}/fork` with `{ "id": "users/alice/analyst-2" }`
   (`client.agents.fork()`) makes a new Agent from the source's manifest at its latest version
@@ -467,9 +486,10 @@ offers it `request_connection`, which pauses the turn on an interaction whose `m
 `connection`), or a flow (`kind: "workflow"`); and `runtime`, the
 Agent's kind and what it gets (`image`, `network`, `setup`, `files`, `limits`, `lifecycle` and
 the secret slots, `secrets`). Its JSON Schema is
-`https://docs.nylorun.com/schemas/agent-manifest/v8.3.json` (v8 with `harness.model`,
-`harness.engine` with `triggers`, `harness.memory.index`, a secret slot's `toolPrefix` and
-`runtime.limits.triggers`; `v8.2.json` is the same without `harness.engine.triggers` and
+`https://docs.nylorun.com/schemas/agent-manifest/v8.5.json` (v8 with `harness.model`,
+`harness.roles`, `harness.engine` with `triggers` and `plugins`, `harness.memory.index`, a secret
+slot's `toolPrefix` and `runtime.limits.triggers`; `v8.4.json` is the same without
+`harness.roles`, `v8.3.json` without `harness.engine.plugins` too, `v8.2.json` the same without `harness.engine.triggers` and
 `limits.triggers`, `v8.1.json` without `harness.engine`, `harness.memory.index` and `toolPrefix`
 too, and `v8.json` without `harness.model` too)
 (`@nylorun/core/schemas/agent-manifest.json`; clients drop `$schema` before they save):
@@ -516,6 +536,23 @@ too, and `v8.json` without `harness.model` too)
   fails. Only a new session takes it: an open session keeps its model when a later version names
   another, and an explicit choice replaces it. Agents under `agents/` run on the root agent's.
   Host feature `agent-model`.
+- **Model roles.** `harness.roles` (`roles:` in `AGENT.md`) maps a role's name (a lowercase
+  letter, then up to 31 lowercase letters, digits and `-`) to a model, `<provider>/<model>`, so one
+  agent can run a conversation on a fast model and a build on a coding model:
+
+  ```yaml
+  model: anthropic/claude-haiku-4-5
+  roles:
+    builder: anthropic/claude-sonnet-4-5
+  ```
+
+  A session opened with `role` (`PUT /v1/sessions/{id}` with `"role": "builder"`,
+  `client.createSession({ role })`, or an A2A message's `metadata.role` when it opens the context)
+  starts on that role's model, through the same checks as `harness.model`: a provider that is not
+  connected, or a model its catalog does not list, falls back to the Tenant's model. Its model
+  record says `source: "role"` and the `role`. A role the version does not declare is
+  `400 unknown_role` (A2A: `InvalidParams`); no role is the version's `model`. The role is fixed
+  once the session exists. Host feature `model-roles`.
 - **Its sections must fit.** The Runtime checks the two against each other and refuses every
   gap at once (`422 manifest_inconsistent`, `details.gaps`): a custom harness needs
   `runtime.kind` `pod` with an `image`; an MCP server's, HTTP tool's, flow HTTP stage's or HTTP
@@ -527,8 +564,8 @@ too, and `v8.json` without `harness.model` too)
   [tool policy](#tool-policy) decides).
 - **Agent folders.** Author a manifest as a folder (tracks T6 and T7, format `agent-folder/1`; or
   `agent-folder/2`, ADR-100, which declares every engine feature it uses in `engine:`):
-  `AGENT.md` (frontmatter `name` and `description`, optionally `model: <provider>/<model>`, the
-  instructions below), `mcp.json` (Agent
+  `AGENT.md` (frontmatter `name` and `description`, optionally `model: <provider>/<model>` and
+  `roles`, the instructions below), `mcp.json` (Agent
   Plugins syntax; `Authorization: Bearer ${NAME}` names a `bearer` slot, derived for the server's
   URL when `runtime.json` declares none), `runtime.json` (which may `"extends"` a shared file),
   `skills/<name>/`, HTTP `tools/<name>.json`, `triggers/<id>.md`, `files/**`, subagents in
@@ -536,7 +573,7 @@ too, and `v8.json` without `harness.model` too)
   `.nyloignore` leaves files out. The [CLI's README](../cli/nylorun/README.md#agent-manifests-apply)
   shows each. Each kind of file has a JSON Schema at
   `https://docs.nylorun.com/schemas/agent-folder/v1/<kind>.json` (`runtime.2`, `tool`, `mcp` and
-  `flow`, and `agent-md.3` and `trigger-md` for the frontmatter), exported as
+  `flow`, and `agent-md.5` and `trigger-md` for the frontmatter), exported as
   `@nylorun/core/schemas/agent-folder-<kind>.json`.
   `nylorun init <path>` writes one, `nylorun check` compiles it offline and prints every problem by
   file, line and column, and `nylorun apply` (or `saveFolder` in `@nylorun/agents`) sends it by

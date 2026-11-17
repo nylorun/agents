@@ -117,7 +117,9 @@
           "api-triggers",
           "steer",
           "queue-recovery",
-          "a2a-steer"
+          "a2a-steer",
+          "computer-move",
+          "model-roles"
         ]
       }
     },
@@ -210,7 +212,9 @@
           "api-triggers",
           "steer",
           "queue-recovery",
-          "a2a-steer"
+          "a2a-steer",
+          "computer-move",
+          "model-roles"
         ]
       }
     },
@@ -303,7 +307,9 @@
           "api-triggers",
           "steer",
           "queue-recovery",
-          "a2a-steer"
+          "a2a-steer",
+          "computer-move",
+          "model-roles"
         ]
       }
     },
@@ -396,7 +402,9 @@
           "api-triggers",
           "steer",
           "queue-recovery",
-          "a2a-steer"
+          "a2a-steer",
+          "computer-move",
+          "model-roles"
         ]
       }
     },
@@ -489,7 +497,9 @@
           "api-triggers",
           "steer",
           "queue-recovery",
-          "a2a-steer"
+          "a2a-steer",
+          "computer-move",
+          "model-roles"
         ]
       }
     },
@@ -582,7 +592,9 @@
           "api-triggers",
           "steer",
           "queue-recovery",
-          "a2a-steer"
+          "a2a-steer",
+          "computer-move",
+          "model-roles"
         ]
       }
     },
@@ -675,7 +687,9 @@
           "api-triggers",
           "steer",
           "queue-recovery",
-          "a2a-steer"
+          "a2a-steer",
+          "computer-move",
+          "model-roles"
         ]
       }
     },
@@ -768,7 +782,9 @@
           "api-triggers",
           "steer",
           "queue-recovery",
-          "a2a-steer"
+          "a2a-steer",
+          "computer-move",
+          "model-roles"
         ]
       }
     },
@@ -861,7 +877,9 @@
           "api-triggers",
           "steer",
           "queue-recovery",
-          "a2a-steer"
+          "a2a-steer",
+          "computer-move",
+          "model-roles"
         ]
       }
     },
@@ -954,7 +972,9 @@
           "api-triggers",
           "steer",
           "queue-recovery",
-          "a2a-steer"
+          "a2a-steer",
+          "computer-move",
+          "model-roles"
         ]
       }
     },
@@ -1047,7 +1067,9 @@
           "api-triggers",
           "steer",
           "queue-recovery",
-          "a2a-steer"
+          "a2a-steer",
+          "computer-move",
+          "model-roles"
         ]
       }
     },
@@ -1140,7 +1162,9 @@
           "api-triggers",
           "steer",
           "queue-recovery",
-          "a2a-steer"
+          "a2a-steer",
+          "computer-move",
+          "model-roles"
         ]
       }
     },
@@ -1266,7 +1290,9 @@
           "api-triggers",
           "steer",
           "queue-recovery",
-          "a2a-steer"
+          "a2a-steer",
+          "computer-move",
+          "model-roles"
         ]
       }
     },
@@ -1359,7 +1385,9 @@
           "api-triggers",
           "steer",
           "queue-recovery",
-          "a2a-steer"
+          "a2a-steer",
+          "computer-move",
+          "model-roles"
         ]
       }
     },
@@ -1452,7 +1480,9 @@
           "api-triggers",
           "steer",
           "queue-recovery",
-          "a2a-steer"
+          "a2a-steer",
+          "computer-move",
+          "model-roles"
         ]
       }
     },
@@ -1545,7 +1575,9 @@
           "api-triggers",
           "steer",
           "queue-recovery",
-          "a2a-steer"
+          "a2a-steer",
+          "computer-move",
+          "model-roles"
         ]
       }
     },
@@ -1638,7 +1670,9 @@
           "api-triggers",
           "steer",
           "queue-recovery",
-          "a2a-steer"
+          "a2a-steer",
+          "computer-move",
+          "model-roles"
         ]
       }
     },
@@ -1731,7 +1765,9 @@
           "api-triggers",
           "steer",
           "queue-recovery",
-          "a2a-steer"
+          "a2a-steer",
+          "computer-move",
+          "model-roles"
         ]
       }
     },
@@ -1824,7 +1860,9 @@
           "api-triggers",
           "steer",
           "queue-recovery",
-          "a2a-steer"
+          "a2a-steer",
+          "computer-move",
+          "model-roles"
         ]
       }
     },

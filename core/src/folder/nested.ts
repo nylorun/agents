@@ -206,6 +206,7 @@ function nestedChecks(ctx: FolderContext): void {
     memory: `memory is the root agent's: ${what} keeps none of its own`,
     loop: `loop settings are the root agent's: ${what} has none of its own`,
     model: `model is the root agent's: ${what} runs in the root agent's session, on its model`,
+    roles: `roles are the root agent's: ${what} runs in the root agent's session, on its model`,
   };
   for (const [key, message] of Object.entries(keys)) if (ctx.front[key] !== undefined) refuse(message, AGENT_FILE, [key]);
   // Triggers are the root agent's (D83): a subagent of a parent without them fails engine_subset.

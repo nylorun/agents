@@ -11,7 +11,8 @@
  *   with the target's runtime in `recipe`) until its pod's next start switches it (`switchTo`);
  *   any other applies at once. A version that adds a required secret with no value the version
  *   can use waits for it (`resumeMove` after each secret write). Its manifest's name, kind,
- *   harness and storage are fixed for its life (`409 agent_fixed_field`).
+ *   harness and storage are fixed for its life (`409 agent_fixed_field`), but for one kind
+ *   change: a `PUT` on a `virtual` Agent may make it a computer (ADR-154 R13, `becomeComputer`).
  * - **The start check** (pods): a start on a new version records what ran before
  *   (`startCheck`) until the new pod's harness joins (`passStartCheck`). A failed setup, a failed
  *   pod or a start past the Host's `tenant.upgradeStartMs` goes back to it (`revertStart`): the
@@ -183,12 +184,17 @@ export interface Move {
  * The plan of moving `agent` to version `target` of its manifest, named `tracking` after it:
  * the target's runtime resolved against the Tenant's limits (a `400` when it no longer fits),
  * what it changes, the fixed fields it would change, and the required secrets it would wait for.
+ *
+ * `becomeComputer` (ADR-154 R13): a `PUT` on the Agent itself, on a Runtime whose pods are
+ * computers, may move a `virtual` Agent to a `pod` version; its storage is then the new volume's.
+ * Every other kind change, and any kind change a save would make, is refused as a fixed field.
  */
 export async function planMove(
   t: Tx,
   agent: Environment,
   target: AgentManifestRow,
   tracking: Environment["manifestRef"],
+  options: { becomeComputer?: boolean } = {},
 ): Promise<Move> {
   const runtime = runtimeOf(target.body);
   const recipe = target.version === agent.manifestVersion ? agent.applied : await resolvedRuntime(t, target);
@@ -197,9 +203,10 @@ export async function planMove(
     if (canonical(from) !== canonical(to))
       refusals.push({ field, ...(from === undefined ? {} : { from }), ...(to === undefined ? {} : { to }) });
   };
-  fixed("kind", agent.kind, runtime.kind);
+  const becomes = options.becomeComputer === true && agent.kind === "virtual" && runtime.kind === "pod";
+  if (!becomes) fixed("kind", agent.kind, runtime.kind);
   fixed("harness", agent.applied.harness, recipe.harness);
-  fixed("storage", agent.applied.storage, recipe.storage);
+  if (!becomes) fixed("storage", agent.applied.storage, recipe.storage);
   const { missing, dormant } = await secretsOf(t, agent.id, recipe.secrets);
   const current = await t.agentManifest(agent.manifestName, agent.manifestVersion);
   const from = agent.manifestVersion;

@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { computerBackend } from "../../src/adapters/sandbox/computer.js";
 import { localBackend } from "../../src/adapters/sandbox/local.js";
 import { checkTicket, computerHandler, ComputerCommands } from "../../src/harness/computer.js";
-import { computerAccess, signTicket } from "../../src/sandbox/computer.js";
+import { computerAccess, diskBytesOf, signTicket } from "../../src/sandbox/computer.js";
 import type { TenantContext } from "../../src/tenant/context.js";
 import type { SandboxHandle } from "../../src/sandbox/types.js";
 
@@ -162,5 +162,15 @@ describe("computer access", () => {
       await computerAccess(ctx, "local/probe");
       expect(signals).toEqual([]);
     }
+  });
+});
+
+describe("the disk measure before an idle suspend", () => {
+  it("sums what du -sk printed, in bytes, and answers nothing for no size", () => {
+    expect(diskBytesOf("12\t/workspace\n4\t/skills\n")).toBe(16 * 1024);
+    // No /skills: du fails, and the size it printed stands.
+    expect(diskBytesOf("2048\t/workspace\n")).toBe(2048 * 1024);
+    expect(diskBytesOf("")).toBeUndefined();
+    expect(diskBytesOf("du: cannot access '/workspace': No such file or directory\n")).toBeUndefined();
   });
 });

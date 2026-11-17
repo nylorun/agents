@@ -283,6 +283,11 @@ export interface AgentHarnessSection {
    * is connected and lists it (Host feature `agent-model`).
    */
   readonly model?: string;
+  /**
+   * The model of each role a session may be opened with, `<role>: <provider>/<model>` (Host
+   * feature `model-roles`): a session opened with `role` runs on that role's model.
+   */
+  readonly roles?: Readonly<Record<string, string>>;
   /** The engine features the agent declares (ADR-100), for itself; its subagents declare their own. */
   readonly engine?: HarnessEngine;
 }

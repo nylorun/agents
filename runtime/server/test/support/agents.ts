@@ -39,6 +39,8 @@ export interface ManifestOptions {
   memory?: AgentMemorySettings;
   /** The harness section's `model`, `<provider>/<model>` (Host feature `agent-model`). */
   model?: string;
+  /** The harness section's `roles`, role → `<provider>/<model>` (Host feature `model-roles`). */
+  roles?: Record<string, string>;
   /** The harness section's `engine` (ADR-100): the engine features the agent declares. */
   engine?: { readonly triggers?: boolean } & Record<string, unknown>;
 }
@@ -57,6 +59,7 @@ export function manifestOf(source: AgentSource, options: ManifestOptions = {}): 
       ...(options.loop === undefined ? {} : { loop: options.loop }),
       ...(options.memory === undefined ? {} : { memory: options.memory }),
       ...(options.model === undefined ? {} : { model: options.model }),
+      ...(options.roles === undefined ? {} : { roles: options.roles }),
       ...(options.engine === undefined ? {} : { engine: options.engine }),
     },
     ...(options.runtime === undefined ? {} : { runtime: options.runtime }),
