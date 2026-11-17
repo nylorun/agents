@@ -92,6 +92,13 @@ export function imageDigestOf(imageID: string | undefined, requested: string): s
  */
 export const MOVING = "Moving";
 
+/**
+ * The sandboxes service's reason for a sandbox whose actor cannot take the template asked for
+ * (Agent Substrate: its volumes would change, so only a new incarnation can). The pod never
+ * starts on that volume again: the Runtime gives it a new one (`renew`).
+ */
+export const REPOINT_REFUSED = "RepointRefused";
+
 /** A setup failure's `reason` starts with this (`sandbox/setup.ts`); it is sticky. */
 export const SETUP_FAILED = "setup:";
 
@@ -152,6 +159,11 @@ export interface PodDecision {
   readonly events: readonly PodEvent[];
   /** The Sandbox is gone and the Environment deleted: remove the row. */
   readonly removeRow?: true;
+  /**
+   * The Sandbox can't take the spec it was asked to run on its volume (`REPOINT_REFUSED`): give
+   * the pod a new volume (`renewRefusedVolume`), saying why.
+   */
+  readonly renew?: { readonly reason: string };
   /** Look again this soon. */
   readonly retryAfterMs?: number;
   /** Timers to (re)arm, at ms since the epoch. */
@@ -185,7 +197,7 @@ export function decide(facts: PodFacts): PodDecision {
   const again = (ms: number) => {
     retryAfterMs = retryAfterMs === undefined ? ms : Math.min(retryAfterMs, ms);
   };
-  const done = (extra: Partial<Pick<PodDecision, "apply" | "removeRow">> = {}): PodDecision => ({
+  const done = (extra: Partial<Pick<PodDecision, "apply" | "removeRow" | "renew">> = {}): PodDecision => ({
     ...extra,
     delete: deletes,
     patch,
@@ -316,6 +328,12 @@ export function decide(facts: PodFacts): PodDecision {
       return done();
     }
     const startedAt = Date.parse(pod.startedAt ?? row.updatedAt);
+    // Its actor can't take this spec on its volume, crashed or not: no wait for the deadline,
+    // a new volume now (reconcile.ts).
+    if (status.reason === REPOINT_REFUSED && status.opId === opIdOf(pod) && pod.observed !== "failed") {
+      again(pollMs);
+      return done({ renew: { reason: [status.reason, status.message].filter(Boolean).join(": ") } });
+    }
     if (pod.observed === "failed") return done();
     // A pod that was running and crashed will not come back by itself: failed now, not at the
     // ready deadline. One still starting is left to its wake, which reverts a crashed sandbox.

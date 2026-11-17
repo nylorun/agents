@@ -596,6 +596,49 @@ export async function recoverLostVolume(ctx: TenantContext, id: string): Promise
   return recovered !== undefined;
 }
 
+/**
+ * A pod whose Sandbox can't take the spec it is asked to run on its volume (Agent Substrate
+ * refuses a template whose volumes differ from its actor's: a Runtime upgrade that adds a
+ * volume) would fail every start until a reset. It gets a new volume now, as a reset would,
+ * from its latest disk version when it has one. Once per volume generation: a new volume
+ * refused again is failed with the reason. True when it got a new volume.
+ */
+export async function renewRefusedVolume(
+  ctx: TenantContext,
+  id: string,
+  name: string,
+  reason: string,
+): Promise<boolean> {
+  const renewed = await ctx.store.tx(async (t) => {
+    const environment = await liveEnvironment(t, id, { lock: true });
+    const pod = environment?.pod;
+    if (!environment || !pod || pod.k8sName !== name || pod.desired !== "running" || pod.retiring !== undefined)
+      return undefined;
+    if (pod.observed === "failed" || pod.observed === "lost") return undefined;
+    const resets = await t.agentEvents(id, { types: ["agent.reset"] });
+    const last = resets.at(-1)?.payload;
+    if (last?.reason === "template" && last.volumeGeneration === pod.volumeGen) {
+      const now = new Date().toISOString();
+      await t.updateEnvironmentPod(id, { observed: "failed", reason }, now);
+      await t.agentEvent(id, "agent.failed", { reason });
+      return { failed: true as const };
+    }
+    const artifact = await t.diskArtifact(id);
+    const seed = artifact && artifact.latestVersion >= 1 ? { artifactId: artifact.id, version: artifact.latestVersion } : undefined;
+    await newVolume(ctx, t, environment, { reason: "template", ...(seed ? { seed } : {}) });
+    return { failed: false as const, ...(seed ? { version: seed.version } : {}) };
+  });
+  if (renewed?.failed)
+    ctx.config.logger.warn("environment refused its template again on a new volume", { environmentId: id, reason });
+  else if (renewed)
+    ctx.config.logger.warn("environment can't take its template on its volume: given a new volume", {
+      environmentId: id,
+      reason,
+      ...(renewed.version === undefined ? {} : { fromVersion: renewed.version }),
+    });
+  return renewed !== undefined && !renewed.failed;
+}
+
 /** The disk version a fork starts from (`from` on a create), after the caller's checks. */
 export async function forkSeedOf(
   t: Tx,

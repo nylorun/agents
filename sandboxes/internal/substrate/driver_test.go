@@ -808,6 +808,37 @@ func TestAVolumeChangeIsReportedNotRetried(t *testing.T) {
 	}
 }
 
+func TestACrashedActorReportsARefusedVolumeChange(t *testing.T) {
+	r := newRig(t)
+	builtin := spec("op-1", "Running")
+	builtin.Entrypoint, builtin.HarnessImage = driver.EntrypointBuiltin, ""
+	if _, err := r.d.Put(context.Background(), sbx, builtin); err != nil {
+		t.Fatal(err)
+	}
+	r.wait(t, "ready")
+	// It crashes on the template it has (an image that can't start there), and the Runtime asks
+	// for one whose volumes differ: the refusal, not the crash, is what the Runtime must see.
+	r.api.setState(sbx, ateapi.ActorState_ACTOR_STATE_CRASHED)
+	engine := spec("op-2", "Running")
+	engine.JoinToken = ""
+	s, err := r.d.Put(context.Background(), sbx, engine)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Ready || s.Reason != RepointRefused || !strings.Contains(s.Message, "adds nylo") {
+		t.Fatalf("status: %+v", s)
+	}
+	if status, err := r.d.Status(sbx); err != nil || status.Reason != RepointRefused {
+		t.Fatalf("status: %+v %v", status, err)
+	}
+	// A suspend request on a crashed actor still reports the crash.
+	suspend := spec("op-3", "Suspended")
+	suspend.JoinToken, suspend.Entrypoint, suspend.HarnessImage = "", driver.EntrypointBuiltin, ""
+	if s, err := r.d.Put(context.Background(), sbx, suspend); err != nil || s.Reason == RepointRefused {
+		t.Fatalf("suspend: %+v %v", s, err)
+	}
+}
+
 func TestATemplateSubstrateRefusesIsReported(t *testing.T) {
 	r := newRig(t)
 	if _, err := r.d.Put(context.Background(), sbx, spec("op-1", "Running")); err != nil {

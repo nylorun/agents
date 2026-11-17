@@ -442,6 +442,50 @@ describe("pod Agents", { timeout: 90_000 }, () => {
     expect((await joinAs("lost/one", next)).epoch).toBeGreaterThan(lost.compute.pod.hostEpoch);
   });
 
+  it("gets a new volume when its Sandbox can't take the Runtime's template on the old one", async () => {
+    const { name } = await createPod("refused/one");
+    const joined = await joinAs("refused/one", name);
+    // A Runtime upgrade adds a volume its actor can't take: the next start is refused.
+    const why = "Agent Substrate cannot move this sandbox to the requested template: its volumes would change (adds skills)";
+    fake.refuseTemplate(name, why);
+    expect((await call("POST", `${path("refused/one")}/stop`)).status).toBe(200);
+    await until("suspended", () => view("refused/one"), (body) => body.compute.pod.observed === "suspended");
+    expect((await open("refused-s1", "refused/one")).status).toBe(200);
+    expect((await message("refused-s1")).status).toBe(200);
+    // No wait for the ready deadline, no reset by hand: a new volume, the next generation.
+    const next = podName(tenantId, "refused/one", 1);
+    await until("new pod", async () => fake.podUid(next), (uid) => uid !== undefined);
+    await until("old Sandbox deleted", async () => fake.sandboxes.has(name), (has) => !has);
+    const reset = (await call("GET", `${path("refused/one")}/events`)).body.events.findLast(
+      (item: { type: string }) => item.type === "agent.reset",
+    );
+    expect(reset.payload).toMatchObject({ volumeGeneration: 1, reason: "template" });
+    expect((await view("refused/one")).compute.pod.volumeGeneration).toBe(1);
+    expect((await joinAs("refused/one", next)).epoch).toBeGreaterThan(joined.epoch);
+    await call("POST", "/v1/sessions/refused-s1/commands", { type: "cancel", requestId: "c-refused", idempotencyKey: "c-refused" });
+    await settled("refused-s1");
+  });
+
+  it("fails a new volume its Sandbox refuses again, instead of making another", async () => {
+    const { name } = await createPod("refused/twice");
+    await joinAs("refused/twice", name);
+    fake.refuseTemplate(name, "its volumes would change (adds skills)");
+    expect((await call("POST", `${path("refused/twice")}/stop`)).status).toBe(200);
+    await until("suspended", () => view("refused/twice"), (body) => body.compute.pod.observed === "suspended");
+    expect((await open("refused-s2", "refused/twice")).status).toBe(200);
+    expect((await message("refused-s2")).status).toBe(200);
+    const next = podName(tenantId, "refused/twice", 1);
+    await until("new Sandbox", async () => fake.sandboxes.has(next), (has) => has);
+    fake.refuseTemplate(next, "its volumes would change (adds more)");
+    await reconcile("refused/twice");
+    const failed = await until("failed", () => view("refused/twice"), (body) => body.compute.pod.observed === "failed");
+    expect(failed.compute.pod).toMatchObject({ volumeGeneration: 1 });
+    expect(failed.compute.pod.reason).toContain("RepointRefused");
+    expect((await events("refused/twice")).filter((type) => type === "agent.reset")).toHaveLength(1);
+    await call("POST", "/v1/sessions/refused-s2/commands", { type: "cancel", requestId: "c-refused2", idempotencyKey: "c-refused2" });
+    await settled("refused-s2");
+  });
+
   it("is lost when a pod joins from a replaced volume (a deleted claim recreated empty)", async () => {
     const { name } = await createPod("lost/volume");
     const join = (podUid: string, volumeId: string) =>

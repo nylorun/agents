@@ -1292,7 +1292,7 @@ export async function newVolume(
   environment: Environment,
   options: {
     seed?: { artifactId: string; version: number };
-    reason?: "restore" | "lost";
+    reason?: "restore" | "lost" | "template";
   } = {},
 ): Promise<number> {
   const id = environment.id;
