@@ -16,6 +16,21 @@ app.kubernetes.io/component: {{ .component }}
 {{- define "nylorun.image.studio" -}}{{ .Values.images.studio | default (printf "ghcr.io/nylorun/studio:%s" (index .Chart.Annotations "nylorun.com/studio-version")) }}{{- end -}}
 {{- define "nylorun.image.sandboxes" -}}{{ .Values.images.sandboxes | default (printf "ghcr.io/nylorun/sandboxes:%s" .Chart.AppVersion) }}{{- end -}}
 
+{{- define "nylorun.image.computer" -}}{{ .Values.computer.image | default (printf "ghcr.io/nylorun/computer:%s" (index .Chart.Annotations "nylorun.com/computer-version")) }}{{- end -}}
+
+{{/* What serves a computer: go (the computer agent) or engine (the Runtime's). */}}
+{{- define "nylorun.computer.agent" -}}
+{{- if not (has .Values.computer.agent (list "go" "engine")) -}}
+{{- fail (printf "computer.agent must be go or engine, not %v" .Values.computer.agent) -}}
+{{- end -}}
+{{ .Values.computer.agent }}
+{{- end -}}
+
+{{/* The image computers mount at /nylo, for the pre-pull. */}}
+{{- define "nylorun.image.nylo" -}}
+{{- if eq (include "nylorun.computer.agent" .) "go" -}}{{ include "nylorun.image.computer" . }}{{- else -}}{{ include "nylorun.image.runtime" . }}{{- end -}}
+{{- end -}}
+
 {{- define "nylorun.atespace" -}}{{ .Values.substrate.atespace | default (printf "nylorun-%s" .Release.Namespace) }}{{- end -}}
 
 {{/* Service names */}}

@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/nylorun/agents/sandboxes/internal/config"
@@ -88,5 +89,22 @@ func TestParseClusterInClusterComputer(t *testing.T) {
 	}
 	if _, err := config.ParseCluster([]byte(`{"namespace":"nylorun","backend":"substrate","substrate":{"atespace":"a","systemNamespace":"ate-system","apiService":"api","serviceAccount":"s","computer":{}}}`)); err == nil {
 		t.Fatal("outside the cluster without dial and caData parsed")
+	}
+}
+
+func TestParseFlagsComputerAgent(t *testing.T) {
+	var c config.Config
+	if err := c.ParseFlags(nil); err != nil || c.ComputerAgent != config.ComputerAgentEngine || c.ComputerImage != "" {
+		t.Fatalf("defaults: %+v %v", c, err)
+	}
+	image := "ghcr.io/nylorun/computer:1.0@sha256:" + strings.Repeat("a", 64)
+	if err := c.ParseFlags([]string{"--computer-agent=go", "--computer-image", image}); err != nil || c.ComputerAgent != config.ComputerAgentGo || c.ComputerImage != image {
+		t.Fatalf("go: %+v %v", c, err)
+	}
+	for _, bad := range [][]string{{"--computer-agent=go"}, {"--computer-agent=node"}, {"--computer-agent=engine", "extra"}, {"--nope"}} {
+		var c config.Config
+		if err := c.ParseFlags(bad); err == nil {
+			t.Errorf("%v parsed", bad)
+		}
 	}
 }

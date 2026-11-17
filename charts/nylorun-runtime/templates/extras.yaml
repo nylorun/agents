@@ -25,8 +25,9 @@ spec:
 ---
 {{- end }}
 {{- if .Values.prepull.enabled }}
-# Warms atelet's image cache on the worker nodes (Substrate 1.0 has no pre-pull): the Runtime
-# image the computers mount the engine from, and the listed computer images.
+# Warms atelet's image cache on the worker nodes (Substrate 1.0 has no pre-pull): the image the
+# computers mount at /nylo (the computer agent's, or the Runtime's with computer.agent engine), and
+# the listed computer images.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -34,7 +35,7 @@ metadata:
   labels: {{- include "nylorun.labels" . | nindent 4 }}
 data:
   refs.txt: |
-    {{- include "nylorun.image.runtime" . | nindent 4 }}
+    {{- include "nylorun.image.nylo" . | nindent 4 }}
     {{- range .Values.prepull.images }}
     {{ . }}
     {{- end }}
@@ -52,7 +53,7 @@ spec:
     metadata:
       labels: {{- include "nylorun.selector" (dict "root" . "component" "prepull") | nindent 8 }}
       annotations:
-        checksum/refs: {{ toJson .Values.prepull.images | sha256sum | trunc 16 }}
+        checksum/refs: {{ printf "%s %s" (include "nylorun.image.nylo" .) (toJson .Values.prepull.images) | sha256sum | trunc 16 }}
     spec:
       {{- with .Values.prepull.nodeSelector }}
       nodeSelector: {{- toYaml . | nindent 8 }}

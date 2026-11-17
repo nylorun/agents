@@ -8,7 +8,10 @@ Every Agent with a sandbox gets a **computer**:
 
 - the loop runs in the harness;
 - the Agent's commands and files run in its own Substrate actor, any image;
-- they reach it through the sandbox gateway and Substrate's router.
+- they reach it through the sandbox gateway and Substrate's router;
+- in the actor, the computer agent serves them: one static binary from `ghcr.io/nylorun/computer`,
+  mounted at `/nylo` ([ADR-154](https://github.com/nylorun/factory/blob/main/decisions/engine/2026-11-17-one-agents-computer.md)
+  decision 4), or, with `computer.agent: engine`, the Runtime's engine.
 
 The chart names no cloud provider. Postgres and the object store are settings: a managed service,
 or the bundled ones. It is tested on Google Cloud (GKE, Cloud SQL, GCS) by
@@ -28,7 +31,7 @@ providers come later in the docs.
 | `restate` | StatefulSet with a disk; partition snapshots in the object store | Durable execution; it signs each request to the worker with its identity key |
 | `s2` | StatefulSet, streams in the object store (or a disk) | Durable streams |
 | `postgres`, `rustfs` | StatefulSets, only when bundled | The stores, for clusters without managed ones |
-| `prepull` | DaemonSet, optional | The Runtime image and computer images in atelet's cache on worker nodes |
+| `prepull` | DaemonSet, optional | The image computers mount at `/nylo` (the computer agent's, or the Runtime's) and computer images in atelet's cache on worker nodes |
 | `substrate-setup` | Job, optional | The Tenant's atespace and the sandboxes service's editor binding |
 | `nylorun-keys-provider` | Deployment, Service, NetworkPolicy in Substrate's namespace, optional | The keys provider (ADR-142): Substrate's egress asks it for a keyed request's header; it asks the gateway's decide route |
 
@@ -82,6 +85,13 @@ Back up the Secret `<release>-secrets`: without its vault key, the Tenant's secr
    Secret (`substrate.setup.ownerTokenSecret`, key `token`) holding an owner's Substrate token, and
    the chart runs `sandboxes substrate-setup` as a hook Job. It is safe to run again.
 
+7. **Moving computers to the computer agent.** Installing with `computer.agent: go` on a Tenant whose
+   computers ran the engine (or changing `computer.agent` later) changes each computer's template
+   volume, which Substrate refuses to repoint: each computer gets a new volume from its latest disk
+   version. Take a disk version of every computer first (`POST /v1/agents/{id}/snapshot`), as
+   [MIGRATION.md](../../guides/MIGRATION.md) says. A new `computer.image` reaches new computers
+   only: an existing one keeps the agent it was created with.
+
 ## Install
 
 ```sh
@@ -111,7 +121,9 @@ admin key is in the Secret (`adminKey`); Studio is a port-forward away (`NOTES.t
 | `substrate.atespace` | `nylorun-<namespace>` | The Tenant's atespace |
 | `substrate.workerSelector` | any | The worker pool's labels |
 | `substrate.setup.enabled`, `.ownerTokenSecret` | off | Make the atespace at install |
-| `computer.port` | `8080` | The engine's port in a computer |
+| `computer.port` | `8080` | The port the computer agent (or the engine) serves in a computer |
+| `computer.agent` | `go` | What serves a computer: `go`, the computer agent from `computer.image`, or `engine`, the Runtime's engine in computer mode, for a Runtime that can't move yet (kept for one minor). Passed to the sandboxes service as `--computer-agent` |
+| `computer.image` | `ghcr.io/nylorun/computer:<nylorun.com/computer-version>` | The computer agent's image (`--computer-image`). Pin it by digest in production, as `computer-image.yml` prints it; a tag is pinned to its digest by the sandboxes service |
 | `sandboxGateway.replicas` | `2` | |
 | `placement.nodeSelector`, `.tolerations` | none | Where the chart's pods run (its pool) |
 | `prepull.enabled`, `.substrateCommit`, `.images`, `.nodeSelector`, `.tolerations` | off | Warm the worker nodes' image cache |

@@ -1,0 +1,145 @@
+{
+  "containers": [
+    {
+      "command": [
+        "/nylo/computer"
+      ],
+      "env": [
+        {
+          "name": "HOME",
+          "value": "/harness/home"
+        },
+        {
+          "name": "NYLORUN_COMPUTER_NAME_FILE",
+          "value": "/run/nylorun/actor/actor-name"
+        },
+        {
+          "name": "NYLORUN_COMPUTER_PORT",
+          "value": "8080"
+        },
+        {
+          "name": "NYLORUN_COMPUTER_TICKET_KEY",
+          "value": "-----BEGIN PUBLIC KEY-----\nx\n-----END PUBLIC KEY-----\n"
+        },
+        {
+          "name": "NYLORUN_SANDBOX_EGRESS_CA_FILE",
+          "value": "/run/nylorun/trust/egress.pem"
+        },
+        {
+          "name": "NYLORUN_SANDBOX_ID",
+          "value": "local/probe"
+        },
+        {
+          "name": "NYLORUN_SANDBOX_SUBSTRATE",
+          "value": "1"
+        }
+      ],
+      "image": "python@sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      "name": "workload",
+      "volumeMounts": [
+        {
+          "mountPath": "/run/nylorun/actor",
+          "name": "info"
+        },
+        {
+          "mountPath": "/run/nylorun/trust",
+          "name": "trust"
+        },
+        {
+          "mountPath": "/workspace",
+          "name": "workspace"
+        },
+        {
+          "mountPath": "/harness",
+          "name": "harness"
+        },
+        {
+          "mountPath": "/skills",
+          "name": "skills"
+        },
+        {
+          "mountPath": "/nylo",
+          "name": "nylo"
+        }
+      ],
+      "wakeupProbe": {
+        "httpGet": {
+          "path": "/ready",
+          "port": 8080
+        },
+        "timeoutSeconds": 120
+      }
+    }
+  ],
+  "metadata": {
+    "atespace": "nylorun-shop"
+  },
+  "resources": {
+    "limits": {
+      "cpuMillicores": "1000",
+      "memoryBytes": "1073741824"
+    }
+  },
+  "snapshotConfig": {
+    "goldenSnapshotConfig": {
+      "mode": "GOLDEN_SNAPSHOT_MODE_DISABLED"
+    },
+    "preferredFidelity": "SNAPSHOT_FIDELITY_MEMORY"
+  },
+  "volumes": [
+    {
+      "name": "info",
+      "systemInfo": {
+        "dataSources": [
+          {
+            "actorMetadata": {
+              "items": [
+                {
+                  "field": "ACTOR_METADATA_FIELD_NAME",
+                  "path": "actor-name"
+                },
+                {
+                  "field": "ACTOR_METADATA_FIELD_UID",
+                  "path": "actor-uid"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "trust",
+      "systemInfo": {
+        "dataSources": [
+          {
+            "trustBundle": {
+              "names": [
+                "egress-mitm.ate.dev"
+              ],
+              "path": "egress.pem"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "durableDir": {},
+      "name": "workspace"
+    },
+    {
+      "durableDir": {},
+      "name": "harness"
+    },
+    {
+      "durableDir": {},
+      "name": "skills"
+    },
+    {
+      "image": {
+        "reference": "ghcr.io/nylorun/computer@sha256:2222222222222222222222222222222222222222222222222222222222222222"
+      },
+      "name": "nylo"
+    }
+  ]
+}

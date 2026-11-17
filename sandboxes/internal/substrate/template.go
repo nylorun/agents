@@ -79,10 +79,29 @@ type Settings struct {
 	ComputerPort int
 	// TicketKey is the PEM public key the computer checks tickets with (with ComputerPort).
 	TicketKey string
+	// ComputerAgent is what serves a computer (with ComputerPort, entrypoint engine): AgentGo, the
+	// computer agent from ComputerImage, or AgentEngine (the default when empty), the Runtime's
+	// engine in computer mode, from the spec's harnessImage (ADR-154 decision 4).
+	ComputerAgent string
+	// ComputerImage is the computer agent's image (ghcr.io/nylorun/computer, by digest), for
+	// AgentGo.
+	ComputerImage string
 }
+
+// The computer agents.
+const (
+	AgentGo     = "go"
+	AgentEngine = "engine"
+)
 
 // Computer says whether sandboxes are computers.
 func (s Settings) Computer() bool { return s.ComputerPort > 0 }
+
+// ComputerAgentGo says whether computers run the computer agent instead of the engine.
+func (s Settings) ComputerAgentGo() bool { return s.Computer() && s.ComputerAgent == AgentGo }
+
+// AgentFile is the computer agent in its image, so at EngineDir+AgentFile in a computer.
+const AgentFile = "/computer"
 
 // computerWrapper is the container's command for a computer's engine: no join token, no edge,
 // only the dirs its workspace needs, then the engine under tini as PID 1.
@@ -129,6 +148,24 @@ func renderComputer(s Settings, spec driver.Spec, images Resolved) (map[string]a
 	container := map[string]any{"name": "workload", "image": images.Image, "env": envList}
 	if len(spec.Command) > 0 {
 		container["command"] = spec.Command
+	} else if spec.Entrypoint == driver.EntrypointEngine && s.ComputerAgentGo() {
+		// The computer agent (ADR-154 decision 4): its own image in place of the Runtime's, at the
+		// same volume and path, run as the actor's only process. It does the wrapper's work itself,
+		// so starting it needs no shell, and it reads the same variables.
+		image := images.Computer
+		if image == "" {
+			image = s.ComputerImage
+		}
+		if image == "" {
+			return nil, &driver.Error{Status: 400, Code: "invalid_request", Message: "the computer agent's image is not configured (--computer-image)"}
+		}
+		mounts = append(mounts, map[string]any{"name": EngineVolume, "mountPath": EngineDir})
+		volumes = append(volumes, map[string]any{"name": EngineVolume, "image": map[string]any{"reference": image}})
+		container["command"] = []string{EngineDir + AgentFile}
+		container["wakeupProbe"] = map[string]any{
+			"httpGet":        map[string]any{"path": "/ready", "port": s.ComputerPort},
+			"timeoutSeconds": 120,
+		}
 	} else {
 		if spec.Entrypoint == driver.EntrypointEngine {
 			if images.Harness == "" {
@@ -214,6 +251,20 @@ type Resolved struct {
 	// Harness is the Runtime image the engine is mounted from, for entrypoint engine. An existing
 	// actor keeps the one it has (see Driver.Put).
 	Harness string
+	// Computer is the computer agent's image, for a computer with Settings.ComputerAgent go
+	// (default Settings.ComputerImage). An existing actor keeps the one it has, as for Harness.
+	Computer string
+}
+
+// RunsAgent says whether a template runs the computer agent (rather than the engine) from its
+// EngineVolume.
+func RunsAgent(t *ateapi.ActorTemplate) bool {
+	for _, c := range t.GetContainers() {
+		if command := c.GetCommand(); len(command) > 0 && command[0] == EngineDir+AgentFile {
+			return true
+		}
+	}
+	return false
 }
 
 // wrapper is the container's command for our engine: it gives the engine what agent-sandbox

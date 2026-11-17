@@ -1,3 +1,29 @@
+# Computers run the computer agent (`computer.agent: go`)
+
+Breaking for a chart install with computers (ADR-154 decision 4). Compose, `nylorun local` and
+agent-sandbox are unchanged.
+
+- **What changes.** A computer's actor runs the computer agent, one static binary from
+  `ghcr.io/nylorun/computer` (versioned by its protocol, not with the Runtime), mounted at `/nylo`
+  in place of the Runtime image, instead of the engine's `--service computer`. It answers the same
+  routes, tickets and results; the harness, the sandbox gateway and the tools are unchanged. Any
+  Linux image with `/bin/sh` can be a computer (no glibc needed), and a Runtime release no longer
+  changes a computer's template.
+- **Before you install.** Take a disk version of every computer
+  (`POST /v1/agents/{id}/snapshot`, while none is working). The template's `/nylo` volume changes,
+  which Substrate refuses to repoint, so each computer gets a new volume from its latest disk
+  version: what changed on its disk after that version is lost.
+- **The chart.** `computer.agent` (`go`, the default, or `engine`) and `computer.image` (pin it by
+  digest; empty is `ghcr.io/nylorun/computer` at the chart's `nylorun.com/computer-version`).
+  `engine` keeps today's computers, for a Runtime that can't move yet, for one minor. The
+  sandboxes service takes them as `--computer-agent` and `--computer-image`.
+- **Differences to know.** The trust bundle commands get (`SSL_CERT_FILE` and the other trust
+  variables, with Substrate's egress CA) is written to `/tmp/nylorun-trust.pem`, not under
+  `/harness`, and holds the image's own CA bundle (`/etc/ssl/certs/ca-certificates.crt` or the
+  other usual paths) instead of Node's built-in roots; an image without one gets the egress CA
+  alone. A new `computer.image` reaches new computers (and resets) only: an existing computer keeps
+  the agent it was created with.
+
 # Computers on Kubernetes: the Runtime's Helm chart
 
 Additive: no breaking change (ADR-147, ADR-149, ADR-150). Compose, `nylorun local`, agent-sandbox

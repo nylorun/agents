@@ -121,6 +121,9 @@ func run(log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	if err := cfg.ParseFlags(os.Args[1:]); err != nil {
+		return err
+	}
 	restConfig, err := cfg.Rest()
 	if err != nil {
 		return err
@@ -213,6 +216,9 @@ func substrateBackend(ctx context.Context, cfg config.Config, log *slog.Logger) 
 			return nil, nil, err
 		}
 		settings.ComputerPort, settings.TicketKey = port, public
+		// What serves each computer: the computer agent's image, or the Runtime's engine (ADR-154).
+		settings.ComputerAgent, settings.ComputerImage = cfg.ComputerAgent, cfg.ComputerImage
+		log.Info("sandboxes computers", "port", port, "agent", cfg.ComputerAgent, "image", cfg.ComputerImage)
 	} else {
 		front, err = edgeFront(cfg, &settings, log)
 		if err != nil {
