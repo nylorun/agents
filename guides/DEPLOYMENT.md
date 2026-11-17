@@ -338,7 +338,7 @@ tracks the manifest (its latest version now, and each version saved later), `"an
 version 3. It runs **one version at a time and moves in place**: a `PUT` naming
 another version moves it, a save moves every Agent that tracks the manifest, and each session's
 next turn runs the version the Agent runs then. Its kind, harness and storage are fixed: a fork
-changes those. Every session names its Agent when it opens (`agent: "<id>"`). No session is special: making an Agent opens none, and the
+changes those, but for one kind change ([becoming a computer](#becoming-a-computer)). Every session names its Agent when it opens (`agent: "<id>"`). No session is special: making an Agent opens none, and the
 app picks session ids (to keep one conversation going, reuse one). Upgrading from protocol 15,
 which had agent definitions, environment manifests and Environments:
 [MIGRATION.md](./MIGRATION.md#agents-from-one-manifest-protocol-16-harness-api-5).
@@ -435,6 +435,25 @@ which had agent definitions, environment manifests and Environments:
   of that Agent, after a stop, a relaunch or a reset, runs that digest: a tag that moves never
   changes what an Agent runs. A fork pulls the tag afresh. An image loaded onto the node without
   a registry pins nothing.
+- <a id="becoming-a-computer"></a>**Becoming a computer** (Host feature `computer-move`, ADR-154).
+  On a Runtime whose pod Agents are computers (Agent Substrate with the sandbox gateway), a
+  `PUT /v1/agents/{id}` that names a `pod` version of a `virtual` Agent's manifest makes it a
+  computer in place: its id, sessions, memory, vault, triggers, events and labels stay, and its
+  next turns' commands run on the new computer. `from` (`{ "agent": "<id>", "version": 3 }`, or
+  `"latest"`) seeds the new volume from a disk version of another Agent with the same owner, as a
+  fork's disk starts. Its virtual workspace is deleted: what a person keeps is saved elsewhere.
+  The move is `agent.version_changed` with `kindFrom` and `kindTo`. It is refused while a turn
+  runs or its disk is copied (`409 agent_busy`), on a version that would wait for a secret
+  (`409 request_rejected`), and for any other kind change or on a Runtime without computers
+  (`409 agent_fixed_field`). A manifest save never changes an Agent's kind: a tracking Agent
+  stays on its version until a `PUT` moves it.
+- **A computer wakes on its first command** (ADR-154). A turn on a computer that sleeps reaches
+  its model without waking it; the run's first command wakes it (`environment.state` `creating`,
+  then `running`), and only a failed computer is asked to run by a turn. Before an idle suspend
+  the Runtime measures the computer's disk (`du` of `/workspace` and `/skills`, at most 20 s)
+  and records it as `diskBytes` on `agent.suspended`; the host log has `computer suspended`
+  (with `diskBytes`) and `computer ready` (with `waitedMs`), and the sandboxes service logs
+  `substrate suspended` (with `ms`, or the error).
 - **Forking.** An Agent's kind, harness and storage are fixed for its life, so a change to those
   is a fork: `POST /v1/agents/{id}/fork` with `{ "id": "users/alice/analyst-2" }`
   (`client.agents.fork()`) makes a new Agent from the source's manifest at its latest version

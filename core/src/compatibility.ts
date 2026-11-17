@@ -317,6 +317,14 @@ export const OPTIONAL_HOST_FEATURES = [
    * carries `metadata.delivery`: `steered` or `queued`.
    */
   "a2a-steer",
+  /**
+   * An Agent becomes a computer (ADR-154): on a Runtime whose pods are computers, a
+   * `PUT /v1/agents/{id}` that moves a `virtual` Agent to a `pod` version changes its kind in place,
+   * keeping its id, sessions, memory, vault and triggers; `from` seeds the new volume from a disk
+   * version of another Agent with the same owner. `agent.version_changed` records `kindFrom` and
+   * `kindTo`. A manifest save never changes an Agent's kind.
+   */
+  "computer-move",
 ] as const;
 export type OptionalHostFeature = (typeof OPTIONAL_HOST_FEATURES)[number];
 export interface ProtocolRange {

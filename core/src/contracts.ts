@@ -1002,8 +1002,10 @@ const runtimeFields = {
  * to another version of its manifest, tracking or pinned. A move changes no data: its id,
  * disk, vault and sessions stay. A harness-only change applies at once; a runtime change of a pod
  * waits for its next start; one that adds a required secret waits for its value. Its manifest's
- * name, kind, harness and storage are fixed (`409 agent_fixed_field`); fork it to change them.
- * `?dryRun=true` answers the move's plan (`AgentMovePlan`) and changes nothing.
+ * name, kind, harness and storage are fixed (`409 agent_fixed_field`); fork it to change them. One
+ * kind change is not: on a Runtime whose pods are computers, a `PUT` that moves a `virtual` Agent to
+ * a `pod` version makes it a computer in place (ADR-154), with its id, sessions, memory, vault and
+ * triggers. `?dryRun=true` answers the move's plan (`AgentMovePlan`) and changes nothing.
  */
 export const PutAgentRequestSchema = z
   .object({
@@ -1018,7 +1020,9 @@ export const PutAgentRequestSchema = z
     labels: EnvironmentLabelsSchema.optional(),
     /**
      * Only when the `PUT` creates the Agent (Host feature `environment-disk-versions`): its disk
-     * starts from this version of another Agent's disk. Its vault starts empty.
+     * starts from this version of another Agent's disk. Its vault starts empty. Or when it makes a
+     * `virtual` Agent a computer (Host feature `computer-move`): its new volume starts from this
+     * version of another Agent's disk, an Agent with the same owner.
      */
     from: z
       .object({
@@ -1478,9 +1482,17 @@ export const AGENT_EVENT_PAYLOADS = {
       waitingFor: z.enum(["secrets", "start"]),
     })
     .passthrough(),
-  /** Runs version `to` of its manifest now: turns that start from here run it. */
+  /**
+   * Runs version `to` of its manifest now: turns that start from here run it. `kindFrom` and
+   * `kindTo` when the move changed its kind: a `virtual` Agent became a computer (ADR-154).
+   */
   "agent.version_changed": z
-    .object({ from: z.number().int().positive(), to: z.number().int().positive() })
+    .object({
+      from: z.number().int().positive(),
+      to: z.number().int().positive(),
+      kindFrom: z.enum(ENVIRONMENT_KINDS).optional(),
+      kindTo: z.enum(ENVIRONMENT_KINDS).optional(),
+    })
     .passthrough(),
   /**
    * Its pod did not start on version `to` (its setup failed, the pod failed, or it took longer

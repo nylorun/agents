@@ -1120,6 +1120,7 @@ class PostgresTx implements Tx {
   async updateEnvironment(
     id: string,
     patch: {
+      kind?: Environment["kind"];
       labels?: Record<string, string>;
       recipe?: Environment["recipe"];
       version?: number;
