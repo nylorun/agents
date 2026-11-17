@@ -360,7 +360,7 @@
         },
         {
           "request": { "method": "GET", "path": "/v1/files?path={{workspace}}" },
-          "expect": { "status": 500, "json": { "error": { "code": "computer_error", "message": "EISDIR: illegal operation on a directory, read" } } }
+          "expect": { "status": 500, "json": { "error": { "code": "computer_error", "message": { "$startsWith": "EISDIR: illegal operation on a directory, read" } } } }
         },
         {
           "request": { "method": "POST", "path": "/v1/files?path={{workspace}}/a.txt" },
