@@ -1,7 +1,7 @@
 {
-  "about": "The computer's contract (ADR-154 decision 4): the same requests, the same answers, from the computer agent (sandboxes/internal/computer, contract_test.go) and the engine's --service computer (runtime/server/src/harness/computer.ts, test/sandbox/computer-contract.test.ts). Each case runs on a new server with a new workspace. Strings may hold {{workspace}}, {{harnessRoot}} and {{trustBundle}}, which each side replaces with its own. A ticket is valid unless the request names another kind: none, expired, otherSubject, otherAudience, otherKey, algHS256, noExp or garbage. An expected value that is an object of $ keys is a matcher: $any, $type, $startsWith, $endsWith, $matches, $utf8Bytes.",
+  "about": "The computer's contract (ADR-154 decision 4): the same requests, the same answers, from the computer agent (sandboxes/internal/computer, contract_test.go) and the engine's --service computer (runtime/server/src/harness/computer.ts, test/sandbox/computer-contract.test.ts). Each case runs on a new server with a new workspace, and a harness root named harnessRoot beside it in the case's own folder, not made (the disk cases write to it, so it is never the machine's /harness). Strings may hold {{workspace}}, {{harnessRoot}} and {{trustBundle}}, which each side replaces with its own. A ticket is valid unless the request names another kind: none, expired, otherSubject, otherAudience, otherKey, algHS256, noExp or garbage. An expected value that is an object of $ keys is a matcher: $any, $type, $startsWith, $endsWith, $matches, $utf8Bytes.",
   "name": "sbx-ub6g5m7mvjlct6r7-g0",
-  "harnessRoot": "/harness",
+  "harnessRoot": "harness",
   "processEnv": {
     "PATH": "/usr/local/bin:/usr/bin:/bin",
     "LANG": "C.UTF-8",
@@ -438,6 +438,358 @@
         {
           "request": { "method": "GET", "path": "/v1/list" },
           "expect": { "status": 404, "json": { "error": { "code": "not_found", "message": " is not a directory" } } }
+        }
+      ]
+    },
+    {
+      "name": "disk: a listing in path order with modes, times, links and empty directories, the engine's files skipped",
+      "steps": [
+        {
+          "request": { "method": "POST", "path": "/v1/exec", "body": { "id": "mk", "command": "mkdir -p {{harnessRoot}}/sandboxes/s1 {{harnessRoot}}/codex d/empty d/sub && printf ab > d/b && printf c > d/a.txt && printf xyz > d/sub/c && ln -s a.txt d/link && chmod 0640 d/b && chmod 0755 d/empty && chmod 0644 d/a.txt d/sub/c && touch -d @1767323045.1236 d/b && echo v > {{harnessRoot}}/volume-id && echo {} > {{harnessRoot}}/setup.json && printf k > {{harnessRoot}}/codex/auth.json && chmod 0600 {{harnessRoot}}/codex/auth.json", "timeoutMs": 10000, "waitMs": 10000 } },
+          "expect": { "status": 200, "json": { "state": "done", "result": { "exitCode": 0, "stdout": "", "stderr": "", "killed": false, "timedOut": false } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "list": { "maxEntries": 100 } } },
+          "expect": {
+            "status": 200,
+            "contentType": "application/json",
+            "json": {
+              "kind": "listed",
+              "entries": [
+                { "path": "harness/codex/auth.json", "type": "file", "size": 1, "mode": 384, "mtimeMs": { "$type": "number" } },
+                { "path": "workspace/d/a.txt", "type": "file", "size": 1, "mode": 420, "mtimeMs": { "$type": "number" } },
+                { "path": "workspace/d/b", "type": "file", "size": 2, "mode": 416, "mtimeMs": 1767323045124 },
+                { "path": "workspace/d/empty", "type": "dir", "size": 0, "mode": 493, "mtimeMs": { "$type": "number" } },
+                { "path": "workspace/d/link", "type": "link", "size": 0, "mode": 511, "mtimeMs": { "$type": "number" }, "target": "a.txt" },
+                { "path": "workspace/d/sub/c", "type": "file", "size": 3, "mode": 420, "mtimeMs": { "$type": "number" } }
+              ],
+              "truncated": false
+            }
+          }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "list": { "maxEntries": 6 } } },
+          "expect": {
+            "status": 200,
+            "contentType": "application/json",
+            "json": {
+              "kind": "listed",
+              "entries": [
+                { "path": "harness/codex/auth.json", "type": "file", "size": 1, "mode": 384, "mtimeMs": { "$type": "number" } },
+                { "path": "workspace/d/a.txt", "type": "file", "size": 1, "mode": 420, "mtimeMs": { "$type": "number" } },
+                { "path": "workspace/d/b", "type": "file", "size": 2, "mode": 416, "mtimeMs": 1767323045124 },
+                { "path": "workspace/d/empty", "type": "dir", "size": 0, "mode": 493, "mtimeMs": { "$type": "number" } },
+                { "path": "workspace/d/link", "type": "link", "size": 0, "mode": 511, "mtimeMs": { "$type": "number" }, "target": "a.txt" },
+                { "path": "workspace/d/sub/c", "type": "file", "size": 3, "mode": 420, "mtimeMs": { "$type": "number" } }
+              ],
+              "truncated": false
+            }
+          }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "list": { "maxEntries": 2 } } },
+          "expect": {
+            "status": 200,
+            "contentType": "application/json",
+            "json": {
+              "kind": "listed",
+              "entries": [
+                { "path": "workspace/d/a.txt", "type": "file", "size": 1, "mode": 420, "mtimeMs": { "$type": "number" } },
+                { "path": "workspace/d/b", "type": "file", "size": 2, "mode": 416, "mtimeMs": 1767323045124 },
+                { "path": "workspace/d/empty", "type": "dir", "size": 0, "mode": 493, "mtimeMs": { "$type": "number" } }
+              ],
+              "truncated": true
+            }
+          }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "list": { "maxEntries": 0 } } },
+          "expect": {
+            "status": 200,
+            "contentType": "application/json",
+            "json": {
+              "kind": "listed",
+              "entries": [
+                { "path": "workspace/d/a.txt", "type": "file", "size": 1, "mode": 420, "mtimeMs": { "$type": "number" } }
+              ],
+              "truncated": true
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "disk: an empty disk, a disk without its harness root",
+      "steps": [
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "list": { "maxEntries": 10 } } },
+          "expect": { "status": 200, "contentType": "application/json", "json": { "kind": "listed", "entries": [], "truncated": false } }
+        }
+      ]
+    },
+    {
+      "name": "disk: reads in ranges, with eof; a file that isn't there is missing",
+      "steps": [
+        {
+          "request": { "method": "POST", "path": "/v1/exec", "body": { "id": "mk", "command": "printf hello > f.txt && printf '' > empty", "timeoutMs": 10000, "waitMs": 10000 } },
+          "expect": { "status": 200, "json": { "state": "done", "result": { "exitCode": 0, "stdout": "", "stderr": "", "killed": false, "timedOut": false } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "read": { "path": "workspace/f.txt", "offset": 0, "length": 3 } } },
+          "expect": { "status": 200, "contentType": "application/json", "json": { "kind": "read", "base64": "aGVs", "eof": false } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "read": { "path": "workspace/f.txt", "offset": 3, "length": 3 } } },
+          "expect": { "status": 200, "contentType": "application/json", "json": { "kind": "read", "base64": "bG8=", "eof": true } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "read": { "path": "workspace/f.txt", "offset": 0, "length": 5 } } },
+          "expect": { "status": 200, "contentType": "application/json", "json": { "kind": "read", "base64": "aGVsbG8=", "eof": true } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "read": { "path": "workspace/f.txt", "offset": 9, "length": 3 } } },
+          "expect": { "status": 200, "contentType": "application/json", "json": { "kind": "read", "base64": "", "eof": true } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "read": { "path": "workspace/f.txt", "offset": 0, "length": 0 } } },
+          "expect": { "status": 200, "contentType": "application/json", "json": { "kind": "read", "base64": "", "eof": false } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "read": { "path": "workspace/empty", "offset": 0, "length": 3 } } },
+          "expect": { "status": 200, "contentType": "application/json", "json": { "kind": "read", "base64": "", "eof": true } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "read": { "path": "workspace/gone", "offset": 0, "length": 3 } } },
+          "expect": { "status": 200, "contentType": "application/json", "json": { "kind": "missing" } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "read": { "path": "workspace/f.txt/below", "offset": 0, "length": 3 } } },
+          "expect": { "status": 200, "contentType": "application/json", "json": { "kind": "missing" } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "read": { "path": "harness/codex/auth.json", "offset": 0, "length": 3 } } },
+          "expect": { "status": 200, "contentType": "application/json", "json": { "kind": "missing" } }
+        }
+      ]
+    },
+    {
+      "name": "disk: a put writes directories, files, ranges, links, modes and times",
+      "steps": [
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "put": [{ "path": "workspace/app", "type": "dir", "mode": 488 }, { "path": "workspace/empty", "type": "dir", "mode": 448 }, { "path": "workspace/app/run.sh", "type": "file", "base64": "IyEvYmluL3NoCg==", "mode": 493, "mtimeMs": 1767323045000 }, { "path": "workspace/big.bin", "type": "file", "base64": "YWJj", "mode": 420 }, { "path": "workspace/big.bin", "type": "file", "base64": "ZGVm", "append": true, "mode": 384, "mtimeMs": 1767323045123 }, { "path": "workspace/deep/er/note.txt", "type": "file", "mode": 420 }, { "path": "workspace/start", "type": "link", "target": "app/run.sh" }, { "path": "harness/codex/auth.json", "type": "file", "base64": "e30=", "mode": 384 }] } },
+          "expect": { "status": 200, "contentType": "application/json", "json": { "kind": "done" } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "list": { "maxEntries": 100 } } },
+          "expect": {
+            "status": 200,
+            "contentType": "application/json",
+            "json": {
+              "kind": "listed",
+              "entries": [
+                { "path": "harness/codex/auth.json", "type": "file", "size": 2, "mode": 384, "mtimeMs": { "$type": "number" } },
+                { "path": "workspace/app/run.sh", "type": "file", "size": 10, "mode": 493, "mtimeMs": 1767323045000 },
+                { "path": "workspace/big.bin", "type": "file", "size": 6, "mode": 384, "mtimeMs": 1767323045123 },
+                { "path": "workspace/deep/er/note.txt", "type": "file", "size": 0, "mode": 420, "mtimeMs": { "$type": "number" } },
+                { "path": "workspace/empty", "type": "dir", "size": 0, "mode": 448, "mtimeMs": { "$type": "number" } },
+                { "path": "workspace/start", "type": "link", "size": 0, "mode": 511, "mtimeMs": { "$type": "number" }, "target": "app/run.sh" }
+              ],
+              "truncated": false
+            }
+          }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "read": { "path": "workspace/big.bin", "offset": 0, "length": 100 } } },
+          "expect": { "status": 200, "contentType": "application/json", "json": { "kind": "read", "base64": "YWJjZGVm", "eof": true } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/exec", "body": { "id": "perm", "command": "stat -c %a app; cat start", "timeoutMs": 10000, "waitMs": 10000 } },
+          "expect": { "status": 200, "json": { "state": "done", "result": { "exitCode": 0, "stdout": "750\n#!/bin/sh\n", "stderr": "", "killed": false, "timedOut": false } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "put": [{ "path": "workspace/big.bin", "type": "file", "base64": "eHl6", "mode": 420 }, { "path": "workspace/deep/er", "type": "link", "target": "../app" }] } },
+          "expect": { "status": 200, "contentType": "application/json", "json": { "kind": "done" } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "read": { "path": "workspace/big.bin", "offset": 0, "length": 100 } } },
+          "expect": { "status": 200, "contentType": "application/json", "json": { "kind": "read", "base64": "eHl6", "eof": true } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "list": { "maxEntries": 100 } } },
+          "expect": {
+            "status": 200,
+            "contentType": "application/json",
+            "json": {
+              "kind": "listed",
+              "entries": [
+                { "path": "harness/codex/auth.json", "type": "file", "size": 2, "mode": 384, "mtimeMs": { "$type": "number" } },
+                { "path": "workspace/app/run.sh", "type": "file", "size": 10, "mode": 493, "mtimeMs": 1767323045000 },
+                { "path": "workspace/big.bin", "type": "file", "size": 3, "mode": 420, "mtimeMs": { "$type": "number" } },
+                { "path": "workspace/deep/er", "type": "link", "size": 0, "mode": 511, "mtimeMs": { "$type": "number" }, "target": "../app" },
+                { "path": "workspace/empty", "type": "dir", "size": 0, "mode": 448, "mtimeMs": { "$type": "number" } },
+                { "path": "workspace/start", "type": "link", "size": 0, "mode": 511, "mtimeMs": { "$type": "number" }, "target": "app/run.sh" }
+              ],
+              "truncated": false
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "disk: a clear empties every root and keeps the engine's files",
+      "steps": [
+        {
+          "request": { "method": "POST", "path": "/v1/exec", "body": { "id": "mk", "command": "mkdir -p {{harnessRoot}}/sandboxes/s1 {{harnessRoot}}/codex a/b && echo v > {{harnessRoot}}/volume-id && echo {} > {{harnessRoot}}/setup.json && echo x > {{harnessRoot}}/egress-ca-bundle.pem && echo k > {{harnessRoot}}/codex/auth.json && echo 1 > a/b/c && echo 2 > top && ln -s top t", "timeoutMs": 10000, "waitMs": 10000 } },
+          "expect": { "status": 200, "json": { "state": "done", "result": { "exitCode": 0, "stdout": "", "stderr": "", "killed": false, "timedOut": false } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "clear": true } },
+          "expect": { "status": 200, "contentType": "application/json", "json": { "kind": "done" } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "list": { "maxEntries": 10 } } },
+          "expect": { "status": 200, "contentType": "application/json", "json": { "kind": "listed", "entries": [], "truncated": false } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/exec", "body": { "id": "ls", "command": "ls -A {{harnessRoot}} | tr '\\n' ' '; ls -A . | wc -l", "timeoutMs": 10000, "waitMs": 10000 } },
+          "expect": { "status": 200, "json": { "state": "done", "result": { "exitCode": 0, "stdout": "egress-ca-bundle.pem sandboxes setup.json volume-id 0\n", "stderr": "", "killed": false, "timedOut": false } } }
+        }
+      ]
+    },
+    {
+      "name": "disk: paths that leave their root or name the engine's files, and bodies that aren't one operation, are refused",
+      "steps": [
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "read": { "path": "workspace/../x", "offset": 0, "length": 1 } } },
+          "expect": { "status": 400, "contentType": "application/json", "json": { "error": { "code": "invalid_request", "message": "workspace/../x is not a plain relative path" } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "read": { "path": "workspace//x", "offset": 0, "length": 1 } } },
+          "expect": { "status": 400, "contentType": "application/json", "json": { "error": { "code": "invalid_request", "message": "workspace//x is not a plain relative path" } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "read": { "path": "workspace/./x", "offset": 0, "length": 1 } } },
+          "expect": { "status": 400, "contentType": "application/json", "json": { "error": { "code": "invalid_request", "message": "workspace/./x is not a plain relative path" } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "read": { "path": "/workspace/x", "offset": 0, "length": 1 } } },
+          "expect": { "status": 400, "contentType": "application/json", "json": { "error": { "code": "invalid_request", "message": "/workspace/x is not under a root of this disk" } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "read": { "path": "etc/passwd", "offset": 0, "length": 1 } } },
+          "expect": { "status": 400, "contentType": "application/json", "json": { "error": { "code": "invalid_request", "message": "etc/passwd is not under a root of this disk" } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "read": { "path": "constructor/x", "offset": 0, "length": 1 } } },
+          "expect": { "status": 400, "contentType": "application/json", "json": { "error": { "code": "invalid_request", "message": "constructor/x is not under a root of this disk" } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "read": { "path": "harness/volume-id", "offset": 0, "length": 1 } } },
+          "expect": { "status": 400, "contentType": "application/json", "json": { "error": { "code": "invalid_request", "message": "harness/volume-id is the engine's own" } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "put": [{ "path": "harness/sandboxes/x", "type": "dir" }] } },
+          "expect": { "status": 400, "contentType": "application/json", "json": { "error": { "code": "invalid_request", "message": "harness/sandboxes/x is the engine's own" } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "put": [{ "path": "workspace/first", "type": "file", "base64": "MQ==" }, { "path": "workspace/../escape", "type": "file" }] } },
+          "expect": { "status": 400, "contentType": "application/json", "json": { "error": { "code": "invalid_request", "message": "workspace/../escape is not a plain relative path" } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "read": { "path": "workspace/first", "offset": 0, "length": 10 } } },
+          "expect": { "status": 200, "contentType": "application/json", "json": { "kind": "read", "base64": "MQ==", "eof": true } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": {} },
+          "expect": { "status": 400, "contentType": "application/json", "json": { "error": { "code": "invalid_request", "message": "The body must be one disk operation: list, read, clear or put" } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk" },
+          "expect": { "status": 400, "contentType": "application/json", "json": { "error": { "code": "invalid_request", "message": "The body must be one disk operation: list, read, clear or put" } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "bodyText": "null" },
+          "expect": { "status": 400, "contentType": "application/json", "json": { "error": { "code": "invalid_request", "message": "The body must be one disk operation: list, read, clear or put" } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "bodyText": "[]" },
+          "expect": { "status": 400, "contentType": "application/json", "json": { "error": { "code": "invalid_request", "message": "The body must be one disk operation: list, read, clear or put" } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "clear": false } },
+          "expect": { "status": 400, "contentType": "application/json", "json": { "error": { "code": "invalid_request", "message": "The body must be one disk operation: list, read, clear or put" } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "clear": true, "list": { "maxEntries": 1 } } },
+          "expect": { "status": 400, "contentType": "application/json", "json": { "error": { "code": "invalid_request", "message": "The body must be one disk operation: list, read, clear or put" } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "remove": true } },
+          "expect": { "status": 400, "contentType": "application/json", "json": { "error": { "code": "invalid_request", "message": "The body must be one disk operation: list, read, clear or put" } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "list": { "maxEntries": -1 } } },
+          "expect": { "status": 400, "contentType": "application/json", "json": { "error": { "code": "invalid_request", "message": "The body must be one disk operation: list, read, clear or put" } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "list": { "maxEntries": "10" } } },
+          "expect": { "status": 400, "contentType": "application/json", "json": { "error": { "code": "invalid_request", "message": "The body must be one disk operation: list, read, clear or put" } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "list": {} } },
+          "expect": { "status": 400, "contentType": "application/json", "json": { "error": { "code": "invalid_request", "message": "The body must be one disk operation: list, read, clear or put" } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "read": { "path": "workspace/x", "offset": 1.5, "length": 1 } } },
+          "expect": { "status": 400, "contentType": "application/json", "json": { "error": { "code": "invalid_request", "message": "The body must be one disk operation: list, read, clear or put" } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "read": { "offset": 0, "length": 1 } } },
+          "expect": { "status": 400, "contentType": "application/json", "json": { "error": { "code": "invalid_request", "message": "The body must be one disk operation: list, read, clear or put" } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "put": { "path": "workspace/x", "type": "file" } } },
+          "expect": { "status": 400, "contentType": "application/json", "json": { "error": { "code": "invalid_request", "message": "The body must be one disk operation: list, read, clear or put" } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "put": [{ "path": "workspace/x", "type": "fifo" }] } },
+          "expect": { "status": 400, "contentType": "application/json", "json": { "error": { "code": "invalid_request", "message": "The body must be one disk operation: list, read, clear or put" } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "put": [{ "path": "workspace/x", "type": "file", "mode": 4096 }] } },
+          "expect": { "status": 400, "contentType": "application/json", "json": { "error": { "code": "invalid_request", "message": "The body must be one disk operation: list, read, clear or put" } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "put": [{ "path": "workspace/x", "type": "file", "mode": null }] } },
+          "expect": { "status": 400, "contentType": "application/json", "json": { "error": { "code": "invalid_request", "message": "The body must be one disk operation: list, read, clear or put" } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "put": [{ "path": "workspace/x", "type": "file", "base64": "abc" }] } },
+          "expect": { "status": 400, "contentType": "application/json", "json": { "error": { "code": "invalid_request", "message": "The body must be one disk operation: list, read, clear or put" } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "put": [{ "path": "workspace/x", "type": "file", "base64": "YW\nJj" }] } },
+          "expect": { "status": 400, "contentType": "application/json", "json": { "error": { "code": "invalid_request", "message": "The body must be one disk operation: list, read, clear or put" } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "put": [{ "path": "workspace/x", "type": "file", "append": "yes" }] } },
+          "expect": { "status": 400, "contentType": "application/json", "json": { "error": { "code": "invalid_request", "message": "The body must be one disk operation: list, read, clear or put" } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "put": [{ "path": "workspace/x", "type": "link", "target": 1 }] } },
+          "expect": { "status": 400, "contentType": "application/json", "json": { "error": { "code": "invalid_request", "message": "The body must be one disk operation: list, read, clear or put" } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "read": { "path": "workspace/x", "offset": 0, "length": 1 } } },
+          "expect": { "status": 200, "contentType": "application/json", "json": { "kind": "missing" } }
+        },
+        {
+          "request": { "method": "GET", "path": "/v1/disk" },
+          "expect": { "status": 404, "json": { "error": { "code": "not_found", "message": "No route GET /v1/disk" } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "ticket": "none", "body": { "clear": true } },
+          "expect": { "status": 401, "json": { "error": { "code": "unauthorized", "message": "Ticket refused: no ticket" } } }
         }
       ]
     }

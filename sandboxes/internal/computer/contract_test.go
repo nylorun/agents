@@ -110,6 +110,7 @@ func TestContract(t *testing.T) {
 			t.Parallel()
 			root := t.TempDir()
 			workspace := filepath.Join(root, "workspace")
+			harnessRoot := filepath.Join(root, c.HarnessRoot)
 			if kase.Workspace != "missing" {
 				if err := os.Mkdir(workspace, 0o755); err != nil {
 					t.Fatal(err)
@@ -122,11 +123,11 @@ func TestContract(t *testing.T) {
 			}
 			public, private, _ := ed25519.GenerateKey(rand.Reader)
 			server := httptest.NewServer(New(Options{
-				Workspace: workspace, HarnessRoot: c.HarnessRoot, Public: public, Name: c.Name,
+				Workspace: workspace, HarnessRoot: harnessRoot, Public: public, Name: c.Name,
 				Runner: &Runner{Shell: CommandShell(), Base: BaseEnv(BaselineFrom(environ), workspace), Trust: trust},
 			}))
 			defer server.Close()
-			fill := strings.NewReplacer("{{workspace}}", workspace, "{{harnessRoot}}", c.HarnessRoot, "{{trustBundle}}", bundle).Replace
+			fill := strings.NewReplacer("{{workspace}}", workspace, "{{harnessRoot}}", harnessRoot, "{{trustBundle}}", bundle).Replace
 			for i, step := range kase.Steps {
 				label := fmt.Sprintf("step %d (%s %s)", i, step.Request.Method, step.Request.Path)
 				var body io.Reader

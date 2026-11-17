@@ -9,7 +9,9 @@
 //   - GET /v1/info; POST /v1/exec starts command id, or joins it while it runs, and answers within
 //     waitMs (at most 50 s) running or done; POST /v1/exec/{id}/attach waits again, and
 //     /v1/exec/{id}/cancel kills it (130); a result is kept 10 minutes after the command ends;
-//   - GET and PUT /v1/files?path= (maxBytes: 413 too_large), GET /v1/list?dir=&maxEntries=.
+//   - GET and PUT /v1/files?path= (maxBytes: 413 too_large), GET /v1/list?dir=&maxEntries=;
+//   - POST /v1/disk: one operation of core's disk versions on the computer's own disk, its
+//     workspace and HarnessRoot (disk.go): list, read, clear or put.
 //
 // Where the engine's answer comes from JavaScript (Number(), JSON.parse, Node's fs errors), the
 // agent gives the same where it can; a JSON syntax error's message is Go's.
@@ -50,7 +52,8 @@ const Workspace = "/workspace"
 type Options struct {
 	// Workspace is where commands run by default (Workspace).
 	Workspace string
-	// HarnessRoot, when set, is a disk root /v1/info reports beside the workspace (/harness).
+	// HarnessRoot, when set, is a disk root beside the workspace (/harness): /v1/info reports it,
+	// and /v1/disk lists, clears and writes it.
 	HarnessRoot string
 	// Public is the ticket key's public half.
 	Public ed25519.PublicKey
@@ -233,6 +236,9 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) error {
 			send(w, http.StatusOK, map[string]bool{"written": true})
 			return nil
 		}
+	}
+	if r.Method == http.MethodPost && pathname == "/v1/disk" {
+		return s.serveDisk(w, r)
 	}
 	if r.Method == http.MethodGet && pathname == "/v1/list" {
 		dir := query.Get("dir")

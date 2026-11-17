@@ -139,6 +139,7 @@ describe("the computer's contract (the engine's --service computer)", () => {
     it(kase.name, { timeout: 60_000 }, async () => {
       const root = mkdtempSync(join(tmpdir(), "computer-contract-"));
       const workspace = join(root, "workspace");
+      const harnessRoot = join(root, contract.harnessRoot);
       if (kase.workspace !== "missing") mkdirSync(workspace);
       const bundle = join(root, "trust.pem");
       const trust = Object.fromEntries(TRUST_VARIABLES.map((name) => [name, bundle]));
@@ -146,7 +147,7 @@ describe("the computer's contract (the engine's --service computer)", () => {
       const handle = await localBackend({
         env: baselineEnvironment(contract.processEnv),
         workspace,
-        harnessRoot: contract.harnessRoot,
+        harnessRoot,
         proxyEnv: () => trust,
       }).open({ key: "computer", cpus: 1, memoryMiB: 512, network: { preset: "none", hosts: [], suffixes: [] } });
       // As runComputer's: the workspace is writable.
@@ -164,7 +165,7 @@ describe("the computer's contract (the engine's --service computer)", () => {
       await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
       const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
       const fill = (text: string) =>
-        text.replaceAll("{{workspace}}", workspace).replaceAll("{{harnessRoot}}", contract.harnessRoot).replaceAll("{{trustBundle}}", bundle);
+        text.replaceAll("{{workspace}}", workspace).replaceAll("{{harnessRoot}}", harnessRoot).replaceAll("{{trustBundle}}", bundle);
 
       for (const [i, step] of kase.steps.entries()) {
         const label = `step ${i} (${step.request.method} ${step.request.path})`;

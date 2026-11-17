@@ -20,7 +20,7 @@ type Config struct {
 	Public ed25519.PublicKey
 	// NameFile is NYLORUN_COMPUTER_NAME_FILE, the file holding the actor's name.
 	NameFile string
-	// HarnessRoot is NYLORUN_HARNESS_ROOT (/harness): a disk root /v1/info reports.
+	// HarnessRoot is NYLORUN_HARNESS_ROOT (/harness): a disk root, beside the workspace.
 	HarnessRoot string
 	// EgressCAFile is NYLORUN_SANDBOX_EGRESS_CA_FILE, Substrate's egress CA, trusted by commands.
 	EgressCAFile string

@@ -40,7 +40,7 @@ export interface SandboxSpec {
   readonly network: ResolvedNetwork;
 }
 
-import type { DiskRoots } from "./disk-fs.js";
+import type { DiskAnswer, DiskOp, DiskRoots } from "./disk-fs.js";
 
 export interface ExecRequest {
   readonly command: string;
@@ -104,6 +104,19 @@ export interface SandboxHandle {
    * workspace, and in a pod the engine's `/harness`. Absent for a backend without a disk.
    */
   readonly diskRoots?: DiskRoots;
+  /**
+   * Runs one disk operation where the disk is, for a backend whose disk is not on this machine
+   * (a computer, ADR-149: `POST /v1/disk`). When present, disk versions use it, not `diskRoots`.
+   */
+  diskOp?(op: DiskOp, signal: AbortSignal): Promise<DiskAnswer>;
+}
+
+/** A sandbox cannot run an operation its backend has, said so to the caller (`sandbox.unsupported`). */
+export class SandboxUnsupportedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "SandboxUnsupportedError";
+  }
 }
 
 /** The files `listFiles` found: paths relative to the directory listed. */

@@ -10,13 +10,15 @@
  * - R13: a `virtual` Agent becomes a computer with an explicit `PUT`, keeping its sessions,
  *   memory, vault and triggers, seeded from another Agent's disk version; a save alone does not
  *   move it, and every refusal.
+ * - Disk versions copy the computer's own disk (`POST /v1/disk`): a snapshot holds its files, and
+ *   a restore and a seed write them onto the computer's new volume, never this machine's.
  */
 import { generateKeyPairSync } from "node:crypto";
-import { mkdtempSync, mkdirSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Agent } from "@nylorun/core/define";
 import type { RuntimeSection } from "@nylorun/core/contracts";
@@ -175,9 +177,8 @@ beforeAll(async () => {
     },
     sandbox: { backend: "virtual" },
     logger,
-    // No Tenant sweep: it would write a pending seed (core's disk operations on a computer run
-    // on this machine's /workspace, a known gap).
-    sweepIntervalMs: 3_600_000,
+    // The Tenant sweep writes pending seeds, through each computer's own disk route.
+    sweepIntervalMs: 1_000,
     pods: {
       client: fake,
       harnessImage: "nylorun-runtime:test",
@@ -246,6 +247,36 @@ describe("a computer wakes on its first command (R3)", { timeout: 90_000 }, () =
   });
 });
 
+describe("disk versions of a computer", { timeout: 90_000 }, () => {
+  it("snapshots the computer's own disk, and restores it onto its new volume", async () => {
+    await sleepingComputer("disk/computer", "disk-computer");
+    await open("disk-computer-s", "disk/computer");
+    const wrote = await bash("disk-computer-s", "mkdir -p app && echo kept > app/notes.txt && chmod 640 app/notes.txt");
+    expect(wrote.status, JSON.stringify(wrote.body)).toBe(200);
+    const name = nameOf("disk/computer");
+    writeFileSync(join(dirname(workspaces.get(name)!), "harness", "volume-id"), `${name}\n`);
+
+    const snapshot = await call("POST", `${path("disk/computer")}/snapshot`);
+    expect(snapshot.status, JSON.stringify(snapshot.body)).toBe(201);
+    expect(snapshot.body).toMatchObject({ version: 1, files: 1, unchanged: false });
+    const tree = JSON.stringify((await call("GET", `/v1/artifacts/${snapshot.body.artifactId}/versions/1/tree`)).body);
+    expect(tree).toContain("workspace/app/notes.txt");
+    expect(tree).not.toContain("volume-id");
+
+    // A file written after the version is gone once it is restored onto the new volume.
+    expect((await bash("disk-computer-s", "echo later > later.txt")).status).toBe(200);
+    const restored = await call("POST", `${path("disk/computer")}/restore`, { version: 1 });
+    expect(restored.status, JSON.stringify(restored.body)).toBe(200);
+    expect(restored.body).toMatchObject({ restored: 1, status: "pending", volumeGeneration: 1 });
+    await until("seeded", () => view("disk/computer"), (body) => body.disk.operation === null, 30_000);
+    const next = podName(runtime.handle.envelope.id, "disk/computer", 1);
+    const workspace = workspaces.get(next)!;
+    expect(readFileSync(join(workspace, "app", "notes.txt"), "utf8")).toBe("kept\n");
+    expect(statSync(join(workspace, "app", "notes.txt")).mode & 0o777).toBe(0o640);
+    expect(existsSync(join(workspace, "later.txt"))).toBe(false);
+  });
+});
+
 describe("a virtual Agent becomes a computer (R13)", { timeout: 90_000 }, () => {
   /** A virtual Agent `id` of manifest `manifest`, with a session, a memory, a secret and a trigger. */
   async function virtualAgent(id: string, manifest: string): Promise<void> {
@@ -287,10 +318,13 @@ describe("a virtual Agent becomes a computer (R13)", { timeout: 90_000 }, () => 
     expect((await call("GET", `${path("move/bot")}/secrets`)).body.secrets.map((secret: { name: string }) => secret.name)).toEqual(["REGION"]);
     expect((await call("GET", `${path("move/bot")}/triggers`)).body.triggers.map((trigger: { id: string }) => trigger.id)).toContain("weekly");
 
-    // Its session's next command runs on the computer. (The seed is written by the computer's
-    // first open in a harness, or the sweep, which this file keeps from running.)
+    // The seed is written onto the computer's own disk (the sweep, or its first open in a harness).
     const name = nameOf("move/bot");
     expect(fake.sandboxes.has(name)).toBe(true);
+    await until("seeded", () => view("move/bot"), (body) => body.disk.operation === null);
+    expect(readFileSync(join(workspaces.get(name)!, "seeded.txt"), "utf8")).toBe("from the source\n");
+
+    // Its session's next command runs on the computer.
     const answer = await bash("move-s1", "echo on the computer");
     expect(answer.status, JSON.stringify(answer.body)).toBe(200);
     expect(JSON.stringify(answer.body)).toContain("on the computer");
