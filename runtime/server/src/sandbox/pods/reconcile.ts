@@ -77,10 +77,12 @@ export async function reconcileSandbox(
     now: Date.now(),
     trigger,
   });
-  // Its Sandbox can't take the spec on its volume: a new volume, before any apply or patch.
+  // Its Sandbox can't take the spec on its volume: a new volume, before any apply or patch. When
+  // none is made yet (an earlier volume still deleting) the rest of the decision goes on, so that
+  // deletion, which the decision carries, finishes.
   if (decision.renew) {
     const renewed = await renewRefusedVolume(ctx, sandboxId, row.pod.k8sName, decision.renew.reason);
-    return { retryAfterMs: renewed ? 0 : (decision.retryAfterMs ?? hostTuning().pods.reconcileRetryMs) };
+    if (renewed) return { retryAfterMs: 0 };
   }
   let patch: SandboxPodPatch = { ...decision.patch };
   const unchanged = (current: PodRow["pod"] | undefined) =>

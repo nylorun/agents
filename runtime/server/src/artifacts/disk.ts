@@ -612,9 +612,9 @@ export async function renewRefusedVolume(
   const renewed = await ctx.store.tx(async (t) => {
     const environment = await liveEnvironment(t, id, { lock: true });
     const pod = environment?.pod;
-    if (!environment || !pod || pod.k8sName !== name || pod.desired !== "running" || pod.retiring !== undefined)
-      return undefined;
+    if (!environment || !pod || pod.k8sName !== name || pod.desired !== "running") return undefined;
     if (pod.observed === "failed" || pod.observed === "lost") return undefined;
+    // A volume this made, refused again: failed, even while the previous one is still deleting.
     const resets = await t.agentEvents(id, { types: ["agent.reset"] });
     const last = resets.at(-1)?.payload;
     if (last?.reason === "template" && last.volumeGeneration === pod.volumeGen) {
@@ -623,6 +623,8 @@ export async function renewRefusedVolume(
       await t.agentEvent(id, "agent.failed", { reason });
       return { failed: true as const };
     }
+    // An earlier reset's volume still deleting: a new one waits for it.
+    if (pod.retiring !== undefined) return undefined;
     const artifact = await t.diskArtifact(id);
     const seed = artifact && artifact.latestVersion >= 1 ? { artifactId: artifact.id, version: artifact.latestVersion } : undefined;
     await newVolume(ctx, t, environment, { reason: "template", ...(seed ? { seed } : {}) });

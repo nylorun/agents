@@ -46,6 +46,7 @@ export interface FakeSandboxes extends SandboxesClient {
    * Agent Substrate: the Sandbox's actor can't take a new template (its volumes would change):
    * its pod stops, and every later `Running` reports `RepointRefused` with `why`.
    */
+  /** The sandbox's actor can't take a new template; for one not made yet, from its first PUT. */
   refuseTemplate(name: string, why: string): void;
   /** The service answers nothing while true. */
   down: boolean;
@@ -58,6 +59,8 @@ export interface FakeSandboxes extends SandboxesClient {
 export function fakeSandboxes(): FakeSandboxes {
   const sandboxes = new Map<string, FakeSandbox>();
   const calls: FakeSandboxes["calls"] = [];
+  // Refusals for sandboxes not made yet (refuseTemplate), applied at their first PUT.
+  const upcoming = new Map<string, string>();
   const reachable = () => {
     if (fake.down) throw new SandboxesError(0, "unreachable", "The sandboxes service did not answer");
   };
@@ -108,6 +111,10 @@ export function fakeSandboxes(): FakeSandboxes {
       const current = sandboxes.get(name);
       if (current?.spec.opId === spec.opId) return statusOf(name);
       const sandbox: FakeSandbox = current ?? { spec, volume: true };
+      if (!current && upcoming.has(name)) {
+        sandbox.refused = upcoming.get(name);
+        upcoming.delete(name);
+      }
       sandbox.spec = spec;
       if (spec.joinToken) sandbox.joinToken = spec.joinToken;
       if (spec.mode === "Running" && sandbox.podUid === undefined && !sandbox.refused) {
@@ -147,7 +154,11 @@ export function fakeSandboxes(): FakeSandboxes {
     },
     refuseTemplate(name, why) {
       const sandbox = sandboxes.get(name);
-      if (!sandbox) throw new Error(`no sandbox ${name}`);
+      // One not made yet refuses from its first PUT on.
+      if (!sandbox) {
+        upcoming.set(name, why);
+        return;
+      }
       sandbox.refused = why;
       sandbox.podUid = undefined;
     },

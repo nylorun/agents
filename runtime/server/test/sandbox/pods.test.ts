@@ -470,13 +470,15 @@ describe("pod Agents", { timeout: 90_000 }, () => {
     const { name } = await createPod("refused/twice");
     await joinAs("refused/twice", name);
     fake.refuseTemplate(name, "its volumes would change (adds skills)");
+    // The new volume's Sandbox refuses too, from its first PUT: set before it can be made, so its
+    // first status can't come back ready.
+    const next = podName(tenantId, "refused/twice", 1);
+    fake.refuseTemplate(next, "its volumes would change (adds more)");
     expect((await call("POST", `${path("refused/twice")}/stop`)).status).toBe(200);
     await until("suspended", () => view("refused/twice"), (body) => body.compute.pod.observed === "suspended");
     expect((await open("refused-s2", "refused/twice")).status).toBe(200);
     expect((await message("refused-s2")).status).toBe(200);
-    const next = podName(tenantId, "refused/twice", 1);
     await until("new Sandbox", async () => fake.sandboxes.has(next), (has) => has);
-    fake.refuseTemplate(next, "its volumes would change (adds more)");
     await reconcile("refused/twice");
     const failed = await until("failed", () => view("refused/twice"), (body) => body.compute.pod.observed === "failed");
     expect(failed.compute.pod).toMatchObject({ volumeGeneration: 1 });
