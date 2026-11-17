@@ -1,14 +1,16 @@
 import { generateKeyPairSync } from "node:crypto";
-import { mkdtempSync, mkdirSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { computerBackend } from "../../src/adapters/sandbox/computer.js";
+import { COMPUTER_DISK_TOO_OLD, computerBackend } from "../../src/adapters/sandbox/computer.js";
 import { localBackend } from "../../src/adapters/sandbox/local.js";
 import { checkTicket, computerHandler, ComputerCommands } from "../../src/harness/computer.js";
-import { computerAccess, signTicket } from "../../src/sandbox/computer.js";
+import { computerAccess, diskBytesOf, signTicket } from "../../src/sandbox/computer.js";
+import { SandboxManager, type SandboxSessionRef } from "../../src/sandbox/manager.js";
+import { memorySandboxRecords } from "../../src/sandbox/records.js";
 import type { TenantContext } from "../../src/tenant/context.js";
 import type { SandboxHandle } from "../../src/sandbox/types.js";
 
@@ -128,6 +130,120 @@ describe("the computer backend through the computer's routes", () => {
   });
 });
 
+describe("a computer's disk operations (disk versions)", () => {
+  const access = (c: { url: string; key: ReturnType<typeof keys>["privateKey"] }, url = c.url) => async () => {
+    const expiresAt = Date.now() + 10 * 60_000;
+    return { url, ticket: signTicket(c.key, NAME, expiresAt), expiresAt };
+  };
+  const ref: SandboxSessionRef = { id: "disk:computer/one", activeTurnId: null, environmentId: "computer/one" };
+  const manager = (backend: ReturnType<typeof computerBackend>) =>
+    new SandboxManager({
+      scope: "tn_disk",
+      records: memorySandboxRecords(),
+      backends: [backend],
+      preference: "auto",
+      ephemeral: false,
+      emit: async () => undefined,
+    });
+  /** A gateway in front of computer `c` that answers some requests itself. */
+  async function gateway(c: { url: string }, answer: (path: string, body: string) => { status: number; body: unknown } | undefined) {
+    const seen: string[] = [];
+    const server = createServer(async (request, response) => {
+      const chunks: Buffer[] = [];
+      for await (const chunk of request) chunks.push(chunk as Buffer);
+      const body = Buffer.concat(chunks).toString("utf8");
+      seen.push(`${request.url} ${body}`);
+      const own = answer(request.url ?? "", body);
+      if (own) {
+        response.writeHead(own.status, { "content-type": "application/json" });
+        return void response.end(JSON.stringify(own.body));
+      }
+      const forwarded = await fetch(`${c.url}${request.url}`, {
+        method: request.method,
+        headers: { "x-nylorun-ticket": String(request.headers["x-nylorun-ticket"]), "content-type": "application/json" },
+        ...(body ? { body } : {}),
+      });
+      response.writeHead(forwarded.status, { "content-type": forwarded.headers.get("content-type") ?? "application/json" });
+      response.end(Buffer.from(await forwarded.arrayBuffer()));
+    });
+    servers.push(server);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    return { url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, seen };
+  }
+
+  it("lists, reads and writes the computer's own disk, not a directory of this process", async () => {
+    const c = await computer();
+    mkdirSync(join(c.root, "workspace", "app"));
+    writeFileSync(join(c.root, "workspace", "app", "notes.md"), "on the computer\n");
+    writeFileSync(join(c.root, "harness", "volume-id"), "vol-1\n");
+    const handle = await computerBackend({ open: access(c) }).open({ key: "x", cpus: 1, memoryMiB: 512, network: { preset: "none", hosts: [], suffixes: [] } });
+    // No local roots to fall back to: the disk is the computer's.
+    expect(handle.diskRoots).toBeUndefined();
+
+    const sandboxes = manager(computerBackend({ open: access(c) }));
+    const signal = new AbortController().signal;
+    const listed = await sandboxes.disk(ref, undefined, { list: { maxEntries: 100 } }, signal);
+    expect(listed).toMatchObject({ kind: "listed", truncated: false, entries: [{ path: "workspace/app/notes.md", type: "file", size: 16 }] });
+    const read = await sandboxes.disk(ref, undefined, { read: { path: "workspace/app/notes.md", offset: 3, length: 100 } }, signal);
+    expect(read).toEqual({ kind: "read", bytes: new Uint8Array(Buffer.from("the computer\n")), eof: true });
+
+    // A seed: cleared (the engine's files stay), then written, on the computer.
+    expect(await sandboxes.disk(ref, undefined, { clear: true }, signal)).toEqual({ kind: "done" });
+    const put = await sandboxes.disk(
+      ref,
+      undefined,
+      {
+        put: [
+          { path: "workspace/seeded.txt", type: "file", bytes: new TextEncoder().encode("from a "), mode: 0o640 },
+          { path: "workspace/seeded.txt", type: "file", bytes: new TextEncoder().encode("version\n"), append: true, mtimeMs: 1_767_323_045_000 },
+          { path: "workspace/link", type: "link", target: "seeded.txt" },
+        ],
+      },
+      signal,
+    );
+    expect(put).toEqual({ kind: "done" });
+    expect(readFileSync(join(c.root, "workspace", "seeded.txt"), "utf8")).toBe("from a version\n");
+    expect(statSync(join(c.root, "workspace", "seeded.txt")).mode & 0o777).toBe(0o640);
+    expect(existsSync(join(c.root, "workspace", "app"))).toBe(false);
+    expect(readFileSync(join(c.root, "harness", "volume-id"), "utf8")).toBe("vol-1\n");
+    expect(await sandboxes.disk(ref, undefined, { list: { maxEntries: 100 } }, signal)).toMatchObject({
+      entries: [
+        { path: "workspace/link", type: "link", target: "seeded.txt" },
+        { path: "workspace/seeded.txt", type: "file", size: 15, mode: 0o640, mtimeMs: 1_767_323_045_000 },
+      ],
+    });
+    await expect(sandboxes.disk(ref, undefined, { read: { path: "workspace/../etc/passwd", offset: 0, length: 1 } }, signal)).rejects.toThrow(
+      "workspace/../etc/passwd is not a plain relative path",
+    );
+  });
+
+  it("fails clearly on a computer whose agent has no disk route, copying nothing", async () => {
+    const c = await computer();
+    const old = await gateway(c, (path) => (path === "/v1/disk" ? { status: 404, body: { error: { code: "not_found", message: "No route POST /v1/disk" } } } : undefined));
+    const sandboxes = manager(computerBackend({ open: access(c, old.url) }));
+    const answer = await sandboxes.disk(ref, undefined, { list: { maxEntries: 10 } }, new AbortController().signal);
+    expect(answer).toEqual({ kind: "failed", code: "sandbox.unsupported", message: COMPUTER_DISK_TOO_OLD });
+  });
+
+  it("asks a dropped operation again, but an append only after a refused ticket", async () => {
+    const c = await computer();
+    let drops = 1;
+    const flaky = await gateway(c, (path) =>
+      path === "/v1/disk" && drops-- > 0 ? { status: 502, body: { error: { code: "computer_unreachable", message: "The computer can't be reached" } } } : undefined,
+    );
+    const handle = await computerBackend({ open: access(c, flaky.url), retryMs: 5_000 }).open({ key: "x", cpus: 1, memoryMiB: 512, network: { preset: "none", hosts: [], suffixes: [] } });
+    const signal = new AbortController().signal;
+    expect(await handle.diskOp!({ put: [{ path: "workspace/a.txt", type: "file", bytes: new TextEncoder().encode("a") }] }, signal)).toEqual({ kind: "done" });
+    expect(flaky.seen.length).toBe(2);
+    drops = 1;
+    await expect(
+      handle.diskOp!({ put: [{ path: "workspace/a.txt", type: "file", bytes: new TextEncoder().encode("b"), append: true }] }, signal),
+    ).rejects.toMatchObject({ status: 502 });
+    expect(flaky.seen.length).toBe(3);
+    expect(readFileSync(join(c.root, "workspace", "a.txt"), "utf8")).toBe("a");
+  });
+});
+
 describe("computer access", () => {
   // A Tenant with one running computer whose service reports `drainedAt`.
   const context = (recorded: string | undefined, reported: string | undefined) => {
@@ -162,5 +278,15 @@ describe("computer access", () => {
       await computerAccess(ctx, "local/probe");
       expect(signals).toEqual([]);
     }
+  });
+});
+
+describe("the disk measure before an idle suspend", () => {
+  it("sums what du -sk printed, in bytes, and answers nothing for no size", () => {
+    expect(diskBytesOf("12\t/workspace\n4\t/skills\n")).toBe(16 * 1024);
+    // No /skills: du fails, and the size it printed stands.
+    expect(diskBytesOf("2048\t/workspace\n")).toBe(2048 * 1024);
+    expect(diskBytesOf("")).toBeUndefined();
+    expect(diskBytesOf("du: cannot access '/workspace': No such file or directory\n")).toBeUndefined();
   });
 });

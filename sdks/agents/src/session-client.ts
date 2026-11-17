@@ -77,7 +77,8 @@ export interface SessionView {
   waits?: unknown;
   /**
    * The model the session's turns call and why: `source` `manifest` (its Agent's version's
-   * `harness.model`), `session` (its own, `setModel`) or `tenant`, with `reason` and `requested`
+   * `harness.model`), `role` (the model `harness.roles` names for the role it was opened with,
+   * named in `role`), `session` (its own, `setModel`) or `tenant`, with `reason` and `requested`
    * when it falls back to the Tenant's. Null for a flow and while the Tenant has no model; absent
    * from an older Runtime. Each change is a `session.model` event.
    */
@@ -95,6 +96,13 @@ export interface CreateSessionOptions {
   agent: string;
   ownerUserId: string;
   info?: Record<string, unknown>;
+  /**
+   * The model role the session runs on (Host feature `model-roles`): the model its Agent's
+   * version names for it in `harness.roles` (`roles:` in `AGENT.md`), checked as `harness.model`
+   * is. A role the version does not declare is refused (`400 unknown_role`). Fixed once the
+   * session exists; without one, the session runs on the version's `harness.model`.
+   */
+  role?: string;
   requestId?: string;
 }
 export interface ActAsOptions {
@@ -189,6 +197,7 @@ export class AgentsClient {
       agent: options.agent,
       ownerUserId: options.ownerUserId,
       ...(options.info ? { info: options.info } : {}),
+      ...(options.role === undefined ? {} : { role: options.role }),
     });
     return this.session(sessionId);
   }

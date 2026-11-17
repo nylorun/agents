@@ -4,7 +4,9 @@
  * sandbox's `/workspace`) and, in a pod, `harness/…` (the engine's `/harness`, where a vendor
  * harness keeps its state). Both backends use this over their own directories: the pod's volume
  * (`adapters/sandbox/local.ts`) and the virtual workspace's host directory
- * (`adapters/sandbox/virtual.ts`).
+ * (`adapters/sandbox/virtual.ts`). A computer (ADR-149) runs it on its own disk, behind its
+ * `POST /v1/disk` (`harness/computer.ts`; the computer agent's port is
+ * `sandboxes/internal/computer/disk.go`), which core reaches through its handle's `diskOp`.
  *
  * A listing has regular files (size, mode, modification time), symbolic links (their target as
  * stored) and empty directories; sockets, FIFOs and devices are skipped, and hard links are listed
@@ -60,14 +62,22 @@ export const ENGINE_FILES: ReadonlySet<string> = new Set([
   "sandboxes",
 ]);
 
+/** A disk path that leaves its root or names the engine's own files: the caller's mistake. */
+export class DiskPathError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "DiskPathError";
+  }
+}
+
 /** The absolute path of `path` (relative to the volume), refused when it leaves its root. */
 export function diskPath(roots: DiskRoots, path: string): string {
   const [root, ...rest] = path.split("/");
-  const base = roots[root as keyof DiskRoots];
-  if (!base) throw new Error(`${path} is not under a root of this disk`);
+  const base = root !== undefined && Object.hasOwn(roots, root) ? roots[root as keyof DiskRoots] : undefined;
+  if (!base) throw new DiskPathError(`${path} is not under a root of this disk`);
   if (rest.some((segment) => segment === "" || segment === "." || segment === ".."))
-    throw new Error(`${path} is not a plain relative path`);
-  if (root === "harness" && ENGINE_FILES.has(rest[0] ?? "")) throw new Error(`${path} is the engine's own`);
+    throw new DiskPathError(`${path} is not a plain relative path`);
+  if (root === "harness" && ENGINE_FILES.has(rest[0] ?? "")) throw new DiskPathError(`${path} is the engine's own`);
   return rest.length === 0 ? base : posix.join(base, ...rest);
 }
 
@@ -211,7 +221,7 @@ export async function runDiskOp(roots: DiskRoots, op: DiskOp): Promise<DiskAnswe
   return { kind: "done" };
 }
 
-/** A disk operation as it crosses the Harness API: bytes as base64. */
+/** A disk operation as it crosses the Harness API and a computer's `POST /v1/disk`: bytes as base64. */
 export type WireDiskOp =
   | { readonly list: { readonly maxEntries: number } }
   | { readonly read: { readonly path: string; readonly offset: number; readonly length: number } }
@@ -226,6 +236,53 @@ export function toWireOp(op: DiskOp): WireDiskOp {
       ...(bytes === undefined ? {} : { base64: Buffer.from(bytes).toString("base64") }),
     })),
   };
+}
+
+/** Why a request body is not a `WireDiskOp` (a computer's `POST /v1/disk`). */
+export const NOT_A_DISK_OP = "The body must be one disk operation: list, read, clear or put";
+
+const BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+const isCount = (value: unknown): value is number =>
+  typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  value !== null && typeof value === "object" && !Array.isArray(value);
+
+function isWirePut(entry: unknown): boolean {
+  return (
+    isRecord(entry) &&
+    typeof entry.path === "string" &&
+    (entry.type === "file" || entry.type === "dir" || entry.type === "link") &&
+    (entry.mode === undefined || (isCount(entry.mode) && entry.mode <= 0o7777)) &&
+    (entry.mtimeMs === undefined || (typeof entry.mtimeMs === "number" && Number.isFinite(entry.mtimeMs))) &&
+    (entry.base64 === undefined || (typeof entry.base64 === "string" && BASE64.test(entry.base64))) &&
+    (entry.append === undefined || typeof entry.append === "boolean") &&
+    (entry.target === undefined || typeof entry.target === "string")
+  );
+}
+
+/**
+ * `value` as a disk operation, or undefined when it is not one: an object of one key, `list`
+ * (`maxEntries`), `read` (`path`, `offset`, `length`), `clear` (`true`) or `put` (entries of
+ * `path` and `type`, with an optional `mode` of at most 0o7777, `mtimeMs`, `base64`, `append`
+ * and `target`). Counts are whole and not negative; base64 is canonical. The computer agent
+ * (`sandboxes/internal/computer/disk.go`) takes the same.
+ */
+export function wireDiskOpOf(value: unknown): WireDiskOp | undefined {
+  if (!isRecord(value)) return undefined;
+  const keys = Object.keys(value);
+  if (keys.length !== 1) return undefined;
+  const { list, read, clear, put } = value;
+  const ok =
+    keys[0] === "list"
+      ? isRecord(list) && isCount(list.maxEntries)
+      : keys[0] === "read"
+        ? isRecord(read) && typeof read.path === "string" && isCount(read.offset) && isCount(read.length)
+        : keys[0] === "clear"
+          ? clear === true
+          : keys[0] === "put"
+            ? Array.isArray(put) && put.every(isWirePut)
+            : false;
+  return ok ? (value as WireDiskOp) : undefined;
 }
 
 export function fromWireOp(op: WireDiskOp): DiskOp {

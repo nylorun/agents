@@ -317,6 +317,22 @@ export const OPTIONAL_HOST_FEATURES = [
    * carries `metadata.delivery`: `steered` or `queued`.
    */
   "a2a-steer",
+  /**
+   * An Agent becomes a computer (ADR-154): on a Runtime whose pods are computers, a
+   * `PUT /v1/agents/{id}` that moves a `virtual` Agent to a `pod` version changes its kind in place,
+   * keeping its id, sessions, memory, vault and triggers; `from` seeds the new volume from a disk
+   * version of another Agent with the same owner. `agent.version_changed` records `kindFrom` and
+   * `kindTo`. A manifest save never changes an Agent's kind.
+   */
+  "computer-move",
+  /**
+   * Model roles (ADR-154): an agent manifest's `harness.roles` (`roles:` in `AGENT.md`) maps a
+   * role's name to a model, and a session opened with `role` (`PUT /v1/sessions/{id}`, or an A2A
+   * message's `metadata.role`) runs on that role's model, checked as `harness.model` is; its model
+   * record says `source: "role"` and the role. A role the version does not declare is
+   * `400 unknown_role`.
+   */
+  "model-roles",
 ] as const;
 export type OptionalHostFeature = (typeof OPTIONAL_HOST_FEATURES)[number];
 export interface ProtocolRange {
@@ -493,6 +509,11 @@ export const ERROR_CODES = [
    * errors, its line and column.
    */
   "folder_invalid",
+  /**
+   * A session opened with a `role` its Agent's version does not declare in `harness.roles`
+   * (Host feature `model-roles`): `400`. `details.roles` lists the roles it declares.
+   */
+  "unknown_role",
   "internal_error",
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];

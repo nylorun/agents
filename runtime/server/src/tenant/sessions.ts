@@ -136,9 +136,15 @@ export async function openSessionIn(
   // A computer's harness runs in the harness container (ADR-149).
   checkPlacement(config, agent.kind, pin.harness, ctx.pods?.computer !== undefined);
   if (agent.kind === "pod") await requirePods(ctx.pods, `Agent ${agent.id}`);
-  // The model the version names (`harness.model`, Host feature `agent-model`) is the new
-  // session's own, as `chooseSessionModel` would make it, when the Tenant can use it now.
-  const asked = await agentModelOf(t, version.body.harness as { readonly model?: unknown });
+  // The model the version names (`harness.model`, Host feature `agent-model`), or names for the
+  // session's role (`harness.roles`, Host feature `model-roles`; an undeclared one is
+  // `400 unknown_role`), is the new session's own, as `chooseSessionModel` would make it, when
+  // the Tenant can use it now.
+  const asked = await agentModelOf(
+    t,
+    version.body.harness as { readonly model?: unknown; readonly roles?: unknown },
+    body.role,
+  );
   const model = asked && "choice" in asked ? asked.choice : undefined;
   const created: Session = {
     id,
@@ -156,7 +162,8 @@ export async function openSessionIn(
     environmentId: agent.id,
     environmentVersion: agent.version,
     ...(pin.sandbox === undefined ? {} : { sandbox: pin.sandbox }),
-    ...(model === undefined ? {} : { model, modelSource: "manifest" as const }),
+    ...(model === undefined ? {} : { model, modelSource: body.role === undefined ? ("manifest" as const) : ("role" as const) }),
+    ...(body.role === undefined ? {} : { role: body.role }),
   };
   await t.put("sessions", id, created);
   await recordAttachment(t, id, agent.id);

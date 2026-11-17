@@ -172,10 +172,11 @@ export function sessionRoutes(api: OpenAPIHono<TenantEnv>): void {
       tags: ["Sessions"],
       summary: "Open a session",
       description:
-        "Creates the session on an Agent, or answers the one already opened with the same Agent, owner and info. Its Agent (its sandbox and vault) is fixed for its life, and it pins the manifest version the Agent runs. No session is special: an app that keeps one conversation going reuses its id.",
+        "Creates the session on an Agent, or answers the one already opened with the same Agent, owner, info and role. Its Agent (its sandbox and vault) is fixed for its life, and it pins the manifest version the Agent runs. `role` (Host feature `model-roles`) runs it on the model the version names for that role in `harness.roles`, checked as `harness.model` is; a role the version does not declare is `400 unknown_role`. No session is special: an app that keeps one conversation going reuses its id.",
       request: { params: sessionId, body: body(PutSessionRequest) },
       responses: {
         200: json(SessionView, "The session"),
+        400: { description: "A role the Agent's version does not declare (`unknown_role`)" },
         409: { description: "A session with this id was opened with other parameters" },
       },
     },

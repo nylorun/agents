@@ -396,6 +396,12 @@ export function updatesOf(event: LiveEvent, view: TaskView): StreamResponse[] {
       const progress = progressOf(payload);
       return progress ? [status("TASK_STATE_WORKING", { metadata: { [A2A_EXTENSIONS.progress]: progress } })] : [];
     }
+    case "environment.state":
+      // A computer waking for the task's first command, and ready (ADR-154 R3): a client shows
+      // the wait. Other backends' states, and a computer stopping, aren't the caller's concern.
+      return payload.backend === "computer" && (payload.state === "creating" || payload.state === "running")
+        ? [status("TASK_STATE_WORKING", { metadata: { "environment.state": { state: payload.state, backend: "computer" } } })]
+        : [];
     case "message.assistant":
       // The agent's own step text; an agent used as a tool speaks inside the turn.
       return !payload.agent && typeof payload.text === "string" && payload.text.trim() !== ""

@@ -109,3 +109,73 @@ func Verify(token string, public ed25519.PublicKey, now time.Time) (Claims, erro
 	}
 	return c, nil
 }
+
+// Check is the computer's own check of a ticket, as the engine's `checkTicket`
+// (runtime/server/src/harness/computer.ts) does it, for the computer agent to answer the same:
+// "" when the ticket holds for the computer named subject, or why it doesn't, in the engine's
+// words: "no ticket", "malformed", "alg", "signature", "audience", "subject" or "expired". It
+// decodes base64url as leniently as Node does, and takes `exp` as any JSON number, compared with
+// the time in milliseconds.
+func Check(token string, public ed25519.PublicKey, subject string, now time.Time) string {
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		return "no ticket"
+	}
+	var header any
+	if json.Unmarshal(lenientBase64URL(parts[0]), &header) != nil {
+		return "malformed"
+	}
+	switch h := header.(type) {
+	case nil:
+		return "malformed" // JSON null: the engine fails reading its alg
+	case map[string]any:
+		if alg, _ := h["alg"].(string); alg != "EdDSA" {
+			return "alg"
+		}
+	default:
+		return "alg"
+	}
+	if len(public) != ed25519.PublicKeySize || !ed25519.Verify(public, []byte(parts[0]+"."+parts[1]), lenientBase64URL(parts[2])) {
+		return "signature"
+	}
+	var payload any
+	if json.Unmarshal(lenientBase64URL(parts[1]), &payload) != nil || payload == nil {
+		return "malformed"
+	}
+	claims, ok := payload.(map[string]any)
+	if !ok {
+		return "audience"
+	}
+	if aud, _ := claims["aud"].(string); aud != Audience {
+		return "audience"
+	}
+	if sub, isString := claims["sub"].(string); !isString || sub != subject {
+		return "subject"
+	}
+	exp, isNumber := claims["exp"].(float64)
+	if !isNumber || float64(now.UnixMilli())/1000 >= exp {
+		return "expired"
+	}
+	return ""
+}
+
+// lenientBase64URL decodes as Node's Buffer.from(s, "base64url") does: either alphabet, anything
+// else skipped, decoding stopped at padding, and a lone trailing character dropped.
+func lenientBase64URL(s string) []byte {
+	clean := make([]byte, 0, len(s))
+	for i := 0; i < len(s) && s[i] != '='; i++ {
+		switch c := s[i]; {
+		case c == '+':
+			clean = append(clean, '-')
+		case c == '/':
+			clean = append(clean, '_')
+		case c >= 'A' && c <= 'Z', c >= 'a' && c <= 'z', c >= '0' && c <= '9', c == '-', c == '_':
+			clean = append(clean, c)
+		}
+	}
+	if len(clean)%4 == 1 {
+		clean = clean[:len(clean)-1]
+	}
+	out, _ := base64.RawURLEncoding.DecodeString(string(clean))
+	return out
+}

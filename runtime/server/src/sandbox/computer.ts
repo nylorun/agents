@@ -71,7 +71,9 @@ export async function computerAccess(ctx: TenantContext, id: string, signal?: Ab
   const computers = computersOf(ctx);
   const pods = ctx.pods;
   if (!computers || !pods) return fail(409, `Agent ${id} is not a computer on this Runtime.`, { code: "agent_unavailable" });
-  await wakePod(ctx, id);
+  const started = Date.now();
+  // Whether it had to wake (ADR-154 D1): it was not wanted running, or not running yet.
+  const asleep = await wakePod(ctx, id);
   const deadline = Date.now() + hostTuning().pods.readyDeadlineMs;
   for (;;) {
     if (signal?.aborted) throw signal.reason ?? new Error("Cancelled");
@@ -89,6 +91,7 @@ export async function computerAccess(ctx: TenantContext, id: string, signal?: Ab
       if (status.drainedAt !== undefined && status.drainedAt !== pod.drainedAt)
         await ctx.sandboxSignal(id, { kind: "reconcile" }).catch(() => undefined);
       await firstContact(ctx, id, status.podUID);
+      if (asleep) ctx.config.logger.info("computer ready", { agentId: id, waitedMs: Date.now() - started });
       const expiresAt = Date.now() + computers.ttlMs;
       return {
         url: `${computers.gatewayUrl}/${pod.k8sName}`,
@@ -102,6 +105,55 @@ export async function computerAccess(ctx: TenantContext, id: string, signal?: Ab
     await ctx.sandboxSignal(id, { kind: "reconcile" }).catch(() => undefined);
     await sleep(500);
   }
+}
+
+/** How long the disk's measure before an idle suspend may take (ADR-154 D1). */
+export const DISK_MEASURE_TIMEOUT_MS = 20_000;
+/** What the measure runs on the computer: the size of what its disk keeps, in KiB. */
+export const DISK_MEASURE_COMMAND = "du -sk /workspace /skills";
+
+/**
+ * The size of running computer `name`'s disk in bytes (ADR-154 D1): `du` of `/workspace` and
+ * `/skills` through the computer, within `DISK_MEASURE_TIMEOUT_MS`. Undefined when it could not
+ * be measured: the caller goes on without it. It does not wake the computer: it asks only one
+ * that runs.
+ */
+export async function computerDiskBytes(ctx: Pick<TenantContext, "pods">, name: string): Promise<number | undefined> {
+  const computers = computersOf(ctx);
+  if (!computers) return undefined;
+  const expiresAt = Date.now() + computers.ttlMs;
+  const access: ComputerAccess = {
+    url: `${computers.gatewayUrl}/${name}`,
+    ticket: signTicket(computers.ticketKey, name, expiresAt),
+    expiresAt,
+  };
+  const signal = AbortSignal.timeout(DISK_MEASURE_TIMEOUT_MS + 5_000);
+  try {
+    const handle = await computerBackend({ open: async () => access, retryMs: 0 }).open({
+      key: name,
+      cpus: 1,
+      memoryMiB: 1024,
+      network: { preset: "none", hosts: [], suffixes: [] },
+    });
+    const result = await handle.exec({ command: DISK_MEASURE_COMMAND, cwd: "/", timeoutMs: DISK_MEASURE_TIMEOUT_MS }, signal);
+    // A missing /skills fails du, but the sizes it printed stand.
+    return diskBytesOf(result.stdout);
+  } catch {
+    return undefined;
+  }
+}
+
+/** The bytes `du -sk` printed (one `<KiB>\t<path>` line per path), summed; undefined for none. */
+export function diskBytesOf(stdout: string): number | undefined {
+  let kib = 0;
+  let found = false;
+  for (const line of stdout.split("\n")) {
+    const match = /^(\d+)\s+\S/.exec(line.trim());
+    if (!match) continue;
+    kib += Number(match[1]);
+    found = true;
+  }
+  return found ? kib * 1024 : undefined;
 }
 
 /** Records the computer's first answer since it started: its UID, and `agent.running` or `agent.relaunched`. */
@@ -297,7 +349,17 @@ export function computerManagers(
       manager = new SandboxManager({
         scope: ctx().config.tenantId,
         records: memorySandboxRecords(),
-        backends: [computerBackend({ open: (signal) => computerAccess(ctx(), environmentId, signal) })],
+        backends: [
+          computerBackend({
+            open: (signal) => computerAccess(ctx(), environmentId, signal),
+            // After a restore or a recovery the Agent is on a new computer: a disk copy onto its
+            // new volume (or a command) must not reach the last one.
+            isCurrent: async (access) => {
+              const pod = (await ctx().store.tx((t) => t.environment(environmentId)))?.pod;
+              return pod !== undefined && access.url.endsWith(`/${pod.k8sName}`);
+            },
+          }),
+        ],
         preference: "auto",
         ephemeral: false,
         emit,

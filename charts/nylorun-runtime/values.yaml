@@ -113,6 +113,16 @@ keysProvider:
 
 computer:
   port: 8080
+  # What serves a computer (ADR-154 decision 4): `go`, the computer agent (one static binary from
+  # `image`, mounted at /nylo), or `engine`, the Runtime's engine in computer mode, for a Runtime
+  # that can't move yet. Moving a Tenant's computers between them gives each a new volume from its
+  # latest disk version: take a disk version of every computer first (MIGRATION.md).
+  agent: go
+  # The computer agent's image (agent go). Pin it by digest in production
+  # (`ghcr.io/nylorun/computer:1.0@sha256:…`, as computer-image.yml prints it); empty uses
+  # ghcr.io/nylorun/computer at the chart's `nylorun.com/computer-version` annotation, which the
+  # sandboxes service pins to its digest.
+  image: ""
 
 sandboxGateway:
   replicas: 2
@@ -123,8 +133,9 @@ placement:
   nodeSelector: {}
   tolerations: []
 
-# Warms atelet's image cache on worker nodes with the Runtime image and these computer
-# images, with Substrate's validate-image-cache built from its source at `substrateCommit`.
+# Warms atelet's image cache on worker nodes with the image computers mount at /nylo (the computer
+# agent's, or the Runtime's with computer.agent engine) and these computer images, with
+# Substrate's validate-image-cache built from its source at `substrateCommit`.
 prepull:
   enabled: false
   substrateCommit: ""

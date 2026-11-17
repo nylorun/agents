@@ -247,7 +247,14 @@ func (d *Driver) Put(ctx context.Context, name string, spec driver.Spec) (driver
 		return driver.Status{}, &driver.Error{Status: http.StatusUnprocessableEntity, Code: "invalid_spec",
 			Message: fmt.Sprintf("image %s: %v (Substrate runs images by digest from a registry)", spec.Image, err)}
 	}
-	if spec.Entrypoint == driver.EntrypointEngine && len(spec.Command) == 0 {
+	agentGo := spec.Entrypoint == driver.EntrypointEngine && len(spec.Command) == 0 && d.o.Settings.ComputerAgentGo()
+	if agentGo {
+		// The computer agent in place of the engine: the Runtime image core names isn't mounted.
+		if images.Computer, err = d.o.Resolver.Resolve(ctx, d.o.Settings.ComputerImage); err != nil {
+			return driver.Status{}, &driver.Error{Status: http.StatusUnprocessableEntity, Code: "invalid_spec",
+				Message: fmt.Sprintf("the computer agent's image %s: %v", d.o.Settings.ComputerImage, err)}
+		}
+	} else if spec.Entrypoint == driver.EntrypointEngine && len(spec.Command) == 0 {
 		if images.Harness, err = d.o.Resolver.Resolve(ctx, spec.HarnessImage); err != nil {
 			return driver.Status{}, &driver.Error{Status: http.StatusUnprocessableEntity, Code: "invalid_spec",
 				Message: fmt.Sprintf("harnessImage %s: %v", spec.HarnessImage, err)}
@@ -276,7 +283,16 @@ func (d *Driver) Put(ctx context.Context, name string, spec driver.Spec) (driver
 	// template with identical volumes, and the engine is an image volume pinned by digest, so a
 	// new Runtime image would strand every existing pod (E12). The pod then runs that engine until
 	// a new incarnation; the Runtime's Harness API check at hello still guards it.
-	if kept := EngineReference(current); kept != "" && images.Harness != "" && kept != images.Harness {
+	// The same holds for the computer agent's image. Between the engine and the agent there is no
+	// keeping: the move changes the volume, which Substrate refuses to repoint (RepointRefused),
+	// and the computer gets a new volume from its latest disk version (ADR-154 decision 4).
+	kept := EngineReference(current)
+	switch {
+	case kept == "" || current == nil:
+	case agentGo && RunsAgent(current) && kept != images.Computer:
+		d.o.Log.Info("substrate: the actor keeps its computer agent", "name", name, "agent", kept, "asked", images.Computer)
+		images.Computer = kept
+	case !agentGo && !RunsAgent(current) && images.Harness != "" && kept != images.Harness:
 		d.o.Log.Info("substrate: the actor keeps its engine", "name", name, "engine", kept, "asked", images.Harness)
 		images.Harness = kept
 	}
@@ -496,11 +512,22 @@ func (d *Driver) driveOnce(ctx context.Context, name, opID, mode string, reverte
 	return false, err
 }
 
+// suspend suspends the actor and logs how long it took, or why it failed (ADR-154 D1): the
+// weekly computers report reads these lines. An actor that isn't running has nothing to suspend
+// and logs nothing.
 func (d *Driver) suspend(ctx context.Context, name string) error {
 	ctx, cancel := d.call(ctx)
 	defer cancel()
+	start := d.o.Now()
 	_, err := d.api.SuspendActor(ctx, &ateapi.SuspendActorRequest{Actor: d.ref(name),
 		Options: &ateapi.SuspendOptions{Mode: ateapi.DurabilityMode_DURABILITY_MODE_SYNCHRONOUS}})
+	ms := d.o.Now().Sub(start).Milliseconds()
+	switch {
+	case err == nil:
+		d.o.Log.Info("substrate suspended", "name", name, "ms", ms)
+	case status.Code(err) != codes.FailedPrecondition:
+		d.o.Log.Warn("substrate suspended", "name", name, "ms", ms, "error", err)
+	}
 	return err
 }
 

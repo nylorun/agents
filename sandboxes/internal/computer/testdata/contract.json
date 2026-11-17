@@ -1,0 +1,797 @@
+{
+  "about": "The computer's contract (ADR-154 decision 4): the same requests, the same answers, from the computer agent (sandboxes/internal/computer, contract_test.go) and the engine's --service computer (runtime/server/src/harness/computer.ts, test/sandbox/computer-contract.test.ts). Each case runs on a new server with a new workspace, and a harness root named harnessRoot beside it in the case's own folder, not made (the disk cases write to it, so it is never the machine's /harness). Strings may hold {{workspace}}, {{harnessRoot}} and {{trustBundle}}, which each side replaces with its own. A ticket is valid unless the request names another kind: none, expired, otherSubject, otherAudience, otherKey, algHS256, noExp or garbage. An expected value that is an object of $ keys is a matcher: $any, $type, $startsWith, $endsWith, $matches, $utf8Bytes.",
+  "name": "sbx-ub6g5m7mvjlct6r7-g0",
+  "harnessRoot": "harness",
+  "processEnv": {
+    "PATH": "/usr/local/bin:/usr/bin:/bin",
+    "LANG": "C.UTF-8",
+    "LC_ALL": "C",
+    "TZ": "UTC",
+    "TERM": "xterm",
+    "HOME": "/root",
+    "FOO": "bar",
+    "NODE_OPTIONS": "--inspect",
+    "HTTPS_PROXY": "http://proxy:3128",
+    "no_proxy": "localhost",
+    "NYLORUN_COMPUTER_TICKET_KEY": "secret"
+  },
+  "cases": [
+    {
+      "name": "ready needs no ticket",
+      "steps": [
+        {
+          "request": { "method": "GET", "path": "/ready", "ticket": "none" },
+          "expect": { "status": 200, "json": { "status": "ok", "version": { "$type": "string" } } }
+        }
+      ]
+    },
+    {
+      "name": "not ready without a writable workspace",
+      "workspace": "missing",
+      "steps": [
+        {
+          "request": { "method": "GET", "path": "/ready", "ticket": "none" },
+          "expect": { "status": 503, "json": { "error": { "code": "not_ready", "message": "{{workspace}} is not writable" } } }
+        }
+      ]
+    },
+    {
+      "name": "info",
+      "steps": [
+        {
+          "request": { "method": "GET", "path": "/v1/info" },
+          "expect": {
+            "status": 200,
+            "contentType": "application/json",
+            "json": {
+              "workspace": "{{workspace}}",
+              "diskRoots": { "workspace": "{{workspace}}", "harness": "{{harnessRoot}}" },
+              "version": { "$type": "string" }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "tickets refused",
+      "steps": [
+        {
+          "request": { "method": "GET", "path": "/v1/info", "ticket": "none" },
+          "expect": { "status": 401, "json": { "error": { "code": "unauthorized", "message": "Ticket refused: no ticket" } } }
+        },
+        {
+          "request": { "method": "GET", "path": "/v1/info", "ticket": "expired" },
+          "expect": { "status": 401, "json": { "error": { "code": "unauthorized", "message": "Ticket refused: expired" } } }
+        },
+        {
+          "request": { "method": "GET", "path": "/v1/info", "ticket": "noExp" },
+          "expect": { "status": 401, "json": { "error": { "code": "unauthorized", "message": "Ticket refused: expired" } } }
+        },
+        {
+          "request": { "method": "GET", "path": "/v1/info", "ticket": "otherSubject" },
+          "expect": { "status": 401, "json": { "error": { "code": "unauthorized", "message": "Ticket refused: subject" } } }
+        },
+        {
+          "request": { "method": "GET", "path": "/v1/info", "ticket": "otherAudience" },
+          "expect": { "status": 401, "json": { "error": { "code": "unauthorized", "message": "Ticket refused: audience" } } }
+        },
+        {
+          "request": { "method": "GET", "path": "/v1/info", "ticket": "otherKey" },
+          "expect": { "status": 401, "json": { "error": { "code": "unauthorized", "message": "Ticket refused: signature" } } }
+        },
+        {
+          "request": { "method": "GET", "path": "/v1/info", "ticket": "algHS256" },
+          "expect": { "status": 401, "json": { "error": { "code": "unauthorized", "message": "Ticket refused: alg" } } }
+        },
+        {
+          "request": { "method": "GET", "path": "/v1/info", "ticket": "garbage" },
+          "expect": { "status": 401, "json": { "error": { "code": "unauthorized", "message": "Ticket refused: malformed" } } }
+        },
+        {
+          "request": { "method": "GET", "path": "/v1/nope", "ticket": "none" },
+          "expect": { "status": 401, "json": { "error": { "code": "unauthorized", "message": "Ticket refused: no ticket" } } }
+        },
+        {
+          "request": { "method": "GET", "path": "/v1/nope" },
+          "expect": { "status": 404, "json": { "error": { "code": "not_found", "message": "No route GET /v1/nope" } } }
+        }
+      ]
+    },
+    {
+      "name": "exec done: exit code, stdout and stderr",
+      "steps": [
+        {
+          "request": { "method": "POST", "path": "/v1/exec", "body": { "id": "c1", "command": "echo hello; echo oops >&2; exit 3", "timeoutMs": 10000, "waitMs": 10000 } },
+          "expect": { "status": 200, "json": { "state": "done", "result": { "exitCode": 3, "stdout": "hello\n", "stderr": "oops\n", "killed": false, "timedOut": false } } }
+        }
+      ]
+    },
+    {
+      "name": "exec runs in the workspace, or the request's cwd",
+      "steps": [
+        {
+          "request": { "method": "POST", "path": "/v1/exec", "body": { "id": "c1", "command": "pwd", "timeoutMs": 10000, "waitMs": 10000 } },
+          "expect": { "status": 200, "json": { "state": "done", "result": { "exitCode": 0, "stdout": "{{workspace}}\n", "stderr": "", "killed": false, "timedOut": false } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/exec", "body": { "id": "c2", "command": "pwd", "cwd": "/", "timeoutMs": 10000, "waitMs": 10000 } },
+          "expect": { "status": 200, "json": { "state": "done", "result": { "exitCode": 0, "stdout": "/\n", "stderr": "", "killed": false, "timedOut": false } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/exec", "body": { "id": "c3", "command": "pwd", "cwd": "", "timeoutMs": 10000, "waitMs": 10000 } },
+          "expect": { "status": 200, "json": { "state": "done", "result": { "exitCode": 0, "stdout": "{{workspace}}\n", "stderr": "", "killed": false, "timedOut": false } } }
+        }
+      ]
+    },
+    {
+      "name": "exec refuses a request without id, command or timeoutMs",
+      "steps": [
+        {
+          "request": { "method": "POST", "path": "/v1/exec", "body": { "id": "c1", "command": "true" } },
+          "expect": { "status": 400, "json": { "error": { "code": "invalid_request", "message": "id, command and timeoutMs are required" } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/exec" },
+          "expect": { "status": 400, "json": { "error": { "code": "invalid_request", "message": "id, command and timeoutMs are required" } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/exec", "body": { "id": 1, "command": "true", "timeoutMs": 1000 } },
+          "expect": { "status": 400, "json": { "error": { "code": "invalid_request", "message": "id, command and timeoutMs are required" } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/exec", "body": null },
+          "expect": { "status": 500, "json": { "error": { "code": "computer_error", "message": "Cannot read properties of null (reading 'id')" } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/exec", "bodyText": "{not json" },
+          "expect": { "status": 500, "json": { "error": { "code": "computer_error", "message": { "$type": "string" } } } }
+        }
+      ]
+    },
+    {
+      "name": "exec running, then attach",
+      "steps": [
+        {
+          "request": { "method": "POST", "path": "/v1/exec", "body": { "id": "slow", "command": "sleep 1; echo late", "timeoutMs": 10000, "waitMs": 0 } },
+          "expect": { "status": 200, "json": { "state": "running" } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/exec/slow/attach", "body": { "waitMs": 10000 } },
+          "expect": { "status": 200, "json": { "state": "done", "result": { "exitCode": 0, "stdout": "late\n", "stderr": "", "killed": false, "timedOut": false } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/exec/slow/attach", "body": { "waitMs": 0 } },
+          "expect": { "status": 200, "json": { "state": "done", "result": { "exitCode": 0, "stdout": "late\n", "stderr": "", "killed": false, "timedOut": false } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/exec/unknown/attach", "body": { "waitMs": 0 } },
+          "expect": { "status": 404, "json": { "error": { "code": "unknown_command", "message": "This computer doesn't know command unknown" } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/exec/a%20b/attach", "body": { "waitMs": 0 } },
+          "expect": { "status": 404, "json": { "error": { "code": "unknown_command", "message": "This computer doesn't know command a b" } } }
+        }
+      ]
+    },
+    {
+      "name": "a start keyed by id joins the command, and later answers its kept result",
+      "steps": [
+        {
+          "request": { "method": "POST", "path": "/v1/exec", "body": { "id": "j", "command": "sleep 0.5; echo first", "timeoutMs": 10000, "waitMs": 0 } },
+          "expect": { "status": 200, "json": { "state": "running" } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/exec", "body": { "id": "j", "command": "echo second", "timeoutMs": 10000, "waitMs": 10000 } },
+          "expect": { "status": 200, "json": { "state": "done", "result": { "exitCode": 0, "stdout": "first\n", "stderr": "", "killed": false, "timedOut": false } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/exec", "body": { "id": "j", "command": "echo third", "timeoutMs": 10000, "waitMs": 0 } },
+          "expect": { "status": 200, "json": { "state": "done", "result": { "exitCode": 0, "stdout": "first\n", "stderr": "", "killed": false, "timedOut": false } } }
+        }
+      ]
+    },
+    {
+      "name": "cancel kills the process group: 130",
+      "steps": [
+        {
+          "request": { "method": "POST", "path": "/v1/exec", "body": { "id": "long", "command": "sleep 30 & echo started; wait", "timeoutMs": 60000, "waitMs": 300 } },
+          "expect": { "status": 200, "json": { "state": "running" } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/exec/long/cancel" },
+          "expect": { "status": 200, "json": { "cancelled": true } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/exec/long/attach", "body": { "waitMs": 10000 } },
+          "expect": { "status": 200, "json": { "state": "done", "result": { "exitCode": 130, "stdout": "started\n", "stderr": "", "killed": true, "timedOut": false } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/exec/long/cancel" },
+          "expect": { "status": 200, "json": { "cancelled": true } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/exec/nope/cancel" },
+          "expect": { "status": 404, "json": { "cancelled": true } }
+        }
+      ]
+    },
+    {
+      "name": "timeout kills the process group: 124",
+      "steps": [
+        {
+          "request": { "method": "POST", "path": "/v1/exec", "body": { "id": "t", "command": "echo before; sleep 30 & wait", "timeoutMs": 300, "waitMs": 10000 } },
+          "expect": { "status": 200, "json": { "state": "done", "result": { "exitCode": 124, "stdout": "before\n", "stderr": "", "killed": true, "timedOut": true } } }
+        }
+      ]
+    },
+    {
+      "name": "a signal the computer didn't send: 128",
+      "steps": [
+        {
+          "request": { "method": "POST", "path": "/v1/exec", "body": { "id": "k", "command": "kill -9 $$", "timeoutMs": 10000, "waitMs": 10000 } },
+          "expect": { "status": 200, "json": { "state": "done", "result": { "exitCode": 128, "stdout": "", "stderr": "", "killed": false, "timedOut": false } } }
+        }
+      ]
+    },
+    {
+      "name": "a command that can't start fails",
+      "steps": [
+        {
+          "request": { "method": "POST", "path": "/v1/exec", "body": { "id": "f", "command": "true", "cwd": "{{workspace}}/nope", "timeoutMs": 10000, "waitMs": 10000 } },
+          "expect": { "status": 200, "json": { "state": "failed", "message": { "$matches": "^spawn /bin/(ba)?sh ENOENT$" } } }
+        }
+      ]
+    },
+    {
+      "name": "each stream is cut head first at 4 MiB, with a note",
+      "steps": [
+        {
+          "request": { "method": "POST", "path": "/v1/exec", "body": { "id": "big", "command": "head -c 4194404 /dev/zero | tr '\\000' a; head -c 4194305 /dev/zero | tr '\\000' b >&2", "timeoutMs": 60000, "waitMs": 30000 } },
+          "expect": {
+            "status": 200,
+            "json": {
+              "state": "done",
+              "result": {
+                "exitCode": 0,
+                "stdout": { "$startsWith": "aaaaaaaa", "$endsWith": "aaaa\n… [100 bytes dropped]", "$utf8Bytes": 4194328 },
+                "stderr": { "$startsWith": "bbbbbbbb", "$endsWith": "bbbb\n… [1 bytes dropped]", "$utf8Bytes": 4194326 },
+                "killed": false,
+                "timedOut": false
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "output is decoded as UTF-8, invalid bytes replaced",
+      "steps": [
+        {
+          "request": { "method": "POST", "path": "/v1/exec", "body": { "id": "u", "command": "printf '\\377\\376A\\342\\202 \\355\\240\\200 \\360\\237\\230\\200 caf\\303\\251'", "timeoutMs": 10000, "waitMs": 10000 } },
+          "expect": { "status": 200, "json": { "state": "done", "result": { "exitCode": 0, "stdout": "\ufffd\ufffdA\ufffd \ufffd\ufffd\ufffd 😀 café", "stderr": "", "killed": false, "timedOut": false } } }
+        }
+      ]
+    },
+    {
+      "name": "the environment: the baseline, HOME, the request's, then the trust variables",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "path": "/v1/exec",
+            "body": {
+              "id": "env",
+              "command": "env | cut -d= -f1 | grep -v -x -e _ -e PWD -e SHLVL -e OLDPWD | LC_ALL=C sort | tr '\\n' ' '; echo; printf '%s\\n' \"PATH=$PATH\" \"LANG=$LANG\" \"LC_ALL=$LC_ALL\" \"TZ=$TZ\" \"TERM=$TERM\" \"HOME=$HOME\" \"REQ=$REQ\" \"SSL_CERT_FILE=$SSL_CERT_FILE\" \"AWS_CA_BUNDLE=$AWS_CA_BUNDLE\"",
+              "env": { "REQ": "1", "HOME": "/elsewhere", "SSL_CERT_FILE": "/mine.pem" },
+              "timeoutMs": 10000,
+              "waitMs": 10000
+            }
+          },
+          "expect": {
+            "status": 200,
+            "json": {
+              "state": "done",
+              "result": {
+                "exitCode": 0,
+                "stdout": "AWS_CA_BUNDLE CURL_CA_BUNDLE GIT_SSL_CAINFO HOME LANG LC_ALL NODE_EXTRA_CA_CERTS PATH REQ REQUESTS_CA_BUNDLE SSL_CERT_FILE TERM TZ \nPATH=/usr/local/bin:/usr/bin:/bin\nLANG=C.UTF-8\nLC_ALL=C\nTZ=UTC\nTERM=dumb\nHOME=/elsewhere\nREQ=1\nSSL_CERT_FILE={{trustBundle}}\nAWS_CA_BUNDLE={{trustBundle}}\n",
+                "stderr": "",
+                "killed": false,
+                "timedOut": false
+              }
+            }
+          }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/exec", "body": { "id": "home", "command": "echo \"$HOME\"", "timeoutMs": 10000, "waitMs": 10000 } },
+          "expect": { "status": 200, "json": { "state": "done", "result": { "exitCode": 0, "stdout": "{{workspace}}\n", "stderr": "", "killed": false, "timedOut": false } } }
+        }
+      ]
+    },
+    {
+      "name": "files: write, read, too_large, not_found",
+      "steps": [
+        {
+          "request": { "method": "PUT", "path": "/v1/files?path={{workspace}}/a.txt", "bodyText": "hello" },
+          "expect": { "status": 200, "json": { "written": true } }
+        },
+        {
+          "request": { "method": "GET", "path": "/v1/files?path={{workspace}}/a.txt" },
+          "expect": { "status": 200, "contentType": "application/octet-stream", "text": "hello" }
+        },
+        {
+          "request": { "method": "GET", "path": "/v1/files?path={{workspace}}/a.txt&maxBytes=5" },
+          "expect": { "status": 200, "text": "hello" }
+        },
+        {
+          "request": { "method": "GET", "path": "/v1/files?path={{workspace}}/a.txt&maxBytes=0" },
+          "expect": { "status": 200, "text": "hello" }
+        },
+        {
+          "request": { "method": "GET", "path": "/v1/files?path={{workspace}}/a.txt&maxBytes=3" },
+          "expect": { "status": 413, "json": { "error": { "code": "too_large", "message": "{{workspace}}/a.txt is 5 bytes, more than 3" } } }
+        },
+        {
+          "request": { "method": "PUT", "path": "/v1/files?path={{workspace}}/empty", "bodyText": "" },
+          "expect": { "status": 200, "json": { "written": true } }
+        },
+        {
+          "request": { "method": "GET", "path": "/v1/files?path={{workspace}}/empty" },
+          "expect": { "status": 200, "text": "" }
+        },
+        {
+          "request": { "method": "GET", "path": "/v1/files?path={{workspace}}/missing.txt" },
+          "expect": { "status": 404, "json": { "error": { "code": "not_found", "message": "{{workspace}}/missing.txt does not exist" } } }
+        },
+        {
+          "request": { "method": "GET", "path": "/v1/files?path={{workspace}}/a.txt/below" },
+          "expect": { "status": 404, "json": { "error": { "code": "not_found", "message": "{{workspace}}/a.txt/below does not exist" } } }
+        },
+        {
+          "request": { "method": "GET", "path": "/v1/files?path=a.txt" },
+          "expect": { "status": 400, "json": { "error": { "code": "invalid_request", "message": "path must be absolute" } } }
+        },
+        {
+          "request": { "method": "PUT", "path": "/v1/files", "bodyText": "x" },
+          "expect": { "status": 400, "json": { "error": { "code": "invalid_request", "message": "path must be absolute" } } }
+        },
+        {
+          "request": { "method": "PUT", "path": "/v1/files?path={{workspace}}/missing/a.txt", "bodyText": "x" },
+          "expect": { "status": 500, "json": { "error": { "code": "computer_error", "message": "ENOENT: no such file or directory, open '{{workspace}}/missing/a.txt'" } } }
+        },
+        {
+          "request": { "method": "GET", "path": "/v1/files?path={{workspace}}" },
+          "expect": { "status": 500, "json": { "error": { "code": "computer_error", "message": "EISDIR: illegal operation on a directory, read" } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/files?path={{workspace}}/a.txt" },
+          "expect": { "status": 404, "json": { "error": { "code": "not_found", "message": "No route POST /v1/files" } } }
+        }
+      ]
+    },
+    {
+      "name": "list: files in JavaScript's order, links skipped, truncated past maxEntries",
+      "steps": [
+        {
+          "request": { "method": "POST", "path": "/v1/exec", "body": { "id": "mk", "command": "mkdir -p d/sub d/empty && printf ab > d/b && printf c > d/a && printf xyz > d/sub/c && printf 1234 > d/B && ln -s a d/link && ln -s sub d/dirlink", "timeoutMs": 10000, "waitMs": 10000 } },
+          "expect": { "status": 200, "json": { "state": "done", "result": { "exitCode": 0, "stdout": "", "stderr": "", "killed": false, "timedOut": false } } }
+        },
+        {
+          "request": { "method": "GET", "path": "/v1/list?dir={{workspace}}/d" },
+          "expect": {
+            "status": 200,
+            "json": {
+              "entries": [
+                { "path": "B", "size": 4 },
+                { "path": "a", "size": 1 },
+                { "path": "b", "size": 2 },
+                { "path": "sub/c", "size": 3 }
+              ],
+              "truncated": false
+            }
+          }
+        },
+        {
+          "request": { "method": "GET", "path": "/v1/list?dir={{workspace}}/d&maxEntries=2" },
+          "expect": {
+            "status": 200,
+            "json": {
+              "entries": [
+                { "path": "B", "size": 4 },
+                { "path": "a", "size": 1 },
+                { "path": "b", "size": 2 }
+              ],
+              "truncated": true
+            }
+          }
+        },
+        {
+          "request": { "method": "GET", "path": "/v1/list?dir={{workspace}}/d&maxEntries=4" },
+          "expect": {
+            "status": 200,
+            "json": {
+              "entries": [
+                { "path": "B", "size": 4 },
+                { "path": "a", "size": 1 },
+                { "path": "b", "size": 2 },
+                { "path": "sub/c", "size": 3 }
+              ],
+              "truncated": false
+            }
+          }
+        },
+        {
+          "request": { "method": "GET", "path": "/v1/list?dir={{workspace}}/d/empty" },
+          "expect": { "status": 200, "json": { "entries": [], "truncated": false } }
+        },
+        {
+          "request": { "method": "GET", "path": "/v1/list?dir={{workspace}}/nope" },
+          "expect": { "status": 404, "json": { "error": { "code": "not_found", "message": "{{workspace}}/nope is not a directory" } } }
+        },
+        {
+          "request": { "method": "GET", "path": "/v1/list?dir={{workspace}}/d/a" },
+          "expect": { "status": 404, "json": { "error": { "code": "not_found", "message": "{{workspace}}/d/a is not a directory" } } }
+        },
+        {
+          "request": { "method": "GET", "path": "/v1/list?dir={{workspace}}/d/dirlink" },
+          "expect": { "status": 404, "json": { "error": { "code": "not_found", "message": "{{workspace}}/d/dirlink is not a directory" } } }
+        },
+        {
+          "request": { "method": "GET", "path": "/v1/list" },
+          "expect": { "status": 404, "json": { "error": { "code": "not_found", "message": " is not a directory" } } }
+        }
+      ]
+    },
+    {
+      "name": "disk: a listing in path order with modes, times, links and empty directories, the engine's files skipped",
+      "steps": [
+        {
+          "request": { "method": "POST", "path": "/v1/exec", "body": { "id": "mk", "command": "mkdir -p {{harnessRoot}}/sandboxes/s1 {{harnessRoot}}/codex d/empty d/sub && printf ab > d/b && printf c > d/a.txt && printf xyz > d/sub/c && ln -s a.txt d/link && chmod 0640 d/b && chmod 0755 d/empty && chmod 0644 d/a.txt d/sub/c && touch -d @1767323045.1236 d/b && echo v > {{harnessRoot}}/volume-id && echo {} > {{harnessRoot}}/setup.json && printf k > {{harnessRoot}}/codex/auth.json && chmod 0600 {{harnessRoot}}/codex/auth.json", "timeoutMs": 10000, "waitMs": 10000 } },
+          "expect": { "status": 200, "json": { "state": "done", "result": { "exitCode": 0, "stdout": "", "stderr": "", "killed": false, "timedOut": false } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "list": { "maxEntries": 100 } } },
+          "expect": {
+            "status": 200,
+            "contentType": "application/json",
+            "json": {
+              "kind": "listed",
+              "entries": [
+                { "path": "harness/codex/auth.json", "type": "file", "size": 1, "mode": 384, "mtimeMs": { "$type": "number" } },
+                { "path": "workspace/d/a.txt", "type": "file", "size": 1, "mode": 420, "mtimeMs": { "$type": "number" } },
+                { "path": "workspace/d/b", "type": "file", "size": 2, "mode": 416, "mtimeMs": 1767323045124 },
+                { "path": "workspace/d/empty", "type": "dir", "size": 0, "mode": 493, "mtimeMs": { "$type": "number" } },
+                { "path": "workspace/d/link", "type": "link", "size": 0, "mode": 511, "mtimeMs": { "$type": "number" }, "target": "a.txt" },
+                { "path": "workspace/d/sub/c", "type": "file", "size": 3, "mode": 420, "mtimeMs": { "$type": "number" } }
+              ],
+              "truncated": false
+            }
+          }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "list": { "maxEntries": 6 } } },
+          "expect": {
+            "status": 200,
+            "contentType": "application/json",
+            "json": {
+              "kind": "listed",
+              "entries": [
+                { "path": "harness/codex/auth.json", "type": "file", "size": 1, "mode": 384, "mtimeMs": { "$type": "number" } },
+                { "path": "workspace/d/a.txt", "type": "file", "size": 1, "mode": 420, "mtimeMs": { "$type": "number" } },
+                { "path": "workspace/d/b", "type": "file", "size": 2, "mode": 416, "mtimeMs": 1767323045124 },
+                { "path": "workspace/d/empty", "type": "dir", "size": 0, "mode": 493, "mtimeMs": { "$type": "number" } },
+                { "path": "workspace/d/link", "type": "link", "size": 0, "mode": 511, "mtimeMs": { "$type": "number" }, "target": "a.txt" },
+                { "path": "workspace/d/sub/c", "type": "file", "size": 3, "mode": 420, "mtimeMs": { "$type": "number" } }
+              ],
+              "truncated": false
+            }
+          }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "list": { "maxEntries": 2 } } },
+          "expect": {
+            "status": 200,
+            "contentType": "application/json",
+            "json": {
+              "kind": "listed",
+              "entries": [
+                { "path": "workspace/d/a.txt", "type": "file", "size": 1, "mode": 420, "mtimeMs": { "$type": "number" } },
+                { "path": "workspace/d/b", "type": "file", "size": 2, "mode": 416, "mtimeMs": 1767323045124 },
+                { "path": "workspace/d/empty", "type": "dir", "size": 0, "mode": 493, "mtimeMs": { "$type": "number" } }
+              ],
+              "truncated": true
+            }
+          }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "list": { "maxEntries": 0 } } },
+          "expect": {
+            "status": 200,
+            "contentType": "application/json",
+            "json": {
+              "kind": "listed",
+              "entries": [
+                { "path": "workspace/d/a.txt", "type": "file", "size": 1, "mode": 420, "mtimeMs": { "$type": "number" } }
+              ],
+              "truncated": true
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "disk: an empty disk, a disk without its harness root",
+      "steps": [
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "list": { "maxEntries": 10 } } },
+          "expect": { "status": 200, "contentType": "application/json", "json": { "kind": "listed", "entries": [], "truncated": false } }
+        }
+      ]
+    },
+    {
+      "name": "disk: reads in ranges, with eof; a file that isn't there is missing",
+      "steps": [
+        {
+          "request": { "method": "POST", "path": "/v1/exec", "body": { "id": "mk", "command": "printf hello > f.txt && printf '' > empty", "timeoutMs": 10000, "waitMs": 10000 } },
+          "expect": { "status": 200, "json": { "state": "done", "result": { "exitCode": 0, "stdout": "", "stderr": "", "killed": false, "timedOut": false } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "read": { "path": "workspace/f.txt", "offset": 0, "length": 3 } } },
+          "expect": { "status": 200, "contentType": "application/json", "json": { "kind": "read", "base64": "aGVs", "eof": false } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "read": { "path": "workspace/f.txt", "offset": 3, "length": 3 } } },
+          "expect": { "status": 200, "contentType": "application/json", "json": { "kind": "read", "base64": "bG8=", "eof": true } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "read": { "path": "workspace/f.txt", "offset": 0, "length": 5 } } },
+          "expect": { "status": 200, "contentType": "application/json", "json": { "kind": "read", "base64": "aGVsbG8=", "eof": true } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "read": { "path": "workspace/f.txt", "offset": 9, "length": 3 } } },
+          "expect": { "status": 200, "contentType": "application/json", "json": { "kind": "read", "base64": "", "eof": true } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "read": { "path": "workspace/f.txt", "offset": 0, "length": 0 } } },
+          "expect": { "status": 200, "contentType": "application/json", "json": { "kind": "read", "base64": "", "eof": false } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "read": { "path": "workspace/empty", "offset": 0, "length": 3 } } },
+          "expect": { "status": 200, "contentType": "application/json", "json": { "kind": "read", "base64": "", "eof": true } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "read": { "path": "workspace/gone", "offset": 0, "length": 3 } } },
+          "expect": { "status": 200, "contentType": "application/json", "json": { "kind": "missing" } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "read": { "path": "workspace/f.txt/below", "offset": 0, "length": 3 } } },
+          "expect": { "status": 200, "contentType": "application/json", "json": { "kind": "missing" } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "read": { "path": "harness/codex/auth.json", "offset": 0, "length": 3 } } },
+          "expect": { "status": 200, "contentType": "application/json", "json": { "kind": "missing" } }
+        }
+      ]
+    },
+    {
+      "name": "disk: a put writes directories, files, ranges, links, modes and times",
+      "steps": [
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "put": [{ "path": "workspace/app", "type": "dir", "mode": 488 }, { "path": "workspace/empty", "type": "dir", "mode": 448 }, { "path": "workspace/app/run.sh", "type": "file", "base64": "IyEvYmluL3NoCg==", "mode": 493, "mtimeMs": 1767323045000 }, { "path": "workspace/big.bin", "type": "file", "base64": "YWJj", "mode": 420 }, { "path": "workspace/big.bin", "type": "file", "base64": "ZGVm", "append": true, "mode": 384, "mtimeMs": 1767323045123 }, { "path": "workspace/deep/er/note.txt", "type": "file", "mode": 420 }, { "path": "workspace/start", "type": "link", "target": "app/run.sh" }, { "path": "harness/codex/auth.json", "type": "file", "base64": "e30=", "mode": 384 }] } },
+          "expect": { "status": 200, "contentType": "application/json", "json": { "kind": "done" } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "list": { "maxEntries": 100 } } },
+          "expect": {
+            "status": 200,
+            "contentType": "application/json",
+            "json": {
+              "kind": "listed",
+              "entries": [
+                { "path": "harness/codex/auth.json", "type": "file", "size": 2, "mode": 384, "mtimeMs": { "$type": "number" } },
+                { "path": "workspace/app/run.sh", "type": "file", "size": 10, "mode": 493, "mtimeMs": 1767323045000 },
+                { "path": "workspace/big.bin", "type": "file", "size": 6, "mode": 384, "mtimeMs": 1767323045123 },
+                { "path": "workspace/deep/er/note.txt", "type": "file", "size": 0, "mode": 420, "mtimeMs": { "$type": "number" } },
+                { "path": "workspace/empty", "type": "dir", "size": 0, "mode": 448, "mtimeMs": { "$type": "number" } },
+                { "path": "workspace/start", "type": "link", "size": 0, "mode": 511, "mtimeMs": { "$type": "number" }, "target": "app/run.sh" }
+              ],
+              "truncated": false
+            }
+          }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "read": { "path": "workspace/big.bin", "offset": 0, "length": 100 } } },
+          "expect": { "status": 200, "contentType": "application/json", "json": { "kind": "read", "base64": "YWJjZGVm", "eof": true } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/exec", "body": { "id": "perm", "command": "stat -c %a app; cat start", "timeoutMs": 10000, "waitMs": 10000 } },
+          "expect": { "status": 200, "json": { "state": "done", "result": { "exitCode": 0, "stdout": "750\n#!/bin/sh\n", "stderr": "", "killed": false, "timedOut": false } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "put": [{ "path": "workspace/big.bin", "type": "file", "base64": "eHl6", "mode": 420 }, { "path": "workspace/deep/er", "type": "link", "target": "../app" }] } },
+          "expect": { "status": 200, "contentType": "application/json", "json": { "kind": "done" } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "read": { "path": "workspace/big.bin", "offset": 0, "length": 100 } } },
+          "expect": { "status": 200, "contentType": "application/json", "json": { "kind": "read", "base64": "eHl6", "eof": true } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "list": { "maxEntries": 100 } } },
+          "expect": {
+            "status": 200,
+            "contentType": "application/json",
+            "json": {
+              "kind": "listed",
+              "entries": [
+                { "path": "harness/codex/auth.json", "type": "file", "size": 2, "mode": 384, "mtimeMs": { "$type": "number" } },
+                { "path": "workspace/app/run.sh", "type": "file", "size": 10, "mode": 493, "mtimeMs": 1767323045000 },
+                { "path": "workspace/big.bin", "type": "file", "size": 3, "mode": 420, "mtimeMs": { "$type": "number" } },
+                { "path": "workspace/deep/er", "type": "link", "size": 0, "mode": 511, "mtimeMs": { "$type": "number" }, "target": "../app" },
+                { "path": "workspace/empty", "type": "dir", "size": 0, "mode": 448, "mtimeMs": { "$type": "number" } },
+                { "path": "workspace/start", "type": "link", "size": 0, "mode": 511, "mtimeMs": { "$type": "number" }, "target": "app/run.sh" }
+              ],
+              "truncated": false
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "disk: a clear empties every root and keeps the engine's files",
+      "steps": [
+        {
+          "request": { "method": "POST", "path": "/v1/exec", "body": { "id": "mk", "command": "mkdir -p {{harnessRoot}}/sandboxes/s1 {{harnessRoot}}/codex a/b && echo v > {{harnessRoot}}/volume-id && echo {} > {{harnessRoot}}/setup.json && echo x > {{harnessRoot}}/egress-ca-bundle.pem && echo k > {{harnessRoot}}/codex/auth.json && echo 1 > a/b/c && echo 2 > top && ln -s top t", "timeoutMs": 10000, "waitMs": 10000 } },
+          "expect": { "status": 200, "json": { "state": "done", "result": { "exitCode": 0, "stdout": "", "stderr": "", "killed": false, "timedOut": false } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "clear": true } },
+          "expect": { "status": 200, "contentType": "application/json", "json": { "kind": "done" } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "list": { "maxEntries": 10 } } },
+          "expect": { "status": 200, "contentType": "application/json", "json": { "kind": "listed", "entries": [], "truncated": false } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/exec", "body": { "id": "ls", "command": "ls -A {{harnessRoot}} | tr '\\n' ' '; ls -A . | wc -l", "timeoutMs": 10000, "waitMs": 10000 } },
+          "expect": { "status": 200, "json": { "state": "done", "result": { "exitCode": 0, "stdout": "egress-ca-bundle.pem sandboxes setup.json volume-id 0\n", "stderr": "", "killed": false, "timedOut": false } } }
+        }
+      ]
+    },
+    {
+      "name": "disk: paths that leave their root or name the engine's files, and bodies that aren't one operation, are refused",
+      "steps": [
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "read": { "path": "workspace/../x", "offset": 0, "length": 1 } } },
+          "expect": { "status": 400, "contentType": "application/json", "json": { "error": { "code": "invalid_request", "message": "workspace/../x is not a plain relative path" } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "read": { "path": "workspace//x", "offset": 0, "length": 1 } } },
+          "expect": { "status": 400, "contentType": "application/json", "json": { "error": { "code": "invalid_request", "message": "workspace//x is not a plain relative path" } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "read": { "path": "workspace/./x", "offset": 0, "length": 1 } } },
+          "expect": { "status": 400, "contentType": "application/json", "json": { "error": { "code": "invalid_request", "message": "workspace/./x is not a plain relative path" } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "read": { "path": "/workspace/x", "offset": 0, "length": 1 } } },
+          "expect": { "status": 400, "contentType": "application/json", "json": { "error": { "code": "invalid_request", "message": "/workspace/x is not under a root of this disk" } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "read": { "path": "etc/passwd", "offset": 0, "length": 1 } } },
+          "expect": { "status": 400, "contentType": "application/json", "json": { "error": { "code": "invalid_request", "message": "etc/passwd is not under a root of this disk" } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "read": { "path": "constructor/x", "offset": 0, "length": 1 } } },
+          "expect": { "status": 400, "contentType": "application/json", "json": { "error": { "code": "invalid_request", "message": "constructor/x is not under a root of this disk" } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "read": { "path": "harness/volume-id", "offset": 0, "length": 1 } } },
+          "expect": { "status": 400, "contentType": "application/json", "json": { "error": { "code": "invalid_request", "message": "harness/volume-id is the engine's own" } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "put": [{ "path": "harness/sandboxes/x", "type": "dir" }] } },
+          "expect": { "status": 400, "contentType": "application/json", "json": { "error": { "code": "invalid_request", "message": "harness/sandboxes/x is the engine's own" } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "put": [{ "path": "workspace/first", "type": "file", "base64": "MQ==" }, { "path": "workspace/../escape", "type": "file" }] } },
+          "expect": { "status": 400, "contentType": "application/json", "json": { "error": { "code": "invalid_request", "message": "workspace/../escape is not a plain relative path" } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "read": { "path": "workspace/first", "offset": 0, "length": 10 } } },
+          "expect": { "status": 200, "contentType": "application/json", "json": { "kind": "read", "base64": "MQ==", "eof": true } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": {} },
+          "expect": { "status": 400, "contentType": "application/json", "json": { "error": { "code": "invalid_request", "message": "The body must be one disk operation: list, read, clear or put" } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk" },
+          "expect": { "status": 400, "contentType": "application/json", "json": { "error": { "code": "invalid_request", "message": "The body must be one disk operation: list, read, clear or put" } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "bodyText": "null" },
+          "expect": { "status": 400, "contentType": "application/json", "json": { "error": { "code": "invalid_request", "message": "The body must be one disk operation: list, read, clear or put" } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "bodyText": "[]" },
+          "expect": { "status": 400, "contentType": "application/json", "json": { "error": { "code": "invalid_request", "message": "The body must be one disk operation: list, read, clear or put" } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "clear": false } },
+          "expect": { "status": 400, "contentType": "application/json", "json": { "error": { "code": "invalid_request", "message": "The body must be one disk operation: list, read, clear or put" } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "clear": true, "list": { "maxEntries": 1 } } },
+          "expect": { "status": 400, "contentType": "application/json", "json": { "error": { "code": "invalid_request", "message": "The body must be one disk operation: list, read, clear or put" } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "remove": true } },
+          "expect": { "status": 400, "contentType": "application/json", "json": { "error": { "code": "invalid_request", "message": "The body must be one disk operation: list, read, clear or put" } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "list": { "maxEntries": -1 } } },
+          "expect": { "status": 400, "contentType": "application/json", "json": { "error": { "code": "invalid_request", "message": "The body must be one disk operation: list, read, clear or put" } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "list": { "maxEntries": "10" } } },
+          "expect": { "status": 400, "contentType": "application/json", "json": { "error": { "code": "invalid_request", "message": "The body must be one disk operation: list, read, clear or put" } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "list": {} } },
+          "expect": { "status": 400, "contentType": "application/json", "json": { "error": { "code": "invalid_request", "message": "The body must be one disk operation: list, read, clear or put" } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "read": { "path": "workspace/x", "offset": 1.5, "length": 1 } } },
+          "expect": { "status": 400, "contentType": "application/json", "json": { "error": { "code": "invalid_request", "message": "The body must be one disk operation: list, read, clear or put" } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "read": { "offset": 0, "length": 1 } } },
+          "expect": { "status": 400, "contentType": "application/json", "json": { "error": { "code": "invalid_request", "message": "The body must be one disk operation: list, read, clear or put" } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "put": { "path": "workspace/x", "type": "file" } } },
+          "expect": { "status": 400, "contentType": "application/json", "json": { "error": { "code": "invalid_request", "message": "The body must be one disk operation: list, read, clear or put" } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "put": [{ "path": "workspace/x", "type": "fifo" }] } },
+          "expect": { "status": 400, "contentType": "application/json", "json": { "error": { "code": "invalid_request", "message": "The body must be one disk operation: list, read, clear or put" } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "put": [{ "path": "workspace/x", "type": "file", "mode": 4096 }] } },
+          "expect": { "status": 400, "contentType": "application/json", "json": { "error": { "code": "invalid_request", "message": "The body must be one disk operation: list, read, clear or put" } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "put": [{ "path": "workspace/x", "type": "file", "mode": null }] } },
+          "expect": { "status": 400, "contentType": "application/json", "json": { "error": { "code": "invalid_request", "message": "The body must be one disk operation: list, read, clear or put" } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "put": [{ "path": "workspace/x", "type": "file", "base64": "abc" }] } },
+          "expect": { "status": 400, "contentType": "application/json", "json": { "error": { "code": "invalid_request", "message": "The body must be one disk operation: list, read, clear or put" } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "put": [{ "path": "workspace/x", "type": "file", "base64": "YW\nJj" }] } },
+          "expect": { "status": 400, "contentType": "application/json", "json": { "error": { "code": "invalid_request", "message": "The body must be one disk operation: list, read, clear or put" } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "put": [{ "path": "workspace/x", "type": "file", "append": "yes" }] } },
+          "expect": { "status": 400, "contentType": "application/json", "json": { "error": { "code": "invalid_request", "message": "The body must be one disk operation: list, read, clear or put" } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "put": [{ "path": "workspace/x", "type": "link", "target": 1 }] } },
+          "expect": { "status": 400, "contentType": "application/json", "json": { "error": { "code": "invalid_request", "message": "The body must be one disk operation: list, read, clear or put" } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "body": { "read": { "path": "workspace/x", "offset": 0, "length": 1 } } },
+          "expect": { "status": 200, "contentType": "application/json", "json": { "kind": "missing" } }
+        },
+        {
+          "request": { "method": "GET", "path": "/v1/disk" },
+          "expect": { "status": 404, "json": { "error": { "code": "not_found", "message": "No route GET /v1/disk" } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/disk", "ticket": "none", "body": { "clear": true } },
+          "expect": { "status": 401, "json": { "error": { "code": "unauthorized", "message": "Ticket refused: no ticket" } } }
+        }
+      ]
+    }
+  ]
+}

@@ -129,6 +129,53 @@ The Runtime's Helm chart runs the service in the cluster it drives. Its `cluster
   Ed25519) for the engine to check tickets with. No join token is needed, there is no edge and
   no edge rule, and `entrypoint: image` is refused (a computer runs the Runtime's engine).
   `GET /v1/info` says `computer: true`.
+- **What serves it** is `--computer-agent`: `go` (the chart's default) runs the computer agent
+  (below) from `--computer-image`, `engine` (the service's default) the engine as above.
+
+### The computer agent
+
+`cmd/computer` ([ADR-154](https://github.com/nylorun/factory/blob/main/decisions/engine/2026-11-17-one-agents-computer.md)
+decision 4) is a static binary that serves a computer's routes in place of the engine's
+`--service computer` (`runtime/server/src/harness/computer.ts`), with the same tickets and the same
+answers. It ships alone in `ghcr.io/nylorun/computer:<protocol>.<n>` (`images/computer`, `FROM
+scratch`, the file `/computer`), published by `computer-image.yml`, versioned by its protocol and
+not with the Runtime.
+
+- **The template** (`--computer-agent go`, entrypoint `engine`): the `nylo` image volume at `/nylo`
+  is the agent's image instead of the Runtime's, and the container's command is `/nylo/computer`,
+  run as the actor's PID 1 (no wrapper, tini or Node: it makes `/harness/home` and the workspace
+  itself and reaps what commands leave behind). Everything else (env, volumes, the wake-up probe)
+  is the engine's. `builtin` keeps the image's own engine, and `command` replaces both. An actor
+  keeps the agent image it was created with; a move between `engine` and `go` changes its volumes,
+  which is refused (`RepointRefused`), so the Runtime gives it a new volume from its latest disk
+  version. Golden file: `internal/substrate/testdata/computer-agent.golden.json`.
+- **Routes:** `GET /ready` (no ticket; 503 `not_ready` unless the workspace is writable), and with
+  `X-Nylorun-Ticket` (401 `unauthorized`, `Ticket refused: <reason>`): `GET /v1/info`, `POST
+  /v1/exec` (start or join command `id`, answer within `waitMs`, at most 50 s: `running`, `done`
+  or `failed`), `POST /v1/exec/{id}/attach`, `POST /v1/exec/{id}/cancel`, `GET`/`PUT /v1/files`
+  (`maxBytes`: 413 `too_large`), `GET /v1/list` (`maxEntries`, `truncated`) and `POST /v1/disk`
+  (one operation of the Runtime's disk versions on the computer's own workspace and
+  `NYLORUN_HARNESS_ROOT`: list, read in ranges, clear or put; a path out of its root or naming the
+  engine's own files is 400 `invalid_request`).
+- **Commands** run under `/bin/bash -c` (`/bin/sh` without bash) in their own session, in the
+  workspace or `cwd`. Environment: `PATH`, `LANG=C.UTF-8`, `TERM=dumb`, then the agent's own
+  `PATH`, `LANG`, `TZ` and `LC_*`, then `HOME=/workspace`, then the request's `env`, then the trust
+  variables. Each stream keeps its first 4 MiB and notes `… [N bytes dropped]`. A timeout kills the
+  group with SIGKILL (124), a cancel too (130); a result is kept 10 minutes.
+- **Trust:** with `NYLORUN_SANDBOX_EGRESS_CA_FILE` readable, the agent writes the image's CA bundle
+  (the first of `/etc/ssl/certs/ca-certificates.crt` and the other usual paths) and that CA to
+  `/tmp/nylorun-trust.pem` (`NYLORUN_COMPUTER_TRUST_FILE`), and points `SSL_CERT_FILE`,
+  `NODE_EXTRA_CA_CERTS`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`, `GIT_SSL_CAINFO` and
+  `AWS_CA_BUNDLE` at it. The engine uses Node's built-in roots instead; a static binary has none.
+- **Variables:** `NYLORUN_COMPUTER_PORT` (8080), `NYLORUN_COMPUTER_TICKET_KEY` (SPKI PEM),
+  `NYLORUN_COMPUTER_NAME_FILE`, `NYLORUN_HARNESS_ROOT` (`/harness`, a disk root `/v1/info` names),
+  `NYLORUN_SANDBOX_SUBSTRATE=1` (SIGTERM is logged as `computer_worker_stopping` and ignored), and
+  for development `NYLORUN_COMPUTER_WORKSPACE`. It refuses to start holding a Runtime credential.
+- **The contract test:** `internal/computer/testdata/contract.json` holds requests and answers;
+  `go test ./internal/computer` runs them against the agent and
+  `runtime/server/test/sandbox/computer-contract.test.ts` against the engine's `computerHandler`.
+  A change to either side's answers changes the file. `images/computer/smoke.sh <image>` runs the
+  image's binary in a plain Debian image.
 
 ### The sandbox gateway
 
@@ -186,7 +233,9 @@ Subcommands: `sandboxes edge-cert <host> <dir>` writes `edge-ca.pem`, `edge.crt`
 ## Develop
 
 ```sh
-cd sandboxes && go vet ./... && go test ./...      # -update rewrites the golden file
+cd sandboxes && go vet ./... && go test ./...      # -update rewrites the golden files
 docker build -f sandboxes/Dockerfile -t nylorun-sandboxes:dev .
+docker build -f images/computer/Dockerfile --build-arg VERSION=1.0 -t nylorun-computer:dev .
+bash images/computer/smoke.sh nylorun-computer:dev   # or BINARY=<built agent> without Docker
 npm run test:sandboxes:service -- --context docker-desktop   # or kind-nylorun --host-address 172.17.0.1
 ```

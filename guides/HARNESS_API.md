@@ -562,6 +562,7 @@ harness drives the computer:
    | `PUT {url}/v1/files?path=` | Writes the body; the parent directory must exist |
    | `GET {url}/v1/list?dir=&maxEntries=` | `{entries: [{path, size}], truncated}` |
    | `GET {url}/v1/info` | `{workspace, diskRoots}` |
+   | `POST {url}/v1/disk` | Core's own (disk versions: snapshot, restore, seed): one operation on the computer's disk, its `/workspace` and `/harness`, by paths `workspace/…` and `harness/…`. `{list: {maxEntries}}`, `{read: {path, offset, length}}`, `{clear: true}` or `{put: [{path, type, mode?, mtimeMs?, base64?, append?, target?}]}`; answers `{kind: "listed", entries, truncated}`, `{kind: "read", base64, eof}`, `{kind: "missing"}` or `{kind: "done"}`. `400 invalid_request` for a path that leaves its root or names the engine's own files |
 
    Send a dropped request again with the same `id`: after a drain the computer runs on another
    worker, its commands moved with it. A `502 computer_unreachable` from the gateway is worth

@@ -5,6 +5,7 @@
  * artifact updates (push), push configs, the card. Field names are the spec's ProtoJSON
  * (camelCase, enum values such as `TASK_STATE_WORKING`). No Tenant state is read here.
  */
+import { AGENT_ROLE_PATTERN } from "@nylorun/core/contracts";
 import { A2A_EXTENSIONS } from "./extensions.js";
 
 /** The A2A version this endpoint speaks (`A2A-Version`, Major.Minor). */
@@ -332,6 +333,12 @@ export interface SendParams {
    * interaction of a turn already running.
    */
   removeTools?: readonly string[];
+  /**
+   * `metadata.role` (Host feature `model-roles`): the model role the context's session is opened
+   * with when this message opens it, as `PUT /v1/sessions/{id}`'s `role`. A context already open
+   * keeps the role it was opened with.
+   */
+  role?: string;
   /** The answer the message carries under `interactions/v1`. */
   answer?: InteractionAnswer;
 }
@@ -439,6 +446,20 @@ function parseRemoveTools(metadata: Record<string, unknown>): readonly string[] 
   return value as string[];
 }
 
+/** `metadata.role`: a model role's name (`AGENT_ROLE_PATTERN`), as a session's `role`. */
+function parseRole(metadata: Record<string, unknown>): string | undefined {
+  const value = metadata.role;
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "string" || !AGENT_ROLE_PATTERN.test(value))
+    return a2aFail(
+      "invalidParams",
+      "message.metadata.role must be a role's name: a lowercase letter, then up to 31 lowercase letters, digits and '-'",
+      {},
+      "message.metadata.role"
+    );
+  return value;
+}
+
 /** `metadata.delivery`: `queue` (the default), `reject` or `steer`. */
 function parseDelivery(metadata: Record<string, unknown>): Delivery {
   const delivery = metadata.delivery;
@@ -497,6 +518,7 @@ export function parseSendParams(params: Record<string, unknown>): SendParams {
   const removeTools = parseRemoveTools(
     metadata.removeTools === undefined && isObject(params.metadata) ? params.metadata : metadata
   );
+  const role = parseRole(metadata.role === undefined && isObject(params.metadata) ? params.metadata : metadata);
   const configuration = params.configuration;
   if (configuration !== undefined && configuration !== null && !isObject(configuration))
     a2aFail("invalidParams", "configuration must be an object", {}, "configuration");
@@ -550,6 +572,7 @@ export function parseSendParams(params: Record<string, unknown>): SendParams {
     ...(push ? { push } : {}),
     delivery,
     ...(removeTools ? { removeTools } : {}),
+    ...(role !== undefined ? { role } : {}),
     ...(answer ? { answer } : {}),
   };
 }

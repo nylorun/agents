@@ -173,8 +173,13 @@ export interface Session {
    * (`refresh`: someone else wrote the memory since the turn before). Absent before its first turn.
    */
   memoryIndex?: { turnId: string; seen?: string; refresh: boolean };
-  /** Where `model` came from: `manifest` when its Agent's version named it (`harness.model`). Absent: chosen. */
-  modelSource?: "manifest";
+  /**
+   * Where `model` came from: `manifest` when its Agent's version named it (`harness.model`), `role`
+   * when it is the model of the role the session was opened with (`harness.roles`). Absent: chosen.
+   */
+  modelSource?: "manifest" | "role";
+  /** The model role the session was opened with (`PUT /v1/sessions/{id}` `role`, Host feature `model-roles`). */
+  role?: string;
   /**
    * The model the session's turns call and why (`SessionModelRecord`, `tenant/session-model.ts`):
    * as the session opened or chose it, and at each segment's start since. Absent while the

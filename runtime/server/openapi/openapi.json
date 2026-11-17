@@ -47,7 +47,9 @@
         "api-triggers",
         "steer",
         "queue-recovery",
-        "a2a-steer"
+        "a2a-steer",
+        "computer-move",
+        "model-roles"
       ]
     },
     "description": "For developers: agent manifests, Agents, sessions (with AG-UI and A2A) and artifacts, through `@nylorun/agents`. Every Tenant serves it on its one URL, beside the Management API (`/openapi/management.json`). Every request sends `Nylorun-Protocol`. Who may call each operation is its `security` and its `x-nylorun-credentials` and `x-nylorun-scopes` (the subject scopes that reach it) fields: an application key (servers) or a trusted issuer's token (browsers and apps)."
@@ -6419,6 +6421,7 @@
               "manifest_in_use",
               "manifest_changed",
               "folder_invalid",
+              "unknown_role",
               "internal_error"
             ]
           },
@@ -9064,9 +9067,13 @@
                 "type": "string",
                 "enum": [
                   "manifest",
+                  "role",
                   "session",
                   "tenant"
                 ]
+              },
+              "role": {
+                "type": "string"
               },
               "reason": {
                 "type": "string",
@@ -9089,6 +9096,7 @@
                     "type": "string",
                     "enum": [
                       "manifest",
+                      "role",
                       "session"
                     ]
                   }
@@ -9172,6 +9180,11 @@
           "info": {
             "type": "object",
             "additionalProperties": {}
+          },
+          "role": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{0,31}$",
+            "description": "A model role's name, such as builder"
           }
         },
         "required": [
@@ -11586,9 +11599,13 @@
                 "type": "string",
                 "enum": [
                   "manifest",
+                  "role",
                   "session",
                   "tenant"
                 ]
+              },
+              "role": {
+                "type": "string"
               },
               "reason": {
                 "type": "string",
@@ -11611,6 +11628,7 @@
                     "type": "string",
                     "enum": [
                       "manifest",
+                      "role",
                       "session"
                     ]
                   }
@@ -11635,9 +11653,13 @@
                     "type": "string",
                     "enum": [
                       "manifest",
+                      "role",
                       "session",
                       "tenant"
                     ]
+                  },
+                  "role": {
+                    "type": "string"
                   },
                   "reason": {
                     "type": "string",
@@ -11660,6 +11682,7 @@
                         "type": "string",
                         "enum": [
                           "manifest",
+                          "role",
                           "session"
                         ]
                       }
@@ -24703,6 +24726,16 @@
             "pattern": "^[A-Za-z0-9._-]+\\/\\S+$",
             "description": "The model the agent runs on: <provider>/<model>, such as anthropic/claude-sonnet-4-5"
           },
+          "roles": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "maxLength": 200,
+              "pattern": "^[A-Za-z0-9._-]+\\/\\S+$",
+              "description": "The model the agent runs on: <provider>/<model>, such as anthropic/claude-sonnet-4-5"
+            },
+            "description": "The model of each role a session may be opened with: <role>: <provider>/<model>"
+          },
           "engine": {
             "$ref": "#/components/schemas/HarnessEngine"
           },
@@ -29326,7 +29359,7 @@
           "Agents"
         ],
         "summary": "Create, find or move an Agent",
-        "description": "Creates the Agent, its vault and its compute from a saved agent manifest, within the Tenant's limits, or answers the one with this id, so get-or-create is one call. `manifest: \"name\"` records that it tracks the manifest (its latest version, and each version saved later) and `\"name@n\"` that it is pinned; the version it runs is `resolvedVersion`. On an existing one, labels replace, `owner` sets or (with `null`) clears the owner guard, and `manifest` moves it with its id, disk, vault and sessions: a harness-only change applies at once (each session's next turn runs it), a runtime change of a pod at its next start (`targetVersion`, `waitingFor: start`), and a version that adds a required secret once a value is set (`waitingFor: secrets`). Its manifest's name, kind, harness and storage are fixed (`409 agent_fixed_field`): fork it to change them. `?dryRun=true` answers the move's plan and changes nothing. Creating an Agent opens no session. Kind `pod` needs sandbox pods (`nylorun local sandbox enable`) and is created at once.",
+        "description": "Creates the Agent, its vault and its compute from a saved agent manifest, within the Tenant's limits, or answers the one with this id, so get-or-create is one call. `manifest: \"name\"` records that it tracks the manifest (its latest version, and each version saved later) and `\"name@n\"` that it is pinned; the version it runs is `resolvedVersion`. On an existing one, labels replace, `owner` sets or (with `null`) clears the owner guard, and `manifest` moves it with its id, disk, vault and sessions: a harness-only change applies at once (each session's next turn runs it), a runtime change of a pod at its next start (`targetVersion`, `waitingFor: start`), and a version that adds a required secret once a value is set (`waitingFor: secrets`). Its manifest's name, kind, harness and storage are fixed (`409 agent_fixed_field`): fork it to change them. One kind change is not: on a Runtime whose pods are computers, a `PUT` that moves a `virtual` Agent to a `pod` version makes it a computer in place (ADR-154), keeping its id, sessions, memory, vault, triggers, events and labels; `from` then seeds its new volume from a disk version of another Agent with the same owner, its virtual workspace is deleted, and `agent.version_changed` records `kindFrom` and `kindTo`. A manifest save never does: a tracking Agent stays on its version. `?dryRun=true` answers the move's plan and changes nothing. Creating an Agent opens no session. Kind `pod` needs sandbox pods (`nylorun local sandbox enable`) and is created at once.",
         "security": [
           {
             "applicationKey": []
@@ -29461,7 +29494,7 @@
             "description": "No agent manifest has this name or version (`manifest_not_found`), or a dry run names no Agent"
           },
           "409": {
-            "description": "A move would change its manifest's name, its kind, harness or storage (`agent_fixed_field`), the Tenant holds as many Agents as it allows (`limit_exceeded`), kind pod without sandbox pods (`agent_unavailable`), or it is being deleted (`agent_busy`)"
+            "description": "A move would change its manifest's name, its kind, harness or storage (`agent_fixed_field`; a `virtual` Agent becomes a computer only on a Runtime whose pods are computers), the Tenant holds as many Agents as it allows (`limit_exceeded`), kind pod without sandbox pods (`agent_unavailable`), it is being deleted, or it becomes a computer while a turn runs or its disk is copied (`agent_busy`), or on a version that would wait for a secret (`request_rejected`)"
           },
           "426": {
             "description": "`Nylorun-Protocol` missing or unsupported",
@@ -34538,7 +34571,7 @@
           "Sessions API"
         ],
         "summary": "Open a session",
-        "description": "Creates the session on an Agent, or answers the one already opened with the same Agent, owner and info. Its Agent (its sandbox and vault) is fixed for its life, and it pins the manifest version the Agent runs. No session is special: an app that keeps one conversation going reuses its id.",
+        "description": "Creates the session on an Agent, or answers the one already opened with the same Agent, owner, info and role. Its Agent (its sandbox and vault) is fixed for its life, and it pins the manifest version the Agent runs. `role` (Host feature `model-roles`) runs it on the model the version names for that role in `harness.roles`, checked as `harness.model` is; a role the version does not declare is `400 unknown_role`. No session is special: an app that keeps one conversation going reuses its id.",
         "security": [
           {
             "applicationKey": []
@@ -34617,14 +34650,7 @@
             }
           },
           "400": {
-            "description": "Invalid headers, path, body or cursor",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Rejected"
-                }
-              }
-            }
+            "description": "A role the Agent's version does not declare (`unknown_role`)"
           },
           "401": {
             "description": "No credential (`credential_required`), one the Tenant does not accept (`credential_invalid`), a token that expired (`token_expired`), or a token whose issuer's keys cannot be fetched now (`issuer_unavailable`). `WWW-Authenticate: Bearer` names the protected resource metadata (`resource_metadata`)",
@@ -37745,7 +37771,7 @@
           "A2A"
         ],
         "summary": "Call an agent over A2A",
-        "description": "A2A 1.0 JSON-RPC, for a subject, under the Nylorun profile v2 (Host feature `a2a-profile-v2`). `SendMessage` blocks up to the Runtime limit `a2aWaitMs` (5 minutes by default; then the task is answered still `WORKING`) unless `returnImmediately`; `GetTask` (with `historyLength`), `CancelTask` and `ListTasks`; and the four push notification config methods, plus `configuration.taskPushNotificationConfig` in `SendMessage`: each update is POSTed as one `StreamResponse`, signed with Standard Webhooks (`webhook-id`, `webhook-timestamp`, `webhook-signature` with the Runtime's `a2a.push.secret`) and `X-A2A-Notification-Token`, at least once, retried for up to 24 hours, to hosts the Runtime allows (`a2a.push.allowHosts` for private ones). A message to a busy context is queued and answered with the task that will take it (`TASK_STATE_SUBMITTED`); `message.metadata.delivery: \"reject\"` asks for `UnsupportedOperationError` (reason `CONTEXT_BUSY`) instead, and `\"steer\"` (Host feature `a2a-steer`) steers it into the running turn, as a session message's `delivery: \"steer\"`: the turn takes it before its next step and the task is that turn's; to an idle context, a workflow's, or a turn past its last step it is an ordinary message. The task answered to a steer carries `metadata.delivery`: `steered`, or `queued` when it started a turn or waits as a queued message. A queued task never waits for good (Host feature `queue-recovery`): when its Agent refuses its turn's start (a disk copy, a lost pod), the start is tried again until the Runtime limit `queuedStartMs` (15 minutes by default), and then, or at once for a refusal no retry changes, the task is `TASK_STATE_FAILED` with a status message saying why; `CancelTask` on a queued task takes it out of the queue, a task running in the context or not, and answers `TASK_STATE_CANCELED`. Both are pushed. `message.metadata.removeTools` (Host feature `remove-tools`) names the tools a new message's turn may not use, as a session message's `removeTools`. A message is text, one data part, or text with `raw` files (stored as artifacts of the context's session) and `url` files (fetched by the Runtime), each at most the Runtime limit `inlineFileBytes` (20 MiB by default). An approval, question or connection the task waits for (`AUTH_REQUIRED` or `INPUT_REQUIRED`) is shown under `interactions/v1` and answered on the same task with `{ interactionId, approved }` or `{ interactionId, value }` under that URI in the message's `metadata`; text never approves. Artifacts carry the turn's output and the files it wrote, as `url` parts at `/v1/a2a/files/…` with `files/v1`; the task's metadata carries `progress/v1`, `telemetry/v1` and `effects/v1`. Extension data is answered only for the extensions activated with `A2A-Extensions`. A context is one session per subject, agent and `contextId`; a task is one turn. JSON-RPC errors are answered with 200; limits, scopes and unavailable streams stay HTTP errors. Not served: streaming, `GetExtendedAgentCard`.",
+        "description": "A2A 1.0 JSON-RPC, for a subject, under the Nylorun profile v2 (Host feature `a2a-profile-v2`). `SendMessage` blocks up to the Runtime limit `a2aWaitMs` (5 minutes by default; then the task is answered still `WORKING`) unless `returnImmediately`; `GetTask` (with `historyLength`), `CancelTask` and `ListTasks`; and the four push notification config methods, plus `configuration.taskPushNotificationConfig` in `SendMessage`: each update is POSTed as one `StreamResponse`, signed with Standard Webhooks (`webhook-id`, `webhook-timestamp`, `webhook-signature` with the Runtime's `a2a.push.secret`) and `X-A2A-Notification-Token`, at least once, retried for up to 24 hours, to hosts the Runtime allows (`a2a.push.allowHosts` for private ones). A message to a busy context is queued and answered with the task that will take it (`TASK_STATE_SUBMITTED`); `message.metadata.delivery: \"reject\"` asks for `UnsupportedOperationError` (reason `CONTEXT_BUSY`) instead, and `\"steer\"` (Host feature `a2a-steer`) steers it into the running turn, as a session message's `delivery: \"steer\"`: the turn takes it before its next step and the task is that turn's; to an idle context, a workflow's, or a turn past its last step it is an ordinary message. The task answered to a steer carries `metadata.delivery`: `steered`, or `queued` when it started a turn or waits as a queued message. A queued task never waits for good (Host feature `queue-recovery`): when its Agent refuses its turn's start (a disk copy, a lost pod), the start is tried again until the Runtime limit `queuedStartMs` (15 minutes by default), and then, or at once for a refusal no retry changes, the task is `TASK_STATE_FAILED` with a status message saying why; `CancelTask` on a queued task takes it out of the queue, a task running in the context or not, and answers `TASK_STATE_CANCELED`. Both are pushed. `message.metadata.removeTools` (Host feature `remove-tools`) names the tools a new message's turn may not use, as a session message's `removeTools`. `message.metadata.role` (Host feature `model-roles`) opens a new context's session on that model role, as `PUT /v1/sessions/{id}`'s `role`; a role the Agent's version does not declare is `InvalidParams`. A message is text, one data part, or text with `raw` files (stored as artifacts of the context's session) and `url` files (fetched by the Runtime), each at most the Runtime limit `inlineFileBytes` (20 MiB by default). An approval, question or connection the task waits for (`AUTH_REQUIRED` or `INPUT_REQUIRED`) is shown under `interactions/v1` and answered on the same task with `{ interactionId, approved }` or `{ interactionId, value }` under that URI in the message's `metadata`; text never approves. Artifacts carry the turn's output and the files it wrote, as `url` parts at `/v1/a2a/files/…` with `files/v1`; the task's metadata carries `progress/v1`, `telemetry/v1` and `effects/v1`. Extension data is answered only for the extensions activated with `A2A-Extensions`. A context is one session per subject, agent and `contextId`; a task is one turn. JSON-RPC errors are answered with 200; limits, scopes and unavailable streams stay HTTP errors. Not served: streaming, `GetExtendedAgentCard`.",
         "externalDocs": {
           "description": "The A2A specification",
           "url": "https://a2a-protocol.org/latest/specification/"

@@ -83,6 +83,12 @@ spec:
       containers:
         - name: sandboxes
           image: {{ include "nylorun.image.sandboxes" . }}
+          # What serves each computer (ADR-154 decision 4): the computer agent's image, or the engine.
+          args:
+            - --computer-agent={{ include "nylorun.computer.agent" . }}
+            {{- if eq (include "nylorun.computer.agent" .) "go" }}
+            - --computer-image={{ include "nylorun.image.computer" . }}
+            {{- end }}
           {{- include "nylorun.containerSecurity" . | nindent 10 }}
           ports: [{ name: api, containerPort: 4300 }]
           env:

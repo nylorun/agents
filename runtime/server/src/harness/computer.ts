@@ -17,6 +17,11 @@
  * minutes after it ends. After a drain, the next attach reaches this process on the new worker, its
  * commands moved with the memory snapshot. SIGTERM on Substrate means the worker is stopping: the
  * engine keeps running, so the sandboxes service can suspend it.
+ *
+ * `POST /v1/disk` runs one disk operation (`sandbox/disk-fs.ts`, a `WireDiskOp`: list, read in
+ * ranges, clear, put) on the computer's own disk, its workspace and `/harness`, for core's disk
+ * versions (snapshot, restore, seed). It answers the `DiskAnswer`, read bytes as base64; a path
+ * that leaves its root or names the engine's files is `400 invalid_request`.
  */
 import { createPublicKey, verify, type KeyObject } from "node:crypto";
 import { accessSync, constants, readFileSync, writeFileSync } from "node:fs";
@@ -27,6 +32,7 @@ import { SANDBOX_WORKSPACE } from "@nylorun/core/define";
 import { createHostLogger } from "../host/logger.js";
 import { localBackend } from "../adapters/sandbox/local.js";
 import { SandboxFileTooLargeError, type ExecResult, type SandboxHandle } from "../sandbox/types.js";
+import { DiskPathError, fromWireOp, NOT_A_DISK_OP, runDiskOp, toWireAnswer, wireDiskOpOf } from "../sandbox/disk-fs.js";
 import { TRUST_VARIABLES } from "./pod.js";
 import { RUNTIME_VERSION } from "../version.js";
 
@@ -209,6 +215,8 @@ export function computerHandler(options: {
 }) {
   const commands = new ComputerCommands(options.handle);
   const workspace = options.handle.workspace ?? SANDBOX_WORKSPACE;
+  // The computer's own disk: its workspace and the engine's root (`runComputer`'s local backend).
+  const diskRoots = options.handle.diskRoots ?? { workspace };
   return async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
     const url = new URL(request.url ?? "/", "http://computer");
     try {
@@ -227,7 +235,7 @@ export function computerHandler(options: {
       if (!checked.ok) return failure(response, 401, "unauthorized", `Ticket refused: ${checked.reason}`);
       const path = url.searchParams.get("path") ?? "";
       if (request.method === "GET" && url.pathname === "/v1/info")
-        return send(response, 200, { workspace, diskRoots: options.handle.diskRoots ?? { workspace }, version: RUNTIME_VERSION });
+        return send(response, 200, { workspace, diskRoots, version: RUNTIME_VERSION });
       if (request.method === "POST" && url.pathname === "/v1/exec") {
         const exec = (await body(request)) as ComputerExecRequest;
         if (typeof exec.id !== "string" || typeof exec.command !== "string" || typeof exec.timeoutMs !== "number")
@@ -257,6 +265,16 @@ export function computerHandler(options: {
         if (request.method === "PUT") {
           await options.handle.writeFile(path, request as AsyncIterable<Uint8Array>);
           return send(response, 200, { written: true });
+        }
+      }
+      if (request.method === "POST" && url.pathname === "/v1/disk") {
+        const op = wireDiskOpOf(await body(request));
+        if (!op) return failure(response, 400, "invalid_request", NOT_A_DISK_OP);
+        try {
+          return send(response, 200, toWireAnswer(await runDiskOp(diskRoots, fromWireOp(op))));
+        } catch (error) {
+          if (error instanceof DiskPathError) return failure(response, 400, "invalid_request", error.message);
+          throw error;
         }
       }
       if (request.method === "GET" && url.pathname === "/v1/list") {
@@ -300,7 +318,10 @@ export async function runComputer(
       return false;
     }
   };
-  const server = createServer((request, response) => void computerHandler({ handle, key, name, ready })(request, response));
+  // One handler for the server's life: its command registry must outlive a request, so that an
+  // attach or a re-sent start finds a command a start began.
+  const handler = computerHandler({ handle, key, name, ready });
+  const server = createServer((request, response) => void handler(request, response));
   server.requestTimeout = 0;
   server.headersTimeout = 30_000;
   await new Promise<void>((resolve, reject) => {

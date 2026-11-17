@@ -90,7 +90,7 @@ import {
   type StorageLimits,
 } from "./limits.js";
 import { readRuntimeLimits } from "./runtime-limits.js";
-import { armAgentTriggers, createAgentTriggers } from "./triggers.js";
+import { armAgentTriggers, createAgentTriggers, mergeAgentTriggers } from "./triggers.js";
 import { harnessOf, sessionOf, type AuthScope, type Session, type TenantContext } from "./context.js";
 import { fail, failRetryLater } from "./http.js";
 import type { SealedSecretCopies } from "../vault/service.js";
@@ -467,7 +467,9 @@ export async function putAgent(
   const ref =
     parseAgentManifestRef(body.manifest) ??
     fail(400, "manifest is an agent manifest's name, or name@version such as triage@3.");
+  let becameComputer = false;
   const view = await ctx.store.tx(async (t) => {
+    becameComputer = false;
     const now = new Date().toISOString();
     const config = effectiveSandboxConfig(await readSandboxConfig(t));
     const tenantLimits = await readTenantLimits(t);
@@ -482,12 +484,17 @@ export async function putAgent(
     };
     const found = async (existing: Environment): Promise<AgentView> => {
       if (fork !== undefined) fail(409, `Agent ${id} exists: a fork makes a new Agent, so name another id.`);
-      if (body.from !== undefined) fail(409, `Agent ${id} exists: from applies only when a PUT creates one.`);
       checkGuard(scope, body.owner, existing.ownerUserId);
-      const move = await moveOf(t, existing, ref);
+      const move = await moveOf(t, existing, ref, { becomeComputer: ctx.pods?.computer !== undefined });
+      const becomes = move.plan.applies !== "refused" && runtimeOf(move.target.body).kind !== existing.kind;
+      if (body.from !== undefined && !becomes)
+        fail(409, `Agent ${id} exists: from applies only when a PUT creates one, or makes a virtual Agent a computer.`);
       // A tracking Agent named as it is made (get-or-create) stays where it can move to.
       const stays = move.plan.applies === "refused" && ref.version === undefined && existing.manifestRef === "tracking";
-      if (!stays) await moveAgent(t, existing, move, now);
+      if (becomes) {
+        await becomeComputer(ctx, t, existing, move, { scope, now, ...(body.from === undefined ? {} : { from: body.from }) });
+        becameComputer = true;
+      } else if (!stays) await moveAgent(t, existing, move, now);
       const patch: Parameters<Tx["updateEnvironment"]>[1] = { lastUsedAt: now };
       if (body.labels !== undefined && canonical(body.labels) !== canonical(existing.labels)) patch.labels = body.labels;
       if (body.owner !== undefined && (body.owner ?? undefined) !== existing.ownerUserId) patch.ownerUserId = body.owner;
@@ -610,6 +617,15 @@ export async function putAgent(
     return viewOf(ctx, t, row, subjectOf(scope));
   });
   await armAgentTriggers(ctx, id);
+  // An Agent that became a computer leaves its virtual workspace behind: the disk is a workspace,
+  // and what a person keeps is saved elsewhere (ADR-141, ADR-154). Its disk versions stay.
+  if (becameComputer)
+    await ctx.sandbox.removeSandbox(id).catch((error: unknown) =>
+      ctx.config.logger.warn("virtual workspace not removed", {
+        agentId: id,
+        message: error instanceof Error ? error.message : String(error),
+      }),
+    );
   // A virtual fork's workspace is written at once (a pod's once its engine connects).
   if (body.from !== undefined && view.kind === "virtual") {
     await runPendingSeed(ctx, id);
@@ -623,7 +639,12 @@ export async function putAgent(
  * `name@n` (pinned), else to the latest version (tracking), unless that one failed to start, when
  * it stays on what it runs. Another manifest name is `409 agent_fixed_field`.
  */
-async function moveOf(t: Tx, agent: Environment, ref: { name: string; version?: number }): Promise<Move> {
+async function moveOf(
+  t: Tx,
+  agent: Environment,
+  ref: { name: string; version?: number },
+  options: { becomeComputer?: boolean } = {},
+): Promise<Move> {
   if (ref.name !== agent.manifestName)
     fail(
       409,
@@ -635,7 +656,98 @@ async function moveOf(t: Tx, agent: Environment, ref: { name: string; version?: 
   let target = (await t.agentManifest(ref.name, ref.version)) ?? missing();
   if (ref.version === undefined && target.version === agent.failedVersion)
     target = (await t.agentManifest(ref.name, agent.manifestVersion)) ?? target;
-  return planMove(t, agent, target, ref.version === undefined ? "tracking" : "pinned");
+  return planMove(t, agent, target, ref.version === undefined ? "tracking" : "pinned", options);
+}
+
+/**
+ * A `PUT` on `virtual` Agent `agent` (locked, live) that moves it to a `pod` version on a Runtime
+ * whose pods are computers (ADR-154 R13): the Environment row changes in place. Its id, sessions,
+ * memory, vault, triggers, events and labels stay; its kind becomes `pod`, with a new computer on
+ * a new volume as a created pod Agent gets one, seeded from `from` (a disk version of another
+ * Agent with the same owner, checked as a fork's) when it is given. Recorded as
+ * `agent.version_changed` with `kindFrom` and `kindTo`. Refused while a turn runs or a disk copy
+ * holds it (`agent_busy`), and for a version that would not apply at once (`request_rejected`).
+ */
+async function becomeComputer(
+  ctx: TenantContext,
+  t: Tx,
+  agent: Environment,
+  move: Move,
+  options: { scope: AuthScope; now: string; from?: NonNullable<PutAgentRequest["from"]> },
+): Promise<void> {
+  const { plan, target, recipe } = move;
+  const { now } = options;
+  const id = agent.id;
+  await requirePods(ctx.pods, `Agent ${id} becoming a computer`);
+  await refuseBusy(t, id);
+  if (diskHeld(agent) || (agent.diskSeed !== undefined && !agent.diskSeed.written))
+    failRetryLater(`Agent ${id}'s disk is being copied. Try again shortly.`, "agent_busy");
+  if (plan.applies !== "now")
+    fail(
+      409,
+      `Agent ${id} becomes a computer only on a version that applies at once, and ${target.name}@${target.version} ${plan.missingSecrets.length > 0 ? `waits for a value of ${plan.missingSecrets.join(", ")}, which its version does not declare yet: declare the slot on a virtual version and set it first` : "does not"}.`,
+      { code: "request_rejected", details: { applies: plan.applies, missingSecrets: plan.missingSecrets } },
+    );
+  await checkFiles(t, recipe.files);
+  let seed: { artifactId: string; version: number } | undefined;
+  if (options.from) {
+    if (options.from.agent === id) fail(400, "from names a disk version of another Agent: this one has no computer yet.");
+    seed = await forkSource(t, options.scope, "pod", options.from);
+    const source = await liveEnvironment(t, options.from.agent);
+    if (source?.ownerUserId !== agent.ownerUserId)
+      fail(409, `Agent ${options.from.agent} is for another owner than Agent ${id}: from names a disk version of an Agent with the same owner.`, {
+        code: "agent_owner_mismatch",
+      });
+  }
+  const version = agent.version + 1;
+  await t.updateEnvironment(
+    id,
+    {
+      kind: "pod",
+      manifestRef: plan.tracking,
+      recipe,
+      applied: recipe,
+      version,
+      appliedVersion: version,
+      manifestVersion: target.version,
+      manifestHash: target.hash,
+      targetVersion: null,
+      failedVersion: null,
+      lastUsedAt: now,
+      ...(seed
+        ? {
+            diskSeed: seed,
+            diskOp: {
+              kind: "seed" as const,
+              version: seed.version,
+              startedAt: now,
+              until: new Date(Date.now() + hostTuning().tenant.seedLeaseMs).toISOString(),
+            },
+          }
+        : { diskSeed: null, diskOp: null }),
+    },
+    now,
+  );
+  await t.updateEnvironmentPod(
+    id,
+    {
+      k8sName: podName(ctx.config.tenantId, id, 0),
+      volumeGen: 0,
+      desired: "running",
+      observed: "creating",
+      hostEpoch: 0,
+      rev: 1,
+      startedAt: now,
+      lastActiveAt: now,
+    },
+    now,
+  );
+  await t.agentEvent(id, "agent.version_changed", { from: plan.from, to: plan.to, kindFrom: agent.kind, kindTo: "pod" });
+  await mergeAgentTriggers(t, { ...agent, kind: "pod", manifestVersion: target.version }, agent.manifestVersion);
+  // Created at once, as a new pod Agent is; idle from now if no command comes.
+  await reconcileAfter(t, id);
+  const idleAt = Date.parse(now) + podLifecycleConfig(await readSandboxConfig(t), recipe).idleMs;
+  await t.signalSandbox(id, { kind: "arm", timer: "idle", at: idleAt });
 }
 
 /**
@@ -654,7 +766,7 @@ export async function planAgentPut(
     fail(400, "manifest is an agent manifest's name, or name@version such as triage@3.");
   return ctx.store.tx(async (t) => {
     const agent = (await liveEnvironment(t, id)) ?? fail(404, "Agent not found: a dry run plans the move of an existing Agent.");
-    return { dryRun: true as const, plan: (await moveOf(t, agent, ref)).plan };
+    return { dryRun: true as const, plan: (await moveOf(t, agent, ref, { becomeComputer: ctx.pods?.computer !== undefined })).plan };
   });
 }
 
@@ -1026,14 +1138,15 @@ export async function listAgents(
 
 /**
  * Asks pod Environment `id` to run when it is stopped or failed (a disk copy needs its engine),
- * with its recipe applied, as a turn start would.
+ * with its recipe applied, as a turn start would. Answers whether it was not running: not wanted
+ * running, or not running yet.
  */
-export async function wakePod(ctx: TenantContext, id: string): Promise<void> {
+export async function wakePod(ctx: TenantContext, id: string): Promise<boolean> {
   if (!ctx.pods) fail(409, `Agent ${id} runs on a pod, and this Runtime has no sandbox pods.`, { code: "agent_unavailable" });
-  await ctx.store.tx(async (t) => {
+  return ctx.store.tx(async (t) => {
     const environment = await liveEnvironment(t, id, { lock: true });
     const pod = environment?.pod;
-    if (!environment || !pod) return;
+    if (!environment || !pod) return false;
     if (pod.observed === "lost")
       fail(409, `Agent ${id}'s pod was lost (${pod.reason ?? "its volume is gone"}). Reset or restore it.`, {
         code: "agent_lost",
@@ -1043,6 +1156,7 @@ export async function wakePod(ctx: TenantContext, id: string): Promise<void> {
       await wantRunning(t, environment as PodEnvironment, now);
       await reconcileAfter(t, id);
     } else await t.updateEnvironmentPod(id, { lastActiveAt: now }, now);
+    return pod.desired !== "running" || pod.observed !== "running";
   });
 }
 
@@ -1410,7 +1524,8 @@ export async function recordAttachment(t: Tx, sessionId: string, agentId: string
  *
  * A pod Environment must also be usable: not lost (`agent_lost`), on a Runtime with
  * sandbox pods (`agent_unavailable`). A stopped or failed pod is asked to run again, with
- * its recipe applied, after the commit.
+ * its recipe applied, after the commit. A computer (ADR-154 R3) is not: it wakes on the run's
+ * first command; only a failed one is asked to run, and a running one's turn counts as use.
  */
 export async function checkAgentTurn(
   t: Tx,
@@ -1458,6 +1573,16 @@ export async function checkAgentTurn(
       code: "agent_lost",
     });
   const now = new Date().toISOString();
+  // A computer wakes on its first command (ADR-154 R3): its run goes to the harness container,
+  // and the run's first sandbox call opens it (`computer.open` → `computerAccess` → `wakePod`).
+  // A failed one is still asked to run, so a turn revives it; a running one counts the turn as use.
+  if (ctx?.pods?.computer !== undefined) {
+    if (pod.observed === "failed") {
+      await wantRunning(t, environment as PodEnvironment, now);
+      await reconcileAfter(t, id);
+    } else if (pod.desired === "running") await t.updateEnvironmentPod(id, { lastActiveAt: now }, now);
+    return;
+  }
   if (pod.desired !== "running" || pod.observed === "failed") {
     await wantRunning(t, environment as PodEnvironment, now);
     await reconcileAfter(t, id);

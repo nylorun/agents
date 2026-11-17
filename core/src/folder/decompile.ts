@@ -181,6 +181,7 @@ interface AgentFields {
   readonly memory?: unknown;
   readonly loop?: unknown;
   readonly model?: unknown;
+  readonly roles?: Readonly<Record<string, string>>;
   readonly engine?: HarnessEngine;
 }
 
@@ -359,6 +360,7 @@ function writeAgent(writer: Writer, place: Place, identity: Identity, harness: A
 
   if (harness.memory !== undefined) front.memory = harness.memory;
   if (harness.model !== undefined) front.model = harness.model;
+  if (harness.roles !== undefined) front.roles = { ...harness.roles };
   if (harness.loop !== undefined) {
     if (isObject(harness.loop)) front.loop = harness.loop;
     else note("harness.loop is not a map, which AGENT.md needs: it is left out.");

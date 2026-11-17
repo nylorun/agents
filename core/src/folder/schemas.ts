@@ -24,6 +24,7 @@ import {
   ENVIRONMENT_NAME_PATTERN,
   HarnessIdSchema,
   AgentModelSchema,
+  AgentRolesSchema,
   HarnessMemorySchema,
   HttpToolTargetSchema,
   McpToolSettingsSchema,
@@ -82,11 +83,11 @@ function fromZod(schema: z.ZodType, defs: Json, description?: string): Json {
  * names one document for good): `AGENT.md` took `model` (Host feature `agent-model`), published
  * as `agent-md.1.json`, then `format: agent-folder/2` and `engine` (ADR-100), as `agent-md.2.json`,
  * then `engine.triggers` (D83), as `agent-md.3.json`, then `format: agent-folder/3` and
- * `plugins` (ADR-106), as `agent-md.4.json`;
+ * `plugins` (ADR-106), as `agent-md.4.json`, then `roles` (ADR-154), as `agent-md.5.json`;
  * `runtime.json` took a secret slot's `toolPrefix` (Host feature `secret-routing`), published as
  * `runtime.1.json`, then `limits.triggers` (D83), as `runtime.2.json`.
  */
-const REVISIONS: Partial<Record<AgentFolderSchemaKind, number>> = { "agent-md": 4, runtime: 2 };
+const REVISIONS: Partial<Record<AgentFolderSchemaKind, number>> = { "agent-md": 5, runtime: 2 };
 
 /** One document: its `$id` from its kind, then the body, then the `$defs` its parts named. */
 function document(kind: AgentFolderSchemaKind, title: string, description: string, body: Json, defs: Json): Json {
@@ -170,6 +171,11 @@ function agentMd(): Json {
         "agent-folder/3: the Runtime's plugins the agent uses, which share the server nylorun (mcpServers.nylorun.tools turns one of their tools off): nylorun-memory, nylorun-triggers, nylorun-plan, nylorun-interactions, nylorun-artifacts, nylorun-sandbox (needs a computer)",
     },
     model: fromZod(AgentModelSchema, defs, "The model the agent runs on: <provider>/<model>, such as anthropic/claude-sonnet-4-5"),
+    roles: fromZod(
+      AgentRolesSchema,
+      defs,
+      "The model of each role a session may be opened with (role on PUT /v1/sessions/{id}, or an A2A message's metadata.role): <role>: <provider>/<model>",
+    ),
     engine: {
       type: "object",
       description:

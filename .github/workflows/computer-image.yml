@@ -1,0 +1,112 @@
+# ghcr.io/nylorun/computer: the computer agent (images/computer, ADR-154 decision 4 in
+# nylorun/factory), one static file a computer's template mounts at /nylo.
+# On a pull request that changes it: go vet and the agent's tests (the contract included), then an
+# amd64 build and its smoke test.
+# By hand, from main: the same, then a push of one version tag for amd64 and arm64. It is
+# versioned by its protocol (`<protocol>.<n>`, e.g. 1.0), not with the Runtime: a new digest is a
+# new template, and a cold pull, for every new computer.
+name: Computer image
+
+on:
+  pull_request:
+    paths:
+      - images/computer/**
+      - sandboxes/cmd/computer/**
+      - sandboxes/internal/computer/**
+      - sandboxes/internal/ticket/**
+      - sandboxes/go.mod
+      - .github/workflows/computer-image.yml
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "The tag to push: the agent's protocol and a build number, <protocol>.<n> (e.g. 1.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: computer-image-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: sandboxes/go.mod
+          cache-dependency-path: sandboxes/go.sum
+
+      - name: go vet and the agent's tests
+        working-directory: sandboxes
+        run: |
+          go vet ./cmd/computer ./internal/computer ./internal/ticket
+          go test ./cmd/computer ./internal/computer ./internal/ticket
+
+      - name: Check the version
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          VERSION: ${{ inputs.version }}
+          REF: ${{ github.ref }}
+        run: |
+          [ "$REF" = refs/heads/main ] || { echo "::error::Publish from main only"; exit 1; }
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+$ ]] || { echo "::error::version is <protocol>.<n>, e.g. 1.0"; exit 1; }
+          if docker buildx imagetools inspect "ghcr.io/nylorun/computer:${VERSION}" >/dev/null 2>&1; then
+            echo "::error::ghcr.io/nylorun/computer:${VERSION} exists; pick the next one"; exit 1
+          fi
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Build for amd64
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: images/computer/Dockerfile
+          platforms: linux/amd64
+          load: true
+          tags: nylorun-computer:smoke
+          build-args: VERSION=${{ inputs.version || 'dev' }}
+
+      - name: Smoke test
+        run: bash images/computer/smoke.sh nylorun-computer:smoke
+
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+        if: github.event_name == 'workflow_dispatch'
+
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        if: github.event_name == 'workflow_dispatch'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push amd64 and arm64
+        if: github.event_name == 'workflow_dispatch'
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: images/computer/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ghcr.io/nylorun/computer:${{ inputs.version }}
+          build-args: VERSION=${{ inputs.version }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.description=The Nylorun computer agent: one static binary a computer runs at /nylo/computer
+
+      - name: Digest
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          digest="$(docker buildx imagetools inspect "ghcr.io/nylorun/computer:${VERSION}" --format '{{json .Manifest.Digest}}' | tr -d '"')"
+          echo "ghcr.io/nylorun/computer:${VERSION}@${digest}"
+          echo "Pushed \`ghcr.io/nylorun/computer:${VERSION}@${digest}\` (the chart's \`computer.image\`)" >> "$GITHUB_STEP_SUMMARY"

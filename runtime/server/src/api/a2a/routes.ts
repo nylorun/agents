@@ -472,9 +472,11 @@ async function run(
  * Opens the caller's session for a context: created when missing, with `info.a2a` naming the
  * context and the subject, so the turn index can list its tasks (`ListTasks`); the session id
  * stays the one-way `contextSessionId`. A context opened before `info.a2a` gets it now, for the
- * turns it starts from here on. Nothing else changes after.
+ * turns it starts from here on. Nothing else changes after: a `role` (`metadata.role`, Host
+ * feature `model-roles`) applies only when the message opens the context, and one its Agent's
+ * version does not declare is `InvalidParams`.
  */
-async function openContext(caller: Caller, sessionId: string, contextId: string): Promise<Session> {
+async function openContext(caller: Caller, sessionId: string, contextId: string, role?: string): Promise<Session> {
   const a2a = { contextId, subject: caller.access.owner };
   const existing = await contextSession(caller, sessionId);
   if (existing) {
@@ -488,18 +490,25 @@ async function openContext(caller: Caller, sessionId: string, contextId: string)
       return session;
     });
   }
-  return putSession(
-    caller.ctx,
-    sessionId,
-    {
-      requestId: randomUUID(),
-      agent: caller.agentId,
-      ownerUserId: caller.access.owner,
-      info: { a2a },
-    },
-    caller.access,
-    agentGrantsOf(caller.scope) === undefined ? {} : { agentGrants: agentGrantsOf(caller.scope)! }
-  );
+  try {
+    return await putSession(
+      caller.ctx,
+      sessionId,
+      {
+        requestId: randomUUID(),
+        agent: caller.agentId,
+        ownerUserId: caller.access.owner,
+        info: { a2a },
+        ...(role === undefined ? {} : { role }),
+      },
+      caller.access,
+      agentGrantsOf(caller.scope) === undefined ? {} : { agentGrants: agentGrantsOf(caller.scope)! }
+    );
+  } catch (error) {
+    if (error instanceof HttpError && error.rejection.code === "unknown_role")
+      return a2aFail("invalidParams", error.message, {}, "message.metadata.role");
+    throw error;
+  }
 }
 
 async function sendMessage(
@@ -531,7 +540,7 @@ async function sendMessage(
     contextId =
       send.contextId ?? newContextId(caller.access.owner, caller.agentId, send.messageId);
     sessionId = contextSessionId(caller.access.owner, caller.agentId, contextId);
-    await openContext(caller, sessionId, contextId);
+    await openContext(caller, sessionId, contextId, send.role);
     const context = contextId;
     const { body, stored } = await messageBody(caller, sessionId, idempotencyKey, send.input);
     accepted = await run(

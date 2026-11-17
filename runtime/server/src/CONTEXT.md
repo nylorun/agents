@@ -303,7 +303,11 @@ a pod applies only when it starts (image, resources, network, setup, files) leav
 (`targetVersion`, the target's runtime in `recipe`) until its pod's next start (`switchTo` in
 `wantRunning` and `newVolume`); a version adding a required secret with no value waits for one
 (`resumeMove` after each secret write). Its manifest's name, kind, harness and storage are fixed
-(`409 agent_fixed_field`): a fork changes them. A pod's start on a new version is checked
+(`409 agent_fixed_field`): a fork changes them. One kind change is a move (ADR-154 R13,
+`becomeComputer` in `tenant/agents.ts`): on a Runtime whose pods are computers, a `PUT` on a
+`virtual` Agent naming a `pod` version changes its row in place (kind, a new pod state, a seed from
+`from`), keeps its id, sessions, memory, vault and triggers, deletes its virtual workspace and
+records `agent.version_changed` with `kindFrom` and `kindTo`; a save never does. A pod's start on a new version is checked
 (`startCheck`, cleared when the new pod's harness says `hello`): a failed setup, a failed pod or a
 start past `tenant.upgradeStartMs` goes back to what it ran (`revertStart`: the definition, not the
 disk) and names the version `failedVersion` (state `failing`) until a later start succeeds. A new
@@ -328,8 +332,12 @@ id, so its sessions share files, and deleting a session only detaches it. Its se
 turns at the same time (D66; one turn per session stays); a turn start checks a token caller's
 grants, a disk copy in progress and the **owner guard** (`owner`: only that owner's sessions may
 run on it; `403 agent_owner_mismatch`, the opaque `404` to a caller acting for a person) in
-`checkAgentTurn`. Its **state** is derived on read (`stateOf`): `paused` (desired `off`, track
-T6), `failing` (its compute failed or was lost, or a session's last turn failed), `input_required`
+`checkAgentTurn`, which asks a stopped pod to run, but not a computer (ADR-154 R3): the first
+command of its run wakes it (`computer.open` → `computerAccess` → `wakePod`, which logs
+`computer ready` with `waitedMs`); only a failed computer is asked to run by a turn. A computer
+suspended as idle has its disk measured first (`du` of `/workspace` and `/skills`, `diskBytes` on
+`agent.suspended`, and a `computer suspended` log line). Its **state** is derived on read
+(`stateOf`): `paused` (desired `off`, track T6), `failing` (its compute failed or was lost, or a session's last turn failed), `input_required`
 (a session paused or uncertain, a move waiting for its secrets, or a required secret of the
 version it runs unset: `secret_unset: required secret NAME unset`, track T7), `working` (a turn runs),
 `sleeping`; `attention` names the
@@ -695,11 +703,17 @@ A session opened on a version whose manifest names a model (`harness.model`, `<p
 Host feature `agent-model`) starts with it as its own, when that choice would pass (`agentModelOf`
 in `putSession`'s path, so a session the A2A server or a trigger opens gets it too); one the Tenant
 cannot use now is left out, and the Tenant's model applies. A later choice replaces it.
+A session opened with a **role** (`PUT /v1/sessions/{id}` `role`, an A2A message's
+`metadata.role` when it opens the context; Host feature `model-roles`, ADR-154) starts with the
+model its version names for that role (`harness.roles`) in place of `harness.model`, through the
+same checks (`Session.role`, `modelSource: "role"`); a role the version does not declare is
+`400 unknown_role`.
 What its turns call, and why, is the session's **model record** (`Session.modelRecord`,
 `SessionModelRecord`, `model` on `GET /v1/sessions/{id}`): `{provider, model, source:
-manifest|session|tenant, reason?, requested?}`, with `reason` (`provider_not_connected`,
-`not_in_catalog`, `invalid_model`) and the model `requested` (`by` the manifest or the session) on
-a fallback to the Tenant's. It is set when the session opens, chooses or clears its model, and
+manifest|role|session|tenant, role?, reason?, requested?}`, with `reason` (`provider_not_connected`,
+`not_in_catalog`, `invalid_model`) and the model `requested` (`by` the manifest, the role or the
+session) on a fallback to the Tenant's, and `role` when the model is, or was asked to be, the
+role's. It is set when the session opens, chooses or clears its model, and
 again at each segment's start (`sessionModelRecordOf`, `noteSessionModel` in
 `tenant/session-model.ts`), as the Model Gate would pick; each change writes `session.model` with
 the `previous` record.

@@ -830,12 +830,14 @@ export interface Tx {
   createEnvironment(row: Environment, limit: number): Promise<"created" | "exists" | "limit">;
   /**
    * Changes an Environment's columns other than its pod's (the caller holds the row's lock):
-   * labels, recipe and version, the applied recipe and its version, the manifest version it runs
+   * its kind (an Agent that becomes a computer), labels, recipe and version, the applied recipe and its version, the manifest version it runs
    * and how it names it (track T3), the owner guard (`null` clears it), and when it was last used.
    */
   updateEnvironment(
     id: string,
     patch: {
+      /** Only `virtual` → `pod`, when an Agent becomes a computer (ADR-154 R13). */
+      kind?: Environment["kind"];
       labels?: Record<string, string>;
       recipe?: EnvironmentRecipe;
       version?: number;

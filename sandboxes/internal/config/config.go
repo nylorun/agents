@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"net"
 	"os"
@@ -137,6 +138,42 @@ type Config struct {
 	Token string
 	// TokenFile holds the ServiceAccount token for the API server.
 	TokenFile string
+	// ComputerAgent is what serves a computer (--computer-agent): ComputerAgentGo, the computer
+	// agent, or ComputerAgentEngine (the default), the Runtime's engine (ADR-154 decision 4).
+	ComputerAgent string
+	// ComputerImage is the computer agent's image, by digest (--computer-image), for
+	// ComputerAgentGo.
+	ComputerImage string
+}
+
+// The computer agents.
+const (
+	ComputerAgentGo     = "go"
+	ComputerAgentEngine = "engine"
+)
+
+// ParseFlags reads the service's flags: --computer-agent go|engine and --computer-image.
+func (c *Config) ParseFlags(args []string) error {
+	fs := flag.NewFlagSet("sandboxes", flag.ContinueOnError)
+	agent := fs.String("computer-agent", ComputerAgentEngine, "what serves a computer: go (the computer agent, from --computer-image) or engine (the Runtime's)")
+	image := fs.String("computer-image", "", "the computer agent's image, by digest (ghcr.io/nylorun/computer:<version>@sha256:…)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() > 0 {
+		return fmt.Errorf("unexpected arguments: %s", strings.Join(fs.Args(), " "))
+	}
+	switch *agent {
+	case ComputerAgentEngine:
+	case ComputerAgentGo:
+		if strings.TrimSpace(*image) == "" {
+			return errors.New("--computer-agent go needs --computer-image: the computer agent's image")
+		}
+	default:
+		return fmt.Errorf("--computer-agent %q is not go or engine", *agent)
+	}
+	c.ComputerAgent, c.ComputerImage = *agent, strings.TrimSpace(*image)
+	return nil
 }
 
 // DefaultDir is where Compose mounts `<Host root>/sandboxes`.
