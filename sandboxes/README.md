@@ -153,7 +153,10 @@ not with the Runtime.
   `X-Nylorun-Ticket` (401 `unauthorized`, `Ticket refused: <reason>`): `GET /v1/info`, `POST
   /v1/exec` (start or join command `id`, answer within `waitMs`, at most 50 s: `running`, `done`
   or `failed`), `POST /v1/exec/{id}/attach`, `POST /v1/exec/{id}/cancel`, `GET`/`PUT /v1/files`
-  (`maxBytes`: 413 `too_large`) and `GET /v1/list` (`maxEntries`, `truncated`).
+  (`maxBytes`: 413 `too_large`), `GET /v1/list` (`maxEntries`, `truncated`) and `POST /v1/disk`
+  (one operation of the Runtime's disk versions on the computer's own workspace and
+  `NYLORUN_HARNESS_ROOT`: list, read in ranges, clear or put; a path out of its root or naming the
+  engine's own files is 400 `invalid_request`).
 - **Commands** run under `/bin/bash -c` (`/bin/sh` without bash) in their own session, in the
   workspace or `cwd`. Environment: `PATH`, `LANG=C.UTF-8`, `TERM=dumb`, then the agent's own
   `PATH`, `LANG`, `TZ` and `LC_*`, then `HOME=/workspace`, then the request's `env`, then the trust
