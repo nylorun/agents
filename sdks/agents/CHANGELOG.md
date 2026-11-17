@@ -1,5 +1,19 @@
 # @nylorun/agents
 
+## 0.39.0-beta
+
+### Minor Changes
+
+- 7b56c2b: Model roles (ADR-154, Host feature `model-roles`): `AGENT.md` may declare `roles`, a map from a role's name to a model (`<provider>/<model>`), compiled into `harness.roles` beside `model`. A session opened with `role` (`PUT /v1/sessions/{id}`, `client.createSession({ role })`, or an A2A message's `metadata.role` when it opens the context) runs on that role's model, through the same checks as `harness.model`; its model record says `source: "role"` and the role. A role the version does not declare is `400 unknown_role`. The JSON Schemas are republished as `agent-manifest/v8.5`, `harness-manifest/v1.5` and `agent-folder/v1/agent-md.5`.
+
+### Patch Changes
+
+- Pin core to the tested release.
+- Updated dependencies [7b56c2b]
+- Updated dependencies [7b56c2b]
+- Updated dependencies [7b56c2b]
+  - @nylorun/core@0.47.0-beta
+
 ## 0.38.1-beta
 
 ### Patch Changes
