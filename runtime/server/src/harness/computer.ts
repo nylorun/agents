@@ -300,7 +300,10 @@ export async function runComputer(
       return false;
     }
   };
-  const server = createServer((request, response) => void computerHandler({ handle, key, name, ready })(request, response));
+  // One handler for the server's life: its command registry must outlive a request, so that an
+  // attach or a re-sent start finds a command a start began.
+  const handler = computerHandler({ handle, key, name, ready });
+  const server = createServer((request, response) => void handler(request, response));
   server.requestTimeout = 0;
   server.headersTimeout = 30_000;
   await new Promise<void>((resolve, reject) => {
