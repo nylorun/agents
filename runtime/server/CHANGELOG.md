@@ -1,30 +1,5 @@
 # Changelog
 
-## 0.54.0-beta
-
-### Minor Changes
-
-- 7b56c2b: An A2A task reports its computer waking (ADR-154 R3): a computer's `environment.state` `creating`, then `running`, reaches the caller as a `TASK_STATE_WORKING` update with `metadata["environment.state"]` (`{ state, backend: "computer" }`), so a client can show the wait for a task's first command.
-- 7b56c2b: Computers can run the computer agent (ADR-154 decision 4): a static Go binary (`sandboxes/cmd/computer`, the image `ghcr.io/nylorun/computer`, versioned by its protocol) that serves the computer's routes with the same tickets and answers as `--service computer`, which a contract test runs against both. The sandboxes service takes `--computer-agent go|engine` and `--computer-image`; with `go`, a computer's template mounts the agent's image at `/nylo` and runs `/nylo/computer`, and an existing computer keeps the agent image it was created with. The chart's `computer.agent` (default `go`) and `computer.image` pass them, and the pre-pull warms the agent's image. Moving a Tenant's computers from the engine to the agent gives each a new volume from its latest disk version, and versions taken before this release hold nothing of the computer, so an existing computer starts empty (MIGRATION.md).
-- 7b56c2b: A computer's disk is measured (ADR-154 D1): before an idle suspend the Runtime runs `du -sk /workspace /skills` on a running computer (at most 20 s; a failure records nothing and holds nothing up) and records the size as `diskBytes` on `agent.suspended`, with a `computer suspended` host log line. A wake logs `computer ready` with `waitedMs`, and the sandboxes service logs each Substrate suspend (`substrate suspended`, with `ms` or the error).
-- 7b56c2b: A computer wakes on its first command (ADR-154): a turn on a computer Agent no longer asks it to run, so a chat turn on a sleeping computer reaches its model without waking it. The run's first sandbox call opens the computer (`computer.open`), which wakes it, as before. A failed computer is still asked to run by a turn, and a running one counts the turn as use.
-- 7b56c2b: A `virtual` Agent can become a computer (ADR-154, Host feature `computer-move`): on a Runtime whose pod Agents are computers, a `PUT /v1/agents/{id}` naming a `pod` version of its manifest changes its kind in place, keeping its id, sessions, memory, vault, triggers, events and labels. `from` seeds the new volume from a disk version of another Agent with the same owner. Its virtual workspace is deleted, and the move is `agent.version_changed` with `kindFrom` and `kindTo`. It is refused while a turn runs or its disk is copied (`agent_busy`), on a version that would wait for a secret (`request_rejected`), and for any other kind change or on a Runtime without computers (`agent_fixed_field`). A manifest save never changes an Agent's kind.
-- 7b56c2b: Model roles (ADR-154, Host feature `model-roles`): `AGENT.md` may declare `roles`, a map from a role's name to a model (`<provider>/<model>`), compiled into `harness.roles` beside `model`. A session opened with `role` (`PUT /v1/sessions/{id}`, `client.createSession({ role })`, or an A2A message's `metadata.role` when it opens the context) runs on that role's model, through the same checks as `harness.model`; its model record says `source: "role"` and the role. A role the version does not declare is `400 unknown_role`. The JSON Schemas are republished as `agent-manifest/v8.5`, `harness-manifest/v1.5` and `agent-folder/v1/agent-md.5`.
-
-### Patch Changes
-
-- 7b56c2b: A computer (`--service computer`) keeps its commands for its life, not for one request: an attach to a command still running found it gone (`404 unknown_command`), and a start sent again ran the command a second time. A command longer than one attach's wait (50 s) now finishes as it should.
-- 7b56c2b: Disk versions of a computer (a snapshot, a restore, a seed, and a new volume from the latest version) now copy the computer's own disk, its `/workspace` and `/harness`, through a new computer route, `POST /v1/disk`, which both the engine's `--service computer` and the computer agent serve. Before, they copied a directory of the Runtime's own process: versions of computers taken before this release hold nothing of the computer, and a restore or seed wrote nothing onto it. A copy onto a restored or recovered computer reaches its new volume, not the last one. A computer whose agent has no such route yet fails the copy (`409 agent_unavailable`, "This computer's agent is too old to copy its disk; reset it or wait for its next start on the new agent") rather than copying any other disk.
-- 96e315c: A virtual Agent forked from another's version (`PUT /v1/agents/{id}` with a disk version) now returns once its workspace is written, even when the Tenant sweep started the seed first: the second caller waits for the copy already running instead of returning at once. Before, a read right after the fork could get `sandbox.not_found`.
-- Pin core to the tested release.
-- Pin harness to the tested release.
-- Updated dependencies [7b56c2b]
-- Updated dependencies [7b56c2b]
-- Updated dependencies [7b56c2b]
-- Updated dependencies
-  - @nylorun/core@0.47.0-beta
-  - @nylorun/harness@0.36.7-beta
-
 ## 0.53.7-beta
 
 ### Patch Changes

@@ -1,13 +1,5 @@
 # @nylorun/core
 
-## 0.47.0-beta
-
-### Minor Changes
-
-- 7b56c2b: A computer's disk is measured (ADR-154 D1): before an idle suspend the Runtime runs `du -sk /workspace /skills` on a running computer (at most 20 s; a failure records nothing and holds nothing up) and records the size as `diskBytes` on `agent.suspended`, with a `computer suspended` host log line. A wake logs `computer ready` with `waitedMs`, and the sandboxes service logs each Substrate suspend (`substrate suspended`, with `ms` or the error).
-- 7b56c2b: A `virtual` Agent can become a computer (ADR-154, Host feature `computer-move`): on a Runtime whose pod Agents are computers, a `PUT /v1/agents/{id}` naming a `pod` version of its manifest changes its kind in place, keeping its id, sessions, memory, vault, triggers, events and labels. `from` seeds the new volume from a disk version of another Agent with the same owner. Its virtual workspace is deleted, and the move is `agent.version_changed` with `kindFrom` and `kindTo`. It is refused while a turn runs or its disk is copied (`agent_busy`), on a version that would wait for a secret (`request_rejected`), and for any other kind change or on a Runtime without computers (`agent_fixed_field`). A manifest save never changes an Agent's kind.
-- 7b56c2b: Model roles (ADR-154, Host feature `model-roles`): `AGENT.md` may declare `roles`, a map from a role's name to a model (`<provider>/<model>`), compiled into `harness.roles` beside `model`. A session opened with `role` (`PUT /v1/sessions/{id}`, `client.createSession({ role })`, or an A2A message's `metadata.role` when it opens the context) runs on that role's model, through the same checks as `harness.model`; its model record says `source: "role"` and the role. A role the version does not declare is `400 unknown_role`. The JSON Schemas are republished as `agent-manifest/v8.5`, `harness-manifest/v1.5` and `agent-folder/v1/agent-md.5`.
-
 ## 0.46.0-beta
 
 ### Minor Changes
