@@ -496,11 +496,22 @@ func (d *Driver) driveOnce(ctx context.Context, name, opID, mode string, reverte
 	return false, err
 }
 
+// suspend suspends the actor and logs how long it took, or why it failed (ADR-154 D1): the
+// weekly computers report reads these lines. An actor that isn't running has nothing to suspend
+// and logs nothing.
 func (d *Driver) suspend(ctx context.Context, name string) error {
 	ctx, cancel := d.call(ctx)
 	defer cancel()
+	start := d.o.Now()
 	_, err := d.api.SuspendActor(ctx, &ateapi.SuspendActorRequest{Actor: d.ref(name),
 		Options: &ateapi.SuspendOptions{Mode: ateapi.DurabilityMode_DURABILITY_MODE_SYNCHRONOUS}})
+	ms := d.o.Now().Sub(start).Milliseconds()
+	switch {
+	case err == nil:
+		d.o.Log.Info("substrate suspended", "name", name, "ms", ms)
+	case status.Code(err) != codes.FailedPrecondition:
+		d.o.Log.Warn("substrate suspended", "name", name, "ms", ms, "error", err)
+	}
 	return err
 }
 

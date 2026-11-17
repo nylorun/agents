@@ -1,13 +1,16 @@
 package substrate
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -888,5 +891,71 @@ func TestACrashedActorIsRevertedBeforeARepoint(t *testing.T) {
 	calls := strings.Join(r.api.calls, "\n")
 	if !strings.Contains(calls, "RevertActor "+sbx+"\nUpdateActor "+sbx+" ") {
 		t.Fatalf("expected a revert then a repoint: %s", calls)
+	}
+}
+
+// lockedBuffer is a log sink the driver's goroutines may write to while a test reads it.
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *lockedBuffer) lines(msg string) []map[string]any {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	var found []map[string]any
+	for _, raw := range strings.Split(strings.TrimSpace(b.buf.String()), "\n") {
+		var parsed map[string]any
+		if json.Unmarshal([]byte(raw), &parsed) == nil && parsed["msg"] == msg {
+			found = append(found, parsed)
+		}
+	}
+	return found
+}
+
+// Each suspend is logged with its time, or its error (ADR-154 D1): the computers report reads them.
+func TestSuspendIsLogged(t *testing.T) {
+	r := newRig(t)
+	logs := &lockedBuffer{}
+	r.d.o.Log = slog.New(slog.NewJSONHandler(logs, nil))
+	if _, err := r.d.Put(context.Background(), sbx, spec("op-1", "Running")); err != nil {
+		t.Fatal(err)
+	}
+	r.wait(t, "ready")
+	suspend := spec("op-2", "Suspended")
+	suspend.JoinToken = ""
+	if _, err := r.d.Put(context.Background(), sbx, suspend); err != nil {
+		t.Fatal(err)
+	}
+	r.wait(t, "suspended")
+	deadline := time.Now().Add(2 * time.Second)
+	for len(logs.lines("substrate suspended")) == 0 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	lines := logs.lines("substrate suspended")
+	if len(lines) != 1 || lines[0]["name"] != sbx || lines[0]["ms"] == nil || lines[0]["error"] != nil {
+		t.Fatalf("substrate suspended lines: %v", lines)
+	}
+
+	// A suspend that fails is logged with its error.
+	if _, err := r.d.Put(context.Background(), sbx, spec("op-3", "Running")); err != nil {
+		t.Fatal(err)
+	}
+	r.wait(t, "ready")
+	r.api.mu.Lock()
+	r.api.failSuspendTimes = 1
+	r.api.mu.Unlock()
+	if err := r.d.suspend(context.Background(), sbx); err == nil {
+		t.Fatal("suspend: want the fake's error")
+	}
+	lines = logs.lines("substrate suspended")
+	if last := lines[len(lines)-1]; last["error"] == nil || last["name"] != sbx {
+		t.Fatalf("a failed suspend is not logged with its error: %v", lines)
 	}
 }
