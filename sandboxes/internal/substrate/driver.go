@@ -673,9 +673,11 @@ func Compute(name string, actor *ateapi.Actor, st *state) driver.Status {
 		actor.GetStatus().GetState() != ateapi.ActorState_ACTOR_STATE_RUNNING {
 		s.Reason, s.Message = Moving, "suspended because its worker stopped; resuming on another worker"
 	}
-	// A refused request is never ready: the actor still runs the previous one (core's ready
-	// deadline then fails the start with this reason).
-	if st != nil && st.Refused != "" && s.Reason == "" {
+	// A refused request is never ready: the actor still runs the previous one. A Running request
+	// reports the refusal even over a crash, since the actor cannot run on the template it has
+	// and only a new incarnation can take the requested one: the Runtime gives the pod a new
+	// volume when it sees this reason.
+	if st != nil && st.Refused != "" && (s.Reason == "" || (s.Mode == "Running" && s.Reason == "Crashed")) {
 		s.Ready, s.Reason, s.Message = false, RepointRefused, st.Refused
 	}
 	return s

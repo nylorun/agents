@@ -195,6 +195,19 @@ describe("pod lifecycle", () => {
     expect(decision.retryAfterMs).toBeDefined();
   });
 
+  it("renews the volume of a start its Sandbox refuses, at once; an older refusal is the old op's", () => {
+    const waking = row({ observed: "creating", rev: 2, podUid: undefined, startedAt: new Date(T0).toISOString() });
+    const refused = status({ opId: `${NAME}.r2`, ready: false, podPhase: undefined, reason: "RepointRefused", message: "its volumes would change (adds skills)" });
+    const decision = decide(facts({ row: waking, status: refused, now: T0 + 2_000 }));
+    expect(decision.renew).toEqual({ reason: "RepointRefused: its volumes would change (adds skills)" });
+    expect(decision.events).toEqual([]);
+    expect(decision.patch.observed).toBeUndefined();
+    // The refusal of an earlier op: this one is applied first.
+    expect(decide(facts({ row: waking, status: { ...refused, opId: `${NAME}.r1` }, now: T0 + 2_000 })).renew).toBeUndefined();
+    // A failed pod waits for its next start.
+    expect(decide(facts({ row: row({ observed: "failed", rev: 2 }), status: refused, now: T0 + 2_000 })).renew).toBeUndefined();
+  });
+
   it("records a crash an idle suspend finds, once", () => {
     const suspending = row({ desired: "suspended", rev: 2, observed: "running", podUid: "uid-1" });
     const crashed = status({ opId: `${NAME}.r2`, mode: "Suspended", ready: false, podPhase: undefined, reason: "Crashed", message: "worker pod went away while hosting the actor" });

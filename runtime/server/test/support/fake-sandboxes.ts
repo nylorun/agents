@@ -23,6 +23,8 @@ interface FakeSandbox {
   joinToken?: string;
   /** Agent Substrate: when its worker last stopped under it (suspend before drain). */
   drainedAt?: string;
+  /** Agent Substrate: why its actor can't take the next template (`refuseTemplate`). */
+  refused?: string;
 }
 
 export interface FakeSandboxes extends SandboxesClient {
@@ -40,6 +42,11 @@ export interface FakeSandboxes extends SandboxesClient {
   losePvc(name: string): void;
   /** The Sandbox, pod and volume are gone. */
   vanish(name: string): void;
+  /**
+   * Agent Substrate: the Sandbox's actor can't take a new template (its volumes would change):
+   * its pod stops, and every later `Running` reports `RepointRefused` with `why`.
+   */
+  refuseTemplate(name: string, why: string): void;
   /** The service answers nothing while true. */
   down: boolean;
   /** How long a new pod takes to be ready. Default 0. */
@@ -75,6 +82,7 @@ export function fakeSandboxes(): FakeSandboxes {
       opId: sandbox.spec.opId,
       ...(sandbox.spec.shutdownTime ? { shutdownTime: sandbox.spec.shutdownTime } : {}),
       ...(sandbox.drainedAt ? { drainedAt: sandbox.drainedAt } : {}),
+      ...(sandbox.refused && sandbox.spec.mode === "Running" ? { reason: "RepointRefused", message: sandbox.refused } : {}),
     };
   };
   const fake: FakeSandboxes = {
@@ -102,7 +110,7 @@ export function fakeSandboxes(): FakeSandboxes {
       const sandbox: FakeSandbox = current ?? { spec, volume: true };
       sandbox.spec = spec;
       if (spec.joinToken) sandbox.joinToken = spec.joinToken;
-      if (spec.mode === "Running" && sandbox.podUid === undefined) {
+      if (spec.mode === "Running" && sandbox.podUid === undefined && !sandbox.refused) {
         sandbox.podUid = randomUUID();
         sandbox.readyAt = Date.now() + fake.readyAfterMs;
       }
@@ -136,6 +144,12 @@ export function fakeSandboxes(): FakeSandboxes {
     },
     vanish(name) {
       sandboxes.delete(name);
+    },
+    refuseTemplate(name, why) {
+      const sandbox = sandboxes.get(name);
+      if (!sandbox) throw new Error(`no sandbox ${name}`);
+      sandbox.refused = why;
+      sandbox.podUid = undefined;
     },
   };
   return fake;
