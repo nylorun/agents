@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.53.7-beta
+
+### Patch Changes
+
+- 74b3e23: A pod's new volume that its sandbox refuses again fails with the reason even while the previous
+  volume is still being deleted, and that deletion goes on while a refused pod waits for it (it
+  could hold the pod in `creating`).
+- 3e6ae06: A pod whose sandbox can't take the Runtime's new template (Agent Substrate: its volumes would
+  change) gets a new volume automatically, from its latest disk version when it has one, instead of
+  failing every start until a reset. The sandboxes service reports `RepointRefused` for a running
+  request even when the actor has crashed, and the Runtime records `agent.reset` with reason
+  `template`. A new volume refused again fails with the reason, once.
+
 ## 0.53.6-beta
 
 ### Patch Changes
