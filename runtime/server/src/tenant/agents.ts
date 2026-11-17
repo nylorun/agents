@@ -1026,14 +1026,15 @@ export async function listAgents(
 
 /**
  * Asks pod Environment `id` to run when it is stopped or failed (a disk copy needs its engine),
- * with its recipe applied, as a turn start would.
+ * with its recipe applied, as a turn start would. Answers whether it was not running: not wanted
+ * running, or not running yet.
  */
-export async function wakePod(ctx: TenantContext, id: string): Promise<void> {
+export async function wakePod(ctx: TenantContext, id: string): Promise<boolean> {
   if (!ctx.pods) fail(409, `Agent ${id} runs on a pod, and this Runtime has no sandbox pods.`, { code: "agent_unavailable" });
-  await ctx.store.tx(async (t) => {
+  return ctx.store.tx(async (t) => {
     const environment = await liveEnvironment(t, id, { lock: true });
     const pod = environment?.pod;
-    if (!environment || !pod) return;
+    if (!environment || !pod) return false;
     if (pod.observed === "lost")
       fail(409, `Agent ${id}'s pod was lost (${pod.reason ?? "its volume is gone"}). Reset or restore it.`, {
         code: "agent_lost",
@@ -1043,6 +1044,7 @@ export async function wakePod(ctx: TenantContext, id: string): Promise<void> {
       await wantRunning(t, environment as PodEnvironment, now);
       await reconcileAfter(t, id);
     } else await t.updateEnvironmentPod(id, { lastActiveAt: now }, now);
+    return pod.desired !== "running" || pod.observed !== "running";
   });
 }
 

@@ -1444,9 +1444,12 @@ export const AGENT_EVENT_PAYLOADS = {
   /**
    * Stopped (`POST .../stop`, or idle): the volume is kept; the next turn starts it again.
    * `drain` (Agent Substrate): its worker stopped, so it was suspended with everything it held
-   * and resumed on another worker; nothing was lost.
+   * and resumed on another worker; nothing was lost. `diskBytes`: a computer suspended as idle
+   * had its disk measured first (`/workspace` and `/skills`, ADR-154); absent when it could not be.
    */
-  "agent.suspended": z.object({ reason: z.enum(["stop", "idle", "restart", "drain"]) }).passthrough(),
+  "agent.suspended": z
+    .object({ reason: z.enum(["stop", "idle", "restart", "drain"]), diskBytes: z.number().int().nonnegative().optional() })
+    .passthrough(),
   /** Its pod was replaced (same volume): the old pod's host token no longer works. */
   "agent.relaunched": z.object({ hostEpoch: z.number().int() }).passthrough(),
   /** Its volume or node is gone: turns are refused until a reset. */

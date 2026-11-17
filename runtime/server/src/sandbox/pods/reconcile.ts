@@ -28,6 +28,7 @@ import { podLifecycleConfig, podSpecOf } from "./spec.js";
 import { podKeysOf } from "./keys.js";
 import { hostTuning } from "../../tuning.js";
 import { idleMsOf, revertStart } from "../../tenant/agent-versions.js";
+import { computerDiskBytes } from "../computer.js";
 
 /** What a reconcile asks of the `Sandbox` object next. */
 export interface SandboxReconcileResult {
@@ -67,16 +68,41 @@ export async function reconcileSandbox(
   };
   // While a start would apply a new version (track T3), it idles at most `tenant.upgradeIdleMs`.
   const lifecycle = { ...podLifecycleConfig(config, row.recipe), idleMs: idleMsOf(config, row) };
-  const decision = decide({
+  const current = await status(row.pod.k8sName);
+  let decision = decide({
     row,
     image: row.applied.image ?? DEFAULT_SANDBOX_IMAGE,
     config: lifecycle,
-    status: await status(row.pod.k8sName),
+    status: current,
     ...(row.pod.retiring ? { retiring: await status(row.pod.retiring) } : {}),
     busy: read.busy,
     now: Date.now(),
     trigger,
   });
+  // A running computer (its sandbox ready) about to be suspended as idle has its disk measured
+  // first (ADR-154 D1): the size is recorded on `agent.suspended`. A measure that fails records
+  // none and holds nothing up; a turn or a use since the row was read decides again instead.
+  const idleSuspend = decision.events.find(
+    (item) => item.type === "agent.suspended" && (item.payload as { reason?: string }).reason === "idle",
+  );
+  if (pods.computer && idleSuspend && current?.ready) {
+    const diskBytes = await computerDiskBytes(ctx, row.pod.k8sName);
+    if (diskBytes !== undefined)
+      decision = {
+        ...decision,
+        events: decision.events.map((item) =>
+          item === idleSuspend ? { ...item, payload: { ...item.payload, diskBytes } } : item,
+        ),
+      };
+    const since = await ctx.store.tx(async (t) => ({
+      row: await t.environment(sandboxId),
+      busy: (await t.sessionsOnEnvironment(sandboxId)).some(
+        (session) => (session as { activeTurnId?: string | null }).activeTurnId != null,
+      ),
+    }));
+    if (since.busy || since.row?.pod?.lastActiveAt !== row.pod.lastActiveAt) return { retryAfterMs: 0 };
+    ctx.config.logger.info("computer suspended", { agentId: sandboxId, ...(diskBytes === undefined ? {} : { diskBytes }) });
+  }
   // Its Sandbox can't take the spec on its volume: a new volume, before any apply or patch. When
   // none is made yet (an earlier volume still deleting) the rest of the decision goes on, so that
   // deletion, which the decision carries, finishes.
