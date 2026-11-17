@@ -328,8 +328,12 @@ id, so its sessions share files, and deleting a session only detaches it. Its se
 turns at the same time (D66; one turn per session stays); a turn start checks a token caller's
 grants, a disk copy in progress and the **owner guard** (`owner`: only that owner's sessions may
 run on it; `403 agent_owner_mismatch`, the opaque `404` to a caller acting for a person) in
-`checkAgentTurn`. Its **state** is derived on read (`stateOf`): `paused` (desired `off`, track
-T6), `failing` (its compute failed or was lost, or a session's last turn failed), `input_required`
+`checkAgentTurn`, which asks a stopped pod to run, but not a computer (ADR-154 R3): the first
+command of its run wakes it (`computer.open` → `computerAccess` → `wakePod`, which logs
+`computer ready` with `waitedMs`); only a failed computer is asked to run by a turn. A computer
+suspended as idle has its disk measured first (`du` of `/workspace` and `/skills`, `diskBytes` on
+`agent.suspended`, and a `computer suspended` log line). Its **state** is derived on read
+(`stateOf`): `paused` (desired `off`, track T6), `failing` (its compute failed or was lost, or a session's last turn failed), `input_required`
 (a session paused or uncertain, a move waiting for its secrets, or a required secret of the
 version it runs unset: `secret_unset: required secret NAME unset`, track T7), `working` (a turn runs),
 `sleeping`; `attention` names the

@@ -1410,7 +1410,8 @@ export async function recordAttachment(t: Tx, sessionId: string, agentId: string
  *
  * A pod Environment must also be usable: not lost (`agent_lost`), on a Runtime with
  * sandbox pods (`agent_unavailable`). A stopped or failed pod is asked to run again, with
- * its recipe applied, after the commit.
+ * its recipe applied, after the commit. A computer (ADR-154 R3) is not: it wakes on the run's
+ * first command; only a failed one is asked to run, and a running one's turn counts as use.
  */
 export async function checkAgentTurn(
   t: Tx,
@@ -1458,6 +1459,16 @@ export async function checkAgentTurn(
       code: "agent_lost",
     });
   const now = new Date().toISOString();
+  // A computer wakes on its first command (ADR-154 R3): its run goes to the harness container,
+  // and the run's first sandbox call opens it (`computer.open` → `computerAccess` → `wakePod`).
+  // A failed one is still asked to run, so a turn revives it; a running one counts the turn as use.
+  if (ctx?.pods?.computer !== undefined) {
+    if (pod.observed === "failed") {
+      await wantRunning(t, environment as PodEnvironment, now);
+      await reconcileAfter(t, id);
+    } else if (pod.desired === "running") await t.updateEnvironmentPod(id, { lastActiveAt: now }, now);
+    return;
+  }
   if (pod.desired !== "running" || pod.observed === "failed") {
     await wantRunning(t, environment as PodEnvironment, now);
     await reconcileAfter(t, id);
