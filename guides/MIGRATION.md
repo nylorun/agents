@@ -9,10 +9,14 @@ agent-sandbox are unchanged.
   routes, tickets and results; the harness, the sandbox gateway and the tools are unchanged. Any
   Linux image with `/bin/sh` can be a computer (no glibc needed), and a Runtime release no longer
   changes a computer's template.
-- **Before you install.** Take a disk version of every computer
-  (`POST /v1/agents/{id}/snapshot`, while none is working). The template's `/nylo` volume changes,
-  which Substrate refuses to repoint, so each computer gets a new volume from its latest disk
-  version: what changed on its disk after that version is lost.
+- **What happens to existing computers.** The template's `/nylo` volume changes, which Substrate
+  refuses to repoint, so each existing computer gets a new volume from its latest disk version.
+  Before this release a computer's disk versions did not copy the computer: they copied a
+  directory of the Runtime's own process. So an existing computer starts with an empty disk.
+  Before you install, have the people who use them save what they keep elsewhere (an artifact, a
+  pushed branch). Or keep `computer.agent: engine` for this minor: existing computers keep their
+  engine, and only new ones run the agent. From this release on, disk versions copy the computer
+  itself (`POST /v1/disk` on the computer).
 - **The chart.** `computer.agent` (`go`, the default, or `engine`) and `computer.image` (pin it by
   digest; empty is `ghcr.io/nylorun/computer` at the chart's `nylorun.com/computer-version`).
   `engine` keeps today's computers, for a Runtime that can't move yet, for one minor. The
