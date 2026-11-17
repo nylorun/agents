@@ -517,7 +517,7 @@ export async function restoreEnvironment(
 }
 
 /** Seeds that run in this process, so the sweep starts no second copy. */
-const running = new Set<string>();
+const running = new Map<string, Promise<void>>();
 
 /**
  * Writes Environment `id`'s pending seed (`disk_seed`) into its disk, once its pod's engine is
@@ -525,10 +525,18 @@ const running = new Set<string>();
  * pod joins, after a virtual Environment is forked, and by the Tenant sweep for a seed whose
  * lease lapsed. Best effort: a failure leaves the seed for the next try.
  */
-export async function runPendingSeed(ctx: TenantContext, id: string): Promise<void> {
+export function runPendingSeed(ctx: TenantContext, id: string): Promise<void> {
   const key = `${ctx.config.tenantId}\0${id}`;
-  if (running.has(key)) return;
-  running.add(key);
+  // A caller that awaits the seed (a virtual fork's PUT) waits for the copy already running.
+  let pending = running.get(key);
+  if (!pending) {
+    pending = seedOnce(ctx, id).finally(() => running.delete(key));
+    running.set(key, pending);
+  }
+  return pending;
+}
+
+async function seedOnce(ctx: TenantContext, id: string): Promise<void> {
   try {
     const environment = await ctx.store.tx((t) => liveEnvironment(t, id));
     const seed = environment?.diskSeed;
@@ -558,8 +566,6 @@ export async function runPendingSeed(ctx: TenantContext, id: string): Promise<vo
       environmentId: id,
       message: error instanceof Error ? error.message : String(error),
     });
-  } finally {
-    running.delete(key);
   }
 }
 
