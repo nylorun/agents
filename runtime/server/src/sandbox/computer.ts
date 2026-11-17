@@ -349,7 +349,17 @@ export function computerManagers(
       manager = new SandboxManager({
         scope: ctx().config.tenantId,
         records: memorySandboxRecords(),
-        backends: [computerBackend({ open: (signal) => computerAccess(ctx(), environmentId, signal) })],
+        backends: [
+          computerBackend({
+            open: (signal) => computerAccess(ctx(), environmentId, signal),
+            // After a restore or a recovery the Agent is on a new computer: a disk copy onto its
+            // new volume (or a command) must not reach the last one.
+            isCurrent: async (access) => {
+              const pod = (await ctx().store.tx((t) => t.environment(environmentId)))?.pod;
+              return pod !== undefined && access.url.endsWith(`/${pod.k8sName}`);
+            },
+          }),
+        ],
         preference: "auto",
         ephemeral: false,
         emit,

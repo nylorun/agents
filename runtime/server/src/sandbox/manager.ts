@@ -58,6 +58,7 @@ import {
 } from "./tools.js";
 import {
   SandboxFileTooLargeError,
+  SandboxUnsupportedError,
   type SandboxBackend,
   type SandboxFileBytes,
   type SandboxHandle,
@@ -448,6 +449,14 @@ export class SandboxManager {
     signal: AbortSignal
   ): Promise<DiskAnswer | Extract<SandboxToolOutcome, { kind: "failed" }>> {
     return this.withHandle(session, sandbox, signal, async (handle, live) => {
+      // A disk that is not on this machine (a computer) runs the operation where it is.
+      if (handle.diskOp)
+        try {
+          return await handle.diskOp(op, signal);
+        } catch (error) {
+          if (!(error instanceof SandboxUnsupportedError)) throw error;
+          return { kind: "failed" as const, code: "sandbox.unsupported", message: error.message };
+        }
       if (!handle.diskRoots)
         return {
           kind: "failed" as const,
