@@ -155,6 +155,14 @@ describe("SendMessage params", () => {
       expect(() => parseSendParams(message({ parts: [{ text: "a" }], metadata: { removeTools } }))).toThrow(/removeTools/);
   });
 
+  it("takes metadata.role, on the message or the request, and refuses a bad one", () => {
+    expect(parseSendParams(message({ parts: [{ text: "a" }], metadata: { role: "builder" } })).role).toBe("builder");
+    expect(parseSendParams({ ...message({ parts: [{ text: "a" }] }), metadata: { role: "deep-research" } }).role).toBe("deep-research");
+    expect(parseSendParams(message({ parts: [{ text: "a" }] })).role).toBeUndefined();
+    for (const role of ["Builder", "", 3, ["builder"], `a${"b".repeat(32)}`])
+      expect(() => parseSendParams(message({ parts: [{ text: "a" }], metadata: { role } }))).toThrow(/role/);
+  });
+
   it("joins text parts", () => {
     expect(
       parseSendParams(message({ parts: [{ text: "a" }, { text: "b" }] }))

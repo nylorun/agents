@@ -9,7 +9,7 @@
  * Format `agent-folder/1`:
  *
  * - `AGENT.md`: frontmatter (`name`, `description`, `format`, `harness`, `outputSchema`,
- *   `mcpServers`, `skills`, `memory`, `loop`, `model`, `metadata`); the body is the instructions, then
+ *   `mcpServers`, `skills`, `memory`, `loop`, `model`, `roles`, `metadata`); the body is the instructions, then
  *   each of `instructions/*.md` in natural order (`2-x.md` before `10-y.md`).
  * - `runtime.json`: the runtime section. Without one, a folder that needs a runtime section (a
  *   derived secret slot, a trigger, files) gets kind `none`.
@@ -45,6 +45,7 @@ import type { z } from "zod";
 import {
   AGENT_MANIFEST_V8_SCHEMA_VERSION,
   AGENT_MODEL_MAX_CHARS,
+  AGENT_ROLE_PATTERN,
   AgentManifestV8Schema,
   ENVIRONMENT_NAME_PATTERN,
   HarnessIdSchema,
@@ -180,7 +181,7 @@ export const SCHEMA_URLS = {
   flow: [`${FOLDER_SCHEMAS}flow.json`],
 } as const;
 const SKILL_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
-export const AGENT_KEYS = ["name", "description", "format", "harness", "inputSchema", "outputSchema", "mcpServers", "skills", "memory", "loop", "model", "engine", "plugins", "metadata"] as const;
+export const AGENT_KEYS = ["name", "description", "format", "harness", "inputSchema", "outputSchema", "mcpServers", "skills", "memory", "loop", "model", "roles", "engine", "plugins", "metadata"] as const;
 const SKILL_KEYS = ["name", "description", "license", "compatibility", "metadata", "allowed-tools"];
 export const TRIGGER_KEYS = ["schedule", "timezone", "at", "webhook", "session"] as const;
 export const MCP_KEYS = ["$schema", "mcpServers"] as const;
@@ -728,6 +729,29 @@ export function compileAgentFolder(input: CompileAgentFolderInput, scope?: Folde
           ["model"],
         );
     }
+    // The model of each role a session may be opened with (Host feature `model-roles`, ADR-154).
+    if (front.roles !== undefined) {
+      if (!isObject(front.roles))
+        error("value_invalid", "roles is a map from a role's name to its model, such as builder: anthropic/claude-sonnet-4-5", AGENT_FILE, ["roles"]);
+      else {
+        const roles: Record<string, string> = {};
+        for (const [role, value] of Object.entries(front.roles)) {
+          if (!AGENT_ROLE_PATTERN.test(role)) {
+            error("value_invalid", `roles.${role}: a role is a lowercase letter, then up to 31 lowercase letters, digits and '-', such as builder`, AGENT_FILE, ["roles", role], { key: true });
+            continue;
+          }
+          if (typeof value === "string" && agentModelChoice(value.trim()) !== undefined) roles[role] = value.trim();
+          else
+            error(
+              "value_invalid",
+              `roles.${role} is <provider>/<model>, such as anthropic/claude-sonnet-4-5, at most ${AGENT_MODEL_MAX_CHARS} characters and no spaces${typeof value === "string" ? `, not ${JSON.stringify(value)}` : ""}`,
+              AGENT_FILE,
+              ["roles", role],
+            );
+        }
+        if (Object.keys(roles).length > 0) harness.roles = roles;
+      }
+    }
     if (front.metadata !== undefined) {
       if (isObject(front.metadata)) metadata = front.metadata;
       else error("value_invalid", "metadata is a map", AGENT_FILE, ["metadata"]);
@@ -735,7 +759,7 @@ export function compileAgentFolder(input: CompileAgentFolderInput, scope?: Folde
     const body = trimBlankLines(agent.body);
     if (body !== "") instructions.push(body);
     origins.push([["harness", "instructions"], { file: AGENT_FILE, path: [] }]);
-    for (const key of ["memory", "loop", "model", "outputSchema"])
+    for (const key of ["memory", "loop", "model", "roles", "outputSchema"])
       origins.push([["harness", key], { file: AGENT_FILE, path: [key] }]);
     origins.push([["harness", "id"], { file: AGENT_FILE, path: ["harness"] }]);
   }

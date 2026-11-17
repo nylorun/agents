@@ -8,7 +8,9 @@
  * What its turns call, and why, is kept too (`Session.modelRecord`, `SessionModelRecord`): set when
  * the session opens (the manifest's model, or the Tenant's and why), when it chooses or clears its
  * model, and again at each segment's start, when a provider was connected or disconnected or the
- * Tenant's model changed. Each change writes `session.model`.
+ * Tenant's model changed. Each change writes `session.model`. A session opened with a role
+ * (Host feature `model-roles`) starts with the role's model (`harness.roles`) in place of the
+ * manifest's, through the same checks.
  */
 import {
   agentModelChoice,
@@ -72,48 +74,66 @@ export interface ModelFallback {
  * the Tenant cannot use now (a provider not connected, a model its catalog does not list), why
  * (`fallback`), so the Tenant's model applies. Undefined when it names none. Never fails the
  * session.
+ *
+ * With `role` (Host feature `model-roles`): the model `harness.roles` names for it, through the
+ * same checks, its fallback `by: "role"`. A role the version does not declare is
+ * `400 unknown_role`.
  */
 export async function agentModelOf(
   t: Tx,
-  harness: { readonly model?: unknown },
+  harness: { readonly model?: unknown; readonly roles?: unknown },
+  role?: string,
 ): Promise<{ choice: SessionModelChoice } | { fallback: ModelFallback } | undefined> {
-  if (typeof harness.model !== "string") return undefined;
-  const choice = agentModelChoice(harness.model);
+  const roles = (harness.roles ?? {}) as Record<string, unknown>;
+  if (role !== undefined && (typeof roles !== "object" || typeof roles[role] !== "string"))
+    fail(400, `The Agent's version declares no role ${role}${Object.keys(roles).length === 0 ? "" : `: it declares ${Object.keys(roles).sort().join(", ")}`}.`, {
+      code: "unknown_role",
+      details: { role, roles: Object.keys(roles).sort() },
+    });
+  const named = role === undefined ? harness.model : roles[role];
+  if (typeof named !== "string") return undefined;
+  const choice = agentModelChoice(named);
   if (!choice) return undefined;
   const issue = await choiceIssue(t, choice);
   return issue === undefined
     ? { choice }
-    : { fallback: { reason: issue.reason, requested: { ...choice, by: "manifest" } } };
+    : { fallback: { reason: issue.reason, requested: { ...choice, by: role === undefined ? "manifest" : "role" } } };
 }
 
 /**
  * The model session `s`'s turns call now, and why (`SessionModelRecord`, as the Model Gate picks
  * it: `hostCredentialRowOf`): its own model while its provider is connected (`source` `manifest`
- * when its Agent's version named it, else `session`), else the Tenant's, with the reason when it
- * falls back. `fallback` is why the session opened without the model its manifest names; kept
- * from the session's record otherwise, until it chooses or clears a model. Undefined while the
- * Tenant has no model to fall back to.
+ * when its Agent's version named it, `role` when it is its role's, else `session`), else the
+ * Tenant's, with the reason when it falls back. `fallback` is why the session opened without the
+ * model its manifest or role names; kept from the session's record otherwise, until it chooses or
+ * clears a model. A record of the role's model, or of its fallback, names the role. Undefined
+ * while the Tenant has no model to fall back to.
  */
 export async function sessionModelRecordOf(
   t: Tx,
-  s: Pick<Session, "model" | "modelSource" | "modelRecord">,
+  s: Pick<Session, "model" | "modelSource" | "modelRecord" | "role">,
   fallback?: ModelFallback,
 ): Promise<SessionModelRecord | undefined> {
+  const role = s.role === undefined ? {} : { role: s.role };
   if (s.model) {
     const by = s.modelSource ?? "session";
     if (await hostCredentialRowFor(t, s.model.provider))
-      return { provider: s.model.provider, model: s.model.model, source: by };
-    return tenantModelRecord(t, { reason: "provider_not_connected", requested: { ...s.model, by } });
+      return { provider: s.model.provider, model: s.model.model, source: by, ...(by === "role" ? role : {}) };
+    return tenantModelRecord(t, { reason: "provider_not_connected", requested: { ...s.model, by } }, by === "role" ? role : {});
   }
   const kept =
     fallback ??
-    (s.modelRecord?.reason !== undefined && s.modelRecord.requested?.by === "manifest"
+    (s.modelRecord?.reason !== undefined && (s.modelRecord.requested?.by === "manifest" || s.modelRecord.requested?.by === "role")
       ? { reason: s.modelRecord.reason, requested: s.modelRecord.requested }
       : undefined);
-  return tenantModelRecord(t, kept);
+  return tenantModelRecord(t, kept, kept?.requested.by === "role" ? role : {});
 }
 
-async function tenantModelRecord(t: Tx, fallback: ModelFallback | undefined): Promise<SessionModelRecord | undefined> {
+async function tenantModelRecord(
+  t: Tx,
+  fallback: ModelFallback | undefined,
+  role: { role?: string } = {},
+): Promise<SessionModelRecord | undefined> {
   const row = await activeHostCredentialRow(t);
   if (!row) return undefined;
   const binding = modelBinding(row);
@@ -121,7 +141,7 @@ async function tenantModelRecord(t: Tx, fallback: ModelFallback | undefined): Pr
     provider: binding.provider,
     model: binding.model,
     source: "tenant",
-    ...(fallback === undefined ? {} : { reason: fallback.reason, requested: { ...fallback.requested } }),
+    ...(fallback === undefined ? {} : { ...role, reason: fallback.reason, requested: { ...fallback.requested } }),
   };
 }
 

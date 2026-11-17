@@ -377,6 +377,38 @@ describe("agent folders: messages in the compiler's own words", () => {
     expect(errors(long.diagnostics)).toHaveLength(1);
   });
 
+  it("takes roles as a map of role names to <provider>/<model> into harness.roles, and refuses any other shape", () => {
+    const named = compile({
+      "AGENT.md": "---\nname: shop\ndescription: Orders.\nmodel: anthropic/claude-haiku-4-5\nroles:\n  builder: anthropic/claude-sonnet-4-5\n  deep-research: openrouter/google/gemini-2.5-pro\n---\nGo.\n",
+    });
+    expect(named.diagnostics).toEqual([]);
+    expect(named.manifest!.harness).toMatchObject({
+      model: "anthropic/claude-haiku-4-5",
+      roles: { builder: "anthropic/claude-sonnet-4-5", "deep-research": "openrouter/google/gemini-2.5-pro" },
+    });
+    expect(compile({ "AGENT.md": AGENT }).manifest!.harness).not.toHaveProperty("roles");
+    const notMap = compile({ "AGENT.md": "---\nname: shop\ndescription: Orders.\nroles: anthropic/claude\n---\nGo.\n" });
+    expect(notMap.manifest).toBeUndefined();
+    expect(errors(notMap.diagnostics)).toEqual([expect.objectContaining({ code: "value_invalid", file: "AGENT.md", message: expect.stringMatching(/^roles is a map/) })]);
+    const badModel = compile({ "AGENT.md": "---\nname: shop\ndescription: Orders.\nroles: { builder: claude }\n---\nGo.\n" });
+    expect(errors(badModel.diagnostics)).toEqual([expect.objectContaining({ code: "value_invalid", message: expect.stringMatching(/^roles\.builder is <provider>\/<model>/) })]);
+    for (const role of ["Builder", "1st", "with_underscore", `a${"b".repeat(32)}`]) {
+      const result = compile({ "AGENT.md": `---\nname: shop\ndescription: Orders.\nroles: { ${role}: anthropic/claude-sonnet-4-5 }\n---\nGo.\n` });
+      expect(result.manifest, role).toBeUndefined();
+      expect(errors(result.diagnostics), role).toEqual([expect.objectContaining({ code: "value_invalid", message: expect.stringContaining(`roles.${role}: a role is`) })]);
+    }
+  });
+
+  it("refuses roles in an agent under agents/: it runs on the root agent's", () => {
+    const result = compile({
+      "AGENT.md": AGENT,
+      "agents/helper/AGENT.md": "---\nname: helper\ndescription: Helps.\nroles: { builder: anthropic/claude-haiku-4-5 }\n---\nHelp.\n",
+    });
+    expect(errors(result.diagnostics)).toEqual([
+      expect.objectContaining({ code: "nested_refused", file: "agents/helper/AGENT.md", message: expect.stringContaining("roles are the root agent's") }),
+    ]);
+  });
+
   it("refuses model in an agent under agents/: it runs on the root agent's", () => {
     const result = compile({
       "AGENT.md": AGENT,

@@ -703,11 +703,17 @@ A session opened on a version whose manifest names a model (`harness.model`, `<p
 Host feature `agent-model`) starts with it as its own, when that choice would pass (`agentModelOf`
 in `putSession`'s path, so a session the A2A server or a trigger opens gets it too); one the Tenant
 cannot use now is left out, and the Tenant's model applies. A later choice replaces it.
+A session opened with a **role** (`PUT /v1/sessions/{id}` `role`, an A2A message's
+`metadata.role` when it opens the context; Host feature `model-roles`, ADR-154) starts with the
+model its version names for that role (`harness.roles`) in place of `harness.model`, through the
+same checks (`Session.role`, `modelSource: "role"`); a role the version does not declare is
+`400 unknown_role`.
 What its turns call, and why, is the session's **model record** (`Session.modelRecord`,
 `SessionModelRecord`, `model` on `GET /v1/sessions/{id}`): `{provider, model, source:
-manifest|session|tenant, reason?, requested?}`, with `reason` (`provider_not_connected`,
-`not_in_catalog`, `invalid_model`) and the model `requested` (`by` the manifest or the session) on
-a fallback to the Tenant's. It is set when the session opens, chooses or clears its model, and
+manifest|role|session|tenant, role?, reason?, requested?}`, with `reason` (`provider_not_connected`,
+`not_in_catalog`, `invalid_model`) and the model `requested` (`by` the manifest, the role or the
+session) on a fallback to the Tenant's, and `role` when the model is, or was asked to be, the
+role's. It is set when the session opens, chooses or clears its model, and
 again at each segment's start (`sessionModelRecordOf`, `noteSessionModel` in
 `tenant/session-model.ts`), as the Model Gate would pick; each change writes `session.model` with
 the `previous` record.

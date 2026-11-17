@@ -1570,6 +1570,15 @@ export const ListAgentEventsResponseSchema = z
   .strict();
 
 /**
+ * A model role's name (Host feature `model-roles`, ADR-154): a lowercase letter, then up to 31
+ * lowercase letters, digits and `-`, such as `builder`.
+ */
+export const AGENT_ROLE_PATTERN = /^[a-z][a-z0-9-]{0,31}$/;
+export const AgentRoleNameSchema = z
+  .string()
+  .regex(AGENT_ROLE_PATTERN, "a role is a lowercase letter, then up to 31 lowercase letters, digits and '-', such as builder")
+  .meta({ description: "A model role's name, such as builder" });
+/**
  * `PUT /v1/sessions/{id}` (protocol 16): the session's Agent, owner and info. The session runs on
  * the Agent for its life (its sandbox, its vault's credentials) and pins the manifest version the
  * Agent runs when it opens. No session is special: an app that keeps one conversation
@@ -1582,6 +1591,12 @@ export const PutSessionRequestSchema = z
     agent: AgentIdSchema,
     ownerUserId: z.string().min(1),
     info: jsonObject.optional(),
+    /**
+     * The model role the session runs on (Host feature `model-roles`): its model is the one the
+     * Agent's version names for it (`harness.roles`), checked as `harness.model` is. A role the
+     * version does not declare is `400 unknown_role`. Fixed once the session exists.
+     */
+    role: AgentRoleNameSchema.optional(),
   })
   .strict();
 export type PutSessionRequest = z.infer<typeof PutSessionRequestSchema>;
@@ -2075,6 +2090,15 @@ export function agentModelChoice(value: string): { provider: string; model: stri
   return { provider: value.slice(0, slash), model: value.slice(slash + 1) };
 }
 const harnessModelField = AgentModelSchema.optional();
+/**
+ * `harness.roles` (Host feature `model-roles`, ADR-154): a model for each role a session may be
+ * opened with (`PUT /v1/sessions/{id}` `role`, an A2A message's `metadata.role`), checked as
+ * `harness.model` is. A session opened with no role runs on `harness.model`.
+ */
+export const AgentRolesSchema = z
+  .record(AgentRoleNameSchema, AgentModelSchema)
+  .meta({ description: "The model of each role a session may be opened with: <role>: <provider>/<model>" });
+const harnessRolesField = AgentRolesSchema.optional();
 /** Fields the harness section refuses with where they went. */
 const REMOVED_HARNESS_FIELDS: Readonly<Record<string, string>> = Object.freeze({
   requires:
@@ -2098,6 +2122,7 @@ const agentHarnessObject = z
       loop: harnessLoopField,
       memory: harnessMemoryField,
       model: harnessModelField,
+      roles: harnessRolesField,
       engine: harnessEngineField,
       functions: z.unknown().optional().meta({ description: "Reserved: Functions are not available yet" }),
     },
@@ -2577,6 +2602,7 @@ export const HarnessManifestFileSchema = z
     loop: harnessLoopField,
     memory: harnessMemoryField,
     model: harnessModelField,
+    roles: harnessRolesField,
     engine: harnessEngineField,
     /** MCP server or HTTP tool name → the `runtime.secrets` slot it authenticates with. */
     credentials: z.record(z.string().min(1), z.string().min(1)).optional(),
@@ -4209,7 +4235,7 @@ export const EngineDiagnosticPayloadSchema = z
   .passthrough();
 
 /** Where the model a session's turns call comes from (`SessionModelRecord.source`). */
-export const SESSION_MODEL_SOURCES = ["manifest", "session", "tenant"] as const;
+export const SESSION_MODEL_SOURCES = ["manifest", "role", "session", "tenant"] as const;
 /**
  * Why a session's turns call the Tenant's model and not the one its manifest (`harness.model`) or
  * its own choice (`PUT /v1/sessions/{id}/model`) names: that model's provider is not connected,
@@ -4219,18 +4245,21 @@ export const SESSION_MODEL_FALLBACK_REASONS = ["provider_not_connected", "not_in
 /**
  * The model a session's turns call, and why (`model` on `GET /v1/sessions/{id}`, and the
  * `session.model` event): `source` `manifest` for the model its Agent's version names
- * (`harness.model`, Host feature `agent-model`), `session` for its own choice, `tenant` for the
- * Tenant's model. On a fallback to the Tenant's, `reason` says why the model `requested` (by the
- * manifest or the session) is not used.
+ * (`harness.model`, Host feature `agent-model`), `role` for the model of the role it was opened
+ * with (`harness.roles`, Host feature `model-roles`, named in `role`), `session` for its own
+ * choice, `tenant` for the Tenant's model. On a fallback to the Tenant's, `reason` says why the
+ * model `requested` (by the manifest, the role or the session) is not used.
  */
 export const SessionModelRecordSchema = z
   .object({
     provider: z.string(),
     model: z.string(),
     source: z.enum(SESSION_MODEL_SOURCES),
+    /** The role the session was opened with, when its model is, or was asked to be, the role's. */
+    role: z.string().optional(),
     reason: z.enum(SESSION_MODEL_FALLBACK_REASONS).optional(),
     requested: z
-      .object({ provider: z.string(), model: z.string(), by: z.enum(["manifest", "session"]) })
+      .object({ provider: z.string(), model: z.string(), by: z.enum(["manifest", "role", "session"]) })
       .strict()
       .optional(),
   })

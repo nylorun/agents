@@ -210,6 +210,53 @@ it("starts a new session on the model its Agent's version names, when the Tenant
   expect((await call("GET", "/v1/sessions/c1/model")).body).toMatchObject({ source: "tenant" });
 });
 
+it("starts a session opened with a role on the role's model, and refuses a role the version does not declare (model-roles)", async () => {
+  const called = stubProvider();
+  const { runtime, call, turn, settled } = await boot();
+  const bot = Agent({ id: "coder", name: "Coder" }).instructions("Code.").build();
+  await deploy(runtime.url, runtime.headers(), bot, {
+    name: "roles",
+    model: "custom/agent-model",
+    roles: { builder: "custom/builder-model", reviewer: "anthropic/claude-sonnet-4-5" },
+  });
+  const open = (id: string, role?: string) =>
+    call("PUT", `/v1/sessions/${id}`, { requestId: id, agent: "roles", ownerUserId: "ada", ...(role === undefined ? {} : { role }) });
+  expect((await open("r1", "builder")).status).toBe(200);
+  expect((await open("r2")).status).toBe(200);
+  expect((await open("r3", "reviewer")).status).toBe(200);
+
+  expect((await call("GET", "/v1/sessions/r1")).body.model).toEqual({ provider: "custom", model: "builder-model", source: "role", role: "builder" });
+  expect((await call("GET", "/v1/sessions/r2")).body.model).toEqual({ provider: "custom", model: "agent-model", source: "manifest" });
+  // A role whose provider is not connected falls back to the Tenant's model, saying which role asked.
+  expect((await call("GET", "/v1/sessions/r3")).body.model).toEqual({
+    provider: "custom",
+    model: "tenant-model",
+    source: "tenant",
+    role: "reviewer",
+    reason: "provider_not_connected",
+    requested: { provider: "anthropic", model: "claude-sonnet-4-5", by: "role" },
+  });
+  expect(await modelEvents(call, "r1", 1)).toEqual([{ provider: "custom", model: "builder-model", source: "role", role: "builder" }]);
+
+  await turn("r1", "b1");
+  expect(await settled("r1")).toBe("completed");
+  await turn("r2", "b2");
+  expect(await settled("r2")).toBe("completed");
+  expect(called).toEqual(["builder-model", "agent-model"]);
+
+  // A role the version does not declare, and one on an Agent whose version declares none.
+  const unknown = await open("r4", "designer");
+  expect(unknown.status).toBe(400);
+  expect(unknown.body).toMatchObject({ code: "unknown_role", details: { role: "designer", roles: ["builder", "reviewer"] } });
+  expect((await call("GET", "/v1/sessions/r4")).status).toBe(404);
+  const none = await call("PUT", "/v1/sessions/r5", { requestId: "r5", agent: "bot", ownerUserId: "ada", role: "builder" });
+  expect(none.status).toBe(400);
+  expect(none.body.code).toBe("unknown_role");
+  // A role is fixed once the session exists.
+  expect((await open("r1", "reviewer")).status).toBe(409);
+  expect((await open("r1", "builder")).status).toBe(200);
+});
+
 /** The `session.model` events of session `id`, as served, once `count` of them are there. */
 async function modelEvents(call: Awaited<ReturnType<typeof boot>>["call"], id: string, count: number) {
   let events: any[] = [];

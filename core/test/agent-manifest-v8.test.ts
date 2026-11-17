@@ -3,6 +3,7 @@ import {
   AgentManifestFileSchema,
   AgentManifestV8Schema,
   HarnessManifestFileSchema,
+  PutSessionRequestSchema,
   RuntimeManifestFileSchema,
   RuntimeSectionSchema,
   agentModelChoice,
@@ -316,9 +317,20 @@ describe("authoring files", () => {
     expect(loopManifestOf({ ...base, harness: { model: "anthropic/claude-sonnet-4-5", instructions: ["Code."] } })).not.toHaveProperty("model");
   });
 
+  it("takes harness.roles as role names to <provider>/<model>, kept out of the loop manifest", () => {
+    const base = { manifestSchemaVersion: 8, name: "coder", description: "Codes." } as const;
+    expect(AgentManifestV8Schema.safeParse({ ...base, harness: { roles: { builder: "anthropic/claude-sonnet-4-5" } } }).success).toBe(true);
+    for (const roles of [{ Builder: "anthropic/claude" }, { builder: "claude" }, { "": "a/b" }, ["a/b"], "a/b"])
+      expect(AgentManifestV8Schema.safeParse({ ...base, harness: { roles } }).success, JSON.stringify(roles)).toBe(false);
+    expect(HarnessManifestFileSchema.safeParse({ roles: { builder: "google/gemini-2.5-pro" } }).success).toBe(true);
+    expect(PutSessionRequestSchema.safeParse({ requestId: "r1", agent: "bot", ownerUserId: "ada", role: "builder" }).success).toBe(true);
+    expect(PutSessionRequestSchema.safeParse({ requestId: "r1", agent: "bot", ownerUserId: "ada", role: "Builder" }).success).toBe(false);
+    expect(loopManifestOf({ ...base, harness: { roles: { builder: "anthropic/claude-sonnet-4-5" }, instructions: ["Code."] } })).not.toHaveProperty("roles");
+  });
+
   it("publishes the three files as JSON Schema documents", () => {
-    expect(agentManifestJsonSchema().$id).toBe("https://docs.nylorun.com/schemas/agent-manifest/v8.4.json");
-    expect(harnessManifestJsonSchema().$id).toBe("https://docs.nylorun.com/schemas/harness-manifest/v1.4.json");
+    expect(agentManifestJsonSchema().$id).toBe("https://docs.nylorun.com/schemas/agent-manifest/v8.5.json");
+    expect(harnessManifestJsonSchema().$id).toBe("https://docs.nylorun.com/schemas/harness-manifest/v1.5.json");
     const runtime = runtimeManifestJsonSchema();
     expect(runtime.$id).toBe("https://docs.nylorun.com/schemas/runtime-manifest/v1.2.json");
     expect(Object.keys(runtime.properties as object)).toEqual(expect.arrayContaining(["$schema", "kind", "secrets"]));

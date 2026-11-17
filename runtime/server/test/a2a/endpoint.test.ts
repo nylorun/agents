@@ -15,6 +15,8 @@ import { createA2aHandler, toNodeListener } from "@nylorun/agents/a2a";
 import type { ModelProvider } from "../../src/core/provider.js";
 import { contextSessionId } from "../../src/api/a2a/tasks.js";
 import { startTestTenant } from "../support/tenant.js";
+import { manifestOf, saveManifest } from "../support/agents.js";
+import { withTestSessionStore } from "../support/store.js";
 import { startToolServer, type ToolServer } from "../support/tool-server.js";
 import { setToolPolicy } from "../support/tool-policy.js";
 
@@ -44,6 +46,7 @@ const SCRIPTS: Record<string, { steps: Step[]; closing: (results: string) => str
     closing: () => "Finished.",
   },
   tooled: { steps: [], closing: () => "Done." },
+  roled: { steps: [], closing: () => "Built." },
 };
 
 /** The tools each of `tooled`'s model calls was offered, by name. */
@@ -98,7 +101,9 @@ function agents(service: ToolServer) {
   const tooled = Agent({ id: "tooled", name: "Tooled" })
     .tools(service.tool("note", { input: z.object({}) }), service.tool("keep", { input: z.object({}) }))
     .build();
-  return [support, guarded, slow, tooled];
+  // Declares the model role `builder` (Host feature `model-roles`) once its manifest is saved again.
+  const roled = Agent({ id: "roled", name: "Roled" }).build();
+  return [support, guarded, slow, tooled, roled];
 }
 
 let runtime: Awaited<ReturnType<typeof startTestTenant>>;
@@ -132,6 +137,9 @@ beforeAll(async () => {
     await client.agentManifests.save({ agent });
     await client.agents.put(agent.id, { manifest: agent.id });
   }
+  // The roled agent's next version declares a role; its Agent tracks it.
+  const roled = built.find((agent) => agent.id === "roled")!;
+  await saveManifest(runtime.url, runtime.headers(), manifestOf(roled, { name: "roled", roles: { builder: "anthropic/claude-sonnet-4-5" } }));
   // The guarded agent's save waits for a person (R5 step 2).
   await setToolPolicy(runtime, [{ effect: "ask", tool: "save", agent: "guarded" }]);
   const handler = createA2aHandler({
@@ -291,6 +299,23 @@ describe("the official A2A client", () => {
     expect(whole.body.result.task.status.state).toBe("TASK_STATE_COMPLETED");
     expect(offered.at(-1)).toEqual(expect.arrayContaining(["keep", "note"]));
     const bad = await rpc("SendMessage", wireMessage("Go", { metadata: { removeTools: "note" } }), { agent: "tooled" });
+    expect(bad.body.error.code).toBe(-32602);
+  });
+
+  it("opens a new context's session on the role its metadata.role names, and refuses an undeclared one (model-roles)", async () => {
+    const built = await rpc("SendMessage", wireMessage("Build it", { metadata: { role: "builder" } }), { agent: "roled" });
+    expect(built.body.result.task.status.state, JSON.stringify(built.body)).toBe("TASK_STATE_COMPLETED");
+    const sessionId = contextSessionId("a2a:acme", "roled", built.body.result.task.contextId);
+    // The session was opened with the role. (Its model's provider is not connected here, so it runs
+    // on the Tenant's: `session-model.test.ts` covers the role's model.)
+    const stored = await withTestSessionStore(runtime, (store) => store.tx((t) => t.get("sessions", sessionId)));
+    expect(stored).toMatchObject({ role: "builder", creation: { role: "builder" } });
+    expect((await rpc("SendMessage", wireMessage("Again"), { agent: "roled" })).body.result.task.status.state).toBe("TASK_STATE_COMPLETED");
+
+    const unknown = await rpc("SendMessage", wireMessage("Design it", { metadata: { role: "designer" } }), { agent: "roled" });
+    expect(unknown.body.error.code).toBe(-32602);
+    expect(unknown.body.error.message).toContain("designer");
+    const bad = await rpc("SendMessage", wireMessage("Go", { metadata: { role: "Not a role" } }), { agent: "roled" });
     expect(bad.body.error.code).toBe(-32602);
   });
 

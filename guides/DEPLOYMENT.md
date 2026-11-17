@@ -486,9 +486,10 @@ offers it `request_connection`, which pauses the turn on an interaction whose `m
 `connection`), or a flow (`kind: "workflow"`); and `runtime`, the
 Agent's kind and what it gets (`image`, `network`, `setup`, `files`, `limits`, `lifecycle` and
 the secret slots, `secrets`). Its JSON Schema is
-`https://docs.nylorun.com/schemas/agent-manifest/v8.3.json` (v8 with `harness.model`,
-`harness.engine` with `triggers`, `harness.memory.index`, a secret slot's `toolPrefix` and
-`runtime.limits.triggers`; `v8.2.json` is the same without `harness.engine.triggers` and
+`https://docs.nylorun.com/schemas/agent-manifest/v8.5.json` (v8 with `harness.model`,
+`harness.roles`, `harness.engine` with `triggers` and `plugins`, `harness.memory.index`, a secret
+slot's `toolPrefix` and `runtime.limits.triggers`; `v8.4.json` is the same without
+`harness.roles`, `v8.3.json` without `harness.engine.plugins` too, `v8.2.json` the same without `harness.engine.triggers` and
 `limits.triggers`, `v8.1.json` without `harness.engine`, `harness.memory.index` and `toolPrefix`
 too, and `v8.json` without `harness.model` too)
 (`@nylorun/core/schemas/agent-manifest.json`; clients drop `$schema` before they save):
@@ -535,6 +536,23 @@ too, and `v8.json` without `harness.model` too)
   fails. Only a new session takes it: an open session keeps its model when a later version names
   another, and an explicit choice replaces it. Agents under `agents/` run on the root agent's.
   Host feature `agent-model`.
+- **Model roles.** `harness.roles` (`roles:` in `AGENT.md`) maps a role's name (a lowercase
+  letter, then up to 31 lowercase letters, digits and `-`) to a model, `<provider>/<model>`, so one
+  agent can run a conversation on a fast model and a build on a coding model:
+
+  ```yaml
+  model: anthropic/claude-haiku-4-5
+  roles:
+    builder: anthropic/claude-sonnet-4-5
+  ```
+
+  A session opened with `role` (`PUT /v1/sessions/{id}` with `"role": "builder"`,
+  `client.createSession({ role })`, or an A2A message's `metadata.role` when it opens the context)
+  starts on that role's model, through the same checks as `harness.model`: a provider that is not
+  connected, or a model its catalog does not list, falls back to the Tenant's model. Its model
+  record says `source: "role"` and the `role`. A role the version does not declare is
+  `400 unknown_role` (A2A: `InvalidParams`); no role is the version's `model`. The role is fixed
+  once the session exists. Host feature `model-roles`.
 - **Its sections must fit.** The Runtime checks the two against each other and refuses every
   gap at once (`422 manifest_inconsistent`, `details.gaps`): a custom harness needs
   `runtime.kind` `pod` with an `image`; an MCP server's, HTTP tool's, flow HTTP stage's or HTTP
@@ -546,8 +564,8 @@ too, and `v8.json` without `harness.model` too)
   [tool policy](#tool-policy) decides).
 - **Agent folders.** Author a manifest as a folder (tracks T6 and T7, format `agent-folder/1`; or
   `agent-folder/2`, ADR-100, which declares every engine feature it uses in `engine:`):
-  `AGENT.md` (frontmatter `name` and `description`, optionally `model: <provider>/<model>`, the
-  instructions below), `mcp.json` (Agent
+  `AGENT.md` (frontmatter `name` and `description`, optionally `model: <provider>/<model>` and
+  `roles`, the instructions below), `mcp.json` (Agent
   Plugins syntax; `Authorization: Bearer ${NAME}` names a `bearer` slot, derived for the server's
   URL when `runtime.json` declares none), `runtime.json` (which may `"extends"` a shared file),
   `skills/<name>/`, HTTP `tools/<name>.json`, `triggers/<id>.md`, `files/**`, subagents in
@@ -555,7 +573,7 @@ too, and `v8.json` without `harness.model` too)
   `.nyloignore` leaves files out. The [CLI's README](../cli/nylorun/README.md#agent-manifests-apply)
   shows each. Each kind of file has a JSON Schema at
   `https://docs.nylorun.com/schemas/agent-folder/v1/<kind>.json` (`runtime.2`, `tool`, `mcp` and
-  `flow`, and `agent-md.3` and `trigger-md` for the frontmatter), exported as
+  `flow`, and `agent-md.5` and `trigger-md` for the frontmatter), exported as
   `@nylorun/core/schemas/agent-folder-<kind>.json`.
   `nylorun init <path>` writes one, `nylorun check` compiles it offline and prints every problem by
   file, line and column, and `nylorun apply` (or `saveFolder` in `@nylorun/agents`) sends it by
