@@ -642,6 +642,17 @@ export const harnessRequests = {
     result: z.object({ url: z.string().url(), ticket: z.string().min(1), expiresAt: z.number().int() }).strict(),
   },
   /**
+   * Where the computer of the run's session is now (Harness API 5.7), without waking it: the
+   * sandbox gateway's URL for its current incarnation. A restore, a reset or a lost volume's
+   * recovery gives the computer a new volume, and with it a new URL: a harness asks before each
+   * request to the computer and, when the URL is not the one its `computer.open` answered, opens
+   * it again rather than reach the last one. Refused as `computer.open` is for another computer.
+   */
+  "computer.current": {
+    params: runId.extend({ environmentId: id }).strict(),
+    result: z.object({ url: z.string().url() }).strict(),
+  },
+  /**
    * An artifact the run's session may read (the artifact seam, protocol 15): one of the session's
    * own, or a Tenant-wide one its messages named; anything else is `not_found`, alike. The answer
    * carries the version's metadata (`version`, default the latest) and its bytes from `offset`

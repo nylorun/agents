@@ -567,6 +567,14 @@ harness drives the computer:
    Send a dropped request again with the same `id`: after a drain the computer runs on another
    worker, its commands moved with it. A `502 computer_unreachable` from the gateway is worth
    sending again.
+3. Before each request, `computer.current` with `{runId, environmentId}` (Harness API 5.7)
+   answers `{url}`: the gateway's URL for the computer as it is now, read without waking it. A
+   restore, a reset or a lost volume's recovery gives the computer a new volume and a new URL
+   (its sandbox name moves from `…-g0` to `…-g1`), while the last one may still answer for a
+   while. When the URL is not the one `computer.open` answered, open it again and send the
+   request there. A command started on the last computer is unknown to the new one (`404` on its
+   attach). A core older than 5.7 answers `invalid` (`Unknown request computer.current`): keep
+   the access until its ticket is renewed.
 
 Our engine does this through its `computer` sandbox backend; the tools are unchanged (ADR-150).
 
@@ -604,7 +612,7 @@ sets `harness.memory.index: false`), and one optional field came with it, `turn.
 so no other v5 harness sees it; all within v5: `harness-api/v5.2.json`. D83 added the `runtime`
 operation `triggers` and `turn.start.agent.triggers` (`true` when the session's version declares
 `harness.engine.triggers`: offer the root agent a tool whose calls name that target, or none), which
-a v5 harness may ignore: it offers no tool, and core receives no such call: `harness-api/v5.3.json`. D85 added the effect kind `inputs` (§4): a v5 harness that never asks for it is unchanged, and its turn's steered messages start the next turn: `harness-api/v5.4.json`. ADR-139 added `audience: "model"` to `artifact.write`'s `begin` (§4b), which core accepts and only our own engine sends: `harness-api/v5.5.json`. ADR-149 added `routing.sandbox.computer` and the request `computer.open` (§9b), which a v5 harness never sees unless the Tenant's pod Agents are computers: `harness-api/v5.6.json`.
+a v5 harness may ignore: it offers no tool, and core receives no such call: `harness-api/v5.3.json`. D85 added the effect kind `inputs` (§4): a v5 harness that never asks for it is unchanged, and its turn's steered messages start the next turn: `harness-api/v5.4.json`. ADR-139 added `audience: "model"` to `artifact.write`'s `begin` (§4b), which core accepts and only our own engine sends: `harness-api/v5.5.json`. ADR-149 added `routing.sandbox.computer` and the request `computer.open` (§9b), which a v5 harness never sees unless the Tenant's pod Agents are computers: `harness-api/v5.6.json`. The request `computer.current` (§9b), which only a harness that drives computers sends, came with `harness-api/v5.7.json`.
 ADR-106 changed no message: `turn.start.loop` may carry `ask: true` (offer the root agent a
 question tool whose first call is `interaction-required`, kind `response`, metadata
 `{kind: "question", choices?, why?}`, shown over A2A as a question), and a manifest's
