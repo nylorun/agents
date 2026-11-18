@@ -45,11 +45,11 @@ async function call(method: string, path: string, body: unknown): Promise<Record
 }
 
 /** A user message to `session`, so its stream has an event to send. */
-function say(session: string, content: string): Promise<Record<string, unknown>> {
+function say(session: string, content: string, key = content): Promise<Record<string, unknown>> {
   return call("POST", `/v1/sessions/${session}/commands`, {
     type: "message",
-    requestId: content,
-    idempotencyKey: content,
+    requestId: key,
+    idempotencyKey: key,
     content,
   });
 }
@@ -88,10 +88,14 @@ function open(
           text += chunk;
           for (const wake of waiters.splice(0)) wake();
         });
-        res.on("end", () => {
+        // A reset connection (`destroy()` on the server) ends with `close`, without `end`.
+        const finish = () => {
           ended = true;
           for (const wake of waiters.splice(0)) wake();
-        });
+        };
+        res.on("end", finish);
+        res.on("close", finish);
+        res.on("error", () => {});
         const sent: Record<string, string> = {};
         for (let i = 0; i < res.rawHeaders.length; i += 2) {
           const name = res.rawHeaders[i]!.toLowerCase();
@@ -131,6 +135,7 @@ beforeAll(async () => {
   await call("PUT", "/v1/agents/bot", { requestId: "bot", manifest: "bot" });
   await call("PUT", "/v1/sessions/s1", { requestId: "s1", agent: "bot", ownerUserId: SUBJECT });
   await call("PUT", "/v1/sessions/s2", { requestId: "s2", agent: "bot", ownerUserId: SUBJECT });
+  await call("PUT", "/v1/sessions/s3", { requestId: "s3", agent: "bot", ownerUserId: SUBJECT });
 });
 
 afterAll(async () => {
@@ -172,6 +177,34 @@ describe("session events", () => {
       await stream.until((text) => text.includes("\n\n"));
       const text = await stream.until((received) => received.includes("nylorun.closed"));
       expect(text.endsWith('event: nylorun.closed\ndata: {"reason":"token_expired"}\n\n')).toBe(true);
+    } finally {
+      stream.close();
+    }
+  });
+});
+
+describe("session events from the start", () => {
+  // A read with no cursor sends the session's history at once. More than the socket's
+  // high-water mark (64 KiB) in one go used to make `write()` return false, and the Runtime then
+  // destroyed the response, dropping what it had buffered: `200`, then a reset, with no frame.
+  it("sends a long session's whole history, then follows it", async () => {
+    const names = ["first", "second", "third"];
+    const said = names.map((name) => `${name}:${"x".repeat(40_000)}`);
+    for (const [index, content] of said.entries()) await say("s3", content, names[index]);
+    const stream = await open("GET", "/v1/sessions/s3/events", app);
+    try {
+      expect(stream.status).toBe(200);
+      const text = await stream.until((received) => said.every((content) => received.includes(content)));
+      for (const content of said) expect(text.split(content)).toHaveLength(2);
+      // Paused while its response drained, then read on from its own position: every event
+      // once, in order.
+      const seqs = [...text.matchAll(/^id: (\S+)$/gm)].map(
+        (match) => Number(Buffer.from(match[1]!, "base64url").toString().split(":").pop()),
+      );
+      expect(seqs).toEqual([...seqs].sort((x, y) => x - y));
+      expect(new Set(seqs).size).toBe(seqs.length);
+      await say("s3", "after");
+      expect(await stream.until((received) => received.includes('"after"'))).toContain('"after"');
     } finally {
       stream.close();
     }

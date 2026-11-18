@@ -1142,6 +1142,7 @@ below the run token's, the host token's longer than `harness.podRenewMs`, and
 | `harnessApi.rolloverMs` | 20 min | ...or after this long, well inside the advance deadline |
 | `api.agUiHeartbeatMs` | 15 s | How often an AG-UI event stream sends a heartbeat |
 | `api.eventStreamKeepaliveMs` | 15 s | How often a session event stream sends a keepalive |
+| `api.eventStreamStallMs` | 1 min | How long an event stream waits for its client to take what it was sent before it closes the connection |
 | `host.shutdownGraceMs` | 10 s | How long shutdown waits for requests in progress (0 allowed) |
 | `host.readinessTimeoutMs` | 2 s | The bound on one `/ready` pass |
 | `host.operateReadyTimeoutMs` | 5 s | How long `nylorun-operate status` waits for the running Host's `/ready` (it reads the container's `NYLORUN_TUNING`) |

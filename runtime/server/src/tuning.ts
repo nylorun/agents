@@ -139,6 +139,11 @@ export const HostTuningSchema = z
       agUiHeartbeatMs: ms(15_000),
       /** How often a session event stream sends a keepalive comment. */
       eventStreamKeepaliveMs: ms(15_000),
+      /**
+       * How long an event stream waits for its client to take what it was sent before it closes
+       * the connection.
+       */
+      eventStreamStallMs: ms(MINUTE),
     }),
     /** The Host process. */
     host: group({

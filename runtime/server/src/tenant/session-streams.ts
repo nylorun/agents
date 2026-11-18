@@ -14,6 +14,11 @@
  *   A feed follows one basin generation: it ends once its session is gone or the Tenant moved
  *   to a new generation (a reset, possibly on another node), checked when a client joins, when
  *   its read fails, on a `sessions.reset` signal, and periodically (`checkSessionStreams`).
+ * - **Backpressure.** An SSE client that has not taken what it was sent (its response is past
+ *   its high-water mark, as a read from a session's start always is) is paused: the shared read
+ *   goes on without it, and once its response drains it reads on from its own position, as a
+ *   client joining behind the feed does. One that takes nothing for `api.eventStreamStallMs`
+ *   is cut off.
  *
  * Business code never writes here: events reach streams only through the stream relay, from
  * the record, after commit.
@@ -40,7 +45,11 @@ export type StreamEndReason = "token_expired";
 
 /** Where an observer's events go: an SSE response, or an in-process reader. */
 export interface ObserverSink {
-  write(event: LiveEvent): void;
+  /**
+   * Takes `event`. False when the sink is full: it gets no more events until it has drained,
+   * when it resumes the observer.
+   */
+  write(event: LiveEvent): boolean;
   /** Ends the stream; with a reason, the client is told why before it ends. */
   end(reason?: StreamEndReason): void;
 }
@@ -62,6 +71,8 @@ export function streamHolderOf(scope: AuthScope): StreamHolder | undefined {
 interface Observer {
   readonly sink: ObserverSink;
   next: number;
+  /** Its sink is full: the shared read skips it until the sink drains (`resume`). */
+  paused?: boolean;
   readonly holder?: StreamHolder;
   /** Ends the observer when its token expires. */
   deadline?: NodeJS.Timeout;
@@ -99,8 +110,42 @@ function frame(event: LiveEvent): string {
   )}\n\n`;
 }
 
-export function send(response: ServerResponse, data: string): void {
-  if (!response.write(data)) response.destroy();
+/**
+ * Writes `data` to an event stream. False when the response now holds more than its high-water
+ * mark: the writer waits for `whenDrained` before it writes more. It never ends the response:
+ * a read from a session's start sends a whole batch of history in one tick, past the mark, and
+ * destroying the response there dropped everything it held (a `200`, then a reset, with no frame).
+ */
+export function send(response: ServerResponse, data: string): boolean {
+  if (response.writableEnded || response.destroyed) return false;
+  return response.write(data);
+}
+
+/**
+ * Calls `then(true)` once `response` has sent what it holds, or `then(false)` if the client went
+ * away first. A client that takes none of it for `api.eventStreamStallMs` (Host tuning) is cut
+ * off: the response is destroyed, and `then(false)`.
+ */
+export function whenDrained(response: ServerResponse, then: (drained: boolean) => void): void {
+  if (response.destroyed) return then(false);
+  if (!response.writableNeedDrain) return then(true);
+  const finish = (drained: boolean) => {
+    clearTimeout(stalled);
+    response.off("drain", onDrain);
+    response.off("close", onClose);
+    then(drained);
+  };
+  const onDrain = () => finish(true);
+  const onClose = () => finish(false);
+  const stalled = setTimeout(() => response.destroy(), hostTuning().api.eventStreamStallMs);
+  stalled.unref();
+  response.once("drain", onDrain);
+  response.once("close", onClose);
+}
+
+/** `whenDrained` as a promise. */
+export function drained(response: ServerResponse): Promise<boolean> {
+  return new Promise((resolve) => whenDrained(response, resolve));
 }
 
 /** The frame that tells a client why the Runtime ended its stream (no `id:`: not an event). */
@@ -108,10 +153,16 @@ function closedFrame(reason: StreamEndReason): string {
   return `event: nylorun.closed\ndata: ${JSON.stringify({ reason })}\n\n`;
 }
 
-/** An observer sink writing SSE frames to `response`. */
-function sseSink(response: ServerResponse): ObserverSink {
+/** An observer sink writing SSE frames to `response`; `resume` runs once a full one drains. */
+function sseSink(response: ServerResponse, resume: () => void): ObserverSink {
   return {
-    write: (event) => send(response, frame(event)),
+    write: (event) => {
+      if (send(response, frame(event))) return true;
+      whenDrained(response, (drained) => {
+        if (drained) resume();
+      });
+      return false;
+    },
     end: (reason) => {
       if (reason && !response.writableEnded) send(response, closedFrame(reason));
       response.end();
@@ -267,7 +318,7 @@ export async function streamSessionEvents(
   holder?: StreamHolder
 ): Promise<void> {
   const observer: Observer = {
-    sink: sseSink(response),
+    sink: sseSink(response, () => resume(ctx, sessionId, observer)),
     next: startSeq(sessionId, historyResume(ctx.config.tenantId, sessionId, cursor)),
     ...(holder ? { holder } : {}),
   };
@@ -312,6 +363,7 @@ export async function* observeSession(
       write: (event) => {
         queue.push(event);
         notify();
+        return true;
       },
       end: (reason) => {
         ended = reason ? { reason } : {};
@@ -392,13 +444,29 @@ async function join(
     runFeed(ctx, feed);
   } else if (from < feed.next) {
     // Behind the shared read: restart it here; observers ahead skip what they have.
-    feed.read.abort();
-    feed.read = new AbortController();
-    feed.next = from;
-    runFeed(ctx, feed);
+    rewind(ctx, feed, from);
   }
   feed.observers.add(observer);
   return feed;
+}
+
+/** Restarts the feed's shared read from `from`. */
+function rewind(ctx: TenantContext, feed: SessionStream, from: number): void {
+  feed.read.abort();
+  feed.read = new AbortController();
+  feed.next = from;
+  runFeed(ctx, feed);
+}
+
+/**
+ * A paused observer's sink drained: it reads on from its own position, restarting the shared
+ * read there when the feed went past it.
+ */
+function resume(ctx: TenantContext, sessionId: string, observer: Observer): void {
+  const feed = ctx.sessionStreams.sessions.get(sessionId);
+  if (!feed?.observers.has(observer) || !observer.paused) return;
+  observer.paused = false;
+  if (observer.next < feed.next) rewind(ctx, feed, observer.next);
 }
 
 /** Ends one observer early (its token expired). */
@@ -422,9 +490,9 @@ function leave(hub: SessionStreams, feed: SessionStream, observer: Observer): vo
 }
 
 function deliver(observer: Observer, record: StreamRecord<LiveEvent>): void {
-  if (record.seq < observer.next) return;
+  if (observer.paused || record.seq < observer.next) return;
   observer.next = record.seq + 1;
-  if (served(record.body)) observer.sink.write(record.body);
+  if (served(record.body) && !observer.sink.write(record.body)) observer.paused = true;
 }
 
 /** Internal events (`transcript.updated`) are recorded and streamed but never served. */
