@@ -27,7 +27,7 @@
  * the sandbox's (`revokeHost`: a new join, a stop, a loss) is closed; its runs end as
  * `connection.lost`.
  */
-import { openComputer } from "../sandbox/computer.js";
+import { currentComputerUrl, openComputer } from "../sandbox/computer.js";
 import { HttpError } from "../tenant/http.js";
 import { randomUUID } from "node:crypto";
 import {
@@ -375,6 +375,18 @@ export function createHarnessApiServer(
           } catch (error) {
             if (error instanceof HttpError)
               throw new HarnessApiError(error.status === 409 || error.status === 503 ? "unavailable" : "invalid", error.message);
+            throw error;
+          }
+        }
+        case "computer.current": {
+          const { environmentId } = p as ParamsOf<"computer.current">;
+          const sandbox = run.offer.start.routing.sandbox;
+          if (sandbox?.computer !== true || sandbox.environmentId !== environmentId)
+            throw new HarnessApiError("invalid", "This run has no such computer");
+          try {
+            return { url: await currentComputerUrl(ctx, environmentId) };
+          } catch (error) {
+            if (error instanceof HttpError) throw new HarnessApiError(error.status === 409 ? "unavailable" : "invalid", error.message);
             throw error;
           }
         }

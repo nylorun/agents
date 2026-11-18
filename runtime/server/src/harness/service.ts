@@ -137,8 +137,13 @@ export function startHarnessService(options: HarnessServiceOptions): HarnessServ
   };
 
   // Computers (ADR-149): one manager per computer, on the computer backend, opened with
-  // `computer.open` for the latest run that used it.
+  // `computer.open` for the latest run that used it. Before each request it asks core where the
+  // computer is now (`computer.current`): after a restore, a reset or a lost volume's recovery
+  // the computer has a new volume and a new address, and the access held for the last one is
+  // opened again rather than used. A core that predates the request is not asked again, and an
+  // access then holds until its ticket is renewed, as before.
   const computers = new Map<string, { manager: SandboxManager; runId: string }>();
+  let asksWhere = true;
   const computerOf = (run: HarnessRun): SandboxManager => {
     const environmentId = run.start.routing.sandbox?.environmentId;
     if (environmentId === undefined) throw new HarnessApiError("invalid", "A computer's run names its Environment");
@@ -157,6 +162,21 @@ export function startHarnessService(options: HarnessServiceOptions): HarnessServ
             const channel = client.channel();
             if (!channel) throw new HarnessApiError("unavailable", "Not connected to core");
             return channel.request("computer.open", { runId: entry.runId, environmentId }, signal);
+          },
+          isCurrent: async (access) => {
+            if (!asksWhere) return true;
+            const channel = client.channel();
+            if (!channel) throw new HarnessApiError("unavailable", "Not connected to core");
+            try {
+              const { url } = await channel.request("computer.current", { runId: entry.runId, environmentId });
+              return url === access.url;
+            } catch (error) {
+              if (error instanceof HarnessApiError && /^Unknown (request computer\.current|computer\.current request)/.test(error.message)) {
+                asksWhere = false;
+                return true;
+              }
+              throw error;
+            }
           },
         }),
       ],

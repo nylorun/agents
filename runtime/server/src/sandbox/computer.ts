@@ -170,6 +170,20 @@ async function firstContact(ctx: TenantContext, id: string, podUid: string): Pro
   });
 }
 
+/**
+ * The gateway's URL for computer `id`'s current incarnation, read from the store without waking
+ * it: what `computer.current` answers a harness, and what core's own managers check a held access
+ * against. A restore, a reset or a lost volume's recovery gives the Agent a new pod name, and so a
+ * new URL. Refused for a deleted one.
+ */
+export async function currentComputerUrl(ctx: TenantContext, id: string): Promise<string> {
+  const computers = computersOf(ctx);
+  if (!computers) return fail(409, `Agent ${id} is not a computer on this Runtime.`, { code: "agent_unavailable" });
+  const pod = (await ctx.store.tx((t) => t.environment(id)))?.pod;
+  if (!pod || pod.desired === "deleted") return fail(404, `Agent ${id} does not exist.`, { code: "not_found" });
+  return `${computers.gatewayUrl}/${pod.k8sName}`;
+}
+
 const opening = new Map<string, Promise<ComputerAccess>>();
 
 /**
@@ -354,10 +368,8 @@ export function computerManagers(
             open: (signal) => computerAccess(ctx(), environmentId, signal),
             // After a restore or a recovery the Agent is on a new computer: a disk copy onto its
             // new volume (or a command) must not reach the last one.
-            isCurrent: async (access) => {
-              const pod = (await ctx().store.tx((t) => t.environment(environmentId)))?.pod;
-              return pod !== undefined && access.url.endsWith(`/${pod.k8sName}`);
-            },
+            isCurrent: async (access) =>
+              access.url === (await currentComputerUrl(ctx(), environmentId).catch(() => undefined)),
           }),
         ],
         preference: "auto",

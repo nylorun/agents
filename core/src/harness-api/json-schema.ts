@@ -81,9 +81,10 @@ export function harnessApiSchemas(): Record<string, z.ZodType> {
  that never asks for it never sees. Revision 5: `artifact.write` `begin` may carry
  `audience: "model"` (ADR-139), which core accepts and only our own engine sends. Revision 6:
  `routing.sandbox.computer` and the request `computer.open` (ADR-149), which a v5 harness never
- sees unless the Tenant's pod Agents are computers.
+ sees unless the Tenant's pod Agents are computers. Revision 7: the request `computer.current`,
+ which only a harness that drives computers sends.
  */
-const SCHEMA_REVISION = 6;
+const SCHEMA_REVISION = 7;
 
 /** The JSON Schema document of the Harness API (draft 2020-12). */
 export function harnessApiJsonSchema(): Record<string, unknown> {
