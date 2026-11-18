@@ -228,6 +228,7 @@ export type { TenantRunEvent } from "./runs.js";
 export { resolveConnection, ConnectionError } from "./connection.js";
 export type { ResolvedConnection } from "./connection.js";
 export { RuntimeError, IncompatibleRuntimeError } from "./http.js";
+export { SSEIdleTimeoutError, SSEStreamClosedError, SSE_MAX_EMPTY_CONNECTIONS } from "./sse.js";
 export type { Destination, IncompatibleReason, TokenSource } from "./http.js";
 export { loadMcpServers, loadPlugin, PluginError } from "./plugins/load.js";
 export type { LoadedPlugin, PluginDiagnostic } from "./plugins/load.js";

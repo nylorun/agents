@@ -473,6 +473,8 @@ export class SessionClient {
   /**
    * The session's events from `cursor` on, reconnecting from the last one when the connection
    * drops or sends nothing, keepalives included, for `idleTimeoutMs` (default 45 s; `0` never).
+   * When `maxEmptyConnections` connections in a row (default 5; `0` never) end with no event and
+   * no keepalive, it throws `SSEStreamClosedError` instead of reconnecting from the same cursor.
    */
   async *observe(
     options: {
@@ -480,6 +482,7 @@ export class SessionClient {
       signal?: AbortSignal;
       follow?: boolean;
       idleTimeoutMs?: number;
+      maxEmptyConnections?: number;
     } = {},
   ) {
     if (!options.follow) {
@@ -491,7 +494,12 @@ export class SessionClient {
 
   private async *observeOne(
     sessionId: string,
-    options: { cursor?: string; signal?: AbortSignal; idleTimeoutMs?: number },
+    options: {
+      cursor?: string;
+      signal?: AbortSignal;
+      idleTimeoutMs?: number;
+      maxEmptyConnections?: number;
+    },
   ) {
     for await (const frame of observeSSE(
       this.transport,
@@ -511,6 +519,7 @@ export class SessionClient {
     cursor?: string;
     signal?: AbortSignal;
     idleTimeoutMs?: number;
+    maxEmptyConnections?: number;
   }) {
     const signal = options.signal;
     const linked = new Set<string>();
@@ -540,6 +549,9 @@ export class SessionClient {
           cursor,
           signal,
           ...(options.idleTimeoutMs !== undefined ? { idleTimeoutMs: options.idleTimeoutMs } : {}),
+          ...(options.maxEmptyConnections !== undefined
+            ? { maxEmptyConnections: options.maxEmptyConnections }
+            : {}),
         })) {
           push(event);
           const link = linkedSessionId(event);
@@ -577,6 +589,7 @@ export class SessionClient {
 }
 
 export { RuntimeError, IncompatibleRuntimeError } from "./http.js";
+export { SSEIdleTimeoutError, SSEStreamClosedError, SSE_MAX_EMPTY_CONNECTIONS } from "./sse.js";
 export type { Destination, IncompatibleReason } from "./http.js";
 export type { LiveEvent } from "@nylorun/core/contracts";
 export { AccessClient } from "./access.js";

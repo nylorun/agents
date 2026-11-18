@@ -57,8 +57,10 @@ import {
 } from "../../tenant/context.js";
 import { fail, HttpError } from "../../tenant/http.js";
 import {
+  drained,
   observeSession,
   readHistory,
+  send,
   StreamClosed,
   streamHolderOf,
   type StreamHolder,
@@ -303,7 +305,7 @@ async function stream(
   });
   response.flushHeaders();
   const write = (text: string) => {
-    if (!response.writableEnded && !response.write(text)) response.destroy();
+    send(response, text);
   };
   const heartbeat = setInterval(() => write(SSE_HEARTBEAT), hostTuning().api.agUiHeartbeatMs);
   heartbeat.unref();
@@ -317,6 +319,8 @@ async function stream(
           write(sseFrame(out, index === step.events.length - 1 ? event.cursor : undefined))
         );
         if (step.finished || reading.signal.aborted) break;
+        // A full response: wait for the client to take it, or stop if it left or stalled.
+        if (!(await drained(response))) break;
       }
   } catch (error) {
     if (!reading.signal.aborted) {

@@ -27,7 +27,7 @@ import { sleep } from "../retry.js";
 import { hostTuning } from "../tuning.js";
 import type { TenantContext } from "./context.js";
 import { fail } from "./http.js";
-import { openSse, send } from "./session-streams.js";
+import { drained, openSse, send } from "./session-streams.js";
 
 /** How old an unmarked run is before the sweep appends it: the code that made it had its chance. */
 export const RUNS_STREAM_GRACE_MS = 2_000;
@@ -168,7 +168,9 @@ export async function streamRuns(
           next = record.seq + 1;
           delay = minMs;
           const at = runsCursor(generation, record.seq);
-          send(response, `id: ${at}\nevent: run\ndata: ${JSON.stringify({ cursor: at, run: record.body })}\n\n`);
+          const frame = `id: ${at}\nevent: run\ndata: ${JSON.stringify({ cursor: at, run: record.body })}\n\n`;
+          // A full response: wait for the client to take it, or stop if it left or stalled.
+          if (!send(response, frame) && !(await drained(response))) return;
         }
         if (stop.signal.aborted) return;
         break;
