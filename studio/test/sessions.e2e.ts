@@ -169,6 +169,7 @@ async function fakeRuntime(sessionReads = false, sessionModel = false) {
             text: "Order 42 ships today.",
             toolCalls: [],
             effectId: "eff_1",
+            usage: { inputTokens: 1234, cachedTokens: 200, cacheWriteTokens: 0, outputTokens: 567 },
           }),
           event(ALICE_SESSION, "turn.completed", { output: "Order 42 ships today." }),
         ],
@@ -739,19 +740,24 @@ test("a chat message shows its time only while it is hovered", async () => {
   });
 });
 
-test("a session's Usage tab is one ledger of the session, its turns and each model call", async () => {
+test("a session's Usage tab sets the context at the last call beside what the session sent, then each call", async () => {
   await withStudio(
     async ({ page, studioUrl }) => {
       await page.goto(`${studioUrl}/tenants/${TENANT}/agents/${AGENT}/sessions/${ALICE_SESSION}`);
-      await page.getByRole("tab", { name: "Usage", exact: true }).click();
+      // The header's chip: the context the agent sent at its last call, from its events; it opens Usage.
+      await page.getByRole("button", { name: /1\.4k in context/u }).click();
       await page.waitForURL(/inspector=usage/u);
       const panel = page.getByRole("tabpanel");
-      // The session: tokens and cost by kind, adding up to the total.
+      // The session: the context at the last call beside what the session sent.
       const session = panel.getByRole("region", { name: "Session" });
-      await session.getByText("1 model call · 4.2s model time · 1 turn").waitFor();
-      const rows = session.locator("tbody tr");
+      await session.getByText("Context at last call").waitFor();
+      assert.match((await session.textContent()) ?? "", /Context at last call1,434 tokens.*Call #1 · gpt-test · peak 1\.4k at #1/u);
+      assert.match((await session.textContent()) ?? "", /Sent this session\$0\.0123 · 2,001 tokens/u);
+      await session.getByText("1 call · 1 turn · 4.2s model time").waitFor();
+      // Tokens and cost by kind, adding up to the total.
+      const kinds = panel.getByRole("region", { name: "By token kind" });
       assert.deepEqual(
-        (await rows.allTextContents()).map((text) => text.replace(/\s+/gu, " ").trim()),
+        (await kinds.locator("tbody tr").allTextContents()).map((text) => text.replace(/\s+/gu, " ").trim()),
         [
           "Cached input20010%$0.00022%",
           "Uncached input1,23462%$0.008166%",
@@ -759,12 +765,17 @@ test("a session's Usage tab is one ledger of the session, its turns and each mod
           "Total2,001$0.0123",
         ],
       );
-      await session.getByText("Output includes 50 reasoning tokens.").waitFor();
-      // The turn, then its call, with the same columns.
-      const calls = panel.getByRole("region", { name: "Model calls" }).locator("tbody tr");
+      await kinds.getByText("Output includes 50 reasoning tokens.").waitFor();
+      // One bar per call, in tokens or, with the $ switch, in cost.
+      const chart = panel.getByRole("region", { name: "Model calls chart" });
+      await chart.getByRole("img", { name: /Tokens of each of 1 model calls; the largest is call 1, 2\.0k/u }).waitFor();
+      await chart.getByRole("radio", { name: "Show cost" }).click();
+      await chart.getByRole("img", { name: /Cost of each of 1 model calls; the largest is call 1, \$0\.0123/u }).waitFor();
+      // The turn, then its call, with the context each sent.
+      const calls = panel.getByRole("region", { name: "Calls by turn" }).locator("tbody tr");
       assert.equal(await calls.count(), 2);
-      assert.match((await calls.nth(0).textContent()) ?? "", /Turn 1.*gpt-test.*1 call.*200.*1,234.*567.*2,001.*4\.2s.*\$0\.0123/u);
-      assert.match((await calls.nth(1).textContent()) ?? "", /#1.*gpt-test.*200.*1,234.*567.*2,001.*4\.2s.*\$0\.0123/u);
+      assert.match((await calls.nth(0).textContent()) ?? "", /Turn 1.*gpt-test.*1 call.*peak 1\.4k.*200.*1,234.*567.*4\.2s.*\$0\.0123/u);
+      assert.match((await calls.nth(1).textContent()) ?? "", /#1.*gpt-test.*1,434.*200.*1,234.*567.*4\.2s.*\$0\.0123/u);
       // The call's model in its own column, with its provider on hover.
       assert.equal(await calls.nth(1).getByRole("cell", { name: "gpt-test" }).getAttribute("title"), "openai · gpt-test");
       // Its menu opens the call's event in the Events tab.

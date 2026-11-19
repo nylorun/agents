@@ -229,3 +229,224 @@ export function callEvents<E extends Readonly<{ type: string; payload?: unknown 
     }
   return found;
 }
+
+/**
+ * The context a call sent: its input as the provider measured it, uncached, read from the cache
+ * and written to it. The output is not part of it.
+ */
+export function contextOf(tokens: Tokens): number {
+  return tokens.cacheRead + tokens.input + tokens.cacheWrite;
+}
+
+type EventLike = Readonly<{ type: string; payload?: unknown }>;
+
+function payloadOf(event: EventLike): Readonly<Record<string, unknown>> {
+  const payload = event.payload;
+  return payload !== null && typeof payload === "object" && !Array.isArray(payload)
+    ? (payload as Readonly<Record<string, unknown>>)
+    : {};
+}
+
+/** The agent a call's event names (`agent.path`, `agent.delegationId`); none for the root. */
+function agentOf(event: EventLike | undefined): { path: string; delegationId?: string } | undefined {
+  if (!event) return undefined;
+  const agent = payloadOf(event).agent;
+  if (agent === null || typeof agent !== "object") return undefined;
+  const { path, delegationId } = agent as { path?: unknown; delegationId?: unknown };
+  if (typeof path !== "string" || path === "") return undefined;
+  return typeof delegationId === "string" ? { path, delegationId } : { path };
+}
+
+/**
+ * What the session's events say about each call, by its effect id: the subagent that made it
+ * (absent for the root agent) and whether it wrote a compaction summary (`context.compacted`).
+ */
+export type CallFacts = Readonly<{
+  agentPath?: string;
+  delegationId?: string;
+  summary: boolean;
+  trigger?: string;
+}>;
+
+export function callFacts<E extends EventLike>(byCall: ReadonlyMap<string, E>): Map<string, CallFacts> {
+  const facts = new Map<string, CallFacts>();
+  for (const [effectId, event] of byCall) {
+    const agent = agentOf(event);
+    const summary = event.type === "context.compacted";
+    const trigger = summary ? payloadOf(event).trigger : undefined;
+    facts.set(effectId, {
+      ...(agent ? { agentPath: agent.path } : {}),
+      ...(agent?.delegationId ? { delegationId: agent.delegationId } : {}),
+      summary,
+      ...(typeof trigger === "string" ? { trigger } : {}),
+    });
+  }
+  return facts;
+}
+
+/** The calls in ledger order, each with its context and what the events say about it. */
+export type ContextCall<C extends LedgerCall = LedgerCall> = CallRow<C> &
+  Readonly<{ context: number; facts: CallFacts }>;
+
+export function contextCalls<C extends LedgerCall>(
+  turns: readonly TurnRow<C>[],
+  facts: ReadonlyMap<string, CallFacts>,
+): ContextCall<C>[] {
+  return turns
+    .flatMap((turn) =>
+      turn.calls.map((row) => ({
+        ...row,
+        context: contextOf(row.tokens),
+        facts: facts.get(row.call.effectId) ?? { summary: false },
+      })),
+    )
+    .sort((a, b) => a.number - b.number);
+}
+
+/** A root-agent call that sent the conversation: not a subagent's, not a summary, with usage. */
+function isRootContext(row: ContextCall): boolean {
+  return row.recorded && !row.facts.agentPath && !row.facts.summary;
+}
+
+export type ContextSummary<C extends LedgerCall = LedgerCall> = Readonly<{
+  /** The root agent's last call: the context it sent. */
+  last: ContextCall<C>;
+  /** Its largest. */
+  peak: ContextCall<C>;
+  /** Every root-agent call's context, in order, for a sparkline. */
+  series: readonly number[];
+}>;
+
+/** The root agent's context at its last call and at its peak; null before its first call. */
+export function contextSummary<C extends LedgerCall>(
+  calls: readonly ContextCall<C>[],
+): ContextSummary<C> | null {
+  const root = calls.filter(isRootContext);
+  if (root.length === 0) return null;
+  const peak = root.reduce((best, row) => (row.context > best.context ? row : best));
+  return { last: root[root.length - 1]!, peak, series: root.map((row) => row.context) };
+}
+
+/** The share of the input the provider read from its cache; null without input. */
+export function cacheShare(totals: Pick<Usage, "cachedTokens" | "inputTokens" | "cacheWriteTokens">): number | null {
+  const input = totals.cachedTokens + totals.inputTokens + totals.cacheWriteTokens;
+  return input > 0 ? totals.cachedTokens / input : null;
+}
+
+export type Compaction<C extends LedgerCall = LedgerCall> = Readonly<{
+  /** The call that wrote the summary. */
+  summary: ContextCall<C>;
+  trigger: string | undefined;
+  /** The root agent's context at its call before and its call after; null when not yet made. */
+  before: number | null;
+  after: number | null;
+}>;
+
+/**
+ * Each compaction of the root agent's context, with the context its calls measured either side.
+ * The event's own `tokensBefore`/`tokensAfter` are the harness's estimates, so they are not used.
+ */
+export function compactionsOf<C extends LedgerCall>(calls: readonly ContextCall<C>[]): Compaction<C>[] {
+  return calls.flatMap((row, index) => {
+    if (!row.facts.summary || row.facts.agentPath) return [];
+    const before = calls.slice(0, index).filter(isRootContext).pop();
+    const after = calls.slice(index + 1).find(isRootContext);
+    return [{ summary: row, trigger: row.facts.trigger, before: before?.context ?? null, after: after?.context ?? null }];
+  });
+}
+
+export type SubagentRow = Readonly<{
+  path: string;
+  /** Its runs: `delegation.started` events for it, else the delegations its calls name. */
+  runs: number;
+  calls: number;
+  peakContext: number;
+  tokens: number;
+  cost: number;
+}>;
+
+/** One row per subagent that made a model call, in the order of its first call. */
+export function subagentsOf<C extends LedgerCall>(
+  calls: readonly ContextCall<C>[],
+  events: readonly EventLike[],
+): SubagentRow[] {
+  const started = new Map<string, number>();
+  for (const event of events) {
+    if (event.type !== "delegation.started") continue;
+    const path = agentOf(event)?.path;
+    if (path) started.set(path, (started.get(path) ?? 0) + 1);
+  }
+  const rows = new Map<string, ContextCall<C>[]>();
+  for (const row of calls) {
+    const path = row.facts.agentPath;
+    if (!path) continue;
+    const list = rows.get(path);
+    if (list) list.push(row);
+    else rows.set(path, [row]);
+  }
+  return [...rows].map(([path, list]) => {
+    const delegations = new Set(list.map((row) => row.facts.delegationId).filter(Boolean));
+    return {
+      path,
+      runs: started.get(path) ?? Math.max(1, delegations.size),
+      calls: list.length,
+      peakContext: Math.max(0, ...list.map((row) => row.context)),
+      tokens: list.reduce((sum, row) => sum + row.total, 0),
+      cost: list.reduce((sum, row) => sum + row.cost, 0),
+    };
+  });
+}
+
+/** What the call chart's bars measure. */
+export type ChartMeasure = "tokens" | "cost";
+
+/** One bar: its segments by kind (bottom first) and the part of the cost not split by kind. */
+export type ChartBar = Readonly<{
+  segments: Readonly<Record<TokenKind, number>>;
+  unsplit: number;
+  total: number;
+}>;
+
+/**
+ * Each call's bar in tokens or in cost, by kind. A call recorded before cost was split by kind
+ * puts its whole cost in `unsplit`.
+ */
+export function chartBar(row: CallRow, measure: ChartMeasure): ChartBar {
+  if (measure === "tokens") return { segments: row.tokens, unsplit: 0, total: row.total };
+  const split = row.call.usage?.costSplit ?? null;
+  if (split === null) return { segments: NO_TOKENS, unsplit: row.cost, total: row.cost };
+  const segments = { cacheRead: split.cacheRead, input: split.input, cacheWrite: split.cacheWrite, output: split.output };
+  return { segments, unsplit: 0, total: segments.cacheRead + segments.input + segments.cacheWrite + segments.output };
+}
+
+/**
+ * The context the root agent sent at its latest model call, from the session's events (newest or
+ * oldest first): its `message.assistant`'s usage as the harness reported it. Null before one.
+ */
+export function latestContext(events: readonly (EventLike & Readonly<{ seq?: number }>)[]): number | null {
+  let bestSeq = -Infinity;
+  let best: number | null = null;
+  for (const event of events) {
+    if (event.type !== "message.assistant" || agentOf(event)) continue;
+    const usage = payloadOf(event).usage;
+    if (usage === null || typeof usage !== "object") continue;
+    const { inputTokens, cachedTokens, cacheWriteTokens } = usage as Record<string, unknown>;
+    const n = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
+    const context = n(inputTokens) + n(cachedTokens) + n(cacheWriteTokens);
+    if (context <= 0) continue;
+    const seq = typeof event.seq === "number" ? event.seq : -1;
+    if (best === null || seq > bestSeq) {
+      bestSeq = seq;
+      best = context;
+    }
+  }
+  return best;
+}
+
+/** A token count at a glance: `912`, `17.2k`, `184k`, `1.2M`. */
+export function compactTokens(value: number): string {
+  if (value < 1000) return String(Math.round(value));
+  if (value < 100_000) return `${(value / 1000).toFixed(1)}k`;
+  if (value < 1_000_000) return `${Math.round(value / 1000)}k`;
+  return `${(value / 1_000_000).toFixed(1)}M`;
+}

@@ -28,7 +28,7 @@ import { EventTable } from "@/components/event-table";
 import { MessageActions } from "@/components/message-actions";
 import { IterationTimeline } from "@/components/iteration-timeline";
 import { SessionComposer } from "@/components/session-composer";
-import { SessionUsage } from "@/components/session-usage";
+import { ContextChip, SessionUsage } from "@/components/session-usage";
 import { fullTime, shortTime } from "@/time-format";
 import { AttachmentPreview } from "@/components/attachment-preview";
 import { ToolTraceBadges } from "@/components/tool-trace";
@@ -1124,6 +1124,13 @@ function SessionView({
           <HeaderSlot side="start">
             <SessionIdCopy id={sessionId} />
             <SessionStatus status={status} />
+            <ContextChip
+              events={events}
+              onOpen={() => {
+                if (!inspectorShown) toggleInspector();
+                changeTab("usage");
+              }}
+            />
             {workflowManifest ? (
               <Badge variant="secondary">workflow</Badge>
             ) : null}
