@@ -1,5 +1,0 @@
----
-"@nylorun/runtime": patch
----
-
-A session's event stream read from its start (`GET /v1/sessions/{id}/events` with no cursor, or a cursor far behind) no longer ends at once on a long session. The Runtime destroyed an SSE response whenever `write()` returned `false`, which it always does once a response holds more than its 64 KiB high-water mark. A read from seq 0 sends a whole batch of the session's history in one tick, so it passed the mark, and the destroy dropped everything buffered: the client got `200`, then a reset, with no frame (seen on beta on 17 Nov 2026, for the Operator's session). Now a full stream is paused: the session's shared read goes on for its other observers, and once the client has taken what it was sent, the stream reads on from its own position, with no gap and no duplicate. The runs stream (`GET /v1/runs/stream`) and AG-UI run streams wait for the client the same way. A client that takes nothing for `api.eventStreamStallMs` (Host tuning, default 1 minute) is cut off, as a stalled one was before.
