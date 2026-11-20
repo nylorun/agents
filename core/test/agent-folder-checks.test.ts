@@ -358,6 +358,30 @@ describe("agent folders: messages in the compiler's own words", () => {
     expect(warnings(typo.diagnostics)).toEqual([expect.objectContaining({ code: "loop_key", message: expect.stringContaining("Did you mean 'plan'?") })]);
   });
 
+  it("takes loop.compaction: threshold and keepTokens, and a role's over them (ADR-157)", () => {
+    const set = compile({
+      "AGENT.md":
+        "---\nname: shop\ndescription: Orders.\nloop:\n  compaction:\n    threshold: 40000\n    keepTokens: 15000\n    roles:\n      builder: { threshold: 120000 }\n---\nGo.\n",
+    });
+    expect(set.diagnostics).toEqual([]);
+    expect(set.manifest!.harness).toMatchObject({
+      loop: { compaction: { threshold: 40000, keepTokens: 15000, roles: { builder: { threshold: 120000 } } } },
+    });
+    const bad = compile({
+      "AGENT.md":
+        "---\nname: shop\ndescription: Orders.\nloop: { compaction: { threshold: -1, keep: 5, roles: { builder: { threshold: 1.5 } } } }\n---\nGo.\n",
+    });
+    expect(errors(bad.diagnostics).map((item) => item.message)).toEqual([
+      "loop.compaction.threshold is a positive whole number of tokens",
+      "Unknown compaction setting 'keep': loop.compaction takes threshold, keepTokens and roles",
+      "loop.compaction.roles.builder.threshold is a positive whole number of tokens",
+    ]);
+    const notMap = compile({ "AGENT.md": "---\nname: shop\ndescription: Orders.\nloop: { compaction: 40000 }\n---\nGo.\n" });
+    expect(errors(notMap.diagnostics)).toEqual([
+      expect.objectContaining({ code: "value_invalid", message: "loop.compaction is a map of threshold and keepTokens, and roles" }),
+    ]);
+  });
+
   it("takes model as <provider>/<model> into harness.model, and refuses any other shape", () => {
     const named = compile({ "AGENT.md": "---\nname: shop\ndescription: Orders.\nmodel: anthropic/claude-sonnet-4-5\n---\nGo.\n" });
     expect(named.diagnostics).toEqual([]);

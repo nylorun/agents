@@ -191,10 +191,14 @@ export const SERVER_SETTING_KEYS = ["deferred", "tools"] as const;
 export const PLUGIN_SERVER_SETTING_KEYS = [...SERVER_SETTING_KEYS, "credential"] as const;
 export const TOOL_KEYS = ["description", "inputSchema", "outputSchema", "http"] as const;
 /**
- * The loop settings our harness reads from `loop`: `plan` (`true` offers the agent `update_plan`)
- * and `connections` (`true` offers it `request_connection`). A custom harness reads its own.
+ * The loop settings our harness reads from `loop`: `plan` (`true` offers the agent `update_plan`),
+ * `connections` (`true` offers it `request_connection`), `ask`, and `compaction` (ADR-157: when
+ * the agent's sessions compact, `threshold` and `keepTokens`, and `roles.<role>` over them). A
+ * custom harness reads its own.
  */
-const NYLORUN_LOOP_KEYS: readonly string[] = ["plan", "connections", "ask"];
+const NYLORUN_LOOP_KEYS: readonly string[] = ["plan", "connections", "ask", "compaction"];
+/** What `loop.compaction` and each of its `roles` set: positive whole numbers of tokens. */
+const COMPACTION_KEYS: readonly string[] = ["threshold", "keepTokens"];
 const LOOP_TOOLS: Readonly<Record<string, string>> = { plan: "update_plan", connections: "request_connection", ask: "ask" };
 /** The runtime fields only a sandbox has, and the ones only a pod has. */
 const SANDBOX_FIELDS = ["image", "resources", "storage", "network", "setup", "files"] as const;
@@ -708,7 +712,8 @@ export function compileAgentFolder(input: CompileAgentFolderInput, scope?: Folde
         if (key in LOOP_TOOLS) {
           if (typeof front.loop[key] !== "boolean")
             error("value_invalid", `loop.${key} is true or false: true offers the agent ${LOOP_TOOLS[key]}`, AGENT_FILE, ["loop", key]);
-        } else if (!NYLORUN_LOOP_KEYS.includes(key)) {
+        } else if (key === "compaction") checkCompaction(front.loop.compaction, error);
+        else if (!NYLORUN_LOOP_KEYS.includes(key)) {
           const close = suggestion(key, NYLORUN_LOOP_KEYS);
           warn(
             "loop_key",
@@ -1662,4 +1667,37 @@ function trimBlankLines(text: string): string {
   while (lines.length > 0 && lines[0]!.trim() === "") lines.shift();
   while (lines.length > 0 && lines.at(-1)!.trim() === "") lines.pop();
   return lines.join("\n");
+}
+
+/**
+ * Checks `loop.compaction` (ADR-157): a map of `threshold` and `keepTokens`, positive whole numbers
+ * of tokens, and `roles`, a map from a role's name to the same two. The harness also ignores a
+ * value it cannot use, so a folder that passes here never changes how its sessions compact by
+ * accident.
+ */
+function checkCompaction(
+  value: unknown,
+  error: (code: string, message: string, file?: string, path?: readonly PropertyKey[]) => void,
+): void {
+  const at = (...path: PropertyKey[]): PropertyKey[] => ["loop", "compaction", ...path];
+  const settings = (from: unknown, path: PropertyKey[], roles: boolean) => {
+    if (!isObject(from)) {
+      error("value_invalid", `${path.join(".")} is a map of ${COMPACTION_KEYS.join(" and ")}${roles ? ", and roles" : ""}`, AGENT_FILE, path);
+      return;
+    }
+    for (const [key, setting] of Object.entries(from)) {
+      if (roles && key === "roles") continue;
+      if (!COMPACTION_KEYS.includes(key))
+        error("unknown_key", `Unknown compaction setting '${key}': ${path.join(".")} takes ${COMPACTION_KEYS.join(", ")}${roles ? " and roles" : ""}`, AGENT_FILE, [...path, key]);
+      else if (typeof setting !== "number" || !Number.isInteger(setting) || setting <= 0)
+        error("value_invalid", `${path.join(".")}.${key} is a positive whole number of tokens`, AGENT_FILE, [...path, key]);
+    }
+  };
+  settings(value, at(), true);
+  if (!isObject(value) || value.roles === undefined) return;
+  if (!isObject(value.roles)) {
+    error("value_invalid", "loop.compaction.roles is a map from a role's name to its threshold and keepTokens", AGENT_FILE, at("roles"));
+    return;
+  }
+  for (const [role, entry] of Object.entries(value.roles)) settings(entry, at("roles", role), false);
 }

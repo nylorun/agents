@@ -176,3 +176,21 @@ it("leaves the descriptor out of a flow's turn.start", () => {
   expect(start).not.toHaveProperty("model");
   expect(start).not.toHaveProperty("agent");
 });
+
+it("names the session's role to our harness only (ADR-157)", () => {
+  const ctx = { flowLimits: {}, config: {} } as unknown as TenantContext;
+  const segmentOf = (current: Record<string, unknown>) =>
+    ({
+      current: { id: "s1", manifest: { id: "bot" }, checkpoint: { input: "go" }, ...current },
+      fixtureModel: false,
+      limits: {},
+      transcript: [],
+      cursor: -1,
+      outcomes: [],
+      sandbox: { ownerId: "s1" },
+    }) as unknown as SegmentStart;
+  expect(buildTurnStart(ctx, segmentOf({ role: "builder" })).role).toBe("builder");
+  expect(buildTurnStart(ctx, segmentOf({}))).not.toHaveProperty("role");
+  // Another harness's schema may not know the field.
+  expect(buildTurnStart(ctx, segmentOf({ role: "builder", harness: "other" }))).not.toHaveProperty("role");
+});

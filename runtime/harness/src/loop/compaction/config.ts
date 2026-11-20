@@ -5,6 +5,11 @@
  */
 
 export interface CompactionConfig {
+  /**
+   * Compact before a model call whose estimate passes this many tokens, when that is lower than the
+   * model's window minus the reply reserve (ADR-157). Absent: only the window's line.
+   */
+  readonly threshold?: number;
   /** The kept tail is at most this many tokens... */
   readonly keepTokens: number;
   /** ...and at most this share of the context window. */

@@ -533,15 +533,18 @@ async function turnMessage(
     "parts" in command ? await resolveMessageParts(t, command.parts, id, accessOf(scope)) : undefined;
   const fileArtifacts = (parts?.pinned ?? []).flatMap((part) => (part.type === "file" ? [part.artifactId] : []));
   const data = "data" in command ? (command.data as JsonValue) : undefined;
+  // A message's context (ADR-157) rides as its input's metadata, for its own turn only.
+  const context = "context" in command && command.context?.length ? command.context : undefined;
   let input: unknown;
-  if (isWorkflowManifest(s.manifest))
+  if (isWorkflowManifest(s.manifest)) {
+    if (context) fail(400, "A workflow session takes no message context: send it in the message.");
     input =
       "content" in command
         ? command.content
         : parts
         ? ({ parts: parts.pinned } as unknown as JsonValue)
         : data!;
-  else {
+  } else {
     const resolved = resolveMessageManifest({
       pinned: s.manifest,
       pinnedHash: s.manifestHash,
@@ -557,6 +560,11 @@ async function turnMessage(
         : typeof data === "string"
         ? data
         : JSON.stringify(data);
+    if (context)
+      input =
+        typeof input === "string"
+          ? { text: input, metadata: { context } }
+          : { ...(input as Record<string, unknown>), metadata: { context } };
   }
   return { command, input, fileArtifacts, writer: commandWriter(scope), ...(trace ? { trace } : {}) };
 }

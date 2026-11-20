@@ -22,6 +22,7 @@ import {
   type SubjectScope,
   type CommandResponse,
   type MessageDelivery,
+  type MessageContextItem,
   type LiveEvent,
   type MessagePart,
   type SessionCommand,
@@ -218,9 +219,15 @@ export type CommandOptions = {
  * `remove-tools`): a declared tool or an agent used as a tool by its name (in the agent and in
  * the agents it uses as tools), an MCP server's tool as `<server>__<tool>`, a whole MCP server by
  * its name. It applies to the version the turn runs, so the session still moves to its Agent's
- * new versions; names that version does not have are ignored.
+ * new versions; names that version does not have are ignored. `context` (Host feature
+ * `message-context`, ADR-157) holds facts for the message's own turn only: the model reads them
+ * after the history on every call of that turn, and later turns leave them out.
  */
-export type MessageOptions = CommandOptions & { delivery?: MessageDelivery; removeTools?: readonly string[] };
+export type MessageOptions = CommandOptions & {
+  delivery?: MessageDelivery;
+  removeTools?: readonly string[];
+  context?: readonly MessageContextItem[];
+};
 export class SessionClient {
   readonly sandbox: SessionSandbox;
   constructor(private readonly transport: Transport, readonly id: string) {
@@ -262,6 +269,7 @@ export class SessionClient {
       idempotencyKey: options.idempotencyKey,
       ...(options.delivery ? { delivery: options.delivery } : {}),
       ...(await this.removeToolsOf(options)),
+      ...(await this.contextOf(options)),
     };
     return this.command(
       typeof value === "string"
@@ -284,6 +292,8 @@ export class SessionClient {
         parts: [...parts],
         ...(options.delivery ? { delivery: options.delivery } : {}),
         ...(await this.removeToolsOf(options)),
+        ...(await this.contextOf(options)),
+      ...(await this.contextOf(options)),
       },
       options.signal
     );
@@ -293,6 +303,12 @@ export class SessionClient {
     if (!options.removeTools?.length) return {};
     await this.transport.requireFeature("remove-tools", options.signal);
     return { removeTools: [...options.removeTools] };
+  }
+  /** A message's `context`, when it has any; a Runtime without `message-context` refuses it. */
+  private async contextOf(options: MessageOptions): Promise<{ context?: MessageContextItem[] }> {
+    if (!options.context?.length) return {};
+    await this.transport.requireFeature("message-context", options.signal);
+    return { context: options.context.map((item) => ({ ...item })) };
   }
   /** Approve (or deny) a held tool call. Without an idempotency key, a new one is made. */
   approve(interactionId: string, approved: boolean, options: Partial<CommandOptions> = {}) {

@@ -67,4 +67,40 @@ describe("session commands", () => {
     );
     expect(sent).toEqual([]);
   });
+
+  it("sends context with a message, when the Runtime serves message-context (ADR-157)", async () => {
+    const { client, bodies } = accepting();
+    const session = client.session("s1");
+    const context = [{ type: "bot", value: "[bot] Nylo" }, { value: { tasks: 2 } }];
+    await session.input("hi", { idempotencyKey: "k1", context });
+    await session.inputParts([{ type: "text", text: "hi" }], { idempotencyKey: "k2", context });
+    await session.input("hi", { idempotencyKey: "k3", context: [] });
+    expect(bodies).toEqual([
+      expect.objectContaining({ type: "message", content: "hi", context }),
+      expect.objectContaining({ type: "message", parts: [{ type: "text", text: "hi" }], context }),
+      expect.not.objectContaining({ context: expect.anything() }),
+    ]);
+  });
+
+  it("refuses context before sending it to a Runtime without message-context", async () => {
+    const sent: unknown[] = [];
+    const client = new AgentsClient({
+      url: "http://127.0.0.1:8787",
+      key: "a".repeat(64),
+      fetch: async (input, init) => {
+        const url = new URL(String(input));
+        if (url.pathname === "/health")
+          return Response.json({
+            status: "ok",
+            protocol: { ...HOST_PROTOCOL, features: HOST_PROTOCOL.features.filter((feature) => feature !== "message-context") },
+          });
+        sent.push(init?.body);
+        return Response.json({ status: "accepted", turnId: "t1", cursor: null, requestId: "r1" });
+      },
+    });
+    await expect(
+      client.session("s1").input("hi", { idempotencyKey: "k1", context: [{ value: "now" }] }),
+    ).rejects.toThrow(/message-context/);
+    expect(sent).toEqual([]);
+  });
 });

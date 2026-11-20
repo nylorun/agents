@@ -102,6 +102,10 @@ Which token:
   "connection", app, reason}}`, so the turn pauses on it like any interaction (§7); answered
   with `respond`, the call runs again in the next segment and reads the value
   (`true` or `{connected: true}`: `Connected: <app>`; anything else `Not connected: <app>`).
+  Ours also reads `compaction` (ADR-157): `threshold` and `keepTokens`, and `roles.<role>` over
+  them for a session opened with that role.
+- `role` (optional, ADR-157): the role the session was opened with. The Runtime sends it only to our
+  own harness, which picks `loop.compaction.roles.<role>` with it.
 - `memory` (`TurnMemorySchema`, optional; track T5): present when the version the session runs
   sets `harness.memory`. `access` (`read_write` or `read_only`, the same in every turn),
   `instructions` (the agent's own, after yours), and `index`: one line per memory, newest first,
@@ -612,7 +616,7 @@ sets `harness.memory.index: false`), and one optional field came with it, `turn.
 so no other v5 harness sees it; all within v5: `harness-api/v5.2.json`. D83 added the `runtime`
 operation `triggers` and `turn.start.agent.triggers` (`true` when the session's version declares
 `harness.engine.triggers`: offer the root agent a tool whose calls name that target, or none), which
-a v5 harness may ignore: it offers no tool, and core receives no such call: `harness-api/v5.3.json`. D85 added the effect kind `inputs` (§4): a v5 harness that never asks for it is unchanged, and its turn's steered messages start the next turn: `harness-api/v5.4.json`. ADR-139 added `audience: "model"` to `artifact.write`'s `begin` (§4b), which core accepts and only our own engine sends: `harness-api/v5.5.json`. ADR-149 added `routing.sandbox.computer` and the request `computer.open` (§9b), which a v5 harness never sees unless the Tenant's pod Agents are computers: `harness-api/v5.6.json`. The request `computer.current` (§9b), which only a harness that drives computers sends, came with `harness-api/v5.7.json`.
+a v5 harness may ignore: it offers no tool, and core receives no such call: `harness-api/v5.3.json`. D85 added the effect kind `inputs` (§4): a v5 harness that never asks for it is unchanged, and its turn's steered messages start the next turn: `harness-api/v5.4.json`. ADR-139 added `audience: "model"` to `artifact.write`'s `begin` (§4b), which core accepts and only our own engine sends: `harness-api/v5.5.json`. ADR-149 added `routing.sandbox.computer` and the request `computer.open` (§9b), which a v5 harness never sees unless the Tenant's pod Agents are computers: `harness-api/v5.6.json`. The request `computer.current` (§9b), which only a harness that drives computers sends, came with `harness-api/v5.7.json`. `turn.start.role` (ADR-157), the session's role, which the Runtime sends only to our own harness, came with `harness-api/v5.8.json`.
 ADR-106 changed no message: `turn.start.loop` may carry `ask: true` (offer the root agent a
 question tool whose first call is `interaction-required`, kind `response`, metadata
 `{kind: "question", choices?, why?}`, shown over A2A as a question), and a manifest's

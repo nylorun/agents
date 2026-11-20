@@ -3,7 +3,7 @@ import type { AgentDefinition } from "../definition/agent-definition.js";
 import type { ExecutionSnapshot } from "./step/runtime.js";
 import { HarnessError, isHarnessError } from "@nylorun/core/define";
 import { runStep } from "./step/run.js";
-import { compact, contextBudget, estimateTokens } from "./compaction/index.js";
+import { compact, compactionLimit, contextBudget, estimateTokens } from "./compaction/index.js";
 import type { ExecutionInput, RunOptions, RunResult, SavedToolCall } from "../types/execution.js";
 import { normalizeInput } from "./state.js";
 import type { InputEvent } from "@nylorun/core/define";
@@ -156,12 +156,13 @@ export async function execute(
       }
       stepsRun++;
       const stepId = createId("step");
-      // Keep the next prompt inside the model's window, before it is sent.
+      // Keep the next prompt inside the model's window, and under the Agent's threshold when it
+      // sets a lower one (ADR-157), before it is sent.
       const budget = contextBudget(invocation.state.transcript, options.model, compaction);
+      const limit = compactionLimit(budget, compaction);
       if (
-        budget &&
-        estimateTokens(invocation.state.transcript, turnId, options.files, compaction) >
-          budget.contextWindow - budget.reserve
+        limit !== undefined &&
+        estimateTokens(invocation.state.transcript, turnId, options.files, compaction) > limit
       )
         await compactHistory("threshold", stepId);
       const snapshot: ExecutionSnapshot = {
