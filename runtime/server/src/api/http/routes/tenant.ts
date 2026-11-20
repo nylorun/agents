@@ -5,6 +5,10 @@
  *
  * A reset that deletes sessions moves the Tenant to a new basin generation, so a session
  * created again starts in an empty basin; the old basin is deleted after a grace period.
+ *
+ * Every change of a setting here records `settings.changed` (`policy.changed` for the tool
+ * policy) on the Tenant's stream in the transaction that writes it (ADR-159), naming the setting
+ * and never its value.
  */
 import type { OpenAPIHono } from "@hono/zod-openapi";
 import type { Context } from "hono";
@@ -49,7 +53,9 @@ import {
   TenantSandboxView,
   TenantStatus,
 } from "../../components.js";
-import { readRuntimeLimits, writeLimitsConfig } from "../../../tenant/runtime-limits.js";
+import { LIMITS_CONFIG_SETTING, readRuntimeLimits, writeLimitsConfig } from "../../../tenant/runtime-limits.js";
+import { apiActor } from "../../../tenant/audit.js";
+import { vaultActorOf } from "../../../tenant/agents.js";
 import { periodStart } from "../../../gates/meter.js";
 import { readToolPolicy, TOOL_POLICY_SETTING, ToolPolicyUnreadable } from "../../../gates/policy.js";
 import { addableInputs, capabilitiesOf, inputsError } from "../../../model/capabilities.js";
@@ -57,6 +63,7 @@ import { catalogModel, hostModelCatalog } from "../../../model/catalog.js";
 import { sandboxConfigErrors } from "../../../sandbox/resolve.js";
 import {
   effectiveSandboxConfig,
+  ENVIRONMENTS_CONFIG_SETTING,
   readSandboxConfig,
   writeSandboxConfig,
 } from "../../../sandbox/tenant-config.js";
@@ -64,7 +71,7 @@ import type { ModelBudgetRow } from "../../../store/types.js";
 import type { TenantContext } from "../../../tenant/context.js";
 import { fail } from "../../../tenant/http.js";
 import { clearObservers } from "../../../tenant/session-streams.js";
-import { readAddedInputs, usesFixtureModel, writeAddedInputs } from "../../../tenant/model-setting.js";
+import { MODEL_INPUTS_SETTING, readAddedInputs, usesFixtureModel, writeAddedInputs } from "../../../tenant/model-setting.js";
 import { resetTenant } from "../../../tenant/reset.js";
 import { clearWork, drain } from "../../../tenant/scheduler.js";
 import { buildTenantStatus, harnessStatusOf, seedTenantConfig } from "../../../tenant/status.js";
@@ -251,7 +258,10 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
     async (c) => {
       const ctx = c.env.tenant;
       const request = SeedTenantConfigRequestSchema.parse(await readJson(c));
-      return jsonResponse(200, await seedTenantConfig({ store: ctx.store, vault: ctx.vault, keys: ctx.keys }, request));
+      return jsonResponse(
+        200,
+        await seedTenantConfig({ store: ctx.store, vault: ctx.vault, keys: ctx.keys }, request, c.get("scope")),
+      );
     },
   );
 
@@ -295,7 +305,10 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
       const refused = inputsError(found!, inputs);
       if (refused) fail(400, refused);
       const added = inputs.filter((input) => addableInputs(found!).includes(input));
-      await c.env.tenant.store.tx((t) => writeAddedInputs(t, `${provider}/${model}`, added));
+      await c.env.tenant.store.tx(async (t) => {
+        await writeAddedInputs(t, `${provider}/${model}`, added);
+        await t.tenantEvent("settings.changed", { key: MODEL_INPUTS_SETTING, model: `${provider}/${model}` }, apiActor(c.get("scope")));
+      });
       return jsonResponse(200, {
         provider,
         model,
@@ -337,7 +350,10 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
       const { requestId: _requestId, ...config } = PutTenantLimitsRequestSchema.parse(await readJson(c));
       const issues = runtimeLimitIssues(config.limits);
       if (issues.length > 0) fail(400, issues.join(" "));
-      await c.env.tenant.store.tx((t) => writeLimitsConfig(t, config));
+      await c.env.tenant.store.tx(async (t) => {
+        await writeLimitsConfig(t, config);
+        await t.tenantEvent("settings.changed", { key: LIMITS_CONFIG_SETTING }, apiActor(c.get("scope")));
+      });
       return jsonResponse(200, { limits: runtimeLimitsOf(config.limits) });
     },
   );
@@ -379,7 +395,10 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
       );
       const errors = sandboxConfigErrors(effectiveSandboxConfig(config));
       if (errors.length > 0) fail(400, errors.join(" "));
-      await ctx.store.tx((t) => writeSandboxConfig(t, config));
+      await ctx.store.tx(async (t) => {
+        await writeSandboxConfig(t, config);
+        await t.tenantEvent("settings.changed", { key: ENVIRONMENTS_CONFIG_SETTING }, apiActor(c.get("scope")));
+      });
       // Pods' idle timers follow the new limits.idle (D36).
       await rearmPodTimers(ctx);
       return jsonResponse(200, await sandboxView(ctx));
@@ -458,6 +477,7 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
         const issues = budgetIssues(budgets, await readRuntimeLimits(t));
         if (issues.length > 0) fail(400, issues.join(" "));
         await t.putModelBudgets(budgets.map((budget) => budgetRow(budget, updatedAt)));
+        await t.tenantEvent("settings.changed", { key: "model.budgets" }, apiActor(c.get("scope")));
         return t.listModelBudgets();
       });
       return jsonResponse(200, { budgets: rows.map(budgetView) });
@@ -509,6 +529,8 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
         const issues = toolPolicyIssues(rules, await readRuntimeLimits(t));
         if (issues.length > 0) fail(400, issues.join(" "));
         await t.putSetting(TOOL_POLICY_SETTING, JSON.stringify(policy));
+        // The rules' count, never their values, which may hold what a deny matches.
+        await t.tenantEvent("policy.changed", { rules: rules.length, updatedAt: policy.updatedAt }, apiActor(c.get("scope")));
       });
       return jsonResponse(200, policy);
     },
@@ -555,7 +577,7 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
       const ctx = c.env.tenant;
       return jsonResponse(
         200,
-        await ctx.keys.putHostModel(PutHostModelRequestSchema.parse(await readJson(c))),
+        await ctx.keys.putHostModel(PutHostModelRequestSchema.parse(await readJson(c)), vaultActorOf(c.get("scope"))),
       );
     },
   );
@@ -577,6 +599,7 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
         200,
         await ctx.keys.selectHostModel(
           SelectHostModelRequestSchema.parse(await readJson(c)),
+          vaultActorOf(c.get("scope")),
         ),
       );
     },

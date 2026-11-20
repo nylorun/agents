@@ -280,6 +280,8 @@ function tenantOperations(): Operation[] {
     { method: "POST", path: "/v1/tenant/credential-coverage", body: INVALID },
     { method: "GET", path: "/v1/access/jwks" },
     { method: "GET", path: "/v1/me" },
+    { method: "GET", path: "/v1/tenant/audit" },
+    { method: "POST", path: "/v1/tenant/audit/studio-sign-in", body: INVALID },
     { method: "GET", path: "/v1/tenant/signing-keys" },
     { method: "POST", path: "/v1/tenant/signing-keys/rotate", body: INVALID },
     { method: "POST", path: "/v1/tenant/signing-keys/kid-missing/revoke", body: INVALID },

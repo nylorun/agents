@@ -221,6 +221,53 @@ At start each process logs `telemetry_config` (its `service.name`, metric export
 process runs on without it), and `telemetry_export_dropped` at most once a minute while an export
 fails.
 
+### Audit
+
+Who changed what the Tenant allows, and which credentials its sessions used, is on the Tenant's
+own stream (Host feature `tenant-audit`). It is a record, like a session's events: written in the
+same transaction as the change, never sampled, never relayed to S2, and kept by a reset. It is
+the Runtime's record (layer `runtime`).
+
+| Event | When | Payload |
+| --- | --- | --- |
+| `key.created`, `key.revoked` | An application or management key is put (created, or `rotated`) or deleted, over the Management API or with `nylorun-operate` | `keyId`, `role`, `rotated` |
+| `signing_key.rotated`, `signing_key.revoked` | The signing keys rotate, or a previous or standby one is revoked | The key ids in each state, `force` |
+| `policy.changed` | The tool policy is replaced | `rules` (the count) and `updatedAt`, never the rules |
+| `settings.changed` | A setting is replaced: `limits.config`, `environments.config`, `artifacts.config`, `skills.config`, `model.budgets`, `model.inputs`, `model` (with `provider` and `model`), or one a seed set | `key`, never the value |
+| `credential.created`, `.rotated`, `.deleted` | An Agent's secret is written, replaced or deleted (also a fork's copies, and an Agent's secrets when it is deleted); setting or choosing the model rotates its credential | `vaultId`, `credentialId`, `target`, `outcome` |
+| `credential.used` | A gate asks the vault for a credential for a session's MCP server or HTTP tool, approved or refused | `vaultId`, `credentialId`, `sessionId`, `target` (the URL), `outcome` |
+| `studio.signed_in` | A person signs in to Studio: with a login link (`token`), through a sign-in proxy (`forwarded`), or on the loopback address (`loopback`, at most hourly) | `method`, `subject` when there is one |
+
+Every event names who acted (`principal`) from the credential of the request that made the
+change, never from its body: a key's name (`bootstrap`, `studio`, an application key's),
+`<key>:<subject>` for a key acting for a person, `<issuer>:<subject>` for a trusted issuer's
+token, `operate` for `nylorun-operate`, and `host` when the Runtime acted itself (a credential
+used, an Agent deleted by its sweep). `source` says what wrote it: `api`, `operate`, `runtime` or
+`studio`. No payload holds a secret value: each payload's fields are fixed, and the Runtime
+refuses an event with any other. The `vault_audit` table is still written as before.
+
+Read it with a management key, newest first, a page at a time:
+
+<!-- doc-test: typescript -->
+```ts
+import { createAdmin } from "@nylorun/admin";
+
+const admin = createAdmin();
+let cursor: string | undefined;
+do {
+  const page = await admin.tenant.audit({ types: ["credential.used"], since: "2026-11-20T00:00:00Z", cursor });
+  for (const event of page.events) console.log(event.time, event.principal, event.payload.target, event.payload.outcome);
+  cursor = page.nextCursor ?? undefined;
+} while (cursor);
+```
+
+`GET /v1/tenant/audit?since&until&types&cursor&limit` is the route: `types` is comma-separated,
+`limit` defaults to 50 and is held to the Runtime limit `pageItems`, and a `cursor` works only
+with the filters it was read with. An application key is `403 key_role_mismatch`. Studio shows it
+in **Tenant › Audit**, with a type filter and **Load more**; Studio records its sign-ins with
+`POST /v1/tenant/audit/studio-sign-in`, which only Studio's own key may call, and a sign-in the
+Runtime fails to record is logged by Studio (`studio sign-in not recorded`) and still goes ahead.
+
 ### Content
 
 By default spans carry references, never content: what a person sent, the model's output, the

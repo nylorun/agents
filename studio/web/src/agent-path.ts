@@ -54,9 +54,10 @@ export function agentPath(id: string, tab?: AgentTab): string {
  * The tabs of the Tenant's page, in the order a turn meets them: whether the Tenant is healthy,
  * then what an Agent is made from (its manifests), what it thinks with (models), where it runs
  * (compute), what its tool calls may do (tool policy) and how far it may go (limits), what it cost
- * (usage and budgets), and who may call the Tenant at all (keys). It opens on its status.
+ * (usage and budgets), who may call the Tenant at all (keys), and who changed any of it (audit). It
+ * opens on its status.
  */
-export const TENANT_TABS = ["status", "manifests", "models", "compute", "policy", "limits", "usage", "keys"] as const;
+export const TENANT_TABS = ["status", "manifests", "models", "compute", "policy", "limits", "usage", "keys", "audit"] as const;
 export type TenantTab = (typeof TENANT_TABS)[number];
 
 /** The tab `?tab=` names on the Tenant's page; undefined for none or an unknown one. */

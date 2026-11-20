@@ -8,7 +8,9 @@ import type { SessionStore } from "../store/types.js";
 import type { VaultService } from "../vault/service.js";
 import type { WorkspacePort } from "../harness-api/workspace.js";
 import type { TenantConfig } from "./types.js";
-import type { TenantContext } from "./context.js";
+import type { AuthScope, TenantContext } from "./context.js";
+import { apiActor } from "./audit.js";
+import { vaultActorOf } from "./agents.js";
 import type { TenantEnvelope } from "@nylorun/core/contracts";
 import type { StuckInvocation } from "../execution/types.js";
 import type { StreamsStatus } from "./streams.js";
@@ -144,7 +146,10 @@ export async function seedTenantConfig(
     keys: Pick<Keys, "putHostModel">;
   },
   body: SeedTenantConfigRequest,
+  /** Who seeds: each setting it sets is `settings.changed` on the Tenant's stream, as them. */
+  scope: AuthScope,
 ): Promise<SeedTenantConfigResponse> {
+  const by = apiActor(scope);
   const applied: string[] = [];
   const kept: string[] = [];
 
@@ -153,6 +158,7 @@ export async function seedTenantConfig(
     const inserted = await ctx.store.tx(async (t) => {
       if ((await t.getSetting("sandbox.backend")) !== undefined) return false;
       await t.putSetting("sandbox.backend", backend);
+      await t.tenantEvent("settings.changed", { key: "sandbox.backend" }, by);
       return true;
     });
     (inserted ? applied : kept).push("sandbox.backend");
@@ -163,13 +169,18 @@ export async function seedTenantConfig(
     const inserted = await ctx.store.tx(async (t) => {
       if ((await t.getSetting(ENVIRONMENTS_CONFIG_SETTING)) !== undefined) return false;
       await writeSandboxConfig(t, sandboxConfig);
+      await t.tenantEvent("settings.changed", { key: ENVIRONMENTS_CONFIG_SETTING }, by);
       return true;
     });
     (inserted ? applied : kept).push(ENVIRONMENTS_CONFIG_SETTING);
   }
 
   if (body.fixtureModel) {
-    const inserted = await ctx.store.tx((t) => seedFixtureModel(t));
+    const inserted = await ctx.store.tx(async (t) => {
+      const seeded = await seedFixtureModel(t);
+      if (seeded) await t.tenantEvent("settings.changed", { key: FIXTURE_MODEL_SETTING }, by);
+      return seeded;
+    });
     (inserted ? applied : kept).push(FIXTURE_MODEL_SETTING);
   }
 
@@ -178,11 +189,14 @@ export async function seedTenantConfig(
     if (current.configured) {
       kept.push("model");
     } else {
-      await ctx.keys.putHostModel({
-        requestId: body.requestId,
-        idempotencyKey: `seed-model:${body.requestId}`,
-        ...body.model,
-      });
+      await ctx.keys.putHostModel(
+        {
+          requestId: body.requestId,
+          idempotencyKey: `seed-model:${body.requestId}`,
+          ...body.model,
+        },
+        vaultActorOf(scope),
+      );
       applied.push("model");
     }
   }

@@ -327,6 +327,14 @@
     "status": 204,
     "allow": "GET, POST, PUT, DELETE, OPTIONS"
   },
+  "GET /v1/tenant/audit": {
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
+  },
+  "POST /v1/tenant/audit/studio-sign-in": {
+    "status": 204,
+    "allow": "GET, POST, PUT, DELETE, OPTIONS"
+  },
   "GET /v1/tenant/signing-keys": {
     "status": 204,
     "allow": "GET, POST, PUT, DELETE, OPTIONS"

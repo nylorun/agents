@@ -286,6 +286,12 @@ export const OPTIONAL_HOST_FEATURES = [
    */
   "message-context",
   /**
+   * The Tenant's stream (ADR-159): `GET /v1/tenant/audit` (the Management API) pages, newest first,
+   * the keys put and deleted, signing keys rotated and revoked, tool policy and settings changes,
+   * vault credentials written and used, and Studio sign-ins, each with who did it and no secret.
+   */
+  "tenant-audit",
+  /**
    * The triggers capability (D83): an agent whose version declares `harness.engine.triggers` sets
    * up its own triggers with the `triggers` tool, kept by the Agent (`origin: agent` in
    * `GET /v1/agents/{id}/triggers`); `DELETE /v1/agents/{id}/triggers/{triggerId}` deletes one;

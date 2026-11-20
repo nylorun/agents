@@ -22,3 +22,9 @@ export {
   type AgentAppendInput,
   type AgentRecordWriter,
 } from "./agent.js";
+export {
+  appendTenantEvent,
+  buildTenantEvent,
+  type TenantAppendInput,
+  type TenantRecordWriter,
+} from "./tenant.js";

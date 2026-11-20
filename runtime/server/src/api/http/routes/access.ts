@@ -1,7 +1,8 @@
 /**
  * Signing keys, for a management key, and the public keys, for any caller that reached the
  * Tenant: the Runtime signs capability links, run and host tokens with them (protocol 7 has no
- * subject tokens, access policy, browser keys or revocations).
+ * subject tokens, access policy, browser keys or revocations). A rotation and a revocation are on
+ * the Tenant's stream (`signing_key.rotated`, `signing_key.revoked`).
  */
 import type { OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
@@ -16,6 +17,7 @@ import {
   SigningKeyList,
   SigningKeyView,
 } from "../../components.js";
+import { apiActor } from "../../../tenant/audit.js";
 import { publicJwk, signingKeyView } from "../../../tenant/signing-keys.js";
 import type { TenantEnv } from "../app.js";
 import { readJson } from "../body.js";
@@ -118,6 +120,7 @@ function signingKeyRoutesAt(api: OpenAPIHono<TenantEnv>, base: string, access: R
       const keys = await ctx.keys.rotateSigningKeys({
         maxTtlSeconds: hostTuning().keys.tokenTtlMaxSeconds,
         force: request.force === true,
+        by: apiActor(c.get("scope")),
       });
       ctx.config.logger.info("signing keys rotated", { force: request.force === true });
       return jsonResponse(200, { keys });
@@ -141,7 +144,15 @@ function signingKeyRoutesAt(api: OpenAPIHono<TenantEnv>, base: string, access: R
     async (c) => {
       const ctx = c.env.tenant;
       RevokeSigningKeyRequestSchema.parse(await readJson(c));
-      const row = await ctx.store.tx((t) => ctx.signingKeys.revoke(t, c.req.param("kid")!));
+      const row = await ctx.store.tx(async (t) => {
+        const kid = c.req.param("kid")!;
+        const before = await t.signingKey(kid);
+        const revoked = await ctx.signingKeys.revoke(t, kid);
+        // Revoking a revoked key changes nothing, and records nothing.
+        if (before?.state === "previous" || before?.state === "standby")
+          await t.tenantEvent("signing_key.revoked", { keyId: revoked.id, state: before.state }, apiActor(c.get("scope")));
+        return revoked;
+      });
       ctx.config.logger.info("signing key revoked", { kid: row.id });
       return jsonResponse(200, signingKeyView(row));
     },

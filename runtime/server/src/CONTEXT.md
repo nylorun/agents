@@ -30,7 +30,7 @@ _Avoid_: "Tenant API" for the whole surface (say which API), "SDK API" or "appli
 
 **Management API**: The Tenant's routes for operators, `/v1/tenant/*` (status, seed and
 reset, models, usage and budgets, credential coverage, MCP server previews, signing keys, sandbox backend, Environment,
-artifact and skill settings, **Runtime limits**, application keys) (protocol 8; its routes' credentials are `management`, `RouteAccess` in
+artifact and skill settings, **Runtime limits**, application keys, the audit of the **Tenant stream**) (protocol 8; its routes' credentials are `management`, `RouteAccess` in
 `api/http/define.ts`). It takes management
 keys only: an application key,
 alone or acting for a subject, is `403 key_role_mismatch`. Client package: `@nylorun/admin`.
@@ -407,7 +407,21 @@ the keys service, `Keys.putEnvironmentSecret`), replaced by name, and never read
 `environment_secret` for a host or a second `bearer`/`headers` credential for a URL is `409
 credential_conflict` at the write. The `host` vault (no Environment) holds the model credential
 and is never written this way. There are no user or installation vaults (protocol 11).
+Every write and use of a credential keeps its `vault_audit` row and is on the **Tenant stream**.
 _Avoid_: "attach a vault" (protocol 10), "shared vault", "org vault".
+
+**Tenant stream** (ADR-159, Host feature `tenant-audit`): The Tenant's own history in the record
+(`nylorun_streams.tenant_events`, `record/tenant.ts`), numbered from 0 and not relayed to S2: keys
+put and deleted (`key.created`, `key.revoked`), signing keys rotated and revoked, tool policy and
+settings changes (`policy.changed`, `settings.changed`, naming the setting), vault credentials
+written, replaced, deleted and used (`credential.*`, from each `vault_audit` row of one), and
+Studio sign-ins (`studio.signed_in`). Each event is written in the transaction of the change it
+records, names who acted (`principal`, from the request's credential: never the body) and what
+wrote it (`source`: `api`, `operate`, `runtime`, `studio`), and holds no secret value (each payload
+is strict). Every type is the Runtime's record. Read newest first with `GET /v1/tenant/audit`
+(the Management API; `admin.tenant.audit()`, Studio's Tenant › Audit); only Studio's key may
+`POST /v1/tenant/audit/studio-sign-in`. A reset keeps it, as it keeps `vault_audit`.
+_Avoid_: "audit log" for `vault_audit` alone; "telemetry" (it is a record).
 
 **Session credentials**: Where a session's MCP servers and HTTP tools get their credentials:
 the vault of the session's Environment, matched by the URL the manifest names (`vault/sources.ts`,

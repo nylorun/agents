@@ -72,6 +72,10 @@ import type {
   AgentEventPayload,
   AgentEventType,
   AgentManifestV8,
+  TenantEvent,
+  TenantEventPayload,
+  TenantEventSource,
+  TenantEventType,
   EnvironmentKind,
   EnvironmentRecipe,
   PodDesired,
@@ -881,6 +885,23 @@ export interface Tx {
    */
   agentEvents(agentId: string, options?: AgentEventsQuery): Promise<AgentEvent[]>;
 
+  // --- the Tenant's stream (ADR-159) ------------------------------------------------
+
+  /**
+   * Appends an event to the Tenant's stream through the record module, in this transaction: it
+   * commits with the change it records. Holds the stream's append lock until the transaction ends.
+   */
+  tenantEvent<T extends TenantEventType>(
+    type: T,
+    payload: TenantEventPayload<T>,
+    by: TenantEventActor,
+  ): Promise<TenantEvent>;
+  /**
+   * The Tenant's stream, newest first: at most `limit` events, before seq `beforeSeq` when given,
+   * only `types` when given, and only events at or after `since` and before `until` (ISO times).
+   */
+  tenantEvents(options: TenantEventsQuery): Promise<TenantEvent[]>;
+
   // --- Agent manifests (protocol 16) -------------------------------------------
 
   /** Holds manifest `name`'s save lock until the transaction ends, so saves of one name are serial. */
@@ -1246,6 +1267,21 @@ export interface Tx {
    *   settings, audit and vault idempotency rows stay.
    */
   reset(scope: ResetScope): Promise<void>;
+}
+
+/** Who a Tenant event names (`Tx.tenantEvent`): the principal, from the request's credential, and what wrote it. */
+export interface TenantEventActor {
+  readonly principal: string;
+  readonly source: TenantEventSource;
+}
+
+/** Which of the Tenant's events to read (`Tx.tenantEvents`), newest first. */
+export interface TenantEventsQuery {
+  readonly limit: number;
+  readonly beforeSeq?: number;
+  readonly types?: readonly string[];
+  readonly since?: string;
+  readonly until?: string;
 }
 
 /** Which of an Agent's events to read (`Tx.agentEvents`). */

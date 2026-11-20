@@ -47,7 +47,7 @@ import {
 import { fail } from "../../../tenant/http.js";
 import { canonical } from "../../../store/canonical.js";
 import {
-  actorOf,
+  vaultActorOf,
   assertReaches,
   deleteAgent,
   agentEventsOf,
@@ -575,7 +575,7 @@ export function agentRoutes(api: OpenAPIHono<TenantEnv>): void {
         id,
         name,
         write.request,
-        actorOf(scope),
+        vaultActorOf(scope),
         ...(write.viaFromSlot ? [{ viaFromSlot: true }] : []),
       );
       // A move that waited for this secret goes on (track T3).
@@ -602,7 +602,7 @@ export function agentRoutes(api: OpenAPIHono<TenantEnv>): void {
       assertReaches(scope, id);
       return jsonResponse(
         200,
-        await c.env.tenant.vault.deleteEnvironmentSecret(id, c.req.param("name") ?? "", actorOf(scope)),
+        await c.env.tenant.vault.deleteEnvironmentSecret(id, c.req.param("name") ?? "", vaultActorOf(scope)),
       );
     },
   );

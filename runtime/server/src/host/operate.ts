@@ -107,7 +107,7 @@ export async function runOperate(argv: readonly string[], io: OperateIo): Promis
     const sql = createPostgresClient(url, { max: 1 });
     try {
       const store = await openStore(sql);
-      return await command(operatorKeys(store), io, store);
+      return await command(operatorKeys(store, { principal: "operate", source: "operate" }), io, store);
     } finally {
       await sql.end({ timeout: tuningOf(io).postgres.closeTimeoutSeconds });
     }

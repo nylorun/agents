@@ -5,9 +5,15 @@
  * run in the store's transaction under the caller's session row lock.
  */
 import { eq, sql } from "drizzle-orm";
-import type { RecordWriter, AgentRecordWriter } from "../../record/index.js";
+import type { RecordWriter, AgentRecordWriter, TenantRecordWriter } from "../../record/index.js";
 import type { Transaction } from "./db.js";
-import { agentEvents, sessionEvents, sessionLogHeads, tenant } from "./schema.js";
+import { agentEvents, sessionEvents, sessionLogHeads, tenant, tenantEvents } from "./schema.js";
+
+/**
+ * The Tenant stream's append lock: a transaction-level advisory lock, so appends take their seq
+ * one at a time and in commit order. Distinct from the migration lock (`migrate.ts`).
+ */
+const TENANT_EVENTS_LOCK = sql`hashtext('nylorun.tenant_events')`;
 
 /**
  * The Agent stream writer of transaction `db` (`record/agent.ts`): the only inserts into
@@ -24,6 +30,25 @@ export function postgresAgentRecordWriter(db: Transaction): AgentRecordWriter {
     },
     async insert(row) {
       await db.insert(agentEvents).values(row);
+    },
+  };
+}
+
+/**
+ * The Tenant stream writer of transaction `db` (`record/tenant.ts`): the only inserts into
+ * `tenant_events`. `nextSeq` takes the stream's append lock, held until `db` ends.
+ */
+export function postgresTenantRecordWriter(db: Transaction): TenantRecordWriter {
+  return {
+    async nextSeq() {
+      await db.execute(sql`SELECT pg_advisory_xact_lock(${TENANT_EVENTS_LOCK})`);
+      const [row] = await db
+        .select({ next: sql<number>`coalesce(max(${tenantEvents.seq}) + 1, 0)`.mapWith(Number) })
+        .from(tenantEvents);
+      return row?.next ?? 0;
+    },
+    async insert(row) {
+      await db.insert(tenantEvents).values(row);
     },
   };
 }

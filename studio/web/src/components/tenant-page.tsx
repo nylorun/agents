@@ -15,6 +15,7 @@ import { TenantCompute } from "@/components/tenant-compute";
 import { TenantPolicy } from "@/components/tenant-policy";
 import { TenantLimits } from "@/components/tenant-limits";
 import { TenantUsage } from "@/components/tenant-usage";
+import { TenantAudit } from "@/components/tenant-audit";
 import {
   ActionMenu,
   EmptyRow,
@@ -38,6 +39,7 @@ const TAB_LABELS: Record<TenantTab, string> = {
   limits: "Limits",
   usage: "Usage",
   keys: "Keys",
+  audit: "Audit",
 };
 
 const tabTrigger =
@@ -73,7 +75,7 @@ const RESETS: Record<ResetScope, { label: string; confirm: string; done: string 
  * The Tenant's page (`/tenant`): what it is and what runs it, then one tab for each part of its
  * configuration, in the order an Agent's turn meets them: its status, the manifests Agents are
  * made from, the models they call, where they run, what their tool calls may do, how far they
- * may go, what it cost, and the keys that reach it. It opens on its status (`?tab=` picks
+ * may go, what it cost, the keys that reach it, and who changed any of it (its audit). It opens on its status (`?tab=` picks
  * another). The header's ⋯ menu resets it.
  */
 export function TenantPage({
@@ -228,6 +230,9 @@ export function TenantPage({
         </TabsPrimitive.Content>
         <TabsPrimitive.Content key={`keys:${tabRevision}`} value="keys" className={tabContent}>
           <KeysTab {...props} />
+        </TabsPrimitive.Content>
+        <TabsPrimitive.Content key={`audit:${tabRevision}`} value="audit" className={tabContent}>
+          <TenantAudit {...props} />
         </TabsPrimitive.Content>
       </TabsPrimitive.Root>
     </section>

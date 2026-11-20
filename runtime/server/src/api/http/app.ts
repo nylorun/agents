@@ -25,6 +25,7 @@ import { runRoutes } from "./routes/runs.js";
 import { sessionRoutes } from "./routes/sessions.js";
 import { fileRoutes } from "./routes/files.js";
 import { keyRoutes } from "./routes/keys.js";
+import { auditRoutes } from "./routes/audit.js";
 import { tenantRoutes } from "./routes/tenant.js";
 import { coverageRoutes } from "./routes/coverage.js";
 import { mcpRoutes } from "./routes/mcp.js";
@@ -84,6 +85,7 @@ function build(): OpenAPIHono<TenantEnv> {
   artifactRoutes(api);
   tenantRoutes(api);
   keyRoutes(api);
+  auditRoutes(api);
   coverageRoutes(api);
   mcpRoutes(api);
   accessRoutes(api);

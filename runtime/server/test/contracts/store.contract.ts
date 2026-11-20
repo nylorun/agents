@@ -1202,6 +1202,50 @@ export function storeContract(name: string, factory: StoreFactory): void {
         });
       });
 
+      it("appends the Tenant's stream in order, newest first on read, and refuses a payload it does not know", async () => {
+        const store = await fresh();
+        const by = { principal: "ops", source: "api" } as const;
+        await store.tx(async (t) => {
+          await t.tenantEvent("key.created", { keyId: "a", role: "application", rotated: false }, by);
+          await t.tenantEvent("key.revoked", { keyId: "a", role: "application" }, by);
+        });
+        await store.tx((t) => t.tenantEvent("settings.changed", { key: "limits.config" }, { principal: "host", source: "runtime" }));
+        // A rolled-back change leaves no event.
+        await expect(
+          store.tx(async (t) => {
+            await t.tenantEvent("key.created", { keyId: "b", role: "application", rotated: false }, by);
+            throw new Error("rolled back");
+          }),
+        ).rejects.toThrow("rolled back");
+        // A payload with anything else, such as a secret, is refused.
+        await expect(
+          store.tx((t) =>
+            t.tenantEvent("key.created", { keyId: "c", role: "application", rotated: false, key: "secret" } as never, by),
+          ),
+        ).rejects.toThrow(/does not match the event catalog/);
+        await store.tx(async (t) => {
+          const all = await t.tenantEvents({ limit: 10 });
+          expect(all.map((event) => [event.seq, event.type, event.principal, event.source])).toEqual([
+            [2, "settings.changed", "host", "runtime"],
+            [1, "key.revoked", "ops", "api"],
+            [0, "key.created", "ops", "api"],
+          ]);
+          expect(all[0]).toEqual({
+            schema: "nylorun.tenant-event/1",
+            seq: 2,
+            time: expect.any(String),
+            type: "settings.changed",
+            source: "runtime",
+            principal: "host",
+            payload: { key: "limits.config" },
+          });
+          expect((await t.tenantEvents({ limit: 1, beforeSeq: 2 })).map((event) => event.seq)).toEqual([1]);
+          expect((await t.tenantEvents({ limit: 10, types: ["key.created"] })).map((event) => event.seq)).toEqual([0]);
+          expect(await t.tenantEvents({ limit: 10, since: "2999-01-01T00:00:00.000Z" })).toEqual([]);
+          expect((await t.tenantEvents({ limit: 10, until: "2999-01-01T00:00:00.000Z" })).length).toBe(3);
+        });
+      });
+
       it("appends audit rows and keeps idempotency rows unique", async () => {
         const store = await fresh();
         const row = (id: string, vaultId: string | null) => ({
