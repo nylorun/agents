@@ -43,6 +43,7 @@
         "agent-model",
         "secret-routing",
         "remove-tools",
+        "message-context",
         "agent-triggers",
         "api-triggers",
         "steer",

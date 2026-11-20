@@ -43,6 +43,7 @@
         "agent-model",
         "secret-routing",
         "remove-tools",
+        "message-context",
         "agent-triggers",
         "api-triggers",
         "steer",
@@ -6806,6 +6807,28 @@
                   "steer"
                 ]
               },
+              "context": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64
+                    },
+                    "value": {
+                      "$ref": "#/components/schemas/JsonValue"
+                    }
+                  },
+                  "required": [
+                    "value"
+                  ],
+                  "additionalProperties": false
+                },
+                "minItems": 1,
+                "maxItems": 16
+              },
               "content": {
                 "type": "string",
                 "minLength": 1
@@ -7135,6 +7158,28 @@
                   "steer"
                 ]
               },
+              "context": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64
+                    },
+                    "value": {
+                      "$ref": "#/components/schemas/JsonValue"
+                    }
+                  },
+                  "required": [
+                    "value"
+                  ],
+                  "additionalProperties": false
+                },
+                "minItems": 1,
+                "maxItems": 16
+              },
               "data": {
                 "$ref": "#/components/schemas/JsonValue"
               }
@@ -7462,6 +7507,28 @@
                   "reject",
                   "steer"
                 ]
+              },
+              "context": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64
+                    },
+                    "value": {
+                      "$ref": "#/components/schemas/JsonValue"
+                    }
+                  },
+                  "required": [
+                    "value"
+                  ],
+                  "additionalProperties": false
+                },
+                "minItems": 1,
+                "maxItems": 16
               },
               "parts": {
                 "type": "array",
@@ -9729,6 +9796,24 @@
                 "type": "array",
                 "items": {
                   "type": "string"
+                }
+              },
+              "context": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string"
+                    },
+                    "value": {
+                      "$ref": "#/components/schemas/JsonValue"
+                    }
+                  },
+                  "required": [
+                    "value"
+                  ],
+                  "additionalProperties": false
                 }
               },
               "delivery": {
