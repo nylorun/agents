@@ -1,5 +1,15 @@
 # @nylorun/core
 
+## 0.49.0-beta
+
+### Minor Changes
+
+- d688ce5: An Agent sets when its sessions compact (ADR-157): `harness.loop.compaction` (`loop.compaction` in `AGENT.md`) takes `threshold` and `keepTokens`, positive whole numbers of tokens, and `roles.<role>` over them for sessions opened with that role. Our harness compacts before a model call whose estimate passes the lower of `threshold` and the model's window minus the reply reserve, and keeps `keepTokens` word for word; unset, sessions compact as before. A value that is not a positive integer is ignored with an `engine.diagnostic` (`compaction_setting_ignored`), and the folder compiler refuses it. `turn.start` names the session's role (`role`) to our harness.
+
+  An `agent-folder/3` folder may now set `loop` for the harness's own settings, such as `compaction`; only `loop.plan`, `loop.connections` and `loop.ask`, which its plugins declare, are refused. `nylorun migrate folder --to 3` keeps those settings.
+
+- d688ce5: A message's context (ADR-157, Host feature `message-context`): a message takes `context`, up to 16 items `{ type?, value }` and 16 KiB in all, facts for its own turn only. The Runtime keeps them on `command.message` and passes them to the turn as its input's `metadata.context`; our harness renders the turn's latest ones in the `<runtime-context>` block after the history on every model call of that turn, and later turns leave them out. A workflow session refuses them. `session.input(value, { context })` and `session.inputParts(parts, { context })` send them, and refuse before sending when the Runtime lacks the feature.
+
 ## 0.48.0-beta
 
 ### Minor Changes
