@@ -8,8 +8,11 @@
 export type InspectorTab = "manifest" | "record" | "events" | "usage";
 /** The Manifest tab's views: the manifest the session pinned, and the Agent it runs on. */
 export type ManifestTabView = "declared" | "deployed";
-/** The Events tab's views; `progress` and `iterations` are a workflow's. */
-export type EventsTabView = "log" | "progress" | "iterations";
+/**
+ * The Events tab's views: the log, a turn's trace (ADR-159), and a workflow's `progress` and
+ * `iterations`.
+ */
+export type EventsTabView = "log" | "trace" | "progress" | "iterations";
 
 export interface InspectorPlace {
   tab: InspectorTab;
@@ -62,7 +65,7 @@ export function inspectorPlace(
       if (isWorkflow) place.eventsView = "iterations";
       break;
     default:
-      if (view === "log" || (isWorkflow && (view === "progress" || view === "iterations")))
+      if (view === "log" || view === "trace" || (isWorkflow && (view === "progress" || view === "iterations")))
         place.eventsView = view;
   }
   return place;

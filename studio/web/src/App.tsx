@@ -25,6 +25,7 @@ import { ViewErrorBoundary } from "@/components/view-error-boundary";
 import { AgentManifestPanel } from "@/components/agent-manifest-panel";
 import { EventDetails } from "@/components/event-details";
 import { EventTable } from "@/components/event-table";
+import { TurnTrace } from "@/components/turn-trace";
 import { MessageActions } from "@/components/message-actions";
 import { IterationTimeline } from "@/components/iteration-timeline";
 import { SessionComposer } from "@/components/session-composer";
@@ -868,6 +869,8 @@ function SessionView({
   const [activeTab, setActiveTab] = useState<InspectorTab>("events");
   const [manifestView, setManifestView] = useState<ManifestTabView>("declared");
   const [eventsView, setEventsView] = useState<EventsTabView>(defaultEventsView(isWorkflow));
+  // The turn the Trace view shows; none means the latest.
+  const [traceTurn, setTraceTurn] = useState<string | undefined>();
   const [selectedEvent, setSelectedEvent] = useState<StudioEvent | undefined>();
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [inspectorShown, setInspectorShown] = useState(inspectorShownAtFirst);
@@ -1092,6 +1095,17 @@ function SessionView({
     setEventsView(value as EventsTabView);
     showInspector("events", value);
   };
+  // An event's "Open trace": its turn in the Trace view.
+  const openTrace = (turnId: string): void => {
+    setTraceTurn(turnId);
+    setDetailsOpen(false);
+    changeEventsView("trace");
+  };
+  // A span's "Open event": its row in the log, with its details.
+  const openSpanEvent = (event: StudioEvent): void => {
+    changeEventsView("log");
+    openEvent(event);
+  };
   const showDetails =
     inspectorShown && activeTab === "events" && detailsOpen && selectedEvent !== undefined;
 
@@ -1109,6 +1123,16 @@ function SessionView({
   // Newest-first in the Events table; chat stays chronological.
   const chatEvents = chronological;
   const eventLog = <EventTable events={events} sessionId={sessionId} selected={selectedEvent} onSelect={openEvent} />;
+  const turnTrace = (
+    <TurnTrace
+      tenantId={tenantId}
+      sessionId={sessionId}
+      events={chronological}
+      turnId={traceTurn}
+      onTurn={setTraceTurn}
+      onOpenEvent={openSpanEvent}
+    />
+  );
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -1426,17 +1450,23 @@ function SessionView({
             />
           </TabsPrimitive.Content>
           <TabsPrimitive.Content value="events" className={inspectorPanel}>
-            {tree ? (
-              <TabsPrimitive.Root
-                value={eventsView}
-                onValueChange={changeEventsView}
-                className="flex min-h-0 flex-1 flex-col overflow-hidden"
-              >
-                <ViewSwitch label="Events views">
-                  <ViewOption value="progress">Progress</ViewOption>
-                  <ViewOption value="iterations">Iterations</ViewOption>
-                  <ViewOption value="log">Log</ViewOption>
-                </ViewSwitch>
+            <TabsPrimitive.Root
+              value={eventsView}
+              onValueChange={changeEventsView}
+              className="flex min-h-0 flex-1 flex-col overflow-hidden"
+            >
+              <ViewSwitch label="Events views">
+                {tree ? (
+                  <>
+                    <ViewOption value="progress">Progress</ViewOption>
+                    <ViewOption value="iterations">Iterations</ViewOption>
+                  </>
+                ) : null}
+                <ViewOption value="log">Log</ViewOption>
+                <ViewOption value="trace">Trace</ViewOption>
+              </ViewSwitch>
+              {tree ? (
+                <>
                 <TabsPrimitive.Content value="progress" className={inspectorPanel}>
                   <WorkflowTree
                     root={tree}
@@ -1463,13 +1493,15 @@ function SessionView({
                     onSelect={setSelectedIteration}
                   />
                 </TabsPrimitive.Content>
-                <TabsPrimitive.Content value="log" className={inspectorPanel}>
-                  {eventLog}
-                </TabsPrimitive.Content>
-              </TabsPrimitive.Root>
-            ) : (
-              eventLog
-            )}
+                </>
+              ) : null}
+              <TabsPrimitive.Content value="log" className={inspectorPanel}>
+                {eventLog}
+              </TabsPrimitive.Content>
+              <TabsPrimitive.Content value="trace" className={inspectorPanel}>
+                {turnTrace}
+              </TabsPrimitive.Content>
+            </TabsPrimitive.Root>
           </TabsPrimitive.Content>
           <TabsPrimitive.Content
             value="usage"
@@ -1499,6 +1531,7 @@ function SessionView({
           <ResizablePanel defaultSize={30} minSize={22}>
             <EventDetails
               event={selectedEvent}
+              onOpenTrace={openTrace}
               onClose={() => {
                 setDetailsOpen(false);
                 setSelectedEvent(undefined);

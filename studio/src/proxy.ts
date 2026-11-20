@@ -189,8 +189,10 @@ export async function proxyRuntime(
   const read =
     method === "GET" &&
     (path === "/v1/sessions" ||
-      // A session's model usage, for its Usage tab: its totals and its model calls; and its model.
-      /^\/v1\/sessions\/[^/]+(?:\/(items|events|manifest|usage|calls\/model|model))?$/.test(path) ||
+      // A session's model usage, for its Usage tab: its totals, its model and tool calls; and its
+      // model. A turn's trace, for the Events tab's Trace view (ADR-159).
+      /^\/v1\/sessions\/[^/]+(?:\/(items|events|manifest|usage|calls\/model|calls\/tool|model))?$/.test(path) ||
+      /^\/v1\/sessions\/[^/]+\/turns\/[^/]+\/trace$/.test(path) ||
       path === "/v1/tenant" ||
       // The Tenant's page: its models, settings, spend, tool policy and keys (it shows no secret).
       /^\/v1\/tenant\/(?:model|models|providers|limits|sandbox|artifacts|skills|usage|budgets|tool-policy|keys|signing-keys)$/.test(

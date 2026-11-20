@@ -274,6 +274,20 @@ What an intent carries:
     and a sandbox call's whose input names its folder, `/skills/<name>@<hash>/`;
   - `plugin`: `{name, version?}`, the Agent Plugin that brought its MCP server or skill.
 
+## §4c What the Runtime observes for you
+
+Everything a harness records through the Harness API becomes the session's **agent record**
+(ADR-159): the events a developer reads first, marked `evidence: claimed`. The Runtime adds its
+own **Runtime record** beside them (the queue, wakes, the computer, artifacts), and builds each
+turn's trace from both: `invoke_agent` for the turn, `chat` for each model call through the gate,
+`execute_tool` for each tool call. A harness you write gets the same trace as Nylorun's, with no
+instrumentation of its own.
+
+So a harness must not instrument its own model or tool calls with an OpenTelemetry library: every
+call would be counted twice. Spans for work the Runtime cannot see, such as a retrieval step inside
+the harness, are welcome; parent them on the turn's context from `TurnStart.trace`. See
+[OBSERVABILITY.md](OBSERVABILITY.md).
+
 ## §4b Artifacts
 
 A harness reads and writes the artifacts of the run it holds over two requests. The client
