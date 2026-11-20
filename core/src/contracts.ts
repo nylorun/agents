@@ -3482,6 +3482,12 @@ export const EventSourceKindSchema = z.enum([
 ]);
 export type EventSourceKind = z.infer<typeof EventSourceKindSchema>;
 /**
+ * Whose account an event is: the agent's or the Runtime's (ADR-159). A session's events have one each
+ * (`EVENT_CATALOG`); every event on an Agent's stream (`AGENT_EVENT_TYPES`) is the Runtime's.
+ */
+export const EVENT_LAYERS = ["agent", "runtime"] as const;
+export type EventLayer = (typeof EVENT_LAYERS)[number];
+/**
  * How far an event can be trusted, by who could forge it. `observed`: the Runtime saw it itself
  * (commands, the tools core serves, gate records, core's settle). `claimed`: a harness reported
  * it (an assistant message, a tool result it ran, its turn's end), so it is the harness's claim;
@@ -4369,61 +4375,65 @@ export const McpDiscoveredPayloadSchema = z
  * new type or a protocol version, never an edit in place.
  */
 export const EVENT_CATALOG = {
-  "command.message": { payload: CommandMessagePayloadSchema, source: "api", version: 1 },
-  "command.approve": { payload: CommandApprovePayloadSchema, source: "api", version: 1 },
-  "command.respond": { payload: CommandRespondPayloadSchema, source: "api", version: 1 },
-  "turn.completed": { payload: TurnCompletedPayloadSchema, source: "loop", version: 1 },
-  "turn.paused": { payload: TurnPausedPayloadSchema, source: "loop", version: 1 },
-  "turn.failed": { payload: TurnFailedPayloadSchema, source: "loop", version: 1 },
-  "turn.cancelled": { payload: TurnCancelledPayloadSchema, source: "api", version: 1 },
-  "turn.version_kept": { payload: TurnVersionKeptPayloadSchema, source: "api", version: 1 },
-  "session.model": { payload: SessionModelPayloadSchema, source: "api", version: 1 },
-  "message.queued": { payload: MessageQueuedPayloadSchema, source: "api", version: 1 },
-  "queue.taken": { payload: QueueTakenPayloadSchema, source: "api", version: 1 },
-  "queue.failed": { payload: QueueFailedPayloadSchema, source: "api", version: 1 },
-  "queue.cancelled": { payload: QueueCancelledPayloadSchema, source: "api", version: 1 },
-  "wake.booked": { payload: WakeBookedPayloadSchema, source: "api", version: 1 },
-  "wake.cancelled": { payload: WakeCancelledPayloadSchema, source: "api", version: 1 },
-  "memory.updated": { payload: MemoryUpdatedPayloadSchema, source: "api", version: 1 },
-  "message.assistant": { payload: AssistantMessagePayloadSchema, source: "loop", version: 1 },
-  "model.failed": { payload: ModelFailedPayloadSchema, source: "loop", version: 1 },
-  "context.compacted": { payload: ContextCompactedPayloadSchema, source: "loop", version: 1 },
-  "tool.completed": { payload: ToolCompletedPayloadSchema, source: "loop", version: 1 },
-  "effect.uncertain": { payload: EffectUncertainPayloadSchema, source: "loop", version: 1 },
-  "delegation.started": { payload: DelegationPayloadSchema, source: "loop", version: 1 },
-  "delegation.completed": { payload: DelegationPayloadSchema, source: "loop", version: 1 },
-  "mcp.discovered": { payload: McpDiscoveredPayloadSchema, source: "loop", version: 1 },
-  "plan.updated": { payload: PlanUpdatedPayloadSchema, source: "loop", version: 1 },
-  "engine.diagnostic": { payload: EngineDiagnosticPayloadSchema, source: "loop", version: 1 },
-  "environment.state": { payload: EnvironmentStatePayloadSchema, source: "loop", version: 1 },
-  "environment.exec": { payload: EnvironmentExecPayloadSchema, source: "loop", version: 1 },
-  "agent.attached": { payload: AgentAttachedPayloadSchema, source: "api", version: 1 },
-  "node.started": { payload: NodeStartedPayloadSchema, source: "loop", version: 1 },
-  "node.completed": { payload: NodeCompletedPayloadSchema, source: "loop", version: 1 },
-  "node.agent": { payload: NodeAgentPayloadSchema, source: "loop", version: 1 },
-  "loop.iteration": { payload: LoopIterationPayloadSchema, source: "loop", version: 1 },
-  "loop.verified": { payload: LoopVerifiedPayloadSchema, source: "api", version: 1 },
-  "artifact.created": { payload: ArtifactVersionPayloadSchema, source: "api", version: 1 },
+  "command.message": { payload: CommandMessagePayloadSchema, source: "api", version: 1, layer: "agent" },
+  "command.approve": { payload: CommandApprovePayloadSchema, source: "api", version: 1, layer: "agent" },
+  "command.respond": { payload: CommandRespondPayloadSchema, source: "api", version: 1, layer: "agent" },
+  "turn.completed": { payload: TurnCompletedPayloadSchema, source: "loop", version: 1, layer: "agent" },
+  "turn.paused": { payload: TurnPausedPayloadSchema, source: "loop", version: 1, layer: "agent" },
+  "turn.failed": { payload: TurnFailedPayloadSchema, source: "loop", version: 1, layer: "agent" },
+  "turn.cancelled": { payload: TurnCancelledPayloadSchema, source: "api", version: 1, layer: "agent" },
+  "turn.version_kept": { payload: TurnVersionKeptPayloadSchema, source: "api", version: 1, layer: "runtime" },
+  "session.model": { payload: SessionModelPayloadSchema, source: "api", version: 1, layer: "runtime" },
+  "message.queued": { payload: MessageQueuedPayloadSchema, source: "api", version: 1, layer: "runtime" },
+  "queue.taken": { payload: QueueTakenPayloadSchema, source: "api", version: 1, layer: "runtime" },
+  "queue.failed": { payload: QueueFailedPayloadSchema, source: "api", version: 1, layer: "runtime" },
+  "queue.cancelled": { payload: QueueCancelledPayloadSchema, source: "api", version: 1, layer: "runtime" },
+  "wake.booked": { payload: WakeBookedPayloadSchema, source: "api", version: 1, layer: "runtime" },
+  "wake.cancelled": { payload: WakeCancelledPayloadSchema, source: "api", version: 1, layer: "runtime" },
+  "memory.updated": { payload: MemoryUpdatedPayloadSchema, source: "api", version: 1, layer: "agent" },
+  "message.assistant": { payload: AssistantMessagePayloadSchema, source: "loop", version: 1, layer: "agent" },
+  "model.failed": { payload: ModelFailedPayloadSchema, source: "loop", version: 1, layer: "agent" },
+  "context.compacted": { payload: ContextCompactedPayloadSchema, source: "loop", version: 1, layer: "agent" },
+  "tool.completed": { payload: ToolCompletedPayloadSchema, source: "loop", version: 1, layer: "agent" },
+  "effect.uncertain": { payload: EffectUncertainPayloadSchema, source: "loop", version: 1, layer: "agent" },
+  "delegation.started": { payload: DelegationPayloadSchema, source: "loop", version: 1, layer: "agent" },
+  "delegation.completed": { payload: DelegationPayloadSchema, source: "loop", version: 1, layer: "agent" },
+  "mcp.discovered": { payload: McpDiscoveredPayloadSchema, source: "loop", version: 1, layer: "runtime" },
+  "plan.updated": { payload: PlanUpdatedPayloadSchema, source: "loop", version: 1, layer: "agent" },
+  "engine.diagnostic": { payload: EngineDiagnosticPayloadSchema, source: "loop", version: 1, layer: "runtime" },
+  "environment.state": { payload: EnvironmentStatePayloadSchema, source: "loop", version: 1, layer: "runtime" },
+  "environment.exec": { payload: EnvironmentExecPayloadSchema, source: "loop", version: 1, layer: "runtime" },
+  "agent.attached": { payload: AgentAttachedPayloadSchema, source: "api", version: 1, layer: "runtime" },
+  "node.started": { payload: NodeStartedPayloadSchema, source: "loop", version: 1, layer: "agent" },
+  "node.completed": { payload: NodeCompletedPayloadSchema, source: "loop", version: 1, layer: "agent" },
+  "node.agent": { payload: NodeAgentPayloadSchema, source: "loop", version: 1, layer: "agent" },
+  "loop.iteration": { payload: LoopIterationPayloadSchema, source: "loop", version: 1, layer: "agent" },
+  "loop.verified": { payload: LoopVerifiedPayloadSchema, source: "api", version: 1, layer: "agent" },
+  "artifact.created": { payload: ArtifactVersionPayloadSchema, source: "api", version: 1, layer: "runtime" },
   "artifact.version.created": {
     payload: ArtifactVersionPayloadSchema,
     source: "api",
     version: 1,
+    layer: "runtime",
   },
-  "artifact.deleted": { payload: ArtifactDeletedPayloadSchema, source: "api", version: 1 },
+  "artifact.deleted": { payload: ArtifactDeletedPayloadSchema, source: "api", version: 1, layer: "runtime" },
   "artifact.export.skipped": {
     payload: ArtifactExportSkippedPayloadSchema,
     source: "api",
     version: 1,
+    layer: "runtime",
   },
   "artifact.export.failed": {
     payload: ArtifactExportFailedPayloadSchema,
     source: "api",
     version: 1,
+    layer: "runtime",
   },
   "transcript.updated": {
     payload: TranscriptUpdatedPayloadSchema,
     source: "loop",
     version: 1,
+    layer: "agent",
     visibility: "internal",
   },
 } as const satisfies Record<
@@ -4432,11 +4442,22 @@ export const EVENT_CATALOG = {
     payload: z.ZodType;
     source: EventSourceKind;
     version: number;
+    /**
+     * Whose account the event is (ADR-159): `agent`, what the agent saw and did (inputs, model and
+     * tool calls, the harness's own work, turns), for the developer reading the session; or
+     * `runtime`, what the Runtime did to the session (queue, wakes, settings, the computer,
+     * artifacts, diagnostics). A property of the type: the envelope does not carry it.
+     */
+    layer: EventLayer;
     visibility?: "public" | "internal";
   }
 >;
 export type EventType = keyof typeof EVENT_CATALOG;
 export const EVENT_TYPES = Object.keys(EVENT_CATALOG) as readonly EventType[];
+/** An event type's layer (ADR-159); `undefined` for a type this version does not know. */
+export function eventLayer(type: string): EventLayer | undefined {
+  return Object.hasOwn(EVENT_CATALOG, type) ? EVENT_CATALOG[type as EventType].layer : undefined;
+}
 /** Drops the index signatures `passthrough` adds, so plain interfaces are assignable. */
 type Closed<T> = T extends readonly (infer U)[]
   ? Closed<U>[]

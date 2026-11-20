@@ -13,6 +13,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import {
   Table,
   TableBody,
@@ -27,6 +28,7 @@ import {
   eventSummary,
   type StudioEvent,
 } from "@/event-presentation";
+import { EVENT_VIEWS, inView, writerOf, type EventView } from "@/event-layers";
 import {
   eventExport,
   eventExportName,
@@ -34,6 +36,7 @@ import {
 } from "@/event-export";
 
 const ROOT = "root";
+
 
 function time(value: string): string {
   return dayjs(value).format("HH:mm:ss");
@@ -61,12 +64,17 @@ export function EventTable({
   selected?: StudioEvent;
   onSelect: (event: StudioEvent) => void;
 }>) {
+  const [view, setView] = useState<EventView>("agent");
   const [selectedTypes, setSelectedTypes] = useState<
     readonly string[] | undefined
   >();
+  const inThisView = useMemo(
+    () => events.filter((event) => inView(event.type, view)),
+    [events, view],
+  );
   const eventTypes = useMemo(
-    () => [...new Set(events.map((event) => event.type))].sort(),
-    [events],
+    () => [...new Set(inThisView.map((event) => event.type))].sort(),
+    [inThisView],
   );
   const activeTypes = selectedTypes ?? eventTypes;
   // Agents used as tools, by path; events without one belong to the root agent.
@@ -83,7 +91,7 @@ export function EventTable({
       ].sort(),
     [events],
   );
-  const visibleEvents = events.filter(
+  const visibleEvents = inThisView.filter(
     (event) =>
       (selectedTypes === undefined || selectedTypes.includes(event.type)) &&
       (agent === undefined ||
@@ -116,8 +124,32 @@ export function EventTable({
     <section className="flex h-full min-h-0 flex-col overflow-hidden">
       <div className="flex h-12 shrink-0 items-center gap-3 border-b bg-background px-4">
         <h2 className="text-sm font-semibold">Events</h2>
+        <ToggleGroup
+          type="single"
+          size="sm"
+          value={view}
+          onValueChange={(value) => {
+            if (value === "agent" || value === "runtime" || value === "all") {
+              setView(value);
+              setSelectedTypes(undefined);
+            }
+          }}
+          aria-label="Whose events"
+          className="shrink-0 gap-0.5 rounded-lg bg-muted p-0.5"
+        >
+          {EVENT_VIEWS.map(({ value, label, title }) => (
+            <ToggleGroupItem
+              key={value}
+              value={value}
+              title={title}
+              className="h-7 rounded-md! px-2.5 text-xs text-muted-foreground hover:bg-transparent data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm!"
+            >
+              {label}
+            </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
         <span className="text-xs text-muted-foreground">
-          {events.length} total
+          {inThisView.length} of {events.length}
         </span>
         {agents.length > 0 && (
           <DropdownMenu>
@@ -209,6 +241,7 @@ export function EventTable({
               <TableHead className="w-28">Time</TableHead>
               <TableHead className="w-40">Type</TableHead>
               <TableHead>Summary</TableHead>
+              <TableHead className="w-36">Writer</TableHead>
               <TableHead className="w-24">Delivery</TableHead>
             </TableRow>
           </TableHeader>
@@ -216,12 +249,16 @@ export function EventTable({
             {visibleEvents.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={4}
+                  colSpan={5}
                   className="h-28 text-center text-muted-foreground"
                 >
                   {events.length === 0
                     ? "Events will appear when the session runs."
-                    : "No events match this filter."}
+                    : inThisView.length === 0
+                      ? view === "agent"
+                        ? "The agent has no events yet."
+                        : "The Runtime has no events for this session yet."
+                      : "No events match this filter."}
                 </TableCell>
               </TableRow>
             ) : (
@@ -242,6 +279,12 @@ export function EventTable({
                   </TableCell>
                   <TableCell className="max-w-0 truncate text-xs text-muted-foreground">
                     {eventSummary(event)}
+                  </TableCell>
+                  <TableCell
+                    className="text-xs text-muted-foreground"
+                    title={event.source.id}
+                  >
+                    {writerOf(event)}
                   </TableCell>
                   <TableCell className="text-xs text-muted-foreground">
                     {event.committed ? "History" : "Live"}

@@ -24,7 +24,13 @@ function pretty(value: unknown): string {
 export function EventDetails({
   event,
   onClose,
-}: Readonly<{ event: StudioEvent; onClose: () => void }>) {
+  onOpenTrace,
+}: Readonly<{
+  event: StudioEvent;
+  onClose: () => void;
+  /** Opens the trace of the event's turn; absent where there is no Trace view. */
+  onOpenTrace?: (turnId: string) => void;
+}>) {
   return (
     <section className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
       <header className="flex h-12 shrink-0 items-center gap-3 border-b bg-background px-4">
@@ -34,8 +40,18 @@ export function EventDetails({
             {event.eventId.slice(0, 8)}…
           </p>
         </div>
+        {onOpenTrace && event.turnId ? (
+          <Button
+            className="ml-auto h-7"
+            size="sm"
+            variant="outline"
+            onClick={() => onOpenTrace(event.turnId!)}
+          >
+            Open trace
+          </Button>
+        ) : null}
         <Button
-          className="ml-auto"
+          className={onOpenTrace && event.turnId ? "" : "ml-auto"}
           size="icon"
           variant="ghost"
           onClick={onClose}

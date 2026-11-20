@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   EVENT_CATALOG,
+  EVENT_LAYERS,
   EVENT_SCHEMAS,
   EVENT_TYPES,
   PLAN_LIMITS,
   PLAN_STEP_STATES,
   SessionEventSchema,
+  eventLayer,
   parseSessionEvent,
 } from "../src/contracts.js";
 
@@ -102,5 +104,20 @@ describe("event catalog", () => {
       expect(["loop", "api", "egress-gate"]).toContain(EVENT_CATALOG[type].source);
       expect(EVENT_CATALOG[type].version).toBeGreaterThan(0);
     }
+  });
+
+  it("names a layer for every type: the agent's record or the Runtime's (ADR-159)", () => {
+    for (const type of EVENT_TYPES) {
+      expect(EVENT_LAYERS).toContain(EVENT_CATALOG[type].layer);
+      expect(eventLayer(type)).toBe(EVENT_CATALOG[type].layer);
+    }
+    // What the agent saw and did.
+    for (const type of ["command.message", "message.assistant", "tool.completed", "context.compacted", "turn.completed"])
+      expect(eventLayer(type)).toBe("agent");
+    // What the Runtime did to the session.
+    for (const type of ["queue.taken", "wake.booked", "session.model", "environment.state", "artifact.created"])
+      expect(eventLayer(type)).toBe("runtime");
+    expect(eventLayer("not.a.type")).toBeUndefined();
+    expect(eventLayer("toString")).toBeUndefined();
   });
 });

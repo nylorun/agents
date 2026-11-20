@@ -784,6 +784,9 @@ a cancel then reaches another process only through the 5-second poll.
 
 ## Traces
 
+[OBSERVABILITY.md](OBSERVABILITY.md) is the guide to what the Runtime records and measures, for
+developers and for operators; this section is the trace export's reference.
+
 Each turn is one OpenTelemetry trace, derived from the session log: a root span
 `invoke_agent <agent>` for the turn, and a child span for every model call (`chat <model>`)
 and tool call (`execute_tool <tool>`, a flow's HTTP stage too), plus a marker for each pause

@@ -86,6 +86,8 @@ export type {
   ModelCallsPage,
   AgentPage,
   ToolCall,
+  TurnTrace,
+  OtlpSpan,
   ToolCallsPage,
   LiveEvent,
   SessionEvent,
@@ -157,12 +159,15 @@ export type {
 export {
   AGENT_EVENT_TYPES,
   AGENT_FOLDER_MEDIA_TYPE,
+  EVENT_LAYERS,
+  eventLayer,
   AGENT_STATES,
   COMPUTE_STATES,
   RUNTIME_LIMIT_DEFAULTS,
   SUBJECT_SCOPES,
 } from "@nylorun/core/contracts";
 export type {
+  EventLayer,
   AgentHarnessSection,
   HarnessSection,
   HarnessSkill,

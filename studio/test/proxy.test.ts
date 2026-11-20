@@ -502,7 +502,7 @@ test("proxy forwards a session's own model reads and same-origin writes, unchang
   );
 });
 
-test("proxy forwards a session's pinned manifest and usage reads and nothing else under the session", async () => {
+test("proxy forwards a session's pinned manifest, usage, tool calls and turn traces and nothing else under the session", async () => {
   const seen: string[] = [];
   await withUpstream(
     (req, res) => {
@@ -527,14 +527,20 @@ test("proxy forwards a session's pinned manifest and usage reads and nothing els
         assert.equal((await fetch(`${base}/v1/sessions/s1/manifest`)).status, 200);
         assert.equal((await fetch(`${base}/v1/sessions/s1/usage`)).status, 200);
         assert.equal((await fetch(`${base}/v1/sessions/s1/calls/model?limit=50&cursor=c1`)).status, 200);
-        assert.equal((await fetch(`${base}/v1/sessions/s1/calls/tool`)).status, 404);
-        assert.equal((await fetch(`${base}/v1/sessions/s1/turns/t1/trace`)).status, 404);
+        // A session's tool calls and a turn's trace, for the Events tab's Trace view (ADR-159).
+        assert.equal((await fetch(`${base}/v1/sessions/s1/calls/tool?turnId=t1`)).status, 200);
+        assert.equal((await fetch(`${base}/v1/sessions/s1/turns/t1/trace`)).status, 200);
+        assert.equal((await fetch(`${base}/v1/sessions/s1/turns/t1`)).status, 404);
+        assert.equal((await fetch(`${base}/v1/sessions/s1/turns/t1/trace/x`)).status, 404);
+        assert.equal((await fetch(`${base}/v1/sessions/s1/turns/t1/trace`, { method: "POST" })).status, 404);
         assert.equal((await fetch(`${base}/v1/sessions/s1/manifest`, { method: "DELETE" })).status, 404);
         assert.equal((await fetch(`${base}/v1/sessions/s1/usage`, { method: "POST" })).status, 404);
         assert.deepEqual(seen, [
           "GET /v1/sessions/s1/manifest",
           "GET /v1/sessions/s1/usage",
           "GET /v1/sessions/s1/calls/model?limit=50&cursor=c1",
+          "GET /v1/sessions/s1/calls/tool?turnId=t1",
+          "GET /v1/sessions/s1/turns/t1/trace",
         ]);
       } finally {
         studio.close();
