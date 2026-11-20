@@ -34,7 +34,12 @@ import type { ReportOptions } from "./context.js";
 /** The format name a v3 folder writes. */
 export const AGENT_FOLDER_V3 = "agent-folder/3";
 /** The keys of `AGENT.md` a v3 folder declares as plugins instead. */
-export const V3_REFUSED_KEYS = ["memory", "loop"] as const;
+export const V3_REFUSED_KEYS = ["memory"] as const;
+/**
+ * The `loop` keys a v3 folder declares as plugins instead. `loop` itself stays the harness's own
+ * settings, such as `compaction` (ADR-157).
+ */
+export const V3_REFUSED_LOOP_KEYS = ["plan", "connections", "ask"] as const;
 /** The keys of `engine:` a v3 folder declares as plugins instead. */
 export const V3_REFUSED_ENGINE_KEYS = ["sandbox", "artifacts", "triggers", "instructions"] as const;
 const MIGRATE = "run nylorun migrate folder <dir> --to 3, which writes the plugins that keep what the agent gets today";
@@ -79,6 +84,11 @@ export function v3Declarations(
   for (const key of V3_REFUSED_KEYS)
     if (front[key] !== undefined)
       fail("v3_refused", `${key} is a key of agent-folder/2: an agent-folder/3 folder declares the Runtime's features as plugins. Fix: ${MIGRATE}`, [key], { key: true });
+  if (front.loop !== undefined && !isObject(front.loop)) fail("value_invalid", "loop is a map", ["loop"]);
+  if (isObject(front.loop))
+    for (const key of V3_REFUSED_LOOP_KEYS)
+      if (front.loop[key] !== undefined)
+        fail("v3_refused", `loop.${key} is a key of agent-folder/2: an agent-folder/3 folder declares the Runtime's features as plugins. Fix: ${MIGRATE}`, ["loop", key], { key: true });
   if (isObject(front.engine))
     for (const key of V3_REFUSED_ENGINE_KEYS)
       if (front.engine[key] !== undefined)
@@ -138,9 +148,13 @@ export function v3Declarations(
     return { name, tools: within ? tools.filter((tool) => within.tools.includes(tool)) : tools };
   });
   const on = (tool: string) => plugins.some((plugin) => plugin.tools.includes(tool));
-  const loop = Object.fromEntries(
-    ([["plan", "update_plan"], ["connections", "request_connection"], ["ask", "ask"]] as const).flatMap(([key, tool]) => (role === "root" && on(tool) ? [[key, true]] : [])),
-  );
+  // The harness's own settings the folder sets (compaction), then those the plugins stand for.
+  const loop = {
+    ...(isObject(front.loop) ? front.loop : {}),
+    ...Object.fromEntries(
+      ([["plan", "update_plan"], ["connections", "request_connection"], ["ask", "ask"]] as const).flatMap(([key, tool]) => (role === "root" && on(tool) ? [[key, true]] : [])),
+    ),
+  };
   const engine: Record<string, unknown> = {
     ...(isObject(front.engine) ? front.engine : {}),
     sandbox: SANDBOX_TOOL_NAMES.filter((tool) => on(tool)),

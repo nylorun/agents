@@ -17,6 +17,9 @@ Additive (ADR-157).
   renders them in the `<runtime-context>` block after the history on every model call of that turn;
   later turns leave them out. The `command.message` event keeps them. A workflow session refuses a
   message with `context` (`400`).
+- **`loop` in `agent-folder/3`.** A v3 folder may set `loop` for the harness's own settings, such as
+  `compaction`; it refuses only `loop.plan`, `loop.connections` and `loop.ask`, which its plugins
+  declare. `nylorun migrate folder --to 3` keeps the other `loop` settings.
 
 # Computers run the computer agent (`computer.agent: go`)
 
@@ -93,7 +96,7 @@ before (ADR-106, D84).
   `AGENT.md`: `nylorun-memory`, `nylorun-triggers`, `nylorun-plan`, `nylorun-interactions`
   (`ask`, `request_connection`), `nylorun-artifacts` and `nylorun-sandbox` (needs a computer), with
   no versions: they follow the Runtime installed. `mcpServers.nylorun.tools.<tool>.enabled: false`
-  turns one of their tools off. The plugins replace `memory`, `loop`, `runtime.selfWake`, and
+  turns one of their tools off. The plugins replace `memory`, `loop.plan`, `loop.connections`, `loop.ask`, `runtime.selfWake`, and
   `engine.sandbox`, `engine.artifacts`, `engine.triggers` and `engine.instructions`, which v3
   refuses; `engine:` keeps `outputs` and `toolSearch`. A folder skill named like a plugin's skill
   (`memory`, `triggers`), and an `mcp.json` server named `nylorun`, are refused.
