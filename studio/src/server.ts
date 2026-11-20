@@ -635,6 +635,7 @@ export async function startStudioServer(
       headers: {
         authorization: `Bearer ${studioKey}`,
         [PROTOCOL_HEADER]: String(PROTOCOL_VERSION),
+        [CLIENT_HEADER]: "studio",
         "content-type": "application/json",
         accept: "application/json",
       },
