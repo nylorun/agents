@@ -315,3 +315,27 @@ chart takes them in `extraEnv.runtime` and `extraEnv.gateway`).
 
 An unknown exporter, sampler or ratio is skipped or replaced by its default, with a warning; a
 `/metrics` port that is not a number stops the start.
+
+### On a laptop: Studio's Traffic
+
+Studio's **Tenant › Traffic** reads the runtime's and the gateway's `/metrics` live, every 10 s,
+and shows API requests by route and client, model calls by model with their tokens, MCP tool
+calls, turns, queue waits, egress connections by outcome and reason, and any dropped telemetry:
+counts since each process started, the rate since the last read, and p50 and p95 from the
+histograms. Studio stores none of it and makes none of its own; it reads the sources in
+`NYLORUN_STUDIO_METRICS_URLS` (`name=url` pairs: `nylorun start` and the chart set the runtime's
+and the gateway's). With the chart's `metrics.from` set, Studio may still scrape both.
+
+### Your own tools
+
+For history, alerts and dashboards, send the telemetry to your own backend.
+[examples/observability](../examples/observability/README.md) has:
+
+- `compose.yaml`: Grafana's all-in-one OpenTelemetry backend (`grafana/otel-lgtm`) on your
+  machine. Start it, then `nylorun start` with `OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4318`
+  and `OTEL_METRICS_EXPORTER=prometheus,otlp`.
+- `grafana-dashboard.json`: the golden signals above, as one dashboard.
+- `collector.yaml`: an OpenTelemetry Collector for production. It keeps every trace with an error
+  or a slow turn and a quarter of the rest (tail sampling), and every metric, then sends them to
+  any OTLP backend: Grafana Cloud, Honeycomb, Datadog, or an LLM-observability tool such as
+  Langfuse or Phoenix for the agent spans.

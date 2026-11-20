@@ -21,6 +21,7 @@
  *   measurement id the dashboard reports page views to. `nylorun start` sets it
  *   unless the developer opted out of telemetry.
  */
+import { parseMetricsSources } from "./metrics.js";
 import { parseFrameAncestors } from "@nylorun/agents/studio-embed";
 import {
   parseAllowedHosts,
@@ -66,6 +67,7 @@ try {
   const frameAncestors = parsed("NYLORUN_STUDIO_FRAME_ANCESTORS", parseFrameAncestors);
   const analyticsId = parsed("NYLORUN_STUDIO_ANALYTICS_ID", parseAnalyticsId);
   const allowedHosts = parsed("NYLORUN_STUDIO_ALLOWED_HOSTS", parseAllowedHosts);
+  const metricsSources = parsed("NYLORUN_STUDIO_METRICS_URLS", parseMetricsSources);
   const studio = await startStudioServer({
     runtimeUrl,
     adminKey,
@@ -76,6 +78,7 @@ try {
     sessionCookie,
     frameAncestors,
     ...(analyticsId ? { analyticsId } : {}),
+    metricsSources,
   });
   console.log(
     `Studio listening on 0.0.0.0:${studio.port}; browser URL ${studio.url}${allowedHosts.length > 0 ? ` (also ${allowedHosts.join(", ")})` : ""}; Runtime ${runtimeUrl}`,

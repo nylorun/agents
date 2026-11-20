@@ -15,6 +15,7 @@ import { TenantCompute } from "@/components/tenant-compute";
 import { TenantPolicy } from "@/components/tenant-policy";
 import { TenantLimits } from "@/components/tenant-limits";
 import { TenantUsage } from "@/components/tenant-usage";
+import { TenantTraffic } from "@/components/tenant-traffic";
 import { TenantAudit } from "@/components/tenant-audit";
 import {
   ActionMenu,
@@ -38,6 +39,7 @@ const TAB_LABELS: Record<TenantTab, string> = {
   policy: "Tool policy",
   limits: "Limits",
   usage: "Usage",
+  traffic: "Traffic",
   keys: "Keys",
   audit: "Audit",
 };
@@ -227,6 +229,9 @@ export function TenantPage({
         </TabsPrimitive.Content>
         <TabsPrimitive.Content key={`usage:${tabRevision}`} value="usage" className={tabContent}>
           <TenantUsage {...props} manifests={catalog.manifests.map((m) => m.name)} />
+        </TabsPrimitive.Content>
+        <TabsPrimitive.Content key={`traffic:${tabRevision}`} value="traffic" className={tabContent}>
+          <TenantTraffic tenantId={props.tenantId} />
         </TabsPrimitive.Content>
         <TabsPrimitive.Content key={`keys:${tabRevision}`} value="keys" className={tabContent}>
           <KeysTab {...props} />

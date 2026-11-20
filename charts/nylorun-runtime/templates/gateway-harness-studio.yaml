@@ -183,6 +183,8 @@ spec:
             - { name: PORT, value: "3000" }
             - { name: NYLORUN_STUDIO_PUBLIC_PORT, value: "3000" }
             - { name: NYLORUN_STUDIO_SESSION_COOKIE, value: "nylorun_studio_{{ .Values.tenant.name }}" }
+            # Tenant › Traffic reads the runtime's and the gateway's own metrics, live (ADR-159).
+            - { name: NYLORUN_STUDIO_METRICS_URLS, value: "runtime=http://{{ $n }}-runtime-internal:9464/metrics,gateway=http://{{ $n }}-gateway:9464/metrics" }
           {{- with .Values.resources.studio }}
           resources: {{- toYaml . | nindent 12 }}
           {{- end }}

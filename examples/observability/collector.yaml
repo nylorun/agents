@@ -1,0 +1,58 @@
+# An OpenTelemetry Collector between the Runtime and your backend (ADR-159), for production: the
+# Runtime sends traces and metrics here over OTLP/HTTP, and the Collector keeps every trace with an
+# error or a slow turn, a quarter of the rest, and every metric, then sends them on.
+# Run it with otel/opentelemetry-collector-contrib (tail sampling is a contrib processor), e.g.
+#   otel/opentelemetry-collector-contrib:0.165.0@sha256:e40d61f10c9a617cca1ffd1be4d7e2b3a4b0f0001798ff07e58cabe82e618cea
+# and set on the runtime and gateway containers:
+#   OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+#   OTEL_METRICS_EXPORTER=prometheus,otlp
+# Replace the exporter with your backend's (OTLP to Grafana Cloud, Honeycomb, Datadog, Langfuse…).
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  # Never let the Collector take more memory than this; it drops and says so instead.
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 512
+  # A trace is decided when its last span has waited 30 s: a turn's spans come from the trace
+  # projector after the turn's events commit, and a long turn's last span ends with the turn.
+  tail_sampling:
+    decision_wait: 30s
+    policies:
+      - name: errors
+        type: status_code
+        status_code: { status_codes: [ERROR] }
+      - name: slow-turns
+        type: latency
+        latency: { threshold_ms: 60000 }
+      - name: a-quarter-of-the-rest
+        type: probabilistic
+        probabilistic: { sampling_percentage: 25 }
+  batch: {}
+
+exporters:
+  otlphttp:
+    endpoint: https://otlp.example.com
+    headers:
+      authorization: "Bearer ${env:BACKEND_TOKEN}"
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+service:
+  extensions: [health_check]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, tail_sampling, batch]
+      exporters: [otlphttp]
+    # Metrics are never sampled.
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlphttp]
