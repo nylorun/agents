@@ -92,6 +92,7 @@ export type {
   SessionEventOf,
   EventType,
   SessionCommand,
+  MessageContextItem,
   SubjectScope,
   AgentView,
   AgentState,

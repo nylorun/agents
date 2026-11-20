@@ -3335,6 +3335,31 @@ export type MessageDelivery = z.infer<typeof MessageDeliverySchema>;
  * only narrows.
  */
 export const RemoveToolsSchema = z.array(z.string().min(1).max(256)).max(256);
+/** The most context items one message carries (ADR-157). */
+export const MESSAGE_CONTEXT_MAX_ITEMS = 16;
+/** The most bytes a message's context items take, as JSON (ADR-157). */
+export const MESSAGE_CONTEXT_MAX_BYTES = 16 * 1024;
+/**
+ * A message's `context` (Host feature `message-context`, ADR-157): facts for its own turn only,
+ * such as the time or who the agent is today. Our engine puts them in the `<runtime-context>` block
+ * of every model call of that turn, after the history; later turns leave them out. The
+ * `command.message` event keeps them.
+ */
+export const MessageContextSchema = z
+  .array(
+    z
+      .object({
+        type: z.string().min(1).max(64).optional(),
+        value: jsonValue,
+      })
+      .strict(),
+  )
+  .min(1)
+  .max(MESSAGE_CONTEXT_MAX_ITEMS)
+  .refine((items) => new TextEncoder().encode(JSON.stringify(items)).length <= MESSAGE_CONTEXT_MAX_BYTES, {
+    message: `A message's context takes at most ${MESSAGE_CONTEXT_MAX_BYTES} bytes as JSON`,
+  });
+export type MessageContextItem = z.infer<typeof MessageContextSchema>[number];
 const messageBase = {
   ...commandBase,
   type: z.literal("message"),
@@ -3347,6 +3372,7 @@ const messageBase = {
   manifest: AgentManifestSchema.optional(),
   removeTools: RemoveToolsSchema.optional(),
   delivery: MessageDeliverySchema.optional(),
+  context: MessageContextSchema.optional(),
 };
 /**
  * One part of a user message (protocol 6): text, or a file by artifact id. A file part without
@@ -3983,6 +4009,8 @@ export const CommandMessagePayloadSchema = z
     manifest: z.unknown().optional(),
     /** The tools the message's turn may not use (Host feature `remove-tools`). */
     removeTools: z.array(z.string()).optional(),
+    /** The context items the message carried for its turn (ADR-157, Host feature `message-context`). */
+    context: z.array(z.object({ type: z.string().optional(), value: jsonValue }).strict()).optional(),
     delivery: MessageDeliverySchema.optional(),
     /** Set when the message waited in the session's queue (protocol 17): its id there. */
     queuedMessageId: z.string().optional(),

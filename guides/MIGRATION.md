@@ -1,3 +1,26 @@
+# An Agent's compaction threshold, and a message's context
+
+Additive (ADR-157).
+
+- **Compaction threshold.** An Agent's version may set, in its harness settings,
+  `harness.loop.compaction: { threshold, keepTokens, roles: { <role>: { threshold, keepTokens } } }`.
+  Our harness compacts before a model call whose estimate passes the lower of `threshold` and the
+  model's window minus the reply reserve, and keeps `keepTokens` word for word. A role's entry applies
+  to sessions opened with that role; `turn.start` now names it (`role`, sent to our harness only).
+  Unset, sessions compact as before. A value that is not a positive integer is ignored with an
+  `engine.diagnostic` (`compaction_setting_ignored`). `context.compacted`'s `tokensBefore` shows which
+  limit fired.
+- **Message context.** A message takes `context`, up to 16 items `{ type?, value }` (a `type` of at
+  most 64 characters, any JSON `value`, 16 KiB in all), facts for its own turn only (Host feature
+  `message-context`; `session.input(value, { context })` and `session.inputParts(parts, { context })`
+  in `@nylorun/agents`, which refuse it before sending when the Runtime lacks the feature). Our engine
+  renders them in the `<runtime-context>` block after the history on every model call of that turn;
+  later turns leave them out. The `command.message` event keeps them. A workflow session refuses a
+  message with `context` (`400`).
+- **`loop` in `agent-folder/3`.** A v3 folder may set `loop` for the harness's own settings, such as
+  `compaction`; it refuses only `loop.plan`, `loop.connections` and `loop.ask`, which its plugins
+  declare. `nylorun migrate folder --to 3` keeps the other `loop` settings.
+
 # Computers run the computer agent (`computer.agent: go`)
 
 Breaking for a chart install with computers (ADR-154 decision 4). Compose, `nylorun local` and
@@ -73,7 +96,7 @@ before (ADR-106, D84).
   `AGENT.md`: `nylorun-memory`, `nylorun-triggers`, `nylorun-plan`, `nylorun-interactions`
   (`ask`, `request_connection`), `nylorun-artifacts` and `nylorun-sandbox` (needs a computer), with
   no versions: they follow the Runtime installed. `mcpServers.nylorun.tools.<tool>.enabled: false`
-  turns one of their tools off. The plugins replace `memory`, `loop`, `runtime.selfWake`, and
+  turns one of their tools off. The plugins replace `memory`, `loop.plan`, `loop.connections`, `loop.ask`, `runtime.selfWake`, and
   `engine.sandbox`, `engine.artifacts`, `engine.triggers` and `engine.instructions`, which v3
   refuses; `engine:` keeps `outputs` and `toolSearch`. A folder skill named like a plugin's skill
   (`memory`, `triggers`), and an `mcp.json` server named `nylorun`, are refused.

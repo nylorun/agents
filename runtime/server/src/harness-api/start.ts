@@ -258,6 +258,9 @@ export function buildTurnStart(ctx: TenantContext, segment: SegmentStart): TurnS
     // The agent manifest version the session pinned, and its harness's own settings (protocol 16).
     ...(current.definition === undefined ? {} : { definition: current.definition }),
     ...(current.loop === undefined || flow ? {} : { loop: current.loop }),
+    // The session's role (ADR-157): only our harness is sent it, as another v5 harness's schema
+    // may not know the field.
+    ...(current.role === undefined || flow || harnessOf(current) !== HARNESS_ID ? {} : { role: current.role }),
     ...(segment.memory && !flow ? { memory: segment.memory } : {}),
   };
 }

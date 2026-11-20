@@ -271,6 +271,20 @@ another file an eighth of its bytes up to a cap. Every figure here is `Compactio
 `maxReserveTokens` 16,384 and `maxReserveShare` 0.25, `clipChars` 2,000, `summaryOverheadTokens`
 1,024, `imageTokens` 1,600, `fileBytesPerToken` 8, `fileTokensMax` 100,000, `minChunkTokens` 1,000,
 `minSummaryTokens` 256 and `summaryShare` 0.8 of the reserve, `charsPerToken` 4.
+A compaction runs before a model call whose estimate passes the window minus the reserve, or the
+config's `threshold` when that is lower (ADR-157, `compactionLimit`); there is no default threshold.
+The Host sets the config (`engine.compaction`); an Agent's version may set `threshold` and
+`keepTokens` in its harness settings (`harness.loop.compaction`), and `roles.<role>` over them for a
+session opened with that role (`turn.start.role`). `agentLoopOf` in `api/run.ts` merges them in that
+order; a value that is not a positive integer is ignored with an `engine.diagnostic`
+(`compaction_setting_ignored`).
+
+**Message context**: Facts a message carries for its own turn only (ADR-157, Host feature
+`message-context`): its `context` items, which reach the harness as the input's
+`metadata.context`. Every model call of the turn renders the items of the turn's latest input that
+carries any (`messageContextOf` in `loop/step/step-context.ts`, a steered message's replacing the
+first's) in the `<runtime-context>` block after the history (`projectContext`). The block is not
+part of the transcript, so later turns leave them out.
 
 **Model descriptor**: The model a turn's calls use when they name none (`turn.start.model`,
 protocol 15): provider, id, what it reads (`inputs`), its context window and output limit.

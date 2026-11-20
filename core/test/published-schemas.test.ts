@@ -28,7 +28,7 @@ const PINNED: Record<string, string> = {
   "https://docs.nylorun.com/schemas/agent-manifest/v8.3.json": "378efba8440c64a1a874f7d2e15f14b599f58d74c998b9909007419d95d047b8",
   "https://docs.nylorun.com/schemas/harness-manifest/v1.3.json": "54e76b932699d4c911796344aeeeabea293e9a360ca15d2fec8955d6634fe415",
   "https://docs.nylorun.com/schemas/runtime-manifest/v1.2.json": "56d01dd3fcfa7c4cc598bb836482642aa582ddc16eba7753932da6b565d55261",
-  "https://docs.nylorun.com/schemas/harness-api/v5.7.json": "1d4a600d43d4335db633bb89e1bf5b8ce2ffe51c8437ba24fbd4955ca9937aef",
+  "https://docs.nylorun.com/schemas/harness-api/v5.8.json": "4028c1343ed6340c1d6642b927d3615e8eb5bee0f787961b7eb5c7c5aa7fec4c",
   "https://docs.nylorun.com/schemas/agent-folder/v1/agent-md.3.json": "aa08b8858ac070bc624ae8a53375075d1c48ee09e1c2c9c9d4804292a91912de",
   "https://docs.nylorun.com/schemas/agent-folder/v1/agent-md.4.json": "f3e0db6ca5734ef0274c829a09b4512b7c71ee1754fbfe149993b5634705ebc9",
   "https://docs.nylorun.com/schemas/harness-manifest/v1.4.json": "d842f8709ab3f1ee678faa053ee211b09a28ad0aab78413aa5aaddeaa8c95ecb",
@@ -67,6 +67,7 @@ const RETIRED = [
   "https://docs.nylorun.com/schemas/harness-api/v5.4.json",
   "https://docs.nylorun.com/schemas/harness-api/v5.5.json",
   "https://docs.nylorun.com/schemas/harness-api/v5.6.json",
+  "https://docs.nylorun.com/schemas/harness-api/v5.7.json",
   "https://docs.nylorun.com/schemas/agent-folder/v1/agent-md.2.json",
   "https://docs.nylorun.com/schemas/agent-folder/v1/runtime.1.json",
 ];

@@ -6,7 +6,14 @@ import {
   type ModelCall,
   type TranscriptEntry,
 } from "@nylorun/core/define";
-import { compact, contextBudget, estimateTokens, findCut } from "../src/loop/compaction/index.js";
+import {
+  compact,
+  compactionLimit,
+  contextBudget,
+  estimateTokens,
+  findCut,
+} from "../src/loop/compaction/index.js";
+import { agentLoopOf } from "../src/api/run.js";
 import { compactionConfigOf } from "../src/loop/compaction/config.js";
 import { loopConfigOf } from "../src/loop/config.js";
 import {
@@ -525,6 +532,28 @@ describe("compaction in the turn loop", () => {
     ).toBeUndefined();
   });
 
+  it("compacts at the Agent's threshold, far below the window (ADR-157)", async () => {
+    const manifest = agent().manifest;
+    const checkpoint = createDurableCheckpoint({
+      manifest,
+      sessionId: "session",
+      turnId: "turn",
+      input: "go",
+    });
+    // A 100k window: without a threshold, 20 steps never come near it.
+    const unset = host({ window: 100_000, steps: 20, report: true });
+    await runDurable({ manifest, checkpoint, host: unset.host });
+    expect(unset.kinds).not.toContain("compaction");
+    const set = host({ window: 100_000, steps: 20, report: true });
+    const loop = loopConfigOf({ compaction: { threshold: 3_000, keepTokens: 1_000 } });
+    const result = await runDurable({ manifest, checkpoint, host: set.host, loop });
+    expect(result.status).toBe("completed");
+    expect(set.kinds).toContain("compaction");
+    const state = (result as { result: { state: { transcript: TranscriptEntry[] } } }).result.state;
+    expect(state.transcript[0]?.kind).toBe("compaction");
+    expect(estimateTokens(state.transcript)).toBeLessThan(3_000);
+  });
+
   it("compacts once and retries when the provider reports an overflow", async () => {
     const manifest = agent().manifest;
     const checkpoint = createDurableCheckpoint({
@@ -538,5 +567,94 @@ describe("compaction in the turn loop", () => {
     expect(result.status).toBe("completed");
     const overflowRetries = kinds.filter((kind) => kind === "compaction").length;
     expect(overflowRetries).toBeGreaterThan(0);
+  });
+});
+
+describe("compaction settings an Agent sets (ADR-157)", () => {
+  it("fires at the lower of the threshold and the window line", () => {
+    const budget = { contextWindow: 1_000_000, reserve: 16_384 };
+    expect(compactionLimit(budget)).toBe(983_616);
+    expect(compactionLimit(budget, compactionConfigOf({ threshold: 40_000 }))).toBe(40_000);
+    expect(
+      compactionLimit(
+        { contextWindow: 30_000, reserve: 4_000 },
+        compactionConfigOf({ threshold: 40_000 }),
+      ),
+    ).toBe(26_000);
+    // Without a window (no model descriptor yet), the threshold alone.
+    expect(compactionLimit(undefined, compactionConfigOf({ threshold: 40_000 }))).toBe(40_000);
+    expect(compactionLimit(undefined)).toBeUndefined();
+  });
+
+  function context() {
+    const requests: { kind: string; body: unknown }[] = [];
+    return {
+      requests,
+      ctx: {
+        engine: {
+          loop: loopConfigOf({ compaction: { keepTokens: 20_000, maxReserveTokens: 9_000 } }),
+        },
+        channel: {
+          async request(kind: string, body: unknown) {
+            requests.push({ kind, body });
+            return {};
+          },
+        },
+      },
+    };
+  }
+  const run = { runId: "run", grant: { turnId: "turn" } };
+  const loop = {
+    compaction: {
+      threshold: 40_000,
+      keepTokens: 15_000,
+      roles: { builder: { threshold: 120_000 } },
+    },
+  };
+
+  it("lays the Agent's values over the Host's, and a role's over the Agent's", async () => {
+    const { ctx, requests } = context();
+    const unset = await agentLoopOf(ctx, run, "session", {});
+    expect(unset).toBe(ctx.engine.loop);
+    const own = await agentLoopOf(ctx, run, "session", { loop });
+    expect(own.compaction).toMatchObject({
+      threshold: 40_000,
+      keepTokens: 15_000,
+      maxReserveTokens: 9_000,
+    });
+    const builder = await agentLoopOf(ctx, run, "session", { loop, role: "builder" });
+    expect(builder.compaction).toMatchObject({
+      threshold: 120_000,
+      keepTokens: 15_000,
+      maxReserveTokens: 9_000,
+    });
+    const other = await agentLoopOf(ctx, run, "session", { loop, role: "reviewer" });
+    expect(other.compaction).toMatchObject({ threshold: 40_000 });
+    expect(requests).toEqual([]);
+  });
+
+  it("ignores a value that is not a positive integer, with a diagnostic", async () => {
+    const { ctx, requests } = context();
+    const result = await agentLoopOf(ctx, run, "session", {
+      loop: {
+        compaction: { threshold: -1, keepTokens: 15_000, roles: { builder: { threshold: "big" } } },
+      },
+      role: "builder",
+    });
+    expect(result.compaction.threshold).toBeUndefined();
+    expect(result.compaction.keepTokens).toBe(15_000);
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toMatchObject({
+      kind: "event",
+      body: {
+        runId: "run",
+        type: "engine.diagnostic",
+        payload: { code: "compaction_setting_ignored" },
+      },
+    });
+    expect(JSON.stringify(requests[0]!.body)).toContain("harness.loop.compaction.threshold");
+    expect(JSON.stringify(requests[0]!.body)).toContain(
+      "harness.loop.compaction.roles.builder.threshold",
+    );
   });
 });

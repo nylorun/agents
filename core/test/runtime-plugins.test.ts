@@ -122,6 +122,37 @@ describe("agent-folder/3", () => {
     expect(result.diagnostics.find((item) => item.code === "v3_refused")!.message).toContain("migrate folder <dir> --to 3");
   });
 
+  it("keeps loop as the harness's own settings, such as compaction (ADR-157), beside what the plugins stand for", () => {
+    const result = compile({
+      "AGENT.md": agent(`${ALL}loop:\n  compaction:\n    threshold: 40000\n    roles: { builder: { threshold: 120000 } }\n`),
+      "runtime.json": JSON.stringify({ kind: "virtual" }),
+    });
+    expect(result.diagnostics).toEqual([]);
+    expect(result.manifest!.harness.loop).toEqual({
+      compaction: { threshold: 40000, roles: { builder: { threshold: 120000 } } },
+      plan: true,
+      connections: true,
+      ask: true,
+    });
+    const bad = compile({ "AGENT.md": agent(`${ALL}loop: { compaction: { threshold: 0 } }\n`), "runtime.json": JSON.stringify({ kind: "virtual" }) });
+    expect(bad.diagnostics.map((item) => item.message)).toEqual(["loop.compaction.threshold is a positive whole number of tokens"]);
+  });
+
+  it("keeps loop.compaction when it migrates a folder to agent-folder/3", async () => {
+    const { folderV3Edit } = await import("../src/folder/migrate-v3.js");
+    const edit = folderV3Edit({
+      agentMd: "---\nname: helper\ndescription: Helps.\nloop:\n  plan: true\n  compaction: { threshold: 40000 }\n---\nHelp.\n",
+      role: "root",
+    });
+    expect(edit.ok).toBe(true);
+    const text = (edit as { agentMd: string }).agentMd;
+    expect(text).toContain("compaction: { threshold: 40000 }");
+    expect(text).not.toContain("plan: true");
+    expect(compile({ "AGENT.md": text }).diagnostics).toEqual([]);
+    const only = folderV3Edit({ agentMd: "---\nname: helper\ndescription: Helps.\nloop: { plan: true }\n---\nHelp.\n", role: "root" });
+    expect((only as { agentMd: string }).agentMd).not.toContain("loop");
+  });
+
   it("refuses an unknown plugin or tool, a sandbox without a computer, and plugins in v2", () => {
     expect(codes(compile({ "AGENT.md": agent("plugins: [nylorun-memroy]\n") }).diagnostics)).toContain("plugin_unknown");
     expect(codes(compile({ "AGENT.md": agent("plugins: [nylorun-sandbox]\n") }).diagnostics)).toContain("plugin_needs_computer");

@@ -1352,7 +1352,7 @@ each option left out is the engine's own default, listed with `createHarness` in
 | `engine.resendDelaysMs` | `[1000, 2000, 4000]` | The waits before each resend of a tool call whose gate hop lost its answer; the last repeats |
 | `engine.partialOutputChars` | 4000 | How much of a failed agent-as-tool's last output its parent sees |
 | `engine.flowValueChars` | 80 | How much of a value a flow's failure message quotes |
-| `engine.compaction` | `DEFAULT_COMPACTION_CONFIG` | `keepTokens` (20,000), `keepShare` (0.3), `reserveTokens` (8,192), `maxReserveTokens` (16,384), `maxReserveShare` (0.25), `clipChars` (2,000), `summaryOverheadTokens` (1,024), `imageTokens` (1,600), `fileBytesPerToken` (8), `fileTokensMax` (100,000), `minChunkTokens` (1,000), `minSummaryTokens` (256), `summaryShare` (0.8), `charsPerToken` (4) |
+| `engine.compaction` | `DEFAULT_COMPACTION_CONFIG` | `keepTokens` (20,000), `keepShare` (0.3), `reserveTokens` (8,192), `maxReserveTokens` (16,384), `maxReserveShare` (0.25), `clipChars` (2,000), `summaryOverheadTokens` (1,024), `imageTokens` (1,600), `fileBytesPerToken` (8), `fileTokensMax` (100,000), `minChunkTokens` (1,000), `minSummaryTokens` (256), `summaryShare` (0.8), `charsPerToken` (4), and `threshold` (none; an Agent sets its own in `harness.loop.compaction`, ADR-157) |
 | `engine.sandboxTools` | `DEFAULT_SANDBOX_TOOL_LIMITS` | The `bash` timeouts and output, `read`, `grep` and `glob` counts |
 | `engine.mcpTools` | `DEFAULT_MCP_TOOL_CONFIG` | When MCP tools are deferred, and `tool_search`'s limits |
 | `engine.toolResults` | `DEFAULT_TOOL_RESULT_CONFIG` | Inline caps, previews (the smallest a stub keeps, `minPreviewBytes`, 64) and the step budget of tool results |

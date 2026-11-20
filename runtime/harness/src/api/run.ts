@@ -33,6 +33,8 @@ import { mcpToolSet } from "../tools/mcp.js";
 import { saveOutputs } from "../tools/outputs.js";
 import type { TranscriptCache } from "./transcript-cache.js";
 import type { FileContext } from "../loop/model/files.js";
+import type { LoopConfig } from "../loop/config.js";
+import type { CompactionConfig } from "../loop/compaction/config.js";
 
 export interface RunContext {
   readonly channel: HarnessChannel;
@@ -176,7 +178,7 @@ export async function runTurn(ctx: RunContext, run: HarnessRun): Promise<void> {
             takeInputs: true,
             ...(start.model ? { model: start.model } : {}),
             files: filesOf(ctx, run, start, (start.manifest as AgentManifest).engine),
-            loop: ctx.engine.loop,
+            loop: await agentLoopOf(ctx, run, sessionId, start),
           });
     // Our engine's outputs folder (Q5): saved before the turn ends, while the run is held, for
     // a root agent that declares nothing or declares `engine.outputs` (ADR-100).
@@ -349,4 +351,68 @@ function compactionOf(
     tokensAfter: Math.max(0, Math.round(Number(entry.tokensAfter) || 0)),
     summaryEffectIds: [...ids],
   };
+}
+
+/** The compaction settings an Agent's version may set in `harness.loop.compaction` (ADR-157). */
+const AGENT_COMPACTION_KEYS = ["threshold", "keepTokens"] as const;
+
+/**
+ * The loop settings for this run: the Host's, with the compaction settings the Agent's version
+ * sets in `harness.loop.compaction` over them, and those of `roles[<role>]` over the Agent's for a
+ * session opened with that role (ADR-157). A setting that is not a positive integer is left out,
+ * and said once with an `engine.diagnostic`.
+ */
+export async function agentLoopOf(
+  ctx: {
+    readonly engine: { readonly loop: LoopConfig };
+    readonly channel: { request(kind: string, body: unknown): Promise<unknown> };
+  },
+  run: { readonly runId: string; readonly grant: { readonly turnId: string } },
+  sessionId: string,
+  start: { readonly loop?: unknown; readonly role?: unknown },
+): Promise<LoopConfig> {
+  const base = ctx.engine.loop;
+  const settings = (start.loop as { compaction?: unknown } | undefined)?.compaction;
+  if (settings === undefined) return base;
+  const ignored: string[] = [];
+  const pick = (
+    from: unknown,
+    where: string,
+  ): Partial<Pick<CompactionConfig, "threshold" | "keepTokens">> => {
+    if (from === undefined) return {};
+    if (!from || typeof from !== "object" || Array.isArray(from)) {
+      ignored.push(where);
+      return {};
+    }
+    const out: { threshold?: number; keepTokens?: number } = {};
+    for (const key of AGENT_COMPACTION_KEYS) {
+      const value = (from as Record<string, unknown>)[key];
+      if (value === undefined) continue;
+      if (typeof value === "number" && Number.isInteger(value) && value > 0) out[key] = value;
+      else ignored.push(`${where}.${key}`);
+    }
+    return out;
+  };
+  const role = typeof start.role === "string" ? start.role : undefined;
+  const roles = (settings as { roles?: unknown } | null)?.roles;
+  const own = pick(settings, "harness.loop.compaction");
+  const forRole =
+    role !== undefined && roles && typeof roles === "object" && !Array.isArray(roles)
+      ? pick((roles as Record<string, unknown>)[role], `harness.loop.compaction.roles.${role}`)
+      : {};
+  if (ignored.length > 0)
+    await ctx.channel
+      .request("event", {
+        runId: run.runId,
+        sessionId,
+        turnId: run.grant.turnId,
+        type: "engine.diagnostic",
+        payload: {
+          code: "compaction_setting_ignored",
+          message: `Left out, not a positive integer: ${ignored.join(", ")}. The Host's compaction settings apply there.`,
+        },
+      })
+      .catch(() => undefined);
+  const compaction = { ...base.compaction, ...own, ...forRole };
+  return Object.freeze({ ...base, compaction: Object.freeze(compaction) });
 }

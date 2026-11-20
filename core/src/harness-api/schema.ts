@@ -425,6 +425,11 @@ export const TurnStartSchema = z
      * "connection"`.
      */
     loop: document.optional(),
+    /**
+     * The role the session was opened with (`PUT /v1/sessions/{id}` `role`, ADR-157), so a harness
+     * can use its settings for that role. Absent for a session opened without one.
+     */
+    role: z.string().min(1).max(64).optional(),
     /** The Agent's memory, when the version its session runs sets `harness.memory`. Absent for a flow. */
     memory: TurnMemorySchema.optional(),
     /** The segment's checkpoint; an agent's state has no transcript (`transcript.cursor`). */

@@ -1,7 +1,13 @@
 import type { BoundToolDefinition } from "@nylorun/core/define";
 import type { StepInput } from "./runtime.js";
 import type { InternalModelConfigurationSnapshot } from "./describe.js";
-import type { ContextSnapshot, ModelCandidate } from "@nylorun/core/define";
+import type {
+  ContextItem,
+  ContextSnapshot,
+  InputEvent,
+  JsonValue,
+  ModelCandidate,
+} from "@nylorun/core/define";
 import type { Tripwire } from "@nylorun/core/define";
 import { candidateFromCanonical, canonicalizeOutput, type CanonicalCall } from "./canonicalize.js";
 import { ModelConfigurationDraft } from "./model-configuration.js";
@@ -11,6 +17,43 @@ const EMPTY_CONTEXT: ContextSnapshot = Object.freeze({
   items: Object.freeze([]),
   contributors: Object.freeze([]),
 });
+
+/**
+ * A message's context (ADR-157, Host feature `message-context`): the items of the turn's latest
+ * input that carries `metadata.context`, for every model call of that turn. A later turn's calls
+ * never see them: the block is rendered after the history, not kept in it.
+ */
+export function messageContextOf(
+  input: Pick<StepInput, "turnId" | "transcript" | "arrivals">,
+): ContextSnapshot | undefined {
+  const events: InputEvent[] = [];
+  for (const entry of input.transcript)
+    if (entry.kind === "input" && entry.turnId === input.turnId) events.push(entry.event);
+  events.push(...input.arrivals);
+  for (let index = events.length - 1; index >= 0; index--) {
+    const items = contextItemsOf(events[index]!);
+    if (items)
+      return Object.freeze({
+        items,
+        contributors: Object.freeze([
+          Object.freeze({ partId: "message-context", slot: "message-context", order: 0 }),
+        ]),
+      });
+  }
+  return undefined;
+}
+
+function contextItemsOf(event: InputEvent): readonly ContextItem[] | undefined {
+  if (event.kind !== "user-message" && event.kind !== "interrupt") return undefined;
+  const context = (event.metadata as { context?: unknown } | undefined)?.context;
+  if (!Array.isArray(context) || context.length === 0) return undefined;
+  const items = context.flatMap((item): ContextItem[] => {
+    if (!item || typeof item !== "object" || !("value" in item)) return [];
+    const { type, value } = item as { type?: unknown; value: JsonValue };
+    return [Object.freeze(typeof type === "string" ? { type, value } : { value })];
+  });
+  return items.length ? Object.freeze(items) : undefined;
+}
 
 /** Mutable Step state: the configuration the definition's parts set, and the model's answer. */
 export class StepContext {
@@ -36,7 +79,7 @@ export class StepContext {
     return Object.freeze(this.configurationSnapshot().instructions.map((item) => item.text));
   }
   contextSnapshot(): ContextSnapshot {
-    return EMPTY_CONTEXT;
+    return messageContextOf(this.input) ?? EMPTY_CONTEXT;
   }
   get offeredTools(): readonly BoundToolDefinition[] {
     return this.configurationSnapshot().tools;

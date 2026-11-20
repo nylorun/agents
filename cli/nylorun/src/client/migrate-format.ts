@@ -34,7 +34,7 @@ when runtime.json has a computer, read_artifact, tool search). Nothing the model
 call changes, which it checks before it writes; then remove the lines the agent does not need.
 
 With --to 3, makes an agent-folder/2 folder agent-folder/3 (ADR-106): the Runtime's plugins
-(plugins: [nylorun-memory, ...]) in place of memory, loop, runtime.selfWake and engine's
+(plugins: [nylorun-memory, ...]) in place of memory, loop's plan, connections and ask, runtime.selfWake and engine's
 sandbox, artifacts and triggers, with mcpServers.nylorun turning off the tools the folder left
 out, and memory's instructions moved to the end of AGENT.md's body. Every agent keeps the same
 tools and features, which it checks before it writes; the words the model reads become the

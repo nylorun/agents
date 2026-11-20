@@ -62,6 +62,19 @@ export function contextBudget(
 }
 
 /**
+ * The estimate above which a model call compacts first: the model's window minus the reply reserve,
+ * or the configured `threshold` when it is lower (ADR-157). Undefined with neither.
+ */
+export function compactionLimit(
+  budget: ContextBudget | undefined,
+  config: CompactionConfig = DEFAULT_COMPACTION_CONFIG,
+): number | undefined {
+  const line = budget ? budget.contextWindow - budget.reserve : undefined;
+  if (config.threshold === undefined) return line;
+  return line === undefined ? config.threshold : Math.min(line, config.threshold);
+}
+
+/**
  * Tokens the next prompt needs: the last reported usage, which already counts the
  * instructions, tools and everything before it, plus an estimate of what came after.
  * Without usage, everything is estimated. The files of turn `turnId` go to the model as `files`

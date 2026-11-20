@@ -76,7 +76,12 @@ export function folderV3Edit(input: { readonly agentMd: string; readonly runtime
 
   // The frontmatter, edited in place: comments and the other keys stay as they are.
   doc.delete("memory");
-  doc.delete("loop");
+  // loop keeps the harness's own settings (compaction, ADR-157); its plan, connections and ask are plugins now.
+  const loopNode = doc.get("loop", true);
+  if (isMap(loopNode)) {
+    for (const key of ["plan", "connections", "ask"]) loopNode.delete(key);
+    if (loopNode.items.length === 0) doc.delete("loop");
+  } else doc.delete("loop");
   const engineNode = doc.get("engine", true);
   if (isMap(engineNode)) {
     for (const key of ["sandbox", "artifacts", "triggers", "instructions"]) engineNode.delete(key);

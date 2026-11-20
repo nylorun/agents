@@ -278,6 +278,14 @@ export const OPTIONAL_HOST_FEATURES = [
    */
   "remove-tools",
   /**
+   * A message's `context` (ADR-157): up to 16 items `{type?, value}` for its own turn. Our engine puts
+   * them in the `<runtime-context>` block of every model call of that turn, after the history, and
+   * later turns leave them out; `command.message` keeps them. Our harness also reads
+   * `harness.loop.compaction` (`threshold`, `keepTokens`, per role), with the session's role in
+   * `turn.start`.
+   */
+  "message-context",
+  /**
    * The triggers capability (D83): an agent whose version declares `harness.engine.triggers` sets
    * up its own triggers with the `triggers` tool, kept by the Agent (`origin: agent` in
    * `GET /v1/agents/{id}/triggers`); `DELETE /v1/agents/{id}/triggers/{triggerId}` deletes one;

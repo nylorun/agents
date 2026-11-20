@@ -326,7 +326,11 @@ again the version the Agent runs then (`repinTurn` in `tenant/agent-versions.ts`
 applying again what the turn's message asked of its manifest (`Session.turnRequest`): its
 `removeTools` (Host feature `remove-tools`, `withoutTools` in core), and its variant, validated
 again against the new version (one that is no variant of it keeps the turn on the version it
-pinned, with `turn.version_kept`, so a variant never widens a turn);
+pinned, with `turn.version_kept`, so a variant never widens a turn). A message's `context` (Host
+feature `message-context`, ADR-157) becomes its agent input's `metadata.context` (`turnMessage` in
+`tenant/commands.ts`); a workflow session refuses it, and the `command.message` event keeps it.
+`turn.start` names the session's role (`role`) to our harness, which picks the role's compaction
+settings with it;
 its workspace is keyed by the Agent's
 id, so its sessions share files, and deleting a session only detaches it. Its sessions run their
 turns at the same time (D66; one turn per session stays); a turn start checks a token caller's
