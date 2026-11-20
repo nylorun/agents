@@ -1,5 +1,33 @@
 # nylorun
 
+## 0.32.0-beta
+
+### Minor Changes
+
+- c8b2bc6: Telemetry for operators (ADR-159). Each runtime and gateway process makes OpenTelemetry metrics and spans with the SDK, configured by the standard `OTEL_*` variables, and stores none: Prometheus metrics on `/metrics` (port 9464, on by default; `OTEL_METRICS_EXPORTER`, `OTEL_EXPORTER_PROMETHEUS_HOST` and `_PORT`), and with an OTLP endpoint, metrics and live spans over OTLP, sampled by `OTEL_TRACES_SAMPLER` and `_ARG`. The metrics are `http.server.request.duration` (by declared route and `nylorun.client`), `gen_ai.client.inference.duration`, `.time_to_first_chunk` and `.usage.input_tokens`/`.output_tokens`, `mcp.client.operation.duration`, `http.client.request.duration`, `gen_ai.invoke_agent.duration`, `nylorun.queue.wait`, `nylorun.egress.connections`, `nylorun.egress.bytes` and `nylorun.telemetry.dropped`, which counts what a failed export dropped. An API request makes a server span that becomes the parent of the turn a command starts; a remote MCP tool call makes a client span; log lines written meanwhile carry `trace_id` and `span_id`. `service.name` is `nylorun-runtime` or `nylorun-gateway` (the turn traces' default was `nylorun`).
+
+  One content switch: `OTEL_INSTRUMENTATION_GENAI_CAPTURE_CONTENT` (`NO_CONTENT` by default, `SPAN_ONLY`; `EVENT_ONLY` and `SPAN_AND_EVENT` warn and act as `NO_CONTENT` and `SPAN_ONLY`). `NYLORUN_TRACE_CONTENT` and `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT` still work for this release, with a deprecation warning. Content is recorded as structured OTLP values, each text cut at `traceContentBytes`, and `execute_tool` spans gain `gen_ai.tool.call.arguments`. The GenAI conventions move to `semantic-conventions-genai@622b2b6`.
+
+  `@nylorun/agents` and `@nylorun/admin` send `Nylorun-Client: sdk`, nylorun `cli` and Studio `studio` on what it forwards. nylorun's local stack passes the `OTEL_*` variables, `OTEL_METRICS_EXPORTER`, `OTEL_TRACES_SAMPLER`, `_ARG` and `OTEL_INSTRUMENTATION_GENAI_CAPTURE_CONTENT` included, to the runtime and the gateway. The Helm chart names port 9464 `metrics` on the runtime and gateway containers and their internal Services, with `metrics.from` for who may scrape it.
+
+- b61e72f: Studio's Tenant › Traffic (ADR-159): the runtime's and the gateway's own metrics, read live from their `/metrics` every 10 s, with no store: API requests by route and client, model calls with tokens, MCP tool calls, turns, queue waits, egress outcomes and dropped telemetry, as counts since each process started, the rate since the last read, and p50 and p95. Studio reads the sources in `NYLORUN_STUDIO_METRICS_URLS`, which `nylorun start` and the chart set; the chart lets Studio scrape both even with `metrics.from` set. `examples/observability` has Grafana's all-in-one OpenTelemetry backend, a dashboard of the golden signals and a Collector with tail sampling.
+
+### Patch Changes
+
+- Pin core to the tested release.
+- Pin agents to the tested release.
+- Pin admin to the tested release.
+- Pin runtime to the tested release.
+- Pin studio to the tested release.
+- Updated dependencies [9f17705]
+- Updated dependencies [c8b2bc6]
+- Updated dependencies [2b80f71]
+- Updated dependencies
+- Updated dependencies
+  - @nylorun/core@0.50.0-beta
+  - @nylorun/agents@0.42.0-beta
+  - @nylorun/admin@0.21.0-beta
+
 ## 0.31.11-beta
 
 ### Patch Changes
