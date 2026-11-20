@@ -4,14 +4,14 @@ description: The Nylorun Runtime on an Agent Substrate cluster, with computers (
 type: application
 # Versioned with @nylorun/runtime; Studio's image tag is the annotation. The release sets all
 # three (scripts/release/pins.mjs).
-version: 0.54.1-beta
-appVersion: 0.54.1-beta
+version: 0.55.0-beta
+appVersion: 0.55.0-beta
 kubeVersion: ">=1.37.0-0"
 home: https://github.com/nylorun/agents
 sources:
   - https://github.com/nylorun/agents/tree/main/charts/nylorun-runtime
 annotations:
-  nylorun.com/studio-version: "0.37.0-beta"
+  nylorun.com/studio-version: "0.37.1-beta"
   # The computer agent's tag, versioned by its protocol, not with the Runtime (computer-image.yml).
   nylorun.com/computer-version: "1.0"
   licenses: Apache-2.0
