@@ -206,7 +206,8 @@ ${healthcheck("rustfs")}    restart: unless-stopped
       # An outside credential provider egress-gate hands an Agent owner's connected hosts to, and
       # its bearer: from the shell that runs \`nylorun start\`. Empty: none.
       NYLORUN_CREDENTIAL_PROVIDER_URL: \${NYLORUN_CREDENTIAL_PROVIDER_URL:-}
-      NYLORUN_CREDENTIAL_PROVIDER_TOKEN: \${NYLORUN_CREDENTIAL_PROVIDER_TOKEN:-}${sandboxes ? SANDBOXES_GATEWAY_ENV : ""}
+      NYLORUN_CREDENTIAL_PROVIDER_TOKEN: \${NYLORUN_CREDENTIAL_PROVIDER_TOKEN:-}
+${TELEMETRY_ENV}${sandboxes ? SANDBOXES_GATEWAY_ENV : ""}
     extra_hosts:
       host.docker.internal: host-gateway # model servers, MCP servers and HTTP tools on this machine
     volumes:
@@ -274,13 +275,8 @@ ${healthcheck("gateway")}    restart: unless-stopped
       NYLORUN_HARNESS_LISTEN_PORT: "4200"
       NYLORUN_HARNESS_ALLOWED_HOSTS: runtime:4200${sandboxes ? SANDBOXES_HARNESS_HOST : ""}
       NYLORUN_HARNESS_TOKEN: \${NYLORUN_HARNESS_TOKEN:?run nylorun start}
-      # Traces: from the shell that runs \`nylorun start\`. Unset, they are
-      # empty and the Runtime exports nothing. A collector on this machine is host.docker.internal.
-      OTEL_EXPORTER_OTLP_ENDPOINT: \${OTEL_EXPORTER_OTLP_ENDPOINT:-}
-      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: \${OTEL_EXPORTER_OTLP_TRACES_ENDPOINT:-}
-      OTEL_EXPORTER_OTLP_HEADERS: \${OTEL_EXPORTER_OTLP_HEADERS:-}
-      OTEL_SERVICE_NAME: \${OTEL_SERVICE_NAME:-}
-      OTEL_RESOURCE_ATTRIBUTES: \${OTEL_RESOURCE_ATTRIBUTES:-}
+${TELEMETRY_ENV}
+      # Deprecated, read for one release: OTEL_INSTRUMENTATION_GENAI_CAPTURE_CONTENT replaces them.
       OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT: \${OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT:-}
       NYLORUN_TRACE_CONTENT: \${NYLORUN_TRACE_CONTENT:-}
       # Host tuning (timings, retries, internal sizes; JSON): from the shell that runs \`nylorun start\`.
@@ -364,6 +360,24 @@ volumes:
   workspaces: { name: ${project}-workspaces, labels: *tenant }
 `;
 }
+
+/**
+ * Telemetry (ADR-159), for the runtime and the gateway: from the shell that runs
+ * \`nylorun start\`. Unset, each container serves its metrics on \`/metrics\` (port 9464, on the
+ * Compose network only) and exports nothing; with an OTLP endpoint, metrics and spans go there too.
+ */
+const TELEMETRY_ENV = `      # Telemetry: from the shell that runs \`nylorun start\`. Unset, metrics are served on /metrics
+      # (port 9464, on the Compose network) and nothing is exported. A collector on this machine
+      # is host.docker.internal.
+      OTEL_EXPORTER_OTLP_ENDPOINT: \${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: \${OTEL_EXPORTER_OTLP_TRACES_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_HEADERS: \${OTEL_EXPORTER_OTLP_HEADERS:-}
+      OTEL_SERVICE_NAME: \${OTEL_SERVICE_NAME:-}
+      OTEL_RESOURCE_ATTRIBUTES: \${OTEL_RESOURCE_ATTRIBUTES:-}
+      OTEL_METRICS_EXPORTER: \${OTEL_METRICS_EXPORTER:-}
+      OTEL_TRACES_SAMPLER: \${OTEL_TRACES_SAMPLER:-}
+      OTEL_TRACES_SAMPLER_ARG: \${OTEL_TRACES_SAMPLER_ARG:-}
+      OTEL_INSTRUMENTATION_GENAI_CAPTURE_CONTENT: \${OTEL_INSTRUMENTATION_GENAI_CAPTURE_CONTENT:-}`;
 
 /** Restate on the stores' network only: its admin port (the UI) is not published. */
 const RESTATE_CLOSED = `    networks: [store] # admin and UI not published: nylorun start --restate-ui

@@ -45,6 +45,8 @@ import type { AuthorizeResult } from "../vault/service.js";
 import type { McpCredentialRequest } from "../vault/sources.js";
 import type { TenantVaults } from "./tenant-vaults.js";
 import { readRuntimeLimits } from "../tenant/runtime-limits.js";
+import { defined, instruments } from "../telemetry/telemetry.js";
+import { methodOf } from "../telemetry/http.js";
 
 /** What an HTTP request came to, as a tool outcome. */
 export type HttpOutcome =
@@ -202,12 +204,18 @@ export async function callHttpTarget(
   const { limits } = options;
   const timeoutMs = Math.min(target.timeoutMs ?? HTTP_TOOL_DEFAULT_TIMEOUT_MS, limits.httpToolTimeoutMs);
   const timeout = AbortSignal.timeout(timeoutMs);
-  const result = await send(request.url, request.body, { ...options.headers }, {
-    policy: options.policy,
-    method: request.method,
-    signal: AbortSignal.any([options.signal, timeout]),
-    maxResponseBytes: limits.toolAnswerBytes,
-  });
+  const clock = performance.now();
+  let result: Awaited<ReturnType<typeof send>> | undefined;
+  try {
+    result = await send(request.url, request.body, { ...options.headers }, {
+      policy: options.policy,
+      method: request.method,
+      signal: AbortSignal.any([options.signal, timeout]),
+      maxResponseBytes: limits.toolAnswerBytes,
+    });
+  } finally {
+    recordHttpRequest(request.method, result, (performance.now() - clock) / 1000, timeout.aborted);
+  }
   if (options.signal.aborted) throw options.signal.reason;
   if (timeout.aborted) return failed("http.timeout", `The service did not answer within ${timeoutMs} ms`);
   switch (result.kind) {
@@ -255,6 +263,34 @@ export async function callHttpTarget(
   if (!checked.ok)
     return failed("tool.invalid-output", checked.issues.map((issue) => issue.message).join("; "));
   return { kind: "completed", output: checked.value };
+}
+
+/**
+ * An HTTP tool's request, measured (ADR-159): `http.client.request.duration` with
+ * `http.request.method`, `http.response.status_code` when the service answered, and `error.type`
+ * for a 4xx or 5xx (the status), a timeout, a request not sent or a connection lost. Never the URL
+ * or its host.
+ */
+function recordHttpRequest(
+  method: string,
+  result: Awaited<ReturnType<typeof send>> | undefined,
+  seconds: number,
+  timedOut: boolean,
+): void {
+  const status = result && "status" in result ? result.status : undefined;
+  const errorType = timedOut
+    ? "timeout"
+    : result === undefined
+      ? "aborted"
+      : result.kind === "not_sent" || result.kind === "lost"
+        ? result.kind
+        : status !== undefined && status >= 400
+          ? String(status)
+          : undefined;
+  instruments().httpClientDuration.record(
+    seconds,
+    defined({ "http.request.method": methodOf(method), "http.response.status_code": status, "error.type": errorType }),
+  );
 }
 
 /**

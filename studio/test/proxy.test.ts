@@ -50,7 +50,8 @@ test("proxy forwards the bearer and Protocol header, names no Tenant, and allows
         const response = await fetch(
           `${origin}/_studio/runtime/v1/tenant/model`,
           {
-            headers: { host: `127.0.0.1:${address.port}` },
+            // A browser's own label is replaced: Studio labels what it forwards (ADR-159).
+          headers: { host: `127.0.0.1:${address.port}`, "nylorun-client": "sdk" },
           },
         );
         assert.equal(response.status, 200);
@@ -65,6 +66,7 @@ test("proxy forwards the bearer and Protocol header, names no Tenant, and allows
           seen[0]!.headers[PROTOCOL_HEADER.toLowerCase()],
           String(PROTOCOL_VERSION),
         );
+        assert.equal(seen[0]!.headers["nylorun-client"], "studio");
       } finally {
         studio.close();
         await once(studio, "close");
@@ -274,6 +276,7 @@ test("proxy forwards Agent and agent manifest reads and same-origin writes on th
         assert.equal(seen[16]!.headers["content-type"], undefined);
         for (const { headers } of seen) {
           assert.equal(headers.authorization, "Bearer server-secret");
+          assert.equal(headers["nylorun-client"], "studio");
           assert.equal(headers["nylorun-subject"], undefined);
           assert.equal(headers["nylorun-scopes"], undefined);
         }

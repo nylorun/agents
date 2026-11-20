@@ -5,22 +5,27 @@
  *
  * Delivery never holds the log back: a `429`, a `5xx` or a lost connection is tried again three
  * times with backoff, then the batch is dropped and logged (`trace_export_dropped`); any other
- * answer drops it at once. Either way `post` resolves, and the projector acknowledges the rows,
+ * answer drops it at once, and its spans are counted on `nylorun.telemetry.dropped` (`signal`
+ * `traces`, `exporter` `projector`, ADR-159). Either way `post` resolves, and the projector acknowledges the rows,
  * so a dead collector makes Postgres keep no WAL. The trace route (R7.5) re-reads any turn.
  */
 import { RUNTIME_VERSION } from "../version.js";
 import { GENAI_SEMCONV, type OtlpKeyValue, type OtlpSpan } from "./map.js";
 import { hostTuning } from "../tuning.js";
+import { instruments } from "../telemetry/telemetry.js";
 
 /** What every batch says about its source: `OTEL_SERVICE_NAME` and `OTEL_RESOURCE_ATTRIBUTES`. */
 export interface TraceResource {
-  /** `service.name`; default `nylorun`. */
+  /** `service.name`; default `nylorun-runtime`, as the process's own telemetry (ADR-159). */
   readonly serviceName: string;
   /** More resource attributes, as `OTEL_RESOURCE_ATTRIBUTES` sets them. */
   readonly attributes?: Readonly<Record<string, string>>;
 }
 
-export const DEFAULT_SERVICE_NAME = "nylorun";
+/** `service.name` of a process running core or loop, whose spans the projector posts. */
+export const DEFAULT_SERVICE_NAME = "nylorun-runtime";
+/** `service.name` of a process running the gateway's services (gates, keys, egress). */
+export const GATEWAY_SERVICE_NAME = "nylorun-gateway";
 
 /** The instrumentation scope of every span. */
 const SCOPE = { name: "@nylorun/runtime", version: RUNTIME_VERSION };
@@ -89,6 +94,7 @@ export function createOtlpPoster(options: OtlpPosterOptions): OtlpPoster {
       if (status !== 429 && status < 500) break;
     }
     log("trace_export_dropped", { spans: spans.length, reason });
+    instruments().dropped.add(spans.length, { signal: "traces", exporter: "projector" });
     return "dropped";
   };
 }

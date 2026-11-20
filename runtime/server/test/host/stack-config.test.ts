@@ -7,6 +7,7 @@ import { base58btc } from "../../src/host/restate-identity.js";
 import {
   parseServices,
   parseStackConfig,
+  parseTraceContent,
   StackConfigError,
 } from "../../src/host/stack-config.js";
 import { isAllowedRequestHost } from "../../src/host/http.js";
@@ -121,6 +122,11 @@ describe("parseServices", () => {
   });
 });
 
+/** The default telemetry of a process (ADR-159): `/metrics` on port 9464, no OTLP. */
+function telemetryOf(serviceName: string, host: string) {
+  return { resource: { serviceName, attributes: {} }, metrics: { prometheus: { host, port: 9464 } } };
+}
+
 /** A process that runs only core: it serves the API listener and needs no gate. */
 const CORE = ["--service", "core"];
 
@@ -134,6 +140,8 @@ describe("parseStackConfig", () => {
       services: new Set(["core", "loop"]),
       endpoints: {},
       tenant: { name: "default" },
+      // A local Host serves /metrics on loopback (ADR-159).
+      telemetry: telemetryOf("nylorun-runtime", "127.0.0.1"),
     });
   });
 
@@ -188,6 +196,7 @@ describe("parseStackConfig", () => {
         workspaceStoreUrl: "file:///workspaces",
       },
       tenant: { name: "default" },
+      telemetry: telemetryOf("nylorun-runtime", "0.0.0.0"),
     });
   });
 
@@ -323,6 +332,7 @@ describe("parseStackConfig", () => {
       services: new Set(["core", "loop"]),
       endpoints: {},
       tenant: { name: "default" },
+      telemetry: telemetryOf("nylorun-runtime", "127.0.0.1"),
     });
   });
 });
@@ -350,6 +360,7 @@ describe("parseStackConfig for --service gates", () => {
         token,
       },
       endpoints: { databaseUrl: "postgres://nylorun:pw@postgres:5432/nylorun" },
+      telemetry: telemetryOf("nylorun-gateway", "0.0.0.0"),
     });
   });
 
@@ -891,5 +902,173 @@ describe("traces (R7.2)", () => {
     ).toEqual(["user", "outputs", "tool-results", "errors"]);
     expect(() => parseStackConfig({ NYLORUN_TRACE_CONTENT: "prompts" }, [])).toThrow(/NYLORUN_TRACE_CONTENT/);
     expect(() => parseStackConfig({ OTEL_EXPORTER_OTLP_ENDPOINT: "http://c:4318", OTEL_EXPORTER_OTLP_HEADERS: "novalue" }, [])).toThrow(/OTEL_EXPORTER_OTLP_HEADERS/);
+  });
+});
+
+describe("trace content (ADR-159 §5)", () => {
+  const ALL = ["user", "outputs", "tool-results", "errors"];
+  const contentOf = (env: Record<string, string>) => parseTraceContent(env, []).content;
+  const warningsOf = (env: Record<string, string>) => {
+    const warnings: { event: string; variable: string }[] = [];
+    parseTraceContent(env, warnings);
+    return warnings.map(({ event, variable }) => `${event} ${variable}`);
+  };
+  const NEW = "OTEL_INSTRUMENTATION_GENAI_CAPTURE_CONTENT";
+
+  it.each([
+    ["NO_CONTENT", [], []],
+    ["SPAN_ONLY", ALL, []],
+    ["span_only", ALL, []],
+    [" Span_Only ", ALL, []],
+    ["EVENT_ONLY", [], [`trace_content_events_unsupported ${NEW}`]],
+    ["SPAN_AND_EVENT", ALL, [`trace_content_events_unsupported ${NEW}`]],
+    ["everything", [], [`trace_content_unknown ${NEW}`]],
+  ])("reads %j as its content, with its warnings", (value, content, warnings) => {
+    expect(contentOf({ [NEW]: value })).toEqual(content);
+    expect(warningsOf({ [NEW]: value })).toEqual(warnings);
+  });
+
+  it("carries no content and warns of nothing when nothing is set", () => {
+    expect(parseTraceContent({}, [])).toEqual({ content: [], set: false });
+    expect(warningsOf({})).toEqual([]);
+  });
+
+  it("still reads the old variables for one release, each with a deprecation warning", () => {
+    expect(contentOf({ NYLORUN_TRACE_CONTENT: "errors, user" })).toEqual(["user", "errors"]);
+    expect(warningsOf({ NYLORUN_TRACE_CONTENT: "errors" })).toEqual(["trace_content_deprecated NYLORUN_TRACE_CONTENT"]);
+    expect(contentOf({ OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT: "TRUE" })).toEqual(ALL);
+    expect(contentOf({ OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT: "false" })).toEqual([]);
+    expect(warningsOf({ OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT: "true" })).toEqual([
+      "trace_content_deprecated OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT",
+    ]);
+    expect(() => parseTraceContent({ NYLORUN_TRACE_CONTENT: "prompts" })).toThrow(/NYLORUN_TRACE_CONTENT/);
+  });
+
+  it("lets the new switch win over the old variables, which are then ignored", () => {
+    const env = {
+      [NEW]: "NO_CONTENT",
+      NYLORUN_TRACE_CONTENT: "user",
+      OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT: "true",
+    };
+    expect(contentOf(env)).toEqual([]);
+    expect(warningsOf(env)).toEqual([
+      "trace_content_deprecated NYLORUN_TRACE_CONTENT",
+      "trace_content_deprecated OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT",
+    ]);
+  });
+
+  it("puts the content on the process's traces, and the warnings on its config, never failing the start", () => {
+    const config = parseStackConfig({ [NEW]: "bogus" }, CORE);
+    expect(config.traces).toEqual({ resource: { serviceName: "nylorun-runtime", attributes: {} }, content: [] });
+    expect(config.warnings?.map((warning) => warning.event)).toEqual(["trace_content_unknown"]);
+    expect(parseStackConfig({ [NEW]: "SPAN_ONLY" }, CORE).traces?.content).toEqual(ALL);
+  });
+});
+
+describe("telemetry (ADR-159)", () => {
+  const gates = { NYLORUN_GATES_TOKEN: "a".repeat(64), NYLORUN_GATES_ALLOWED_HOSTS: "gateway:4100" };
+  const container = { NYLORUN_ALLOWED_HOSTS: "runtime:4000" };
+
+  it("serves /metrics on 0.0.0.0:9464 in a container, loopback for a local Host, and names each process", () => {
+    expect(parseStackConfig(container, CORE).telemetry).toEqual(telemetryOf("nylorun-runtime", "0.0.0.0"));
+    expect(parseStackConfig({}, CORE).telemetry).toEqual(telemetryOf("nylorun-runtime", "127.0.0.1"));
+    expect(parseStackConfig(gates, ["--service", "gates,keys,egress"]).telemetry).toEqual(
+      telemetryOf("nylorun-gateway", "0.0.0.0"),
+    );
+    expect(parseStackConfig({ ...gates, NYLORUN_EGRESS_LISTEN_PORT: "4200" }, ["--service", "egress"]).telemetry?.resource.serviceName).toBe(
+      "nylorun-gateway",
+    );
+    expect(
+      parseStackConfig(
+        { ...container, OTEL_EXPORTER_PROMETHEUS_HOST: "127.0.0.1", OTEL_EXPORTER_PROMETHEUS_PORT: "9555" },
+        CORE,
+      ).telemetry?.metrics.prometheus,
+    ).toEqual({ host: "127.0.0.1", port: 9555 });
+    expect(() => parseStackConfig({ OTEL_EXPORTER_PROMETHEUS_PORT: "http" }, CORE)).toThrow(/OTEL_EXPORTER_PROMETHEUS_PORT/);
+  });
+
+  it("lets OTEL_SERVICE_NAME, then the resource attributes' service.name, win", () => {
+    expect(parseStackConfig({ ...container, OTEL_SERVICE_NAME: "agents" }, CORE).telemetry?.resource).toEqual({
+      serviceName: "agents",
+      attributes: {},
+    });
+    expect(
+      parseStackConfig({ ...gates, OTEL_RESOURCE_ATTRIBUTES: "service.name=edge,deployment.environment=prod" }, [
+        "--service",
+        "gates",
+      ]).telemetry?.resource,
+    ).toEqual({ serviceName: "edge", attributes: { "deployment.environment": "prod" } });
+  });
+
+  it("pushes metrics and spans over OTLP only with an endpoint, the signal's own winning", () => {
+    const telemetry = parseStackConfig(
+      {
+        ...container,
+        OTEL_EXPORTER_OTLP_ENDPOINT: "http://collector:4318/",
+        OTEL_EXPORTER_OTLP_HEADERS: "x-api-key=k",
+        OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: "https://metrics.example/otlp",
+        OTEL_EXPORTER_OTLP_METRICS_HEADERS: "x-api-key=m",
+      },
+      CORE,
+    ).telemetry;
+    expect(telemetry?.metrics).toEqual({
+      prometheus: { host: "0.0.0.0", port: 9464 },
+      otlp: { url: "https://metrics.example/otlp", headers: { "x-api-key": "m" } },
+    });
+    expect(telemetry?.traces).toEqual({
+      url: "http://collector:4318/v1/traces",
+      headers: { "x-api-key": "k" },
+      sampler: { name: "parentbased_always_on", ratio: 1 },
+    });
+    expect(parseStackConfig(container, CORE).telemetry?.traces).toBeUndefined();
+  });
+
+  it("reads OTEL_METRICS_EXPORTER as a list of prometheus, otlp and none", () => {
+    const metricsOf = (value: string, env: Record<string, string> = {}) =>
+      parseStackConfig({ ...container, ...env, OTEL_METRICS_EXPORTER: value }, CORE).telemetry?.metrics;
+    expect(metricsOf("none")).toEqual({});
+    expect(metricsOf("otlp")).toEqual({ otlp: { url: "http://localhost:4318/v1/metrics", headers: {} } });
+    expect(metricsOf("otlp", { OTEL_EXPORTER_OTLP_ENDPOINT: "http://c:4318" })).toEqual({
+      otlp: { url: "http://c:4318/v1/metrics", headers: {} },
+    });
+    expect(metricsOf("Prometheus, otlp", { OTEL_EXPORTER_OTLP_ENDPOINT: "http://c:4318" })).toMatchObject({
+      prometheus: { port: 9464 },
+      otlp: { url: "http://c:4318/v1/metrics" },
+    });
+    const config = parseStackConfig({ ...container, OTEL_METRICS_EXPORTER: "prometheus,statsd" }, CORE);
+    expect(config.telemetry?.metrics).toEqual({ prometheus: { host: "0.0.0.0", port: 9464 } });
+    expect(config.warnings).toEqual([expect.objectContaining({ variable: "OTEL_METRICS_EXPORTER" })]);
+  });
+
+  it.each([
+    [{}, { name: "parentbased_always_on", ratio: 1 }, 0],
+    [{ OTEL_TRACES_SAMPLER: "always_off" }, { name: "always_off", ratio: 1 }, 0],
+    [{ OTEL_TRACES_SAMPLER: "ALWAYS_ON" }, { name: "always_on", ratio: 1 }, 0],
+    [{ OTEL_TRACES_SAMPLER: "parentbased_always_on" }, { name: "parentbased_always_on", ratio: 1 }, 0],
+    [{ OTEL_TRACES_SAMPLER: "traceidratio", OTEL_TRACES_SAMPLER_ARG: "0.25" }, { name: "traceidratio", ratio: 0.25 }, 0],
+    [
+      { OTEL_TRACES_SAMPLER: "parentbased_traceidratio", OTEL_TRACES_SAMPLER_ARG: "0.1" },
+      { name: "parentbased_traceidratio", ratio: 0.1 },
+      0,
+    ],
+    [{ OTEL_TRACES_SAMPLER: "parentbased_traceidratio", OTEL_TRACES_SAMPLER_ARG: "2" }, { name: "parentbased_traceidratio", ratio: 1 }, 1],
+    [{ OTEL_TRACES_SAMPLER: "jaeger_remote" }, { name: "parentbased_always_on", ratio: 1 }, 1],
+  ])("samples %j as %j", (env, sampler, warnings) => {
+    const config = parseStackConfig({ ...container, OTEL_EXPORTER_OTLP_ENDPOINT: "http://c:4318", ...env }, CORE);
+    expect(config.telemetry?.traces?.sampler).toEqual(sampler);
+    expect(config.warnings ?? []).toHaveLength(warnings);
+  });
+
+  it("has none for the harness or a computer, which run alone", () => {
+    expect(
+      parseStackConfig(
+        {
+          NYLORUN_HARNESS_URL: "ws://runtime:4200/nylorun/harness/v1",
+          NYLORUN_HARNESS_TOKEN: HARNESS_TOKEN,
+          NYLORUN_GATES_URL: "http://gateway:4100",
+        },
+        ["--service", "harness"],
+      ).telemetry,
+    ).toBeUndefined();
   });
 });

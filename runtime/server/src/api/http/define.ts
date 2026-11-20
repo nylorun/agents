@@ -118,16 +118,15 @@ export function keyAccess(access: RouteAccess): KeyAccess {
 /** A declared route: what `findTenantRoute` looks up. */
 interface Declared {
   readonly method: string;
+  /** The path as declared, `{param}`s and all: a request's `http.route` (ADR-159). */
+  readonly path: string;
   readonly segments: readonly string[];
   readonly access: RouteAccess;
 }
 const declared: Declared[] = [];
 
 /** The declared route `method path` is, if any. `{param}` segments match any one segment. */
-export function declaredRoute(
-  method: string,
-  segments: readonly string[],
-): RouteAccess | undefined {
+function findDeclared(method: string, segments: readonly string[]): Declared | undefined {
   return declared.find(
     (route) =>
       route.method === method.toUpperCase() &&
@@ -137,7 +136,23 @@ export function declaredRoute(
           segment === segments[index] ||
           (segment.startsWith("{") && segments[index] !== ""),
       ),
-  )?.access;
+  );
+}
+
+/** Who may call the declared route `method path` is, if it is one. */
+export function declaredRoute(
+  method: string,
+  segments: readonly string[],
+): RouteAccess | undefined {
+  return findDeclared(method, segments)?.access;
+}
+
+/**
+ * The declared route `method path` is, as declared (`/v1/sessions/{sessionId}/commands`), if it
+ * is one: never a path with its ids.
+ */
+export function declaredRoutePattern(method: string, segments: readonly string[]): string | undefined {
+  return findDeclared(method, segments)?.path;
 }
 
 function authenticated(access: RouteAccess): MiddlewareHandler<TenantEnv> {
@@ -227,7 +242,7 @@ export function tenantRoute(
     "x-nylorun-scopes": access.scopes,
   } as RouteConfig);
   const method = route.method.toUpperCase();
-  declared.push({ method, segments: route.path.split("/").filter(Boolean), access });
+  declared.push({ method, path: route.path, segments: route.path.split("/").filter(Boolean), access });
   const path = route.path.replaceAll(/\/{(.+?)}/g, "/:$1");
   // Hono answers a HEAD request with the GET route: a HEAD route is served there, and a GET of
   // its path is no route.

@@ -40,13 +40,18 @@
  * process running core: where they go (`OTEL_EXPORTER_OTLP_ENDPOINT`, or
  * `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, with `OTEL_EXPORTER_OTLP_HEADERS`), what they say of
  * their source (`OTEL_SERVICE_NAME`, `OTEL_RESOURCE_ATTRIBUTES`) and which content they carry
- * (`NYLORUN_TRACE_CONTENT`, or all of it with `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=true`).
+ * (`OTEL_INSTRUMENTATION_GENAI_CAPTURE_CONTENT`; for one release still `NYLORUN_TRACE_CONTENT` and
+ * `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=true`, with a deprecation warning). So is the
+ * live telemetry of every process that runs core, loop or the gateway's services (ADR-159,
+ * `telemetry/`): its metric exporters (`OTEL_METRICS_EXPORTER`, `OTEL_EXPORTER_PROMETHEUS_*`), its
+ * OTLP endpoints, its sampler (`OTEL_TRACES_SAMPLER`, `_ARG`) and its `service.name`.
  * So is the Host tuning (`NYLORUN_TUNING`, `tuning.ts`), for every service: its timings,
  * retries and internal sizes. So is the outside credential provider
  * (`NYLORUN_CREDENTIAL_PROVIDER_URL`, `NYLORUN_CREDENTIAL_PROVIDER_TOKEN`), for egress-gate and
  * a process running core or loop (`gates/credential-provider.ts`).
  */
-import { DEFAULT_SERVICE_NAME, type TraceResource } from "../traces/otlp.js";
+import { DEFAULT_SERVICE_NAME, GATEWAY_SERVICE_NAME, type TraceResource } from "../traces/otlp.js";
+import { TRACE_SAMPLERS, type SettingWarning, type TelemetryConfig, type TraceSamplerName } from "../telemetry/config.js";
 import { TRACE_CONTENT_KINDS, type TraceContentKind } from "../traces/map.js";
 import { isTenantId } from "@nylorun/core/compatibility";
 import { LOOPBACK_HOSTS } from "@nylorun/core/contracts";
@@ -356,17 +361,31 @@ export interface StackConfig {
    */
   traces?: TraceConfig;
   /**
+   * Present when the process runs core, loop or the gateway's services (gates, keys, egress): its
+   * live telemetry (ADR-159), which `host/main.ts` starts. Always present for those: metrics are
+   * served on `/metrics` by default.
+   */
+  telemetry?: TelemetryConfig;
+  /**
+   * Settings read with a warning (an unknown or deprecated value): `host/main.ts` logs each once.
+   * Telemetry fails open, so none of them stops a start.
+   */
+  warnings?: SettingWarning[];
+  /**
    * Present when `NYLORUN_TUNING` is set: the Host tuning (`tuning.ts`) over its defaults,
    * and the overrides as written, which core hands a pod sandbox's engine. Every service reads it.
    */
   tuning?: { values: HostTuning; overrides: Record<string, unknown> };
 }
 
-/** Traces (R7.2), from the standard `OTEL_*` variables and `NYLORUN_TRACE_CONTENT`. */
+/** Traces (R7.2), from the standard `OTEL_*` variables. */
 export interface TraceConfig {
-  /** `OTEL_SERVICE_NAME` (default `nylorun`) and `OTEL_RESOURCE_ATTRIBUTES`. */
+  /** `OTEL_SERVICE_NAME` (default `nylorun-runtime`) and `OTEL_RESOURCE_ATTRIBUTES`. */
   resource: TraceResource;
-  /** The content kinds spans carry: none by default. */
+  /**
+   * The content kinds spans carry: none by default, all of them with
+   * `OTEL_INSTRUMENTATION_GENAI_CAPTURE_CONTENT=SPAN_ONLY` (`parseTraceContent`).
+   */
   content: TraceContentKind[];
   /** Where the projector posts: the traces URL and `OTEL_EXPORTER_OTLP_HEADERS`. */
   export?: { url: string; headers: Record<string, string> };
@@ -725,7 +744,17 @@ export function parseStackConfig(
   const modelHostIdentity = parseModelHostIdentity(env);
   const credentialProvider = servesApi || services.has("egress") ? parseCredentialProvider(env) : undefined;
   const objectStore = parseObjectStore(env);
-  const traces = services.has("core") ? parseTraces(env) : undefined;
+  const warnings: SettingWarning[] = [];
+  const traces = services.has("core") ? parseTraces(env, warnings) : undefined;
+  const gateway = services.has("gates") || services.has("keys") || services.has("egress");
+  const telemetry =
+    servesApi || gateway
+      ? parseTelemetry(env, warnings, {
+          serviceName: gateway ? GATEWAY_SERVICE_NAME : DEFAULT_SERVICE_NAME,
+          // A local Host (no NYLORUN_LISTEN_*) serves /metrics on loopback, as it does its API.
+          prometheusHost: servesApi && !listen ? "127.0.0.1" : "0.0.0.0",
+        })
+      : undefined;
   const removedResolverVariables = Object.keys(env)
     .filter((name) => name.startsWith(REMOVED_RESOLVER_PREFIX) && read(env, name) !== undefined)
     .sort();
@@ -752,6 +781,8 @@ export function parseStackConfig(
     ...(credentialProvider ? { credentialProvider } : {}),
     ...(objectStore ? { objectStore } : {}),
     ...(traces ? { traces } : {}),
+    ...(telemetry ? { telemetry } : {}),
+    ...(warnings.length ? { warnings } : {}),
     ...(tuning ? { tuning } : {}),
   };
 }
@@ -775,14 +806,84 @@ function parseTuning(env: EnvSnapshot): StackConfig["tuning"] {
  * and resource attributes are `key=value` lists separated by commas, values percent-encoded (the
  * OTel SDK environment specification).
  */
-function parseTraces(env: EnvSnapshot): TraceConfig | undefined {
-  const traces = parseUrl(env, "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", ["http:", "https:"]);
-  const base = parseUrl(env, "OTEL_EXPORTER_OTLP_ENDPOINT", ["http:", "https:"]);
-  const url = traces ?? (base === undefined ? undefined : `${base.replace(/\/+$/, "")}/v1/traces`);
+function parseTraces(env: EnvSnapshot, warnings: SettingWarning[]): TraceConfig | undefined {
+  const target = otlpTarget(env, "traces");
   const resource = keyValues(env, "OTEL_RESOURCE_ATTRIBUTES");
-  const all = read(env, "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT")?.toLowerCase() === "true";
-  const content = new Set<TraceContentKind>(all ? TRACE_CONTENT_KINDS : []);
-  for (const kind of (read(env, "NYLORUN_TRACE_CONTENT") ?? "").split(",").map((part) => part.trim())) {
+  const { content, set } = parseTraceContent(env, warnings);
+  const serviceName = read(env, "OTEL_SERVICE_NAME") ?? resource["service.name"];
+  // Nothing set: the defaults (`service.name` nylorun-runtime, no content, no export).
+  if (target === undefined && serviceName === undefined && Object.keys(resource).length === 0 && !set)
+    return undefined;
+  return {
+    resource: {
+      serviceName: serviceName ?? DEFAULT_SERVICE_NAME,
+      attributes: resource,
+    },
+    content,
+    ...(target ? { export: { url: target.url, headers: { ...target.headers } } } : {}),
+  };
+}
+
+/** The values of `OTEL_INSTRUMENTATION_GENAI_CAPTURE_CONTENT` (the GenAI conventions). */
+export const CAPTURE_CONTENT_VALUES = ["NO_CONTENT", "SPAN_ONLY", "EVENT_ONLY", "SPAN_AND_EVENT"] as const;
+
+/**
+ * The content spans carry (ADR-159 §5), from `OTEL_INSTRUMENTATION_GENAI_CAPTURE_CONTENT`, read
+ * without regard to case: `NO_CONTENT` (the default) none, `SPAN_ONLY` every kind. The event forms
+ * wait for OTLP logs: `EVENT_ONLY` acts as `NO_CONTENT` and `SPAN_AND_EVENT` as `SPAN_ONLY`, with a
+ * warning; an unknown value is `NO_CONTENT`, with a warning, never a failed start.
+ *
+ * For one release the old variables still work when the new one is unset, each with a deprecation
+ * warning: `NYLORUN_TRACE_CONTENT`'s kinds (an unknown kind still stops the start, as before) and
+ * `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=true`, every kind. Set beside the new one,
+ * they are ignored. `set` says whether any of them is set.
+ */
+export function parseTraceContent(
+  env: EnvSnapshot,
+  warnings: SettingWarning[] = [],
+): { content: TraceContentKind[]; set: boolean } {
+  const NEW = "OTEL_INSTRUMENTATION_GENAI_CAPTURE_CONTENT";
+  const KINDS = "NYLORUN_TRACE_CONTENT";
+  const MESSAGES = "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT";
+  const raw = read(env, NEW);
+  const kinds = read(env, KINDS);
+  const messages = read(env, MESSAGES);
+  const old = [kinds === undefined ? undefined : KINDS, messages === undefined ? undefined : MESSAGES].filter(
+    (name): name is string => name !== undefined,
+  );
+  const all = [...TRACE_CONTENT_KINDS];
+  if (raw !== undefined) {
+    for (const variable of old)
+      warnings.push({
+        event: "trace_content_deprecated",
+        variable,
+        message: `${variable} is deprecated and ignored beside ${NEW}; remove it`,
+      });
+    const value = raw.toUpperCase();
+    switch (value) {
+      case "NO_CONTENT":
+        return { content: [], set: true };
+      case "SPAN_ONLY":
+        return { content: all, set: true };
+      case "EVENT_ONLY":
+      case "SPAN_AND_EVENT":
+        warnings.push({
+          event: "trace_content_events_unsupported",
+          variable: NEW,
+          message: `${NEW}=${value}: the Runtime does not emit content as events yet, so this acts as ${value === "EVENT_ONLY" ? "NO_CONTENT" : "SPAN_ONLY"}`,
+        });
+        return { content: value === "EVENT_ONLY" ? [] : all, set: true };
+      default:
+        warnings.push({
+          event: "trace_content_unknown",
+          variable: NEW,
+          message: `${NEW} is one of ${CAPTURE_CONTENT_VALUES.join(", ")}, not ${raw}: spans carry no content`,
+        });
+        return { content: [], set: true };
+    }
+  }
+  const content = new Set<TraceContentKind>(messages?.toLowerCase() === "true" ? all : []);
+  for (const kind of (kinds ?? "").split(",").map((part) => part.trim())) {
     if (kind === "") continue;
     if (!(TRACE_CONTENT_KINDS as readonly string[]).includes(kind))
       throw new StackConfigError(
@@ -790,18 +891,113 @@ function parseTraces(env: EnvSnapshot): TraceConfig | undefined {
       );
     content.add(kind as TraceContentKind);
   }
-  const serviceName = read(env, "OTEL_SERVICE_NAME") ?? resource["service.name"];
-  // Nothing set: the defaults (`service.name` nylorun, no content, no export).
-  if (url === undefined && serviceName === undefined && Object.keys(resource).length === 0 && content.size === 0)
-    return undefined;
+  for (const variable of old)
+    warnings.push({
+      event: "trace_content_deprecated",
+      variable,
+      message: `${variable} is deprecated and goes in the next release: set ${NEW}=SPAN_ONLY for content on spans, or NO_CONTENT`,
+    });
+  return { content: TRACE_CONTENT_KINDS.filter((kind) => content.has(kind)), set: old.length > 0 };
+}
+
+/**
+ * Where a signal's OTLP/HTTP exporter posts: `OTEL_EXPORTER_OTLP_<SIGNAL>_ENDPOINT` as the full
+ * URL, else `OTEL_EXPORTER_OTLP_ENDPOINT` plus `/v1/<signal>`; with `OTEL_EXPORTER_OTLP_HEADERS`
+ * and the signal's own headers over them. Undefined without an endpoint.
+ */
+function otlpTarget(env: EnvSnapshot, signal: "traces" | "metrics"): { url: string; headers: Record<string, string> } | undefined {
+  const upper = signal.toUpperCase();
+  const own = parseUrl(env, `OTEL_EXPORTER_OTLP_${upper}_ENDPOINT`, ["http:", "https:"]);
+  const base = parseUrl(env, "OTEL_EXPORTER_OTLP_ENDPOINT", ["http:", "https:"]);
+  const url = own ?? (base === undefined ? undefined : `${base.replace(/\/+$/, "")}/v1/${signal}`);
+  if (url === undefined) return undefined;
   return {
-    resource: {
-      serviceName: serviceName ?? DEFAULT_SERVICE_NAME,
-      attributes: resource,
-    },
-    content: TRACE_CONTENT_KINDS.filter((kind) => content.has(kind)),
-    ...(url ? { export: { url, headers: keyValues(env, "OTEL_EXPORTER_OTLP_HEADERS") } } : {}),
+    url,
+    headers: { ...keyValues(env, "OTEL_EXPORTER_OTLP_HEADERS"), ...keyValues(env, `OTEL_EXPORTER_OTLP_${upper}_HEADERS`) },
   };
+}
+
+/** The OTLP/HTTP endpoint the OTel SDK uses when none is set, for an exporter named explicitly. */
+const DEFAULT_OTLP_ENDPOINT = "http://localhost:4318";
+
+/**
+ * `StackConfig.telemetry` (ADR-159). Metrics: `OTEL_METRICS_EXPORTER`, a comma list of
+ * `prometheus`, `otlp` and `none` (default `prometheus`, and `otlp` too when an OTLP endpoint is
+ * set; an unknown name is skipped with a warning). Prometheus listens on
+ * `OTEL_EXPORTER_PROMETHEUS_HOST`:`OTEL_EXPORTER_PROMETHEUS_PORT` (default `0.0.0.0:9464`). Spans:
+ * only with an OTLP endpoint, sampled by `OTEL_TRACES_SAMPLER` (default `parentbased_always_on`)
+ * and its `_ARG`; an unknown sampler or ratio is the default, with a warning. `service.name`:
+ * `OTEL_SERVICE_NAME`, then `OTEL_RESOURCE_ATTRIBUTES`' own, then the process's.
+ */
+function parseTelemetry(
+  env: EnvSnapshot,
+  warnings: SettingWarning[],
+  defaults: { serviceName: string; prometheusHost: string },
+): TelemetryConfig {
+  const attributes = keyValues(env, "OTEL_RESOURCE_ATTRIBUTES");
+  const serviceName = read(env, "OTEL_SERVICE_NAME") ?? attributes["service.name"] ?? defaults.serviceName;
+  delete attributes["service.name"];
+  const metricsTarget = otlpTarget(env, "metrics");
+  const named = read(env, "OTEL_METRICS_EXPORTER");
+  const exporters = new Set<string>();
+  if (named === undefined) {
+    exporters.add("prometheus");
+    if (metricsTarget) exporters.add("otlp");
+  } else
+    for (const name of named.split(",").map((part) => part.trim().toLowerCase())) {
+      if (name === "" || name === "none") continue;
+      if (name === "prometheus" || name === "otlp") exporters.add(name);
+      else
+        warnings.push({
+          event: "telemetry_setting_ignored",
+          variable: "OTEL_METRICS_EXPORTER",
+          message: `OTEL_METRICS_EXPORTER lists prometheus, otlp or none, not ${name}: it is skipped`,
+        });
+    }
+  const metrics: { -readonly [K in keyof TelemetryConfig["metrics"]]: TelemetryConfig["metrics"][K] } = {};
+  if (exporters.has("prometheus")) {
+    const rawPort = read(env, "OTEL_EXPORTER_PROMETHEUS_PORT");
+    const port = rawPort === undefined ? 9464 : Number(rawPort);
+    if (!Number.isInteger(port) || port < 0 || port > 65535)
+      throw new StackConfigError(`OTEL_EXPORTER_PROMETHEUS_PORT must be a port (0 to 65535), not ${rawPort}`);
+    metrics.prometheus = { host: read(env, "OTEL_EXPORTER_PROMETHEUS_HOST") ?? defaults.prometheusHost, port };
+  }
+  if (exporters.has("otlp"))
+    metrics.otlp = metricsTarget ?? { url: `${DEFAULT_OTLP_ENDPOINT}/v1/metrics`, headers: keyValues(env, "OTEL_EXPORTER_OTLP_HEADERS") };
+  const tracesTarget = otlpTarget(env, "traces");
+  return {
+    resource: { serviceName, attributes },
+    metrics,
+    ...(tracesTarget ? { traces: { ...tracesTarget, sampler: parseSampler(env, warnings) } } : {}),
+  };
+}
+
+/** `OTEL_TRACES_SAMPLER` and `OTEL_TRACES_SAMPLER_ARG`; the default for anything else. */
+function parseSampler(env: EnvSnapshot, warnings: SettingWarning[]): { name: TraceSamplerName; ratio: number } {
+  const raw = read(env, "OTEL_TRACES_SAMPLER")?.toLowerCase();
+  let name: TraceSamplerName = "parentbased_always_on";
+  if (raw !== undefined) {
+    if ((TRACE_SAMPLERS as readonly string[]).includes(raw)) name = raw as TraceSamplerName;
+    else
+      warnings.push({
+        event: "telemetry_setting_ignored",
+        variable: "OTEL_TRACES_SAMPLER",
+        message: `OTEL_TRACES_SAMPLER is one of ${TRACE_SAMPLERS.join(", ")}, not ${raw}: parentbased_always_on is used`,
+      });
+  }
+  const arg = read(env, "OTEL_TRACES_SAMPLER_ARG");
+  let ratio = 1;
+  if (arg !== undefined && name.endsWith("traceidratio")) {
+    const parsed = Number(arg);
+    if (Number.isFinite(parsed) && parsed >= 0 && parsed <= 1) ratio = parsed;
+    else
+      warnings.push({
+        event: "telemetry_setting_ignored",
+        variable: "OTEL_TRACES_SAMPLER_ARG",
+        message: `OTEL_TRACES_SAMPLER_ARG is a ratio from 0 to 1, not ${arg}: 1 is used`,
+      });
+  }
+  return { name, ratio };
 }
 
 /** A `key=value,key=value` variable, values percent-decoded; a malformed one is refused. */

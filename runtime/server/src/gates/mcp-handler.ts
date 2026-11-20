@@ -7,7 +7,8 @@
  * A failure is an answer (`{ok: false, error}`), shaped so the loop's diagnostics read it as
  * they read a failure in their own process; a tool call's failure is coded (R2b C7). A call's
  * result and failure carry no credential value sent for it (`sdkClient`, C8), so neither does
- * its `tool_crossings` row. Logs one line per call, never arguments, results or credentials.
+ * its `tool_crossings` row. Logs one line per call, never arguments, results or credentials, and
+ * measures each for operators (`mcp.client.operation.duration`, ADR-159).
  */
 import type { McpServerManifest } from "@nylorun/core/define";
 import {
@@ -25,6 +26,9 @@ import type { Logger } from "../tenant/types.js";
 import type { McpAnswer, McpGateError } from "./tool-contract.js";
 import { GateRefusal, type TenantVault, type TenantVaults } from "./tenant-vaults.js";
 import { hostTuning } from "../tuning.js";
+import { context as otelContext, SpanKind, SpanStatusCode, trace } from "@opentelemetry/api";
+import { defined, instruments, telemetry } from "../telemetry/telemetry.js";
+import { remoteContext } from "../telemetry/http.js";
 
 export interface McpHandlerOptions {
   readonly vaults: TenantVaults;
@@ -141,24 +145,29 @@ export function createMcpHandler(options: McpHandlerOptions): McpHandler {
   }
 
   async function answer<T>(
-    what: string,
+    what: "connect" | "list" | "call",
     server: McpServerRef,
     run: () => Promise<T>,
     extra: Record<string, unknown> = {},
+    call?: { readonly tool: string; readonly traceparent?: string | undefined },
   ): Promise<McpAnswer<T>> {
     const started = now();
+    const measured = startMcpOperation(what, call);
     try {
-      const result = await run();
+      const result = await measured.run(run);
+      measured.end(undefined);
       logger.info("mcp_request", { what, ...fields(server), ...extra, ms: now() - started, outcome: "ok" });
       return { ok: true, result };
     } catch (error) {
       const failed = errorOf(error);
+      const outcome = failed.failure?.code ?? (failed.code === undefined ? "failed" : String(failed.code));
+      measured.end(outcome);
       logger.info("mcp_request", {
         what,
         ...fields(server),
         ...extra,
         ms: now() - started,
-        outcome: failed.failure?.code ?? (failed.code === undefined ? "failed" : String(failed.code)),
+        outcome,
       });
       return { ok: false, error: failed };
     }
@@ -264,9 +273,13 @@ export function createMcpHandler(options: McpHandlerOptions): McpHandler {
         ),
       ),
     async call(tenantId, request, signal) {
-      const answered = await answer("call", request.server, () => callOnce(tenantId, request, signal), {
-        effect: request.effectId,
-      });
+      const answered = await answer(
+        "call",
+        request.server,
+        () => callOnce(tenantId, request, signal),
+        { effect: request.effectId },
+        { tool: request.name, traceparent: request.traceparent },
+      );
       if (!answered.ok) return answered;
       const { result, redacted } = answered.result;
       return { ok: true, result, ...(redacted ? { redacted } : {}) };
@@ -295,6 +308,59 @@ export function createMcpHandler(options: McpHandlerOptions): McpHandler {
     },
     get size() {
       return live.size;
+    },
+  };
+}
+
+/** The MCP method each of the gate's requests sends. */
+const MCP_METHODS = { connect: "initialize", list: "tools/list", call: "tools/call" } as const;
+
+/**
+ * One request to a remote MCP server, measured (ADR-159): `mcp.client.operation.duration` with
+ * `mcp.method.name`, `gen_ai.tool.name` for a tool call and `error.type` for a failure (its code);
+ * with span export, a tool call's CLIENT span `tools/call {tool}`, under the call's own trace
+ * context (the effect's span, R7.4).
+ */
+function startMcpOperation(
+  what: keyof typeof MCP_METHODS,
+  call: { readonly tool: string; readonly traceparent?: string | undefined } | undefined,
+) {
+  const method = MCP_METHODS[what];
+  const clock = performance.now();
+  const tracer = telemetry().tracer;
+  const parent = call?.traceparent ? remoteContext(call.traceparent) : undefined;
+  const span =
+    tracer && call && parent
+      ? tracer.startSpan(
+          `${method} ${call.tool}`,
+          {
+            kind: SpanKind.CLIENT,
+            attributes: {
+              "mcp.method.name": method,
+              "gen_ai.operation.name": "execute_tool",
+              "gen_ai.tool.name": call.tool,
+            },
+          },
+          parent,
+        )
+      : undefined;
+  return {
+    run: <T>(fn: () => Promise<T>): Promise<T> => (span ? otelContext.with(trace.setSpan(parent!, span), fn) : fn()),
+    end(errorType: string | undefined) {
+      instruments().mcpDuration.record(
+        (performance.now() - clock) / 1000,
+        defined({
+          "mcp.method.name": method,
+          ...(call ? { "gen_ai.operation.name": "execute_tool", "gen_ai.tool.name": call.tool } : {}),
+          "error.type": errorType,
+        }),
+      );
+      if (!span) return;
+      if (errorType !== undefined) {
+        span.setAttribute("error.type", errorType);
+        span.setStatus({ code: SpanStatusCode.ERROR });
+      }
+      span.end();
     },
   };
 }

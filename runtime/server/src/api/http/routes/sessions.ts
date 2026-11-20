@@ -14,7 +14,7 @@ import {
   SessionCommandSchema,
 } from "@nylorun/core/contracts";
 import { handleSessionSandboxTool, SandboxRouteError } from "../../../core/sandbox-routes.js";
-import { traceContextOf } from "../../../traces/ids.js";
+import { requestTraceContext } from "../../../telemetry/http.js";
 import {
   AcceptedResponse,
   QueuedResponse,
@@ -126,8 +126,9 @@ export function sessionRoutes(api: OpenAPIHono<TenantEnv>): void {
       },
     },
     async (c) => {
-      // A `traceparent` joins the turn to the caller's trace (R7.4); a malformed one is ignored.
-      const trace = traceContextOf(c.req.raw.headers);
+      // A `traceparent` joins the turn to the caller's trace (R7.4); a malformed one is ignored. With
+      // span export the turn is the child of this request's server span (ADR-159).
+      const trace = requestTraceContext(c.req.raw.headers);
       return jsonResponse(
         200,
         await command(

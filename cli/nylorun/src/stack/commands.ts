@@ -1,3 +1,4 @@
+import { CLIENT_LABEL } from "../client-label.js";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, rm } from "node:fs/promises";
 import { basename, resolve } from "node:path";
@@ -366,6 +367,7 @@ async function fetchHealth(
 ): Promise<Health | undefined> {
   try {
     const response = await deps.fetch(`${runtimeUrl}/health`, {
+      headers: { ...CLIENT_LABEL },
       signal: AbortSignal.timeout(cliTuning().stack.probeTimeoutMs),
       redirect: "error",
     });
@@ -423,7 +425,7 @@ interface StackReady {
 async function fetchReady(deps: StackDeps, runtimeUrl: string): Promise<StackReady | undefined> {
   try {
     const response = await deps.fetch(`${runtimeUrl}/ready`, {
-      headers: { accept: "application/json" },
+      headers: { accept: "application/json", ...CLIENT_LABEL },
       signal: AbortSignal.timeout(cliTuning().stack.probeTimeoutMs),
       redirect: "error",
     });

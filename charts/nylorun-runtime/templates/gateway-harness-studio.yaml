@@ -35,6 +35,8 @@ spec:
           ports:
             - { name: gates, containerPort: 4100 }
             - { name: egress, containerPort: 4200 }
+            # Prometheus /metrics (ADR-159); OTEL_* settings go in extraEnv.gateway.
+            - { name: metrics, containerPort: 9464 }
           env:
             - { name: NYLORUN_HOME, value: /nylorun }
             - { name: NYLORUN_PACKING, value: combined }
@@ -80,6 +82,7 @@ spec:
   ports:
     - { name: gates, port: 4100, targetPort: gates }
     - { name: egress, port: 4200, targetPort: egress }
+    - { name: metrics, port: 9464, targetPort: metrics }
 ---
 # The gates for the runtime and the harness; the decide route for the keys provider alone.
 apiVersion: networking.k8s.io/v1
@@ -100,6 +103,7 @@ spec:
         - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: {{ .Values.substrate.systemNamespace }} } }
           podSelector: { matchLabels: { app: nylorun-keys-provider } }
       ports: [{ port: 4200 }]
+    {{- include "nylorun.metrics.ingress" . | nindent 4 }}
 ---
 # The harness (`--service harness`): every loop (ADR-149). It holds the harness token only.
 apiVersion: apps/v1

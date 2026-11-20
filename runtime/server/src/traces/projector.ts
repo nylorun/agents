@@ -2,8 +2,9 @@
  * The trace projector (R7.2, Q1): a second reader of the session log, beside the stream relay. It
  * reads committed `session_events` from its own replication slot (`nylorun_trace_export`, on the
  * relay's publication), maps each row to at most one span (`map.ts`), and posts them as OTLP to the
- * operator's collector. It holds no state that changes a span, so a replay of its slot posts the
- * same spans with the same ids. It never reads S2 (D48), and no turn waits for it.
+ * operator's collector. It holds no state that changes a span but content (a tool call's arguments,
+ * known when it mapped the call's request), so a replay of its slot posts the same spans with the
+ * same ids. It never reads S2 (D48), and no turn waits for it.
  *
  * - **One process at a time.** The slot is the leader election, as for the relay: every process
  *   running core runs a projector, and one reads.
@@ -11,7 +12,8 @@
  *   (`otlp.ts`: retried, then dropped and logged).
  * - **Acknowledged in commit order** once a transaction's spans are posted or dropped, so a dead
  *   collector makes Postgres keep no WAL. A transaction with no span is acknowledged with the
- *   rest. While the collector is slow, more than `maxQueuedSpans` waiting are dropped.
+ *   rest. While the collector is slow, more than `maxQueuedSpans` waiting are dropped. Every
+ *   dropped span is counted on `nylorun.telemetry.dropped` (`exporter` `projector`, ADR-159).
  * - **Turns.** A bounded cache keeps each turn's trace (`turnTraceOf`) from its `command.message`;
  *   a turn not in it (after a restart mid turn, or one evicted) reads its `command.message` once.
  */
@@ -21,6 +23,7 @@ import type { TraceKey } from "./ids.js";
 import { spanOf, turnTraceOf, type OtlpSpan, type SpanSettings, type TraceContent, type TurnTrace } from "./map.js";
 import type { OtlpPoster } from "./otlp.js";
 import { hostTuning } from "../tuning.js";
+import { instruments } from "../telemetry/telemetry.js";
 
 /** The projector's replication slot. */
 export const TRACE_SLOT = "nylorun_trace_export";
@@ -106,8 +109,12 @@ export function createTraceProjector(options: TraceProjectorOptions): TraceProje
     const turnId = row.turnId!;
     const cacheKey = `${row.sessionId}\u0000${turnId}`;
     const ids = { tenantId: row.tenantId, sessionId: row.sessionId, turnId };
-    if (row.type === "command.message") return remember(cacheKey, turnTraceOf(settings, ids, row));
     const known = turns.get(cacheKey);
+    if (row.type === "command.message") {
+      const trace = turnTraceOf(settings, ids, row);
+      // A message steered into the running turn keeps the arguments of the calls mapped so far.
+      return remember(cacheKey, known?.toolArguments && trace.toolArguments ? { ...trace, toolArguments: known.toolArguments } : trace);
+    }
     if (known) return remember(cacheKey, known);
     return remember(cacheKey, turnTraceOf(settings, ids, await options.turnMessage(row.sessionId, turnId)));
   }
@@ -148,6 +155,7 @@ export function createTraceProjector(options: TraceProjectorOptions): TraceProje
         if (posting && waitingSpans > maxQueued) {
           // The collector is slower than the log: drop what waits, keep its place to acknowledge.
           log("trace_export_dropped", { spans: waitingSpans, reason: "queue full" });
+          instruments().dropped.add(waitingSpans, { signal: "traces", exporter: "projector" });
           for (const pending of waiting) pending.spans = [];
           waitingSpans = 0;
         }

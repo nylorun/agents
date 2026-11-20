@@ -112,7 +112,8 @@ admin key is in the Secret (`adminKey`); Studio is a port-forward away (`NOTES.t
 | `service.type`, `.annotations`, `.loadBalancerSourceRanges` | `ClusterIP` | The runtime's Service; a cloud load balancer in front of it, such as GKE's internal one (`networking.gke.io/load-balancer-type: Internal`) behind your own proxy |
 | `serviceAccount.annotations` | none | The runtime's, gateway's and harness's ServiceAccount (`<name>-runtime`, no API token), for a cloud identity: GKE Workload Identity's `iam.gke.io/gcp-service-account` for a model on the host's identity |
 | `hostAliases` | none | Fixed addresses for names the runtime, gateway and harness call, such as a private network's address for a public name |
-| `extraEnv.runtime`, `.gateway`, `.harness` | none | More env entries (a value, or `valueFrom` a Secret) for the Runtime settings the chart doesn't set, such as `NYLORUN_MODEL_HOST_IDENTITY`, `NYLORUN_CREDENTIAL_PROVIDER_URL` and `_TOKEN`, `NYLORUN_A2A_PUSH_SECRET` and `_ALLOW_HOSTS`, `NYLORUN_TUNING`. Don't repeat a name the chart sets |
+| `extraEnv.runtime`, `.gateway`, `.harness` | none | More env entries (a value, or `valueFrom` a Secret) for the Runtime settings the chart doesn't set, such as `NYLORUN_MODEL_HOST_IDENTITY`, `NYLORUN_CREDENTIAL_PROVIDER_URL` and `_TOKEN`, `NYLORUN_A2A_PUSH_SECRET` and `_ALLOW_HOSTS`, `NYLORUN_TUNING`, and telemetry's standard `OTEL_*` variables (below). Don't repeat a name the chart sets |
+| `metrics.from` | any pod | Who may scrape `/metrics` (port `9464`, named `metrics` on the `<name>-runtime-internal` and `<name>-gateway` Services, never the public one): NetworkPolicy peers, such as your Prometheus's namespace |
 | `postgres.url` or `.existingSecret` (key `url`) | bundled | External Postgres |
 | `objectStore.endpoint`, `.bucket`, `.region`, `.existingSecret` (keys `accessKey`, `secretKey`) | bundled RustFS | External S3 API |
 | `s2.objectStore` | `true` | s2-lite's streams in the bucket under `s2.path`; `false` keeps a disk |
@@ -128,6 +129,27 @@ admin key is in the Secret (`adminKey`); Studio is a port-forward away (`NOTES.t
 | `placement.nodeSelector`, `.tolerations` | none | Where the chart's pods run (its pool) |
 | `prepull.enabled`, `.substrateCommit`, `.images`, `.nodeSelector`, `.tolerations` | off | Warm the worker nodes' image cache |
 | `studio.enabled` | `true` | |
+
+## Telemetry
+
+The runtime and the gateway each serve Prometheus metrics on `/metrics`, port `9464` (the `metrics`
+port of `<name>-runtime-internal` and `<name>-gateway`). Point a scrape job, or a `ServiceMonitor`,
+at that port. To export metrics and spans over OTLP as well, set the standard variables in
+`extraEnv.runtime` and `extraEnv.gateway`:
+
+```yaml
+extraEnv:
+  runtime: &otel
+    - { name: OTEL_EXPORTER_OTLP_ENDPOINT, value: http://otel-collector.monitoring:4318 }
+    - name: OTEL_EXPORTER_OTLP_HEADERS
+      valueFrom: { secretKeyRef: { name: otlp, key: headers } }
+    - { name: OTEL_TRACES_SAMPLER, value: parentbased_traceidratio }
+    - { name: OTEL_TRACES_SAMPLER_ARG, value: "0.25" }
+  gateway: *otel
+```
+
+The variables, the metrics and content capture (`OTEL_INSTRUMENTATION_GENAI_CAPTURE_CONTENT`,
+runtime only) are in [OBSERVABILITY.md](../../guides/OBSERVABILITY.md#for-operators-telemetry-and-health).
 
 ## Not in this chart
 

@@ -4,6 +4,7 @@
  * (`project` and `project-management`, `cli` and `cli-management`). nylorun depends on
  * `@nylorun/core` only, so key probes are plain requests.
  */
+import { CLIENT_LABEL } from "../client-label.js";
 import { open, rm, stat } from "node:fs/promises";
 import { PROTOCOL_HEADER, PROTOCOL_VERSION } from "@nylorun/core/compatibility";
 import type { OperatorKey, PutOperatorKeyResponse } from "@nylorun/core/contracts";
@@ -82,6 +83,7 @@ export async function keyAuthenticates(
       headers: {
         authorization: `Bearer ${key}`,
         [PROTOCOL_HEADER]: String(PROTOCOL_VERSION),
+        ...CLIENT_LABEL,
         accept: "application/json",
       },
       redirect: "error",

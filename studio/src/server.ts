@@ -56,7 +56,7 @@ import {
 } from "@nylorun/agents/studio-embed";
 import { PROTOCOL_HEADER, PROTOCOL_VERSION } from "@nylorun/agents";
 import { packagedWebRoot, serveDashboard } from "./static.js";
-import { proxyRuntime } from "./proxy.js";
+import { CLIENT_HEADER, proxyRuntime } from "./proxy.js";
 import {
   STUDIO_VERSION,
   probeRuntimeCompatibility,
@@ -634,6 +634,7 @@ export async function startStudioServer(
         headers: {
           authorization: `Bearer ${studioKey}`,
           [PROTOCOL_HEADER]: String(PROTOCOL_VERSION),
+          [CLIENT_HEADER]: "studio",
           accept: "application/json",
         },
       });
@@ -754,6 +755,7 @@ export async function startStudioServer(
         headers: {
           authorization: `Bearer ${token}`,
           [PROTOCOL_HEADER]: String(PROTOCOL_VERSION),
+          [CLIENT_HEADER]: "studio",
           accept: "application/json",
         },
       });

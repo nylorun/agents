@@ -3,6 +3,7 @@
  * share: their flags, the `@nylorun/agents` client of the installation `target.ts` picks, acting
  * for a subject with `--as`, and how they read input and print output.
  */
+import { labelledFetch } from "../client-label.js";
 import { readFile } from "node:fs/promises";
 import {
   AgentsClient,
@@ -60,8 +61,8 @@ export async function runtimeClient(
     if (!(SUBJECT_SCOPES as readonly string[]).includes(scope))
       throw usageError(`Unknown scope ${scope}: one of ${SUBJECT_SCOPES.join(", ")}.`);
   const connection = await connect(deps, "runtime", flags.values.get("--tenant"));
-  const fetch: typeof globalThis.fetch = (input, init) =>
-    deps.fetch(input instanceof Request ? input.url : String(input), init);
+  // Every request is labelled the CLI's (`Nylorun-Client: cli`), not the SDK's.
+  const fetch = labelledFetch(deps.fetch);
   const token = connection.token;
   if (!token && !connection.applicationKey)
     throw new CliError(`No application key for ${connection.label}: set NYLORUN_SERVER_KEY.`, 1);

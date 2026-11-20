@@ -1,3 +1,36 @@
+# Telemetry for operators, and one content switch
+
+Additive, with two variables deprecated (ADR-159). Nothing to do unless you export trace content
+or name the service.
+
+- **Content on spans: `OTEL_INSTRUMENTATION_GENAI_CAPTURE_CONTENT`.** One switch from the GenAI
+  semantic conventions replaces `NYLORUN_TRACE_CONTENT` and
+  `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT`: `NO_CONTENT` (the default) or `SPAN_ONLY`
+  (every kind). Both old variables still work for this release when the switch is unset, each
+  logged once at start (`trace_content_deprecated`); the next release ignores them. Set
+  `OTEL_INSTRUMENTATION_GENAI_CAPTURE_CONTENT=SPAN_ONLY` in their place. There is no per-kind
+  setting any more: an installation that exported only some kinds, such as `errors`, chooses all
+  or none. Beside the switch, the old variables are ignored.
+- **Structured content.** `gen_ai.input.messages`, `gen_ai.output.messages` and
+  `gen_ai.tool.call.result` are OTLP `arrayValue` and `kvlistValue` values, as the conventions
+  type them, instead of JSON in a string; each text in them is cut at `traceContentBytes`, not the
+  whole value. A user's file part names its artifact as `file_id`. `execute_tool` spans gain
+  `gen_ai.tool.call.arguments`. A collector query that parsed the strings reads the values instead.
+- **`service.name`** defaults to `nylorun-runtime` (it was `nylorun`) for the runtime's spans, and
+  `nylorun-gateway` for the gateway's. `OTEL_SERVICE_NAME` still wins.
+- **Semantic conventions** move to `semantic-conventions-genai@622b2b6` (`nylorun.semconv.genai`
+  on the resource); the attribute names the spans already used are unchanged there.
+- **Metrics on `/metrics`.** Every runtime and gateway process serves Prometheus metrics on port
+  `9464` (`OTEL_METRICS_EXPORTER`, `OTEL_EXPORTER_PROMETHEUS_HOST` and `_PORT`), and with an OTLP
+  endpoint pushes them there and exports live spans: an HTTP server span per API request, which
+  becomes the parent of the turn a command starts, and an MCP client span per tool call. A port
+  already in use is logged, not fatal. The chart names the port `metrics` on its internal
+  Services; the local stack keeps it on the Compose network.
+- **`Nylorun-Client`.** `@nylorun/agents` and `@nylorun/admin` send `Nylorun-Client: sdk`, nylorun
+  `cli`, and Studio `studio`, for the metrics' `nylorun.client`. A reverse proxy that answers
+  CORS for a browser app should allow the header.
+- **Log lines** written during a request carry `trace_id` and `span_id` when spans export.
+
 # An Agent's compaction threshold, and a message's context
 
 Additive (ADR-157).

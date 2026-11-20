@@ -1,7 +1,10 @@
 /**
- * The Host's request pipeline as a Hono app, in the order clients depend on: the request log
- * around everything, then Origin and `OPTIONS`, Content-Type, `/health`, `/ready`, and Tenant
- * routes, which go to the Host's one Tenant once the request's headers and protocol check out
+ * The Host's request pipeline as a Hono app, in the order clients depend on: the request log and
+ * the request's telemetry around everything (ADR-159: its `http.server.request.duration` point by
+ * declared route and `Nylorun-Client`, and with span export its server span, active while the
+ * request runs, so a command's turn is its child and log lines carry its ids), then Origin and
+ * `OPTIONS`, Content-Type, `/health`, `/ready`, and Tenant routes, which go to the Host's one
+ * Tenant once the request's headers and protocol check out
  * (`/v1/admin/*` too, since the Admin API is gone). Nothing in a request selects the Tenant
  * (protocol 5); a protocol 4 client's `Nylorun-Tenant` naming another Tenant gets the opaque
  * 404, so a client pointed at the wrong installation fails loudly.
@@ -34,7 +37,10 @@ import {
 } from "@nylorun/core/compatibility";
 import type { Logger, NodeBindings, TenantModule } from "../tenant/types.js";
 import { RUNTIME_VERSION } from "../version.js";
-import { findTenantRoute } from "../api/http/app.js";
+import { context as otelContext } from "@opentelemetry/api";
+import { findTenantRoute, findTenantRoutePattern } from "../api/http/app.js";
+import { CLIENT_HEADER, clientOf, endRequest, methodOf, OTHER_ROUTE, startServerSpan } from "../telemetry/http.js";
+import { instruments } from "../telemetry/telemetry.js";
 import { keyAccess } from "../api/http/define.js";
 import {
   bearerChallenge,
@@ -87,18 +93,36 @@ export function createHostApp(options: HostAppOptions): Hono<HostEnv> {
 
   app.use(async (c, next) => {
     const started = Date.now();
+    const clock = performance.now();
+    const { incoming } = c.env;
+    // Telemetry (ADR-159): the request's server span, active for all it runs, and its duration.
+    const route = routeOf(incoming);
+    const labels = {
+      method: methodOf(incoming.method),
+      route,
+      client: clientOf(headerValue(incoming, CLIENT_HEADER), route),
+    };
+    const { span, context: active } = startServerSpan(labels, {
+      traceparent: headerValue(incoming, "traceparent"),
+      tracestate: headerValue(incoming, "tracestate"),
+    });
     try {
-      await next();
+      await (span ? otelContext.with(active, next) : next());
     } finally {
-      const { incoming } = c.env;
+      const status = statusOf(c);
+      endRequest(labels, { status, seconds: (performance.now() - clock) / 1000, span }, (seconds, attributes) =>
+        instruments().httpServerDuration.record(seconds, attributes),
+      );
       if (pathnameIsLogged(incoming.url))
-        logger.info("request", {
-          status: statusOf(c),
-          tenantId: c.get("tenantId"),
-          durationMs: Date.now() - started,
-          path: redactRoutePath(pathnameOf(incoming)),
-          method: incoming.method,
-        });
+        otelContext.with(active, () =>
+          logger.info("request", {
+            status,
+            tenantId: c.get("tenantId"),
+            durationMs: Date.now() - started,
+            path: redactRoutePath(pathnameOf(incoming)),
+            method: incoming.method,
+          }),
+        );
     }
   });
 
@@ -273,8 +297,8 @@ function isProtectedResourcePath(pathname: string): boolean {
   return pathname === PROTECTED_RESOURCE_PATH || pathname.startsWith(`${PROTECTED_RESOURCE_PATH}/`);
 }
 
-/** The Tenant route a request names, if any; a malformed path names none. */
-function tenantRouteOf(incoming: IncomingMessage) {
+/** A request's path segments, decoded; undefined for a malformed path. */
+function segmentsOf(incoming: IncomingMessage): string[] | undefined {
   const segments: string[] = [];
   for (const segment of pathnameOf(incoming).split("/").filter(Boolean)) {
     try {
@@ -283,8 +307,43 @@ function tenantRouteOf(incoming: IncomingMessage) {
       return undefined;
     }
   }
-  if (segments[0] !== "v1") return undefined;
+  return segments;
+}
+
+/** The Tenant route a request names, if any; a malformed path names none. */
+function tenantRouteOf(incoming: IncomingMessage) {
+  const segments = segmentsOf(incoming);
+  if (segments?.[0] !== "v1") return undefined;
   return findTenantRoute(incoming.method ?? "GET", segments);
+}
+
+/** The Host's own routes, as `http.route` names them. */
+const HOST_ROUTES: ReadonlySet<string> = new Set([
+  "/health",
+  "/ready",
+  "/openapi.json",
+  "/openapi/runtime.json",
+  "/openapi/management.json",
+  PROTECTED_RESOURCE_PATH,
+]);
+
+/**
+ * A request's `http.route`: the Host's own route, or the Tenant route's declared pattern; `other`
+ * for anything else, so an id never becomes a label.
+ */
+function routeOf(incoming: IncomingMessage): string {
+  const pathname = pathnameOf(incoming);
+  if (HOST_ROUTES.has(pathname)) return pathname;
+  if (isProtectedResourcePath(pathname)) return PROTECTED_RESOURCE_PATH;
+  const segments = segmentsOf(incoming);
+  if (segments?.[0] !== "v1") return OTHER_ROUTE;
+  const method = (incoming.method ?? "GET").toUpperCase();
+  return (
+    findTenantRoutePattern(method, segments) ??
+    // Hono answers a HEAD request with the GET route.
+    (method === "HEAD" ? findTenantRoutePattern("GET", segments) : undefined) ??
+    OTHER_ROUTE
+  );
 }
 
 /** The answer's status: a Response's, or the Node response's when it was written there. */

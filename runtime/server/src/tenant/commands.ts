@@ -70,6 +70,7 @@ import { slimModelEffects } from "./slim.js";
 import { resolveMessageParts } from "../artifacts/parts.js";
 import { endTurn, resumeTurn, startTurn } from "./turn-timing.js";
 import type { TraceContext } from "../traces/ids.js";
+import { recordQueueWaits } from "../telemetry/core.js";
 
 /** A command's identity for idempotency: everything but the request id. */
 const semantic = (value: any): string => {
@@ -512,6 +513,7 @@ export async function takeSteeredMessages(
       row.writer as EventWriter
     );
   await t.event(id, turnId, "queue.taken", { turnId, queuedMessageIds: taken, step });
+  recordQueueWaits(t, rows, "taken");
   return rows.map((row) => row.input);
 }
 
@@ -764,6 +766,7 @@ export async function startQueuedTurn(
       turnId: s.activeTurnId!,
       queuedMessageIds: taken,
     });
+    recordQueueWaits(t, batch, "taken");
     return { turnId: s.activeTurnId!, taken, cursor: event.cursor };
   }
 }
@@ -778,6 +781,7 @@ async function failQueued(
   const ids = rows.map((row) => row.id);
   await t.deleteQueuedMessages(ids);
   await t.event(id, null, "queue.failed", { queuedMessageIds: ids, error });
+  recordQueueWaits(t, rows, "failed");
 }
 
 /**
@@ -796,8 +800,10 @@ export async function cancelQueuedMessage(
   return ctx.store.tx(async (t) => {
     const s = await lockedSession(t, id, accessOf(scope));
     const queued = await t.queuedMessages(id);
-    if (!queued.some((row) => row.id === queuedMessageId)) return undefined;
+    const row = queued.find((entry) => entry.id === queuedMessageId);
+    if (!row) return undefined;
     await t.deleteQueuedMessages([queuedMessageId]);
+    recordQueueWaits(t, [row], "cancelled");
     const event = await t.event(
       id,
       null,

@@ -11,7 +11,7 @@ import { z } from "zod";
 import type { TenantEnv } from "../http/app.js";
 import { bodyLimit, readText } from "../http/body.js";
 import { TraceHeaders, tenantRoute } from "../http/define.js";
-import { traceContextOf } from "../../traces/ids.js";
+import { requestTraceContext } from "../../telemetry/http.js";
 import { jsonResponse } from "../http/respond.js";
 import { a2aCall, a2aCard } from "./routes.js";
 import { A2A_PROFILE_URL, extensionsHeader, parseExtensions } from "./extensions.js";
@@ -124,7 +124,7 @@ export function a2aRoutes(api: OpenAPIHono<TenantEnv>): void {
       const ctx = c.env.tenant;
       const version = c.env.incoming.headers["a2a-version"];
       const extensions = parseExtensions(c.req.header("a2a-extensions"));
-      const trace = traceContextOf(c.req.raw.headers);
+      const trace = requestTraceContext(c.req.raw.headers);
       const echo = extensionsHeader(extensions);
       return jsonResponse(
         200,

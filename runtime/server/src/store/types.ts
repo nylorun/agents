@@ -1019,6 +1019,12 @@ export interface Tx {
    * following process when this transaction commits (and never on rollback).
    */
   signal(signal: ControlSignal): Promise<void>;
+  /**
+   * Calls `listener` once this transaction has committed, in this process, and never on
+   * rollback: for what only a committed change may cause, such as a metric point (ADR-159). A
+   * listener that throws is reported to the store's `onError` and never fails the transaction.
+   */
+  afterCommit(listener: () => void): void;
   /** Deletes signals written before `before`. Returns how many. */
   pruneSignals(before: Date): Promise<number>;
 

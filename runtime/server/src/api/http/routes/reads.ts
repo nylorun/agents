@@ -230,7 +230,7 @@ export function readRoutes(api: OpenAPIHono<TenantEnv>): void {
       tags: ["Sessions"],
       summary: "Read a turn's trace",
       description:
-        "The turn's spans as OTLP/HTTP JSON (`resourceSpans`), as the Runtime posts them to an OTLP collector: a root span for the turn, a span for each model, tool and egress crossing, ids derived so every read agrees. Post it to a collector's `/v1/traces` to backfill. A turn still running has no root span yet; a turn the session never had has no spans.",
+        "The turn's spans as OTLP/HTTP JSON (`resourceSpans`), as the Runtime posts them to an OTLP collector: a root span for the turn (`invoke_agent`), a span for each model call (`chat`) and tool call (`execute_tool`), and markers for pauses and answers, ids derived so every read agrees. Egress has no span: a connection is the Environment's, read from its events. Content (`gen_ai.*.messages`, `gen_ai.tool.call.arguments`, `gen_ai.tool.call.result`) is there only when the installation sets `OTEL_INSTRUMENTATION_GENAI_CAPTURE_CONTENT=SPAN_ONLY`, as structured values. Post it to a collector's `/v1/traces` to backfill. A turn still running has no root span yet; a turn the session never had has no spans.",
       request: { params: sessionId.extend({ turnId: z.string() }) },
       responses: {
         200: {

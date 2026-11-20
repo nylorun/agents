@@ -294,6 +294,13 @@ class PostgresSessionStore implements SessionStore {
         }
       }
     }
+    for (const listener of t.committed) {
+      try {
+        listener();
+      } catch (error) {
+        this.onError(error);
+      }
+    }
     if (t.outbox.length > 0) this.send(t.outbox);
     return result.value;
   }
@@ -564,6 +571,8 @@ class PostgresTx implements Tx {
   readonly generations: number[] = [];
   /** The outbox requests this transaction wrote, delivered after it commits. */
   readonly outbox: (OutboxRef & { request: OutboxRequest })[] = [];
+  /** What runs once this transaction has committed (`afterCommit`). */
+  readonly committed: (() => void)[] = [];
 
   constructor(
     private readonly db: Transaction,
@@ -1393,6 +1402,11 @@ class PostgresTx implements Tx {
   async signal(signal: ControlSignal): Promise<void> {
     this.check();
     await writeSignal(this.db, signal);
+  }
+
+  afterCommit(listener: () => void): void {
+    this.check();
+    this.committed.push(listener);
   }
 
   async pruneSignals(before: Date): Promise<number> {

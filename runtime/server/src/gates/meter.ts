@@ -13,6 +13,9 @@
  * after it, and the adapter's `firstTokenMs` (`evidence.extras`), so a model call's span is
  * what the gate measured; and the adapter's `attempts` and `retries`, so the call's event says
  * how many times the provider was called for it, and why again.
+ *
+ * Each call it runs is also measured for operators (`recordModelCall`, ADR-159): the meter is the
+ * one place every gate's calls pass, in the gates service and in process alike.
  */
 import { randomUUID } from "node:crypto";
 import { failure } from "../model/classify.js";
@@ -26,6 +29,7 @@ import type {
 } from "../store/types.js";
 import type { Logger } from "../tenant/types.js";
 import type { ModelGateOutcome, ModelGateRequest } from "./model-gate.js";
+import { defined, instruments } from "../telemetry/telemetry.js";
 
 export interface Meter {
   /**
@@ -93,9 +97,17 @@ export function createMeter(options: MeterOptions): Meter {
       if (refusal) return refusal;
       // A call counts as in flight until its usage is recorded, so the check never misses it.
       for (const key of keys) inflight.set(key, (inflight.get(key) ?? 0) + 1);
+      const clock = performance.now();
       try {
         const startedAt = now();
-        const outcome = await call();
+        let outcome: ModelGateOutcome;
+        try {
+          outcome = await call();
+        } catch (error) {
+          recordModelCall(request, undefined, (performance.now() - clock) / 1000);
+          throw error;
+        }
+        recordModelCall(request, outcome, (performance.now() - clock) / 1000);
         await record(store, request, outcome, { startedAt, endedAt: now() });
         return outcome;
       } finally {
@@ -131,6 +143,44 @@ export function createMeter(options: MeterOptions): Meter {
       });
     }
   }
+}
+
+/**
+ * A model call's metrics (ADR-159): `gen_ai.client.inference.duration`, the usage counters
+ * `gen_ai.client.inference.usage.input_tokens` and `output_tokens`, and
+ * `gen_ai.client.inference.time_to_first_chunk` when the adapter measured it, with
+ * `gen_ai.operation.name` `chat`, `gen_ai.provider.name`, `gen_ai.request.model` and, for a
+ * failure, `error.type` (its code; `aborted` for a call that threw). `outcome` is undefined when
+ * the call threw.
+ */
+export function recordModelCall(request: ModelGateRequest, outcome: ModelGateOutcome | undefined, seconds: number): void {
+  const requested = request.call.model?.id;
+  const candidate = typeof outcome === "object" && outcome !== null && !("kind" in outcome) ? outcome : undefined;
+  const failure = typeof outcome === "object" && outcome !== null && "kind" in outcome ? outcome : undefined;
+  const provider = (candidate ? producerOf(candidate).provider : undefined) ?? providerOfModel(requested);
+  const attributes = defined({
+    "gen_ai.operation.name": "chat",
+    "gen_ai.provider.name": provider,
+    "gen_ai.request.model": requested,
+    "error.type": outcome === undefined ? "aborted" : failure ? String(failure.code ?? "failed") : undefined,
+  });
+  const meters = instruments();
+  meters.inferenceDuration.record(seconds, attributes);
+  if (!candidate) return;
+  const usage = candidate.usage;
+  if (usage) {
+    meters.inputTokens.add(count(usage.inputTokens), attributes);
+    meters.outputTokens.add(count(usage.outputTokens), attributes);
+  }
+  const firstTokenMs = candidate.evidence?.extras?.firstTokenMs;
+  if (typeof firstTokenMs === "number" && Number.isFinite(firstTokenMs) && firstTokenMs >= 0)
+    meters.timeToFirstChunk.record(firstTokenMs / 1000, attributes);
+}
+
+/** The provider a `provider/model` id names, when it names one. */
+function providerOfModel(id: string | undefined): string | undefined {
+  const slash = id?.indexOf("/") ?? -1;
+  return id !== undefined && slash > 0 ? id.slice(0, slash) : undefined;
 }
 
 /** When the gate sent a call and when its answer was complete (R7.1). */

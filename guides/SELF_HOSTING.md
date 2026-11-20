@@ -411,7 +411,8 @@ origins (the rest of the proxy rules:
 
 - Answer preflights yourself: `Access-Control-Allow-Origin` with the exact origin,
   `Access-Control-Allow-Methods: GET, POST, PUT, DELETE`,
-  `Access-Control-Allow-Headers: Authorization, Content-Type, Nylorun-Protocol, Last-Event-ID`.
+  `Access-Control-Allow-Headers: Authorization, Content-Type, Nylorun-Protocol, Nylorun-Client, Last-Event-ID`
+  (`Nylorun-Client` labels a request's client in the Runtime's telemetry).
 - On responses to those origins, add `Access-Control-Allow-Origin` and
   `Access-Control-Expose-Headers: Retry-After, WWW-Authenticate`, with `Vary: Origin`.
 - Bearer tokens need no `Access-Control-Allow-Credentials`. Never answer `*`.
@@ -427,7 +428,7 @@ In the Caddy site of DEPLOYMENT.md, before the `@api` handle:
 	handle @preflight {
 		header Access-Control-Allow-Origin "https://app.example.com"
 		header Access-Control-Allow-Methods "GET, POST, PUT, DELETE"
-		header Access-Control-Allow-Headers "Authorization, Content-Type, Nylorun-Protocol, Last-Event-ID"
+		header Access-Control-Allow-Headers "Authorization, Content-Type, Nylorun-Protocol, Nylorun-Client, Last-Event-ID"
 		header Access-Control-Max-Age "600"
 		header Vary Origin
 		respond 204

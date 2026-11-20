@@ -70,7 +70,24 @@ describe("Transport headers and compatibility", () => {
       expect(call.headers.get("authorization")).toBe("Bearer secret");
       expect(call.headers.get(TENANT_HEADER)).toBeNull();
       expect(call.headers.get(PROTOCOL_HEADER)).toBe(String(PROTOCOL_VERSION));
+      // The Runtime's telemetry labels the request by client (ADR-159).
+      expect(call.headers.get("nylorun-client")).toBe("sdk");
     }
+  });
+
+  it("lets a caller label its requests as another client", async () => {
+    const seen: Headers[] = [];
+    const transport = new Transport({
+      url: "http://127.0.0.1:8787",
+      key: "secret",
+      fetch: async (url, init) => {
+        if (String(url).endsWith("/health")) return healthOk();
+        seen.push(new Headers(init?.headers));
+        return Response.json({ ok: true });
+      },
+    }).withHeaders({ "Nylorun-Client": "cli" });
+    await transport.json("/v1/agents");
+    expect(seen.map((headers) => headers.get("nylorun-client"))).toEqual(["cli"]);
   });
 
   it("never takes a Tenant header from a request body or query", async () => {

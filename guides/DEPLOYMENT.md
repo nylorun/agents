@@ -250,7 +250,7 @@ way in. Nothing in the Runtime changes but the URL it names itself by.
 | Forward only `/health`, `/ready`, `/.well-known/oauth-protected-resource` and `/v1/*` | Nothing else is the Runtime API or the Management API; the well-known document tells OAuth clients where to sign in |
 | Optional: answer `/v1/tenant/*` with `403` unless the request comes from your operator networks | Defense in depth for the Management API, on top of the key role |
 | Pass every other header through: `Authorization`, `Nylorun-Protocol`, `Nylorun-Subject`, `Nylorun-Scopes`, and `Origin` | Your app server sets the `Nylorun-*` headers. The Runtime refuses keys sent with an `Origin` |
-| Answer CORS yourself, for your app's origins only, when browsers call the Runtime: preflights (`OPTIONS`) and `Access-Control-Allow-Origin`; allow `Authorization`, `Content-Type`, `Nylorun-Protocol` and `Last-Event-ID`, and expose `Retry-After` and `WWW-Authenticate` | The Runtime sends no CORS headers (protocol 7); browsers present a trusted issuer's token |
+| Answer CORS yourself, for your app's origins only, when browsers call the Runtime: preflights (`OPTIONS`) and `Access-Control-Allow-Origin`; allow `Authorization`, `Content-Type`, `Nylorun-Protocol`, `Nylorun-Client` and `Last-Event-ID`, and expose `Retry-After` and `WWW-Authenticate` | The Runtime sends no CORS headers (protocol 7); browsers present a trusted issuer's token |
 | Allow request bodies as large as the Tenant's upload limits: an artifact (`POST /v1/artifacts`, 100 MiB by default, `/v1/tenant/artifacts`) and a skill file (`PUT /v1/files/sha256:…`, 2 GiB by default, `/v1/tenant/skills`). Caddy sets no limit; nginx's `client_max_body_size` is 1 MiB unless you raise it | A smaller limit refuses uploads, and `nylorun apply` and `agentManifests.save` for an agent with skill files |
 | Don't buffer responses; allow idle streams | Event streams are long-lived SSE with a keepalive every 15 seconds |
 | Restrict source addresses where you can; rate-limit at the edge | Limits scanning and guessing |
@@ -798,18 +798,21 @@ setting `trace.key`), so exporting the same turn twice, or reading it from the r
 same ids.
 
 Export is off until an OTLP endpoint is set on the `runtime` container. `nylorun start` passes
-these variables to it from the shell it runs in (a collector on your machine is
-`host.docker.internal`):
+these variables to it, and to the `gateway`, from the shell it runs in (a collector on your
+machine is `host.docker.internal`). The same endpoint takes the processes' live spans and metrics
+([OBSERVABILITY.md](OBSERVABILITY.md#for-operators-telemetry-and-health) lists them, with
+sampling and `/metrics`):
 
 | Variable | Meaning |
 | --- | --- |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | The collector's OTLP/HTTP base URL; spans go to `<url>/v1/traces` as JSON |
 | `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | The full traces URL instead |
 | `OTEL_EXPORTER_OTLP_HEADERS` | `key=value` pairs separated by commas (values percent-encoded), sent with every post |
-| `OTEL_SERVICE_NAME` | `service.name` on the resource; default `nylorun` |
+| `OTEL_SERVICE_NAME` | `service.name` on the resource; default `nylorun-runtime` (before this release, `nylorun`) |
 | `OTEL_RESOURCE_ATTRIBUTES` | More resource attributes, `key=value` pairs |
-| `NYLORUN_TRACE_CONTENT` | The content spans carry, any of `user`, `outputs`, `tool-results`, `errors`; none by default |
-| `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT` | `true` turns on all four kinds |
+| `OTEL_INSTRUMENTATION_GENAI_CAPTURE_CONTENT` | The content spans carry: `NO_CONTENT` (the default) or `SPAN_ONLY`, every kind, as structured values. `EVENT_ONLY` and `SPAN_AND_EVENT` act as `NO_CONTENT` and `SPAN_ONLY`, with a warning; an unknown value is `NO_CONTENT`, with a warning |
+| `NYLORUN_TRACE_CONTENT` | Deprecated, read for this release only when the switch above is unset: the kinds, any of `user`, `outputs`, `tool-results`, `errors` |
+| `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT` | Deprecated likewise: `true` turns on all four kinds |
 
 - **Off the hot path.** With an endpoint, the process running core reads committed events
   from its own replication slot, `nylorun_trace_export` (the slot is created at start; one
@@ -817,15 +820,20 @@ these variables to it from the shell it runs in (a collector on your machine is
   for it. Without an endpoint there is no slot.
 - **A collector that is down costs only its spans.** A `429`, a `5xx` or a lost connection is
   tried three times with backoff, then the batch is dropped and logged as
-  `trace_export_dropped {spans}`, and the slot moves on anyway, so Postgres keeps no WAL for the
+  `trace_export_dropped {spans}` and counted on `nylorun.telemetry.dropped`
+  (`exporter="projector"`), and the slot moves on anyway, so Postgres keeps no WAL for the
   collector. Read the turns it missed from `GET /v1/sessions/{id}/turns/{turnId}/trace` and post
   them to the collector's `/v1/traces` to backfill.
 - **What leaves.** By default a span carries references (`nylorun.event.cursor` points at the
-  log event), never content. The content kinds above are each cut at the Tenant's `traceContentBytes` (8 KiB by default, [Runtime limits](#runtime-limits)). A span never carries
+  log event), never content. With `SPAN_ONLY`, content is `gen_ai.input.messages`,
+  `gen_ai.output.messages`, `gen_ai.tool.call.arguments` (a tool call's input, from the model
+  message that asked for it), `gen_ai.tool.call.result` and error messages, recorded as structured
+  OTLP values (`arrayValue`, `kvlistValue`), each text in them cut at the Tenant's `traceContentBytes` (8 KiB by default, [Runtime limits](#runtime-limits)). A span never carries
   a credential value (the log holds none), a prompt (the log holds none), a person's id
   (`ownerUserId`, a subject, who approved), an identity header or an idempotency key.
 - **Trace context.** A command, an AG-UI run or an A2A message sent with a `traceparent` joins the
-  caller's trace: the turn's root span is a child of the caller's span. The turn hands its own
+  caller's trace: the turn's root span is a child of the caller's span, or, with an endpoint set,
+  of the Runtime's server span for that request, itself the caller's child. The turn hands its own
   context on: to the harness (`TurnStart.trace`), to HTTP tools and MCP servers as `traceparent`
   on the call's requests, and to sandbox commands as `TRACEPARENT`.
 - **Lag** is not reported yet: watch `nylorun_trace_export` in `pg_replication_slots`.

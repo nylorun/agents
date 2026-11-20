@@ -7,9 +7,11 @@ import {
   SPAN_KIND,
   STATUS,
   TRACE_CONTENT_KINDS,
+  anyValueOf,
   spanOf,
   truncate,
   turnTraceOf,
+  type OtlpAnyValue,
   type OtlpSpan,
   type SpanSettings,
   type TraceContentKind,
@@ -28,6 +30,14 @@ const attrs = (span: OtlpSpan | undefined) =>
       value.stringValue ?? value.intValue ?? value.doubleValue ?? value.boolValue ?? value.arrayValue?.values.map((v) => v.stringValue),
     ]),
   );
+/** An OTLP AnyValue back as the JSON value it encodes. */
+function plainOf(value: OtlpAnyValue | undefined): unknown {
+  if (value === undefined) return undefined;
+  if (value.kvlistValue) return Object.fromEntries(value.kvlistValue.values.map((entry) => [entry.key, plainOf(entry.value)]));
+  if (value.arrayValue) return value.arrayValue.values.map(plainOf);
+  if (value.intValue !== undefined) return Number(value.intValue);
+  return value.stringValue ?? value.doubleValue ?? value.boolValue ?? null;
+}
 const ms = (nanos: string) => Number(BigInt(nanos) / 1_000_000n);
 
 /** A turn of a coding agent, as R7.1 and R7.3 record it. */
@@ -248,18 +258,78 @@ describe("spanOf", () => {
     for (const secret of ["alice@example.com", "idem-secret-key", "idem-approve-secret"]) expect(everything).not.toContain(secret);
   });
 
-  it("cuts content at the Tenant's traceContentBytes, on a character boundary", () => {
-    const rows = [message({ content: "é".repeat(10_000) }), row("turn.completed", { output: null, agentId: "coder" })];
-    const root = spans(all, rows)[1]!;
-    const input = root.attributes.find((a) => a.key === "gen_ai.input.messages")!.value.stringValue!;
-    expect(Buffer.byteLength(input)).toBeLessThanOrEqual(contentBytes);
-    expect(input).not.toContain("�");
+  it("records content as structured values (ADR-159), with each tool call's arguments", () => {
+    const out = spans(all);
+    const [, chat, mcp, bash, , , , , root] = out;
+    const value = (span: OtlpSpan | undefined, name: string) =>
+      plainOf(span!.attributes.find((attribute) => attribute.key === name)?.value);
+    // kvlistValue and arrayValue, never JSON in a string.
+    expect(root!.attributes.find((a) => a.key === "gen_ai.input.messages")!.value.arrayValue).toBeDefined();
+    expect(value(root, "gen_ai.input.messages")).toEqual([
+      { role: "user", parts: [{ type: "text", content: "Fix the failing test" }] },
+    ]);
+    expect(value(root, "gen_ai.output.messages")).toEqual([
+      { role: "assistant", parts: [{ type: "text", content: "Opened PR #482" }] },
+    ]);
+    expect(value(chat, "gen_ai.output.messages")).toEqual([
+      {
+        role: "assistant",
+        parts: [
+          { type: "text", content: "Looking" },
+          { type: "tool_call", id: "toolu_01", name: "search", arguments: { query: "flaky" } },
+        ],
+        finish_reason: "tool-calls",
+      },
+    ]);
+    expect(value(mcp, "gen_ai.tool.call.result")).toEqual({ issues: ["WEB-412"] });
+    // The call's arguments, from the assistant message that asked for it (by call id).
+    expect(value(mcp, "gen_ai.tool.call.arguments")).toEqual({ query: "flaky" });
+    // A call the turn's messages never asked for has none.
+    expect(value(bash, "gen_ai.tool.call.arguments")).toBeUndefined();
+    expect(value(bash, "gen_ai.tool.call.result")).toEqual({ exitCode: 1 });
+    // Arguments are the model's output: not exported without that kind.
+    const results = spans({ key, content: new Set(["tool-results"]), contentBytes });
+    expect(value(results[2], "gen_ai.tool.call.arguments")).toBeUndefined();
+    expect(value(results[2], "gen_ai.tool.call.result")).toEqual({ issues: ["WEB-412"] });
+  });
+
+  it("cuts each text in the content at the Tenant's traceContentBytes, on a character boundary, keeping the structure", () => {
+    const rows = [
+      message({ content: undefined, parts: [{ type: "text", text: "é".repeat(10_000) }, { type: "text", text: "short" }, { type: "file", artifactId: "art_1", version: 2 }] }),
+      row("turn.completed", { output: null, agentId: "coder" }),
+    ];
+    const input = plainOf(spans(all, rows)[1]!.attributes.find((a) => a.key === "gen_ai.input.messages")!.value) as {
+      parts: { content?: string }[];
+    }[];
+    const [long, short, file] = input[0]!.parts;
+    expect(Buffer.byteLength(long!.content!)).toBeLessThanOrEqual(contentBytes);
+    expect(Buffer.byteLength(long!.content!)).toBeGreaterThan(contentBytes - 2);
+    expect(long!.content).not.toContain("�");
+    expect(short).toEqual({ type: "text", content: "short" });
+    expect(file).toEqual({ type: "file", file_id: "art_1", version: 2 });
     expect(Buffer.byteLength(truncate("x".repeat(9000), contentBytes))).toBe(contentBytes);
     expect(truncate("short", contentBytes)).toBe("short");
     // A lowered limit cuts shorter.
-    const lowered = spans({ ...all, contentBytes: 100 }, rows)[1]!;
-    const cut = lowered.attributes.find((a) => a.key === "gen_ai.input.messages")!.value.stringValue!;
-    expect(Buffer.byteLength(cut)).toBeLessThanOrEqual(100);
+    const lowered = plainOf(
+      spans({ ...all, contentBytes: 100 }, rows)[1]!.attributes.find((a) => a.key === "gen_ai.input.messages")!.value,
+    ) as { parts: { content?: string }[] }[];
+    expect(Buffer.byteLength(lowered[0]!.parts[0]!.content!)).toBeLessThanOrEqual(100);
+    expect(lowered[0]!.parts[1]).toEqual({ type: "text", content: "short" });
+  });
+
+  it("encodes any JSON value as an OTLP AnyValue", () => {
+    expect(anyValueOf({ a: 1, b: 1.5, c: true, d: null, e: [1, "x"], f: undefined }, 10)).toEqual({
+      kvlistValue: {
+        values: [
+          { key: "a", value: { intValue: "1" } },
+          { key: "b", value: { doubleValue: 1.5 } },
+          { key: "c", value: { boolValue: true } },
+          { key: "d", value: {} },
+          { key: "e", value: { arrayValue: { values: [{ intValue: "1" }, { stringValue: "x" }] } } },
+        ],
+      },
+    });
+    expect(anyValueOf("0123456789abc", 10)).toEqual({ stringValue: "0123456789" });
   });
 
   it("marks an uncertain call as an error on its span", () => {

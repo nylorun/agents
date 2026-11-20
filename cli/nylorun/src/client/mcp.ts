@@ -7,6 +7,7 @@
  * (`client.agents.secrets.put` of `@nylorun/agents`). Its `connect` subcommand (MCP OAuth) was
  * removed in protocol 10, and says so.
  */
+import { CLIENT_LABEL } from "../client-label.js";
 import { PROTOCOL_HEADER, PROTOCOL_VERSION } from "@nylorun/core/compatibility";
 import type { McpPreview, McpPreviewTool } from "@nylorun/core/contracts";
 import { CliError, HelpRequest, isHelp } from "../errors.js";
@@ -65,6 +66,7 @@ async function inspect(deps: StackDeps, args: readonly string[]): Promise<number
     headers: {
       authorization: `Bearer ${api.managementKey}`,
       [PROTOCOL_HEADER]: String(PROTOCOL_VERSION),
+      ...CLIENT_LABEL,
       accept: "application/json",
       "content-type": "application/json",
     },
