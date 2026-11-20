@@ -249,3 +249,4 @@ spec:
       ports: [{ port: 4200 }]
     - from: [{ podSelector: { matchLabels: { app.kubernetes.io/instance: {{ .Release.Name }}, app.kubernetes.io/component: restate } } }]
       ports: [{ port: 9080 }]
+    {{- include "nylorun.metrics.ingress" . | nindent 4 }}

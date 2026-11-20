@@ -11,7 +11,7 @@ import { EventSchemas, MessageSchema, RunAgentInputSchema } from "@ag-ui/core/sc
 import type { TenantEnv } from "../http/app.js";
 import { readJson } from "../http/body.js";
 import { TraceHeaders, tenantRoute, type RouteAccess } from "../http/define.js";
-import { traceContextOf } from "../../traces/ids.js";
+import { requestTraceContext } from "../../telemetry/http.js";
 import { jsonResponse } from "../http/respond.js";
 import { agUiCaller, cancelRun, reattachRun, startRun, threadMessages } from "./routes.js";
 import { sessionIdFor } from "./session-id.js";
@@ -88,7 +88,7 @@ export function agUiRoutes(api: OpenAPIHono<TenantEnv>): void {
         // A message may carry files inline.
         await readJson(c, "inline"),
         c.env.outgoing,
-        traceContextOf(c.req.raw.headers),
+        requestTraceContext(c.req.raw.headers),
       );
       return RESPONSE_ALREADY_SENT;
     },

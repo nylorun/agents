@@ -28,6 +28,7 @@ import type { Environment, SandboxPodState } from "../../src/store/types.js";
 import { recordedRows } from "../support/record.js";
 import { clientHelloFor } from "../support/tls-hello.js";
 import { testTenantPool } from "../support/store.js";
+import { startTestTelemetry } from "../support/telemetry.js";
 import { writeSandboxConfig } from "../../src/sandbox/tenant-config.js";
 
 let runs: RunFixture;
@@ -215,6 +216,33 @@ describe("egress-gate", () => {
     expect(viaUser.status).toBe(200);
     // `*.wild.test` does not match wild.test itself.
     expect((await tunnel(proxy, "wild.test:443", basic(raw))).status).toBe(403);
+  });
+
+  it("counts each connection once by outcome and refusal reason, and an allowed one's bytes (ADR-159)", async () => {
+    const test = startTestTelemetry();
+    try {
+      sandboxes.set("sbx_1", { epoch: 1, allow: ["allowed.test"] });
+      const proxy = await gate();
+      expect((await tunnel(proxy, "allowed.test:443")).status).toBe(407);
+      expect((await tunnel(proxy, "other.test:443", basic(await token()))).status).toBe(403);
+      const allowed = await tunnel(proxy, "allowed.test:80", basic(await token()));
+      expect(await roundTrip(allowed.socket, "ping")).toBe("ping");
+      allowed.socket.end();
+      await closed(allowed.socket);
+      await expect
+        .poll(async () => (await test.points("nylorun.egress.connections")).map((point) => [point.attributes, point.value]))
+        .toEqual([
+          [{ "nylorun.egress.outcome": "refused", "nylorun.egress.reason": "egress_token_missing" }, 1],
+          [{ "nylorun.egress.outcome": "refused", "nylorun.egress.reason": "host_not_allowed" }, 1],
+          [{ "nylorun.egress.outcome": "allowed" }, 1],
+        ]);
+      expect(await test.points("nylorun.egress.bytes")).toEqual([
+        { attributes: { "network.io.direction": "transmit" }, value: 4 },
+        { attributes: { "network.io.direction": "receive" }, value: 4 },
+      ]);
+    } finally {
+      await test.close();
+    }
   });
 
   it("refuses a host the spec does not allow, and every host when the spec allows none", async () => {

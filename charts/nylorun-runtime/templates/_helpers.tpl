@@ -94,3 +94,14 @@ securityContext:
   allowPrivilegeEscalation: false
   capabilities: { drop: [ALL] }
 {{- end -}}
+
+{{/*
+The NetworkPolicy ingress rule for /metrics (port 9464, ADR-159): from `metrics.from` (NetworkPolicy
+peers, such as the namespace of the cluster's Prometheus), or from any pod when it is empty.
+*/}}
+{{- define "nylorun.metrics.ingress" -}}
+- ports: [{ port: 9464 }]
+  {{- with .Values.metrics.from }}
+  from: {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end -}}

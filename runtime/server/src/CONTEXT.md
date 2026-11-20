@@ -944,12 +944,22 @@ the session log like SSE and AG-UI: one committed row maps to at most one span (
 (`execute_tool`) is its child, with gate times when a gate measured the crossing (egress
 connections are the Agent's, as `agent.egress` events, and in no trace, D67); pauses and answers are markers. A turn whose `command.message` carried a
 `traceparent` (R7.4, recorded as `trace`) is in the caller's trace, its root a child of the
-caller's span. Content is left out unless the installation opts in per kind
-(`NYLORUN_TRACE_CONTENT`). `GET /v1/sessions/{id}/turns/{turnId}/trace` answers a turn's spans
+caller's span, or of the request's server span when live spans export (ADR-159). Content is left
+out unless the installation opts in (`OTEL_INSTRUMENTATION_GENAI_CAPTURE_CONTENT=SPAN_ONLY`), as
+structured values. `GET /v1/sessions/{id}/turns/{turnId}/trace` answers a turn's spans
 as OTLP JSON (R7.5). Core hands the turn's context to the harness (`TurnStart.trace`) and each
 tool call's to the tool (`traceparent` on its journal row, which the Tool Gate reads and sends;
 `TRACEPARENT` for a sandbox command).
-_Avoid_: spans timed from live code, or an OpenTelemetry SDK in the Runtime.
+_Avoid_: agent spans timed from live code: they are projected from the log, so any harness gets
+the same trace. Live telemetry is separate (**Telemetry**).
+
+**Telemetry**: What operators read of how the Runtime runs (ADR-159, `telemetry/`): OpenTelemetry
+metrics and live spans, made with the SDK in each process that `host/main.ts` starts
+(`telemetry/setup.ts`), and stored nowhere in the Runtime: Prometheus `/metrics` (port 9464) and
+OTLP. Code measures through `instruments()`, a no-op until `useTelemetry`, so a test Host binds no
+port. Metric attributes have small fixed value sets, never an id, a host or a person. Records never
+depend on telemetry, and telemetry is never written into the log.
+_Avoid_: measurements on events; a telemetry store in the Runtime.
 
 **Trace projector**: The second reader of the session log (`traces/projector.ts`), beside the
 stream relay: a `pgoutput` slot of its own, `nylorun_trace_export`, on the relay's publication,

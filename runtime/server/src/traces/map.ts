@@ -24,20 +24,27 @@
  * status), recorded on the resource as `nylorun.semconv.genai`; the rest are `nylorun.*`. A span
  * never carries a person's id (`ownerUserId`, a subject, who approved), an identity header, an
  * idempotency key or a credential value (the log holds none). Content (what a person said, the
- * model's output, tool results and error messages) is left out unless the installation opts in
- * per kind (`TraceContent`), each value cut at the Tenant's Runtime limit `traceContentBytes`
- * (`SpanSettings.contentBytes`). Prompts are not in the log, so never here.
+ * model's output and the tool calls it asked for, tool results and error messages) is left out
+ * unless the installation opts in (`OTEL_INSTRUMENTATION_GENAI_CAPTURE_CONTENT=SPAN_ONLY`, ADR-159;
+ * `TraceContent`). Content attributes are structured OTLP values (`arrayValue`, `kvlistValue`), as
+ * the conventions type them, each text in them cut at the Tenant's Runtime limit
+ * `traceContentBytes` (`SpanSettings.contentBytes`) with the structure kept. A tool call's
+ * arguments (`gen_ai.tool.call.arguments`) are its `message.assistant`'s, found by call id in the
+ * turn (`TurnTrace.toolArguments`): the projector knows them for calls whose request it mapped.
+ * Prompts are not in the log, so never here.
  */
 import type { LiveEvent } from "@nylorun/core/contracts";
 import { effectSpanOf, eventSpanOf, parseTraceparent, traceIdOf, turnSpanOf, type TraceKey } from "./ids.js";
 
 /** The commit of open-telemetry/semantic-conventions-genai whose attribute names spans use. */
-export const GENAI_SEMCONV = "open-telemetry/semantic-conventions-genai@6fd0d763a092db245a54104fc1124031eb3c51d2";
+export const GENAI_SEMCONV = "open-telemetry/semantic-conventions-genai@622b2b6073b15e5ed886c3c12a65a892b9cd5c70";
 
 /**
  * The content an installation exports (Q4): `user` (what a person sent, on the turn's span),
- * `outputs` (the model's text and tool calls, and a turn's output), `tool-results` and `errors`
- * (error messages; their codes are always exported).
+ * `outputs` (the model's text and tool calls, a tool call's arguments, and a turn's output),
+ * `tool-results` and `errors` (error messages; their codes are always exported).
+ * `OTEL_INSTRUMENTATION_GENAI_CAPTURE_CONTENT=SPAN_ONLY` turns on every kind; the deprecated
+ * `NYLORUN_TRACE_CONTENT` still names kinds for one release.
  */
 export const TRACE_CONTENT_KINDS = ["user", "outputs", "tool-results", "errors"] as const;
 export type TraceContentKind = (typeof TRACE_CONTENT_KINDS)[number];
@@ -53,6 +60,7 @@ export interface OtlpAnyValue {
   intValue?: string;
   doubleValue?: number;
   arrayValue?: { values: OtlpAnyValue[] };
+  kvlistValue?: { values: OtlpKeyValue[] };
 }
 export interface OtlpKeyValue {
   key: string;
@@ -83,7 +91,12 @@ export interface TurnTrace {
   /** Who sent the turn's message: its principal's kind, never its id. */
   readonly principalKind?: string;
   /** What a person sent, as `gen_ai.input.messages` (only with `user` content). */
-  readonly input?: string;
+  readonly input?: OtlpAnyValue;
+  /**
+   * The arguments of the tool calls the turn's `message.assistant` rows asked for, by call id,
+   * filled as they are mapped (only with `outputs` content): `gen_ai.tool.call.arguments`.
+   */
+  readonly toolArguments?: Map<string, unknown>;
 }
 
 /**
@@ -120,6 +133,7 @@ export function turnTraceOf(
     ...(inbound ? { parentSpanId: inbound.spanId } : {}),
     ...(message?.principal ? { principalKind: message.principal.kind } : {}),
     ...(input === undefined ? {} : { input }),
+    ...(settings.content.has("outputs") ? { toolArguments: new Map<string, unknown>() } : {}),
   };
 }
 
@@ -147,8 +161,11 @@ export function spanOf(row: LiveEvent, turn: TurnTrace, settings: SpanSettings):
     typeof effectId === "string" && effectId.length > 0
       ? effectSpanOf(settings.key, effectId)
       : eventSpanOf(settings.key, row.sessionId, row.seq);
+  // Content as a structured value, each text in it cut; an error message as text, cut.
   const content = (kind: TraceContentKind, value: unknown) =>
-    settings.content.has(kind) && value !== undefined ? truncate(typeof value === "string" ? value : JSON.stringify(value), settings.contentBytes) : undefined;
+    settings.content.has(kind) && value !== undefined ? anyValueOf(value, settings.contentBytes) : undefined;
+  const text = (kind: TraceContentKind, value: unknown) =>
+    settings.content.has(kind) && typeof value === "string" ? truncate(value, settings.contentBytes) : undefined;
   switch (row.type) {
     case "turn.completed":
     case "turn.failed":
@@ -172,8 +189,8 @@ export function spanOf(row: LiveEvent, turn: TurnTrace, settings: SpanSettings):
         .double("nylorun.usage.cost_usd", totals?.costUsd)
         .str("nylorun.principal.kind", turn.principalKind)
         .str("error.type", error ? (error.code ?? "turn.failed") : undefined)
-        .str("gen_ai.input.messages", turn.input)
-        .str(
+        .any("gen_ai.input.messages", turn.input)
+        .any(
           "gen_ai.output.messages",
           row.type === "turn.completed" && p.output !== undefined && p.output !== null
             ? content("outputs", [{ role: "assistant", parts: [textPart(p.output)] }])
@@ -189,7 +206,7 @@ export function spanOf(row: LiveEvent, turn: TurnTrace, settings: SpanSettings):
         attributes: attributes.list,
         status:
           row.type === "turn.failed"
-            ? errorStatus(content("errors", error?.message ?? p.message))
+            ? errorStatus(text("errors", error?.message ?? p.message))
             : row.type === "turn.completed"
               ? { code: STATUS.ok }
               : { code: STATUS.unset },
@@ -208,6 +225,13 @@ export function spanOf(row: LiveEvent, turn: TurnTrace, settings: SpanSettings):
         metered !== undefined &&
         reported !== undefined &&
         (metered.inputTokens !== reported.inputTokens || metered.outputTokens !== reported.outputTokens);
+      const calls = (row.type === "message.assistant" ? (p.toolCalls ?? []) : []) as {
+        callId: string;
+        name: string;
+        input: unknown;
+      }[];
+      // The calls' arguments, for their `execute_tool` spans later in the turn.
+      for (const call of calls) if (typeof call.callId === "string") turn.toolArguments?.set(call.callId, call.input);
       const output =
         row.type === "message.assistant"
           ? content("outputs", [
@@ -215,7 +239,7 @@ export function spanOf(row: LiveEvent, turn: TurnTrace, settings: SpanSettings):
                 role: "assistant",
                 parts: [
                   ...(typeof p.text === "string" && p.text !== "" ? [{ type: "text", content: p.text }] : []),
-                  ...((p.toolCalls ?? []) as { callId: string; name: string; input: unknown }[]).map((call) => ({
+                  ...calls.map((call) => ({
                     type: "tool_call",
                     id: call.callId,
                     name: call.name,
@@ -245,12 +269,12 @@ export function spanOf(row: LiveEvent, turn: TurnTrace, settings: SpanSettings):
         .int("nylorun.model.attempts", typeof p.attempts === "number" ? p.attempts : undefined)
         .str("nylorun.compaction.trigger", row.type === "context.compacted" ? p.trigger : undefined)
         .str("error.type", row.type === "model.failed" ? p.code : undefined)
-        .str("gen_ai.output.messages", output);
+        .any("gen_ai.output.messages", output);
       return {
         ...child(effectSpan(p.effectId), model?.model ? `chat ${model.model}` : "chat", SPAN_KIND.client),
         ...timesOf(row.time, p.gate, p.durationMs),
         attributes: attributes.list,
-        status: row.type === "model.failed" ? errorStatus(content("errors", p.message)) : { code: STATUS.ok },
+        status: row.type === "model.failed" ? errorStatus(text("errors", p.message)) : { code: STATUS.ok },
       };
     }
     case "tool.completed":
@@ -279,12 +303,18 @@ export function spanOf(row: LiveEvent, turn: TurnTrace, settings: SpanSettings):
         .str("nylorun.effect.id", p.effectId)
         .int("nylorun.effect.window_ms", p.durationMs)
         .str("error.type", failed ? (error?.code ?? `tool.${p.status}`) : undefined)
-        .str("gen_ai.tool.call.result", node || p.output === undefined ? undefined : content("tool-results", p.output));
+        .any(
+          "gen_ai.tool.call.arguments",
+          node || typeof p.callId !== "string" || !turn.toolArguments?.has(p.callId)
+            ? undefined
+            : content("outputs", turn.toolArguments.get(p.callId)),
+        )
+        .any("gen_ai.tool.call.result", node || p.output === undefined ? undefined : content("tool-results", p.output));
       return {
         ...child(effectSpan(p.effectId), `execute_tool ${name}`, SPAN_KIND.internal),
         ...timesOf(row.time, p.gate, p.durationMs),
         attributes: attributes.list,
-        status: failed ? errorStatus(content("errors", error?.message)) : { code: STATUS.ok },
+        status: failed ? errorStatus(text("errors", error?.message)) : { code: STATUS.ok },
       };
     }
     case "effect.uncertain": {
@@ -297,7 +327,7 @@ export function spanOf(row: LiveEvent, turn: TurnTrace, settings: SpanSettings):
           .str("gen_ai.operation.name", operation)
           .str("nylorun.effect.id", effectId)
           .str("error.type", "effect.uncertain").list,
-        status: errorStatus(content("errors", p.message)),
+        status: errorStatus(text("errors", p.message)),
       };
     }
     case "turn.paused":
@@ -344,6 +374,10 @@ class Attributes {
     if (typeof value === "boolean") this.list.push({ key, value: { boolValue: value } });
     return this;
   }
+  any(key: string, value: OtlpAnyValue | undefined): this {
+    if (value !== undefined) this.list.push({ key, value });
+    return this;
+  }
   strings(key: string, value: unknown): this {
     if (Array.isArray(value) && value.length > 0)
       this.list.push({ key, value: { arrayValue: { values: value.map((item) => ({ stringValue: String(item) })) } } });
@@ -382,11 +416,14 @@ function textPart(value: unknown): { type: "text"; content: string } {
   return { type: "text", content: typeof value === "string" ? value : JSON.stringify(value) };
 }
 
-/** What a person sent (`command.message`), as `gen_ai.input.messages`. */
+/**
+ * What a person sent (`command.message`), as `gen_ai.input.messages`. A file is a `file` part
+ * naming its artifact (`file_id`) and the version the message pinned.
+ */
 function userMessages(
   payload: { content?: unknown; parts?: unknown; data?: unknown },
   maxBytes: number,
-): string | undefined {
+): OtlpAnyValue | undefined {
   const parts =
     typeof payload.content === "string"
       ? [{ type: "text", content: payload.content }]
@@ -394,12 +431,40 @@ function userMessages(
         ? (payload.parts as { type?: string; text?: string; artifactId?: string; version?: number }[]).map((part) =>
             part.type === "text"
               ? { type: "text", content: part.text ?? "" }
-              : { type: "file", artifact_id: part.artifactId, ...(part.version ? { version: part.version } : {}) },
+              : { type: "file", file_id: part.artifactId, ...(part.version ? { version: part.version } : {}) },
           )
         : payload.data !== undefined
           ? [textPart(payload.data)]
           : undefined;
-  return parts ? truncate(JSON.stringify([{ role: "user", parts }]), maxBytes) : undefined;
+  return parts ? anyValueOf([{ role: "user", parts }], maxBytes) : undefined;
+}
+
+/**
+ * `value` as an OTLP `AnyValue`: an object as a `kvlistValue`, an array as an `arrayValue`, each
+ * string in it cut to `maxBytes` of UTF-8; whole numbers as `intValue`, others as `doubleValue`;
+ * `null` as the empty value. Fields whose value is undefined are left out, as JSON would.
+ */
+export function anyValueOf(value: unknown, maxBytes: number): OtlpAnyValue {
+  if (typeof value === "string") return { stringValue: truncate(value, maxBytes) };
+  if (typeof value === "boolean") return { boolValue: value };
+  if (typeof value === "number")
+    return Number.isSafeInteger(value)
+      ? { intValue: String(value) }
+      : Number.isFinite(value)
+        ? { doubleValue: value }
+        : { stringValue: String(value) };
+  if (typeof value === "bigint") return { intValue: value.toString() };
+  if (value === null || value === undefined) return {};
+  if (Array.isArray(value)) return { arrayValue: { values: value.map((item) => anyValueOf(item, maxBytes)) } };
+  if (typeof value === "object")
+    return {
+      kvlistValue: {
+        values: Object.entries(value as Record<string, unknown>)
+          .filter(([, item]) => item !== undefined)
+          .map(([key, item]) => ({ key, value: anyValueOf(item, maxBytes) })),
+      },
+    };
+  return { stringValue: truncate(String(value), maxBytes) };
 }
 
 /** `value` cut to `maxBytes` of UTF-8, never in the middle of a character. */

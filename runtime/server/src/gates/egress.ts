@@ -42,7 +42,8 @@
  * credential host, the request count and credential ids; never a header value, a path or a body. A refusal
  * before that (no token, a stale one, no `host:port`) stays a log line, and a client that hangs up
  * before the gate answers leaves nothing. A write never holds the tunnel up, and a failed one is
- * logged (`egress_record_failed`).
+ * logged (`egress_record_failed`). Every connection, those refusals included, is also counted for
+ * operators (`nylorun.egress.connections`, `nylorun.egress.bytes`, ADR-159); egress has no span.
  */
 import { lookup as dnsLookup } from "node:dns/promises";
 import { createServer, type IncomingMessage, type Server } from "node:http";
@@ -61,6 +62,7 @@ import type { Logger } from "../tenant/types.js";
 import { bindListener } from "../host/http.js";
 import { MAX_HELLO_BYTES, readClientHello } from "./client-hello.js";
 import { hostTuning } from "../tuning.js";
+import { defined, instruments } from "../telemetry/telemetry.js";
 import {
   CONNECT_ESTABLISHED,
   credentialTerminator,
@@ -248,6 +250,33 @@ function answer(socket: Duplex, status: number, message: string, headers: string
   );
 }
 
+/** The connections already counted, so a refusal after the record's own counts once. */
+const counted = new WeakSet<Duplex>();
+
+/**
+ * A connection's metrics (ADR-159; no span, D67): `nylorun.egress.connections` with
+ * `nylorun.egress.outcome` (`allowed`, `refused`) and, for a refusal, `nylorun.egress.reason`;
+ * and, for an allowed one, `nylorun.egress.bytes` each way (`network.io.direction` `transmit`
+ * up from the sandbox, `receive` down to it). Counted once per connection, as it ends.
+ */
+function countEgress(
+  client: Duplex,
+  outcome: "allowed" | "refused",
+  reason: string | undefined,
+  bytes?: { readonly up: number; readonly down: number },
+): void {
+  if (counted.has(client)) return;
+  counted.add(client);
+  const meters = instruments();
+  meters.egressConnections.add(
+    1,
+    defined({ "nylorun.egress.outcome": outcome, "nylorun.egress.reason": outcome === "refused" ? reason : undefined }),
+  );
+  if (outcome !== "allowed" || !bytes) return;
+  if (bytes.up > 0) meters.egressBytes.add(bytes.up, { "network.io.direction": "transmit" });
+  if (bytes.down > 0) meters.egressBytes.add(bytes.down, { "network.io.direction": "receive" });
+}
+
 /**
  * One connection's record (R7.3): written once, at a refusal or at the close, after the answer
  * and off the tunnel's path. The running turns are read once, started when `opened()` is first
@@ -279,10 +308,14 @@ function connectionRecord(
   let written = false;
   const runningTurns = (to: EgressRecord) => (running ??= to.runningTurns(at.environmentId));
   const write = (fields: Pick<EgressConnection, "outcome" | "reason" | "status" | "requests" | "credentialIds">) => {
-    if (written || !sink) return;
+    if (written) return;
     written = true;
     const socket = client as Partial<Socket>;
     const allowed = fields.outcome === "allowed";
+    const bytesUp = allowed ? Math.max(0, (socket.bytesRead ?? 0) - at.upFrom) : 0;
+    const bytesDown = allowed ? Math.max(0, (socket.bytesWritten ?? 0) - CONNECT_ESTABLISHED.length) : 0;
+    countEgress(client, fields.outcome, fields.reason, { up: bytesUp, down: bytesDown });
+    if (!sink) return;
     const durationMs = Math.max(0, Date.now() - at.startedAt.getTime());
     const connection = (turns: readonly EgressRunningTurn[]): EgressConnection => ({
       agentId: at.environmentId,
@@ -292,8 +325,8 @@ function connectionRecord(
       mode: record.credentialBound ? "credential" : "tunnel",
       credentialBound: record.credentialBound,
       // Up is what the sandbox sent after its CONNECT, down what it got after the gate's 200.
-      bytesUp: allowed ? Math.max(0, (socket.bytesRead ?? 0) - at.upFrom) : 0,
-      bytesDown: allowed ? Math.max(0, (socket.bytesWritten ?? 0) - CONNECT_ESTABLISHED.length) : 0,
+      bytesUp,
+      bytesDown,
       durationMs,
       startedAt: at.startedAt.toISOString(),
       runningTurns: [...turns],
@@ -387,6 +420,8 @@ export async function startEgressGate(options: StartEgressGateOptions): Promise<
       logger.warn("egress_refused", { status, reason, ...(target ? { host: target.host, port: target.port } : {}), ...fields });
       answer(client, status, message ?? reason, status === 407 ? ['proxy-authenticate: Basic realm="nylorun-egress"'] : []);
       records.get(client)?.refused(status, reason);
+      // A refusal before the connection had a record (its token, its target) is counted here.
+      countEgress(client, "refused", reason);
     };
     const raw = proxyToken(req.headers["proxy-authorization"]);
     if (!raw) return refuse(407, "egress_token_missing", {}, "an egress token is required");
@@ -590,6 +625,7 @@ export async function startEgressGate(options: StartEgressGateOptions): Promise<
       logger.error("egress_failed", { error: error instanceof Error ? error.message : String(error) });
       answer(client, 502, "the tunnel failed");
       records.get(client)?.refused(502, "egress_failed");
+      countEgress(client, "refused", "egress_failed");
     });
   });
   server.on("clientError", (_error, socket) => {

@@ -9,6 +9,7 @@
  */
 import { createManagementClient, type ManagementClient } from "@nylorun/admin";
 import { CliError } from "../errors.js";
+import { labelledFetch } from "../client-label.js";
 import { runningTenantApi, type StackDeps } from "../stack/commands.js";
 
 export type Api = "management" | "runtime";
@@ -81,8 +82,7 @@ export function managementClient(deps: StackDeps, connection: Connection): Manag
   return createManagementClient({
     url: connection.url,
     key: connection.managementKey,
-    fetch: (input, init) =>
-      deps.fetch(input instanceof Request ? input.url : String(input), init),
+    fetch: labelledFetch(deps.fetch),
   });
 }
 

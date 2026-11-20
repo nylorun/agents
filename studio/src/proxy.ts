@@ -101,6 +101,13 @@ export type StudioProxyOptions = {
 };
 
 /**
+ * The header a client names itself with, for the Runtime's telemetry (ADR-159): Studio labels
+ * every request it sends the Runtime `studio`, whatever the browser sent. Studio emits no
+ * telemetry itself.
+ */
+export const CLIENT_HEADER = "nylorun-client";
+
+/**
  * The largest JSON body the Runtime reads: the Tenant's Runtime limit `requestBodyBytes`. Studio
  * reads a write it parses (it rewrites some) up to the limit's default without asking, and asks
  * the Runtime only for a larger one, so it refuses only what the Runtime would.
@@ -113,6 +120,7 @@ async function requestBodyBytes(options: StudioProxyOptions, signal: AbortSignal
       headers: {
         authorization: `Bearer ${options.serverKey}`,
         [PROTOCOL_HEADER]: String(PROTOCOL_VERSION),
+        [CLIENT_HEADER]: "studio",
         accept: "application/json",
       },
     });
@@ -281,6 +289,7 @@ export async function proxyRuntime(
           headers: {
             authorization: `Bearer ${options.serverKey}`,
             [PROTOCOL_HEADER]: String(PROTOCOL_VERSION),
+            [CLIENT_HEADER]: "studio",
             accept: "application/json",
           },
         },
@@ -387,6 +396,7 @@ export async function proxyRuntime(
           ? {}
           : { authorization: `Bearer ${options.serverKey}` }),
         [PROTOCOL_HEADER]: String(PROTOCOL_VERSION),
+        [CLIENT_HEADER]: "studio",
         ...(typeof body === "string" ? { "content-type": mediaType } : {}),
         ...uploadHeaders,
         // A manifest save names the version it was made over (`412 manifest_changed`).

@@ -24,6 +24,10 @@
  * the Tenant runs no harness of its own: core starts the Harness API listener (`NYLORUN_HARNESS_LISTEN_*`) and
  * harnesses that present `NYLORUN_HARNESS_TOKEN` run its segments and hold its workspaces. See the startup order
  * in `main()`. Tests compose a Host without this entry, with `createHost` and an injected Tenant module.
+ *
+ * Live telemetry (ADR-159) starts here and only here, for a process running core, loop or the
+ * gateway's services (`startProcessTelemetry`): its metrics on `/metrics` (port 9464 by default)
+ * and over OTLP, its spans over OTLP when an endpoint is set. A test Host binds no such port.
  */
 import { readFileSync, mkdirSync, existsSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -81,6 +85,7 @@ import { retry } from "../retry.js";
 import { hostTuning, useHostTuning } from "../tuning.js";
 import { useHostIdentity } from "../vault/host-identity.js";
 import { useWorkloadToken } from "../vault/workload-token.js";
+import { startTelemetry, type StartedTelemetry } from "../telemetry/setup.js";
 
 const nodeRequire = createRequire(import.meta.url);
 
@@ -190,6 +195,27 @@ function warnRemovedSettings(stack: StackConfig, logger: Logger): void {
 }
 
 /**
+ * Starts the process's telemetry (`telemetry/setup.ts`) after logging, once, each setting read
+ * with a warning. Never stops the start: `/metrics` that cannot listen is logged.
+ */
+async function startProcessTelemetry(stack: StackConfig, logger: Logger): Promise<StartedTelemetry | undefined> {
+  for (const warning of stack.warnings ?? [])
+    logger.warn(warning.event, { variable: warning.variable, message: warning.message });
+  if (!stack.telemetry) return undefined;
+  const started = await startTelemetry(stack.telemetry, { logger });
+  logger.info("telemetry_config", {
+    serviceName: stack.telemetry.resource.serviceName,
+    metrics: [
+      ...(stack.telemetry.metrics.prometheus ? ["prometheus"] : []),
+      ...(stack.telemetry.metrics.otlp ? ["otlp"] : []),
+    ],
+    spans: stack.telemetry.traces ? "otlp" : "off",
+    ...(stack.telemetry.traces ? { sampler: stack.telemetry.traces.sampler.name } : {}),
+  });
+  return started;
+}
+
+/**
  * The gateway's services: the Model Gate's listener (gates, keys) and egress-gate's (egress), over
  * the Postgres pool and the Host's tenant directory. Writes nothing to the Host root (the local
  * stack mounts it read-only).
@@ -208,6 +234,7 @@ async function runGates(stack: StackConfig): Promise<void> {
     ...(stack.credentialProvider ? { credentialProvider: stack.credentialProvider.url } : {}),
   });
   warnRemovedSettings(stack, logger);
+  const telemetry = await startProcessTelemetry(stack, logger);
   const database = createDatabase(stack);
   const servers: { close(): Promise<void> }[] = [];
   try {
@@ -239,6 +266,7 @@ async function runGates(stack: StackConfig): Promise<void> {
   } catch (error) {
     await Promise.all(servers.map((server) => server.close()));
     await database.end({ timeout: hostTuning().postgres.closeTimeoutSeconds });
+    await telemetry?.shutdown();
     if (error instanceof HostListenError) {
       logger.error("listen_failed", { message: error.message, exitCode: error.exitCode });
       process.exitCode = error.exitCode;
@@ -253,6 +281,7 @@ async function runGates(stack: StackConfig): Promise<void> {
       stopping = true;
       void Promise.all(servers.map((server) => server.close()))
         .then(() => database.end({ timeout: hostTuning().postgres.closeTimeoutSeconds }))
+        .then(() => telemetry?.shutdown())
         .finally(() => process.exit(0));
     });
 }
@@ -307,6 +336,7 @@ export async function main(): Promise<void> {
       issuers: issuers.issuers.map((issuer) => issuer.config.name),
     });
   warnRemovedSettings(stack, logger);
+  const telemetry = await startProcessTelemetry(stack, logger);
   if (stack.deprecatedRole)
     logger.warn("deprecated_flag", {
       flag: "--role",
@@ -509,6 +539,8 @@ export async function main(): Promise<void> {
       afterTenants: async () => {
         await harnessListener?.close();
         await infra.close();
+        // Last, so what the shutdown measured is flushed.
+        await telemetry?.shutdown();
       },
     },
   };
@@ -562,6 +594,7 @@ export async function main(): Promise<void> {
     await module.close().catch(() => undefined);
     await relay?.stop().catch(() => undefined);
     await infra.close();
+    await telemetry?.shutdown();
     if (error instanceof HostListenError) {
       logger.error("listen_failed", {
         message: error.message,

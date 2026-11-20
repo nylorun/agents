@@ -449,6 +449,11 @@ jobs:
           for key in gatesToken harnessToken sandboxesToken adminKey; do
             grep -Eq "^  ${key}: \"[0-9a-f]{64}\"$" /tmp/chart.yaml || { echo "${key} is not 32 bytes of hex"; exit 1; }
           done
+          # /metrics (ADR-159): port 9464 on the runtime and gateway containers and internal Services.
+          [ "$(grep -c '{ name: metrics, containerPort: 9464 }' /tmp/chart.yaml)" = 2 ]
+          [ "$(grep -c '{ name: metrics, port: 9464, targetPort: metrics }' /tmp/chart.yaml)" = 2 ]
+          helm template t charts/nylorun-runtime --kube-version 1.37.0 \
+            --set 'metrics.from[0].namespaceSelector.matchLabels.team=monitoring' | grep -q 'team: monitoring'
           helm template t charts/nylorun-runtime --kube-version 1.37.0 -f charts/nylorun-runtime/values-gcp.example.yaml >/dev/null
           helm template t charts/nylorun-runtime --kube-version 1.37.0 --set keysProvider.enabled=true --set restate.snapshots.enabled=false >/dev/null
           # extraEnv, the runtime's ServiceAccount annotations and a load balancer Service.

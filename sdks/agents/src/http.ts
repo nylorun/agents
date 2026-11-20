@@ -27,6 +27,9 @@ export interface TokenSource {
  * Where a client sends its requests. Nothing names a Tenant: the Runtime at `url` serves one
  * (protocol 5).
  */
+/** The header a client names itself with (`studio`, `sdk`, `cli`), for the Runtime's telemetry. */
+export const CLIENT_HEADER = "Nylorun-Client";
+
 export interface Destination {
   url?: string;
   key?: string;
@@ -176,6 +179,9 @@ export class Transport {
     const headers = new Headers(init.headers);
     for (const [name, value] of Object.entries(this.headers))
       headers.set(name, value);
+    // Which client sent the request, for the Runtime's telemetry (`nylorun.client`); a caller's
+    // own label (the nylorun CLI's `cli`) wins.
+    if (!headers.has(CLIENT_HEADER)) headers.set(CLIENT_HEADER, "sdk");
     const bearer = this.token
       ? await this.token.get(init.signal ?? undefined)
       : this.key;

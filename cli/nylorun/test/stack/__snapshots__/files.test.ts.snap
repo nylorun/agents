@@ -169,6 +169,18 @@ services:
       # its bearer: from the shell that runs \`nylorun start\`. Empty: none.
       NYLORUN_CREDENTIAL_PROVIDER_URL: \${NYLORUN_CREDENTIAL_PROVIDER_URL:-}
       NYLORUN_CREDENTIAL_PROVIDER_TOKEN: \${NYLORUN_CREDENTIAL_PROVIDER_TOKEN:-}
+      # Telemetry: from the shell that runs \`nylorun start\`. Unset, metrics are served on /metrics
+      # (port 9464, on the Compose network) and nothing is exported. A collector on this machine
+      # is host.docker.internal.
+      OTEL_EXPORTER_OTLP_ENDPOINT: \${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: \${OTEL_EXPORTER_OTLP_TRACES_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_HEADERS: \${OTEL_EXPORTER_OTLP_HEADERS:-}
+      OTEL_SERVICE_NAME: \${OTEL_SERVICE_NAME:-}
+      OTEL_RESOURCE_ATTRIBUTES: \${OTEL_RESOURCE_ATTRIBUTES:-}
+      OTEL_METRICS_EXPORTER: \${OTEL_METRICS_EXPORTER:-}
+      OTEL_TRACES_SAMPLER: \${OTEL_TRACES_SAMPLER:-}
+      OTEL_TRACES_SAMPLER_ARG: \${OTEL_TRACES_SAMPLER_ARG:-}
+      OTEL_INSTRUMENTATION_GENAI_CAPTURE_CONTENT: \${OTEL_INSTRUMENTATION_GENAI_CAPTURE_CONTENT:-}
     extra_hosts:
       host.docker.internal: host-gateway # model servers, MCP servers and HTTP tools on this machine
     volumes:
@@ -239,13 +251,19 @@ services:
       NYLORUN_HARNESS_LISTEN_PORT: "4200"
       NYLORUN_HARNESS_ALLOWED_HOSTS: runtime:4200
       NYLORUN_HARNESS_TOKEN: \${NYLORUN_HARNESS_TOKEN:?run nylorun start}
-      # Traces: from the shell that runs \`nylorun start\`. Unset, they are
-      # empty and the Runtime exports nothing. A collector on this machine is host.docker.internal.
+      # Telemetry: from the shell that runs \`nylorun start\`. Unset, metrics are served on /metrics
+      # (port 9464, on the Compose network) and nothing is exported. A collector on this machine
+      # is host.docker.internal.
       OTEL_EXPORTER_OTLP_ENDPOINT: \${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: \${OTEL_EXPORTER_OTLP_TRACES_ENDPOINT:-}
       OTEL_EXPORTER_OTLP_HEADERS: \${OTEL_EXPORTER_OTLP_HEADERS:-}
       OTEL_SERVICE_NAME: \${OTEL_SERVICE_NAME:-}
       OTEL_RESOURCE_ATTRIBUTES: \${OTEL_RESOURCE_ATTRIBUTES:-}
+      OTEL_METRICS_EXPORTER: \${OTEL_METRICS_EXPORTER:-}
+      OTEL_TRACES_SAMPLER: \${OTEL_TRACES_SAMPLER:-}
+      OTEL_TRACES_SAMPLER_ARG: \${OTEL_TRACES_SAMPLER_ARG:-}
+      OTEL_INSTRUMENTATION_GENAI_CAPTURE_CONTENT: \${OTEL_INSTRUMENTATION_GENAI_CAPTURE_CONTENT:-}
+      # Deprecated, read for one release: OTEL_INSTRUMENTATION_GENAI_CAPTURE_CONTENT replaces them.
       OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT: \${OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT:-}
       NYLORUN_TRACE_CONTENT: \${NYLORUN_TRACE_CONTENT:-}
       # Host tuning (timings, retries, internal sizes; JSON): from the shell that runs \`nylorun start\`.

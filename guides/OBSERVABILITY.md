@@ -3,17 +3,17 @@
 The Runtime has two systems for two readers (ADR-159). The **event log** is the durable history
 of every session and Agent: what the agent did, and what the Runtime did to it. It is exact,
 never sampled, and the Runtime resumes and audits from it. It is for **developers** building and
-running agents. **Telemetry** is OpenTelemetry: traces about how the Runtime and its parts ran.
-It is best effort and goes to whatever tools a team runs. It is for **operators** running the
-Runtime.
+running agents. **Telemetry** is OpenTelemetry: metrics, spans and log lines about how the Runtime
+and its parts ran. It is best effort, the Runtime stores none of it, and it goes to whatever tools
+a team runs. It is for **operators** running the Runtime.
 
 | | Event log | Telemetry |
 | --- | --- | --- |
 | For | Developers | Operators |
 | Answers | What happened, and who is accountable for it? | How fast, how often, how healthy? |
-| Read through | The Runtime API, the SDK, Studio | Your OpenTelemetry collector; a turn's trace from the Runtime API |
-| If writing fails | The change fails with it | Dropped; nothing waits |
-| Sampled | Never | Your collector may |
+| Read through | The Runtime API, the SDK, Studio | `/metrics`, your OpenTelemetry collector; a turn's trace from the Runtime API |
+| If writing fails | The change fails with it | Dropped and counted; nothing waits |
+| Sampled | Never | Spans may be; metrics never |
 
 Some facts are in both, such as a model call's time and tokens. Each question reads one source:
 cost, audit and Studio's Usage read the log; latency and rates read telemetry. When they differ,
@@ -118,6 +118,12 @@ MCP servers (`traceparent`) and to sandbox commands (`TRACEPARENT`).
 
 ## For operators: telemetry and health
 
+The Runtime makes its telemetry with the OpenTelemetry SDK, configured by the standard `OTEL_*`
+variables, and keeps none of it: metrics live in each process's memory, served on `/metrics` and
+pushed over OTLP; spans go over OTLP only. Each process names itself: `nylorun-runtime` for the
+runtime (core and loop), `nylorun-gateway` for the gateway (the Model and Tool Gates, keys and
+egress-gate).
+
 ### Health
 
 | Probe | Answers |
@@ -127,12 +133,93 @@ MCP servers (`traceparent`) and to sandbox commands (`TRACEPARENT`).
 | `GET /v1/tenant` (Management API) | The Tenant's checks, counts, sandboxes, harness and streams |
 | `nylorun status` | The local stack's services, Studio's URL |
 
+### Metrics
+
+Every runtime and gateway process serves its metrics in Prometheus format on `/metrics`, port
+`9464`, from the moment it starts. On the local stack that port is on the Compose network only
+(`http://runtime:9464/metrics`, `http://gateway:9464/metrics`); the
+[Helm chart](../charts/nylorun-runtime/README.md#telemetry) names it `metrics` on the
+`<name>-runtime-internal` and `<name>-gateway` Services. Set an OTLP endpoint and the same metrics
+are pushed there every minute too.
+
+| Metric | Type, unit | Attributes | Made by |
+| --- | --- | --- | --- |
+| `http.server.request.duration` | histogram, s | `http.request.method`, `http.route`, `http.response.status_code`, `nylorun.client`, `error.type` (a 5xx) | the runtime, for every API request |
+| `gen_ai.client.inference.duration` | histogram, s | `gen_ai.operation.name` (`chat`), `gen_ai.provider.name`, `gen_ai.request.model`, `error.type` | the gateway (or the runtime's in-process gate), for every model call |
+| `gen_ai.client.inference.time_to_first_chunk` | histogram, s | as above | the same, when the provider streamed |
+| `gen_ai.client.inference.usage.input_tokens`, `.output_tokens` | counter, `{token}` | as above | the same, for an answered call |
+| `mcp.client.operation.duration` | histogram, s | `mcp.method.name` (`initialize`, `tools/list`, `tools/call`), `gen_ai.tool.name` (a call), `error.type` | the gateway, for every request to a remote MCP server |
+| `http.client.request.duration` | histogram, s | `http.request.method`, `http.response.status_code`, `error.type` | the gateway, for every HTTP tool request |
+| `gen_ai.invoke_agent.duration` | histogram, s | `gen_ai.operation.name` (`invoke_agent`), `gen_ai.agent.name` (the manifest's name), `error.type` (`cancelled`, or the failure's code) | the runtime, as each turn ends; waits for a person included |
+| `nylorun.queue.wait` | histogram, s | `nylorun.queue.outcome` (`taken`, `failed`, `cancelled`) | the runtime, as each queued message leaves the queue |
+| `nylorun.egress.connections` | counter, `{connection}` | `nylorun.egress.outcome` (`allowed`, `refused`), `nylorun.egress.reason` (a refusal's) | egress-gate, once per sandbox connection |
+| `nylorun.egress.bytes` | counter, By | `network.io.direction` (`transmit` from the sandbox, `receive` to it) | egress-gate, for an allowed tunnel as it closes |
+| `nylorun.telemetry.dropped` | counter, `{item}` | `signal` (`metrics`, `traces`), `exporter` (`otlp`, or `projector` for turn traces) | every process, for spans or points an export failed to deliver |
+
+- **Names on `/metrics`.** Prometheus replaces dots with underscores and adds `_total` to
+  counters, with no unit suffix: `http_server_request_duration_bucket`,
+  `gen_ai_client_inference_usage_input_tokens_total`, `nylorun_egress_connections_total`. Each
+  point carries `otel_scope_name="@nylorun/runtime"`; the process's resource
+  (`service_name`, `service_version`) is on `target_info`.
+- **Bounded labels.** Every attribute has a small fixed set of values. `http.route` is the
+  route's pattern (`/v1/sessions/{sessionId}/commands`), and `other` for a path that names no
+  route. Metrics never carry a session, turn, request or Tenant id, a host name, a URL or a person.
+- **`nylorun.client`** says who sent a request: `studio`, `sdk` (`@nylorun/agents` and
+  `@nylorun/admin`), `cli` (`nylorun`), `a2a` and `ag-ui` (by route), else `other`. Clients send it
+  as the `Nylorun-Client` header; Studio sets `studio` on everything it forwards. A browser app
+  that calls the Runtime may send it too: allow the header in your proxy's CORS.
+- **Durations** use the buckets the semantic conventions advise; the turn and queue histograms
+  reach two hours.
+
+### The golden signals
+
+| Part | Rate | Errors | Duration | Saturation |
+| --- | --- | --- | --- | --- |
+| Runtime API | `http.server.request.duration` count by `http.route`, `nylorun.client` | its points with `error.type` (5xx) | its histogram | `nylorun.queue.wait` |
+| Turns | `gen_ai.invoke_agent.duration` count | its points with `error.type` | its histogram | `nylorun.queue.wait` by outcome |
+| Model calls | `gen_ai.client.inference.duration` count by model | `error.type` (`rate_limited`, `overloaded`, `timeout`, …) | its histogram, `time_to_first_chunk` | input and output tokens |
+| MCP servers and HTTP tools | `mcp.client.operation.duration`, `http.client.request.duration` counts | `error.type` | their histograms | |
+| Egress | `nylorun.egress.connections` | `outcome="refused"` by `reason` | | `nylorun.egress.bytes` |
+| Telemetry itself | | `nylorun.telemetry.dropped` | | |
+
+### Spans
+
+Set an OTLP endpoint and the Runtime exports spans; without one it makes none, and costs nothing.
+
+- **Live spans** from each process: an HTTP server span `{method} {http.route}` for every API
+  request (with `nylorun.client`), and a client span `tools/call {tool}` for each remote MCP tool
+  call, under the call's own trace context. A request's span is the parent of the turn it starts:
+  send a `traceparent` with a command and your span, the request's and the turn's are one trace.
+- **Turn traces** from the log: `invoke_agent`, `chat` and `execute_tool`, one per turn, the same
+  as `session.trace(turnId)` reads. The variables, what leaves and how a collector that is down
+  is handled are in [DEPLOYMENT.md, Traces](DEPLOYMENT.md#traces).
+- **Egress has no span**: a connection belongs to the Environment, not a turn. Count it, or read
+  its record from the Agent's stream.
+- **Sampling.** `OTEL_TRACES_SAMPLER` decides which live spans are kept: `parentbased_always_on`
+  (the default: kept unless the caller's `traceparent` says not sampled), `always_on`,
+  `always_off`, `traceidratio` or `parentbased_traceidratio` with `OTEL_TRACES_SAMPLER_ARG` (a ratio
+  from `0` to `1`). Metrics are never sampled. Turn traces are made from the log, all of them;
+  sample those in your collector (tail sampling).
+
+A harness must not instrument its own model calls: the Runtime already makes their spans, and a
+second instrumentation counts every call twice. Spans for work the Runtime cannot see, such as a
+retrieval step inside the harness, are welcome.
+
 ### Logs
 
 Each Runtime service writes JSON lines to stdout: `level`, `message`, `time`, and fields. The
 Runtime logs one `request` line per API request (method, redacted path, status, duration); the
 gateway logs `model_call`, `model_retry`, `mcp_request` and `http_tool_call` per operation, and
 the egress proxy `egress_refused`. On the local stack, `nylorun local logs <service>` reads them.
+
+With span export on, a line written while a request runs carries `trace_id` and `span_id`: the
+same ids as the request's span, so a log line, a span and the turn's events (whose
+`command.message` holds the `traceparent`) join on one trace id.
+
+At start each process logs `telemetry_config` (its `service.name`, metric exporters and spans),
+`metrics_ready` with its `/metrics` URL, or `metrics_listen_failed` when the port is taken (the
+process runs on without it), and `telemetry_export_dropped` at most once a minute while an export
+fails.
 
 ### Audit
 
@@ -181,13 +268,50 @@ in **Tenant › Audit**, with a type filter and **Load more**; Studio records it
 `POST /v1/tenant/audit/studio-sign-in`, which only Studio's own key may call, and a sign-in the
 Runtime fails to record is logged by Studio (`studio sign-in not recorded`) and still goes ahead.
 
-### Exporting traces
+### Content
 
-Set an OTLP endpoint on the `runtime` container and the Runtime exports every turn's trace. The
-variables, what leaves and how a collector that is down is handled are in
-[DEPLOYMENT.md, Traces](DEPLOYMENT.md#traces). By default a span carries references, never
-content; opting in to content is per kind, with `NYLORUN_TRACE_CONTENT`.
+By default spans carry references, never content: what a person sent, the model's output, the
+tool calls it asked for, tool results and error messages stay in the log, which a span points at
+with `nylorun.event.cursor`. One switch, from the GenAI semantic conventions, copies content onto
+the turn traces' spans:
 
-A harness must not instrument its own model calls: the Runtime already makes their spans, and a
-second instrumentation counts every call twice. Spans for work the Runtime cannot see, such as a
-retrieval step inside the harness, are welcome.
+| `OTEL_INSTRUMENTATION_GENAI_CAPTURE_CONTENT` | Spans carry |
+| --- | --- |
+| `NO_CONTENT` (default) | No content |
+| `SPAN_ONLY` | `gen_ai.input.messages`, `gen_ai.output.messages`, `gen_ai.tool.call.arguments`, `gen_ai.tool.call.result`, and error messages |
+| `EVENT_ONLY` | No content, with a warning: the Runtime emits no GenAI events yet |
+| `SPAN_AND_EVENT` | As `SPAN_ONLY`, with a warning |
+
+The value is read without regard to case; an unknown one means `NO_CONTENT`, with a warning, and
+never stops a start. Content is recorded as structured values (OTLP `arrayValue` and
+`kvlistValue`, as the conventions type them), and each text in it is cut at the Tenant's Runtime
+limit `traceContentBytes` (8 KiB by default), keeping the structure. A span never carries a
+credential, a prompt (the log holds none), a person's id or an idempotency key, whatever the
+switch says.
+
+**Moving from the old variables.** `NYLORUN_TRACE_CONTENT` (its kinds) and
+`OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=true` (all of them) still work for this release,
+each logged once at start as `trace_content_deprecated`. Replace either with
+`OTEL_INSTRUMENTATION_GENAI_CAPTURE_CONTENT=SPAN_ONLY`; when the new switch is set, they are
+ignored. The switch has no per-kind setting: one that kept only some kinds, such as `errors`,
+chooses between all of them and none. See [MIGRATION.md](MIGRATION.md).
+
+### Variables
+
+Set them on the runtime and the gateway (`nylorun start` passes them from its shell to both; the
+chart takes them in `extraEnv.runtime` and `extraEnv.gateway`).
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `OTEL_METRICS_EXPORTER` | `prometheus`, plus `otlp` with an endpoint | A comma list of `prometheus`, `otlp` and `none` |
+| `OTEL_EXPORTER_PROMETHEUS_HOST`, `_PORT` | `0.0.0.0`, `9464` | Where `/metrics` listens (a Host outside a container: `127.0.0.1`) |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | none | The collector's OTLP/HTTP base URL: metrics to `/v1/metrics`, spans to `/v1/traces` |
+| `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`, `_TRACES_ENDPOINT` | none | One signal's full URL instead |
+| `OTEL_EXPORTER_OTLP_HEADERS`, `_METRICS_HEADERS`, `_TRACES_HEADERS` | none | `key=value` pairs separated by commas, values percent-encoded |
+| `OTEL_TRACES_SAMPLER`, `OTEL_TRACES_SAMPLER_ARG` | `parentbased_always_on` | Which live spans are kept (above) |
+| `OTEL_SERVICE_NAME` | `nylorun-runtime`, `nylorun-gateway` | `service.name` |
+| `OTEL_RESOURCE_ATTRIBUTES` | none | More resource attributes; its `service.name` wins over the default |
+| `OTEL_INSTRUMENTATION_GENAI_CAPTURE_CONTENT` | `NO_CONTENT` | Content on spans (above); the runtime only |
+
+An unknown exporter, sampler or ratio is skipped or replaced by its default, with a warning; a
+`/metrics` port that is not a number stops the start.

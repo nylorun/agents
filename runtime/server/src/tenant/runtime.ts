@@ -68,6 +68,7 @@ import {
 import { advance } from "./advance.js";
 import { outboxFields, sweep } from "./sweep.js";
 import { deliverPush } from "../api/a2a/push.js";
+import { recordTurnEnds } from "../telemetry/core.js";
 import {
   TenantWorkers,
   WORKER_ID,
@@ -236,6 +237,8 @@ export class TenantRuntime implements TenantHandle {
     mkdirSync(paths.logs, { recursive: true });
 
     const store: SessionStore = hooks.store;
+    // Turn durations for operators (ADR-159), from the turns this process's commits end.
+    store.onCommit(recordTurnEnds);
     let wired: StreamsWiring | undefined;
     let control: TenantContext["control"];
     let detach: (() => Promise<void>) | undefined;

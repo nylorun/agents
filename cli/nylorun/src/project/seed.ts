@@ -1,3 +1,4 @@
+import { CLIENT_LABEL } from "../client-label.js";
 import { randomUUID } from "node:crypto";
 import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -79,6 +80,7 @@ async function call(
     headers: {
       authorization: `Bearer ${managementKey}`,
       [PROTOCOL_HEADER]: String(PROTOCOL_VERSION),
+      ...CLIENT_LABEL,
       accept: "application/json",
       ...(init.body === undefined ? {} : { "content-type": "application/json" }),
     },

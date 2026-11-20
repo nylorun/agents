@@ -10,7 +10,7 @@ import type { AuthScope, TenantContext } from "../../tenant/context.js";
 import type { NodeBindings } from "../../tenant/types.js";
 import { a2aRoutes } from "../a2a/endpoint.js";
 import { agUiRoutes } from "../ag-ui/endpoint.js";
-import { declaredRoute, pathSegments, routeNotFound, type RouteAccess } from "./define.js";
+import { declaredRoute, declaredRoutePattern, pathSegments, routeNotFound, type RouteAccess } from "./define.js";
 import { jsonResponse, rejectionOf } from "./respond.js";
 import { accessRoutes } from "./routes/access.js";
 import { meRoutes } from "./routes/me.js";
@@ -53,6 +53,12 @@ export function findTenantRoute(
 ): RouteAccess | undefined {
   tenantApi();
   return declaredRoute(method, segments);
+}
+
+/** The pattern of the Tenant route `method` on a path names (`http.route`), if it is one. */
+export function findTenantRoutePattern(method: string, segments: readonly string[]): string | undefined {
+  tenantApi();
+  return declaredRoutePattern(method, segments);
 }
 
 function build(): OpenAPIHono<TenantEnv> {

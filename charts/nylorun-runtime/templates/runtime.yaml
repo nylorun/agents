@@ -51,6 +51,8 @@ spec:
             - { name: api, containerPort: 4000 }
             - { name: harness, containerPort: 4200 }
             - { name: worker, containerPort: 9080 }
+            # Prometheus /metrics (ADR-159); OTEL_* settings go in extraEnv.runtime.
+            - { name: metrics, containerPort: 9464 }
           env:
             - { name: NYLORUN_HOME, value: /nylorun }
             - { name: NYLORUN_PACKING, value: combined }
@@ -146,8 +148,9 @@ spec:
   ports:
     - { name: api, port: 4000, targetPort: api }
 ---
-# The Harness API and the Restate worker, published before the runtime is ready: it becomes ready
-# only once Restate has called its worker, and the harness connects while it starts.
+# The Harness API, the Restate worker and /metrics, published before the runtime is ready: it
+# becomes ready only once Restate has called its worker, and the harness connects while it starts.
+# Never on the public Service.
 apiVersion: v1
 kind: Service
 metadata:
@@ -159,3 +162,4 @@ spec:
   ports:
     - { name: harness, port: 4200, targetPort: harness }
     - { name: worker, port: 9080, targetPort: worker }
+    - { name: metrics, port: 9464, targetPort: metrics }

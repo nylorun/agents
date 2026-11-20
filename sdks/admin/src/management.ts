@@ -351,6 +351,8 @@ export class ManagementClient {
   private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
     const headers: Record<string, string> = {
       ...requestHeaders(this.#key),
+      // Which client sent the request, for the Runtime's telemetry; a caller's own label wins.
+      "Nylorun-Client": "sdk",
       accept: "application/json",
       ...(body === undefined ? {} : { "content-type": "application/json" }),
       ...this.#headers,
