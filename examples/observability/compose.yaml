@@ -1,0 +1,13 @@
+# Somewhere to see the Runtime's telemetry on one machine (ADR-159): Grafana's all-in-one
+# OpenTelemetry backend (a Collector, Prometheus, Tempo, Loki and Grafana in one container), for
+# development only. The Runtime stores no telemetry of its own; point it here with the OTEL_*
+# variables in README.md.
+services:
+  otel-lgtm:
+    image: grafana/otel-lgtm:0.41.0@sha256:2e3290657f2f2a256c7a9175f097424a3ac5b54840741ace433e108e109348b6
+    ports:
+      - "127.0.0.1:3001:3000" # Grafana (Studio has 3000)
+      - "127.0.0.1:4317:4317" # OTLP gRPC
+      - "127.0.0.1:4318:4318" # OTLP HTTP
+    volumes:
+      - ./grafana-dashboard.json:/otel-lgtm/nylorun-runtime.json:ro

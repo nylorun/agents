@@ -19,3 +19,5 @@ export type {
 } from "./server.js";
 export { proxyRuntime } from "./proxy.js";
 export type { StudioProxyOptions } from "./proxy.js";
+export { parseMetricsSources, parsePrometheus, readMetrics } from "./metrics.js";
+export type { MetricSample, MetricsRead, MetricsSource } from "./metrics.js";

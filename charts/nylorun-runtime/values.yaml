@@ -170,7 +170,7 @@ extraEnv:
 # named `metrics` on the <name>-runtime-internal and <name>-gateway Services (never the public
 # one). `from` lists the NetworkPolicy peers that may scrape it, such as
 # [{ namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: monitoring } } }]; empty,
-# any pod may.
+# any pod may. Studio may always: its Tenant › Traffic reads both.
 metrics:
   from: []
 

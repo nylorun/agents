@@ -45,6 +45,7 @@
  *
  * This module does not read the environment; `server-main.ts` does.
  */
+import { readMetrics, type MetricsSource } from "./metrics.js";
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { readFileSync } from "node:fs";
 import {
@@ -140,6 +141,12 @@ export type StudioServerOptions = Readonly<{
    * Default: none of Studio's own; the Runtime holds it to the Tenant's artifact limits.
    */
   maxUploadBytes?: number;
+  /**
+   * The Runtime's `/metrics` sources Tenant › Traffic reads live (`NYLORUN_STUDIO_METRICS_URLS`,
+   * validated with `parseMetricsSources`): the runtime's and the gateway's. Default: none, and
+   * Traffic says where to turn it on. Studio stores none of it (ADR-159).
+   */
+  metricsSources?: readonly MetricsSource[];
   /** Where Studio logs state changes made by an embedded session. Default: stdout. */
   log?: (entry: Readonly<Record<string, unknown>>) => void;
   /** Clock for login-token and session expiry (tests). */
@@ -174,6 +181,8 @@ const SAFE_METHODS = new Set(["GET", "HEAD"]);
 const MAX_JSON_BODY = 4096;
 const TENANT_ID = /^[A-Za-z0-9_-]{1,128}$/;
 const TENANT_RUNTIME = /^\/_studio\/tenants\/([^/]+)\/runtime(\/.*)$/;
+/** Tenant › Traffic's read of the Runtime's own metrics (ADR-159). */
+const TENANT_METRICS = /^\/_studio\/tenants\/([^/]+)\/metrics$/;
 
 const ANALYTICS_ID = /^G-[A-Z0-9]{4,20}$/;
 
@@ -1141,6 +1150,29 @@ export async function startStudioServer(
       ]);
       const hello: StudioServerHello = { version: STUDIO_VERSION, runtime, tenant };
       return json(response, 200, hello, method);
+    }
+
+    const metricsRoute = TENANT_METRICS.exec(pathname);
+    if (metricsRoute) {
+      request.resume();
+      if (!SAFE_METHODS.has(method)) return fail(response, 405, "Method not allowed");
+      let tenantId = "";
+      try {
+        tenantId = decodeURIComponent(metricsRoute[1]!);
+      } catch {
+        tenantId = "";
+      }
+      const host = await tenantIdOrCause();
+      if (host.id === null) return fail(response, 503, host.message);
+      if (
+        !TENANT_ID.test(tenantId) ||
+        tenantId !== host.id ||
+        (session.tenant !== null && session.tenant !== tenantId)
+      )
+        return fail(response, 404, "Unknown Tenant");
+      const sources = options.metricsSources ?? [];
+      if (sources.length === 0) return json(response, 200, { at: new Date().toISOString(), sources: [] }, method);
+      return json(response, 200, await readMetrics(sources), method);
     }
 
     const tenantRoute = TENANT_RUNTIME.exec(pathname);

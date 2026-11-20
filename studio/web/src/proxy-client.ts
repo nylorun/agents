@@ -157,3 +157,21 @@ export async function fetchHello(fetcher?: StudioFetch): Promise<StudioHello> {
     "Studio hello",
   );
 }
+
+/**
+ * Tenant › Traffic's read (ADR-159): the Runtime's own metrics, which the Studio server reads live
+ * from each process's `/metrics` and returns parsed. Nothing is stored.
+ */
+export async function fetchTenantMetrics(
+  tenantId: string,
+  options?: Readonly<{ fetcher?: StudioFetch; signal?: AbortSignal }>,
+): Promise<unknown> {
+  const response = await studioFetch(
+    `/_studio/tenants/${encodeURIComponent(tenantId)}/metrics`,
+    { signal: options?.signal },
+    options?.fetcher,
+  );
+  if (response.status === 401) throw new StudioSignedOutError();
+  if (!response.ok) throw new Error(`Studio's metrics read answered ${response.status}`);
+  return response.json();
+}

@@ -183,6 +183,7 @@ async function withStudio(
     frameAncestors?: readonly string[];
     analyticsId?: string;
     log?: (entry: Readonly<Record<string, unknown>>) => void;
+    metricsSources?: readonly { name: string; url: string }[];
   } = {},
 ) {
   const runtime = await startFakeRuntime();
@@ -1296,6 +1297,64 @@ test("parseAllowedHosts accepts host names with optional ports and refuses anyth
   ]);
   for (const bad of ["https://studio.acme.dev", "studio.acme.dev/path", "*.acme.dev", "studio acme", "studio.acme.dev:99999", "-x.dev"])
     assert.throws(() => parseAllowedHosts(bad), /is not a Host value/, bad);
+});
+
+test("Tenant › Traffic reads the Runtime's /metrics live, for this Tenant only (ADR-159)", async () => {
+  const metrics = createServer((req, res) => {
+    res.setHeader("content-type", "text/plain");
+    res.end(
+      req.url === "/metrics"
+        ? 'http_server_request_duration_count{http_route="/v1/sessions",nylorun_client="sdk"} 3\nprocess_cpu_seconds_total 1\n'
+        : "",
+    );
+  });
+  metrics.listen(0, "127.0.0.1");
+  await once(metrics, "listening");
+  const address = metrics.address();
+  assert.ok(address && typeof address === "object");
+  try {
+    await withStudio(
+      async ({ port }) => {
+        const cookie = await session(port);
+        const read = await send(port, { path: `/_studio/tenants/${TENANT_A}/metrics`, headers: { cookie } });
+        assert.equal(read.status, 200);
+        assert.equal(read.headers["cache-control"], "no-store");
+        const body = JSON.parse(read.body);
+        assert.equal(body.sources[0].name, "runtime");
+        assert.equal(body.sources[0].ok, true);
+        // Only the Runtime's families, never the process's own.
+        assert.deepEqual(body.sources[0].samples, [
+          { name: "http_server_request_duration_count", labels: { http_route: "/v1/sessions", nylorun_client: "sdk" }, value: 3 },
+        ]);
+        assert.equal(body.sources[1].name, "gateway");
+        assert.equal(body.sources[1].ok, false);
+        assertNoKeys(read);
+        assert.equal((await send(port, { path: "/_studio/tenants/other/metrics", headers: { cookie } })).status, 404);
+        const write = await send(port, {
+          method: "POST",
+          path: `/_studio/tenants/${TENANT_A}/metrics`,
+          headers: { cookie, origin: `http://localhost:${port}` },
+        });
+        assert.equal(write.status, 405);
+      },
+      {
+        metricsSources: [
+          { name: "runtime", url: `http://127.0.0.1:${address.port}/metrics` },
+          { name: "gateway", url: "http://127.0.0.1:1/metrics" },
+        ],
+      },
+    );
+    // No sources: Traffic is off, and says so with an empty list.
+    await withStudio(async ({ port }) => {
+      const cookie = await session(port);
+      const read = await send(port, { path: `/_studio/tenants/${TENANT_A}/metrics`, headers: { cookie } });
+      assert.equal(read.status, 200);
+      assert.deepEqual(JSON.parse(read.body).sources, []);
+    });
+  } finally {
+    metrics.close();
+    await once(metrics, "close");
+  }
 });
 
 // --- sign-ins on the Tenant's stream (ADR-159) ---------------------------------------------------

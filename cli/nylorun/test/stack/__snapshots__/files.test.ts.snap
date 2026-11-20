@@ -321,6 +321,8 @@ services:
       # Extra Host values Studio serves behind a sign-in proxy (studio.acme.dev),
       # comma-separated; from the environment of nylorun start.
       NYLORUN_STUDIO_ALLOWED_HOSTS: \${NYLORUN_STUDIO_ALLOWED_HOSTS:-}
+      # Tenant › Traffic reads the runtime's and the gateway's own metrics, live (ADR-159).
+      NYLORUN_STUDIO_METRICS_URLS: runtime=http://runtime:9464/metrics,gateway=http://gateway:9464/metrics
     volumes:
       - \${NYLORUN_HOST_ROOT}/host-credentials.json:/run/nylorun/host-credentials.json:ro
     networks: [default]

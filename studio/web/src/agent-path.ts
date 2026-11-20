@@ -57,7 +57,7 @@ export function agentPath(id: string, tab?: AgentTab): string {
  * (usage and budgets), who may call the Tenant at all (keys), and who changed any of it (audit). It
  * opens on its status.
  */
-export const TENANT_TABS = ["status", "manifests", "models", "compute", "policy", "limits", "usage", "keys", "audit"] as const;
+export const TENANT_TABS = ["status", "manifests", "models", "compute", "policy", "limits", "usage", "traffic", "keys", "audit"] as const;
 export type TenantTab = (typeof TENANT_TABS)[number];
 
 /** The tab `?tab=` names on the Tenant's page; undefined for none or an unknown one. */
