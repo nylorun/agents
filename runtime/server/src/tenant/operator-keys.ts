@@ -10,6 +10,9 @@
  * the management key a Host registers from `NYLORUN_MANAGEMENT_KEY_FILE`: its file is its only
  * source. A key has a role (protocol 8): `application` reaches the Runtime API, `management` the
  * Management API; a key keeps its role when it is rotated.
+ *
+ * Each put and delete records `key.created` or `key.revoked` on the Tenant's stream in its own
+ * transaction (ADR-159), as `by`: never the key itself.
  */
 import {
   APPLICATION_KEY_ID_PATTERN,
@@ -19,7 +22,7 @@ import {
 import type { OperatorKey, PutOperatorKeyResponse } from "@nylorun/core/contracts";
 import { hashToken, mintBearerToken } from "../core/bearer.js";
 import { PrincipalRoleConflict } from "../store/ownership.js";
-import type { SessionStore } from "../store/types.js";
+import type { SessionStore, TenantEventActor } from "../store/types.js";
 import { STUDIO_PRINCIPAL_ID } from "./principals.js";
 
 /**
@@ -69,8 +72,10 @@ export interface OperatorKeys {
   delete(id: string, role?: Exclude<KeyRole, "studio">): Promise<boolean | OperatorKeyRefusal>;
 }
 
+/** The Tenant's keys, changed as `by`: the request's principal, or `nylorun-operate`. */
 export function operatorKeys(
   store: SessionStore,
+  by: TenantEventActor,
   now: () => string = () => new Date().toISOString(),
 ): OperatorKeys {
   return {
@@ -85,10 +90,9 @@ export function operatorKeys(
       try {
         const { row, rotated } = await store.tx(async (t) => {
           const existing = await t.principalById(id);
-          return {
-            row: await t.putPrincipal(id, hashToken(key), now(), role),
-            rotated: existing !== undefined,
-          };
+          const row = await t.putPrincipal(id, hashToken(key), now(), role);
+          await t.tenantEvent("key.created", { keyId: id, role, rotated: existing !== undefined }, by);
+          return { row, rotated: existing !== undefined };
         });
         return { id: row.id, role: row.role, createdAt: row.createdAt, key, rotated };
       } catch (error) {
@@ -104,15 +108,16 @@ export function operatorKeys(
       const refused = refuseOperatorKeyId(id, "delete");
       if (refused) return refused;
       return await store.tx(async (t) => {
-        if (role !== undefined) {
-          const existing = await t.principalById(id);
-          if (existing && existing.role !== role)
-            return {
-              reason: "role" as const,
-              message: `Key ${id} is a ${existing.role} key: only the Tenant's machine manages it (nylorun-operate)`,
-            };
-        }
-        return await t.deletePrincipal(id);
+        const existing = await t.principalById(id);
+        if (role !== undefined && existing && existing.role !== role)
+          return {
+            reason: "role" as const,
+            message: `Key ${id} is a ${existing.role} key: only the Tenant's machine manages it (nylorun-operate)`,
+          };
+        const deleted = await t.deletePrincipal(id);
+        if (deleted && existing && existing.role !== "studio")
+          await t.tenantEvent("key.revoked", { keyId: id, role: existing.role }, by);
+        return deleted;
       });
     },
   };

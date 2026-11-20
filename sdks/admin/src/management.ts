@@ -38,6 +38,8 @@ import {
   type SelectHostModelRequest,
   type SigningKeyView,
   type TenantArtifactsView,
+  type TenantAuditPage,
+  type TenantEventType,
   type TenantSandboxView,
   type TenantLimitsView,
   type TenantSkillsView,
@@ -45,6 +47,10 @@ import {
   type ToolPolicy,
 } from "@nylorun/core/contracts";
 import { AdminError, rejection } from "./errors.js";
+
+/** The Tenant's stream (ADR-159): its event types, and an event and a page of them as `tenant.audit` reads them. */
+export { TENANT_EVENT_TYPES } from "@nylorun/core/contracts";
+export type { TenantAuditPage, TenantEvent, TenantEventSource, TenantEventType } from "@nylorun/core/contracts";
 
 export interface ManagementClientOptions {
   /** The Tenant's URL, or a proxy in front of it. */
@@ -67,6 +73,24 @@ export interface ManagementTenant {
   seed(request: Body<SeedTenantConfigRequest>): Promise<SeedTenantConfigResponse>;
   /** Resets the Tenant's sessions (`sessions`), its Agents and their sessions (`agents`), or `all`. */
   reset(request: Body<ResetTenantRequest>): Promise<ResetTenantResponse>;
+  /**
+   * A page of the Tenant's audit (ADR-159, Host feature `tenant-audit`), newest first: keys,
+   * signing keys, tool policy and settings changes, vault credentials written and used, and Studio
+   * sign-ins, each with who did it and never a secret. Only `types`, and only events at or after
+   * `since` and before `until` (ISO times), when given; pass the page's `nextCursor` as `cursor`,
+   * with the same filters, for the older ones.
+   */
+  audit(query?: TenantAuditQuery): Promise<TenantAuditPage>;
+}
+
+/** What `tenant.audit` reads. */
+export interface TenantAuditQuery {
+  readonly since?: string;
+  readonly until?: string;
+  readonly types?: readonly TenantEventType[];
+  readonly cursor?: string;
+  /** At most the Tenant's Runtime limit `pageItems`; default 50. */
+  readonly limit?: number;
 }
 
 /** The Tenant's keys: application keys are managed here; management keys only on its machine. */
@@ -217,6 +241,16 @@ export class ManagementClient {
       status: () => call("GET", "/v1/tenant"),
       seed: (request) => call("PUT", "/v1/tenant/config/seed", withId(request)),
       reset: (request) => call("POST", "/v1/tenant/reset", withId(request)),
+      audit: (query = {}) => {
+        const search = new URLSearchParams();
+        if (query.since !== undefined) search.set("since", query.since);
+        if (query.until !== undefined) search.set("until", query.until);
+        if (query.types !== undefined && query.types.length > 0) search.set("types", query.types.join(","));
+        if (query.cursor !== undefined) search.set("cursor", query.cursor);
+        if (query.limit !== undefined) search.set("limit", String(query.limit));
+        const text = search.toString();
+        return call("GET", `/v1/tenant/audit${text ? `?${text}` : ""}`);
+      },
     };
     this.keys = {
       list: async () => (await call<{ keys: OperatorKey[] }>("GET", "/v1/tenant/keys")).keys,

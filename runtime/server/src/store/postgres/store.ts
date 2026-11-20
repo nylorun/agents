@@ -79,10 +79,14 @@ import type {
   AgentEventPayload,
   AgentEventType,
   SessionEventOf,
+  TenantEvent,
+  TenantEventPayload,
+  TenantEventType,
 } from "@nylorun/core/contracts";
+import { TENANT_EVENT_SCHEMA } from "@nylorun/core/contracts";
 import type { RecordReader } from "../../streams/relay/types.js";
 import type { SandboxSignal, SandboxTimer, Wake, WakeReason } from "../../execution/types.js";
-import { appendAgentEvent, appendEvent } from "../../record/index.js";
+import { appendAgentEvent, appendEvent, appendTenantEvent } from "../../record/index.js";
 import { readRuntimeLimits } from "../../tenant/runtime-limits.js";
 import { OwnershipLostError, PrincipalRoleConflict } from "../ownership.js";
 import type {
@@ -106,6 +110,8 @@ import type {
   SandboxDoc,
   Environment,
   AgentEventsQuery,
+  TenantEventActor,
+  TenantEventsQuery,
   SandboxPodPatch,
   SessionDoc,
   SessionEffectFilter,
@@ -149,7 +155,7 @@ import { expectedSchemaVersion, readSchemaVersion } from "./migrate.js";
 import { hostTuning } from "../../tuning.js";
 import { createPostgresRecordReader } from "./record.js";
 import { indexTurn, listTurns, turnOfQueuedMessage, turnRow, type TurnListQuery } from "./turns.js";
-import { postgresAgentRecordWriter, postgresRecordWriter } from "./record-writer.js";
+import { postgresAgentRecordWriter, postgresRecordWriter, postgresTenantRecordWriter } from "./record-writer.js";
 import {
   artifacts,
   artifactVersions,
@@ -180,6 +186,7 @@ import {
   toolCrossings,
   signingKeys,
   tenant,
+  tenantEvents,
   tenantSettings,
   turns,
   type TurnRow,
@@ -1294,6 +1301,49 @@ class PostgresTx implements Tx {
       .$dynamic();
     const rows = await (options.limit === undefined ? query : query.limit(options.limit));
     return rows.map((row) => row.body as AgentEvent);
+  }
+
+  async tenantEvent<T extends TenantEventType>(
+    type: T,
+    payload: TenantEventPayload<T>,
+    by: TenantEventActor,
+  ): Promise<TenantEvent> {
+    this.check();
+    return appendTenantEvent(postgresTenantRecordWriter(this.db), {
+      time: this.now(),
+      type,
+      payload,
+      source: by.source,
+      principal: by.principal,
+    });
+  }
+
+  async tenantEvents(options: TenantEventsQuery): Promise<TenantEvent[]> {
+    this.check();
+    const rows = await this.db
+      .select()
+      .from(tenantEvents)
+      .where(
+        and(
+          options.beforeSeq === undefined ? undefined : lt(tenantEvents.seq, options.beforeSeq),
+          options.types === undefined ? undefined : inArray(tenantEvents.type, [...options.types]),
+          options.since === undefined ? undefined : gte(tenantEvents.at, options.since),
+          options.until === undefined ? undefined : lt(tenantEvents.at, options.until),
+        ),
+      )
+      .orderBy(desc(tenantEvents.seq))
+      .limit(options.limit);
+    return rows.map(
+      (row): TenantEvent => ({
+        schema: TENANT_EVENT_SCHEMA,
+        seq: row.seq,
+        time: new Date(row.at).toISOString(),
+        type: row.type as TenantEventType,
+        source: row.source as TenantEvent["source"],
+        principal: row.principal,
+        payload: row.payload as Record<string, unknown>,
+      }),
+    );
   }
 
   private async effectBodies<T>(where: SQL | undefined): Promise<T[]> {

@@ -44,6 +44,7 @@
         "secret-routing",
         "remove-tools",
         "message-context",
+        "tenant-audit",
         "agent-triggers",
         "api-triggers",
         "steer",
@@ -3542,6 +3543,110 @@
         ],
         "additionalProperties": false
       },
+      "TenantAuditPage": {
+        "type": "object",
+        "properties": {
+          "events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TenantEvent"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "events",
+          "nextCursor"
+        ],
+        "additionalProperties": false
+      },
+      "TenantEvent": {
+        "type": "object",
+        "properties": {
+          "schema": {
+            "type": "string",
+            "enum": [
+              "nylorun.tenant-event/1"
+            ]
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "time": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "key.created",
+              "key.revoked",
+              "signing_key.rotated",
+              "signing_key.revoked",
+              "policy.changed",
+              "settings.changed",
+              "credential.created",
+              "credential.rotated",
+              "credential.deleted",
+              "credential.used",
+              "studio.signed_in"
+            ]
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "api",
+              "operate",
+              "runtime",
+              "studio"
+            ]
+          },
+          "principal": {
+            "type": "string"
+          },
+          "payload": {
+            "type": "object",
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "schema",
+          "seq",
+          "time",
+          "type",
+          "source",
+          "principal",
+          "payload"
+        ],
+        "additionalProperties": false
+      },
+      "StudioSignInRequest": {
+        "type": "object",
+        "properties": {
+          "method": {
+            "type": "string",
+            "enum": [
+              "loopback",
+              "token",
+              "forwarded"
+            ]
+          },
+          "subject": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "required": [
+          "method"
+        ],
+        "additionalProperties": false
+      },
       "CredentialCoverage": {
         "type": "object",
         "properties": {
@@ -6955,6 +7060,255 @@
         }
       }
     },
+    "/v1/tenant/audit": {
+      "get": {
+        "tags": [
+          "Audit"
+        ],
+        "summary": "Read the Tenant's audit",
+        "description": "The Tenant's stream, newest first: `key.created`, `key.revoked`, `signing_key.rotated`, `signing_key.revoked`, `policy.changed`, `settings.changed`, `credential.created`, `credential.rotated`, `credential.deleted`, `credential.used`, `studio.signed_in`. Each event names who acted (`principal`, from the credential of the request that made the change: a key's name, `<key>:<subject>`, `<issuer>:<subject>`, `operate`, or `host` for the Runtime itself) and what wrote it (`source`), and never holds a secret value. A page holds `limit` events (default 50); `nextCursor` reads older ones with the same filters. Host feature `tenant-audit`.",
+        "security": [
+          {
+            "managementKey": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "management"
+        ],
+        "x-nylorun-scopes": "never",
+        "parameters": [
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "A page holds at most the Tenant's Runtime limit `pageItems` (default 200); a larger limit gets that many"
+            },
+            "required": false,
+            "description": "A page holds at most the Tenant's Runtime limit `pageItems` (default 200); a larger limit gets that many",
+            "name": "limit",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "name": "cursor",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Only these event types, comma-separated (`credential.used,key.created`)"
+            },
+            "required": false,
+            "description": "Only these event types, comma-separated (`credential.used,key.created`)",
+            "name": "types",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Only events at or after this ISO time"
+            },
+            "required": false,
+            "description": "Only events at or after this ISO time",
+            "name": "since",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Only events before this ISO time"
+            },
+            "required": false,
+            "description": "Only events before this ISO time",
+            "name": "until",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `18`"
+            },
+            "required": true,
+            "description": "The protocol version, `18`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of the Tenant's events, newest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenantAuditPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "An unknown event type, a time that is not ISO, or a cursor read with other filters (`invalid_request`)"
+          },
+          "401": {
+            "description": "No credential (`credential_required`), or one the Tenant does not accept (`credential_invalid`), with a `WWW-Authenticate: Bearer` challenge",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/tenant/audit/studio-sign-in": {
+      "post": {
+        "tags": [
+          "Audit"
+        ],
+        "summary": "Record a Studio sign-in",
+        "description": "Studio's server records that a browser signed in (`studio.signed_in`): on its loopback address, with a login token, or through a sign-in proxy (`forwarded`), and the person's subject when there is one. Only Studio's key (principal `studio`, derived from the admin key) may call it; any other management key is `403`.",
+        "security": [
+          {
+            "managementKey": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "management"
+        ],
+        "x-nylorun-scopes": "never",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `18`"
+            },
+            "required": true,
+            "description": "The protocol version, `18`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StudioSignInRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The event recorded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenantEvent"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid headers, path, body or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No credential (`credential_required`), or one the Tenant does not accept (`credential_invalid`), with a `WWW-Authenticate: Bearer` challenge",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not Studio's key (`request_rejected`)"
+          },
+          "404": {
+            "description": "Not found (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/tenant/sandbox": {
       "get": {
         "tags": [
@@ -7824,6 +8178,10 @@
     {
       "name": "Signing keys",
       "description": "The keys the Runtime signs capability links and run tokens with; their public halves are the Runtime API's JWKS. `admin.signingKeys`."
+    },
+    {
+      "name": "Audit",
+      "description": "The Tenant's stream (ADR-159, Host feature `tenant-audit`): keys put and deleted, signing keys rotated and revoked, tool policy and settings changes, vault credentials written and used, and Studio sign-ins, each with who did it and never a secret, newest first. `admin.tenant.audit`."
     },
     {
       "name": "Settings",

@@ -107,6 +107,7 @@ it("describes and groups the tags, every operation in one of them, in the order 
     "Credential coverage",
     "MCP servers",
     "Signing keys",
+    "Audit",
     "Settings",
   ]);
   for (const document of [runtime, management])

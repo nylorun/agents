@@ -3,7 +3,8 @@
  * creates, rotates, lists and deletes the Tenant's application keys by name. It never touches a
  * management key, `studio` or `bootstrap`: those come only from the Tenant's machine
  * (`nylorun-operate`, `NYLORUN_MANAGEMENT_KEY_FILE`), so a leaked management key cannot mint
- * another. A rotated or deleted key stops authenticating on its next request.
+ * another. A rotated or deleted key stops authenticating on its next request. Each put and
+ * delete is on the Tenant's stream (`key.created`, `key.revoked`), as the management key.
  */
 import type { OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
@@ -12,6 +13,7 @@ import {
   ListOperatorKeysResponse,
   PutOperatorKeyResponse,
 } from "../../components.js";
+import { apiActor } from "../../../tenant/audit.js";
 import { fail } from "../../../tenant/http.js";
 import { operatorKeys, type OperatorKeyRefusal } from "../../../tenant/operator-keys.js";
 import type { TenantEnv } from "../app.js";
@@ -49,7 +51,7 @@ export function keyRoutes(api: OpenAPIHono<TenantEnv>): void {
         "Every key of the Tenant by name, with its role (`application`, `management` or `studio`) and when it was issued. Keys themselves are never shown again.",
       responses: { 200: json(ListOperatorKeysResponse, "The keys, by id") },
     },
-    async (c) => jsonResponse(200, { keys: await operatorKeys(c.env.tenant.store).list() }),
+    async (c) => jsonResponse(200, { keys: await operatorKeys(c.env.tenant.store, apiActor(c.get("scope"))).list() }),
   );
 
   tenantRoute(
@@ -69,7 +71,7 @@ export function keyRoutes(api: OpenAPIHono<TenantEnv>): void {
       },
     },
     async (c) => {
-      const put = await operatorKeys(c.env.tenant.store).put(c.req.param("keyId")!, "application");
+      const put = await operatorKeys(c.env.tenant.store, apiActor(c.get("scope"))).put(c.req.param("keyId")!, "application");
       return "reason" in put ? refused(put) : jsonResponse(200, put);
     },
   );
@@ -91,7 +93,7 @@ export function keyRoutes(api: OpenAPIHono<TenantEnv>): void {
     },
     async (c) => {
       const id = c.req.param("keyId")!;
-      const deleted = await operatorKeys(c.env.tenant.store).delete(id, "application");
+      const deleted = await operatorKeys(c.env.tenant.store, apiActor(c.get("scope"))).delete(id, "application");
       if (typeof deleted !== "boolean") return refused(deleted);
       return deleted ? jsonResponse(200, { id, deleted: true }) : fail(404, `No key ${id}`);
     },

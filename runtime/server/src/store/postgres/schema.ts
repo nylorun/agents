@@ -10,7 +10,8 @@
  *   the agents and their manifests, the definition files those manifests name, the control
  *   bus's signals, the wake outbox, and A2A push configs with their outbox.
  * - `nylorun_streams` holds the record (Durable Streams §6): `session_events`,
- *   `session_log_heads` and the relay's `relay_slots`. The relay's publication is custom SQL
+ *   `session_log_heads`, the Agents' `agent_events`, the Tenant's `tenant_events` and the relay's
+ *   `relay_slots`. The relay's publication is custom SQL
  *   (`drizzle/0002_stream_relay.sql`).
  *
  * What the columns keep:
@@ -1077,6 +1078,26 @@ export const agentEvents = nylorunStreams.table(
     committedAt: timestamp({ withTimezone: true, mode: "string" }).notNull().defaultNow(),
   },
   (t) => [primaryKey({ name: "agent_events_pkey", columns: [t.agentId, t.seq] })],
+);
+
+/**
+ * The Tenant's stream (`nylorun.tenant-event/1`, ADR-159): keys, signing keys, tool policy,
+ * settings, vault credentials written and used, and Studio sign-ins, numbered from 0. Written only
+ * by the record module, under the stream's append lock; not published to the stream relay. `at`
+ * is the event's time; `payload` never holds a secret value (`TENANT_EVENT_PAYLOADS`). A reset
+ * keeps it, as it keeps `vault_audit`.
+ */
+export const tenantEvents = nylorunStreams.table(
+  "tenant_events",
+  {
+    seq: bigint({ mode: "number" }).primaryKey(),
+    type: text().notNull(),
+    at: timestamp({ withTimezone: true, mode: "string" }).notNull(),
+    source: text().notNull(),
+    principal: text().notNull(),
+    payload: jsonText().notNull(),
+  },
+  (t) => [index("tenant_events_at").on(t.at)],
 );
 
 /** Each session's log head: the next seq and the basin generation its events go to. */

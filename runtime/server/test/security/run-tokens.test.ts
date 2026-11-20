@@ -142,10 +142,10 @@ describe("run tokens", () => {
     const before = await signed();
     expect(await verify(before)).toMatchObject({ ok: true });
     // current → previous → revoked.
-    await runs.keys.rotateSigningKeys({ maxTtlSeconds: 60, force: true });
+    await runs.keys.rotateSigningKeys({ maxTtlSeconds: 60, force: true, by: { principal: "test-management", source: "api" } });
     expect(await verify(before)).toMatchObject({ ok: true });
     expect(await verify(await signed())).toMatchObject({ ok: true });
-    await runs.keys.rotateSigningKeys({ maxTtlSeconds: 60, force: true });
+    await runs.keys.rotateSigningKeys({ maxTtlSeconds: 60, force: true, by: { principal: "test-management", source: "api" } });
     expect(await verify(before)).toEqual({ ok: false, reason: "run_token_key_revoked" });
   });
 

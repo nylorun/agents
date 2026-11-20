@@ -757,6 +757,20 @@ export async function resourceRuntime({ artifactReads = true } = {}) {
       return send(200, { rules: toolRules });
     }
     if (path === "/v1/tenant/keys") return send(200, { keys: [{ id: "web-app", role: "application", createdAt: time }] });
+    if (path === "/v1/tenant/audit" && req.method === "GET") {
+      // Two pages, newest first; `types` filters them as the Runtime does.
+      const all = [
+        { seq: 3, type: "credential.used", source: "runtime", principal: "host", payload: { vaultId: "v1", credentialId: "c1", sessionId: "s1", target: "https://api.githubcopilot.com/mcp/", outcome: "approved" } },
+        { seq: 2, type: "policy.changed", source: "api", principal: "studio", payload: { rules: 1, updatedAt: time } },
+        { seq: 1, type: "studio.signed_in", source: "studio", principal: "studio", payload: { method: "loopback" } },
+        { seq: 0, type: "key.created", source: "api", principal: "ops", payload: { keyId: "web-app", role: "application", rotated: false } },
+      ].map((event) => ({ schema: "nylorun.tenant-event/1", time, ...event }));
+      const types = url.searchParams.get("types")?.split(",");
+      const matching = all.filter((event) => types === undefined || types.includes(event.type));
+      const second = url.searchParams.get("cursor") === "audit2";
+      const events = types !== undefined ? matching : second ? matching.slice(2) : matching.slice(0, 2);
+      return send(200, { events, nextCursor: types === undefined && !second ? "audit2" : null });
+    }
     if (path === "/v1/tenant/signing-keys")
       return send(200, {
         keys: [

@@ -54,7 +54,9 @@ async function withStudio(
           (r) =>
             r.method !== "GET" &&
             !r.path.endsWith("/links") &&
-            r.path !== "/v1/tenant/credential-coverage",
+            r.path !== "/v1/tenant/credential-coverage" &&
+            // Studio's server records the loopback sign-in itself (ADR-159): not a resource.
+            r.path !== "/v1/tenant/audit/studio-sign-in",
         ),
         [],
         "resource browsing never mutates a session, Agent or artifact",
@@ -913,7 +915,7 @@ test("an embedded artifact inspector navigates and downloads without a Studio be
   }
 });
 
-test("the Tenant's page: its header, then status, compute, tool policy, limits, usage and keys, each one table", async () => {
+test("the Tenant's page: its header, then status, compute, tool policy, limits, usage, keys and audit, each one table", async () => {
   await withStudio(async (page, base, requests) => {
     await page.goto(base + "/settings");
     await page.waitForURL(/\/tenant$/u);
@@ -933,6 +935,7 @@ test("the Tenant's page: its header, then status, compute, tool policy, limits, 
       "Limits",
       "Usage",
       "Keys",
+      "Audit",
     ]);
     await page.getByRole("tab", { name: "Status", selected: true }).waitFor();
     await page.getByText("All 4 checks pass", { exact: true }).waitFor();
@@ -975,6 +978,22 @@ test("the Tenant's page: its header, then status, compute, tool policy, limits, 
     // Keys are read-only here.
     for (const name of ["New key", "Rotate…"])
       assert.equal(await page.getByRole("button", { name, exact: true }).count(), 0, name);
+
+    // The audit: newest first, who did it and what, a page at a time, filtered by type.
+    await page.getByRole("tab", { name: "Audit" }).click();
+    const used = page.locator("tbody tr", { hasText: "credential.used" });
+    await used.getByText("Runtime", { exact: true }).waitFor();
+    await used.getByText("Used credential c1 for s1 at https://api.githubcopilot.com/mcp/: approved", { exact: true }).waitFor();
+    await page.locator("tbody tr", { hasText: "policy.changed" }).getByText("Set the tool policy: 1 rule", { exact: true }).waitFor();
+    assert.equal(await page.locator("tbody tr", { hasText: "key.created" }).count(), 0);
+    await page.getByRole("button", { name: "Load more", exact: true }).click();
+    await page.locator("tbody tr", { hasText: "key.created" }).getByText("Created application key web-app", { exact: true }).waitFor();
+    await page.getByText("Signed in to Studio on this machine", { exact: true }).waitFor();
+    assert.equal(await page.getByRole("button", { name: "Load more", exact: true }).count(), 0);
+    await page.getByRole("button", { name: "Filter by type" }).click();
+    await page.getByRole("menuitemradio", { name: "Studio sign-ins" }).click();
+    await page.getByText("1 event", { exact: true }).waitFor();
+    assert.ok(requests.some((r) => r.path.startsWith("/v1/tenant/audit?") && r.path.includes("types=studio.signed_in")));
     for (const path of ["/v1/tenant", "/v1/tenant/sandbox", "/v1/tenant/tool-policy", "/v1/tenant/limits", "/v1/tenant/budgets", "/v1/tenant/keys", "/v1/tenant/signing-keys"])
       assert.ok(requests.some((r) => r.path === path), path);
     // Settings are on the Tenant's page; the sidebar keeps only the Agents.
