@@ -40,9 +40,11 @@ import {
   effectiveArtifactLimits,
   readArtifactsConfig,
   writeArtifactsConfig,
+  ARTIFACTS_CONFIG_SETTING,
 } from "../../../artifacts/config.js";
 import { contentKey, diffManifests, entryAt, readManifest } from "../../../artifacts/folders.js";
 import { mintArtifactLink, verifyArtifactLink } from "../../../artifacts/links.js";
+import { apiActor } from "../../../tenant/audit.js";
 import { zipStream, zipTooLarge } from "../../../artifacts/zip.js";
 import { normalizeContentType } from "@nylorun/core/contracts";
 import {
@@ -788,7 +790,10 @@ export function artifactRoutes(api: OpenAPIHono<TenantEnv>): void {
       const { requestId: _requestId, ...config } = PutTenantArtifactsRequestSchema.parse(
         await readJson(c),
       );
-      await ctx.store.tx((t) => writeArtifactsConfig(t, config));
+      await ctx.store.tx(async (t) => {
+        await writeArtifactsConfig(t, config);
+        await t.tenantEvent("settings.changed", { key: ARTIFACTS_CONFIG_SETTING }, apiActor(c.get("scope")));
+      });
       return jsonResponse(200, await artifactsView(ctx));
     },
   );

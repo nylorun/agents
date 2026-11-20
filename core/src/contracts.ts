@@ -1569,6 +1569,134 @@ export const ListAgentEventsResponseSchema = z
   .object({ events: z.array(AgentEventSchema) })
   .strict();
 
+/** The schema id of the Tenant's events (its stream in the record, ADR-159). */
+export const TENANT_EVENT_SCHEMA = "nylorun.tenant-event/1";
+/**
+ * The Tenant's stream (ADR-159, Host feature `tenant-audit`): who changed who may reach the Tenant
+ * and what its sessions may do, and each use of a vault credential, read with
+ * `GET /v1/tenant/audit`. Every type is the Runtime's record (layer `runtime`): the Runtime saw it
+ * happen, in the change's own transaction where it could; no harness writes one. No payload carries
+ * a secret value: keys, signing keys, rules and credentials are named, never shown.
+ */
+export const TENANT_EVENT_TYPES = [
+  // An application or management key was put (created, or rotated: `rotated`) or deleted.
+  "key.created",
+  "key.revoked",
+  // The signing keys rotated, or one was revoked.
+  "signing_key.rotated",
+  "signing_key.revoked",
+  // The tool policy was replaced.
+  "policy.changed",
+  // Another Tenant setting was replaced: limits, compute, artifacts, skills, budgets, the model.
+  "settings.changed",
+  // A vault credential was written, replaced, deleted or used (each `vault_audit` row of one).
+  "credential.created",
+  "credential.rotated",
+  "credential.deleted",
+  "credential.used",
+  // A person signed in to Studio (Studio records it with its own key).
+  "studio.signed_in",
+] as const;
+export type TenantEventType = (typeof TENANT_EVENT_TYPES)[number];
+/**
+ * What wrote a Tenant event: `api`, a request to the Runtime or Management API; `operate`,
+ * `nylorun-operate` on the Tenant's machine; `runtime`, the Runtime on its own (a gate using a
+ * credential, a sweep deleting an Agent); `studio`, Studio's server, for a sign-in.
+ */
+export const TENANT_EVENT_SOURCES = ["api", "operate", "runtime", "studio"] as const;
+export type TenantEventSource = (typeof TENANT_EVENT_SOURCES)[number];
+/** How a person signed in to Studio: on its loopback address, with a login token, or through a sign-in proxy. */
+export const STUDIO_SIGN_IN_METHODS = ["loopback", "token", "forwarded"] as const;
+export type StudioSignInMethod = (typeof STUDIO_SIGN_IN_METHODS)[number];
+
+/**
+ * A credential event's payload: the `vault_audit` row's fields, never the credential's value.
+ * `outcome` is the row's (`created`, `copied`, `rotated`, `deleted`, `approved`, `refused`); a use
+ * names the session it was for and the URL it was sent to (`target`).
+ */
+const CredentialEventPayloadSchema = z
+  .object({
+    vaultId: z.string().optional(),
+    credentialId: z.string().optional(),
+    sessionId: z.string().optional(),
+    target: z.string().optional(),
+    outcome: z.string(),
+  })
+  .strict();
+const KeyRoleNameSchema = z.enum(["application", "management"]);
+
+/**
+ * The payload of each Tenant event. Each is strict, so a write that carries anything else, a
+ * secret above all, is refused.
+ */
+export const TENANT_EVENT_PAYLOADS = {
+  /** Key `keyId` was issued; `rotated` when it replaced a key of that name. */
+  "key.created": z.object({ keyId: z.string(), role: KeyRoleNameSchema, rotated: z.boolean() }).strict(),
+  "key.revoked": z.object({ keyId: z.string(), role: KeyRoleNameSchema }).strict(),
+  /** The standby key became `current`; the old current one `previous`, the old previous one `revoked`. */
+  "signing_key.rotated": z
+    .object({
+      current: z.string(),
+      standby: z.string(),
+      previous: z.string().optional(),
+      revoked: z.string().optional(),
+      force: z.boolean(),
+    })
+    .strict(),
+  /** Key `keyId` was revoked from `state`. */
+  "signing_key.revoked": z.object({ keyId: z.string(), state: z.enum(["previous", "standby"]) }).strict(),
+  /** The tool policy now holds `rules` rules, as of `updatedAt`; the rules are read from `GET /v1/tenant/tool-policy`. */
+  "policy.changed": z.object({ rules: z.number().int().nonnegative(), updatedAt: z.string() }).strict(),
+  /**
+   * Setting `key` was replaced: `limits.config`, `environments.config`, `artifacts.config`,
+   * `skills.config`, `model.budgets`, `model.inputs` or `model` (the provider and model in force,
+   * `provider` and `model`; `model.inputs` names the catalog model in `model`). Never its value.
+   */
+  "settings.changed": z
+    .object({ key: z.string(), provider: z.string().optional(), model: z.string().optional() })
+    .strict(),
+  "credential.created": CredentialEventPayloadSchema,
+  "credential.rotated": CredentialEventPayloadSchema,
+  "credential.deleted": CredentialEventPayloadSchema,
+  "credential.used": CredentialEventPayloadSchema,
+  /** A browser signed in to Studio, by `method`, as `subject` when it names a person. */
+  "studio.signed_in": z
+    .object({ method: z.enum(STUDIO_SIGN_IN_METHODS), subject: z.string().optional() })
+    .strict(),
+} as const satisfies Record<TenantEventType, z.ZodType>;
+export type TenantEventPayload<T extends TenantEventType> = z.infer<(typeof TENANT_EVENT_PAYLOADS)[T]>;
+/**
+ * One event on the Tenant's stream, numbered from 0. `principal` is who acted, from the request's
+ * credential: a key's name (`bootstrap`, `studio`, an application key's), `<key>:<subject>` for a
+ * key acting for a person, `<issuer>:<subject>` for a token, `operate` for `nylorun-operate`,
+ * and `host` for the Runtime itself.
+ */
+export const TenantEventSchema = z
+  .object({
+    schema: z.literal(TENANT_EVENT_SCHEMA),
+    seq: z.number().int().nonnegative(),
+    time: z.string(),
+    type: z.enum(TENANT_EVENT_TYPES),
+    source: z.enum(TENANT_EVENT_SOURCES),
+    principal: z.string(),
+    payload: z.record(z.string(), z.unknown()),
+  })
+  .strict();
+export type TenantEvent = z.infer<typeof TenantEventSchema>;
+/** A page of the Tenant's events, newest first; `nextCursor` reads older ones. */
+export const TenantAuditPageSchema = z
+  .object({ events: z.array(TenantEventSchema), nextCursor: z.string().nullable() })
+  .strict();
+export type TenantAuditPage = z.infer<typeof TenantAuditPageSchema>;
+/** `POST /v1/tenant/audit/studio-sign-in`: how a person signed in to Studio, and who when known. */
+export const StudioSignInRequestSchema = z
+  .object({
+    method: z.enum(STUDIO_SIGN_IN_METHODS),
+    subject: z.string().min(1).max(200).optional(),
+  })
+  .strict();
+export type StudioSignInRequest = z.infer<typeof StudioSignInRequestSchema>;
+
 /**
  * A model role's name (Host feature `model-roles`, ADR-154): a lowercase letter, then up to 31
  * lowercase letters, digits and `-`, such as `builder`.

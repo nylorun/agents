@@ -18,6 +18,9 @@ import {
   MemoryVersionPageSchema,
   MemoryVersionDetailSchema,
   TriggerRunPageSchema,
+  TenantAuditPageSchema,
+  TenantEventSchema,
+  StudioSignInRequestSchema,
   RunTriggerResponseSchema,
   WebhookSecretResponseSchema,
   WebhookAcceptedResponseSchema,
@@ -316,3 +319,6 @@ export const TurnChangesPage = named(
   TurnChangesPageSchema.extend({ turns: z.array(TurnSummary) }),
 );
 export const MeResponse = named("MeResponse", MeResponseSchema);
+export const TenantEvent = named("TenantEvent", TenantEventSchema);
+export const TenantAuditPage = named("TenantAuditPage", TenantAuditPageSchema.extend({ events: z.array(TenantEvent) }));
+export const StudioSignInRequest = named("StudioSignInRequest", StudioSignInRequestSchema);

@@ -2,7 +2,10 @@ import type {
   HostTenant,
   OperatorKey,
   PutOperatorKeyResponse,
+  TenantAuditPage,
   TenantEnvelope,
+  TenantEvent,
+  TenantEventType,
 } from "@nylorun/core/contracts";
 import {
   ERROR_CODES,
@@ -35,6 +38,8 @@ export {
   type ManagementSettings,
   type ManagementSigningKeys,
   type ManagementTenant,
+  type TenantAuditQuery,
+  TENANT_EVENT_TYPES,
 } from "./management.js";
 
 /**
@@ -62,5 +67,8 @@ export type {
   HostTenant,
   OperatorKey,
   PutOperatorKeyResponse,
+  TenantAuditPage,
   TenantEnvelope,
+  TenantEvent,
+  TenantEventType,
 };

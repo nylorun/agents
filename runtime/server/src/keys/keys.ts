@@ -27,10 +27,10 @@ import type {
 } from "@nylorun/core/contracts";
 import { previewMcpServer } from "../mcp/preview.js";
 import { readRuntimeLimits } from "../tenant/runtime-limits.js";
-import type { SessionStore } from "../store/types.js";
+import type { SessionStore, TenantEventActor } from "../store/types.js";
 import type { OutboundPolicy } from "../tenant/outbound.js";
 import { signingKeyView, type SigningKeys } from "../tenant/signing-keys.js";
-import type { SealedSecretCopies, SecretWriteOptions, VaultService } from "../vault/service.js";
+import type { SealedSecretCopies, SecretWriteOptions, VaultActor, VaultService } from "../vault/service.js";
 
 /** One JWT to sign: its `typ` and every claim, `iss`, `aud`, `sub`, `iat`, `exp` and `jti` included. */
 export interface SignRequest {
@@ -56,11 +56,13 @@ export interface Keys {
     environmentId: string,
     name: string,
     body: PutAgentSecretRequest,
-    actor: string,
+    actor: VaultActor,
     options?: SecretWriteOptions | null,
   ): Promise<AgentSecretView>;
-  putHostModel(body: PutHostModelRequest): Promise<HostModelView>;
-  selectHostModel(body: SelectHostModelRequest): Promise<HostModelView>;
+  /** `PUT /v1/tenant/model`, as `actor` (the vault's audit and the Tenant's stream). */
+  putHostModel(body: PutHostModelRequest, actor: VaultActor): Promise<HostModelView>;
+  /** `PUT /v1/tenant/model/selection`, as `actor`. */
+  selectHostModel(body: SelectHostModelRequest, actor: VaultActor): Promise<HostModelView>;
   /**
    * Environment `from`'s secrets sealed again for a fork's new vault `vaultId`, limited to
    * `slots` when given (`VaultService.sealEnvironmentSecretCopies`, Q15). Writes nothing: the
@@ -74,8 +76,11 @@ export interface Keys {
   ): Promise<SealedSecretCopies>;
   /** Signs with the current key, creating the Tenant's keys if it has none. */
   sign(request: SignRequest): Promise<Signed>;
-  /** Rotates the signing keys (`SigningKeys.rotate`); 409 while the previous key may verify live tokens. */
-  rotateSigningKeys(request: { maxTtlSeconds: number; force: boolean }): Promise<SigningKeyView[]>;
+  /**
+   * Rotates the signing keys (`SigningKeys.rotate`); 409 while the previous key may verify live
+   * tokens. Records `signing_key.rotated` as `by` in the same transaction (ADR-159).
+   */
+  rotateSigningKeys(request: { maxTtlSeconds: number; force: boolean; by: TenantEventActor }): Promise<SigningKeyView[]>;
   /** Creates the current and standby keys when the Tenant has none. */
   ensureSigningKeys(): Promise<void>;
   /**
@@ -134,8 +139,8 @@ export function inProcessKeys(options: InProcessKeysOptions): Keys {
   return {
     putEnvironmentSecret: (environmentId, name, body, actor, options) =>
       vault.putEnvironmentSecret(environmentId, name, body, actor, options),
-    putHostModel: (body) => vault.putHostModel(body),
-    selectHostModel: (body) => vault.selectHostModel(body),
+    putHostModel: (body, actor) => vault.putHostModel(body, actor),
+    selectHostModel: (body, actor) => vault.selectHostModel(body, actor),
     sealEnvironmentSecretCopies: (from, vaultId, slots) => vault.sealEnvironmentSecretCopies(from, vaultId, slots),
     async sign(request) {
       const key = kek();
@@ -148,9 +153,26 @@ export function inProcessKeys(options: InProcessKeysOptions): Keys {
     },
     async rotateSigningKeys(request) {
       const key = kek();
-      const rows = await store.tx((t) =>
-        signingKeys.rotate(t, key, request.maxTtlSeconds, request.force),
-      );
+      const rows = await store.tx(async (t) => {
+        // The lock `rotate` takes too, so the previous key read here is the one it revokes.
+        await t.lockSigningKeys();
+        const [revoked] = await t.signingKeys(["previous"]);
+        const after = await signingKeys.rotate(t, key, request.maxTtlSeconds, request.force);
+        const id = (state: string) => after.find((row) => row.state === state)?.id;
+        const previous = id("previous");
+        await t.tenantEvent(
+          "signing_key.rotated",
+          {
+            current: id("current")!,
+            standby: id("standby")!,
+            ...(previous === undefined ? {} : { previous }),
+            ...(revoked === undefined ? {} : { revoked: revoked.id }),
+            force: request.force,
+          },
+          request.by,
+        );
+        return after;
+      });
       return rows.map(signingKeyView);
     },
     async ensureSigningKeys() {

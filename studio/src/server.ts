@@ -36,6 +36,12 @@
  *   refused. Runtime calls use Studio's key (principal `studio`), derived
  *   from the admin key in memory (`deriveStudioToken`). No key ever reaches
  *   the browser.
+ * - Each sign-in is recorded on the Tenant's stream (`studio.signed_in`,
+ *   ADR-159) with Studio's key: a login token used (`token`, by `/login` or
+ *   `POST /_studio/sessions`), a forwarded token admitted (`forwarded`), and
+ *   the loopback address's own session when the dashboard says hello
+ *   (`loopback`, at most once an hour). It is sent in the background: a
+ *   Runtime that does not record it never holds up or refuses a sign-in.
  *
  * This module does not read the environment; `server-main.ts` does.
  */
@@ -88,6 +94,10 @@ export const STUDIO_SCOPE = "studio";
 const MAX_FORWARDED_TOKEN = maxHeaderSize;
 const FORWARDED_TOKEN_HEADER = "x-forwarded-access-token";
 const RUNTIME_TIMEOUT_MS = 10_000;
+/** The loopback address signs in on every request: its sign-in is recorded at most this often. */
+export const LOOPBACK_SIGN_IN_INTERVAL_MS = 60 * 60 * 1000;
+/** The longest subject `studio.signed_in` names; a longer one is left out. */
+const SIGN_IN_SUBJECT_MAX = 200;
 
 export type StudioServerOptions = Readonly<{
   /** Runtime base URL, e.g. `http://runtime:4000`. Non-loopback is allowed. */
@@ -609,6 +619,33 @@ export async function startStudioServer(
    * asks the Runtime again.
    */
   let knownTenantId: string | undefined;
+  /** When the loopback address's sign-in was last recorded. */
+  let loopbackRecordedAt = -Infinity;
+
+  /**
+   * Records a sign-in on the Tenant's stream with Studio's key, in the
+   * background: a failure is logged, and never blocks or refuses the sign-in.
+   */
+  const recordSignIn = (method: "loopback" | "token" | "forwarded", subject: string | null): void => {
+    const named = subject !== null && subject.length <= SIGN_IN_SUBJECT_MAX ? { subject } : {};
+    void fetch(`${runtimeUrl}/v1/tenant/audit/studio-sign-in`, {
+      method: "POST",
+      redirect: "error",
+      signal: AbortSignal.timeout(RUNTIME_TIMEOUT_MS),
+      headers: {
+        authorization: `Bearer ${studioKey}`,
+        [PROTOCOL_HEADER]: String(PROTOCOL_VERSION),
+        "content-type": "application/json",
+        accept: "application/json",
+      },
+      body: JSON.stringify({ method, ...named }),
+    })
+      .then(async (reply) => {
+        await reply.body?.cancel().catch(() => {});
+        if (!reply.ok) log({ msg: "studio sign-in not recorded", method, status: reply.status });
+      })
+      .catch(() => log({ msg: "studio sign-in not recorded", method, status: null }));
+  };
 
   let boundPort = 0;
   let publicPort = 0;
@@ -804,6 +841,7 @@ export async function startStudioServer(
     });
     const maxAge = Math.max(1, Math.ceil((exp - at) / 1000));
     response.setHeader("set-cookie", sessionCookieHeader(value, maxAge, secure));
+    recordSignIn("forwarded", sub);
     return { kind: "cookie", tenant: null, subject: sub };
   };
 
@@ -910,6 +948,7 @@ export async function startStudioServer(
       subject: entry.subject,
       expiresAt: new Date(exp).toISOString(),
     };
+    recordSignIn("token", entry.subject);
     json(response, 201, reply);
   };
 
@@ -927,6 +966,7 @@ export async function startStudioServer(
       return;
     }
     const session = issueSession(signingKey, at);
+    recordSignIn("token", entry.subject);
     response.writeHead(303, {
       location: safeNextPath(url.searchParams.get("next")),
       "set-cookie": sessionCookieHeader(session, SESSION_TTL_MS / 1000, secure),
@@ -1087,6 +1127,11 @@ export async function startStudioServer(
       request.resume();
       if (!SAFE_METHODS.has(method))
         return fail(response, 405, "Method not allowed");
+      // The loopback address's own session: recorded when the dashboard opens, at most hourly.
+      if (session === LOCAL_SESSION && now() - loopbackRecordedAt >= LOOPBACK_SIGN_IN_INTERVAL_MS) {
+        loopbackRecordedAt = now();
+        recordSignIn("loopback", null);
+      }
       const [runtime, tenant] = await Promise.all([
         probeRuntimeCompatibility(runtimeUrl),
         hostTenant(),

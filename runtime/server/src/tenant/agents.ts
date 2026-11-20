@@ -93,7 +93,8 @@ import { readRuntimeLimits } from "./runtime-limits.js";
 import { armAgentTriggers, createAgentTriggers, mergeAgentTriggers } from "./triggers.js";
 import { harnessOf, sessionOf, type AuthScope, type Session, type TenantContext } from "./context.js";
 import { fail, failRetryLater } from "./http.js";
-import type { SealedSecretCopies } from "../vault/service.js";
+import type { SealedSecretCopies, VaultActor } from "../vault/service.js";
+import { principalOf } from "./audit.js";
 import { hostTuning } from "../tuning.js";
 
 /** The Agent grants that limit `scope`, or undefined when it reaches every Agent. */
@@ -109,6 +110,11 @@ function subjectOf(scope: AuthScope): string | undefined {
 /** Who the vault's audit rows name for a request: the subject, else the application. */
 export function actorOf(scope: AuthScope): string {
   return subjectOf(scope) ?? "application";
+}
+
+/** A request's vault actor: its audit rows' name, and the principal the Tenant's stream names (ADR-159). */
+export function vaultActorOf(scope: AuthScope): VaultActor {
+  return { actor: actorOf(scope), principal: principalOf(scope) };
 }
 
 const notFound = (): never => fail(404, "Agent not found");
@@ -591,9 +597,9 @@ export async function putAgent(
     await createAgentTriggers(t, row);
     // A fork starts with the source's memories as they are now, with no history (T5).
     if (fork) await t.copyMemories(fork.source, id, now);
-    const vaultId = await ctx.vault.createEnvironmentVault(t, id, actorOf(scope), fork?.sealed?.vaultId);
+    const vaultId = await ctx.vault.createEnvironmentVault(t, id, vaultActorOf(scope), fork?.sealed?.vaultId);
     if (fork?.sealed)
-      fork.copied = await ctx.vault.insertEnvironmentSecretCopies(t, vaultId, fork.source, actorOf(scope), fork.sealed.copies);
+      fork.copied = await ctx.vault.insertEnvironmentSecretCopies(t, vaultId, fork.source, vaultActorOf(scope), fork.sealed.copies);
     await t.agentEvent(id, "agent.created", {
       kind,
       labels: row.labels,
@@ -1188,7 +1194,7 @@ async function deleteIn(
   ctx: TenantContext,
   t: Tx,
   environment: Environment,
-  actor: string,
+  actor: VaultActor,
   reason: "delete" | "deleteAfter",
 ): Promise<string[]> {
   const id = environment.id;
@@ -1235,7 +1241,7 @@ export async function deleteAgent(
     if (!environment) return undefined;
     await refuseBusy(t, id);
     refuseDiskCopy(environment);
-    return deleteIn(ctx, t, environment, actorOf(scope), "delete");
+    return deleteIn(ctx, t, environment, vaultActorOf(scope), "delete");
   });
   // After the commit: a turn that starts now finds no Environment and is refused.
   if (deleted) {

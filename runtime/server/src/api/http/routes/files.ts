@@ -11,7 +11,8 @@ import { DefinitionFileView, PutTenantSkillsRequest, TenantSkillsView } from "..
 import { readJson } from "../body.js";
 import { normalizeContentType } from "@nylorun/core/contracts";
 import { hasDefinitionFile, putDefinitionFile } from "../../../tenant/definition-files.js";
-import { effectiveSkillLimits, readSkillsConfig, writeSkillsConfig } from "../../../tenant/limits.js";
+import { effectiveSkillLimits, readSkillsConfig, SKILLS_CONFIG_SETTING, writeSkillsConfig } from "../../../tenant/limits.js";
+import { apiActor } from "../../../tenant/audit.js";
 import { fail } from "../../../tenant/http.js";
 import type { TenantEnv } from "../app.js";
 import { tenantRoute, type RouteAccess } from "../define.js";
@@ -137,7 +138,10 @@ export function fileRoutes(api: OpenAPIHono<TenantEnv>): void {
     },
     async (c) => {
       const { requestId: _requestId, ...config } = PutTenantSkillsRequestSchema.parse(await readJson(c));
-      await c.env.tenant.store.tx((t) => writeSkillsConfig(t, config));
+      await c.env.tenant.store.tx(async (t) => {
+        await writeSkillsConfig(t, config);
+        await t.tenantEvent("settings.changed", { key: SKILLS_CONFIG_SETTING }, apiActor(c.get("scope")));
+      });
       return jsonResponse(200, { limits: effectiveSkillLimits(config) });
     },
   );

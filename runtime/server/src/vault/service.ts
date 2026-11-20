@@ -9,8 +9,8 @@
  * new VaultService({ store: SessionStore, kek: () => Buffer })
  *
  * // An Environment's vault, in the caller's transaction (`tenant/environments.ts`).
- * createEnvironmentVault(t: Tx, environmentId: string, actor: string, id?: string): Promise<string>
- * deleteEnvironmentVault(t: Tx, environmentId: string, actor: string): Promise<void>
+ * createEnvironmentVault(t: Tx, environmentId: string, actor: VaultActor, id?: string): Promise<string>
+ * deleteEnvironmentVault(t: Tx, environmentId: string, actor: VaultActor): Promise<void>
  *
  * // A fork's secrets (Q15): `Keys` seals the copies with the vault key in its own transaction,
  * // before the fork's; the fork's transaction inserts them, so the process that forks never
@@ -42,8 +42,8 @@
  * getHostModel(choice?: SessionModelChoice): Promise<HostModelView>
  * getSessionModel(choice?: SessionModelChoice): Promise<SessionModelView>
  * listHostProviders(): Promise<{ providers: HostModelProviderInfo[] }>
- * putHostModel(body: PutHostModelRequest): Promise<HostModelView>
- * selectHostModel(body: SelectHostModelRequest): Promise<HostModelView>
+ * putHostModel(body: PutHostModelRequest, actor?: VaultActor): Promise<HostModelView>
+ * selectHostModel(body: SelectHostModelRequest, actor?: VaultActor): Promise<HostModelView>
  * ```
  *
  * Reading the host model's secret and writing back a refreshed one are `HostModelVault`'s
@@ -69,6 +69,16 @@
  *   before the header is returned: if that write fails, `authorize` rejects and no header
  *   leaves the vault, so every approved use has an audit row. Unreadable ciphertext is audited
  *   in its own transaction before the refusal is returned.
+ *
+ * ## Audit
+ *
+ * Every write and use of a credential writes a `vault_audit` row naming its actor, and, in the
+ * same transaction, the Tenant event it is (ADR-159): `credential.created` (also a fork's copy),
+ * `.rotated`, `.deleted` or `.used`, with the row's vault, credential, session, target and
+ * outcome, never a value. A vault made or deleted with its Agent is on the Agent's stream
+ * (`agent.created`, `agent.deleted`) instead. Setting or selecting the host model also records
+ * `settings.changed` (`model`). Who the event names comes from the request's credential
+ * (`VaultActor`); the Runtime's own writes and every use name `host` or the sweep.
  *
  * ## Credentials (R2b C2)
  *
@@ -105,10 +115,12 @@ import type {
   ModelInput,
   SelectHostModelRequest,
 } from "@nylorun/core/contracts";
+import type { TenantEventType } from "@nylorun/core/contracts";
 import type { AgentManifest, WorkflowManifest } from "@nylorun/core/define";
 import { canonical } from "../store/canonical.js";
 import type {
   SessionStore,
+  TenantEventActor,
   Tx,
   VaultCredentialRow,
   VaultRow,
@@ -240,8 +252,24 @@ export type AuthorizeResult =
       reason: string;
     };
 
+/**
+ * Who changed a vault: the name its `vault_audit` rows keep (`actor`: the subject a request acted
+ * for, else `application`) and the principal the Tenant's stream names, from the request's
+ * credential (`principal`, ADR-159): a request's change (source `api`). A bare name is both, for
+ * the Runtime's own changes (source `runtime`: `host`, the sweep).
+ */
+export type VaultActor = string | { readonly actor: string; readonly principal: string };
+
+/** The Tenant event of each audited credential action (ADR-159). */
+const CREDENTIAL_EVENTS = {
+  create: "credential.created",
+  rotate: "credential.rotated",
+  delete: "credential.deleted",
+  use: "credential.used",
+} as const satisfies Record<string, TenantEventType>;
+
 type AuditEntry = {
-  actor: string;
+  actor: VaultActor;
   action: string;
   outcome: string;
   vaultId?: string;
@@ -271,7 +299,7 @@ export class VaultService {
    * Creates Environment `environmentId`'s vault (D56), in the transaction that creates it; answers
    * its id, `id` when given (a fork's, whose secrets were sealed for it first).
    */
-  async createEnvironmentVault(t: Tx, environmentId: string, actor: string, id: string = randomUUID()): Promise<string> {
+  async createEnvironmentVault(t: Tx, environmentId: string, actor: VaultActor, id: string = randomUUID()): Promise<string> {
     const row: VaultRow = {
       id,
       name: environmentId,
@@ -289,7 +317,7 @@ export class VaultService {
    * the transaction that deletes the Environment: no release or tool call finds them after it
    * commits.
    */
-  async deleteEnvironmentVault(t: Tx, environmentId: string, actor: string): Promise<void> {
+  async deleteEnvironmentVault(t: Tx, environmentId: string, actor: VaultActor): Promise<void> {
     const vault = await t.vaultOfEnvironment(environmentId);
     if (!vault) return;
     for (const credential of await t.credentialsForVault(vault.id))
@@ -385,7 +413,7 @@ export class VaultService {
     t: Tx,
     vaultId: string,
     from: string,
-    actor: string,
+    actor: VaultActor,
     sealed: SealedSecretCopies,
   ): Promise<{ copied: string[]; dropped: string[] }> {
     const now = new Date().toISOString();
@@ -422,7 +450,7 @@ export class VaultService {
     environmentId: string,
     name: string,
     body: PutAgentSecretRequest,
-    actor: string,
+    actor: VaultActor,
     options?: SecretWriteOptions | null,
   ): Promise<AgentSecretView> {
     const invalid = environmentSecretNameError(body.type, name);
@@ -505,7 +533,7 @@ export class VaultService {
   async deleteEnvironmentSecret(
     environmentId: string,
     name: string,
-    actor: string,
+    actor: VaultActor,
   ): Promise<{ id: string }> {
     return this.store.tx(async (t) => {
       const vault = await this.environmentVault(t, environmentId, { lock: true });
@@ -783,7 +811,7 @@ export class VaultService {
     });
   }
 
-  async putHostModel(body: PutHostModelRequest): Promise<HostModelView> {
+  async putHostModel(body: PutHostModelRequest, actor: VaultActor = "application"): Promise<HostModelView> {
     const kek = this.kek();
     return this.store.tx((t) =>
       this.replay(t, `host-model:${body.idempotencyKey}`, body, async () => {
@@ -821,18 +849,19 @@ export class VaultService {
         });
         await this.setActiveProvider(t, body.provider);
         await this.audit(t, {
-          actor: "application",
+          actor,
           action: "rotate",
           vaultId: HOST_VAULT_ID,
           credentialId,
           outcome: "rotated",
         });
+        await this.modelChanged(t, actor, body.provider, body.model);
         return this.hostModelView(t);
       }),
     );
   }
 
-  async selectHostModel(body: SelectHostModelRequest): Promise<HostModelView> {
+  async selectHostModel(body: SelectHostModelRequest, actor: VaultActor = "application"): Promise<HostModelView> {
     const kek = this.kek();
     return this.store.tx((t) =>
       this.replay(t, `host-model-select:${body.idempotencyKey}`, body, async () => {
@@ -856,12 +885,13 @@ export class VaultService {
         });
         await this.setActiveProvider(t, body.provider);
         await this.audit(t, {
-          actor: "application",
+          actor,
           action: "rotate",
           vaultId: HOST_VAULT_ID,
           credentialId,
           outcome: "rotated",
         });
+        await this.modelChanged(t, actor, body.provider, body.model);
         return this.hostModelView(t);
       }),
     );
@@ -1062,10 +1092,11 @@ export class VaultService {
   }
 
   private async audit(t: Tx, entry: AuditEntry): Promise<void> {
+    const by = actorOf(entry.actor);
     await t.insertVaultAudit({
       id: randomUUID(),
       at: new Date().toISOString(),
-      actor: entry.actor,
+      actor: by.actor,
       action: entry.action,
       vaultId: entry.vaultId ?? null,
       credentialId: entry.credentialId ?? null,
@@ -1073,7 +1104,37 @@ export class VaultService {
       target: entry.target ?? null,
       outcome: entry.outcome,
     });
+    const type = CREDENTIAL_EVENTS[entry.action as keyof typeof CREDENTIAL_EVENTS];
+    // A vault made or deleted with its Agent (no credential) is on the Agent's stream.
+    if (type === undefined || (entry.credentialId === undefined && entry.action !== "use")) return;
+    await t.tenantEvent(
+      type,
+      {
+        ...(entry.vaultId === undefined ? {} : { vaultId: entry.vaultId }),
+        ...(entry.credentialId === undefined ? {} : { credentialId: entry.credentialId }),
+        ...(entry.sessionId === undefined ? {} : { sessionId: entry.sessionId }),
+        ...(entry.target === undefined ? {} : { target: entry.target }),
+        outcome: entry.outcome,
+      },
+      by.event,
+    );
   }
+
+  /** `settings.changed` for the host model now in force, in the transaction that changed it. */
+  private async modelChanged(t: Tx, actor: VaultActor, provider: string, model: string | undefined): Promise<void> {
+    await t.tenantEvent(
+      "settings.changed",
+      { key: "model", provider, ...(model === undefined ? {} : { model }) },
+      actorOf(actor).event,
+    );
+  }
+}
+
+/** A vault actor's audit name and the Tenant event's principal and source. */
+function actorOf(actor: VaultActor): { actor: string; event: TenantEventActor } {
+  return typeof actor === "string"
+    ? { actor, event: { principal: actor, source: "runtime" } }
+    : { actor: actor.actor, event: { principal: actor.principal, source: "api" } };
 }
 
 function isUserCredential(row: VaultCredentialRow): row is UserCredentialRow {

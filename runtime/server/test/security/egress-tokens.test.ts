@@ -139,10 +139,10 @@ describe("egress tokens", () => {
   it("refuses a token whose key was revoked, and verifies under a rotated key at once", async () => {
     const before = await signed();
     expect(await verify(before)).toMatchObject({ ok: true });
-    await runs.keys.rotateSigningKeys({ maxTtlSeconds: 60, force: true });
+    await runs.keys.rotateSigningKeys({ maxTtlSeconds: 60, force: true, by: { principal: "test-management", source: "api" } });
     expect(await verify(before)).toMatchObject({ ok: true });
     expect(await verify(await signed())).toMatchObject({ ok: true });
-    await runs.keys.rotateSigningKeys({ maxTtlSeconds: 60, force: true });
+    await runs.keys.rotateSigningKeys({ maxTtlSeconds: 60, force: true, by: { principal: "test-management", source: "api" } });
     expect(await verify(before)).toEqual({ ok: false, reason: "egress_token_key_revoked" });
   });
 });

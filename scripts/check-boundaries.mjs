@@ -69,8 +69,8 @@ const restrictedModules = {
     { modules: ["vault/host-model.js"], importers: ["gates", "vault"] },
   ],
 };
-// Only the record module inserts into the record, as SQL or through Drizzle's query builder. Its
-// two Postgres statements sit behind the driver boundary in store/postgres/record-writer.ts,
+// Only the record module inserts into the record (sessions', Agents' and the Tenant's streams), as
+// SQL or through Drizzle's query builder. Its Postgres statements sit behind the driver boundary in store/postgres/record-writer.ts,
 // which only the record module calls (`RecordWriter`). Other code may read the record, and the
 // store deletes its rows on reset.
 const recordInserts = {
@@ -78,7 +78,7 @@ const recordInserts = {
     dirs: ["record"],
     files: ["store/postgres/record-writer"],
     pattern:
-      /INSERT\s+INTO\s+[^\n;]{0,80}?(?:SESSION_EVENTS|LOG_HEADS|session_events|session_log_heads|agent_events)|\.insert\(\s*(?:sessionEvents|sessionLogHeads|agentEvents)\b/,
+      /INSERT\s+INTO\s+[^\n;]{0,80}?(?:SESSION_EVENTS|LOG_HEADS|session_events|session_log_heads|agent_events|tenant_events)|\.insert\(\s*(?:sessionEvents|sessionLogHeads|agentEvents|tenantEvents)\b/,
   },
 };
 // The HTTP framework stays in the HTTP layer: the Host and the API routes.

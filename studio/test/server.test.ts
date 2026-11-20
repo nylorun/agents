@@ -19,6 +19,7 @@ import { deriveStudioToken } from "@nylorun/admin";
 import {
   EMBED_SESSION_TTL_MS,
   LOGIN_TOKEN_TTL_MS,
+  LOOPBACK_SIGN_IN_INTERVAL_MS,
   DEFAULT_SESSION_COOKIE as SESSION_COOKIE,
   SESSION_TTL_MS,
   parseAllowedHosts,
@@ -46,15 +47,24 @@ type FakeTenant = {
 /**
  * Fake Runtime: /health, `GET /v1/tenant` for Studio's key (the opaque 404
  * while the Tenant is unavailable), `GET /v1/me` for the bearers in `me` (any
- * other is 401), and an echoing Tenant API.
+ * other is 401), the sign-ins Studio records (`signIns`, answered with
+ * `signIn.status`, never in `seen`), and an echoing Tenant API.
  */
 async function startFakeRuntime() {
   const seen: Seen[] = [];
+  const signIns: { authorization: string | undefined; body: unknown }[] = [];
+  const signIn = { status: 201 };
   const tenant: FakeTenant = { id: TENANT_A, name: "orders", state: "open" };
   const me = new Map<string, { status: number; body: unknown }>();
   const server = createServer(async (req, res) => {
     let body = "";
     for await (const chunk of req) body += chunk;
+    if (req.method === "POST" && req.url === "/v1/tenant/audit/studio-sign-in") {
+      signIns.push({ authorization: req.headers.authorization, body: JSON.parse(body) });
+      res.statusCode = signIn.status;
+      res.end("{}");
+      return;
+    }
     seen.push({ method: req.method ?? "GET", path: req.url ?? "", headers: req.headers, body });
     res.setHeader("content-type", "application/json");
     if (req.url === "/health") {
@@ -105,6 +115,8 @@ async function startFakeRuntime() {
   return {
     url: `http://127.0.0.1:${address.port}`,
     seen,
+    signIns,
+    signIn,
     tenant,
     me,
     close: async () => {
@@ -1284,4 +1296,84 @@ test("parseAllowedHosts accepts host names with optional ports and refuses anyth
   ]);
   for (const bad of ["https://studio.acme.dev", "studio.acme.dev/path", "*.acme.dev", "studio acme", "studio.acme.dev:99999", "-x.dev"])
     assert.throws(() => parseAllowedHosts(bad), /is not a Host value/, bad);
+});
+
+// --- sign-ins on the Tenant's stream (ADR-159) ---------------------------------------------------
+
+/** Waits for the sign-ins Studio records in the background. */
+async function signInsOf(runtime: { signIns: { authorization: string | undefined; body: unknown }[] }, count: number) {
+  for (let attempt = 0; attempt < 200 && runtime.signIns.length < count; attempt += 1)
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  return runtime.signIns.map((entry) => {
+    assert.equal(entry.authorization, `Bearer ${deriveStudioToken(ADMIN_KEY)}`);
+    return entry.body;
+  });
+}
+
+test("each sign-in is recorded on the Tenant's stream with Studio's key", async () => {
+  await withStudio(async ({ port, runtime, clock }) => {
+    // A login token at /login, and one exchanged for an embedded session with its subject.
+    await session(port);
+    assert.deepEqual(await signInsOf(runtime, 1), [{ method: "token" }]);
+    const minted = await send(port, {
+      method: "POST",
+      path: "/_studio/login-tokens",
+      headers: { authorization: `Bearer ${ADMIN_KEY}`, "content-type": "application/json" },
+      body: JSON.stringify({ subject: "app:ann" }),
+    });
+    const exchanged = await send(port, {
+      method: "POST",
+      path: "/_studio/sessions",
+      headers: { origin: `http://localhost:${port}`, "content-type": "application/json" },
+      body: JSON.stringify({ token: JSON.parse(minted.body).token }),
+    });
+    assert.equal(exchanged.status, 201, exchanged.body);
+    assert.deepEqual((await signInsOf(runtime, 2))[1], { method: "token", subject: "app:ann" });
+
+    // The loopback address's own session: once when the dashboard says hello, then hourly.
+    assert.equal((await send(port, { path: "/_studio/hello" })).status, 200);
+    assert.equal((await send(port, { path: "/_studio/hello" })).status, 200);
+    assert.deepEqual((await signInsOf(runtime, 3))[2], { method: "loopback" });
+    clock.now += LOOPBACK_SIGN_IN_INTERVAL_MS;
+    assert.equal((await send(port, { path: "/_studio/hello" })).status, 200);
+    assert.deepEqual(await signInsOf(runtime, 4), [
+      { method: "token" },
+      { method: "token", subject: "app:ann" },
+      { method: "loopback" },
+      { method: "loopback" },
+    ]);
+    // A used token records nothing more.
+    assert.equal(runtime.signIns.length, 4);
+  });
+});
+
+test("a forwarded sign-in is recorded with its subject", async () => {
+  await withStudio(
+    async ({ port, runtime }) => {
+      const token = jwt({ sub: "dana", exp: 9_999_999_999 });
+      runtime.me.set(token, scoped("u:dana", ["studio"]));
+      const hello = await send(port, { path: "/_studio/hello", host: PROXIED, headers: { "x-forwarded-access-token": token } });
+      assert.equal(hello.status, 200, hello.body);
+      assert.deepEqual(await signInsOf(runtime, 1), [{ method: "forwarded", subject: "u:dana" }]);
+    },
+    { allowedHosts: [PROXIED] },
+  );
+});
+
+test("a sign-in the Runtime does not record is logged, and still signs in", async () => {
+  const logged: Readonly<Record<string, unknown>>[] = [];
+  await withStudio(
+    async ({ port, runtime }) => {
+      runtime.signIn.status = 500;
+      const { token } = await mint(port);
+      const reply = await send(port, { path: `/login?token=${token}` });
+      assert.equal(reply.status, 303);
+      assert.ok(String(reply.headers["set-cookie"]?.[0]).startsWith(`${SESSION_COOKIE}=`));
+      await signInsOf(runtime, 1);
+      for (let attempt = 0; attempt < 200 && logged.length === 0; attempt += 1)
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      assert.deepEqual(logged, [{ msg: "studio sign-in not recorded", method: "token", status: 500 }]);
+    },
+    { log: (entry) => logged.push(entry) },
+  );
 });

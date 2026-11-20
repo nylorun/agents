@@ -194,8 +194,9 @@ export async function proxyRuntime(
       /^\/v1\/sessions\/[^/]+(?:\/(items|events|manifest|usage|calls\/model|calls\/tool|model))?$/.test(path) ||
       /^\/v1\/sessions\/[^/]+\/turns\/[^/]+\/trace$/.test(path) ||
       path === "/v1/tenant" ||
-      // The Tenant's page: its models, settings, spend, tool policy and keys (it shows no secret).
-      /^\/v1\/tenant\/(?:model|models|providers|limits|sandbox|artifacts|skills|usage|budgets|tool-policy|keys|signing-keys)$/.test(
+      // The Tenant's page: its models, settings, spend, tool policy, keys and audit (it shows no
+      // secret). The audit is read only: a sign-in is Studio's server's to record, never the browser's.
+      /^\/v1\/tenant\/(?:model|models|providers|limits|sandbox|artifacts|skills|usage|budgets|tool-policy|keys|signing-keys|audit)$/.test(
         path,
       ) ||
       resourceRead ||

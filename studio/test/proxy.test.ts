@@ -772,6 +772,53 @@ test("proxy forwards a same-origin model inputs change on the Management API", a
   );
 });
 
+test("proxy reads the Tenant's audit with its query, and refuses any write to it", async () => {
+  const seen: string[] = [];
+  await withUpstream(
+    async (req, res) => {
+      seen.push(`${req.method} ${req.url}`);
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end('{"events":[],"nextCursor":null}');
+    },
+    async (upstreamUrl) => {
+      const origin = "http://127.0.0.1:4161";
+      const studio = createServer((req, res) => {
+        void proxyRuntime(req, res, { origin, runtimeUrl: upstreamUrl, serverKey: "server-secret" });
+      });
+      studio.listen(0, "127.0.0.1");
+      await once(studio, "listening");
+      const address = studio.address();
+      assert.ok(address && typeof address === "object");
+      const base = `http://127.0.0.1:${address.port}/_studio/runtime`;
+      try {
+        const read = await fetch(`${base}/v1/tenant/audit?types=key.created%2Ccredential.used&limit=50`);
+        assert.equal(read.status, 200);
+        assert.deepEqual(await read.json(), { events: [], nextCursor: null });
+        // Only Studio's server records a sign-in, with its own key: the browser cannot, even from
+        // Studio's origin, and nothing else under the audit is reached.
+        for (const [method, path] of [
+          ["POST", "/v1/tenant/audit/studio-sign-in"],
+          ["POST", "/v1/tenant/audit"],
+          ["PUT", "/v1/tenant/audit"],
+          ["DELETE", "/v1/tenant/audit"],
+          ["GET", "/v1/tenant/audit/studio-sign-in"],
+        ] as const) {
+          const refused = await fetch(`${base}${path}`, {
+            method,
+            headers: { origin, "content-type": "application/json" },
+            ...(method === "GET" ? {} : { body: JSON.stringify({ method: "token" }) }),
+          });
+          assert.equal(refused.status, 404, `${method} ${path}`);
+        }
+        assert.deepEqual(seen, ["GET /v1/tenant/audit?types=key.created%2Ccredential.used&limit=50"]);
+      } finally {
+        studio.close();
+        await once(studio, "close");
+      }
+    },
+  );
+});
+
 test("proxy reads the Tenant's page and forwards a same-origin settings change or reset", async () => {
   const seen: string[] = [];
   await withUpstream(
