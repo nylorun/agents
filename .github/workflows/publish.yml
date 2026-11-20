@@ -37,24 +37,9 @@ jobs:
       - name: Validate commit input
         shell: bash
         run: '[[ "$RELEASE_SHA" =~ ^[a-f0-9]{40}$ ]]'
-      # Require the full suite on this commit instead of re-running it; no
-      # check-run means no publication. A merged release PR changes the release
-      # plan, so the merge queue ran the full suite as `ci` on the exact commit
-      # it lands (ci.yml). A manual run may name a later main tip, which the
-      # queue checked with the fast tier only: require main's post-merge run,
-      # `ci (push)`, instead. It passes only after the full suite passed on the
-      # commit: in that run, or for a release commit in the queue's `ci`.
-      - name: Require the full CI suite on this commit
-        shell: bash
-        env:
-          CHECK: ${{ github.event_name == 'workflow_dispatch' && 'ci (push)' || 'ci' }}
-        run: |
-          conclusion=$(gh api --method GET \
-            "repos/$GITHUB_REPOSITORY/commits/$RELEASE_SHA/check-runs" \
-            -f check_name="$CHECK" -f filter=latest \
-            --jq '[.check_runs[] | select(.app.slug == "github-actions") | .conclusion] | first')
-          echo "$CHECK on $RELEASE_SHA: $conclusion"
-          [[ "$conclusion" == success ]]
+      # The gate below is a repository script, so the checkout and Node come
+      # first. Neither installs anything: a failed gate still fails in about a
+      # minute, before `npm run setup`.
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ env.RELEASE_SHA }}
@@ -66,6 +51,23 @@ jobs:
           cache-dependency-path: |
             package-lock.json
             examples/package-lock.json
+      # Require the full suite on this commit instead of re-running it; no
+      # check-run means no publication. A merged release PR changes the release
+      # plan, so the merge queue ran the full suite as `ci` on the exact commit
+      # it lands (ci.yml). A manual run may name a later main tip, which the
+      # queue checked with the fast tier only: require main's post-merge run,
+      # `ci (push)`, instead. It passes only after the full suite passed on the
+      # commit: in that run, or for a release commit in the queue's `ci`.
+      # The read waits for that check run (scripts/release/check-gate.mjs): a
+      # run created by the same push can still be registering when this job
+      # starts, so a missing or uncompleted run is read again with backoff for
+      # up to ten minutes, well inside this job's 45-minute timeout. A completed
+      # check that is not a pass fails at once. Only this read is retried, never
+      # a build, a deploy or a publish.
+      - name: Require the full CI suite on this commit
+        env:
+          CHECK: ${{ github.event_name == 'workflow_dispatch' && 'ci (push)' || 'ci' }}
+        run: node scripts/release/check-gate.mjs
       - run: npm install --global npm@11.15.0
       - run: npm run setup
       # check-example-assets (in release:check) needs the examples build.

@@ -157,8 +157,11 @@ The jobs run in this order:
    CI's full suite: the merge queue's `ci` on a merged release PR (CI runs the
    full tier when the release plan changes), or `main`'s post-merge
    `ci (push)` on a manual run (on a release commit that run is the fast
-   tier, and passes only after the queue's full `ci` passed there). It then runs `release:check` on the checkout
-   and saves the verified tarballs.
+   tier, and passes only after the queue's full `ci` passed there). That gate
+   reads the check run again with backoff for up to ten minutes while it is
+   still registering or running, and fails at once when a completed check is
+   not a pass (`scripts/release/check-gate.mjs`). `validate` then runs
+   `release:check` on the checkout and saves the verified tarballs.
 2. **images** builds `runtime/Dockerfile`, `studio/Dockerfile` and
    `sandboxes/Dockerfile` for `linux/amd64` and `linux/arm64` (QEMU and
    buildx, with a GitHub Actions layer cache) and pushes
@@ -214,6 +217,7 @@ means a newer release is needed instead.
 |---|---|
 | Preparation interrupted | Review retained changes; restore deliberately or finish the preparation before committing |
 | Validation failed | Fix in a reviewed PR and prepare the corrected release |
+| `ci` … has not completed after the ten-minute wait | The check run that covers that commit was still registering or running. Rerun the same workflow once it has finished |
 | Missing npm trust/access | Correct the external setting, then rerun the same workflow |
 | Image build or push failed | Rerun the same workflow. Images already pushed are skipped; nothing reached npm, because `publish` needs `images` |
 | `denied` pushing to `ghcr.io/nylorun` | Grant this repository the Write role under the package's **Manage Actions access**, then rerun |
