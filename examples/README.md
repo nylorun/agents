@@ -1,10 +1,24 @@
-# Harness examples
+# Examples
+
+| Example | Shows | Runs on |
+| --- | --- | --- |
+| [`agents/release/`](./agents/release/) | An order-lookup assistant with an HTTP tool, and a [data analyst with a sandbox](#data-analyst-sandbox) | The Runtime: `npm run dev` saves them |
+| [`agents/repo-brief/`](./agents/repo-brief/) | [One flow agent](#repo-brief-every-piece-in-one-flow) with every piece the Runtime runs from a manifest | The Runtime: `npm run dev` saves it |
+| [`agents/repo-brief-folder/`](./agents/repo-brief-folder/), [`agents/triage/`](./agents/triage/) | [Agents written as folders](#triage-an-agent-folder) of Markdown and JSON | The Runtime: `npx nylorun apply` |
+| [`src/ag-ui/`](./src/ag-ui/) | [An agent in your web app](#an-agent-in-your-web-app-ag-ui), over AG-UI | The Runtime, behind your backend |
+| [`agents/instructions/`](./agents/instructions/), [`tool-use/`](./agents/tool-use/), [`subagents/`](./agents/subagents/), [`skills/`](./agents/skills/), [`mcp/`](./agents/mcp/) | One feature each ([learn from the code](#learn-from-the-code)) | The Runtime, saved by hand: outside the default registry |
+| [`agents/chain/`](./agents/chain/), [`switch/`](./agents/switch/), [`parallel/`](./agents/parallel/), [`map/`](./agents/map/), [`loop/`](./agents/loop/), [`ship-feature/`](./agents/ship-feature/) | Flow agents: one composition each | The Runtime, saved by hand: outside the default registry |
+| [`agents/interactions/`](./agents/interactions/), [`ptc/`](./agents/ptc/), [`coding-agent/`](./agents/coding-agent/), [`interior-design/`](./agents/interior-design/) | Tools that run code of their own (`execute`) | The local engine only (`@nylorun/harness/run`): the Runtime refuses to save them |
+| [`harness-minimal/`](./harness-minimal/) | [A harness of your own](#a-harness-of-your-own) on the published Harness API | Beside the Runtime |
+| [`self-host/`](./self-host/) | Keycloak and oauth2-proxy in front of a Tenant, with an end-to-end smoke | Beside a Tenant |
+| [`observability/`](./observability/) | The Runtime's metrics and traces in an OpenTelemetry collector and Grafana | Beside a Tenant |
+
 
 The default registry exports three agents from `agents/release/`: an order-lookup assistant, a data analyst with a sandbox, and the [Repo brief](#repo-brief-every-piece-in-one-flow), which puts every piece the Runtime runs from a manifest into one flow agent. `src/main.ts` saves each as an agent manifest (`client.agentManifests.save`, with the virtual runtime in [`runtime/scratch.runtime.json`](./runtime/scratch.runtime.json)) and makes an Agent of it (`client.agents.put`, named after the agent), which the Runtime runs; Studio uses the session HTTP/SSE API. [Triage](#triage-an-agent-folder) is an agent written as an agent folder, Markdown and JSON instead of TypeScript, and [`agents/repo-brief-folder/`](./agents/repo-brief-folder/) is the Repo brief as one. A new agent starts as a folder: `npx nylorun init agents/<name> --example`, then `npx nylorun apply agents/<name> --agent` and `npx nylorun chat <name>` ([the CLI's README](../cli/nylorun/README.md#agent-manifests-apply)).
 
 The Runtime runs no code of this project during a session. The assistant's `lookup_order` is an HTTP tool (`http()` in [`agents/shared/orders.ts`](./agents/shared/orders.ts)): the Runtime POSTs the tool's input to the examples' tools service, [`src/tools/server.ts`](./src/tools/server.ts), and gives the model its JSON answer. The service also answers the Repo brief's `publish_brief` and the [tools catalog](./agents/shared/tools/catalog) (`calculate`, `convert`, `now`). It listens on `TOOLS_PORT` (default 3001); the agents call it at `TOOLS_URL` (default `http://localhost:3001`, which a local Tenant's Runtime reaches on this machine).
 
-The nine older demonstrations remain as source references under `agents/`, outside the release registry. Their descriptions below are historical and do not establish support in the new host. Tool Use, Subagents, Instructions, Skills, Remote MCP and the flow agents (`chain`, `switch`, `parallel`, `map`, `loop`, `ship-feature`) declare nothing the Runtime refuses. Interactions, PTC (programmatic tool calling), Coding Agent and Interior Design run code of their own (tools with `execute`) and run only in the local engine (`@nylorun/harness/run`), as their tests do: the Runtime refuses to save them.
+The other folders under `agents/` are outside the default registry. Tool Use, Subagents, Instructions, Skills, Remote MCP and the flow agents (`chain`, `switch`, `parallel`, `map`, `loop`, `ship-feature`) declare nothing the Runtime refuses: save one with `client.agentManifests.save` as `src/main.ts` does. Interactions, PTC (programmatic tool calling), Coding Agent and Interior Design run code of their own (tools with `execute`) and run only in the local engine (`@nylorun/harness/run`), as their tests do: the Runtime refuses to save them.
 
 ## Install and configure
 
@@ -54,11 +68,11 @@ triage → switch ┬ repo:    map(researcher) → parallel(overview, risks) →
 
 The writer's shell needs a sandbox, which its runtime section gives it, as for the [data analyst](#data-analyst-sandbox): open the session on the Agent `repo-brief` (in Studio, pick it); the flow's child sessions run on the same Agent. Then try `Brief me on modelcontextprotocol/typescript-sdk.` in Studio. [`test/repo-brief.test.ts`](./test/repo-brief.test.ts) runs the same turn against an in-process Runtime, with a stub model, a fake DeepWiki and the tools service.
 
-[`agents/repo-brief-folder/`](./agents/repo-brief-folder/) is the same flow as an agent folder (track T7): 23 Markdown and JSON files. [`flow.json`](./agents/repo-brief-folder/flow.json) is the top of the tree, and [`agents/research/flow.json`](./agents/repo-brief-folder/agents/research/flow.json) a sub-flow; both name their stages from the one `agents/` at the root, and the compiler nests them as the manifest needs. `npx nylorun check agents/repo-brief-folder` compiles it offline, and [`test/repo-brief-folder.test.ts`](./test/repo-brief-folder.test.ts) checks that it compiles to the manifest the TypeScript flow saves, apart from one instruction string per Markdown file and the agents' display names (a folder's `name` is its id). Its tools call the tools service at `http://localhost:3001`, `TOOLS_URL`'s default.
+[`agents/repo-brief-folder/`](./agents/repo-brief-folder/) is the same flow as an agent folder: 23 Markdown and JSON files. [`flow.json`](./agents/repo-brief-folder/flow.json) is the top of the tree, and [`agents/research/flow.json`](./agents/repo-brief-folder/agents/research/flow.json) a sub-flow; both name their stages from the one `agents/` at the root, and the compiler nests them as the manifest needs. `npx nylorun check agents/repo-brief-folder` compiles it offline, and [`test/repo-brief-folder.test.ts`](./test/repo-brief-folder.test.ts) checks that it compiles to the manifest the TypeScript flow saves, apart from one instruction string per Markdown file and the agents' display names (a folder's `name` is its id). Its tools call the tools service at `http://localhost:3001`, `TOOLS_URL`'s default.
 
 ## Triage: an agent folder
 
-[`agents/triage/`](./agents/triage/) is an agent folder (track T6): Markdown and JSON, no TypeScript.
+[`agents/triage/`](./agents/triage/) is an agent folder: Markdown and JSON, no TypeScript.
 
 - [`AGENT.md`](./agents/triage/AGENT.md) holds the agent's name, `triage`, its description, and its instructions below the frontmatter.
 - [`mcp.json`](./agents/triage/mcp.json) holds GitHub's remote MCP server. `Bearer ${GITHUB_TOKEN}` in its `Authorization` header names the secret it authenticates with: with no `runtime.json` declaring it, the compiler derives a `GITHUB_TOKEN` bearer slot bound to that server's exact URL, and says so.

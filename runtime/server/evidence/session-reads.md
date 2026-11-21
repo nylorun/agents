@@ -90,6 +90,6 @@ Deterministic fixtures exercise HTTP and SDK contracts, pinned manifests after r
 Reproduce evidence after building dependencies:
 
 ```sh
-SESSION_READS_EVIDENCE="$PWD/runtime/docs/session-reads-evidence.json" \
+SESSION_READS_EVIDENCE="$PWD/runtime/server/evidence/session-reads-evidence.json" \
   npm test -w @nylorun/runtime -- test/store/session-reads-benchmark.test.ts
 ```

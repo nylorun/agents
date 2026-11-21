@@ -9,7 +9,7 @@ versions kept, restored and deleted, through their public routes. An Agent moves
 between versions of its manifest with `PUT` (and `POST .../restart`); a fork changes
 its kind, harness or storage. Agent
 manifests are not edited in Studio: they are saved from their folder, in their
-repository (`nylorun apply`) or uploaded by hash (Upload folder, track T7).
+repository (`nylorun apply`) or uploaded by hash (Upload folder).
 
 ## Artifact pages
 

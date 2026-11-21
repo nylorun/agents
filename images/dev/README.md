@@ -1,6 +1,6 @@
 # ghcr.io/nylorun/dev
 
-A coding agent's computer (ADR-92 in nylorun/factory): Ubuntu 24.04 with the base toolchain only,
+A coding agent's computer: Ubuntu 24.04 with the base toolchain only,
 for a sandbox pod that runs as uid 1000 on a read-only root. The engine is not in it; the pod copies
 the engine in, as for any image.
 

@@ -102,11 +102,11 @@ Which token:
   "connection", app, reason}}`, so the turn pauses on it like any interaction (§7); answered
   with `respond`, the call runs again in the next segment and reads the value
   (`true` or `{connected: true}`: `Connected: <app>`; anything else `Not connected: <app>`).
-  Ours also reads `compaction` (ADR-157): `threshold` and `keepTokens`, and `roles.<role>` over
+  Ours also reads `compaction`: `threshold` and `keepTokens`, and `roles.<role>` over
   them for a session opened with that role.
-- `role` (optional, ADR-157): the role the session was opened with. The Runtime sends it only to our
+- `role` (optional): the role the session was opened with. The Runtime sends it only to our
   own harness, which picks `loop.compaction.roles.<role>` with it.
-- `memory` (`TurnMemorySchema`, optional; track T5): present when the version the session runs
+- `memory` (`TurnMemorySchema`, optional): present when the version the session runs
   sets `harness.memory`. `access` (`read_write` or `read_only`, the same in every turn),
   `instructions` (the agent's own, after yours), and `index`: one line per memory, newest first,
   `- <path>` with ` — <description>` from its frontmatter, within the Runtime limits
@@ -245,7 +245,7 @@ What an intent carries:
     Each refusal is answered `completed` with a failure and never runs: an MCP tool the session
     did not discover is `tool.unknown`, one the turn disabled `tool.disabled`, and a call with no
     target, or an HTTP tool or sandbox the session lacks, `tool.unavailable`. Core runs no tool
-    itself but `schedule_wake` (track T4), `memory` (track T5) and `triggers` (D83): `tool_search` over deferred tools is yours (ours is a `harness` call), and the
+    itself but `schedule_wake`, `memory` and `triggers`: `tool_search` over deferred tools is yours (ours is a `harness` call), and the
     deferred tool's call names its own MCP target. A tool of yours may take any name; a name two
     of the model's tools share is yours to refuse. `skill` (optional) names the skill the call
     ran.
@@ -253,7 +253,7 @@ What an intent carries:
     its raw tool name, or `tool` an HTTP tool's declared name, or, for a rule of `kind: "runtime"`,
     the operation core serves (`triggers`). The name you gave the model never matches.
   - `delegation` and `agent` belong to our engine's subagents and flows.
-  - `inputs` (D85, `harness-api/v5.4.json`): the messages steered into the running turn
+  - `inputs` (`harness-api/v5.4.json`): the messages steered into the running turn
     (`delivery: "steer"`, Host feature `steer`), asked before a step. Input `{step}`, context
     `{turnId, stepNumber}`, an effect id of the segment such as `…:inputs:step:<n>`. Core takes
     the session's steered messages whose turn request is the running turn's, writes each one's
@@ -276,8 +276,8 @@ What an intent carries:
 
 ## §4c What the Runtime observes for you
 
-Everything a harness records through the Harness API becomes the session's **agent record**
-(ADR-159): the events a developer reads first, marked `evidence: claimed`. The Runtime adds its
+Everything a harness records through the Harness API becomes the session's **agent record**:
+the events a developer reads first, marked `evidence: claimed`. The Runtime adds its
 own **Runtime record** beside them (the queue, wakes, the computer, artifacts), and builds each
 turn's trace from both: `invoke_agent` for the turn, `chat` for each model call through the gate,
 `execute_tool` for each tool call. A harness you write gets the same trace as Nylorun's, with no
@@ -326,7 +326,7 @@ helpers `readArtifact`, `openArtifactWrite` and `writeArtifactBytes` in
 
 - **One chunk** carries at most `turn.start.limits.chunkBytes`; a larger one is
   `limit_exceeded`. A `begin` with `base64` sends the whole body at once and commits it.
-- **For the model only.** `audience: "model"` on a new artifact's `begin` (ADR-139) stores a file
+- **For the model only.** `audience: "model"` on a new artifact's `begin` stores a file
   only so the model can see it, such as a sandbox image our engine's `read` shows it. Core keeps
   it in the session, readable by id, but never lists it and never hands it back over A2A. Only
   our own engine sends it.
@@ -560,7 +560,7 @@ root, with `/workspace`, `/harness`, `/tmp` and `/skills` writable.
 ## §9b Computers (Harness API 5.6)
 
 On an Agent Substrate cluster installed with the Runtime's Helm chart (`charts/nylorun-runtime`),
-a pod Agent's sandbox is a **computer** (ADR-149): an actor whose engine runs no loop. Its
+a pod Agent's sandbox is a **computer**: an actor whose engine runs no loop. Its
 sessions' runs go to a harness like any other, with `routing.sandbox.computer: true`, and the
 harness drives the computer:
 
@@ -594,7 +594,7 @@ harness drives the computer:
    attach). A core older than 5.7 answers `invalid` (`Unknown request computer.current`): keep
    the access until its ticket is renewed.
 
-Our engine does this through its `computer` sandbox backend; the tools are unchanged (ADR-150).
+Our engine does this through its `computer` sandbox backend; the tools are unchanged.
 
 ## §10 Workspace (optional)
 
@@ -623,15 +623,15 @@ one version: a harness that says `api: 4` is refused.
 
 Protocol 17 added one input shape within v5: `checkpoint.input` `{kind: "messages"}` (§3). One
 claim came within v5 too: `plan.updated` (§4b), which core accepts and no v5 harness must make;
-the JSON Schema document that has it is published as `harness-api/v5.1.json`. ADR-100 added the
+the JSON Schema document that has it is published as `harness-api/v5.1.json`. Engine features by declaration (`agent-folder/2`) added the
 claim `engine.diagnostic` and made `turn.start.memory.index` optional (absent for a version that
 sets `harness.memory.index: false`), and one optional field came with it, `turn.start.memory.refresh`
 (§3), which core sends only to Nylorun's own harness (`nylorun`, always the Runtime's own version),
-so no other v5 harness sees it; all within v5: `harness-api/v5.2.json`. D83 added the `runtime`
+so no other v5 harness sees it; all within v5: `harness-api/v5.2.json`. Agent triggers added the `runtime`
 operation `triggers` and `turn.start.agent.triggers` (`true` when the session's version declares
 `harness.engine.triggers`: offer the root agent a tool whose calls name that target, or none), which
-a v5 harness may ignore: it offers no tool, and core receives no such call: `harness-api/v5.3.json`. D85 added the effect kind `inputs` (§4): a v5 harness that never asks for it is unchanged, and its turn's steered messages start the next turn: `harness-api/v5.4.json`. ADR-139 added `audience: "model"` to `artifact.write`'s `begin` (§4b), which core accepts and only our own engine sends: `harness-api/v5.5.json`. ADR-149 added `routing.sandbox.computer` and the request `computer.open` (§9b), which a v5 harness never sees unless the Tenant's pod Agents are computers: `harness-api/v5.6.json`. The request `computer.current` (§9b), which only a harness that drives computers sends, came with `harness-api/v5.7.json`. `turn.start.role` (ADR-157), the session's role, which the Runtime sends only to our own harness, came with `harness-api/v5.8.json`.
-ADR-106 changed no message: `turn.start.loop` may carry `ask: true` (offer the root agent a
+a v5 harness may ignore: it offers no tool, and core receives no such call: `harness-api/v5.3.json`. Steering added the effect kind `inputs` (§4): a v5 harness that never asks for it is unchanged, and its turn's steered messages start the next turn: `harness-api/v5.4.json`. Model-only artifacts added `audience: "model"` to `artifact.write`'s `begin` (§4b), which core accepts and only our own engine sends: `harness-api/v5.5.json`. Computers added `routing.sandbox.computer` and the request `computer.open` (§9b), which a v5 harness never sees unless the Tenant's pod Agents are computers: `harness-api/v5.6.json`. The request `computer.current` (§9b), which only a harness that drives computers sends, came with `harness-api/v5.7.json`. `turn.start.role`, the session's role, which the Runtime sends only to our own harness, came with `harness-api/v5.8.json`.
+The Runtime's plugins (`agent-folder/3`) changed no message: `turn.start.loop` may carry `ask: true` (offer the root agent a
 question tool whose first call is `interaction-required`, kind `response`, metadata
 `{kind: "question", choices?, why?}`, shown over A2A as a question), and a manifest's
 `harness.engine.plugins` names the Runtime's plugins the agent declares. A v5 harness may ignore
