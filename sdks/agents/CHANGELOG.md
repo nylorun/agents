@@ -1,5 +1,13 @@
 # @nylorun/agents
 
+## 0.42.1-beta
+
+### Patch Changes
+
+- Pin core to the tested release.
+- Updated dependencies [13eb181]
+  - @nylorun/core@0.51.0-beta
+
 ## 0.42.0-beta
 
 ### Minor Changes
