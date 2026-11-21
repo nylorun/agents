@@ -436,7 +436,7 @@ jobs:
           go vet ./...
           go test ./...
       # The Runtime's Helm chart (charts/nylorun-runtime) lints and renders, bundled and on GCP.
-      - uses: azure/setup-helm@v4
+      - uses: azure/setup-helm@v5
         if: matrix.leg == 'service'
         with:
           version: v3.19.0
