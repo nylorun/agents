@@ -190,7 +190,9 @@ jobs:
     needs: [validate, images]
     runs-on: ubuntu-latest
     # Two registry waits (engines, then creator), each bounded at 10 min, then
-    # the public creator smoke, which pulls the published images.
+    # the public creator smoke, which waits up to 15 min more for the creator's
+    # version on its own CDN edge (scripts/release/smoke.mjs waitForServed) and
+    # pulls the published images.
     timeout-minutes: 60
     # Bound to npm trusted publishing and holds NPM_BOOTSTRAP_TOKEN; it has no
     # reviewers. It publishes on beta only (scripts/release/registry.mjs
