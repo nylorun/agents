@@ -1,6 +1,6 @@
 # sandboxes
 
-The sandboxes service (F7.2, D32): a small Go service that drives
+The sandboxes service: a small Go service that drives
 [agent-sandbox](https://github.com/kubernetes-sigs/agent-sandbox) v1.0.10 Sandboxes
 (`agents.x-k8s.io/v1beta1`) in one namespace for one Tenant. It is the only holder of the
 cluster credentials; the Runtime's core calls it with a bearer token. It keeps no state: the
@@ -9,7 +9,7 @@ operation id of the last apply is an annotation (`nylorun.dev/op`) on the Sandbo
 `nylorun sandbox enable --context <name>` installs what it needs into that context, writes
 `<Host root>/sandboxes/cluster.json` and `token` (mounted read-only at
 `/run/nylorun/sandboxes`), and adds the `sandboxes` service to the Tenant's Compose file.
-With `--backend substrate` (preview, ADR-138) it drives [Agent Substrate](https://github.com/agent-substrate/substrate)
+With `--backend substrate` (preview) it drives [Agent Substrate](https://github.com/agent-substrate/substrate)
 v1.0 actors instead, through Substrate's gRPC API (below).
 Image: `ghcr.io/nylorun/sandboxes:<runtime version>` (a change here needs a
 `@nylorun/runtime` changeset; see RELEASING.md).
@@ -33,8 +33,8 @@ Image: `ghcr.io/nylorun/sandboxes:<runtime version>` (a change here needs a
 
 PUT body: `opId`, `mode` (`Running`|`Suspended`), `image` (default `python:3.13-slim`),
 `entrypoint` (`engine`, the default: the engine copied from `harnessImage` runs; `builtin`: the
-engine the image carries under `/opt/nylorun` runs (`bin/tini`, `bin/node`, `engine/harness.mjs`,
-ADR-99), with nothing copied in and no `harnessImage`; `image`: the image's own `ENTRYPOINT` and
+engine the image carries under `/opt/nylorun` runs (`bin/tini`, `bin/node`, `engine/harness.mjs`),
+with nothing copied in and no `harnessImage`; `image`: the image's own `ENTRYPOINT` and
 `CMD` run, a custom harness built into the image, with nothing copied in and no `harnessImage`), `harnessImage` (the Runtime image the engine is copied from),
 `command` (replaces the engine command, for diagnostics and the suite), `cpus`, `memoryMiB`, `storageGiB` (fixed once
 created), `stopGraceSeconds` (1–30, default 10), `shutdownTime` (RFC 3339),
@@ -98,7 +98,7 @@ Substrate's egress are on. The `/v1/pods` contract is the same.
   restored actor's first lookup can be lost (P1.8).
 - **Egress** is the Agent's network (`network` in the PUT body: `preset`, `hosts`, `suffixes`):
   the edge by TLS passthrough, each host on 443 (passthrough) and 80, or everything for `open`.
-- **Keys** ([ADR-142](https://github.com/nylorun/factory/blob/main/decisions/platform/2026-11-13-substrate-egress-adds-keys.md)):
+- **Keys**:
   with `keysProvider` set, each host in the PUT body's `keys` (`{sandbox, hosts: [{host,
   header}]}`, at most 200) becomes an `https` rule on 443 whose `replaceHeaders` entry names the
   header, an empty prefix, and the reference
@@ -112,7 +112,7 @@ Substrate's egress are on. The `/v1/pods` contract is the same.
   (to `http://gateway:4200`, egress-gate's decide route) for the keys provider; no actor's
   policy allows that port.
 
-### In the cluster, with computers (ADR-149)
+### In the cluster, with computers
 
 The Runtime's Helm chart runs the service in the cluster it drives. Its `cluster.json` sets
 `inCluster: true` and `substrate.computer` (`{port}`, default 8080):
@@ -134,8 +134,7 @@ The Runtime's Helm chart runs the service in the cluster it drives. Its `cluster
 
 ### The computer agent
 
-`cmd/computer` ([ADR-154](https://github.com/nylorun/factory/blob/main/decisions/engine/2026-11-17-one-agents-computer.md)
-decision 4) is a static binary that serves a computer's routes in place of the engine's
+`cmd/computer` is a static binary that serves a computer's routes in place of the engine's
 `--service computer` (`runtime/server/src/harness/computer.ts`), with the same tickets and the same
 answers. It ships alone in `ghcr.io/nylorun/computer:<protocol>.<n>` (`images/computer`, `FROM
 scratch`, the file `/computer`), published by `computer-image.yml`, versioned by its protocol and
@@ -179,7 +178,7 @@ not with the Runtime.
 
 ### The sandbox gateway
 
-`sandboxes gateway` is the computers' one way in (ADR-148), as its own Deployment with no
+`sandboxes gateway` is the computers' one way in, as its own Deployment with no
 Kubernetes rights. It serves `/{sandbox}/{path}` on `:4400`: it checks the
 `X-Nylorun-Ticket` header (a compact JWS core signs with the ticket key: `aud`
 `nylorun-computer`, `sub` the sandbox's name, `exp`), opens an mTLS CONNECT tunnel to
@@ -193,7 +192,7 @@ is `502 computer_unreachable`.
 
 ### The keys provider
 
-`sandboxes provider` is the keys provider (ADR-142): the one credential provider Substrate's
+`sandboxes provider` is the keys provider: the one credential provider Substrate's
 egress asks for a keyed request's header, as a pod in `ate-system` beside it (`nylorun local
 sandbox enable` deploys it as `nylorun-keys-provider`). Like Substrate's own providers, it serves
 gRPC `FetchSecret` on `:50051` over mutual TLS with its servicedns pod certificate, admits only

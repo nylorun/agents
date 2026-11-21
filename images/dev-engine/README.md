@@ -1,8 +1,7 @@
 # ghcr.io/nylorun/dev:engine-<runtime>
 
 The dev image ([`images/dev`](../dev/README.md)) with one Runtime version's engine built in under
-`/opt/nylorun`, so a sandbox pod starts it directly (`entrypoint: "builtin"`, ADR-99 in
-nylorun/factory) and a wake copies nothing in. It is published as a tag of the public
+`/opt/nylorun`, so a sandbox pod starts it directly (`entrypoint: "builtin"`) and a wake copies nothing in. It is published as a tag of the public
 `ghcr.io/nylorun/dev` package, one per Runtime version: `engine-0.40.0-beta`.
 
 | Path | What |

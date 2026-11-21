@@ -1,6 +1,6 @@
 # Observability example: the Runtime's telemetry in Grafana
 
-The Runtime stores no telemetry (ADR-159). Each process keeps its metrics in memory and serves them
+The Runtime stores no telemetry. Each process keeps its metrics in memory and serves them
 on `:9464/metrics`, and sends traces and metrics over OTLP when you give it an endpoint. This
 example gives it one on your machine: Grafana's all-in-one OpenTelemetry backend, for development.
 For production, put an OpenTelemetry Collector in front of your own backend

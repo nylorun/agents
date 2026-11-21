@@ -1,6 +1,6 @@
 # Observability
 
-The Runtime has two systems for two readers (ADR-159). The **event log** is the durable history
+The Runtime has two systems for two readers. The **event log** is the durable history
 of every session and Agent: what the agent did, and what the Runtime did to it. It is exact,
 never sampled, and the Runtime resumes and audits from it. It is for **developers** building and
 running agents. **Telemetry** is OpenTelemetry: metrics, spans and log lines about how the Runtime

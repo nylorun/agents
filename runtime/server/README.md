@@ -338,7 +338,7 @@ safe transaction order. `tool-calls` adds `GET /v1/sessions/{id}/calls/tool`: ea
 the session from the effect journal, with its input, status and sends. Existing list/history
 requests without `limit` retain their response shapes. These are public APIs for Studio,
 CLI and custom clients; clients never need database access. See the
-[API contracts, authorization, SDK examples and Studio handoff](https://github.com/nylorun/agents/blob/main/runtime/docs/session-reads.md).
+[API contracts, authorization, SDK examples and Studio handoff](https://github.com/nylorun/agents/blob/main/runtime/server/evidence/session-reads.md).
 
 ## Turns
 
@@ -381,7 +381,7 @@ reverse order. No data backfill, protocol bump or direct client database access 
 required. Studio can discover `artifact-reads` through `/health` before enabling
 a tenant-wide table; `@nylorun/agents` exposes the same API as `artifacts.page()`.
 
-[Recorded query plans](docs/artifact-pages-evidence.json) use a disposable local
+[Recorded query plans](evidence/artifact-pages-evidence.json) use a disposable local
 Postgres 17 fixture: the public SDK drained 10,006 artifacts in 201 pages of at
 most 50 rows, without gaps or duplicates, in 796 ms. First/deep page queries used
 backward index scans with a tuple index condition on the deep page (0.014/0.028 ms).
@@ -389,6 +389,6 @@ These are fixture timings, not production throughput estimates. Reproduce after
 building dependencies with:
 
 ```sh
-ARTIFACT_READS_EVIDENCE="$PWD/runtime/server/docs/artifact-pages-evidence.json" \
+ARTIFACT_READS_EVIDENCE="$PWD/runtime/server/evidence/artifact-pages-evidence.json" \
   npm test --workspace @nylorun/runtime -- test/http/artifact-pages.test.ts
 ```
