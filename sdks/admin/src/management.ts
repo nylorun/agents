@@ -173,8 +173,8 @@ export interface ManagementSettings {
      */
     get(): Promise<TenantSandboxView>;
     /**
-     * Replaces the Tenant's settings for Agents' environments: limits, the pods' stop grace,
-     * `engine.images` and placement. A setting left out takes its default, so change one by
+     * Replaces the Tenant's settings for Agents' environments: limits, the pods' stop grace and
+     * placement. A setting left out takes its default, so change one by
      * putting `get()`'s `config` back with that change.
      */
     put(request: Body<PutTenantEnvironmentsRequest>): Promise<TenantSandboxView>;

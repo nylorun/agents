@@ -61,6 +61,9 @@ run in the Agent's own actor, reached through the sandbox gateway and Substrate'
 - **Other providers:** guides for AWS, Azure and any Kubernetes cluster come later in the docs.
 - **What Substrate needs:** the router's allowlist naming the sandbox gateway, and the Tenant's
   atespace; the chart's README says how.
+- **Computer images:** an Agent names its own, by digest, or gets `python:3.13-slim`.
+  [Computer images](computer-images.md) says how to build one and how the nodes pull it from
+  the cluster's own registry.
 
 ## Front doors
 

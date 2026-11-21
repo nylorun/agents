@@ -32,14 +32,25 @@ Image: `ghcr.io/nylorun/sandboxes:<runtime version>` (a change here needs a
 (`driver.Name`; `Name("shop", "sbx_01", 0)` is `sbx-ub6g5m7mvjlct6r7-g0`).
 
 PUT body: `opId`, `mode` (`Running`|`Suspended`), `image` (default `python:3.13-slim`),
-`entrypoint` (`engine`, the default: the engine copied from `harnessImage` runs; `builtin`: the
-engine the image carries under `/opt/nylorun` runs (`bin/tini`, `bin/node`, `engine/harness.mjs`),
-with nothing copied in and no `harnessImage`; `image`: the image's own `ENTRYPOINT` and
-`CMD` run, a custom harness built into the image, with nothing copied in and no `harnessImage`), `harnessImage` (the Runtime image the engine is copied from),
+`entrypoint` (`engine`, the default: the engine copied from `harnessImage` runs; `image`: the
+image's own `ENTRYPOINT` and `CMD` run, a custom harness built into the image, with nothing copied
+in and no `harnessImage`; `builtin`, an engine built into the image, is refused: no image carries
+the engine), `harnessImage` (the Runtime image the engine is copied from),
 `command` (replaces the engine command, for diagnostics and the suite), `cpus`, `memoryMiB`, `storageGiB` (fixed once
 created), `stopGraceSeconds` (1–30, default 10), `shutdownTime` (RFC 3339),
 `shutdownPolicy` (`Retain`|`Delete`), `env`, `joinToken` (written to Secret `<name>-join`
 before the Sandbox is applied).
+
+**Image mirrors**:
+`cluster.json`'s `imageMirrors` (the chart's `sandboxes.imageMirrors`) maps an image repository to
+the repository that serves the same images, such as
+`{"ghcr.io/nylorun/bot-computer": "asia-south1-docker.pkg.dev/<project>/nylorun/bot-computer"}`.
+On both backends the workload image of a mapped repository is rendered from its mirror, with its
+digest or tag kept (Substrate still pins a tag against the source registry first). The status's
+`imageID`, and Substrate's recorded image, name the source repository, so the Runtime pins the
+digest it asked for. The computer agent's and the Runtime's images are not mirrored. Copy each
+digest into the mirror first (`crane copy` keeps it), and pre-pull the mirror's name. Keys and
+values are repositories with no tag or digest; one mirror serves one repository.
 
 Status: `name, exists, deleting, mode, ready, suspended, expired, podUID, podPhase, imageID,
 volume (present|missing), opId, shutdownTime, reason, message`.
@@ -64,7 +75,7 @@ Substrate's egress are on. The `/v1/pods` contract is the same.
   Substrate allows it only to a template with the same volumes. So an actor keeps the engine
   (the `nylo` image volume, pinned by digest) it was created with: a Runtime upgrade does not
   move an existing pod to the new engine; a new incarnation (a reset) gets it. Any other volume
-  change, such as switching between `engine` and `builtin`, is not attempted: the request is
+  change, such as switching between `engine` and `image`, is not attempted: the request is
   recorded and the sandbox reports `reason: RepointRefused` with why, so the Runtime's ready
   deadline fails the start instead of the put being sent again for good.
   `mode` maps to resume and suspend (synchronous, so the snapshot is in durable storage when it
@@ -144,7 +155,7 @@ not with the Runtime.
   is the agent's image instead of the Runtime's, and the container's command is `/nylo/computer`,
   run as the actor's PID 1 (no wrapper, tini or Node: it makes `/harness/home` and the workspace
   itself and reaps what commands leave behind). Everything else (env, volumes, the wake-up probe)
-  is the engine's. `builtin` keeps the image's own engine, and `command` replaces both. An actor
+  is the engine's, and `command` replaces both. An actor
   keeps the agent image it was created with; a move between `engine` and `go` changes its volumes,
   which is refused (`RepointRefused`), so the Runtime gives it a new volume from its latest disk
   version. Golden file: `internal/substrate/testdata/computer-agent.golden.json`.

@@ -253,7 +253,6 @@ it("the Tenant's sandbox settings: GET's config puts back unchanged, and engine.
       },
       lifecycle: { stopGrace: "10s" },
       placement: { "*": { hosts: ["harness-container", "sandbox"] } },
-      engine: { images: [] },
     });
     expect((await sandbox("GET")).config).toEqual({});
 
@@ -265,7 +264,6 @@ it("the Tenant's sandbox settings: GET's config puts back unchanged, and engine.
         idle: "5m",
       },
       lifecycle: { stopGrace: "20s" },
-      engine: { images: ["ghcr.io/nylorun/bot-worker"] },
       placement: { "*": { hosts: ["harness-container", "sandbox"] }, nylorun: { hosts: ["sandbox"] } },
     };
     const effective = {
@@ -278,9 +276,7 @@ it("the Tenant's sandbox settings: GET's config puts back unchanged, and engine.
       },
       lifecycle: { stopGrace: "20s" },
       placement: settings.placement,
-      engine: { images: ["ghcr.io/nylorun/bot-worker"] },
     };
-    // engine.images is in the PUT's answer and the next GET's, as set and in force.
     const put = await sandbox("PUT", { requestId: "sb-set", ...settings });
     expect(put.config).toEqual(settings);
     expect(put.effective).toEqual(effective);
@@ -301,6 +297,14 @@ it("the Tenant's sandbox settings: GET's config puts back unchanged, and engine.
     });
     expect(refused.status).toBe(400);
     expect(await refused.text()).toContain("memoryMiB");
+
+    // engine.images is retired (ADR-161): refused in a PUT.
+    const retired = await fetch(`${rt.url}/v1/tenant/sandbox`, {
+      method: "PUT",
+      headers: { ...management(), "content-type": "application/json" },
+      body: JSON.stringify({ requestId: "sb-engine", engine: { images: ["ghcr.io/nylorun/bot-worker"] } }),
+    });
+    expect(retired.status).toBe(400);
   } finally {
     await sandbox("PUT", { requestId: "sb-reset" });
   }

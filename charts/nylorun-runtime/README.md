@@ -121,6 +121,7 @@ admin key is in the Secret (`adminKey`); Studio is a port-forward away (`NOTES.t
 | `computer.port` | `8080` | The port the computer agent (or the engine) serves in a computer |
 | `computer.agent` | `go` | What serves a computer: `go`, the computer agent from `computer.image`, or `engine`, the Runtime's engine in computer mode, for a Runtime that can't move yet (kept for one minor). Passed to the sandboxes service as `--computer-agent` |
 | `computer.image` | `ghcr.io/nylorun/computer:<nylorun.com/computer-version>` | The computer agent's image (`--computer-image`). Pin it by digest in production, as `computer-image.yml` prints it; a tag is pinned to its digest by the sandboxes service |
+| `sandboxes.imageMirrors` | none | Image repository → the repository that serves the same images: the nodes pull a computer image from the mirror with its digest kept, and the Runtime still reads the Agent's name. Copy each digest there first, and pre-pull the mirror's name |
 | `sandboxGateway.replicas` | `2` | |
 | `placement.nodeSelector`, `.tolerations` | none | Where the chart's pods run (its pool) |
 | `prepull.enabled`, `.substrateCommit`, `.images`, `.nodeSelector`, `.tolerations` | off | Warm the worker nodes' image cache |

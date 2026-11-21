@@ -113,6 +113,7 @@ Everything in this repository runs without a Nylorun account.
 | Run on one machine or VM with Docker Compose | [Deploy on a VM](https://docs.nylorun.com/docs/deploy/vm) · [Compose reference](./docs/self-hosting/docker-compose.md) |
 | Sign people in with your own identity provider | [Identity and access](./docs/self-hosting/identity.md) · [Keycloak example](./examples/self-host) |
 | Run on Kubernetes with pod sandboxes | [Kubernetes guide](https://docs.nylorun.com/docs/deploy/kubernetes) · [Helm chart](./charts/nylorun-runtime) |
+| Choose or build the image an Agent's computer runs | [Computer images](./docs/self-hosting/computer-images.md) |
 | Collect metrics, traces and audit events | [Observability](./docs/self-hosting/observability.md) |
 | Upgrade between beta releases | [Compatibility](https://docs.nylorun.com/docs/compatibility) · [Migration notes](./docs/upgrading/migration.md) |
 

@@ -968,7 +968,7 @@ export type EnvironmentLimits = z.infer<typeof EnvironmentLimitsSchema>;
 const runtimeFields = {
   /** `virtual`, `pod` (needs sandbox pods, `nylorun local sandbox enable`) or `none`. Fixed. */
   kind: z.enum(ENVIRONMENT_KINDS),
-  /** Pods only: the workload image (default the Tenant's, else `python:3.13-slim`). */
+  /** Pods only: the workload image, by digest (default `python:3.13-slim`). */
   image: z.string().min(1).optional(),
   resources: resourcesSchema.optional(),
   /** Pods only: the volume's size (default 5GiB). Fixed. */
@@ -1758,21 +1758,6 @@ export const TenantEnvironmentsConfigSchema = z
       .object({
         /** The pod's grace period to stop (its `terminationGracePeriodSeconds`). Default 10s. */
         stopGrace: durationSchema("lifecycle.stopGrace").optional(),
-      })
-      .strict()
-      .optional(),
-    /**
-     * Pods: images that carry this Runtime's engine under `/opt/nylorun` (ADR-99), by repository
-     * (`ghcr.io/nylorun/bot-worker`). A pod of a listed image runs that engine with nothing copied
-     * in, while the engine is the Runtime's own version; otherwise the engine is copied in, as for
-     * any other image.
-     */
-    engine: z
-      .object({
-        images: z
-          .array(z.string().min(1).max(256).regex(/^[a-z0-9]([a-z0-9._:/-]*[a-z0-9])?$/, "an image repository, without a tag or digest"))
-          .max(32)
-          .optional(),
       })
       .strict()
       .optional(),
@@ -5453,8 +5438,6 @@ export const EffectiveSandboxConfigSchema = z
     placement: z
       .record(z.string(), z.object({ hosts: z.array(z.enum(PLACEMENT_HOSTS)) }).strict())
       .optional(),
-    /** Pods: the image repositories that carry this Runtime's engine (ADR-99); none by default. */
-    engine: z.object({ images: z.array(z.string()) }).strict().optional(),
   })
   .strict();
 export type EffectiveSandboxConfig = z.infer<typeof EffectiveSandboxConfigSchema>;

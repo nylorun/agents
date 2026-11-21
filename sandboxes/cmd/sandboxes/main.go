@@ -145,7 +145,7 @@ func run(log *slog.Logger) error {
 			return err
 		}
 		harness, gates, egress := cfg.Cluster.PodURLs()
-		d := driver.New(client, cfg.Cluster.Namespace, driver.PodURLs{Harness: harness, Gates: gates, Egress: egress})
+		d := driver.New(client, cfg.Cluster.Namespace, driver.PodURLs{Harness: harness, Gates: gates, Egress: egress}).WithMirrors(cfg.Cluster.Mirrors)
 		d.Cache().Start(ctx)
 		backend = d
 	}
@@ -169,7 +169,7 @@ func run(log *slog.Logger) error {
 		_ = server.Shutdown(shutdown)
 	}()
 	log.Info("sandboxes listening", "listen", cfg.Listen, "backend", cfg.Cluster.Backend, "namespace", cfg.Cluster.Namespace,
-		"context", cfg.Cluster.Context, "dial", cfg.Cluster.Dial)
+		"context", cfg.Cluster.Context, "dial", cfg.Cluster.Dial, "imageMirrors", cfg.Cluster.Mirrors.Len())
 	go func() {
 		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errs <- err
@@ -201,7 +201,7 @@ func substrateBackend(ctx context.Context, cfg config.Config, log *slog.Logger) 
 	if err != nil {
 		return nil, nil, err
 	}
-	settings := substrate.Settings{Atespace: sub.Atespace, WorkerSelector: sub.WorkerSelector, KeysProvider: sub.KeysProvider}
+	settings := substrate.Settings{Atespace: sub.Atespace, WorkerSelector: sub.WorkerSelector, KeysProvider: sub.KeysProvider, ImageMirrors: cfg.Cluster.Mirrors}
 	var front *edge.Server
 	if port := sub.ComputerPort(); port > 0 {
 		// Computers (ADR-149): no edge; the template carries the key tickets are checked with.

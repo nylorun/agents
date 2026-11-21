@@ -464,7 +464,6 @@ export function computeSections(
   const limits = effective.limits;
   const cluster = sandbox.cluster;
   const placement = Object.entries(effective.placement ?? { "*": { hosts: ["harness-container", "sandbox"] } });
-  const engineImages = effective.engine?.images ?? [];
   return [
     {
       id: "sandbox",
@@ -530,9 +529,6 @@ export function computeSections(
         { label: "Default resources", value: resourcesText(limits.defaultResources), note: "when it asks for none" },
         { label: "Idle", value: `Stops after ${limits.idle} without a turn` },
         ...(effective.lifecycle ? [{ label: "Stop grace", value: effective.lifecycle.stopGrace }] : []),
-        ...(engineImages.length > 0
-          ? [{ label: "Engine images", value: engineImages.join(", "), note: "pods run the engine built in", mono: true }]
-          : []),
         ...(limits.environments !== undefined
           ? [
               {
@@ -613,7 +609,7 @@ export function sandboxForm(sandbox: SandboxView): SandboxForm {
 
 /**
  * The body that saves the compute form's sandbox fields: the Tenant's stored settings (`config`)
- * with only the fields that changed set, so the rest (`engine`, `placement`, any setting left to
+ * with only the fields that changed set, so the rest (`placement`, any setting left to
  * its default) stays as it was. A field cleared that has a default (idle, stop grace, most
  * Agents) goes back to it. No body when nothing changed; an error when a changed field does not
  * read.

@@ -23,7 +23,6 @@ import { fakeSandboxes, type FakeSandboxes } from "../support/fake-sandboxes.js"
 import { attachHost } from "../support/custom-harness.js";
 import { startTestTenant } from "../support/tenant.js";
 import { deploy, manifestOf, saveManifest, writeManifest } from "../support/agents.js";
-import { RUNTIME_VERSION } from "../../src/version.js";
 
 const APP = "sandbox-pods-app-key-aaaaaaaaaaaaa";
 const KEK = Buffer.alloc(32, 7).toString("base64");
@@ -505,43 +504,13 @@ describe("pod Agents", { timeout: 90_000 }, () => {
     await until("the Sandbox is deleted", async () => fake.sandboxes.has(name), (has) => !has);
   });
 
-  it("runs the engine a listed image carries while it is this Runtime's, and copies it in otherwise (ADR-99)", async () => {
-    const repo = "ghcr.io/nylorun/bot-worker";
-    const digest = `${repo}@sha256:${"d".repeat(64)}`;
-    fake.imageIdOf = (spec) => (spec.image?.startsWith(repo) ? digest : undefined);
-    expect((await call("PUT", "/v1/tenant/sandbox", { requestId: "engine-on", limits: { idle: "10m" }, engine: { images: [repo] } })).status).toBe(200);
-    try {
-      const { name } = await createPod("engine/one", { image: `${repo}:0.38.0-beta` });
-      const puts = () => fake.calls.filter((item) => item.method === "PUT" && item.name === name);
-      // A first start: nothing is known of the image's engine, so it runs, with nothing copied in.
-      expect(puts().at(-1)!.spec).toMatchObject({ entrypoint: "builtin" });
-      expect(puts().at(-1)!.spec).not.toHaveProperty("harnessImage");
-      await until("pinned", async () => (await view("engine/one")).compute.pod.imageDigest, (pinned) => pinned === digest);
-
-      const restart = async (session: string) => {
-        expect((await call("POST", `${path("engine/one")}/stop`)).status).toBe(200);
-        await until("suspended", () => view("engine/one"), (body) => body.compute.pod.observed === "suspended");
-        expect((await open(session, "engine/one")).status).toBe(200);
-        expect((await message(session)).status).toBe(200);
-        await until("resumed", async () => fake.podUid(name), (uid) => uid !== undefined);
-        await call("POST", `/v1/sessions/${session}/commands`, { type: "cancel", requestId: `c-${session}`, idempotencyKey: `c-${session}` });
-        await settled(session);
-        return puts().at(-1)!.spec!;
-      };
-
-      // Its engine says it is this Runtime's: the next pod runs it again.
-      await hosts.join({ sandboxId: "engine/one", podUid: fake.podUid(name)!, joinToken: fake.joinToken(name)! }, { imageEngine: RUNTIME_VERSION });
-      expect(await restart("engine-s1")).toMatchObject({ image: digest, entrypoint: "builtin" });
-
-      // An engine of another version on this digest: the next pod copies the Runtime's in.
-      await hosts.join({ sandboxId: "engine/one", podUid: fake.podUid(name)!, joinToken: fake.joinToken(name)! }, { imageEngine: "0.0.1-old" });
-      const copied = await restart("engine-s2");
-      expect(copied).toMatchObject({ image: digest, harnessImage: "nylorun-runtime:test" });
-      expect(copied).not.toHaveProperty("entrypoint");
-    } finally {
-      fake.imageIdOf = undefined;
-      await call("PUT", "/v1/tenant/sandbox", { requestId: "engine-off", limits: { idle: "2s" } });
-    }
+  it("refuses engine.images, and copies the engine into every image (ADR-161)", async () => {
+    const refused = await call("PUT", "/v1/tenant/sandbox", { requestId: "engine-on", limits: { idle: "10m" }, engine: { images: ["ghcr.io/nylorun/bot-worker"] } });
+    expect(refused.status).toBe(400);
+    const { name } = await createPod("engine/one", { image: "ghcr.io/nylorun/bot-worker:0.38.0-beta" });
+    const spec = fake.calls.filter((item) => item.method === "PUT" && item.name === name).at(-1)!.spec;
+    expect(spec).toMatchObject({ image: "ghcr.io/nylorun/bot-worker:0.38.0-beta", harnessImage: "nylorun-runtime:test" });
+    expect(spec).not.toHaveProperty("entrypoint");
   });
 
   it("deletes the Sandbox, then the row", async () => {

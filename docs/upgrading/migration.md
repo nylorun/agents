@@ -3,6 +3,27 @@
 What changed between beta releases and what to do about it, newest first. For which
 versions work together, read [Compatibility](https://docs.nylorun.com/docs/compatibility).
 
+# No image carries the engine, and clusters mirror computer images
+
+Breaking for an installation that listed images in `engine.images`. Nothing to do
+otherwise.
+
+- **`engine.images` is retired.** `PUT /v1/tenant/sandbox` refuses it (`400`, an unknown key), and
+  `GET`, the `PUT` answer, the admin SDK, the CLI and Studio no longer show it. A value an older
+  Runtime stored is dropped when read, and gone at the next write. Remove it from any script that
+  puts the settings.
+- **`entrypoint: "builtin"` is retired** in the sandboxes service (`400 invalid_request`). Every pod
+  copies or mounts the Runtime's engine, and every computer runs the computer agent (or, with
+  `computer.agent: engine`, the engine from the Runtime image). A pod engine no longer reports an
+  engine of its own at join.
+- **`ghcr.io/nylorun/dev` and `ghcr.io/nylorun/dev:engine-<runtime>` are no longer published.**
+  Images already pushed keep working where they are pinned, as any image does, until they are
+  deleted; the `engine-*` builds run the copied engine like any other image. Pin your own computer
+  image instead: [Computer images](../self-hosting/computer-images.md) has a recipe for a coding computer.
+- **Image mirrors.** New, optional: `sandboxes.imageMirrors` in the chart (`imageMirrors` in
+  `cluster.json`) maps a repository to one in the cluster's own registry, with the digest kept.
+  Copy each digest there (`crane copy`) and pre-pull the mirror's name.
+
 # Telemetry for operators, and one content switch
 
 Additive, with two variables deprecated (ADR-159). Nothing to do unless you export trace content

@@ -81,9 +81,9 @@ type Spec struct {
 	// Image is the workload image (default python:3.13-slim).
 	Image string `json:"image,omitempty"`
 	// Entrypoint is what the workload container runs: "engine" (the default), the Runtime's
-	// engine copied in from HarnessImage; "builtin", the Runtime's engine built into the workload
-	// image under /opt/nylorun (ADR-99); or "image", the workload image's own ENTRYPOINT and CMD:
-	// a custom harness built into the image (track R4). With "builtin" or "image" nothing is copied in.
+	// engine copied in from HarnessImage; or "image", the workload image's own ENTRYPOINT and CMD:
+	// a custom harness built into the image (track R4), with nothing copied in. "builtin", an
+	// engine built into the image (ADR-99), is refused: no image carries the engine (ADR-161).
 	Entrypoint string `json:"entrypoint,omitempty"`
 	// HarnessImage is the Runtime image the engine is copied from (init container nylo-copy).
 	HarnessImage string `json:"harnessImage,omitempty"`
@@ -227,15 +227,13 @@ func (s *Spec) Normalize() error {
 			return invalid("harnessImage is required unless command is given")
 		}
 	case EntrypointBuiltin:
-		if s.HarnessImage != "" {
-			return invalid("harnessImage is not allowed with entrypoint builtin: the image has the engine")
-		}
+		return invalid("entrypoint builtin is retired: no image carries the engine (ADR-161); use engine with harnessImage")
 	case EntrypointImage:
 		if s.HarnessImage != "" {
 			return invalid("harnessImage is not allowed with entrypoint image: the image is the harness")
 		}
 	default:
-		return invalid("entrypoint must be engine, builtin or image")
+		return invalid("entrypoint must be engine or image")
 	}
 	if len(s.Command) > 64 {
 		return invalid("command has more than 64 arguments")
@@ -316,9 +314,10 @@ func millicores(cpus float64) string {
 
 // The workload's entrypoints (Spec.Entrypoint).
 const (
-	EntrypointEngine  = "engine"
+	EntrypointEngine = "engine"
+	EntrypointImage  = "image"
+	// EntrypointBuiltin is refused (ADR-161): it ran an engine built into the image (ADR-99).
 	EntrypointBuiltin = "builtin"
-	EntrypointImage   = "image"
 )
 
 // EngineCommand runs the copied engine under tini as PID 1 (signals reach the whole group).
@@ -326,13 +325,6 @@ const (
 var EngineCommand = []string{
 	"/nylo/tini-static", "-g", "--",
 	"/nylo/node", "/nylo/entry.mjs", "--service", "harness",
-}
-
-// BuiltinCommand runs the engine an image carries under /opt/nylorun (ADR-99), under tini as PID 1:
-// the Runtime image's tini, node and bundled engine, copied there when the image was built.
-var BuiltinCommand = []string{
-	"/opt/nylorun/bin/tini", "-g", "--",
-	"/opt/nylorun/bin/node", "/opt/nylorun/engine/harness.mjs", "--service", "harness",
 }
 
 // EngineCopy copies tini, node and the engine from the Runtime image into /nylo and links
@@ -371,8 +363,6 @@ func Render(namespace, name string, spec Spec, urls PodURLs) *unstructured.Unstr
 	switch spec.Entrypoint {
 	case EntrypointEngine:
 		command = EngineCommand
-	case EntrypointBuiltin:
-		command = BuiltinCommand
 	}
 	if len(spec.Command) > 0 {
 		command = spec.Command
@@ -495,6 +485,7 @@ type Driver struct {
 	client    dynamic.Interface
 	namespace string
 	urls      PodURLs
+	mirrors   Mirrors
 	cache     *Cache
 	locks     sync.Map
 }
@@ -502,6 +493,14 @@ type Driver struct {
 // New returns a driver; Start its cache before serving.
 func New(client dynamic.Interface, namespace string, urls PodURLs) *Driver {
 	return &Driver{client: client, namespace: namespace, urls: urls, cache: NewCache(client, namespace)}
+}
+
+// WithMirrors makes the driver pull workload images from their mirrors (ADR-161) and report
+// them under the names the specs asked for.
+func (d *Driver) WithMirrors(m Mirrors) *Driver {
+	d.mirrors = m
+	d.cache.mirrors = m
+	return d
 }
 
 // Cache is the driver's namespace informers.
@@ -563,7 +562,10 @@ func (d *Driver) Put(ctx context.Context, name string, spec Spec) (Status, error
 			return Status{}, err
 		}
 	}
-	applied, err := d.sandboxes().Apply(ctx, name, Render(d.namespace, name, spec, d.urls),
+	// The node pulls the workload image from its mirror, if it has one (ADR-161).
+	rendered := spec
+	rendered.Image = d.mirrors.To(spec.Image)
+	applied, err := d.sandboxes().Apply(ctx, name, Render(d.namespace, name, rendered, d.urls),
 		metav1.ApplyOptions{FieldManager: FieldManager, Force: true})
 	if err != nil {
 		return Status{}, err

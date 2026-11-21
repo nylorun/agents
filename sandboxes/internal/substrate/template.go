@@ -56,6 +56,9 @@ type Network struct {
 // Settings are the Tenant-wide parts of a template.
 type Settings struct {
 	Atespace string
+	// ImageMirrors maps a workload image's repository to its mirror (ADR-161): the template
+	// names the mirror, and the state keeps the image as resolved, under the Agent's name.
+	ImageMirrors driver.Mirrors
 	// HarnessURL and GatesURL are the edge's addresses for actors.
 	HarnessURL, GatesURL string
 	// EdgeHost is the edge's name, allowed through in every egress policy.
@@ -112,8 +115,8 @@ cd /workspace
 exec "$@"`
 
 // computerArgs is what the wrapper execs for a computer.
-func computerArgs(entrypoint string) []string {
-	args := engineArgs(entrypoint)
+func computerArgs() []string {
+	args := engineArgs()
 	return append(args[:len(args)-1], "computer")
 }
 
@@ -145,7 +148,7 @@ func renderComputer(s Settings, spec driver.Spec, images Resolved) (map[string]a
 		envList = append(envList, map[string]any{"name": key, "value": env[key]})
 	}
 	mounts, volumes := baseVolumes()
-	container := map[string]any{"name": "workload", "image": images.Image, "env": envList}
+	container := map[string]any{"name": "workload", "image": s.ImageMirrors.To(images.Image), "env": envList}
 	if len(spec.Command) > 0 {
 		container["command"] = spec.Command
 	} else if spec.Entrypoint == driver.EntrypointEngine && s.ComputerAgentGo() {
@@ -174,7 +177,7 @@ func renderComputer(s Settings, spec driver.Spec, images Resolved) (map[string]a
 			mounts = append(mounts, map[string]any{"name": EngineVolume, "mountPath": EngineDir})
 			volumes = append(volumes, map[string]any{"name": EngineVolume, "image": map[string]any{"reference": images.Harness}})
 		}
-		container["command"] = append([]string{"/bin/sh", "-c", computerWrapper, "nylorun-computer"}, computerArgs(spec.Entrypoint)...)
+		container["command"] = append([]string{"/bin/sh", "-c", computerWrapper, "nylorun-computer"}, computerArgs()...)
 		// ResumeActor returns only once the engine answers (ADR-148 decision 4).
 		container["wakeupProbe"] = map[string]any{
 			"httpGet":        map[string]any{"path": "/ready", "port": s.ComputerPort},
@@ -195,7 +198,7 @@ func baseVolumes() ([]any, []any) {
 		map[string]any{"name": "harness", "mountPath": "/harness"},
 		// The engine writes the session's skills here (track R2 M4), as the pods driver's volume.
 		// A volume, not a directory the wrapper makes at the root: an image that runs as a user
-		// other than root (ghcr.io/nylorun/dev, 1000:1000) can't create /skills.
+		// other than root (uid 1000, as most computer images) can't create /skills.
 		map[string]any{"name": "skills", "mountPath": "/skills"},
 	}
 	volumes := []any{
@@ -290,12 +293,8 @@ mkdir -p /harness/home /workspace /skills
 cd /workspace
 exec "$@"`
 
-// engineArgs is what the wrapper execs: our engine from the mounted Runtime image, or the one
-// the workload image carries (ADR-99).
-func engineArgs(entrypoint string) []string {
-	if entrypoint == driver.EntrypointBuiltin {
-		return driver.BuiltinCommand
-	}
+// engineArgs is what the wrapper execs: our engine from the mounted Runtime image.
+func engineArgs() []string {
 	return []string{
 		EngineDir + "/usr/bin/tini-static", "-g", "--",
 		EngineDir + "/usr/local/bin/node", EngineDir + "/engine/harness.mjs", "--service", "harness",
@@ -388,7 +387,7 @@ func RenderTemplate(s Settings, spec driver.Spec, images Resolved, joinToken str
 		map[string]any{"name": "harness", "mountPath": "/harness"},
 		// The engine writes the session's skills here (track R2 M4), as the pods driver's volume.
 		// A volume, not a directory the wrapper makes at the root: an image that runs as a user
-		// other than root (ghcr.io/nylorun/dev, 1000:1000) can't create /skills.
+		// other than root (uid 1000, as most computer images) can't create /skills.
 		map[string]any{"name": "skills", "mountPath": "/skills"},
 	}
 	volumes := []any{
@@ -403,7 +402,7 @@ func RenderTemplate(s Settings, spec driver.Spec, images Resolved, joinToken str
 		map[string]any{"name": "harness", "durableDir": map[string]any{}},
 		map[string]any{"name": "skills", "durableDir": map[string]any{}},
 	}
-	container := map[string]any{"name": "workload", "image": images.Image, "env": envList}
+	container := map[string]any{"name": "workload", "image": s.ImageMirrors.To(images.Image), "env": envList}
 	switch {
 	case len(spec.Command) > 0:
 		container["command"] = spec.Command
@@ -417,7 +416,7 @@ func RenderTemplate(s Settings, spec driver.Spec, images Resolved, joinToken str
 			mounts = append(mounts, map[string]any{"name": EngineVolume, "mountPath": EngineDir})
 			volumes = append(volumes, map[string]any{"name": EngineVolume, "image": map[string]any{"reference": images.Harness}})
 		}
-		container["command"] = append([]string{"/bin/sh", "-c", wrapper, "nylorun-engine"}, engineArgs(spec.Entrypoint)...)
+		container["command"] = append([]string{"/bin/sh", "-c", wrapper, "nylorun-engine"}, engineArgs()...)
 	}
 	container["volumeMounts"] = mounts
 

@@ -943,22 +943,6 @@
                     },
                     "additionalProperties": false
                   },
-                  "engine": {
-                    "type": "object",
-                    "properties": {
-                      "images": {
-                        "type": "array",
-                        "items": {
-                          "type": "string",
-                          "minLength": 1,
-                          "maxLength": 256,
-                          "pattern": "^[a-z0-9]([a-z0-9._:/-]*[a-z0-9])?$"
-                        },
-                        "maxItems": 32
-                      }
-                    },
-                    "additionalProperties": false
-                  },
                   "placement": {
                     "type": "object",
                     "additionalProperties": {
@@ -2207,22 +2191,6 @@
                 },
                 "additionalProperties": false
               },
-              "engine": {
-                "type": "object",
-                "properties": {
-                  "images": {
-                    "type": "array",
-                    "items": {
-                      "type": "string",
-                      "minLength": 1,
-                      "maxLength": 256,
-                      "pattern": "^[a-z0-9]([a-z0-9._:/-]*[a-z0-9])?$"
-                    },
-                    "maxItems": 32
-                  }
-                },
-                "additionalProperties": false
-              },
               "placement": {
                 "type": "object",
                 "additionalProperties": {
@@ -2341,21 +2309,6 @@
                   ],
                   "additionalProperties": false
                 }
-              },
-              "engine": {
-                "type": "object",
-                "properties": {
-                  "images": {
-                    "type": "array",
-                    "items": {
-                      "type": "string"
-                    }
-                  }
-                },
-                "required": [
-                  "images"
-                ],
-                "additionalProperties": false
               }
             },
             "required": [
@@ -2478,22 +2431,6 @@
             "properties": {
               "stopGrace": {
                 "type": "string"
-              }
-            },
-            "additionalProperties": false
-          },
-          "engine": {
-            "type": "object",
-            "properties": {
-              "images": {
-                "type": "array",
-                "items": {
-                  "type": "string",
-                  "minLength": 1,
-                  "maxLength": 256,
-                  "pattern": "^[a-z0-9]([a-z0-9._:/-]*[a-z0-9])?$"
-                },
-                "maxItems": 32
               }
             },
             "additionalProperties": false
@@ -7415,7 +7352,7 @@
           "Settings"
         ],
         "summary": "Set the Tenant's Agent compute settings",
-        "description": "Replaces the Tenant's settings (Tenant setting `environments.config`): the limits every Agent's runtime must fit, the pods' stop grace, the images that carry the engine (`engine.images`) and where harnesses may run. A setting left out takes its default. Answers like `GET`: `config` is the Tenant's settings as stored: only what it set, in exactly the shape `PUT` takes, so a client changes one setting by putting `config` back with that change. `effective` is the configuration in force: `config` with every default filled in, sizes in MiB (`memoryMiB`).",
+        "description": "Replaces the Tenant's settings (Tenant setting `environments.config`): the limits every Agent's runtime must fit, the pods' stop grace and where harnesses may run (`engine.images`, retired by ADR-161, is refused). A setting left out takes its default. Answers like `GET`: `config` is the Tenant's settings as stored: only what it set, in exactly the shape `PUT` takes, so a client changes one setting by putting `config` back with that change. `effective` is the configuration in force: `config` with every default filled in, sizes in MiB (`memoryMiB`).",
         "security": [
           {
             "managementKey": []
