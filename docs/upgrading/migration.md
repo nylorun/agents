@@ -1,3 +1,8 @@
+# Migration notes
+
+What changed between beta releases and what to do about it, newest first. For which
+versions work together, read [Compatibility](https://docs.nylorun.com/docs/compatibility).
+
 # No image carries the engine, and clusters mirror computer images
 
 Breaking for an installation that listed images in `engine.images` (ADR-161). Nothing to do
@@ -14,7 +19,7 @@ otherwise.
 - **`ghcr.io/nylorun/dev` and `ghcr.io/nylorun/dev:engine-<runtime>` are no longer published.**
   Images already pushed keep working where they are pinned, as any image does, until they are
   deleted; the `engine-*` builds run the copied engine like any other image. Pin your own computer
-  image instead: [COMPUTER_IMAGES.md](COMPUTER_IMAGES.md) has a recipe for a coding computer.
+  image instead: [Computer images](../self-hosting/computer-images.md) has a recipe for a coding computer.
 - **Image mirrors.** New, optional: `sandboxes.imageMirrors` in the chart (`imageMirrors` in
   `cluster.json`) maps a repository to one in the cluster's own registry, with the digest kept.
   Copy each digest there (`crane copy`) and pre-pull the mirror's name.
@@ -110,7 +115,7 @@ agent-sandbox are unchanged.
 Additive: no breaking change (ADR-147, ADR-149, ADR-150). Compose, `nylorun local`, agent-sandbox
 and the local `--backend substrate` preview with its edge run as before.
 
-- **The chart.** [`charts/nylorun-runtime`](../charts/nylorun-runtime/README.md) installs the
+- **The chart.** [`charts/nylorun-runtime`](../../charts/nylorun-runtime/README.md) installs the
   Runtime into an Agent Substrate cluster, with Postgres and the object store as settings.
 - **Computers.** On it, a pod Agent is a computer: its runs go to the harness container, and its
   `bash`, `read`, `write`, `edit`, `grep` and `glob` calls, skill folders and disk versions reach
@@ -118,7 +123,7 @@ and the local `--backend substrate` preview with its edge run as before.
   runs our engine in computer mode whatever harness drives the Agent: an Agent with a custom
   harness runs that harness through the Harness API, outside, and its image is its computer.
 - **A custom harness** gets `routing.sandbox.computer: true` and opens the computer with
-  `computer.open` (Harness API 5.6, [§9b](./HARNESS_API.md#9b-computers-harness-api-56)).
+  `computer.open` (Harness API 5.6, [§9b](../reference/harness-api.md#9b-computers-harness-api-56)).
 - **Moving a Substrate preview Tenant.** Its pod Agents keep their loop inside until it is
   installed with the chart. Their disks don't move: start the Tenant on the chart, then create
   its Agents again (or restore a disk version into them).
@@ -291,7 +296,7 @@ Additive, with two deprecations. Agent folders now hold flows (`flow.json`), sub
 `runtime.json` that `"extends"` a shared one, and are the documented way to write an agent;
 `nylorun init <path> --example`, `apply --agent`, `apply --watch`, `chat`, `check --json`,
 `export --folder`, `migrate folder` and `pull` work with them
-([cli/nylorun/README.md](../cli/nylorun/README.md#agent-manifests-apply)).
+([cli/nylorun/README.md](../../cli/nylorun/README.md#agent-manifests-apply)).
 
 - **The three-file format is deprecated.** `agent.manifest.json` with its harness and runtime
   files is still read, and `nylorun apply` and `composeManifest` warn. `nylorun migrate folder
@@ -300,7 +305,7 @@ Additive, with two deprecations. Agent folders now hold flows (`flow.json`), sub
   in `AGENT.md`'s skills block (`skills: { github-issues: { secrets: [GH_TOKEN] } }`), where
   `migrate folder` moves them; `.skills()` still reads them, with a `DeprecationWarning`.
 - **`approval` is no longer a key in a folder** (`approval_removed`): an `ask` rule of the
-  Tenant's [tool policy](./DEPLOYMENT.md#tool-policy) holds a call for a person.
+  Tenant's [tool policy](../self-hosting/docker-compose.md#tool-policy) holds a call for a person.
 - `session.approve(id, approved)` and `session.respond(id, value)` take no options: each makes
   its own idempotency key; pass `{ idempotencyKey }` to retry an answer safely.
 
@@ -636,7 +641,7 @@ only. Upgrade the Runtime, the SDKs, Studio, the CLI and any custom harness toge
   every file, and its refusal chips are gone.
 - **`turn.start.model`** describes the model the turn's calls use: `{provider, id, inputs,
   contextWindow, maxOutputTokens, reasoning?}`, absent for flows and without a model (see
-  [HARNESS_API.md §3](./HARNESS_API.md#3-input-turnstart)). A custom harness must be built
+  [HARNESS_API.md §3](../reference/harness-api.md#3-input-turnstart)). A custom harness must be built
   against this release's `@nylorun/core`: an older one refuses a `turn.start` with the field.
 - **The Model Gate only fetches and translates.** It no longer writes notes for files: a text
   file sent as a media part, or a kind the model or its API does not read, fails the call with
@@ -658,7 +663,7 @@ only. Upgrade the Runtime, the SDKs, Studio, the CLI and any custom harness toge
 - **A custom harness** says `hello {api: 4}`. It reads and writes its run's session's artifacts
   with `artifact.read` and `artifact.write` (`readArtifact`, `openArtifactWrite` and
   `writeArtifactBytes` in `@nylorun/core/harness-api`), in chunks of at most
-  `turn.start.limits.chunkBytes`: see [HARNESS_API.md §4b](./HARNESS_API.md#4b-artifacts). The
+  `turn.start.limits.chunkBytes`: see [HARNESS_API.md §4b](../reference/harness-api.md#4b-artifacts). The
   new Harness API error code is `not_found`. And:
   - **every tool call names its `target`** (`EffectTargetSchema`), its identity:
     `{kind: "mcp", server, tool}` (`tool` the server's own name), `{kind: "http", tool}` (the
@@ -668,20 +673,20 @@ only. Upgrade the Runtime, the SDKs, Studio, the CLI and any custom harness toge
     discover is `tool.unknown`, one the turn disables `tool.disabled`; a `sandbox` call needs a
     session with a sandbox and one of the six operations as its `toolName`. A tool the harness
     runs in its own process is `harness`. An intent may name the `skill` it ran. See
-    [HARNESS_API.md §4](./HARNESS_API.md#4-record-intent-outcome-hash-effect-ids);
+    [HARNESS_API.md §4](../reference/harness-api.md#4-record-intent-outcome-hash-effect-ids);
   - **`turn.start.mcp` replaces `sessionTools` and `routing.mcpSnapshot`.** It states the
     session's MCP servers and their tools as listed, each with `enabled` and the manifest's
     `deferred` hint (`McpFactsSchema`); `session.mcp` answers `{mcp?}`. Build the model's tools
     from it: name each within 64 characters, skip `enabled: false`, and treat `deferred` as a
     hint. Our engine's are exported from `@nylorun/harness` (`mcpToolName`, `mcpToolNames`,
     `mcpToolSet`, `deferredToolsTools`, `runToolSearch`). See
-    [HARNESS_API.md §3](./HARNESS_API.md#3-input-turnstart);
+    [HARNESS_API.md §3](../reference/harness-api.md#3-input-turnstart);
   - **an MCP gate call names the raw tool:** `tool-calls` takes
     `{server: {agentId?, serverName}, effectId, name, arguments}`, with `name` the target's
     `tool`;
   - **keep each outcome and transcript entry under `limits.recordEntryBytes`:** store the rest
     with `artifact.write`, keyed per effect, or reuse `shapeToolOutcome`, `StepBudget` and
-    `spillKey` from `@nylorun/harness`. See [HARNESS_API.md §5b](./HARNESS_API.md#5b-tool-results);
+    `spillKey` from `@nylorun/harness`. See [HARNESS_API.md §5b](../reference/harness-api.md#5b-tool-results);
   - **`hello.features.tools` is removed**, and `NativeToolSchema` with it: a harness declares no
     tools;
   - **mark a compaction.** Send each summary call's intent with `purpose: "summary"` (no
@@ -689,12 +694,12 @@ only. Upgrade the Runtime, the SDKs, Studio, the CLI and any custom harness toge
     `kind: "compaction"` and `compaction: {trigger, tokensBefore, tokensAfter, summaryEffectIds}`
     (`transcriptUpdates(before, after, chunkBytes, compaction)`); core refuses facts naming a call
     that wrote no summary (`invalid`), and the turn fails. See
-    [HARNESS_API.md §6](./HARNESS_API.md#6-transcript);
+    [HARNESS_API.md §6](../reference/harness-api.md#6-transcript);
   - **`artifact.write` has a folder mode** (`kind: "folder"`, `file`, `refused`, `unchanged`) and
     `turn.start.limits.folderEntries`; `artifact.export.skipped` and `artifact.export.failed`
     are claims a harness may send. Core no longer sends `workspace.read` with `list` or `bytes`:
     a harness that serves workspaces drops them. See
-    [HARNESS_API.md §4b](./HARNESS_API.md#4b-artifacts);
+    [HARNESS_API.md §4b](../reference/harness-api.md#4b-artifacts);
   - **a host that embeds `@nylorun/harness/api`** gives `HarnessExecutors.files` `list` and
     `mount` beside `read` and `write`: our engine lists and reads the outputs folder and mounts
     skill folders through them;
@@ -735,7 +740,7 @@ only. Upgrade the Runtime, the SDKs, Studio, the CLI and any custom harness toge
   sizes are the Host tuning, set in `NYLORUN_TUNING` (one JSON object; `nylorun start` passes it to
   every container) and read once at start. Every default is the value before, so nothing changes
   until you set one; an unknown key or a value past its ceiling stops the process naming it. See
-  [Host tuning](./DEPLOYMENT.md#host-tuning). A failed pod's reason now says `The pod was not
+  [Host tuning](../self-hosting/docker-compose.md#host-tuning). A failed pod's reason now says `The pod was not
   ready within 300 s` (it said `5 minutes`).
 - **Our engine's loop is configuration too.** `createHarness` takes `compaction`
   (`CompactionConfig`, `DEFAULT_COMPACTION_CONFIG`), `partialOutputChars`, `resendDelaysMs` and
@@ -811,7 +816,7 @@ only. Upgrade the Runtime, the SDKs, Studio, the CLI and any custom harness toge
   `modelRetryDelayMaxMs`, `toolAttempts`, `httpToolTimeoutMs`, `mcpSnapshotBytes` (new: what a
   session pins of its MCP servers' tools and instructions; a server past it is left out, with a
   `failed` diagnostic), `mcpPreviewMs` and `mcpMetadataBytes`. See
-  [DEPLOYMENT.md](./DEPLOYMENT.md#runtime-limits). A `PUT` still replaces the whole document, so
+  [Docker Compose reference](../self-hosting/docker-compose.md#runtime-limits). A `PUT` still replaces the whole document, so
   put back what you set before with the new ones.
 - **An Environment's manifest may lower its disk versions' limits**: `limits.disk.versionBytes`
   and `versionEntries`, within the Tenant's. `EnvironmentView.limits` gains `disk`.
@@ -858,7 +863,7 @@ Still protocol 14 and Harness API 3.
 - **The limits are settings.** What one record entry, model call, model file, tool answer,
   custom harness state and Harness API chunk may hold is `GET`/`PUT /v1/tenant/limits`
   (`admin.settings.limits`, `nylorun tenant settings limits`), with today's sizes as defaults.
-  See [DEPLOYMENT.md](./DEPLOYMENT.md#runtime-limits).
+  See [Docker Compose reference](../self-hosting/docker-compose.md#runtime-limits).
 - **Every write into the record is held to `recordEntryBytes`** (960 KiB by default, S2's
   record less its envelope). A message, an outcome or an event past it is `413
   limit_exceeded` (`limit_exceeded` to a harness) instead of a record S2 cannot take.
@@ -891,7 +896,7 @@ together. Sessions, Environments and their vaults carry over.
   `PUT /v1/environment-manifests/{name}` (`client.environments.manifests.save()`), check it first
   with `?dryRun=true` (`manifests.plan()`), and make Environments from it with
   `{ manifest: "name" }` or `"name@n"`. See
-  [DEPLOYMENT.md](./DEPLOYMENT.md#agent-manifests).
+  [Docker Compose reference](../self-hosting/docker-compose.md#agent-manifests).
 - **Secret slots.** When what an Environment runs declares `secrets`, write each value with
   `{ value }` (or `{ headers }`); a name it does not declare is `409 secret_not_in_manifest`.
   Environments without slots take typed secret writes as before.
@@ -1013,7 +1018,7 @@ URL's host.
 pseudo-capability: a native tool is known by its name, and one whose name is taken fails the
 turn at its start. A harness reads the flat manifest: `tools` and `runtime.tools`,
 `instructions` then `runtime.instructions`. Core refuses `api: 2`. See
-[HARNESS_API.md](./HARNESS_API.md) and [`examples/harness-minimal`](../examples/harness-minimal/README.md).
+[Harness API](../reference/harness-api.md) and [`examples/harness-minimal`](../../examples/harness-minimal/README.md).
 
 **In code:**
 
@@ -1113,7 +1118,7 @@ No protocol change, and nothing to do unless you read the session log yourself:
   turn as one OpenTelemetry trace. The exporter uses a second replication slot,
   `nylorun_trace_export`, so a managed Postgres needs `max_replication_slots` of at least 2. Read
   one turn's spans without a collector at `GET /v1/sessions/{id}/turns/{turnId}/trace`
-  (`session.trace(turnId)`). See [Traces](./DEPLOYMENT.md#traces).
+  (`session.trace(turnId)`). See [Traces](../self-hosting/docker-compose.md#traces).
 
 Migration `0022` adds the gate's times to the usage ledger and runs at start.
 
@@ -1134,7 +1139,7 @@ Migration `0022` adds the gate's times to the usage ledger and runs at start.
   `harness`). A turn on an Environment that now names another harness is `409
   harness_mismatch`: open a new session.
 
-To run a harness of your own, see [HARNESS_API.md](./HARNESS_API.md).
+To run a harness of your own, see [Harness API](../reference/harness-api.md).
 
 # Tool approvals are the Tenant's tool policy (R5)
 
@@ -1363,7 +1368,7 @@ CLIs run in pod sandboxes. Nothing you use changes: existing credentials, routes
 
 The pod engine's join answer also carries the egress CA certificate (`caCertificate`); an image
 whose engine is older ignores it. See "Credentials for skills" in
-[DEPLOYMENT.md](./DEPLOYMENT.md#credentials-for-skills).
+[Docker Compose reference](../self-hosting/docker-compose.md#credentials-for-skills).
 
 # The harness has no provider adapters: `@nylorun/harness/model/adapters` is removed
 
@@ -1401,7 +1406,7 @@ route that remains.
 The sections below go in order: what is removed, how to move your credentials, the new credential
 kinds, then the changes to tool names, errors, results, per-tool settings (manifest v6), deferred
 tools and previews. The operator's guide to all of it, with gateway recipes, is "MCP servers and
-HTTP tools" in [DEPLOYMENT.md](./DEPLOYMENT.md#mcp-servers-and-http-tools).
+HTTP tools" in [Docker Compose reference](../self-hosting/docker-compose.md#mcp-servers-and-http-tools).
 
 ## What is removed
 
@@ -1438,7 +1443,7 @@ server:
   gateway credentials" below);
 - otherwise, reach the server through a gateway that holds the OAuth sign-in, with a credential
   for the same URL that has `via` and an identity header: see "Reaching a person's accounts" in
-  [DEPLOYMENT.md](./DEPLOYMENT.md#reaching-a-persons-accounts).
+  [Docker Compose reference](../self-hosting/docker-compose.md#reaching-a-persons-accounts).
 
 ## A person's credentials move to their vault
 
@@ -1454,7 +1459,7 @@ hold none. Move what your resolver served:
   those servers through a gateway that holds each person's sign-in: one credential in an
   installation vault with the gateway's key, `via` and an identity header, which carries the
   session owner. See "Reaching a person's accounts" in
-  [DEPLOYMENT.md](./DEPLOYMENT.md#reaching-a-persons-accounts), with recipes for several gateways.
+  [Docker Compose reference](../self-hosting/docker-compose.md#reaching-a-persons-accounts), with recipes for several gateways.
 
 Then remove `NYLORUN_RESOLVER_URL` and `NYLORUN_RESOLVER_TOKEN` from the gateway's environment
 (and from the shell that runs `nylorun start`), and retire the resolver.
@@ -1819,7 +1824,7 @@ tool error the model sees. What does not carry over:
   output, and `approval` is not supported on a flow stage yet.
 - The methods are `POST` (default), `PUT` and `PATCH`; the input is always the body.
 
-See [sdks/agents/README.md](../sdks/agents/README.md#http-tools).
+See [sdks/agents/README.md](../../sdks/agents/README.md#http-tools).
 
 ## Skills are files the Runtime serves
 
@@ -1946,7 +1951,7 @@ issuers' tokens, through `@nylorun/agents`. The
 application keys, seed and reset) and `GET /v1/oauth/callback`. It takes **management keys**
 only, through `@nylorun/admin`. The Admin API and its operator listener are gone: Host work runs
 on the machine, with `nylorun` or `nylorun-operate`.
-[SELF_HOSTING.md](./SELF_HOSTING.md#keys) describes the result.
+[Identity and access](../self-hosting/identity.md#keys) describes the result.
 
 The protocol is now 8, with the required feature `management-api`. A Runtime of this release
 serves protocols 4 to 8: an older client keeps reaching the Runtime API, whose routes keep their
@@ -1995,7 +2000,7 @@ What to do:
    Over HTTP, send the management key with `Nylorun-Protocol: 8`. The groups are
    `admin.tenant` (status, seed, reset), `admin.keys`, `admin.models` (catalog, providers,
    credentials, selection, usage, budgets), `admin.vaults`, `admin.signingKeys` and
-   `admin.settings` (sandbox, artifacts) ([sdks/admin/README.md](../sdks/admin/README.md)). `nylo status`,
+   `admin.settings` (sandbox, artifacts) ([sdks/admin/README.md](../../sdks/admin/README.md)). `nylo status`,
    `reset`, `configure`, `doctor` and `access signing-keys` use the Project's management key, or
    `NYLORUN_MANAGEMENT_KEY`. `/v1/tenant/models` and `/v1/tenant/providers` no longer admit
    `agents:write` subjects: apps don't read the model catalog.
@@ -2081,7 +2086,7 @@ What to do:
    the proxy's `/v1/admin` block: the Runtime has one listener and the path answers `404`.
    Optionally answer `/v1/tenant/*` with `403` outside your operator networks, leaving
    `/v1/oauth/callback` open
-   ([DEPLOYMENT.md](./DEPLOYMENT.md#reaching-the-runtime-from-another-machine)). Clients that
+   ([Docker Compose reference](../self-hosting/docker-compose.md#reaching-the-runtime-from-another-machine)). Clients that
    check `/health` look for `management-api`: `operator-keys` is gone, and the Host advertises
    `admin-status` only for protocol 5 to 7 clients. Migration `0011_key_roles` gives the `studio`
    principal its role. The reference documents are `GET /openapi/runtime.json` (alias
@@ -2135,7 +2140,7 @@ Servers use **operator keys**, browsers and apps present **your identity provide
 (a trusted issuer in the identity file), shared credentials live in **installation vaults**,
 and a person's own credentials come from **your credential resolver**. Subject tokens,
 publishable keys, the access policy, derived keys and per-person vault routes are removed.
-[SELF_HOSTING.md](./SELF_HOSTING.md) describes the result.
+[Identity and access](../self-hosting/identity.md) describes the result.
 
 The protocol is now 7. A Runtime of this release still serves protocol 4, 5 and 6 clients on
 every route that remains; a protocol 7 client (this release's `@nylorun/agents`,
@@ -2168,7 +2173,7 @@ What to do:
    the identity file (`<Host root>/identity.yaml`, or `NYLORUN_IDENTITY_FILE`), with `issuer`,
    `audience`, `jwks`, a `subject` template such as `u:{sub}` and the scopes, and send the
    provider's token as the bearer
-   ([SELF_HOSTING.md](./SELF_HOSTING.md#the-identity-file)). Revoke people at the provider and
+   ([Identity and access](../self-hosting/identity.md#the-identity-file)). Revoke people at the provider and
    keep its tokens short-lived: a stream opened with a token now ends only at its expiry
    (`token_expired`; `StreamClosedFrame` loses `revoked`, and the `subject.revoked` signal is
    gone).
@@ -2181,7 +2186,7 @@ What to do:
    `Authorization: Bearer <token>` and `Nylorun-Protocol: 7`; for a chat UI, give
    `@ag-ui/client`'s `HttpAgent` a `fetch` that adds them. Answer preflights and add
    `Access-Control-Allow-Origin` for your app's origins at the reverse proxy
-   ([SELF_HOSTING.md](./SELF_HOSTING.md#cors-at-your-proxy)). An application key or delivery
+   ([Identity and access](../self-hosting/identity.md#cors-at-your-proxy)). An application key or delivery
    token sent with an `Origin` is `403 origin_rejected`.
 4. **Access policy roles and limits → issuer settings and proxy limits.**
    `GET`/`PUT /v1/access/policy`, `client.access.getPolicy`/`putPolicy` and
@@ -2821,7 +2826,7 @@ they report an older Host as `incompatible_host`.
 
 # Runtime Clients and Admin API (breaking beta)
 
-Vocabulary: [runtime/server/src/CONTEXT.md](../runtime/server/src/CONTEXT.md).
+Vocabulary: [runtime/server/src/CONTEXT.md](../../runtime/server/src/CONTEXT.md).
 
 > Runtime V1 (above) replaces this release's launcher, its global
 > `@nylorun/runtime` install and the `nylorun-studio` binary. The client
@@ -3027,7 +3032,7 @@ if a Tenant still has schema 3 turns in flight.
 
 # Runtime Tenants (breaking beta)
 
-Vocabulary: [runtime/server/src/CONTEXT.md](../runtime/server/src/CONTEXT.md).
+Vocabulary: [runtime/server/src/CONTEXT.md](../../runtime/server/src/CONTEXT.md).
 
 One **Runtime Host** process serves many isolated **Tenants**. A Project
 attaches through a **Project link** (`.nylorun/link.json` + `credentials.json`),
@@ -3140,7 +3145,7 @@ Keep credentials in gitignored `.nylorun/`; provider configuration uses `.env` o
 
 Explicit in-process engine execution remains available to host authors through `@nylorun/harness/run`; it is not loaded by the application SDK. OSS and Cloud consume the harness independently.
 
-The release workflow covers local text and ordinary tools. Advanced examples remain source references outside the default registry. Media, approvals UI, deployment recipes, and broad recovery/conformance gates remain for later releases. Subagents (agents used as tools, one level deep) ship with this branch; see [the SDK](../sdks/agents/README.md).
+The release workflow covers local text and ordinary tools. Advanced examples remain source references outside the default registry. Media, approvals UI, deployment recipes, and broad recovery/conformance gates remain for later releases. Subagents (agents used as tools, one level deep) ship with this branch; see [the SDK](../../sdks/agents/README.md).
 
 ## Execution API rename
 

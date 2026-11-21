@@ -54,7 +54,7 @@ Host's `/health` and throws `incompatible_host` unless the Host serves this clie
 Management keys are issued on the Tenant's machine only:
 `npx nylorun tenant keys put <id> --management` on a local Tenant, or
 `nylorun-operate keys put <id> --role management` inside the runtime container
-([SELF_HOSTING.md](../../guides/SELF_HOSTING.md#keys)). No API call creates one.
+([Identity and access](../../docs/self-hosting/identity.md#keys)). No API call creates one.
 
 ## The groups
 
@@ -89,7 +89,7 @@ API's: each Agent has one vault, whose secrets the app writes on the
 Runtime API (`client.agents.secrets.put` in
 [`@nylorun/agents`](../agents/README.md), `PUT /v1/agents/{id}/secrets/{name}`)
 and never reads back. See "MCP servers and HTTP tools" in
-[DEPLOYMENT.md](../../guides/DEPLOYMENT.md#mcp-servers-and-http-tools), with
+[Docker Compose reference](../../docs/self-hosting/docker-compose.md#mcp-servers-and-http-tools), with
 gateway recipes.
 
 `admin.coverage` says what a session on an Agent would send for each MCP server

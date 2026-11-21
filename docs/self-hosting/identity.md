@@ -1,20 +1,20 @@
-# Self-hosting
+# Identity and access
 
 How a team runs Nylorun on its own machines with its own identity provider and secret store,
 and no Nylorun account. Open source verifies and enforces; it never signs anyone in, never
 manages people, and holds a person's secrets only where your app writes them: in an
 Agent's vault. Your identity provider and your secret store plug in.
 
-Read [DEPLOYMENT.md](./DEPLOYMENT.md) first: it covers the Tenant's containers, the reverse proxy
+Read [Docker Compose reference](./docker-compose.md) first: it covers the Tenant's containers, the reverse proxy
 in front of the Runtime, Postgres, the gateway and the harness. This guide covers who gets in
-and where credentials come from. [`examples/self-host`](../examples/self-host/README.md) runs
+and where credentials come from. [`examples/self-host`](../../examples/self-host/README.md) runs
 all of it on one machine with Keycloak and oauth2-proxy, and checks
 it end to end. Upgrading from protocol 16:
-[MIGRATION.md](./MIGRATION.md#a-queue-per-session-protocol-17); from protocol 15:
-[MIGRATION.md](./MIGRATION.md#agents-from-one-manifest-protocol-16-harness-api-5); from protocol 10:
-[MIGRATION.md](./MIGRATION.md#environments-replace-sandboxes-and-vaults-protocol-11-a-fresh-start);
-from protocol 7: [MIGRATION.md](./MIGRATION.md#runtime-and-management-apis-protocol-8); from an
-earlier release: [MIGRATION.md](./MIGRATION.md#open-source-auth-protocol-7).
+[migration notes](../upgrading/migration.md#a-queue-per-session-protocol-17); from protocol 15:
+[migration notes](../upgrading/migration.md#agents-from-one-manifest-protocol-16-harness-api-5); from protocol 10:
+[migration notes](../upgrading/migration.md#environments-replace-sandboxes-and-vaults-protocol-11-a-fresh-start);
+from protocol 7: [migration notes](../upgrading/migration.md#runtime-and-management-apis-protocol-8); from an
+earlier release: [migration notes](../upgrading/migration.md#open-source-auth-protocol-7).
 
 ## Scope
 
@@ -41,7 +41,7 @@ It leaves out, on purpose:
   your tokens or your server name; revoke people at your identity provider;
 - **per-person OAuth**: Nylorun signs no one in to their tools and refreshes no token. A
   gateway holds each person's sign-ins
-  ([DEPLOYMENT.md](./DEPLOYMENT.md#reaching-a-persons-accounts));
+  ([Docker Compose reference](./docker-compose.md#reaching-a-persons-accounts));
 - **multi-tenancy**: one Tenant per installation;
 - **CORS and rate limits**: your reverse proxy answers both.
 
@@ -50,7 +50,7 @@ nothing depends on it (`nylorun local telemetry disable`, or `NYLORUN_TELEMETRY_
 
 ## On Kubernetes
 
-The Runtime's Helm chart, [`charts/nylorun-runtime`](../charts/nylorun-runtime/README.md),
+The Runtime's Helm chart, [`charts/nylorun-runtime`](../../charts/nylorun-runtime/README.md),
 installs it into an [Agent Substrate](https://github.com/agent-substrate/substrate) cluster.
 Every Agent with a sandbox gets a computer: the loop runs in the harness, and commands and files
 run in the Agent's own actor, reached through the sandbox gateway and Substrate's router.
@@ -62,7 +62,7 @@ run in the Agent's own actor, reached through the sandbox gateway and Substrate'
 - **What Substrate needs:** the router's allowlist naming the sandbox gateway, and the Tenant's
   atespace; the chart's README says how.
 - **Computer images:** an Agent names its own, by digest, or gets `python:3.13-slim`.
-  [COMPUTER_IMAGES.md](COMPUTER_IMAGES.md) says how to build one and how the nodes pull it from
+  [Computer images](computer-images.md) says how to build one and how the nodes pull it from
   the cluster's own registry.
 
 ## Front doors
@@ -80,7 +80,7 @@ Agents, sessions and artifacts) for apps and people, and the **Management API**
 
 **An app server** signs people in itself and calls the Runtime for each one:
 `client.as(subject, { scopes })` in `@nylorun/agents`
-([sdks/agents/README.md](../sdks/agents/README.md#acting-for-a-person-app-servers)), which sends
+([sdks/agents/README.md](../../sdks/agents/README.md#acting-for-a-person-app-servers)), which sends
 `Nylorun-Subject` and `Nylorun-Scopes`. The key stays on the server. The server drops every
 `Nylorun-*` header its own clients send, and never forwards `Origin`: the Runtime refuses an
 application key sent with one (`403 origin_rejected`).
@@ -129,7 +129,7 @@ npx nylorun tenant keys rm app-server  # it stops working at once
 
 Add `--tenant <name>` outside the project the Tenant belongs to. From code, with a management
 key: `@nylorun/admin` (`admin.keys.put(id)`, `admin.keys.list()`, `admin.keys.delete(id)`;
-[sdks/admin/README.md](../sdks/admin/README.md)), or `PUT /v1/tenant/keys/{keyId}`, `GET /v1/tenant/keys`
+[sdks/admin/README.md](../../sdks/admin/README.md)), or `PUT /v1/tenant/keys/{keyId}`, `GET /v1/tenant/keys`
 and `DELETE /v1/tenant/keys/{keyId}`. The Management API issues application keys only.
 
 **Management keys** are issued only on the Tenant's machine, so a leaked key can't mint
@@ -276,7 +276,7 @@ providers can name the same person.
 ### Keycloak
 
 In the realm (the example's is
-[`examples/self-host/keycloak/realm-nylorun.json`](../examples/self-host/keycloak/realm-nylorun.json)):
+[`examples/self-host/keycloak/realm-nylorun.json`](../../examples/self-host/keycloak/realm-nylorun.json)):
 
 1. Create realm roles named after the scopes (`agents:read`, `sessions:own`, `studio`) and
    give them to people.
@@ -306,7 +306,7 @@ and point `jwks` at an address the runtime container can reach.
 
 A session's MCP and HTTP tool credentials come from the vault of the Agent the session runs on:
 the slot a server names in its manifest, else the credential bound to the URL the agent names
-([DEPLOYMENT.md](./DEPLOYMENT.md#mcp-servers-and-http-tools) has the operator's whole flow:
+([Docker Compose reference](./docker-compose.md#mcp-servers-and-http-tools) has the operator's whole flow:
 credential types, previews, tool settings and errors). The model credential is the Tenant's own,
 set by `nylorun start` from the project's `.env` or in Studio.
 
@@ -365,7 +365,7 @@ Before you put an MCP gateway in front of your people:
 
 The credential fields, recipes for Arcade, ToolHive, Obot and Nylorun Cloud, the proxy for gateways
 that mint something per person (Composio, Klavis, Smithery, Pipedream), and servers that exchange a
-client id and secret: [DEPLOYMENT.md](./DEPLOYMENT.md#reaching-a-persons-accounts).
+client id and secret: [Docker Compose reference](./docker-compose.md#reaching-a-persons-accounts).
 
 ## Studio behind a sign-in proxy
 
@@ -410,7 +410,7 @@ Embedding Studio in another app is separate and off by default
 The Runtime sends no CORS headers, and an `OPTIONS` request that reaches it gets `204` with
 none, so browsers can call it only through a reverse proxy that answers CORS for your app's
 origins (the rest of the proxy rules:
-[DEPLOYMENT.md](./DEPLOYMENT.md#reaching-the-runtime-from-another-machine)):
+[Docker Compose reference](./docker-compose.md#reaching-the-runtime-from-another-machine)):
 
 - Answer preflights yourself: `Access-Control-Allow-Origin` with the exact origin,
   `Access-Control-Allow-Methods: GET, POST, PUT, DELETE`,
@@ -468,7 +468,7 @@ Every timeout, retry, poll interval and internal size of the Runtime's processes
 and can be set in `NYLORUN_TUNING`, one JSON object such as
 `{"tenant":{"openTimeoutMs":60000}}`. Give every container the same value: each reads the parts
 it uses, and core passes the harness's part to sandbox pods. The settings, their defaults and
-their ceilings are in [Host tuning](./DEPLOYMENT.md#host-tuning).
+their ceilings are in [Host tuning](./docker-compose.md#host-tuning).
 
 ## Backups
 
@@ -498,7 +498,7 @@ terms.
   them to operators and CI, never to app servers or browsers.
 - **Optionally, limit `/v1/tenant/*` to operator networks at your proxy**, on top of the key
   role: the Management API then answers only from the addresses your operators and CI use
-  ([DEPLOYMENT.md](./DEPLOYMENT.md#reaching-the-runtime-from-another-machine)).
+  ([Docker Compose reference](./docker-compose.md#reaching-the-runtime-from-another-machine)).
 
 Restate's UI, the gateway (no published port) and your secret store don't
 belong on a public address either, and Studio reaches one only through a sign-in proxy.

@@ -280,7 +280,7 @@ describe("the Host tuning schema", () => {
   });
 
   it("is listed whole in the deployment guide", () => {
-    const guide = readFileSync(new URL("../../../../guides/DEPLOYMENT.md", import.meta.url), "utf8");
+    const guide = readFileSync(new URL("../../../../docs/self-hosting/docker-compose.md", import.meta.url), "utf8");
     const missing = hostTuningPaths().filter((path) => !guide.includes(`\`${path}\``));
     expect(missing).toEqual([]);
   });

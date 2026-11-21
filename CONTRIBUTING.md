@@ -21,7 +21,9 @@ Directories follow the Docker images: `runtime/` builds `ghcr.io/nylorun/runtime
 | `cli/legacy/`       | `@nylorun/cli`: nylorun under another name; its `nylorun` runs nylorun's       |
 | `examples/`         | Generated application shell and authored demonstrations                        |
 | `scripts/`          | Repository development, validation, and release tooling                        |
-| `guides/`           | Deployment, self-hosting, migration and release guides                         |
+| `docs/`             | Self-hosting, upgrading, reference and release docs ([index](./docs/README.md)) |
+
+What each package publishes: [docs/reference/packages.md](./docs/reference/packages.md).
 
 Harness and Runtime must not depend on each other. Studio depends on neither.
 Cross-package contracts are tested in the creator. Examples remains a separate
@@ -163,7 +165,7 @@ commit for the `stack`, `smoke-starter`, `smoke-dev` and `acceptance` jobs. `che
 their tests, and `integration` runs the Runtime's integration tests against it
 (`npm run test:stack:up --workspace @nylorun/runtime`, then
 `NYLORUN_TEST_STACK=1 npm run test:integration --workspace @nylorun/runtime`).
-Releases publish both images; see [RELEASING.md](./guides/RELEASING.md).
+Releases publish both images; see [Releasing](./docs/contributing/releasing.md).
 
 ## Generated examples and dependencies
 
@@ -202,8 +204,8 @@ To run the full tier on a branch before merging, use
 reverted or fixed forward before the next release, which needs the full suite
 to pass.
 
-See [RELEASING.md](./guides/RELEASING.md) for administrators and
-[DEPLOYMENT.md](./guides/DEPLOYMENT.md) for application hosting.
+See [Releasing](./docs/contributing/releasing.md) for administrators and
+[Docker Compose reference](./docs/self-hosting/docker-compose.md) for application hosting.
 
 | Problem                         | Action                                                                                                                                                                          |
 | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
