@@ -105,6 +105,7 @@ plug in.
 - [SELF_HOSTING.md](./guides/SELF_HOSTING.md): your own identity provider and secrets
 - [MIGRATION.md](./guides/MIGRATION.md): breaking changes between beta protocols
 - [HARNESS_API.md](./guides/HARNESS_API.md): run your own harness, in any language
+- [COMPUTER_IMAGES.md](./guides/COMPUTER_IMAGES.md): the image an Agent's computer runs, and how a cluster pulls it
 
 ## Contributing
 

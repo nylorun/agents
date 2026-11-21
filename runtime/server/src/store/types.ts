@@ -338,12 +338,6 @@ export interface SandboxPodState {
    */
   imageDigest?: string;
   /**
-   * The engine the workload image carries (ADR-99, `sandbox/pods/builtin.ts`): its Runtime
-   * version, as its engine reported at join, and the digest that pod ran. It counts only while
-   * that digest is `imageDigest`.
-   */
-  engineImage?: { version: string; digest?: string };
-  /**
    * When the sandbox was last suspended because its Agent Substrate worker stopped (the sandboxes
    * service's `drainedAt`), so each drain is recorded once (`agent.suspended`, reason `drain`).
    */

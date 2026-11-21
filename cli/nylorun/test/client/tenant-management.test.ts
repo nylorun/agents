@@ -308,7 +308,7 @@ describe("nylorun tenant budgets, tool-policy and settings", () => {
   });
 
   it("settings sandbox put of what get printed puts back its stored config, not the defaults in force (#588)", async () => {
-    const config = { limits: { idle: "30m" }, engine: { images: ["ghcr.io/nylorun/bot-worker"] } };
+    const config = { limits: { idle: "30m" }, placement: { nylorun: { hosts: ["sandbox"] } } };
     const view = {
       preference: "auto",
       backend: "virtual",
@@ -321,7 +321,7 @@ describe("nylorun tenant budgets, tool-policy and settings", () => {
           idle: "30m",
           environments: 100,
         },
-        engine: { images: ["ghcr.io/nylorun/bot-worker"] },
+        placement: config.placement,
       },
       cluster: null,
     };

@@ -262,7 +262,7 @@ export const agents = nylorun.table(
     volumeId: text(),
     /** The workload image by digest, from the first ready pod on (Q14): later pods run it. */
     imageDigest: textC(),
-    /** The engine the image carries (ADR-99): `{ version, digest? }`, from a join of its engine. */
+    /** Unused since ADR-161 (no image carries the engine); was ADR-99's `{ version, digest? }`. */
     engineImage: jsonText(),
     /** When its Agent Substrate worker last stopped under it (the sandboxes service's `drainedAt`). */
     drainedAt: text(),

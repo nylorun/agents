@@ -58,8 +58,10 @@ var Waits = map[string]func(Status) bool{
 type Cache struct {
 	sandboxes, pods, claims cache.SharedIndexInformer
 	namespace               string
-	mu                      sync.Mutex
-	changed                 chan struct{}
+	// mirrors maps a pulled image back to the repository it mirrors (ADR-161).
+	mirrors Mirrors
+	mu      sync.Mutex
+	changed chan struct{}
 }
 
 const podIndex = "sandbox"
@@ -149,7 +151,9 @@ func (c *Cache) statusWith(name string, sandbox *unstructured.Unstructured) Stat
 		}
 	}
 	claim := get(c.claims.GetStore(), c.namespace+"/"+VolumeName+"-"+name)
-	return Compute(name, sandbox, pods, claim)
+	s := Compute(name, sandbox, pods, claim)
+	s.ImageID = c.mirrors.From(s.ImageID)
+	return s
 }
 
 func condition(o *unstructured.Unstructured, kind string) (status, reason, message string, current bool) {

@@ -320,25 +320,22 @@ describe("pod lifecycle", () => {
     expect(open.network).toEqual({ preset: "open", hosts: ["api.acme.dev"], suffixes: [".example.com"] });
   });
 
-  it("runs the engine an image the Tenant lists carries, and copies it in otherwise (ADR-99)", () => {
+  it("copies the engine into every image, and a custom harness keeps its own entrypoint (ADR-161)", () => {
     const repo = "ghcr.io/nylorun/bot-worker";
     const digest = `${repo}@sha256:${"c".repeat(64)}`;
     const input = {
       environmentId: "team/a",
       spec: { image: `${repo}:0.38.0-beta` } as never,
-      config: { engine: { images: [repo] } },
+      config: {},
       mode: "Running" as const,
       harnessImage: "ghcr.io/nylorun/runtime:0.38.0-beta",
     };
     const first = podSpecOf({ ...input, pod: row().pod });
-    expect(first.entrypoint).toBe("builtin");
-    expect(first).not.toHaveProperty("harnessImage");
-    // An engine of another Runtime version, seen on this digest: copied in instead.
-    const older = podSpecOf({ ...input, pod: row({ imageDigest: digest, engineImage: { version: "0.0.1-old", digest } }).pod });
-    expect(older).toMatchObject({ image: digest, harnessImage: "ghcr.io/nylorun/runtime:0.38.0-beta" });
-    expect(older).not.toHaveProperty("entrypoint");
-    // Not listed: copied, as for any image. A custom harness keeps its own entrypoint.
-    expect(podSpecOf({ ...input, config: {}, pod: row().pod })).not.toHaveProperty("entrypoint");
+    expect(first).toMatchObject({ harnessImage: "ghcr.io/nylorun/runtime:0.38.0-beta" });
+    expect(first).not.toHaveProperty("entrypoint");
+    const pinned = podSpecOf({ ...input, pod: row({ imageDigest: digest }).pod });
+    expect(pinned).toMatchObject({ image: digest, harnessImage: "ghcr.io/nylorun/runtime:0.38.0-beta" });
+    expect(pinned).not.toHaveProperty("entrypoint");
     expect(podSpecOf({ ...input, harness: "acme", pod: row().pod }).entrypoint).toBe("image");
     // A computer runs our engine whatever harness drives it (ADR-149): the harness runs outside.
     const computer = podSpecOf({ ...input, config: {}, harness: "acme", computer: true, pod: row().pod });

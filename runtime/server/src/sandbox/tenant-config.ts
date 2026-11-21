@@ -1,7 +1,7 @@
 /**
  * A Tenant's Environment settings, stored as Tenant setting `environments.config`: the limits
- * every Environment's recipe must fit, the pods' stop grace, the images that carry the engine and
- * the harness placement. Unset fields take the defaults below.
+ * every Environment's recipe must fit, the pods' stop grace and the harness placement. Unset
+ * fields take the defaults below.
  */
 import {
   TenantEnvironmentsConfigSchema,
@@ -49,8 +49,6 @@ export interface EffectiveSandboxConfig {
   readonly lifecycle: { readonly stopGrace: string };
   /** Where each harness may run (D38). */
   readonly placement: Readonly<Record<string, { readonly hosts: readonly PlacementHost[] }>>;
-  /** Pods: the image repositories that carry this Runtime's engine (ADR-99). */
-  readonly engine: { readonly images: readonly string[] };
 }
 
 interface SettingsReader {
@@ -93,15 +91,22 @@ export function effectiveSandboxConfig(config: TenantSandboxConfig): EffectiveSa
     },
     lifecycle: { stopGrace: config.lifecycle?.stopGrace ?? "10s" },
     placement: config.placement ?? { "*": { hosts: ["harness-container", "sandbox"] } },
-    engine: { images: config.engine?.images ?? [] },
   };
 }
+
+/** Settings an older Runtime stored that this one no longer has: dropped on read, gone at the next write. */
+const RETIRED_SETTINGS = [
+  // The images that carried the engine (ADR-99), retired by ADR-161.
+  "engine",
+] as const;
 
 /** The stored configuration, or `{}` when the Tenant has none. */
 export async function readSandboxConfig(t: SettingsReader): Promise<TenantSandboxConfig> {
   const raw = await t.getSetting(ENVIRONMENTS_CONFIG_SETTING);
   if (raw === undefined) return {};
-  return TenantEnvironmentsConfigSchema.parse(JSON.parse(raw));
+  const stored = JSON.parse(raw) as Record<string, unknown>;
+  for (const key of RETIRED_SETTINGS) delete stored[key];
+  return TenantEnvironmentsConfigSchema.parse(stored);
 }
 
 export async function writeSandboxConfig(

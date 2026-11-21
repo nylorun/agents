@@ -92,6 +92,21 @@ func TestParseClusterInClusterComputer(t *testing.T) {
 	}
 }
 
+func TestParseClusterImageMirrors(t *testing.T) {
+	raw := `{"namespace":"nylorun","inCluster":true,"backend":"substrate","substrate":{"atespace":"nylorun","systemNamespace":"ate-system","apiService":"api","serviceAccount":"nylorun-sandboxes","computer":{}},"imageMirrors":{"ghcr.io/nylorun/bot-computer":"asia-south1-docker.pkg.dev/p/nylorun/bot-computer"}}`
+	c, err := config.ParseCluster([]byte(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Mirrors.Len() != 1 || c.Mirrors.To("ghcr.io/nylorun/bot-computer@sha256:"+strings.Repeat("a", 64)) != "asia-south1-docker.pkg.dev/p/nylorun/bot-computer@sha256:"+strings.Repeat("a", 64) {
+		t.Fatalf("mirrors %+v", c.Mirrors)
+	}
+	bad := strings.Replace(raw, `"asia-south1-docker.pkg.dev/p/nylorun/bot-computer"`, `"asia-south1-docker.pkg.dev/p/nylorun/bot-computer:1"`, 1)
+	if _, err := config.ParseCluster([]byte(bad)); err == nil || !strings.Contains(err.Error(), "imageMirrors") {
+		t.Fatalf("a mirror with a tag parsed: %v", err)
+	}
+}
+
 func TestParseFlagsComputerAgent(t *testing.T) {
 	var c config.Config
 	if err := c.ParseFlags(nil); err != nil || c.ComputerAgent != config.ComputerAgentEngine || c.ComputerImage != "" {

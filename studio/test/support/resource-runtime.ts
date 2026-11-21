@@ -303,10 +303,10 @@ export async function resourceRuntime({ artifactReads = true } = {}) {
       environments?: number;
     };
     lifecycle?: { stopGrace?: string };
-    engine?: { images?: string[] };
+    placement?: Record<string, { hosts: string[] }>;
   } = {
     limits: { network: ["pypi.org", "github.com"] },
-    engine: { images: ["ghcr.io/nylorun/bot-worker"] },
+    placement: { nylorun: { hosts: ["sandbox"] } },
   };
   /** The settings in force (`effective`): the stored ones over the defaults. */
   const sandboxEffective = () => {
@@ -325,8 +325,7 @@ export async function resourceRuntime({ artifactReads = true } = {}) {
         environments: limits.environments ?? 100,
       },
       lifecycle: { stopGrace: sandboxConfig.lifecycle?.stopGrace ?? "10s" },
-      placement: { "*": { hosts: ["harness-container", "sandbox"] } },
-      engine: { images: sandboxConfig.engine?.images ?? [] },
+      placement: sandboxConfig.placement ?? { "*": { hosts: ["harness-container", "sandbox"] } },
     };
   };
   let memories = [

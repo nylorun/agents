@@ -121,8 +121,8 @@ if (preview.authRequired) console.log("needs a sign-in:", preview.authRequired.r
 `admin.settings.sandbox` reads and replaces the Tenant's settings for its
 Agents' environments (Tenant setting `environments.config`): `limits`
 (`network`, `resources`, `defaultResources`, `idle`, `environments`, the most
-Agents), the pods' `lifecycle.stopGrace`, `engine.images` (the image
-repositories that carry the engine) and `placement`. `get()` and `put()` answer
+Agents), the pods' `lifecycle.stopGrace` and `placement` (`engine.images`
+is retired: no image carries the engine). `get()` and `put()` answer
 the backend report with the settings twice: `config` is what the Tenant set, in
 exactly the shape `put()` takes and with no defaults, and `effective` is the
 configuration in force, every default filled in and sizes in MiB

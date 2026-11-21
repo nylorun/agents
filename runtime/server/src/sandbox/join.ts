@@ -79,11 +79,7 @@ export class HostAuthError extends Error {
 
 /** The Tenant's side of the exchange, as the Harness API listener calls it. */
 export interface HostAuthority {
-  /**
-   * `imageEngine`: the Runtime version an engine the workload image carries reported (ADR-99);
-   * absent for an engine copied in.
-   */
-  join(request: HostJoinRequest, from?: { imageEngine?: string }): Promise<HostJoinAnswer>;
+  join(request: HostJoinRequest): Promise<HostJoinAnswer>;
   renew(hostToken: string): Promise<HostJoinAnswer>;
   /** The claims of a current host's token, for a connection; refuses a stale one. */
   verify(hostToken: string): Promise<HostClaims>;
@@ -134,7 +130,7 @@ export function hostAuthority(ctx: TenantContext): HostAuthority {
   };
 
   return {
-    async join(request, from) {
+    async join(request) {
       const { sandboxId, podUid, joinToken, volumeId } = request;
       if (
         !isAgentId(sandboxId) ||
@@ -194,10 +190,6 @@ export function hostAuthority(ctx: TenantContext): HostAuthority {
             hostEpoch: epoch,
             podUid,
             ...(pod.volumeId === undefined && volumeId !== undefined ? { volumeId } : {}),
-            // The engine the image carries, against the digest this pod runs (ADR-99).
-            ...(from?.imageEngine === undefined
-              ? {}
-              : { engineImage: { version: from.imageEngine, ...(pod.imageDigest ? { digest: pod.imageDigest } : {}) } }),
             ...(pod.desired === "running" ? { observed: "running", reason: null } : {}),
           },
           now,

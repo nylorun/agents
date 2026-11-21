@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nylorun/agents/sandboxes/internal/driver"
 	"k8s.io/client-go/rest"
 )
 
@@ -49,6 +50,12 @@ type Cluster struct {
 	// InCluster says the service runs in the cluster it drives (the Runtime's Helm chart): it
 	// uses the pod's own Kubernetes credentials, and Dial, TLSServerName and CAData are unused.
 	InCluster bool `json:"inCluster,omitempty"`
+	// ImageMirrors maps an image repository to the repository that serves the same images
+	// (ADR-161): a workload image in a mapped repository is pulled from its mirror, with its digest
+	// or tag kept, and reported under the name the Agent asked for.
+	ImageMirrors map[string]string `json:"imageMirrors,omitempty"`
+	// Mirrors is ImageMirrors, validated by ParseCluster.
+	Mirrors driver.Mirrors `json:"-"`
 }
 
 // The backends.
@@ -241,6 +248,11 @@ func ParseCluster(raw []byte) (Cluster, error) {
 	default:
 		return Cluster{}, fmt.Errorf("cluster.json: backend %q is not agent-sandbox or substrate", c.Backend)
 	}
+	mirrors, err := driver.NewMirrors(c.ImageMirrors)
+	if err != nil {
+		return Cluster{}, fmt.Errorf("cluster.json: %w", err)
+	}
+	c.Mirrors = mirrors
 	return c, nil
 }
 

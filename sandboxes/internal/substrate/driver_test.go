@@ -67,6 +67,27 @@ func (r *rig) wait(t *testing.T, want string) driver.Status {
 	return s
 }
 
+func TestATemplatePullsTheWorkloadImageFromItsMirror(t *testing.T) {
+	r := newRig(t)
+	mirrors, err := driver.NewMirrors(map[string]string{"python": "mirror.example.com/library/python"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.d.o.Settings.ImageMirrors = mirrors
+	if _, err := r.d.Put(context.Background(), sbx, spec("op-1", "Running")); err != nil {
+		t.Fatal(err)
+	}
+	ready := r.wait(t, "ready")
+	// The Runtime reads the image it asked for, pinned; the node pulls it from the mirror.
+	if !strings.Contains(ready.ImageID, "python:3.13-slim@sha256:") {
+		t.Fatalf("status image %q", ready.ImageID)
+	}
+	image := r.actorTemplate().GetContainers()[0].GetImage()
+	if !strings.HasPrefix(image, "mirror.example.com/library/python@sha256:") || !strings.HasSuffix(ready.ImageID, strings.TrimPrefix(image, "mirror.example.com/library/python")) {
+		t.Fatalf("template image %q, status %q", image, ready.ImageID)
+	}
+}
+
 func TestPutCreatesTemplateActorPolicyAndResumes(t *testing.T) {
 	r := newRig(t)
 	s, err := r.d.Put(context.Background(), sbx, spec("op-1", "Running"))
@@ -265,7 +286,7 @@ func TestPingMarksSynced(t *testing.T) {
 
 func TestTemplateRendersForEachEntrypoint(t *testing.T) {
 	images := Resolved{Image: "python@sha256:" + strings.Repeat("a", 64), Harness: "runtime@sha256:" + strings.Repeat("b", 64)}
-	for _, entry := range []string{driver.EntrypointEngine, driver.EntrypointBuiltin, driver.EntrypointImage} {
+	for _, entry := range []string{driver.EntrypointEngine, driver.EntrypointImage} {
 		s := spec("op-1", "Running")
 		s.Entrypoint = entry
 		if entry != driver.EntrypointEngine {
@@ -314,10 +335,6 @@ func TestTemplateRendersForEachEntrypoint(t *testing.T) {
 		case driver.EntrypointEngine:
 			if !hasImageVolume || !strings.Contains(command, "/nylo/engine/harness.mjs") {
 				t.Fatalf("engine: volume=%v command=%s", hasImageVolume, command)
-			}
-		case driver.EntrypointBuiltin:
-			if hasImageVolume || !strings.Contains(command, "/opt/nylorun/engine/harness.mjs") {
-				t.Fatalf("builtin: volume=%v command=%s", hasImageVolume, command)
 			}
 		case driver.EntrypointImage:
 			if hasImageVolume || len(c.GetCommand()) != 0 {
@@ -760,15 +777,16 @@ func TestRuntimeUpgradeWithAnotherChangeRepointsKeepingTheEngine(t *testing.T) {
 
 func TestAVolumeChangeIsReportedNotRetried(t *testing.T) {
 	r := newRig(t)
-	builtin := spec("op-1", "Running")
-	builtin.Entrypoint, builtin.HarnessImage = driver.EntrypointBuiltin, ""
-	if _, err := r.d.Put(context.Background(), sbx, builtin); err != nil {
+	// A custom harness in the image: no engine volume.
+	own := spec("op-1", "Running")
+	own.Entrypoint, own.HarnessImage = driver.EntrypointImage, ""
+	if _, err := r.d.Put(context.Background(), sbx, own); err != nil {
 		t.Fatal(err)
 	}
 	r.wait(t, "ready")
 	templates := len(r.api.templates)
 	calls := len(r.api.calls)
-	// The image's engine is not the Runtime's any more: the Runtime asks for its own, an image volume.
+	// The Runtime asks for its own engine instead, an image volume.
 	engine := spec("op-2", "Running")
 	engine.JoinToken = ""
 	s, err := r.d.Put(context.Background(), sbx, engine)
@@ -801,7 +819,7 @@ func TestAVolumeChangeIsReportedNotRetried(t *testing.T) {
 		t.Fatal(err)
 	}
 	r.wait(t, "suspended")
-	back := builtin
+	back := own
 	back.OpID, back.JoinToken = "op-4", ""
 	if _, err := r.d.Put(context.Background(), sbx, back); err != nil {
 		t.Fatal(err)
@@ -813,9 +831,10 @@ func TestAVolumeChangeIsReportedNotRetried(t *testing.T) {
 
 func TestACrashedActorReportsARefusedVolumeChange(t *testing.T) {
 	r := newRig(t)
-	builtin := spec("op-1", "Running")
-	builtin.Entrypoint, builtin.HarnessImage = driver.EntrypointBuiltin, ""
-	if _, err := r.d.Put(context.Background(), sbx, builtin); err != nil {
+	// A custom harness in the image: no engine volume.
+	own := spec("op-1", "Running")
+	own.Entrypoint, own.HarnessImage = driver.EntrypointImage, ""
+	if _, err := r.d.Put(context.Background(), sbx, own); err != nil {
 		t.Fatal(err)
 	}
 	r.wait(t, "ready")
@@ -836,7 +855,7 @@ func TestACrashedActorReportsARefusedVolumeChange(t *testing.T) {
 	}
 	// A suspend request on a crashed actor still reports the crash.
 	suspend := spec("op-3", "Suspended")
-	suspend.JoinToken, suspend.Entrypoint, suspend.HarnessImage = "", driver.EntrypointBuiltin, ""
+	suspend.JoinToken, suspend.Entrypoint, suspend.HarnessImage = "", driver.EntrypointImage, ""
 	if s, err := r.d.Put(context.Background(), sbx, suspend); err != nil || s.Reason == RepointRefused {
 		t.Fatalf("suspend: %+v %v", s, err)
 	}

@@ -1065,15 +1065,15 @@ test("the Tenant's tool policy, limits, budgets and compute are edited in a pane
       await compute.getByLabel("Most memory").fill("16GiB");
       await compute.getByRole("button", { name: "Save" }).click();
       await page.getByRole("region", { name: "Environments" }).getByText("Stops after 30m without a turn", { exact: true }).waitFor();
-      // The stored settings with the two changed fields: the engine images set through the API
-      // stay, and no default becomes an override (#588).
+      // The stored settings with the two changed fields: the placement set through the API
+      // stays, and no default becomes an override (#588).
       assert.deepEqual(put("/v1/tenant/sandbox"), {
         limits: {
           network: ["pypi.org", "github.com"],
           resources: { memory: "16384MiB" },
           idle: "30m",
         },
-        engine: { images: ["ghcr.io/nylorun/bot-worker"] },
+        placement: { nylorun: { hosts: ["sandbox"] } },
       });
       // Only what changed is saved: the storage limits stay as they were.
       assert.equal(put("/v1/tenant/artifacts"), undefined);

@@ -17,8 +17,6 @@ import { rootCertificates } from "node:tls";
 import { dirname } from "node:path";
 import type { PodHostConfig } from "../host/stack-config.js";
 import { hostTuning } from "../tuning.js";
-import { RUNTIME_VERSION } from "../version.js";
-import { IMAGE_ENGINE_HEADER, isBuiltinEngine } from "./image-engine.js";
 
 interface Held {
   readonly hostToken: string;
@@ -137,12 +135,9 @@ export function podHost(
      * ends TLS for the hosts whose keys it adds, so commands trust it with no proxy in between.
      */
     extraCaFile?: string;
-    /** Whether this engine runs from the workload image (default: from where its code is). */
-    imageEngine?: boolean;
   } = {},
 ): PodHost {
   const call = options.fetch ?? fetch;
-  const imageEngine = options.imageEngine ?? isBuiltinEngine(import.meta.url);
   let held: Held | undefined;
   let setup: DiskSetup | undefined;
   let seeded = false;
@@ -157,8 +152,6 @@ export function podHost(
       headers: {
         ...(init.body === undefined ? {} : { "content-type": "application/json" }),
         ...(init.bearer ? { authorization: `Bearer ${init.bearer}` } : {}),
-        // An engine the workload image carries says which Runtime it came from (ADR-99).
-        ...(path === "join" && imageEngine ? { [IMAGE_ENGINE_HEADER]: RUNTIME_VERSION } : {}),
       },
       ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
       signal: signal ? AbortSignal.any([timeout, signal]) : timeout,

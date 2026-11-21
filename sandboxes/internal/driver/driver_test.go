@@ -134,31 +134,36 @@ func TestRenderImageEntrypoint(t *testing.T) {
 	}
 }
 
-func TestRenderBuiltinEntrypoint(t *testing.T) {
+func TestNormalizeRefusesBuiltin(t *testing.T) {
 	spec := driver.Spec{OpID: "op", Mode: "Running", Image: "ghcr.io/nylorun/bot-worker:0.38.0-beta", Entrypoint: "builtin"}
-	if err := spec.Normalize(); err != nil {
+	var refusal *driver.Error
+	if err := spec.Normalize(); !errors.As(err, &refusal) || refusal.Status != http.StatusBadRequest || !strings.Contains(refusal.Message, "ADR-161") {
+		t.Fatalf("builtin is refused (ADR-161), got %v", err)
+	}
+}
+
+func TestPutPullsTheWorkloadImageFromItsMirror(t *testing.T) {
+	client := drivertest.NewFakeClient()
+	mirrors, err := driver.NewMirrors(map[string]string{"ghcr.io/nylorun/bot-computer": "asia-south1-docker.pkg.dev/p/nylorun/bot-computer"})
+	if err != nil {
 		t.Fatal(err)
 	}
-	o := driver.Render(namespace, "sbx-aaaaaaaaaaaaaaaa-g0", spec, urls)
-	if _, found, _ := unstructured.NestedSlice(o.Object, "spec", "podTemplate", "spec", "initContainers"); found {
-		t.Fatal("nothing is copied into an image that has the engine")
+	d := start(t, client).WithMirrors(mirrors)
+	ctx := context.Background()
+	name := driver.Name("shop", "sbx_01", 0)
+	spec := fullSpec()
+	digest := "sha256:" + strings.Repeat("c", 64)
+	spec.Image = "ghcr.io/nylorun/bot-computer@" + digest
+	if _, err := d.Put(ctx, name, spec); err != nil {
+		t.Fatal(err)
 	}
-	volumes, _, _ := unstructured.NestedSlice(o.Object, "spec", "podTemplate", "spec", "volumes")
-	for _, volume := range volumes {
-		if volume.(map[string]any)["name"] == "nylo" {
-			t.Fatal("no /nylo volume when the image has the engine")
-		}
+	o, err := client.Resource(driver.SandboxGVR).Namespace(namespace).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		t.Fatal(err)
 	}
 	containers, _, _ := unstructured.NestedSlice(o.Object, "spec", "podTemplate", "spec", "containers")
-	workload := containers[0].(map[string]any)
-	command := workload["command"].([]any)
-	if len(command) != len(driver.BuiltinCommand) || command[0] != "/opt/nylorun/bin/tini" || command[4] != "/opt/nylorun/engine/harness.mjs" {
-		t.Fatalf("the image's engine runs under its tini, got %v", command)
-	}
-	for _, mount := range workload["volumeMounts"].([]any) {
-		if mount.(map[string]any)["mountPath"] == "/nylo" {
-			t.Fatal("no /nylo mount when the image has the engine")
-		}
+	if got := containers[0].(map[string]any)["image"]; got != "asia-south1-docker.pkg.dev/p/nylorun/bot-computer@"+digest {
+		t.Fatalf("the workload image is pulled from its mirror, got %v", got)
 	}
 }
 
@@ -181,6 +186,9 @@ func TestNormalizeRefuses(t *testing.T) {
 		},
 		"builtin and engine": func(s *driver.Spec) {
 			s.Entrypoint = "builtin"
+		},
+		"builtin": func(s *driver.Spec) {
+			s.Entrypoint, s.HarnessImage = "builtin", ""
 		},
 	}
 	for name, mutate := range cases {

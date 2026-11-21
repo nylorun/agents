@@ -110,12 +110,7 @@ func TestComputerAgentReplacesOnlyTheEngine(t *testing.T) {
 		t.Fatalf("refusal %q", RepointRefusal(engine, agent))
 	}
 
-	// builtin keeps the image's own engine, and a diagnostic command is left alone.
-	builtin := s
-	builtin.Entrypoint, builtin.HarnessImage = driver.EntrypointBuiltin, ""
-	if r, err := RenderTemplate(agentSettings(), builtin, Resolved{Image: "x@sha256:1"}, ""); err != nil || RunsAgent(mustProto(t, r)) {
-		t.Fatalf("builtin: %v", err)
-	}
+	// A diagnostic command is left alone.
 	command := s
 	command.Command = []string{"sleep", "60"}
 	if r, err := RenderTemplate(agentSettings(), command, Resolved{Image: "x@sha256:1"}, ""); err != nil || RunsAgent(mustProto(t, r)) {

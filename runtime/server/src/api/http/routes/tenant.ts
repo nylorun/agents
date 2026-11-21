@@ -382,7 +382,7 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
       path: "/v1/tenant/sandbox",
       tags: ["Tenant"],
       summary: "Set the Tenant's Agent compute settings",
-      description: `Replaces the Tenant's settings (Tenant setting \`environments.config\`): the limits every Agent's runtime must fit, the pods' stop grace, the images that carry the engine (\`engine.images\`) and where harnesses may run. A setting left out takes its default. Answers like \`GET\`: ${SANDBOX_VIEW_TEXT}`,
+      description: `Replaces the Tenant's settings (Tenant setting \`environments.config\`): the limits every Agent's runtime must fit, the pods' stop grace and where harnesses may run (\`engine.images\`, retired by ADR-161, is refused). A setting left out takes its default. Answers like \`GET\`: ${SANDBOX_VIEW_TEXT}`,
       request: { body: body(PutTenantEnvironmentsRequest) },
       responses: {
         200: json(TenantSandboxView, "The settings now stored and the configuration now in force"),

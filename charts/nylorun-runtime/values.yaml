@@ -124,6 +124,15 @@ computer:
   # sandboxes service pins to its digest.
   image: ""
 
+# The sandboxes service (ADR-161): `imageMirrors` maps an image repository to the repository that
+# serves the same images, so the nodes pull an Agent's computer image from this cluster's own
+# registry with the digest it pinned, e.g.
+#   imageMirrors:
+#     ghcr.io/nylorun/bot-computer: asia-south1-docker.pkg.dev/<project>/nylorun/bot-computer
+# Copy each digest into the mirror first (`crane copy` keeps it), and pre-pull the mirror's name.
+sandboxes:
+  imageMirrors: {}
+
 sandboxGateway:
   replicas: 2
   resources: {}
