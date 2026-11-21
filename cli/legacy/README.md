@@ -18,4 +18,4 @@ harmless.
 
 `nylo`, the former Runtime client, is nylorun's: it names the `nylorun` command
 that replaced each of its own and exits 2, and a later release removes it. See
-[MIGRATION.md](../../guides/MIGRATION.md).
+[migration notes](../../docs/upgrading/migration.md).

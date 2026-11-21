@@ -17,7 +17,7 @@ a team runs. It is for **operators** running the Runtime.
 
 Some facts are in both, such as a model call's time and tokens. Each question reads one source:
 cost, audit and Studio's Usage read the log; latency and rates read telemetry. When they differ,
-the log is right. Vocabulary: [runtime/server/src/CONTEXT.md](../runtime/server/src/CONTEXT.md).
+the log is right. Vocabulary: [runtime/server/src/CONTEXT.md](../../runtime/server/src/CONTEXT.md).
 
 This guide changes in the same pull request as anything a developer or an operator can observe.
 
@@ -138,7 +138,7 @@ egress-gate).
 Every runtime and gateway process serves its metrics in Prometheus format on `/metrics`, port
 `9464`, from the moment it starts. On the local stack that port is on the Compose network only
 (`http://runtime:9464/metrics`, `http://gateway:9464/metrics`); the
-[Helm chart](../charts/nylorun-runtime/README.md#telemetry) names it `metrics` on the
+[Helm chart](../../charts/nylorun-runtime/README.md#telemetry) names it `metrics` on the
 `<name>-runtime-internal` and `<name>-gateway` Services. Set an OTLP endpoint and the same metrics
 are pushed there every minute too.
 
@@ -192,7 +192,7 @@ Set an OTLP endpoint and the Runtime exports spans; without one it makes none, a
   send a `traceparent` with a command and your span, the request's and the turn's are one trace.
 - **Turn traces** from the log: `invoke_agent`, `chat` and `execute_tool`, one per turn, the same
   as `session.trace(turnId)` reads. The variables, what leaves and how a collector that is down
-  is handled are in [DEPLOYMENT.md, Traces](DEPLOYMENT.md#traces).
+  is handled are in [DEPLOYMENT.md, Traces](docker-compose.md#traces).
 - **Egress has no span**: a connection belongs to the Environment, not a turn. Count it, or read
   its record from the Agent's stream.
 - **Sampling.** `OTEL_TRACES_SAMPLER` decides which live spans are kept: `parentbased_always_on`
@@ -294,7 +294,7 @@ switch says.
 each logged once at start as `trace_content_deprecated`. Replace either with
 `OTEL_INSTRUMENTATION_GENAI_CAPTURE_CONTENT=SPAN_ONLY`; when the new switch is set, they are
 ignored. The switch has no per-kind setting: one that kept only some kinds, such as `errors`,
-chooses between all of them and none. See [MIGRATION.md](MIGRATION.md).
+chooses between all of them and none. See [migration notes](../upgrading/migration.md).
 
 ### Variables
 
@@ -329,7 +329,7 @@ and the gateway's). With the chart's `metrics.from` set, Studio may still scrape
 ### Your own tools
 
 For history, alerts and dashboards, send the telemetry to your own backend.
-[examples/observability](../examples/observability/README.md) has:
+[examples/observability](../../examples/observability/README.md) has:
 
 - `compose.yaml`: Grafana's all-in-one OpenTelemetry backend (`grafana/otel-lgtm`) on your
   machine. Start it, then `nylorun start` with `OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4318`

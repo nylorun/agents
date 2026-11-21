@@ -89,7 +89,7 @@ Back up the Secret `<release>-secrets`: without its vault key, the Tenant's secr
    computers ran the engine (or changing `computer.agent` later) changes each computer's template
    volume, which Substrate refuses to repoint: each computer gets a new volume from its latest disk
    version. Take a disk version of every computer first (`POST /v1/agents/{id}/snapshot`), as
-   [MIGRATION.md](../../guides/MIGRATION.md) says. A new `computer.image` reaches new computers
+   [migration notes](../../docs/upgrading/migration.md) says. A new `computer.image` reaches new computers
    only: an existing one keeps the agent it was created with.
 
 ## Install
@@ -149,7 +149,7 @@ extraEnv:
 ```
 
 The variables, the metrics and content capture (`OTEL_INSTRUMENTATION_GENAI_CAPTURE_CONTENT`,
-runtime only) are in [OBSERVABILITY.md](../../guides/OBSERVABILITY.md#for-operators-telemetry-and-health).
+runtime only) are in [Observability](../../docs/self-hosting/observability.md#for-operators-telemetry-and-health).
 
 ## Not in this chart
 

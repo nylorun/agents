@@ -101,10 +101,10 @@ Everything here runs without a Nylorun account. The Runtime verifies and
 enforces; it never signs people in. Your identity provider and secret store
 plug in.
 
-- [DEPLOYMENT.md](./guides/DEPLOYMENT.md): the Tenant's containers, reverse proxy and Postgres
-- [SELF_HOSTING.md](./guides/SELF_HOSTING.md): your own identity provider and secrets
-- [MIGRATION.md](./guides/MIGRATION.md): breaking changes between beta protocols
-- [HARNESS_API.md](./guides/HARNESS_API.md): run your own harness, in any language
+- [Docker Compose reference](./docs/self-hosting/docker-compose.md): the Tenant's containers, reverse proxy and Postgres
+- [Identity and access](./docs/self-hosting/identity.md): your own identity provider and secrets
+- [Migration notes](./docs/upgrading/migration.md): breaking changes between beta protocols
+- [Harness API](./docs/reference/harness-api.md): run your own harness, in any language
 
 ## Contributing
 
@@ -120,7 +120,7 @@ npm run dev     # build the Runtime and Studio images, run the examples' Tenant
 `npm run dev` rebuilds packages and images as you edit. The Tenant keeps running
 after you stop it, so sessions survive a source change; `npx nylorun down`
 stops it. Read [CONTRIBUTING.md](./CONTRIBUTING.md) for checks and workflow and
-[RELEASING.md](./guides/RELEASING.md) for publishing. The domain vocabulary is in
+[Releasing](./docs/contributing/releasing.md) for publishing. The domain vocabulary is in
 [runtime/server/src/CONTEXT.md](./runtime/server/src/CONTEXT.md).
 
 ## Community

@@ -97,7 +97,7 @@ Then send `fixture:text` to a session, or `fixture:tool bash {"command":"uname -
 
 ## Artifacts
 
-This harness offers no artifact tools, but any harness may read and write its run's session's artifacts over the artifact seam ([HARNESS_API.md §4b](../../guides/HARNESS_API.md#4b-artifacts)). A tool of your own that hands the user a file, journaled like `bash` as a `harness` call, would save it like this, keyed by its effect id so a repeat stores nothing twice:
+This harness offers no artifact tools, but any harness may read and write its run's session's artifacts over the artifact seam ([HARNESS_API.md §4b](../../docs/reference/harness-api.md#4b-artifacts)). A tool of your own that hands the user a file, journaled like `bash` as a `harness` call, would save it like this, keyed by its effect id so a repeat stores nothing twice:
 
 ```ts
 import { readArtifact, writeArtifactBytes } from "@nylorun/core/harness-api";
@@ -184,7 +184,7 @@ This harness stays small. In this first version:
 
 - No workspace: it declares no `features.workspace` and serves no `workspace.*` requests, so the session sandbox routes find no workspace.
 - No outputs folder and no skill folders: saving `/workspace/outputs` as a folder artifact (`artifact.write` with `kind: "folder"`) and putting skills' files in the sandbox are our harness's conventions, and the Runtime does neither for a harness.
-- No compaction: it never summarizes history. A harness that does marks the edit `kind: "compaction"` and its summary calls `purpose: "summary"` ([HARNESS_API.md §6](../../guides/HARNESS_API.md#6-transcript)).
+- No compaction: it never summarizes history. A harness that does marks the edit `kind: "compaction"` and its summary calls `purpose: "summary"` ([HARNESS_API.md §6](../../docs/reference/harness-api.md#6-transcript)).
 - No artifact tools: it offers no `read_artifact` or `save_artifact` (they are our harness's own since protocol 15). A harness reads and writes its run's artifacts over the artifact seam; see [Artifacts](#artifacts).
 - One tool: its own `bash`, with a sandbox. It offers no `read`, `write`, `edit`, `grep` or `glob`, no skill tools, no remote MCP servers (see [MCP tools](#mcp-tools) for how yours would), no HTTP tools and no agents used as tools. A tool it does not run is answered `tool.unknown` to the model.
 - It holds a command's whole output in memory until it has stored or reported it.
