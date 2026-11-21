@@ -695,6 +695,8 @@ function authorizedFetch(
     const target = typeof url === "string" ? url : url.href;
     if (!sameOrigin(target, endpoint.href))
       throw new Error("MCP request origin does not match the declared server");
+    // Never asked for: no credential read, no audit, nothing sent. The SDK reads 405 as "no stream".
+    if (optionalEventStream(server, init)) return new Response(null, { status: 405 });
     const result = await authorize(server.url);
     if (result.status === "refused") {
       const error = new Error(`MCP authorization refused: ${result.reason}`);
@@ -748,6 +750,22 @@ function authorizedFetch(
     }
     return tracker?.calling && post && response.body ? watched(response, tracker) : response;
   };
+}
+
+/**
+ * Whether a request is a Streamable HTTP server's optional event stream: a GET without
+ * `Last-Event-ID`, which the SDK sends after `initialize` for server-initiated messages. The
+ * Runtime's client declares no capabilities and handles no notification, so nothing on that
+ * stream is read; a tool call's answer and progress come on its own POST. A server that answers
+ * 200 and then ends the stream (a stateless one closing per request) made the SDK reconnect
+ * every second for as long as the pool held the connection, each time reading the vault and
+ * auditing `credential.used`. A GET with `Last-Event-ID` resumes a POST's stream and is sent; a
+ * legacy `sse` server's GET is its only stream and is sent.
+ */
+export function optionalEventStream(server: Pick<McpServerManifest, "type">, init: RequestInit | undefined): boolean {
+  if (server.type === "sse") return false;
+  if ((init?.method ?? "GET").toUpperCase() !== "GET") return false;
+  return !new Headers(init?.headers).has("last-event-id");
 }
 
 /** Error statuses after which the same request may work. */

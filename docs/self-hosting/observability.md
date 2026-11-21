@@ -235,7 +235,7 @@ the Runtime's record (layer `runtime`).
 | `policy.changed` | The tool policy is replaced | `rules` (the count) and `updatedAt`, never the rules |
 | `settings.changed` | A setting is replaced: `limits.config`, `environments.config`, `artifacts.config`, `skills.config`, `model.budgets`, `model.inputs`, `model` (with `provider` and `model`), or one a seed set | `key`, never the value |
 | `credential.created`, `.rotated`, `.deleted` | An Agent's secret is written, replaced or deleted (also a fork's copies, and an Agent's secrets when it is deleted); setting or choosing the model rotates its credential | `vaultId`, `credentialId`, `target`, `outcome` |
-| `credential.used` | A gate asks the vault for a credential for a session's MCP server or HTTP tool, approved or refused | `vaultId`, `credentialId`, `sessionId`, `target` (the URL), `outcome` |
+| `credential.used` | A gate asks the vault for a credential for a session's MCP server or HTTP tool, approved or refused: once per request sent, so three when an MCP connection opens (`initialize`, `notifications/initialized`, `tools/list`), then one per tool call | `vaultId`, `credentialId`, `sessionId`, `target` (the URL), `outcome` |
 | `studio.signed_in` | A person signs in to Studio: with a login link (`token`), through a sign-in proxy (`forwarded`), or on the loopback address (`loopback`, at most hourly) | `method`, `subject` when there is one |
 
 Every event names who acted (`principal`) from the credential of the request that made the
