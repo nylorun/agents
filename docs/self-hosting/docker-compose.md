@@ -5,7 +5,7 @@ runs for a project (the Runtime, its gateway and harness, Studio, Postgres, Rest
 s2-lite and RustFS, as Docker Compose project `nylorun-<tenant>`), an installation that
 serves that one **Tenant**, and the services the application's agents call as
 tools (HTTP tools and remote MCP servers) on the same machine or reachable from it. Vocabulary:
-[runtime/server/src/CONTEXT.md](../runtime/server/src/CONTEXT.md).
+[runtime/server/src/CONTEXT.md](../../runtime/server/src/CONTEXT.md).
 
 ```sh
 npx nylorun start
@@ -48,20 +48,20 @@ new Runtime. They described the previous host and are not supported deployment
 paths for this beta.
 
 To run an installation for a team with your own identity provider and secret
-store, read [SELF_HOSTING.md](./SELF_HOSTING.md): the front doors, application
+store, read [Identity and access](./identity.md): the front doors, application
 and management keys, the identity file, credentials, Studio behind a sign-in proxy, CORS,
 private addresses and backups, with a runnable stack in
-[examples/self-host](../examples/self-host/README.md).
+[examples/self-host](../../examples/self-host/README.md).
 
 ## Serving people through an app server
 
 To put agents in front of people, run your own **app server** (vocabulary in
-[CONTEXT.md](../runtime/server/src/CONTEXT.md)): it signs people in, holds an
+[CONTEXT.md](../../runtime/server/src/CONTEXT.md)): it signs people in, holds an
 application key, and calls the Runtime API for each person with
 `client.as(subject, { scopes })` or the AG-UI handler
-([sdks/agents/README.md](../sdks/agents/README.md#acting-for-a-person-app-servers); a
+([sdks/agents/README.md](../../sdks/agents/README.md#acting-for-a-person-app-servers); a
 complete web backend is in
-[examples](../examples/README.md#an-agent-in-your-web-app-ag-ui)). The Runtime
+[examples](../../examples/README.md#an-agent-in-your-web-app-ag-ui)). The Runtime
 enforces the scopes and each subject's ownership of sessions itself. Sessions
 run on **Agents**: the app server saves agent manifests, makes Agents from them
 (one per person, per project or per audience, by an id it chooses), writes each
@@ -341,7 +341,7 @@ next turn runs the version the Agent runs then. Its kind, harness and storage ar
 changes those, but for one kind change ([becoming a computer](#becoming-a-computer)). Every session names its Agent when it opens (`agent: "<id>"`). No session is special: making an Agent opens none, and the
 app picks session ids (to keep one conversation going, reuse one). Upgrading from protocol 15,
 which had agent definitions, environment manifests and Environments:
-[MIGRATION.md](./MIGRATION.md#agents-from-one-manifest-protocol-16-harness-api-5).
+[migration notes](../upgrading/migration.md#agents-from-one-manifest-protocol-16-harness-api-5).
 
 - **Kind**, the manifest's `runtime.kind`: `virtual`, an emulated bash with a virtual filesystem
   in the harness container (in the `runtime` container with `NYLORUN_HARNESS=in-process`), whose
@@ -570,7 +570,7 @@ too, and `v8.json` without `harness.model` too)
   URL when `runtime.json` declares none), `runtime.json` (which may `"extends"` a shared file),
   `skills/<name>/`, HTTP `tools/<name>.json`, `triggers/<id>.md`, `files/**`, subagents in
   `agents/<id>/`, a flow in `flow.json` and vendored Agent Plugins in `plugins/<name>/`; a
-  `.nyloignore` leaves files out. The [CLI's README](../cli/nylorun/README.md#agent-manifests-apply)
+  `.nyloignore` leaves files out. The [CLI's README](../../cli/nylorun/README.md#agent-manifests-apply)
   shows each. Each kind of file has a JSON Schema at
   `https://docs.nylorun.com/schemas/agent-folder/v1/<kind>.json` (`runtime.2`, `tool`, `mcp` and
   `flow`, and `agent-md.5` and `trigger-md` for the frontmatter), exported as
@@ -784,7 +784,7 @@ a cancel then reaches another process only through the 5-second poll.
 
 ## Traces
 
-[OBSERVABILITY.md](OBSERVABILITY.md) is the guide to what the Runtime records and measures, for
+[Observability](observability.md) is the guide to what the Runtime records and measures, for
 developers and for operators; this section is the trace export's reference.
 
 Each turn is one OpenTelemetry trace, derived from the session log: a root span
@@ -800,7 +800,7 @@ same ids.
 Export is off until an OTLP endpoint is set on the `runtime` container. `nylorun start` passes
 these variables to it, and to the `gateway`, from the shell it runs in (a collector on your
 machine is `host.docker.internal`). The same endpoint takes the processes' live spans and metrics
-([OBSERVABILITY.md](OBSERVABILITY.md#for-operators-telemetry-and-health) lists them, with
+([Observability](observability.md#for-operators-telemetry-and-health) lists them, with
 sampling and `/metrics`):
 
 | Variable | Meaning |
@@ -1352,7 +1352,7 @@ below the run token's, the host token's longer than `harness.podRenewMs`, and
 `engine` holds the options of our engine (`createHarness` in `@nylorun/harness`), which a harness
 container, a pod's engine and the Tenant's own harness pass to it. Nothing is set by default:
 each option left out is the engine's own default, listed with `createHarness` in
-[runtime/harness/src/CONTEXT.md](../runtime/harness/src/CONTEXT.md).
+[runtime/harness/src/CONTEXT.md](../../runtime/harness/src/CONTEXT.md).
 
 | Setting | Engine default | What it sets |
 | --- | --- | --- |
@@ -1404,11 +1404,11 @@ a laptop and an MCP gateway in production. For each server:
 
 An agent with only remote MCP servers and HTTP tools needs no sandbox: save its manifest with no
 runtime section (or kind `none`), and its Agents have a vault and no compute. Upgrading from
-protocol 15, which had Environments: [MIGRATION.md](./MIGRATION.md#agents-from-one-manifest-protocol-16-harness-api-5);
+protocol 15, which had Environments: [migration notes](../upgrading/migration.md#agents-from-one-manifest-protocol-16-harness-api-5);
 from protocol 10, which had user and installation vaults:
-[MIGRATION.md](./MIGRATION.md#environments-replace-sandboxes-and-vaults-protocol-11-a-fresh-start);
+[migration notes](../upgrading/migration.md#environments-replace-sandboxes-and-vaults-protocol-11-a-fresh-start);
 from protocol 9, which had an MCP OAuth connect and a credential resolver:
-[MIGRATION.md](./MIGRATION.md#mcp-credentials-from-vaults-only-protocol-10).
+[migration notes](../upgrading/migration.md#mcp-credentials-from-vaults-only-protocol-10).
 
 ### Credentials
 
@@ -1737,7 +1737,7 @@ it to choose which tools to enable, and whether a server is large enough to defe
 ### Tools, results and errors
 
 Set an MCP server's tools in the agent's manifest, keyed by the server's own tool names, with `"*"`
-for the rest ([sdks/agents/README.md](../sdks/agents/README.md)):
+for the rest ([sdks/agents/README.md](../../sdks/agents/README.md)):
 
 ```ts
 Agent({ id: "triage" }).mcp({
@@ -1974,7 +1974,7 @@ The runtime container runs no turn, no MCP server and no workspace command.
   harness, save a manifest version that names it, fork the Agent onto that version, and open
   new sessions on the fork. A session pins its harness when it opens. If its Agent's id is
   deleted and made again with another harness, the session's next turn is
-  `409 harness_mismatch`: open a new session. See [HARNESS_API.md](./HARNESS_API.md).
+  `409 harness_mismatch`: open a new session. See [Harness API](../reference/harness-api.md).
 
 ## Networks and Restate's UI
 

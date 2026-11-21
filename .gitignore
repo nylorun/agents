@@ -4,5 +4,4 @@ dist/
 coverage/
 *.tgz
 .tmp/
-docs/
 .cursor/

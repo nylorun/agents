@@ -24,7 +24,7 @@ Restate and S2: `nylorun start` runs them, as a local Tenant, on a developer mac
 package is a library with no bin; its Host entry is `@nylorun/runtime/server`
 (`dist/host/main.js`), which requires `NYLORUN_DATABASE_URL`. For tests and
 ephemeral embeds, use `startEphemeralRuntime()` from `@nylorun/runtime/core`.
-See [MIGRATION.md](../../guides/MIGRATION.md).
+See [migration notes](../../docs/upgrading/migration.md).
 
 A Runtime serves one **Tenant**: an installation is one Runtime with its own
 Postgres database, Restate and S2 basin, and two Tenants are two installations. No
@@ -66,7 +66,7 @@ core's process. A `harness` process needs `NYLORUN_HARNESS_URL`,
 `/harness`), answers `/health` on `127.0.0.1:4300`, and refuses to start with a
 database, Restate, keys or gates credential in its environment. A local Tenant
 runs it in the `harness` container, on a network with only the runtime and the
-gateway ([DEPLOYMENT.md](../../guides/DEPLOYMENT.md#the-harness-agent-turns-mcp-servers-and-workspaces)).
+gateway ([Docker Compose reference](../../docs/self-hosting/docker-compose.md#the-harness-agent-turns-mcp-servers-and-workspaces)).
 
 The container is configured by its environment, which a local Tenant's Compose file
 sets: `NYLORUN_DATABASE_URL` (required), `NYLORUN_RESTATE_INGRESS_URL`,
@@ -91,7 +91,7 @@ Host) the registration replaces the deployment at that URL.
 `NYLORUN_IDENTITY_FILE` names the identity
 file, a YAML list of the trusted issuers whose JWTs the Runtime API accepts
 (Host feature `trusted-issuers`), read once at boot; a malformed file stops the
-boot ([DEPLOYMENT.md](../../guides/DEPLOYMENT.md#trusted-issuers)). A process that runs `loop` sends its model
+boot ([Docker Compose reference](../../docs/self-hosting/docker-compose.md#trusted-issuers)). A process that runs `loop` sends its model
 calls to the gate at `NYLORUN_GATES_URL`; in a container it refuses to start
 without it and `NYLORUN_GATES_TOKEN`. That token is core's credential: the gate
 accepts only it for vault writes and token signing. Model, HTTP tool and
@@ -106,7 +106,7 @@ never writes; it serves the database's one Tenant. A session's MCP servers and
 HTTP tools get their credentials from the vault of its Environment only: a `bearer` token
 or a `headers` map per URL, sent to an MCP gateway instead when it has `via`,
 with the session owner in its identity header
-([DEPLOYMENT.md](../../guides/DEPLOYMENT.md#mcp-servers-and-http-tools)); the credential resolver is gone
+([Docker Compose reference](../../docs/self-hosting/docker-compose.md#mcp-servers-and-http-tools)); the credential resolver is gone
 (protocol 10), and a process that still sets a `NYLORUN_RESOLVER_*` variable logs
 `resolver_removed` and ignores it. With `egress`
 (`--service gates,keys,egress`, for pod sandboxes) the same process runs
@@ -170,7 +170,7 @@ with `415 unsupported_media_type`, except an artifact upload (`POST /v1/artifact
 presents a trusted issuer's token; keys (application and management)
 are refused from browsers before they are looked up. The Runtime sends no CORS headers, and answers
 `OPTIONS` with `204` and `Allow` only: the operator's reverse proxy answers preflights
-([DEPLOYMENT.md](../../guides/DEPLOYMENT.md#calling-the-runtime-from-browsers-and-apps)). Missing or
+([Docker Compose reference](../../docs/self-hosting/docker-compose.md#calling-the-runtime-from-browsers-and-apps)). Missing or
 unsupported protocol → `426` before authentication, unless the request sends neither
 `Nylorun-Protocol` nor `Authorization` (the Host serves protocol 15 only; protocol 15 moves
 `read_artifact` and `save_artifact` to our harness, which runs them over the Harness API's
@@ -279,9 +279,9 @@ credential in the vault of the Environment a session names (`PUT
 /v1/environments/{id}/secrets/{name}`), the operator previews an MCP server's tools
 (`nylorun tenant mcp inspect --environment <id>`),
 and the manifest says which tools are enabled, and which to defer (a hint the harness
-follows; [DEPLOYMENT.md](../../guides/DEPLOYMENT.md#mcp-servers-and-http-tools)). Which calls wait for a
+follows; [Docker Compose reference](../../docs/self-hosting/docker-compose.md#mcp-servers-and-http-tools)). Which calls wait for a
 person, or are refused, is the Tenant's tool policy, which names an MCP tool by `server` and
-its own name ([DEPLOYMENT.md](../../guides/DEPLOYMENT.md#tool-policy)). Model gateway
+its own name ([Docker Compose reference](../../docs/self-hosting/docker-compose.md#tool-policy)). Model gateway
 and sandbox backend are Tenant configuration (the Tenant's own vault, Tenant
 settings and seed), not Host process env.
 

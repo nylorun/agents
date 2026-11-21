@@ -157,7 +157,7 @@ serviceAccount:
 # Secret): the Runtime's settings the chart doesn't set (SELF_HOSTING.md's table), such as
 # NYLORUN_MODEL_HOST_IDENTITY, NYLORUN_CREDENTIAL_PROVIDER_URL and _TOKEN (gateway and runtime),
 # NYLORUN_A2A_PUSH_SECRET and _ALLOW_HOSTS, or NYLORUN_TUNING. Don't repeat a name the chart
-# sets. Telemetry (guides/OBSERVABILITY.md) is the standard OTEL_* variables, in runtime and
+# sets. Telemetry (docs/self-hosting/observability.md) is the standard OTEL_* variables, in runtime and
 # gateway alike: OTEL_EXPORTER_OTLP_ENDPOINT (with OTEL_EXPORTER_OTLP_HEADERS from a Secret) to
 # export metrics and spans, OTEL_TRACES_SAMPLER and _ARG, OTEL_RESOURCE_ATTRIBUTES, and
 # OTEL_INSTRUMENTATION_GENAI_CAPTURE_CONTENT (runtime only).

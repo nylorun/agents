@@ -264,7 +264,7 @@ replaced by the application key otherwise.
 
 Every Tenant serves the Runtime API, which takes **application keys**, and the
 Management API (`/v1/tenant/*`), which takes **management keys**
-([SELF_HOSTING.md](../../guides/SELF_HOSTING.md#keys)). On a local Tenant,
+([Identity and access](../../docs/self-hosting/identity.md#keys)). On a local Tenant,
 `nylorun tenant keys` manages both through `nylorun-operate` in its runtime
 container, so only this machine can issue a management key. On a remote
 installation ([below](#remote-installations)) it manages application keys
@@ -298,7 +298,7 @@ slot's, the slot's tool prefix over the write's),
 `client.agents.secrets.put(id, name, secret)` of `@nylorun/agents` (the
 Runtime API, an application key) or in Studio.
 The whole flow, with gateway recipes, is in
-[DEPLOYMENT.md](../../guides/DEPLOYMENT.md#mcp-servers-and-http-tools).
+[Docker Compose reference](../../docs/self-hosting/docker-compose.md#mcp-servers-and-http-tools).
 
 `nylorun tenant mcp inspect <url>` shows what a remote MCP server offers before an
 agent names it, through the Tenant's Management API
@@ -929,4 +929,4 @@ them. The Runtime's own are `NYLORUN_TUNING`, which `nylorun start` passes on.
 | `403 key_role_mismatch` | The key belongs to the other API: a management key for the Management API, an application key for the Runtime API |
 | Old Project link refused | `npx nylorun start` in the project |
 
-See [MIGRATION.md](../../guides/MIGRATION.md).
+See [migration notes](../../docs/upgrading/migration.md).

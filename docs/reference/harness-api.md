@@ -7,7 +7,7 @@ the two. Our harness (`@nylorun/harness`, harness id `nylorun`) is one implement
 write another, in any language, from this page alone.
 
 This page is the reference, section by section, and then a guide to building one.
-[`examples/harness-minimal`](../examples/harness-minimal/README.md) is a complete harness of about
+[`examples/harness-minimal`](../../examples/harness-minimal/README.md) is a complete harness of about
 800 lines that depends only on `ws` and `@nylorun/core/harness-api`.
 
 The Harness API is southbound: from the Runtime down to a loop. It is not a northbound API for
@@ -31,7 +31,7 @@ that file.
   `{t: "res", id, ok: false, e: {code, message}}`, `{t: "msg", m, p}`, `{t: "abort", id}` and
   `{t: "ping"}`. Either end may send requests; ids are per sender.
 - Core pings every 30 s and drops a harness it has not heard from for 90 s (the operator's
-  `harness.pingMs` and `harness.silenceMs`, [Host tuning](./DEPLOYMENT.md#host-tuning)). Its runs
+  `harness.pingMs` and `harness.silenceMs`, [Host tuning](../self-hosting/docker-compose.md#host-tuning)). Its runs
   then end as `connection.lost`, and the next advance offers them again.
 - Error codes (`HARNESS_ERROR_CODES`): `run_not_held`, `turn_cancelled`, `ownership_lost`,
   `effect_drift`, `invalid`, `unavailable`, `internal`, `not_found` (an artifact that is not
@@ -286,7 +286,7 @@ instrumentation of its own.
 So a harness must not instrument its own model or tool calls with an OpenTelemetry library: every
 call would be counted twice. Spans for work the Runtime cannot see, such as a retrieval step inside
 the harness, are welcome; parent them on the turn's context from `TurnStart.trace`. See
-[OBSERVABILITY.md](OBSERVABILITY.md).
+[Observability](../self-hosting/observability.md).
 
 ## §4b Artifacts
 
@@ -694,7 +694,7 @@ What a custom harness cannot do in v5:
 ## Build your own harness
 
 1. **Start from the example.** Copy
-   [`examples/harness-minimal`](../examples/harness-minimal/README.md). It shows each section
+   [`examples/harness-minimal`](../../examples/harness-minimal/README.md). It shows each section
    above in one loop: hello, lease, read the transcript, call the Model Gate, run `bash`, and
    journal every effect before running it.
 2. **Ship it as a pod image.** Build the harness into the image your agents' tools need (uid

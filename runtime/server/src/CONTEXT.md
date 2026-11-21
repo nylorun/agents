@@ -113,7 +113,7 @@ engine the `harness` and `engine` groups the operator set (`podTuningEnv`, in th
 against another are refused together (token lifetimes within `keys.tokenTtlMaxSeconds`,
 `execution.advanceDeadlineMs` below `restate.inactivityMs`). `nylorun-operate` reads the
 container's `NYLORUN_TUNING` itself (`host.operateReadyTimeoutMs`, `postgres.closeTimeoutSeconds`). Not Tenant-facing: those are Runtime limits
-and Tenant settings. Listed whole in `guides/DEPLOYMENT.md` (a test checks).
+and Tenant settings. Listed whole in `docs/self-hosting/docker-compose.md` (a test checks).
 _Avoid_: "config" alone, which means a Tenant's settings or an agent's manifest.
 
 **Client package**: `@nylorun/agents` (the Runtime API) or `@nylorun/admin` (the

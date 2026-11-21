@@ -130,10 +130,10 @@ from: a new URL reaches callers through an Agent made from the new version.
 
 A page can also call the Runtime itself, with the JWT your identity provider
 gave the person, when the Runtime trusts that provider in its identity file
-([Trusted issuers](../guides/DEPLOYMENT.md#trusted-issuers)). Nylorun mints no token and
+([Trusted issuers](../docs/self-hosting/docker-compose.md#trusted-issuers)). Nylorun mints no token and
 ships no browser client: send the token as `Authorization: Bearer <token>`
 through a reverse proxy that answers CORS
-([DEPLOYMENT.md](../guides/DEPLOYMENT.md#calling-the-runtime-from-browsers-and-apps)).
+([Docker Compose reference](../docs/self-hosting/docker-compose.md#calling-the-runtime-from-browsers-and-apps)).
 
 Rules for a web backend:
 
@@ -148,12 +148,12 @@ Rules for a web backend:
   header a browser sends is ignored.
 - Per-user keys (a user's GitHub token) go in that person's Agent
   (`client.agents.secrets.put`), with `owner` set so only their
-  sessions may run on it ([Credentials](../guides/DEPLOYMENT.md#credentials)).
+  sessions may run on it ([Credentials](../docs/self-hosting/docker-compose.md#credentials)).
   Accounts that need the person's sign-in (their Drive) go through an MCP gateway
-  ([Reaching a person's accounts](../guides/DEPLOYMENT.md#reaching-a-persons-accounts)).
+  ([Reaching a person's accounts](../docs/self-hosting/docker-compose.md#reaching-a-persons-accounts)).
   A shared tool key is a secret of each Agent that needs it.
 - The Runtime stays off the network: see
-  [Serving people through an app server](../guides/DEPLOYMENT.md#serving-people-through-an-app-server).
+  [Serving people through an app server](../docs/self-hosting/docker-compose.md#serving-people-through-an-app-server).
 
 ## A harness of your own
 
