@@ -1,21 +1,17 @@
 # nylorun-runtime
 
 The Nylorun Runtime on an [Agent Substrate](https://github.com/agent-substrate/substrate) cluster,
-in one Helm chart ([ADR-147](https://github.com/nylorun/factory/blob/main/decisions/platform/2026-11-15-beta-runtime-on-kubernetes.md),
-[ADR-148](https://github.com/nylorun/factory/blob/main/decisions/engine/2026-11-15-computer-through-the-router.md),
-[ADR-149](https://github.com/nylorun/factory/blob/main/decisions/engine/2026-11-15-one-architecture-harness-outside.md)).
+in one Helm chart.
 Every Agent with a sandbox gets a **computer**:
 
 - the loop runs in the harness;
 - the Agent's commands and files run in its own Substrate actor, any image;
 - they reach it through the sandbox gateway and Substrate's router;
 - in the actor, the computer agent serves them: one static binary from `ghcr.io/nylorun/computer`,
-  mounted at `/nylo` ([ADR-154](https://github.com/nylorun/factory/blob/main/decisions/engine/2026-11-17-one-agents-computer.md)
-  decision 4), or, with `computer.agent: engine`, the Runtime's engine.
+  mounted at `/nylo`, or, with `computer.agent: engine`, the Runtime's engine.
 
 The chart names no cloud provider. Postgres and the object store are settings: a managed service,
-or the bundled ones. It is tested on Google Cloud (GKE, Cloud SQL, GCS) by
-[nylorun/ops](https://github.com/nylorun/ops/tree/main/environments/beta/lab/k8s); guides for other
+or the bundled ones. It is tested on Google Cloud (GKE, Cloud SQL, GCS); guides for other
 providers come later in the docs.
 
 ## What it installs
@@ -33,7 +29,7 @@ providers come later in the docs.
 | `postgres`, `rustfs` | StatefulSets, only when bundled | The stores, for clusters without managed ones |
 | `prepull` | DaemonSet, optional | The image computers mount at `/nylo` (the computer agent's, or the Runtime's) and computer images in atelet's cache on worker nodes |
 | `substrate-setup` | Job, optional | The Tenant's atespace and the sandboxes service's editor binding |
-| `nylorun-keys-provider` | Deployment, Service, NetworkPolicy in Substrate's namespace, optional | The keys provider (ADR-142): Substrate's egress asks it for a keyed request's header; it asks the gateway's decide route |
+| `nylorun-keys-provider` | Deployment, Service, NetworkPolicy in Substrate's namespace, optional | The keys provider: Substrate's egress asks it for a keyed request's header; it asks the gateway's decide route |
 
 Secrets the chart makes once and keeps (`helm.sh/resource-policy: keep`):
 
@@ -117,7 +113,7 @@ admin key is in the Secret (`adminKey`); Studio is a port-forward away (`NOTES.t
 | `postgres.url` or `.existingSecret` (key `url`) | bundled | External Postgres |
 | `objectStore.endpoint`, `.bucket`, `.region`, `.existingSecret` (keys `accessKey`, `secretKey`) | bundled RustFS | External S3 API |
 | `s2.objectStore` | `true` | s2-lite's streams in the bucket under `s2.path`; `false` keeps a disk |
-| `restate.snapshots.enabled`, `.path`, `.interval` | on, `restate`, `1h` | Restate's partition snapshots in the bucket (ADR-147 decision 11); a new disk restores from the latest. The store must support conditional writes (GCS, S3 and RustFS do) |
+| `restate.snapshots.enabled`, `.path`, `.interval` | on, `restate`, `1h` | Restate's partition snapshots in the bucket; a new disk restores from the latest. The store must support conditional writes (GCS, S3 and RustFS do) |
 | `keysProvider.enabled` | off | The keys provider in `substrate.systemNamespace`; one release per cluster |
 | `substrate.atespace` | `nylorun-<namespace>` | The Tenant's atespace |
 | `substrate.workerSelector` | any | The worker pool's labels |
@@ -125,7 +121,7 @@ admin key is in the Secret (`adminKey`); Studio is a port-forward away (`NOTES.t
 | `computer.port` | `8080` | The port the computer agent (or the engine) serves in a computer |
 | `computer.agent` | `go` | What serves a computer: `go`, the computer agent from `computer.image`, or `engine`, the Runtime's engine in computer mode, for a Runtime that can't move yet (kept for one minor). Passed to the sandboxes service as `--computer-agent` |
 | `computer.image` | `ghcr.io/nylorun/computer:<nylorun.com/computer-version>` | The computer agent's image (`--computer-image`). Pin it by digest in production, as `computer-image.yml` prints it; a tag is pinned to its digest by the sandboxes service |
-| `sandboxes.imageMirrors` | none | Image repository → the repository that serves the same images (ADR-161): the nodes pull a computer image from the mirror with its digest kept, and the Runtime still reads the Agent's name. Copy each digest there first, and pre-pull the mirror's name |
+| `sandboxes.imageMirrors` | none | Image repository → the repository that serves the same images: the nodes pull a computer image from the mirror with its digest kept, and the Runtime still reads the Agent's name. Copy each digest there first, and pre-pull the mirror's name |
 | `sandboxGateway.replicas` | `2` | |
 | `placement.nodeSelector`, `.tolerations` | none | Where the chart's pods run (its pool) |
 | `prepull.enabled`, `.substrateCommit`, `.images`, `.nodeSelector`, `.tolerations` | off | Warm the worker nodes' image cache |

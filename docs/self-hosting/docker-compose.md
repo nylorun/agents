@@ -372,9 +372,9 @@ which had agent definitions, environment manifests and Environments:
   left out is the Tenant's as it is when checked. The Tenant's own totals still apply to
   everything; the view's `limits` says what is in force.
 - **The computer's image**: any Linux image, pinned by digest. The Runtime copies or mounts its
-  engine (or the computer agent) in; no image carries it, and `engine.images` is retired
-  (ADR-161). [Computer images](computer-images.md) says what an image needs, how to build one
-  for a coding computer, and how a cluster pulls it from its own registry (`imageMirrors`).
+  engine (or the computer agent) in; no image carries it, and `engine.images` is retired.
+  [Computer images](computer-images.md) says what an image needs, how to build one for a coding
+  computer, and how a cluster pulls it from its own registry (`imageMirrors`).
 - **Lifecycle**: `lifecycle.idle` stops a pod after that long without a turn (at most the
   Tenant's `limits.idle`); `lifecycle.deleteAfter` deletes the Agent, its vault and its disk
   once it has gone that long unused (no turn, change, secret write, stop or reset). The default
@@ -430,7 +430,7 @@ which had agent definitions, environment manifests and Environments:
   of that Agent, after a stop, a relaunch or a reset, runs that digest: a tag that moves never
   changes what an Agent runs. A fork pulls the tag afresh. An image loaded onto the node without
   a registry pins nothing.
-- <a id="becoming-a-computer"></a>**Becoming a computer** (Host feature `computer-move`, ADR-154).
+- <a id="becoming-a-computer"></a>**Becoming a computer** (Host feature `computer-move`).
   On a Runtime whose pod Agents are computers (Agent Substrate with the sandbox gateway), a
   `PUT /v1/agents/{id}` that names a `pod` version of a `virtual` Agent's manifest makes it a
   computer in place: its id, sessions, memory, vault, triggers, events and labels stay, and its
@@ -442,7 +442,7 @@ which had agent definitions, environment manifests and Environments:
   (`409 request_rejected`), and for any other kind change or on a Runtime without computers
   (`409 agent_fixed_field`). A manifest save never changes an Agent's kind: a tracking Agent
   stays on its version until a `PUT` moves it.
-- **A computer wakes on its first command** (ADR-154). A turn on a computer that sleeps reaches
+- **A computer wakes on its first command.** A turn on a computer that sleeps reaches
   its model without waking it; the run's first command wakes it (`environment.state` `creating`,
   then `running`), and only a failed computer is asked to run by a turn. Before an idle suspend
   the Runtime measures the computer's disk (`du` of `/workspace` and `/skills`, at most 20 s)
@@ -557,8 +557,8 @@ too, and `v8.json` without `harness.model` too)
   (`virtual` or `pod`). It also refuses what the Tenant's limits do not allow, files it does not
   hold, a tool that runs your code and a tool's `approval` (the Tenant's
   [tool policy](#tool-policy) decides).
-- **Agent folders.** Author a manifest as a folder (tracks T6 and T7, format `agent-folder/1`; or
-  `agent-folder/2`, ADR-100, which declares every engine feature it uses in `engine:`):
+- **Agent folders.** Author a manifest as a folder (format `agent-folder/1`; or
+  `agent-folder/2`, which declares every engine feature it uses in `engine:`):
   `AGENT.md` (frontmatter `name` and `description`, optionally `model: <provider>/<model>` and
   `roles`, the instructions below), `mcp.json` (Agent
   Plugins syntax; `Authorization: Bearer ${NAME}` names a `bearer` slot, derived for the server's
@@ -1358,7 +1358,7 @@ each option left out is the engine's own default, listed with `createHarness` in
 | `engine.resendDelaysMs` | `[1000, 2000, 4000]` | The waits before each resend of a tool call whose gate hop lost its answer; the last repeats |
 | `engine.partialOutputChars` | 4000 | How much of a failed agent-as-tool's last output its parent sees |
 | `engine.flowValueChars` | 80 | How much of a value a flow's failure message quotes |
-| `engine.compaction` | `DEFAULT_COMPACTION_CONFIG` | `keepTokens` (20,000), `keepShare` (0.3), `reserveTokens` (8,192), `maxReserveTokens` (16,384), `maxReserveShare` (0.25), `clipChars` (2,000), `summaryOverheadTokens` (1,024), `imageTokens` (1,600), `fileBytesPerToken` (8), `fileTokensMax` (100,000), `minChunkTokens` (1,000), `minSummaryTokens` (256), `summaryShare` (0.8), `charsPerToken` (4), and `threshold` (none; an Agent sets its own in `harness.loop.compaction`, ADR-157) |
+| `engine.compaction` | `DEFAULT_COMPACTION_CONFIG` | `keepTokens` (20,000), `keepShare` (0.3), `reserveTokens` (8,192), `maxReserveTokens` (16,384), `maxReserveShare` (0.25), `clipChars` (2,000), `summaryOverheadTokens` (1,024), `imageTokens` (1,600), `fileBytesPerToken` (8), `fileTokensMax` (100,000), `minChunkTokens` (1,000), `minSummaryTokens` (256), `summaryShare` (0.8), `charsPerToken` (4), and `threshold` (none; an Agent sets its own in `harness.loop.compaction`) |
 | `engine.sandboxTools` | `DEFAULT_SANDBOX_TOOL_LIMITS` | The `bash` timeouts and output, `read`, `grep` and `glob` counts |
 | `engine.mcpTools` | `DEFAULT_MCP_TOOL_CONFIG` | When MCP tools are deferred, and `tool_search`'s limits |
 | `engine.toolResults` | `DEFAULT_TOOL_RESULT_CONFIG` | Inline caps, previews (the smallest a stub keeps, `minPreviewBytes`, 64) and the step budget of tool results |
@@ -1635,7 +1635,7 @@ and the `runtime` container of a Runtime without the gates service. Mount the fi
 #### The Host's identity (Google)
 
 A Runtime on Google Cloud can call Gemini on Agent Platform (Vertex AI) with its own identity, the
-attached service account, instead of a stored API key ([ADR-71](https://github.com/nylorun/factory/blob/main/decisions/engine/2026-10-21-model-host-identity.md)).
+attached service account, instead of a stored API key.
 That suits an organization whose policy forbids API keys. Lend it, as the operator, on the process
 that runs the gates:
 
@@ -1904,7 +1904,7 @@ the Runtime then calls, each with `Authorization: Bearer <token>`:
 | `POST <url>/v1/hosts` | `{ "agentId", "owner" }` | `{ "hosts": [...] }`: the hosts the owner's keys are bound to, each an exact host name or a `*.<suffix>` pattern such as `*.googleapis.com`, or `{ "host", "header" }` naming the header the key goes in (`Authorization` when not named) |
 | `POST <url>/v1/environment` | `{ "agentId", "owner" }` | `{ "variables": [...] }`: the variables each command sees, each a name (set to `nylorun_managed`), `{ "name", "standIn" }` (set to that stand-in) or `{ "name", "value" }` (set to that plain value) |
 | `ANY <url>/v1/forward/<path and query>` | One request of the sandbox's | The upstream's answer, streamed (agent-sandbox only; retires with egress-gate) |
-| `POST <url>/v1/fetch` | `{ "agentId", "owner", "host" }` | `{ "value" }`: the whole header value of the owner's key for the host, `404` when there is none. Asked only by the keys provider beside Agent Substrate's egress, after the Runtime allowed the request ([ADR-142](https://github.com/nylorun/factory/blob/main/decisions/platform/2026-11-13-substrate-egress-adds-keys.md)); never by the Runtime |
+| `POST <url>/v1/fetch` | `{ "agentId", "owner", "host" }` | `{ "value" }`: the whole header value of the owner's key for the host, `404` when there is none. Asked only by the keys provider beside Agent Substrate's egress, after the Runtime allowed the request; never by the Runtime |
 
 A host the provider lists passes the sandbox's allowlist on port 443, inside the Tenant's egress
 ceiling (`limits.network` of `environments.config`, when the Tenant sets one). egress-gate

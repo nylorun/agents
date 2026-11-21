@@ -124,7 +124,7 @@ computer:
   # sandboxes service pins to its digest.
   image: ""
 
-# The sandboxes service (ADR-161): `imageMirrors` maps an image repository to the repository that
+# The sandboxes service: `imageMirrors` maps an image repository to the repository that
 # serves the same images, so the nodes pull an Agent's computer image from this cluster's own
 # registry with the digest it pinned, e.g.
 #   imageMirrors:

@@ -450,8 +450,7 @@ Agent's manifest has `runtime.kind` `pod`.
 
 `nylorun local sandbox enable --context <name> --backend substrate` runs the Tenant's pods as
 [Agent Substrate](https://github.com/agent-substrate/substrate) v1.0 actors instead
-([ADR-138](https://github.com/nylorun/factory/blob/main/decisions/engine/2026-11-09-substrate-replaces-agent-sandbox.md),
-Phase 1). Actors suspend to a snapshot of their memory and resume where they stopped, which suits
+(a preview). Actors suspend to a snapshot of their memory and resume where they stopped, which suits
 sessions that are short and mostly asleep. The cluster needs Kubernetes 1.37 with Substrate v1.0
 installed (its `ate-system` namespace and `api` Service): a kind cluster on Docker Desktop, made
 with Substrate's own kind script, works. `enable` refuses a context without Substrate.
@@ -478,8 +477,7 @@ that is reclaimed (15 s to 2 min) or a node that dies still crashes its actors, 
 their last suspend, so don't run workers on spot nodes. An actor created by an earlier release
 keeps an engine that exits on that signal; reset the Agent's pod to update it.
 
-Keys reach commands through Substrate's own egress
-([ADR-142](https://github.com/nylorun/factory/blob/main/decisions/platform/2026-11-13-substrate-egress-adds-keys.md)):
+Keys reach commands through Substrate's own egress:
 a command sends its stand-in (`Authorization: Bearer nylorun_managed`) with no proxy, and
 Substrate's egress replaces the header on each request to a host the Agent has a key for, asking
 the keys provider, which asks the Tenant. `enable` deploys the keys provider in `ate-system`
@@ -622,7 +620,7 @@ from `mcp.json`) and saves it, uploading its files by hash; the Runtime keeps th
 folder as the version's source. `--dry-run` also prints the compiled manifest. A
 change only to a file outside the agent, such as a README, is `unchanged`.
 
-**What the engine adds (`agent-folder/2`, ADR-100).** An `agent-folder/1` folder (no `format`,
+**What the engine adds (`agent-folder/2`).** An `agent-folder/1` folder (no `format`,
 the default) gets every engine feature by default: with a computer in `runtime.json`, the six
 sandbox tools, `save_artifact` and the outputs folder; always `read_artifact`; and its MCP tools
 deferred behind `tool_search` past a share of the context window. A folder with
@@ -659,7 +657,7 @@ blocks the agent gets, with their versions and hashes (`harness.engine.blocks`).
 `nylorun migrate folder <dir> --to 2` writes the declarations that keep what an `agent-folder/1`
 folder gets, so nothing changes until you remove a line.
 
-**The Runtime's plugins (`agent-folder/3`, ADR-106).** A v3 folder names the Runtime's features
+**The Runtime's plugins (`agent-folder/3`).** A v3 folder names the Runtime's features
 as plugins instead of keys:
 
 ```yaml

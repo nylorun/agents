@@ -5,7 +5,7 @@ versions work together, read [Compatibility](https://docs.nylorun.com/docs/compa
 
 # No image carries the engine, and clusters mirror computer images
 
-Breaking for an installation that listed images in `engine.images` (ADR-161). Nothing to do
+Breaking for an installation that listed images in `engine.images`. Nothing to do
 otherwise.
 
 - **`engine.images` is retired.** `PUT /v1/tenant/sandbox` refuses it (`400`, an unknown key), and

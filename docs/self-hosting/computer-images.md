@@ -7,7 +7,7 @@ publishes no computer image of its own: you choose one, or build one with the re
 
 ## What the Runtime adds
 
-An image needs no engine (ADR-161). Around it, the Runtime adds:
+An image needs no engine. Around it, the Runtime adds:
 
 | Added | What |
 | --- | --- |
@@ -119,13 +119,11 @@ RUN arch="$([ "$TARGETARCH" = arm64 ] && echo arm64 || echo x64)" \
  && echo "${sum}  /usr/local/bin/mise" | sha256sum -c - \
  && chmod 755 /usr/local/bin/mise
 
-# 4. A browser (Phase 1 in nylorun/factory research/browser-for-agents-2026-11-01.md): Chromium's
-#    libraries and base fonts (Playwright's ubuntu24.04 list for Chromium), @playwright/cli, and
-#    the headless shell and FFmpeg builds that CLI expects, under /opt/ms-playwright on the
-#    read-only root. The CLI defaults to the Google Chrome channel, which isn't here, so
-#    PLAYWRIGHT_MCP_CONFIG makes it launch Playwright's Chromium; NO_UPDATE_NOTIFIER stops it asking
-#    npm for updates on every run. Measured in nylorun/ops' beta lab E8 on beta's GKE cluster: about
-#    220 MiB compressed, and the CLI works as uid 1000 on a read-only root with no egress.
+# 4. A browser: Chromium's libraries and base fonts (Playwright's ubuntu24.04 list for Chromium),
+#    @playwright/cli, and the headless shell and FFmpeg builds that CLI expects, under
+#    /opt/ms-playwright on the read-only root. The CLI defaults to the Google Chrome channel, which
+#    isn't here, so PLAYWRIGHT_MCP_CONFIG makes it launch Playwright's Chromium; NO_UPDATE_NOTIFIER
+#    stops it asking npm for updates on every run. About 220 MiB compressed.
 ARG PLAYWRIGHT_CLI=0.1.23
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
