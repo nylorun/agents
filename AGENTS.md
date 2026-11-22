@@ -11,4 +11,5 @@ Guidance for coding agents working in this repository.
   [docs.nylorun.com](https://docs.nylorun.com/llms.txt). A change to behavior a page describes
   updates that page in the same PR.
 - **Releasing** (including a request for `latest`): follow
-  [.claude/skills/release/SKILL.md](.claude/skills/release/SKILL.md).
+  [docs/contributing/releasing.md](docs/contributing/releasing.md). Moving `latest` is an
+  administrator's step: never run **Promote to latest** yourself.
