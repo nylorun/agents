@@ -33,6 +33,6 @@
     "@nylorun/admin": "file:../sdks/admin",
     "vitest": "^4.1.12",
     "@ag-ui/client": "1.0.3",
-    "postgres": "^3.4.9"
+    "postgres": "^4.1.1"
   }
 }
