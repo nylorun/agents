@@ -83,11 +83,12 @@ function fromZod(schema: z.ZodType, defs: Json, description?: string): Json {
  * names one document for good): `AGENT.md` took `model` (Host feature `agent-model`), published
  * as `agent-md.1.json`, then `format: agent-folder/2` and `engine` (ADR-100), as `agent-md.2.json`,
  * then `engine.triggers` (D83), as `agent-md.3.json`, then `format: agent-folder/3` and
- * `plugins` (ADR-106), as `agent-md.4.json`, then `roles` (ADR-154), as `agent-md.5.json`;
+ * `plugins` (ADR-106), as `agent-md.4.json`, then `roles` (ADR-154), as `agent-md.5.json`, then
+ * `format: agent-folder/4` and a subagent file's keys (ADR-164), as `agent-md.6.json`;
  * `runtime.json` took a secret slot's `toolPrefix` (Host feature `secret-routing`), published as
  * `runtime.1.json`, then `limits.triggers` (D83), as `runtime.2.json`.
  */
-const REVISIONS: Partial<Record<AgentFolderSchemaKind, number>> = { "agent-md": 5, runtime: 2 };
+const REVISIONS: Partial<Record<AgentFolderSchemaKind, number>> = { "agent-md": 6, runtime: 2 };
 
 /** One document: its `$id` from its kind, then the body, then the `$defs` its parts named. */
 function document(kind: AgentFolderSchemaKind, title: string, description: string, body: Json, defs: Json): Json {
@@ -135,9 +136,9 @@ function agentMd(): Json {
     name: { type: "string", pattern: AGENT_MANIFEST_NAME_PATTERN.source, description: "The agent manifest's name, the folder's when it is saved under one" },
     description: { type: "string", minLength: 1, description: "What the agent does, in a sentence" },
     format: {
-      enum: [1, 2, 3, "agent-folder/1", "agent-folder/2", "agent-folder/3"],
+      enum: [1, 2, 3, 4, "agent-folder/1", "agent-folder/2", "agent-folder/3", "agent-folder/4"],
       description:
-        "The folder's format: agent-folder/1 (or 1, the default), which gets every engine feature by default; agent-folder/2 (or 2), which declares each in engine; or agent-folder/3 (or 3), which declares the Runtime's features as plugins",
+        "The folder's format: agent-folder/1 (or 1, the default), which gets every engine feature by default; agent-folder/2 (or 2), which declares each in engine; agent-folder/3 (or 3), which declares the Runtime's features as plugins; or agent-folder/4 (or 4), agent-folder/3 with each subagent one file, agents/<id>.md, drawing on the manifest's library",
     },
     harness: fromZod(HarnessIdSchema, defs, "The harness that runs the loop: nylorun (ours, the default) or a custom harness's id"),
     inputSchema: ref("JsonSchemaOrPath", "A flow's input (a folder with flow.json); an agent's input is the message"),
@@ -215,11 +216,30 @@ function agentMd(): Json {
     },
     metadata: { type: "object", description: "The manifest's metadata, as it is" },
   };
+  // agent-folder/4 (ADR-164): the narrowing keys a subagent file (agents/<id>.md) and the root take.
+  const toolNames = {
+    anyOf: [{ type: "array", items: { type: "string" } }, { type: "string" }],
+  };
+  const fileProperties: Json = {
+    tools: { ...toolNames, description: "agent-folder/4: the only HTTP tools and Runtime plugin tools of the manifest's library this agent gets, by name ([read, grep, glob]); left out, a subagent file gets every one a subagent can use" },
+    disallowedTools: { ...toolNames, description: "agent-folder/4: library tools this agent does not get, by name" },
+    flow: { type: "string", description: "agent-folder/4, a subagent file: the flow file that drives it (./research.flow.json); its body is then empty" },
+    readonly: { type: "boolean", description: "agent-folder/4, a subagent file (Cursor's key): true reads as tools: [read, grep, glob] when tools is left out" },
+  };
   return document(
     "agent-md",
     "Nylorun agent folder: AGENT.md frontmatter",
-    "The frontmatter of an agent folder's AGENT.md; the body below it is the instructions",
-    { type: "object", properties, required: ["name", "description"], additionalProperties: false },
+    "The frontmatter of an agent folder's AGENT.md, or of a subagent file (agents/<id>.md, agent-folder/4); the body below it is the instructions",
+    {
+      type: "object",
+      properties: {
+        ...properties,
+        skills: { anyOf: [properties.skills, { type: "array", items: { type: "string" }, description: "agent-folder/4, a subagent file: the only skills of the manifest's library it gets, by name" }] },
+        ...fileProperties,
+      },
+      required: ["name", "description"],
+      additionalProperties: false,
+    },
     defs,
   );
 }

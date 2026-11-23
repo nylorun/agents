@@ -23,3 +23,5 @@ export { AGENT_FOLDER_SCHEMA_KINDS, agentFolderJsonSchemas, type AgentFolderSche
 export { applyFolderFixes, type AppliedFolderFixes } from "./fix.js";
 export { AGENT_FOLDER_V3, isFolderV3 } from "./v3.js";
 export { folderV3Edit, type FolderV3Edit } from "./migrate-v3.js";
+export { AGENT_FOLDER_V4, isFolderV4 } from "./subagent-files.js";
+export { folderV4Plan, type FolderV4Input, type FolderV4Plan } from "./migrate-v4.js";

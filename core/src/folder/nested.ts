@@ -331,7 +331,11 @@ function composeFlow(ctx: FolderContext): boolean {
       });
   }
   const noted = new Set<string>();
+  // agent-folder/4 (ADR-164): a flow root's mcp.json, skills/, plugins/ and tools are the library
+  // its stages draw on, not its own.
+  const library = !ctx.scope && ctx.engineFacts().v4 !== undefined;
   for (const [path, kind] of ctx.kinds) {
+    if (library) break;
     const top = path.split("/").slice(0, 2).join("/");
     if (kind === "instructions") refuse("A manifest driven by a flow has no instructions: move this to the subagent under agents/ that needs it", path);
     else if (kind === "mcp") refuse("A manifest driven by a flow has no MCP servers of its own: give mcp.json to the subagents under agents/ that call them", path);
@@ -382,7 +386,7 @@ function composeFlow(ctx: FolderContext): boolean {
     ctx.suggest,
   );
   for (const name of tools.keys())
-    if (!translated.toolsUsed.has(name))
+    if (!library && !translated.toolsUsed.has(name))
       ctx.report("error", "tool_unused", `No node of flow.json names ${name}: a flow holds only the tools its nodes name`, `tools/${name}.json`);
   if (isRoot) {
     const unused = namespace.ids.filter((id) => !namespace.used.has(id));

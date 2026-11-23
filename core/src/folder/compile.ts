@@ -60,6 +60,8 @@ import {
 import { cronScheduleIssue, isTimeZone, timeZoneNames } from "../definition/cron.js";
 import { RUNTIME_SERVER } from "../plugins/index.js";
 import { enginePlugins, isFolderV3, pluginSkillNames, v3Declarations, type V3Plugins } from "./v3.js";
+import { compileFormat4, folderIsV4, isFolderV4, narrowFront, narrowParts, rootSecretsOf, type Narrowing, type RootSecrets } from "./subagent-files.js";
+import { isPluginName, pluginTools } from "../plugins/index.js";
 import { DELEGATE_NAME_PATTERN } from "../definition/delegate.js";
 import { sectionGapsAt } from "../definition/sections.js";
 import { DEFAULT_HARNESS } from "../utils/harness-id.js";
@@ -88,7 +90,7 @@ export const AGENT_FOLDER_COMPILER = "agent-folder/1";
  * The formats this compiler builds: `agent-folder/1`, and `agent-folder/2` (ADR-100), whose
  * folder declares every engine feature it uses (`folder/engine.ts`).
  */
-export const AGENT_FOLDER_FORMATS = ["agent-folder/1", "agent-folder/2", "agent-folder/3"] as const;
+export const AGENT_FOLDER_FORMATS = ["agent-folder/1", "agent-folder/2", "agent-folder/3", "agent-folder/4"] as const;
 export type AgentFolderFormat = (typeof AGENT_FOLDER_FORMATS)[number];
 
 /**
@@ -233,6 +235,8 @@ type Kind =
   | "nested"
   | "plugin"
   | "engine_text"
+  | "subagent_file"
+  | "subagent_flow"
   | "other";
 
 const isEnvFile = (name: string) => name === ".env" || name.startsWith(".env.");
@@ -275,10 +279,19 @@ function classify(path: string): { kind: Kind } | { error: string; code: string 
     if (base.endsWith(".schema.json")) return { kind: "schema" };
     return { kind: "other" };
   }
+  // agent-folder/4 (ADR-164): a subagent is a file, with its flow file and schemas beside it.
+  if (top === "agents" && segments.length === 2) {
+    if (base.endsWith(".flow.json")) return { kind: "subagent_flow" };
+    if (base.endsWith(".schema.json")) return { kind: "schema" };
+    if (base.endsWith(".md")) return { kind: "subagent_file" };
+  }
   if (top === "agents" || top === "plugins")
     return {
       code: "reserved_directory",
-      error: top === "agents" ? "agents/ holds one folder per agent, each with its AGENT.md" : "plugins/ holds one folder per Agent Plugin, each with its plugin.json",
+      error:
+        top === "agents"
+          ? "agents/ holds one file per subagent, agents/<id>.md (agent-folder/4), or one folder per subagent, each with its AGENT.md (agent-folder/3 and older)"
+          : "plugins/ holds one folder per Agent Plugin, each with its plugin.json",
     };
   if (top === "instructions")
     return segments.length === 2 && base.endsWith(".md")
@@ -320,6 +333,8 @@ export function folderTextPaths(entries: readonly AgentFolderEntry[]): string[] 
       kind.kind === "schema" ||
       kind.kind === "flow" ||
       kind.kind === "engine_text" ||
+      kind.kind === "subagent_file" ||
+      kind.kind === "subagent_flow" ||
       (kind.kind === "skill" && entry.path.split("/").length === 3 && entry.path.endsWith(`/${SKILL_ENTRY}`));
     if (textual) paths.push(entry.path);
   }
@@ -368,6 +383,12 @@ interface Origin {
  * compiler sets it when it compiles a folder inside another (`agents/<id>/`, a plugin's parts).
  */
 export function compileAgentFolder(input: CompileAgentFolderInput, scope?: FolderScope): CompiledAgentFolder {
+  // agent-folder/4 (ADR-164): its subagent files, expanded into the layout format 3 compiles.
+  if (!scope && folderIsV4(input)) return compileFormat4(input, (expanded) => compileFolder(expanded, undefined));
+  return compileFolder(input, scope);
+}
+
+function compileFolder(input: CompileAgentFolderInput, scope?: FolderScope): CompiledAgentFolder {
   const limits: AgentFolderLimits = { ...AGENT_FOLDER_LIMITS, ...input.limits };
   const diagnostics: AgentFolderDiagnostic[] = [];
   /** The folder's format: the uploaded folder's `format`, which a folder inside it shares. */
@@ -616,6 +637,10 @@ export function compileAgentFolder(input: CompileAgentFolderInput, scope?: Folde
     }
     // `/x` in a folder inside another names a file of the uploaded folder (folder/nested.ts).
     if (scope && value.startsWith("/")) return scopedSchema(scope, value, (code, message) => error(code, message, file, field));
+    // In a format 4 subagent file, `./x` is beside the file, under agents/; in its copy of the
+    // library, it is the library file's, from the root (folder/subagent-files.ts).
+    if (scope && scope.role !== "plugin" && scope.engineFacts?.v4 !== undefined)
+      return scopedSchema(scope, file === AGENT_FILE ? `/agents/${value.replace(/^\.\//, "")}` : `/${value.replace(/^\.\//, "")}`, (code, message) => error(code, message, file, field));
     const target = value.startsWith("/") ? value.slice(1) : value.replace(/^\.\//, "");
     if (target.split("/").some((segment) => segment === ".." || segment === "")) {
       error("path_outside", `${value} leaves the folder: a path names a file inside it`, file, field);
@@ -644,21 +669,65 @@ export function compileAgentFolder(input: CompileAgentFolderInput, scope?: Folde
   const instructions: string[] = [];
   let metadata: Record<string, unknown> | undefined;
   const origins: [readonly PropertyKey[], Origin][] = [];
+  /** agent-folder/4 (ADR-164): the uploaded folder is format 4, or this is one of its subagent files. */
+  const v4File = scope !== undefined && scope.role !== "plugin" && scope.engineFacts?.v4 !== undefined;
+  let v4Root = false;
+  /** What a format 4 subagent file, or root, keeps of what it inherits (folder/subagent-files.ts). */
+  let narrowing: Narrowing | undefined;
+  /** A format 4 root's frontmatter before it narrows itself: its library, which subagents inherit. */
+  let libraryFront: Record<string, unknown> | undefined;
+  let rootSecrets: RootSecrets | undefined;
+  let libraryPlugins: V3Plugins["plugins"] | undefined;
   if (agent) {
     if (!agent.hasFrontmatter)
       error("frontmatter_missing", `${AGENT_FILE} opens with frontmatter between --- lines, with name and description`, AGENT_FILE, undefined, { at: { line: 1, column: 1 } });
+    v4Root = !scope && isFolderV4(front.format);
+    if (v4Root || v4File) {
+      if (v4Root) rootSecrets = rootSecretsOf(front);
+      if (v4Root && [...kinds.values()].includes("flow")) {
+        for (const key of ["tools", "disallowedTools"])
+          if (front[key] !== undefined) {
+            error("flow_refused", `${key} belongs to a model loop: a manifest driven by a flow has none, and each subagent narrows its own`, AGENT_FILE, [key], { key: true });
+            delete front[key];
+          }
+      } else {
+        if (v4Root && (front.tools !== undefined || front.disallowedTools !== undefined)) {
+          libraryFront = JSON.parse(JSON.stringify(front)) as Record<string, unknown>;
+          delete libraryFront.tools;
+          delete libraryFront.disallowedTools;
+        }
+        const httpTools = [...kinds].filter(([, kind]) => kind === "tool").map(([path]) => path.slice("tools/".length, -".json".length));
+        const plugins = v4File
+          ? (scope!.engineFacts!.plugins ?? [])
+          : Array.isArray(front.plugins)
+            ? front.plugins.filter(isPluginName).map((name) => ({ name, tools: pluginTools(name) }))
+            : [];
+        narrowing = narrowFront(front, {
+          role: v4File ? "subagent" : "root",
+          httpTools,
+          plugins,
+          error: (code, message, path, options) => error(code, message, AGENT_FILE, path, options),
+          note: (code, message, path, options) => report("note", code, message, AGENT_FILE, path, options),
+        });
+      }
+    }
     checkKeys(AGENT_FILE, front, AGENT_KEYS);
     if (typeof front.name !== "string" || front.name === "")
       error("name_missing", "name is required: the agent manifest's name", AGENT_FILE, front.name === undefined ? undefined : ["name"]);
     else if (!isAgentManifestName(front.name))
       error("name_invalid", "name is 1-64 letters, digits, '.', '_' and '-', starting with a letter or digit", AGENT_FILE, ["name"]);
     else if (input.name !== undefined && front.name !== input.name)
-      error("name_mismatch", `name is ${front.name}, and the folder is saved as ${input.name}: they must match`, AGENT_FILE, ["name"]);
+      error(
+        "name_mismatch",
+        v4File ? `name is ${front.name}, and the file is agents/${input.name}.md: they must match` : `name is ${front.name}, and the folder is saved as ${input.name}: they must match`,
+        AGENT_FILE,
+        ["name"],
+      );
     else name = front.name;
     if (typeof front.description !== "string" || front.description.trim() === "")
       error("description_missing", "description is required: what the agent does, in a sentence", AGENT_FILE, front.description === undefined ? undefined : ["description"]);
     else description = front.description.trim();
-    if (!scope && isFolderV3(front.format)) {
+    if (!scope && (isFolderV3(front.format) || isFolderV4(front.format))) {
       v3 = true;
       format = 2;
     } else if (!scope && folderFormatOf(front.format) === undefined)
@@ -678,6 +747,9 @@ export function compileAgentFolder(input: CompileAgentFolderInput, scope?: Folde
         role,
         ...(scope?.engineFacts?.plugins === undefined ? {} : { parent: scope.engineFacts.plugins }),
       });
+      // A format 4 root that narrows itself: its library, as it was before, is what subagents inherit.
+      if (libraryFront)
+        libraryPlugins = v3Declarations(libraryFront, { error: () => {}, computer: earlyComputer(), role: "root" })?.plugins;
       delete front.memory;
       delete front.loop;
       if (isObject(front.mcpServers)) {
@@ -685,7 +757,8 @@ export function compileAgentFolder(input: CompileAgentFolderInput, scope?: Folde
         if (Object.keys(rest).length > 0) front.mcpServers = rest;
         else delete front.mcpServers;
       }
-      if (v3Plugins) {
+      // A flow has no model loop, so nothing to declare: its stages declare their own.
+      if (v3Plugins && ![...kinds.values()].includes("flow")) {
         if (v3Plugins.memory) front.memory = v3Plugins.memory;
         if (v3Plugins.loop) front.loop = v3Plugins.loop;
         front.engine = v3Plugins.engine;
@@ -786,6 +859,20 @@ export function compileAgentFolder(input: CompileAgentFolderInput, scope?: Folde
       { at: { line: agent.bodyLine, column: 1 } },
     );
 
+  // A subagent file outside agent-folder/4 (ADR-164).
+  if (!v4Root && !v4File)
+    for (const [path, kind] of kinds)
+      if (kind === "subagent_file" || kind === "subagent_flow") {
+        const id = path.slice("agents/".length).replace(/(\.flow\.json|\.md)$/, "");
+        error(
+          "subagent_file",
+          kind === "subagent_file"
+            ? `agents/${id}.md is a subagent file, which agent-folder/4 reads. Fix: add format: agent-folder/4 to AGENT.md (nylorun migrate folder <dir> --to 4 moves every subagent folder to a file), or write it as agents/${id}/AGENT.md`
+            : `${path} is a subagent's flow file, which agent-folder/4 reads. Fix: add format: agent-folder/4 to AGENT.md, or write it as agents/${id}/flow.json`,
+          path,
+        );
+      }
+
   // --- runtime.json ----------------------------------------------------------------------
   let runtime: Record<string, unknown> | undefined;
   if (byPath.has(RUNTIME_FILE)) {
@@ -873,7 +960,8 @@ export function compileAgentFolder(input: CompileAgentFolderInput, scope?: Folde
       format,
       computer,
       ...(format === 2 && declared ? { engine: declared.engine } : {}),
-      ...(v3 ? { v3: true, plugins: v3Plugins?.plugins ?? [] } : {}),
+      ...(v3 ? { v3: true, plugins: libraryPlugins ?? v3Plugins?.plugins ?? [] } : {}),
+      ...(v4Root ? { v4: rootSecrets ?? { skills: [], servers: [] } } : {}),
       memory: isObject(front.memory),
       selfWake: isObject(runtime) && runtime.selfWake === true,
     };
@@ -1229,6 +1317,13 @@ export function compileAgentFolder(input: CompileAgentFolderInput, scope?: Folde
     tools.push(tool);
   }
   if (tools.length > 0) harness.tools = tools;
+  // agent-folder/4 (ADR-164): what a subagent file, or the root, keeps of the library.
+  if (narrowing)
+    narrowParts(harness, narrowing, {
+      role: v4File ? "subagent" : "root",
+      secrets: scope?.engineFacts?.v4 ?? { skills: [], servers: [] },
+      error: (code, message, path, options) => error(code, message, AGENT_FILE, path, options),
+    });
 
   // --- triggers/ -------------------------------------------------------------------------
   const triggers: Record<string, unknown> = {};

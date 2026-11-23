@@ -550,7 +550,7 @@ agents/support/AGENT.md        # frontmatter (name, description), then the instr
 agents/support/mcp.json        # MCP servers; "Authorization": "Bearer ${GITHUB_TOKEN}" names a slot
 agents/support/runtime.json    # kind, network, secrets (optional)
 agents/support/skills/<skill>/SKILL.md, tools/<tool>.json, triggers/<id>.md, files/**
-agents/support/agents/<id>/    # a subagent, offered to support as the tool <id>
+agents/support/agents/<id>.md   # a subagent (agent-folder/4), offered to support as the tool <id>
 agents/support/plugins/<name>/ # a vendored Agent Plugin: its skills and mcp.json servers
 ```
 
@@ -739,8 +739,14 @@ Write a brief of at most 200 words from the facts you are given, for a reader ne
 
 [`examples/agents/repo-brief-folder/`](../../examples/agents/repo-brief-folder/)
 is a whole flow as a folder: a switch, a map, a parallel stage, a loop and an HTTP
-tool stage. Without `flow.json`, each `agents/<id>/` is a subagent: the agent
-calls it as the tool `<id>` with `{ task }`, one level deep. `plugins/<name>/`
+tool stage. Without `flow.json`, each subagent is the agent's tool `<id>`, called
+with `{ task }`, one level deep. In `format: agent-folder/4` a subagent is one file,
+`agents/<id>.md`: it gets the root's `tools/`, `skills/`, `mcp.json` servers and
+Runtime plugins a subagent can use, and narrows them with `tools`,
+`disallowedTools`, `skills` and `mcpServers` (`tools: [read, grep, glob]`); a
+file with `flow: ./<id>.flow.json` is driven by that flow. Older formats write a
+subagent as a folder, `agents/<id>/`, and `nylorun migrate folder <dir> --to 4`
+turns each into a file. `plugins/<name>/`
 folds a plugin's skills and `mcp.json` servers in as `.plugin()` does, and notes
 what Nylorun does not run (hooks, commands).
 
