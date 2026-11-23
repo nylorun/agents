@@ -36,6 +36,7 @@ const PINNED: Record<string, string> = {
   "https://docs.nylorun.com/schemas/agent-manifest/v8.5.json": "ced8f051482048852c5d524182c568134512dbf39b51c7e36662b036d59ff417",
   "https://docs.nylorun.com/schemas/harness-manifest/v1.5.json": "89a02f5b4cc2e396d47727a180f9c55a260dcf7eeeed9d1c5566945e7d3a9eba",
   "https://docs.nylorun.com/schemas/agent-folder/v1/agent-md.5.json": "ff02cb34866aa72cbdcf3424e66b564dc32274db36dcc4958626020b3b5ab4eb",
+  "https://docs.nylorun.com/schemas/agent-folder/v1/agent-md.6.json": "80368b322ac42ee66388237bdfd6268d0930a8a0e758f74e3f57f14191ba1a5e",
   "https://docs.nylorun.com/schemas/agent-folder/v1/trigger-md.json": "bb8d8d46e8171fd93b2789d4db35effe7fb5cae62783246ad561eefb4b65c515",
   "https://docs.nylorun.com/schemas/agent-folder/v1/runtime.2.json": "8a693cea33e4edc961858e6f6beaa8fc38427f62f43baec487385255ef713d7c",
   "https://docs.nylorun.com/schemas/agent-folder/v1/tool.json": "632f25d978ae5da96ba4abd1da5647066541a63d07af1a65579e21f45dc7c1a7",

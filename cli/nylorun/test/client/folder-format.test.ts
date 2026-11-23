@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { checkCommand } from "../../src/client/folder.js";
@@ -86,7 +86,7 @@ describe("nylorun migrate folder --to 2 (ADR-100)", () => {
   it("refuses a folder that does not compile, and another --to", async () => {
     const { deps } = await folder({ "AGENT.md": "---\nname: helper\n---\nHelp.\n" });
     await expect(migrateCommand(deps, ["folder", "helper", "--to", "2"])).rejects.toMatchObject({ exitCode: 1 });
-    await expect(migrateCommand(deps, ["folder", "helper", "--to", "4"])).rejects.toMatchObject({ exitCode: 2 });
+    await expect(migrateCommand(deps, ["folder", "helper", "--to", "5"])).rejects.toMatchObject({ exitCode: 2 });
   });
 
   it("makes an agent-folder/2 folder agent-folder/3 with the plugins it uses (ADR-106)", async () => {
@@ -111,5 +111,65 @@ describe("nylorun migrate folder --to 2 (ADR-100)", () => {
       "---\r\nname: a\r\nformat: agent-folder/2\r\nengine: {}\r\n---\r\nBody\r\n",
     );
     expect(withFrontmatter("no frontmatter", [])).toBeUndefined();
+  });
+});
+
+describe("nylorun migrate folder --to 4 (ADR-164)", () => {
+  const tool = (name: string) => JSON.stringify({ description: `The ${name} tool.`, inputSchema: { type: "object" }, http: { url: `https://tools.example.com/${name}` } });
+  const ROOT = "---\nname: helper\ndescription: Helps.\nformat: agent-folder/3\nplugins: [ nylorun-artifacts, nylorun-sandbox ]\n---\nHelp.\n";
+
+  it("turns each subagent folder into a file that lists exactly what it had", async () => {
+    const { deps, dir } = await folder({
+      "AGENT.md": ROOT,
+      "runtime.json": JSON.stringify({ kind: "virtual" }),
+      "tools/search.json": tool("search"),
+      "tools/now.json": tool("now"),
+      "agents/history/AGENT.md": "---\nname: history\ndescription: Searches.\n---\nSearch.\n",
+      "agents/history/tools/search.json": tool("search"),
+      "agents/clock/AGENT.md": "---\nname: clock\ndescription: Tells the time.\noutputSchema: ./output.schema.json\nplugins: [ nylorun-sandbox ]\nmcpServers:\n  nylorun:\n    tools: { bash: { enabled: false }, write: { enabled: false }, edit: { enabled: false } }\n---\nTell it.\n",
+      "agents/clock/output.schema.json": JSON.stringify({ type: "object" }),
+      "agents/clock/tools/clock.json": tool("clock"),
+    });
+    expect(await migrateCommand(deps, ["folder", "helper", "--to", "4"])).toBe(0);
+    const root = join(dir, "helper");
+    expect(await readdir(join(root, "agents"))).toEqual(["clock.md", "clock.schema.json", "history.md"]);
+    expect(await readFile(join(root, "agents/history.md"), "utf8")).toBe("---\nname: history\ndescription: Searches.\ntools: [search]\n---\nSearch.\n");
+    const clock = await readFile(join(root, "agents/clock.md"), "utf8");
+    expect(clock).toContain("tools: [clock, read, grep, glob]");
+    expect(clock).toContain("outputSchema: ./clock.schema.json");
+    expect(clock).not.toContain("plugins");
+    expect(await readFile(join(root, "tools/clock.json"), "utf8")).toBe(tool("clock"));
+    const agent = await readFile(join(root, "AGENT.md"), "utf8");
+    expect(agent).toContain("format: agent-folder/4\n");
+    expect(agent).toContain("plugins: [ nylorun-artifacts, nylorun-sandbox ]\ndisallowedTools: [clock]\n");
+    expect(await checkCommand(deps, ["helper"])).toBe(0);
+    expect(deps.lines.at(-1)).toContain("agent-folder/4");
+    expect(await migrateCommand(deps, ["folder", "helper", "--to", "4"])).toBe(0);
+  });
+
+  it("moves a stage's server into a flow root's library", async () => {
+    const { deps, dir } = await folder({
+      "AGENT.md": "---\nname: helper\ndescription: Helps.\nformat: agent-folder/3\n---\n",
+      "flow.json": JSON.stringify({ chain: [{ agent: "researcher" }, { agent: "writer" }] }),
+      "agents/researcher/AGENT.md": "---\nname: researcher\ndescription: Researches.\n---\nResearch.\n",
+      "agents/researcher/mcp.json": JSON.stringify({ mcpServers: { wiki: { type: "streamable-http", url: "https://wiki.example.com/mcp" } } }),
+      "agents/writer/AGENT.md": "---\nname: writer\ndescription: Writes.\n---\nWrite.\n",
+    });
+    expect(await migrateCommand(deps, ["folder", "helper", "--to", "4"])).toBe(0);
+    const root = join(dir, "helper");
+    expect(JSON.parse(await readFile(join(root, "mcp.json"), "utf8")).mcpServers).toHaveProperty("wiki");
+    expect(await readFile(join(root, "agents/writer.md"), "utf8")).toContain("mcpServers: {}");
+    expect(await readFile(join(root, "agents/researcher.md"), "utf8")).toContain("mcpServers:\n  wiki: {}");
+  });
+
+  it("stops, writing nothing, when the root agent would gain a subagent's skill", async () => {
+    const { deps, dir } = await folder({
+      "AGENT.md": ROOT,
+      "runtime.json": JSON.stringify({ kind: "virtual" }),
+      "agents/writer/AGENT.md": "---\nname: writer\ndescription: Writes.\n---\nWrite.\n",
+      "agents/writer/skills/brief/SKILL.md": "---\nname: brief\ndescription: Briefs.\n---\nWrite briefs.\n",
+    });
+    await expect(migrateCommand(deps, ["folder", "helper", "--to", "4"])).rejects.toThrow(/root agent would gain it/);
+    expect(await readFile(join(dir, "helper", "AGENT.md"), "utf8")).toBe(ROOT);
   });
 });

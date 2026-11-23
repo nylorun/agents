@@ -322,7 +322,7 @@ describe("agent folders: what is refused, with file, line and column", () => {
     expect(result.diagnostics).toContainEqual(expect.objectContaining({ severity: "warning", code: "secret_file", file: ".env" }));
     expect(result.diagnostics).toContainEqual(expect.objectContaining({ severity: "warning", code: "secret_file", file: "deploy.pem" }));
     expect(byFile).toEqual({
-      "agents/notes.md": "reserved_directory",
+      "agents/notes.md": "subagent_file",
       "runtime.yaml": "wrong_syntax",
       "tools/notes.txt": "reserved_directory",
     });

@@ -3,6 +3,24 @@
 What changed between beta releases and what to do about it, newest first. For which
 versions work together, read [Compatibility](https://docs.nylorun.com/docs/compatibility).
 
+# Subagents are files: `agent-folder/4`
+
+Additive (ADR-164). Nothing to do: formats 1 to 3 compile as before.
+
+- **New format, `agent-folder/4`.** A subagent is one file, `agents/<id>.md`, as in Claude Code
+  and Cursor. The root's `tools/`, `skills/`, `mcp.json`, `plugins/` and Runtime plugins are the
+  manifest's library: a subagent file gets everything in it that a subagent can use, and narrows it
+  with `tools`, `disallowedTools`, `skills` and `mcpServers`. The root can narrow its own tools the
+  same way. A file with `flow: ./<id>.flow.json` is driven by that flow. Delegation stays one level
+  deep, and the agent manifest JSON doesn't change.
+- **Move a folder with `nylorun migrate folder <dir> --to 4`.** Each `agents/<id>/` becomes
+  `agents/<id>.md`, listing exactly what it had, and what it held moves to the root. It writes only
+  when the folder compiles to the same agent manifest, and stops when the root agent would gain a
+  subagent's skill or MCP server.
+- **New diagnostics:** `subagent_folder` (a folder under `agents/` in format 4), `subagent_file` (an
+  `agents/<id>.md` in an older format), `library_unknown`, and the notes `host_key` and
+  `tool_alias` for other hosts' keys and Claude Code's tool names.
+
 # No image carries the engine, and clusters mirror computer images
 
 Breaking for an installation that listed images in `engine.images`. Nothing to do

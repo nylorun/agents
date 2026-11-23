@@ -8,8 +8,11 @@ What you declare is an **agent manifest** (v8, protocol 16): a `harness` section
 inside the loop) and a `runtime` section (what the Runtime provides around it). An **Agent** is the
 live instance of one version of it, and each turn of a session on it takes one input and gives an
 output. A manifest is **driven by a model loop** (instructions and tools) or **driven by a flow**
-(stages), never both; a flow's stages can be **subagents**, the declarations under `agents/<id>/`,
-each driven by its own model loop or flow (ADR-162). The harness engine advances execution.
+(stages), never both; a flow's stages can be **subagents**, the declarations under `agents/`
+(one file each, `agents/<id>.md`, in agent-folder/4; a folder, `agents/<id>/`, before it), each
+driven by its own model loop or flow (ADR-162). In agent-folder/4 the root's `tools/`, `skills/`,
+`mcp.json`, `plugins/` and Runtime plugins are the manifest's **library**: every model loop in it
+draws on it, and a subagent inherits what it may use and narrows it (ADR-164). The harness engine advances execution.
 A **Runtime Host** listens once and serves the one **Tenant** of its
 installation: one Runtime with its own database and infrastructure. A developer
 **Project** attaches through a **Project link**, not by owning the Host process

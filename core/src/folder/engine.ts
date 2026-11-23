@@ -58,6 +58,12 @@ export interface EngineScopeFacts {
   readonly v3?: boolean;
   /** Its plugins, under format 3: a subagent's are a subset. */
   readonly plugins?: readonly { readonly name: import("../plugins/index.js").PluginName; readonly tools: readonly string[] }[];
+  /**
+   * The uploaded folder is `agent-folder/4` (ADR-164): its folders under `agents/` are subagent
+   * files, expanded with the library. What they may not inherit unnamed: the root's skills with
+   * secrets and servers it gives a credential.
+   */
+  readonly v4?: import("./subagent-files.js").RootSecrets;
 }
 
 type Fail = (code: string, message: string, path?: readonly PropertyKey[], options?: ReportOptions) => void;
