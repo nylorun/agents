@@ -46,7 +46,7 @@ export function codeToolRefusal(manifest: AgentManifest | WorkflowManifest): str
   if (!first) return undefined;
   const what =
     first.kind === "stage"
-      ? `The tool stage '${first.name}' of flow agent '${first.owner}'`
+      ? `The tool stage '${first.name}' of the flow of '${first.owner}'`
       : `Tool '${first.name}' of agent '${first.owner}'`;
   const more = rest.length === 0 ? "" : ` (and ${rest.length} more)`;
   return `${what}${more} runs your code, but the Runtime runs agents from their manifests alone. Make it an http() tool or serve it from a remote MCP server (see MIGRATION.md).`;

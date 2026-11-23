@@ -54,7 +54,7 @@ describe("code tools", () => {
       { name: "lookup", owner: "writer", kind: "tool" },
     ]);
     expect(codeToolRefusal(pipeline.manifest)).toMatch(
-      /^The tool stage 'publish' of flow agent 'pipeline' \(and 1 more\) runs your code/,
+      /^The tool stage 'publish' of the flow of 'pipeline' \(and 1 more\) runs your code/,
     );
   });
 

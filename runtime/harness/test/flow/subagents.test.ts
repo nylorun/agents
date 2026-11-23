@@ -113,6 +113,8 @@ describe("a flow agent used as a tool", () => {
     const result = await run({ binding: bindingFromAgent(lead), input: "go", onModelCall: model });
     expect(result.status).toBe("completed");
     if (result.status !== "completed") return;
-    expect(String(result.output)).toContain("flow agents used as tools run on the Runtime");
+    expect(String(result.output)).toContain(
+      "a subagent driven by a flow runs on the Runtime when used as a tool",
+    );
   });
 });

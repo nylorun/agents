@@ -148,6 +148,20 @@ describe("agent folders: subagents", () => {
     ]);
   });
 
+  it("refuses a subagent driven by a flow whose inputSchema can't take the task (delegation_input)", () => {
+    const files = (schema: string) => ({
+      "AGENT.md": agentMd("lead", "Leads the work.", "Lead.\n"),
+      "agents/research/AGENT.md": agentMd("research", "Researches a question.", "", "inputSchema: ./in.schema.json\n"),
+      "agents/research/in.schema.json": schema,
+      "agents/research/flow.json": `{ "chain": [{ "agent": "searcher" }] }`,
+      "agents/research/agents/searcher/AGENT.md": agentMd("searcher", "The searcher.", "Search.\n"),
+    });
+    expect(errors(compile(files(`{ "type": "object" }`)).diagnostics)).toEqual([
+      expect.objectContaining({ code: "delegation_input", file: "agents/research/AGENT.md" }),
+    ]);
+    expect(errors(compile(files(`{ "type": "string" }`)).diagnostics)).toEqual([]);
+  });
+
   it("takes inputSchema in a flow's AGENT.md only", () => {
     const result = compile({ "AGENT.md": agentMd("a", "b", "Go.\n", "inputSchema: ./in.schema.json\n"), "in.schema.json": "{}" });
     expect(errors(result.diagnostics)).toEqual([expect.objectContaining({ code: "input_schema_refused", file: "AGENT.md", line: 4, column: 1 })]);

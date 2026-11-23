@@ -5,7 +5,7 @@ import type { BuildDiagnostic, JsonObject } from "../types/shared.js";
 import type { ToolSchemaSource } from "../types/tool.js";
 import { bindAgent } from "./bind-agent.js";
 import { createManifest, SESSION_PART_ID } from "./manifest.js";
-import { DELEGATE_NAME_PATTERN, delegateOf, delegatesOf } from "./delegate.js";
+import { DELEGATE_NAME_PATTERN, delegateInputIssue, delegateOf, delegatesOf } from "./delegate.js";
 
 type BuildResult<Agent> =
   | {
@@ -149,7 +149,9 @@ function delegationDiagnostics(items: readonly DefinitionPart[]): BuildDiagnosti
             extra
           )
         );
-      // A flow agent runs in its own linked session; its agents may delegate in turn.
+      const input = delegateInputIssue(child.id, (child as { inputSchema?: unknown }).inputSchema);
+      if (input) found.push(diagnostic("delegation.input", input, extra));
+      // A subagent driven by a flow runs in its own linked session; its steps may delegate in turn.
       if ((child as { kind?: unknown }).kind === "workflow") continue;
       const nested = delegatesOf(child as AgentManifest)[0];
       if (nested)

@@ -127,7 +127,7 @@ export async function runDelegation(
       if (!host.flow)
         throw new HarnessError(
           "execution.invalid-input",
-          `Agent '${ref.id}' is a flow agent; flow agents used as tools run on the Runtime`,
+          `Subagent '${ref.id}' is driven by a flow; a subagent driven by a flow runs on the Runtime when used as a tool`,
         );
       outcome = settleFlow(
         await host.flow(delegate, ref, task),

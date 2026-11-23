@@ -4,9 +4,12 @@ Terms follow the Runtime Tenants model, Runtime Clients, the Runtime and
 Management APIs (protocol 8), and the Runtime architecture (Postgres, Restate,
 S2). Every agent uses these terms in code, comments, errors and CLI output.
 
-An agent is defined by its **agent manifest** (v8, protocol 16): a `harness` section (what runs
+What you declare is an **agent manifest** (v8, protocol 16): a `harness` section (what runs
 inside the loop) and a `runtime` section (what the Runtime provides around it). An **Agent** is the
-live instance of one version of it. The harness engine advances execution.
+live instance of one version of it, and each turn of a session on it takes one input and gives an
+output. A manifest is **driven by a model loop** (instructions and tools) or **driven by a flow**
+(stages), never both; a flow's stages can be **subagents**, the declarations under `agents/<id>/`,
+each driven by its own model loop or flow (ADR-162). The harness engine advances execution.
 A **Runtime Host** listens once and serves the one **Tenant** of its
 installation: one Runtime with its own database and infrastructure. A developer
 **Project** attaches through a **Project link**, not by owning the Host process
@@ -1322,6 +1325,7 @@ _Avoid_: "scope" for who shares a sandbox; the Runtime has none.
 
 | Avoid | Use instead |
 | --- | --- |
+| flow agent, ReAct agent, combined agent, "driven by both" | an agent manifest (or a subagent) driven by a flow, or by a model loop; a flow whose stages include subagents (ADR-162) |
 | project scope / global scope | Host root + Tenant + Project link |
 | scopeId (as Host identity) | `hostId` |
 | `--global`, `--db`, a database path variable | Host root + Tenant (CLI) |

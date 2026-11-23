@@ -126,11 +126,11 @@ export function AgentManifests({ tenantId, catalog }: Readonly<{ tenantId: strin
             onChange={setKind}
           />
           <FilterMenu
-            label="Type"
+            label="Driven by"
             value={type}
             options={[
               { value: "any", label: "Any" },
-              { value: "agent", label: "Agent" },
+              { value: "agent", label: "Model loop" },
               { value: "flow", label: "Flow" },
             ]}
             onChange={setType}

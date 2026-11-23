@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { Agent, createClient } from "@nylorun/agents";
+import { z } from "zod";
 import type { HostEffect } from "@nylorun/harness/run";
 import type { ModelProvider } from "../src/core/provider.js";
 import { startTestTenant } from "./support/tenant.js";
@@ -108,6 +109,47 @@ describe("a flow agent as a subagent, end to end", { timeout: 30_000 }, () => {
     expect(flowEvents.at(-1)?.payload.output).toBe(summary);
     expect(events.filter((e) => e.sessionId === session.id).map((e) => e.type)).toEqual(
       expect.arrayContaining(["delegation.started", "delegation.completed"])
+    );
+  });
+
+  it("refuses a flow subagent whose inputSchema can't take the task, and gives a string one the task (ADR-162)", async () => {
+    const tenant = await startTestTenant({ applicationKey: APP, modelProvider: provider });
+    cleanups.push(() => tenant.close());
+    const typed = Agent({ id: "research", description: "Researches a question and reports back." })
+      .input(z.string())
+      .pipe(Agent({ id: "searcher" }).instructions("Search."), Agent({ id: "summarizer" }).instructions("Summarize."));
+    const typedLead = Agent({ id: "lead" }).instructions("Delegate research.").subagents(typed).build();
+
+    // The same manifest, with the subagent taking an object: refused when it is saved.
+    const { manifestOf } = await import("./support/agents.js");
+    const refused = JSON.parse(JSON.stringify(manifestOf(typedLead))) as ReturnType<typeof manifestOf>;
+    const tool = (refused.harness as { tools: { agent: Record<string, unknown> }[] }).tools[0]!;
+    tool.agent = { ...tool.agent, inputSchema: { type: "object", properties: { repo: { type: "string" } } } };
+    const put = await fetch(`${tenant.url}/v1/agent-manifests/lead`, {
+      method: "PUT",
+      headers: { ...tenant.headers(), "content-type": "application/json" },
+      body: JSON.stringify(refused),
+    });
+    expect(put.status).toBe(400);
+    expect(await put.text()).toContain("'research' is used as a tool, so it receives { task } as a string");
+
+    // With { type: "string" } it saves, and the flow's first stage gets the task.
+    const client = createClient({ url: tenant.url, key: tenant.applicationKey, tenant: tenant.tenantId });
+    await client.agentManifests.save({ agent: typedLead });
+    await client.agents.put("lead", { manifest: "lead" });
+    const session = await client.createSession({ id: "lead-typed", agent: "lead", ownerUserId: "user-1" });
+    await session.input("Research the sky.", { idempotencyKey: "msg-1" });
+    let output: unknown;
+    for await (const event of session.observe({ follow: true })) {
+      if (event.sessionId !== session.id) continue;
+      if (event.type === "turn.completed" || event.type === "turn.failed") {
+        expect(event.type, JSON.stringify(event.payload)).toBe("turn.completed");
+        output = (event.payload as { output?: unknown }).output;
+        break;
+      }
+    }
+    expect(output).toBe(
+      `lead heard: ${JSON.stringify("summary of Original request:\nWhy is the sky blue?\n\nnotes on Why is the sky blue?")}`
     );
   });
 

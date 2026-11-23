@@ -353,7 +353,7 @@ function leafDefinition(
   // A flow agent used as a tool: its manifest is inlined in the parent's pinned tool.
   if (request.context.role === "delegate" && !isWorkflowManifest(workflow.manifest)) {
     const flow = flowDelegateManifest(turnManifestOf(workflow), body.agentId);
-    if (!flow) return fail(404, `Agent '${body.agentId}' is not a flow agent used as a tool`);
+    if (!flow) return fail(404, `'${body.agentId}' is not a subagent driven by a flow, used as a tool`);
     return { manifest: flow, manifestHash: hashManifest(flow) };
   }
   const leaf = isWorkflowManifest(workflow.manifest)
