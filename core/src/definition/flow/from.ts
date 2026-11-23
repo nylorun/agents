@@ -57,7 +57,7 @@ export function flowFrom(json: unknown, implementations: FlowImplementations = {
   if (unknown.length)
     throw new HarnessError(
       "agent.build-failed",
-      `Flow agent '${manifest.id}' has no tool node${unknown.length === 1 ? "" : "s"} ${unknown.join(", ")}`
+      `The flow of '${manifest.id}' has no tool node${unknown.length === 1 ? "" : "s"} ${unknown.join(", ")}`
     );
 
   const bindings: Record<string, AgentBinding> = {};

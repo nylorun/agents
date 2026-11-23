@@ -175,7 +175,7 @@ async function runAgent(
   if (target === undefined)
     throw new FlowNodeError({
       code: "flow.unknown-agent",
-      message: `Agent '${node.agent}' is not embedded in flow agent '${scope.manifest.id}'`,
+      message: `Subagent '${node.agent}' is not embedded in the flow of '${scope.manifest.id}'`,
       path: site,
     });
   if (isWorkflowManifest(target as WorkflowManifest)) {

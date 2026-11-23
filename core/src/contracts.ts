@@ -24,7 +24,7 @@ import {
   manifestVersionIssue,
   workflowVersionIssue,
 } from "./definition/removed.js";
-import { DELEGATE_INPUT_SCHEMA, DELEGATE_NAME_PATTERN } from "./definition/delegate.js";
+import { DELEGATE_INPUT_SCHEMA, DELEGATE_NAME_PATTERN, delegateInputIssue } from "./definition/delegate.js";
 import { stdioMcpRefusal } from "./definition/mcp.js";
 import {
   APPROVAL_MODES,
@@ -454,7 +454,9 @@ function delegationIssues(manifest: AgentManifest, issue: (message: string) => v
       issue(`Agent tool '${tool.name}' must take the standard { task } input`);
     if (tool.outputSchema !== undefined)
       issue(`Agent tool '${tool.name}' must not declare outputSchema; the agent's outputSchema applies`);
-    // A flow agent runs in its own linked session; its leaves may delegate in turn.
+    const input = delegateInputIssue(child.id, (child as { inputSchema?: unknown }).inputSchema);
+    if (input) issue(input);
+    // A subagent driven by a flow runs in its own linked session; its steps may delegate in turn.
     if ("kind" in child) continue;
     if (child.tools?.some((item) => item.agent !== undefined))
       issue(`'${child.id}' delegates to another agent; nested delegation is not supported yet`);

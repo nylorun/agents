@@ -211,15 +211,15 @@ function notes(...parts: (string | false | undefined)[]): { note?: string } {
 
 const fromPlugin = (plugin: PluginLabel | undefined) => plugin && `from ${pluginText(plugin)}`;
 
-/** The harness section: instructions, tools, skills, MCP servers and memory, or a flow's agents. */
+/** The harness section: a model loop's instructions, tools, skills, MCP servers and memory, or a flow's stages. */
 function harnessSections(harness: Json, add: Add): void {
   if (harness.kind === "workflow") {
     const agents = isRecord(harness.agents) ? harness.agents : {};
     add(
       "harness",
       "flow",
-      "Flow agents",
-      "Each step of the flow is an agent",
+      "Stages",
+      "Each stage of the flow is a subagent",
       Object.entries(agents).map(([name, value]) => {
         const description = isRecord(value) && typeof value.description === "string" ? value.description : undefined;
         return { id: `flow:${name}`, label: name, mono: true, value: description ?? "Agent", json: value };
@@ -255,9 +255,9 @@ function harnessSections(harness: Json, add: Add): void {
         value: tool.http
           ? `HTTP · ${tool.http.method} ${tool.http.url}`
           : tool.kind === "subagent"
-            ? `Agent${tool.description ? ` · ${tool.description}` : ""}`
+            ? `Subagent${tool.description ? ` · ${tool.description}` : ""}`
             : tool.kind === "flow-subagent"
-              ? `Flow agent${tool.description ? ` · ${tool.description}` : ""}`
+              ? `Subagent · flow${tool.description ? ` · ${tool.description}` : ""}`
               : `Code${tool.description ? ` · ${tool.description}` : ""}`,
         ...(typeof raw.credential === "string" ? { note: `uses ${raw.credential}`, tab: "vault" as const } : {}),
         ...(tool.approval ? { note: "each call waits for approval" } : {}),

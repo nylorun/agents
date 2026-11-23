@@ -429,11 +429,11 @@ export class AgentBuilder<
       kind === "react"
         ? Object.freeze({
             code: "flow.no-model",
-            message: `'${snapshot.id}' is a flow agent, which runs no model. Move .${method} to an agent passed to .pipe().`,
+            message: `'${snapshot.id}' is driven by a flow, which runs no model loop. Move .${method} to a subagent passed to .pipe().`,
           })
         : Object.freeze({
             code: "agent.mixed-body",
-            message: `'${snapshot.id}' is a ReAct agent. An agent is either a ReAct loop or a flow: put the ReAct part in its own Agent and add it with .pipe().`,
+            message: `'${snapshot.id}' is driven by a model loop. An agent manifest is driven by a model loop or by a flow, not both: put the model loop in a subagent and add it with .pipe().`,
           });
     return { body: snapshot.body, diagnostics: addDiagnostics(snapshot.diagnostics, [diagnostic]) };
   }

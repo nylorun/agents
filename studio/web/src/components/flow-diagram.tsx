@@ -48,7 +48,7 @@ type Drawn = { kind: "drawing" } | { kind: "drawn"; svg: string } | { kind: "fai
 
 /** The shapes the diagram draws, as the legend shows them. */
 const LEGEND: readonly [string, string][] = [
-  ['<rect x="1.5" y="2.5" width="17" height="9" rx="3" fill="#ffffff" stroke="#a1a1aa"/>', "Agent"],
+  ['<rect x="1.5" y="2.5" width="17" height="9" rx="3" fill="#ffffff" stroke="#a1a1aa"/>', "Subagent"],
   [
     '<rect x="1.5" y="2.5" width="17" height="9" fill="#f4f4f5" stroke="#a1a1aa"/><path d="M4.5 2.5v9M15.5 2.5v9" stroke="#a1a1aa"/>',
     "Tool or HTTP stage",

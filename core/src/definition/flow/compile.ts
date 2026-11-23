@@ -66,7 +66,7 @@ export function compileAgentFlow(options: CompileFlowOptions): BuiltWorkflow {
     fail([
       diagnostic(
         "flow.empty",
-        `Flow agent '${options.id}' has no stages. Add .pipe(), .switch(), .parallel(), .map() or .loop().`
+        `'${options.id}' is driven by a flow with no stages. Add .pipe(), .switch(), .parallel(), .map() or .loop().`
       ),
     ]);
   const build: Build = {
@@ -265,7 +265,7 @@ function embed(build: Build, id: string, manifest: AgentManifest | WorkflowManif
     build.diagnostics.push(
       diagnostic(
         "flow.agent-conflict",
-        `Flow agent '${build.id}' uses two different agents with the id '${id}'. Give each agent its own id.`
+        `The flow of '${build.id}' uses two different subagents with the id '${id}'. Give each subagent its own id.`
       )
     );
 }
@@ -277,7 +277,7 @@ function addBinding(build: Build, id: string, binding: AgentBinding): void {
     build.diagnostics.push(
       diagnostic(
         "flow.agent-conflict",
-        `Flow agent '${build.id}' uses two different agents with the id '${id}'. Give each agent its own id.`
+        `The flow of '${build.id}' uses two different subagents with the id '${id}'. Give each subagent its own id.`
       )
     );
 }
@@ -311,7 +311,7 @@ function bindNodes(root: WorkflowNode, build: Build): Record<string, WorkflowNod
         build.diagnostics.push(
           diagnostic(
             "flow.duplicate-leaf",
-            `'${part}' runs twice in flow agent '${build.id}'. Give one a new id: x.withId("${part}-2").`
+            `'${part}' runs twice in the flow of '${build.id}'. Give one a new id: x.withId("${part}-2").`
           )
         );
       leaves.add(part);
@@ -320,7 +320,7 @@ function bindNodes(root: WorkflowNode, build: Build): Record<string, WorkflowNod
         build.diagnostics.push(
           diagnostic(
             "flow.duplicate-id",
-            `Two stages of flow agent '${build.id}' are named '${node.id}'. Stage ids must be unique.`
+            `Two stages of the flow of '${build.id}' are named '${node.id}'. Stage ids must be unique.`
           )
         );
       ids.add(node.id);

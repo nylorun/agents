@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { Agent, AgentBuildError, tool } from "../src/define.js";
 import { AgentManifestSchema } from "../src/contracts.js";
-import { DELEGATE_INPUT_SCHEMA, delegateOf } from "../src/definition/delegate.js";
+import { DELEGATE_INPUT_SCHEMA, acceptsTaskInput, delegateOf } from "../src/definition/delegate.js";
 import { implementationsFor } from "../src/definition/binding.js";
 import { hashManifest } from "../src/utils/hash.js";
 import { addPart } from "./support/parts.js";
@@ -87,6 +87,39 @@ describe("agents used as tools", () => {
     expect(diagnostics(() => Agent({ id: "support", tools: [child] }).build())).toContain(
       "delegation.description-required"
     );
+  });
+
+  it("refuses a subagent driven by a flow whose inputSchema can't take the task (delegation.input)", () => {
+    const step = Agent({ id: "step", description: "A step." }).instructions("Step.");
+    const typed = Agent({ id: "typed", description: "Takes an object." })
+      .input(z.object({ repo: z.string() }))
+      .pipe(step);
+    expect(diagnostics(() => Agent({ id: "lead", instructions: "Lead.", tools: [typed] }).build())).toContain(
+      "delegation.input"
+    );
+    const text = Agent({ id: "text", description: "Takes text." }).input(z.string()).pipe(step);
+    expect(diagnostics(() => Agent({ id: "lead", instructions: "Lead.", tools: [text] }).build())).toEqual([]);
+  });
+
+  it("refuses the same in a saved manifest", () => {
+    const text = Agent({ id: "text", description: "Takes text." })
+      .input(z.string())
+      .pipe(Agent({ id: "step", description: "A step." }).instructions("Step."));
+    const manifest = Agent({ id: "lead", instructions: "Lead.", tools: [text] }).build().manifest;
+    expect(AgentManifestSchema.safeParse(manifest).success).toBe(true);
+    const child = { ...manifest.tools![0]!.agent!, inputSchema: { type: "object" } };
+    const refused = AgentManifestSchema.safeParse({ ...manifest, tools: [{ ...manifest.tools![0]!, agent: child }] });
+    expect(refused.success).toBe(false);
+    expect(refused.error!.issues.map((issue) => issue.message)).toContain(
+      "'text' is used as a tool, so it receives { task } as a string; its inputSchema must accept a string or be left out"
+    );
+  });
+
+  it("knows which input schemas can take a task", () => {
+    for (const schema of [undefined, true, {}, { type: "string" }, { type: ["string", "null"] }, { type: "string", minLength: 1 }, { anyOf: [{ type: "object" }, { type: "string" }] }])
+      expect(acceptsTaskInput(schema), JSON.stringify(schema)).toBe(true);
+    for (const schema of [false, { type: "object" }, { type: ["number"] }, { enum: ["a"] }, { const: "a" }, { oneOf: [{ type: "object" }, { type: "array" }] }, { allOf: [{ type: "string" }, { type: "number" }] }])
+      expect(acceptsTaskInput(schema), JSON.stringify(schema)).toBe(false);
   });
 
   it("rejects nested delegation", () => {

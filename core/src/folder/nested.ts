@@ -20,7 +20,7 @@
  * and `./x` one from its own. A slot it needs is derived in the uploaded folder's runtime
  * section.
  */
-import { DELEGATE_INPUT_SCHEMA, DELEGATE_NAME_PATTERN } from "../definition/delegate.js";
+import { DELEGATE_INPUT_SCHEMA, DELEGATE_NAME_PATTERN, delegateInputIssue } from "../definition/delegate.js";
 import { loopManifestOf } from "../definition/sections.js";
 import { TOOL_SECRET_NAME_PATTERN, type AgentManifestV8 } from "../contracts.js";
 import type { AgentFolderEntry } from "./compile.js";
@@ -239,7 +239,7 @@ function composeAgent(ctx: FolderContext): void {
     ctx.report(
       "error",
       "input_schema_refused",
-      "inputSchema is a flow's: an agent's input is the message, and a subagent's is { task }. A folder is a flow when it has a flow.json",
+      "inputSchema is for a manifest driven by a flow: one driven by a model loop takes the message, and a subagent used as a tool takes { task }. flow.json makes a manifest driven by a flow",
       AGENT_FILE,
       ["inputSchema"],
       { key: true },
@@ -251,7 +251,7 @@ function composeAgent(ctx: FolderContext): void {
       ctx.report(
         "error",
         "subagent_depth",
-        `A subagent has no subagents: agents used as tools nest one level deep. Move agents/${id}/ to the agent that uses it`,
+        `A subagent has no subagents: subagents used as tools nest one level deep. Move agents/${id}/ to the manifest that uses it`,
         folderFile(id, inner),
       );
   else if (folders.size > 0) {
@@ -265,6 +265,11 @@ function composeAgent(ctx: FolderContext): void {
       }
       const manifest = compileInner(ctx, `agents/${id}/`, "subagent");
       if (!manifest) continue;
+      const input = delegateInputIssue(id, (manifest.harness as { inputSchema?: unknown }).inputSchema);
+      if (input) {
+        ctx.report("error", "delegation_input", input, `agents/${id}/${AGENT_FILE}`, ["inputSchema"], { key: true });
+        continue;
+      }
       ctx.origins.push([["harness", "tools", tools.length], { file: `agents/${id}/${AGENT_FILE}`, path: [] }]);
       // As the TypeScript builder emits an agent used as a tool (`delegateTool`).
       tools.push({
@@ -321,25 +326,25 @@ function composeFlow(ctx: FolderContext): boolean {
     const lines = ctx.agent.body.split("\n");
     const first = lines.findIndex((line) => line.trim() !== "");
     if (first >= 0)
-      ctx.report("error", "flow_body", "A flow's AGENT.md has no body: a flow has no instructions, and each of its agents has its own", AGENT_FILE, undefined, {
+      ctx.report("error", "flow_body", "A manifest driven by a flow has no instructions, so its AGENT.md has no body: each subagent under agents/ has its own", AGENT_FILE, undefined, {
         at: { line: ctx.agent.bodyLine + first, column: 1 },
       });
   }
   const noted = new Set<string>();
   for (const [path, kind] of ctx.kinds) {
     const top = path.split("/").slice(0, 2).join("/");
-    if (kind === "instructions") refuse("A flow has no instructions: move this to the agent under agents/ that needs it", path);
-    else if (kind === "mcp") refuse("A flow has no MCP servers of its own: give mcp.json to the agents under agents/ that call them", path);
+    if (kind === "instructions") refuse("A manifest driven by a flow has no instructions: move this to the subagent under agents/ that needs it", path);
+    else if (kind === "mcp") refuse("A manifest driven by a flow has no MCP servers of its own: give mcp.json to the subagents under agents/ that call them", path);
     else if ((kind === "skill" || kind === "plugin") && !noted.has(top)) {
       noted.add(top);
       refuse(
-        kind === "skill" ? `A flow has no skills of its own: move ${top}/ to the agent that uses it` : `A flow takes no plugins: vendor ${top}/ in the agent that uses it`,
+        kind === "skill" ? `A manifest driven by a flow has no skills of its own: move ${top}/ to the subagent that uses it` : `A manifest driven by a flow takes no plugins: vendor ${top}/ in the subagent that uses it`,
         `${top}/`,
       );
     }
   }
   for (const key of ["mcpServers", "skills", "memory", "model"])
-    if (front[key] !== undefined) refuse(`${key} is an agent's: set it in the AGENT.md of the agent under agents/ that needs it`, AGENT_FILE, [key]);
+    if (front[key] !== undefined) refuse(`${key} belongs to a model loop: set it in the AGENT.md of the subagent under agents/ that needs it`, AGENT_FILE, [key]);
   const inputSchema = front.inputSchema === undefined ? undefined : ctx.schemaAt(AGENT_FILE, ["inputSchema"], front.inputSchema);
 
   // The agents it names: the flow root's.

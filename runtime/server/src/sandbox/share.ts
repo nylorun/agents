@@ -39,7 +39,7 @@ export function declaredSandboxes(manifest: unknown, into: string[] = []): strin
     tools?: { agent?: unknown }[];
   };
   if (document.kind === "workflow") {
-    if (document.sandbox !== undefined) into.push(`flow agent '${document.id}'`);
+    if (document.sandbox !== undefined) into.push(`the flow of '${document.id}'`);
     for (const agent of Object.values(document.agents ?? {})) declaredSandboxes(agent, into);
     return into;
   }

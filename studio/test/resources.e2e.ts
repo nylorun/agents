@@ -257,7 +257,7 @@ test("a flow agent's manifest on the Tenant's Manifests tab draws its stages ato
     await flow.getByText("Its stages, top to bottom, as v1 declares them", { exact: true }).waitFor();
     await flow.getByText("1 agent stage and 1 tool stage", { exact: false }).waitFor();
     // The flow's agents follow, one line each, as on the Agent page.
-    await page.getByRole("region", { name: "Flow agents", exact: true }).getByRole("button", { name: /fetch/u }).waitFor();
+    await page.getByRole("region", { name: "Stages", exact: true }).getByRole("button", { name: /fetch/u }).waitFor();
   });
 });
 

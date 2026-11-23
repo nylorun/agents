@@ -902,7 +902,7 @@ test("a flow agent's Manifest tab draws its stages as a diagram, with a legend a
     assert.equal(await diagram.locator("svg").count(), 1);
     assert.deepEqual(
       await flow.getByRole("list", { name: "Legend" }).getByRole("listitem").allTextContents(),
-      ["Agent", "Tool or HTTP stage", "Switch: one case", "Parallel: every branch", "For each item", "Retry"],
+      ["Subagent", "Tool or HTTP stage", "Switch: one case", "Parallel: every branch", "For each item", "Retry"],
     );
     await flow.getByText("1 agent stage and 0 tool stages", { exact: false }).waitFor();
     await flow.getByRole("button", { name: "Copy Mermaid" }).waitFor();
@@ -921,7 +921,7 @@ test("a flow agent's Agent page shows its stages as a diagram atop its Manifest 
     await flow.getByRole("button", { name: "Copy Mermaid" }).waitFor();
     // The section nav leads to it, above the flow's agents.
     const nav = page.getByRole("navigation", { name: "Manifest sections" });
-    assert.deepEqual((await nav.getByRole("link").allTextContents()).slice(0, 2), ["Flow", "Flow agents"]);
+    assert.deepEqual((await nav.getByRole("link").allTextContents()).slice(0, 2), ["Flow", "Stages"]);
     assert.deepEqual(puts, []);
   });
 });

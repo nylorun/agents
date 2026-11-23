@@ -825,7 +825,7 @@ export function compileAgentFolder(input: CompileAgentFolderInput, scope?: Folde
         });
     } else if ([...kinds.values()].includes("flow")) {
       if (front.engine !== undefined)
-        error("flow_refused", "engine is an agent's: set it in the AGENT.md of each agent under agents/ that uses an engine feature", AGENT_FILE, ["engine"], { key: true });
+        error("flow_refused", "engine belongs to a model loop: set it in the AGENT.md of each subagent under agents/ that uses an engine feature", AGENT_FILE, ["engine"], { key: true });
     } else {
       declared = engineDeclarations(front.engine, {
         error: (code, message, path, options) => error(code, message, AGENT_FILE, path, options),
