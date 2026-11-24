@@ -21610,6 +21610,7 @@
                     "agent.detached",
                     "agent.deleted",
                     "agent.running",
+                    "agent.resumed",
                     "agent.suspended",
                     "agent.relaunched",
                     "agent.lost",

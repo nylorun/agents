@@ -4312,6 +4312,104 @@
           "asOf"
         ],
         "additionalProperties": false
+      },
+      "AgentEventExportPage": {
+        "type": "object",
+        "properties": {
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "nylorun.agent-event/1"
+                  ]
+                },
+                "eventId": {
+                  "type": "string"
+                },
+                "tenantId": {
+                  "type": "string"
+                },
+                "agentId": {
+                  "type": "string"
+                },
+                "seq": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "time": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "agent.created",
+                    "agent.attached",
+                    "agent.detached",
+                    "agent.deleted",
+                    "agent.running",
+                    "agent.resumed",
+                    "agent.suspended",
+                    "agent.relaunched",
+                    "agent.lost",
+                    "agent.reset",
+                    "agent.failed",
+                    "agent.forked",
+                    "agent.outdated",
+                    "agent.version_changed",
+                    "agent.start_failed",
+                    "agent.egress",
+                    "agent.run",
+                    "agent.trigger_paused",
+                    "agent.trigger_resumed",
+                    "agent.trigger_secret_rotated",
+                    "agent.trigger_created",
+                    "agent.trigger_updated",
+                    "agent.trigger_deleted",
+                    "agent.memory_updated"
+                  ]
+                },
+                "payload": {
+                  "type": "object",
+                  "additionalProperties": {}
+                }
+              },
+              "required": [
+                "schema",
+                "eventId",
+                "tenantId",
+                "agentId",
+                "seq",
+                "time",
+                "type",
+                "payload"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "next": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "caughtUp": {
+            "type": "boolean"
+          },
+          "asOf": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "events",
+          "next",
+          "caughtUp",
+          "asOf"
+        ],
+        "additionalProperties": false
       }
     },
     "parameters": {}
@@ -5937,6 +6035,130 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "No credential (`credential_required`), or one the Tenant does not accept (`credential_invalid`), with a `WWW-Authenticate: Bearer` challenge",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed for this credential, a key of the other API (`key_role_mismatch`), a key from a browser (`origin_rejected`) or a management key acting for a subject",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (`not_found`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "`Nylorun-Protocol` missing or unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtocolRejected"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Tenant's storage or streams are unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rejected"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/tenant/agent-events": {
+      "get": {
+        "tags": [
+          "Models"
+        ],
+        "summary": "Export every Agent's events in safe transaction order",
+        "description": "Every Agent's lifecycle events (the events of `GET /v1/agents/{agentId}/events`), in the order their transactions committed: an event that commits later never sorts before one already read, so a reader that keeps `next` misses none and repeats none. A computer's awake time starts at `agent.resumed` and ends at the same Agent's next `agent.suspended`, `.failed`, `.lost`, `.reset`, `.deleted`, `.start_failed` or `.resumed`. `next` is bound to `types`: read on with the same filter.",
+        "security": [
+          {
+            "managementKey": []
+          }
+        ],
+        "x-nylorun-credentials": [
+          "management"
+        ],
+        "x-nylorun-scopes": "never",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "name": "after",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "A page holds at most the Tenant's Runtime limit `exportPageItems` (default 1000); a larger limit gets that many. Default 200, or that limit when it is lower"
+            },
+            "required": false,
+            "description": "A page holds at most the Tenant's Runtime limit `exportPageItems` (default 1000); a larger limit gets that many. Default 200, or that limit when it is lower",
+            "name": "limit",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Only these event types, comma-separated (`agent.resumed,agent.suspended`)"
+            },
+            "required": false,
+            "description": "Only these event types, comma-separated (`agent.resumed,agent.suspended`)",
+            "name": "types",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The protocol version, `18`"
+            },
+            "required": true,
+            "description": "The protocol version, `18`",
+            "name": "Nylorun-Protocol",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A resumable page of events",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentEventExportPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "An unknown event type, or a cursor read with other types (`invalid_request`, `cursor_invalid`)"
           },
           "401": {
             "description": "No credential (`credential_required`), or one the Tenant does not accept (`credential_invalid`), with a `WWW-Authenticate: Bearer` challenge",

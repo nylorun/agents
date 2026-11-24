@@ -8,7 +8,10 @@
  */
 import { parseBody, requestHeaders } from "@nylorun/core/transport";
 import {
+  AgentEventExportPageSchema,
   ModelCallExportPageSchema,
+  type AgentEventExportPage,
+  type AgentEventType,
   type CredentialCoverage,
   type CredentialCoverageRequest,
   type HostModelCatalog,
@@ -81,6 +84,18 @@ export interface ManagementTenant {
    * with the same filters, for the older ones.
    */
   audit(query?: TenantAuditQuery): Promise<TenantAuditPage>;
+  /**
+   * Every Agent's events (`GET /v1/tenant/agent-events`), in safe transaction order: pages from
+   * `after` until `caughtUp`, only `types` when given. Keep each page's `next` with what you derive
+   * from it, and pass it as `after` to resume. A computer's awake time starts at `agent.resumed`
+   * and ends at the same Agent's next `agent.suspended`, `.failed`, `.lost`, `.reset`,
+   * `.deleted`, `.start_failed` or `.resumed`.
+   */
+  exportAgentEvents(options?: {
+    after?: string;
+    types?: readonly AgentEventType[];
+    limit?: number;
+  }): AsyncIterable<AgentEventExportPage>;
 }
 
 /** What `tenant.audit` reads. */
@@ -251,6 +266,7 @@ export class ManagementClient {
         const text = search.toString();
         return call("GET", `/v1/tenant/audit${text ? `?${text}` : ""}`);
       },
+      exportAgentEvents: (options = {}) => this.pageAgentEvents(options),
     };
     this.keys = {
       list: async () => (await call<{ keys: OperatorKey[] }>("GET", "/v1/tenant/keys")).keys,
@@ -327,6 +343,27 @@ export class ManagementClient {
         put: (request) => call("PUT", "/v1/tenant/limits", withId(request)),
       },
     };
+  }
+
+  private async *pageAgentEvents(options: {
+    after?: string;
+    types?: readonly AgentEventType[];
+    limit?: number;
+  }): AsyncIterable<AgentEventExportPage> {
+    let after = options.after;
+    while (true) {
+      const query = new URLSearchParams({ limit: String(options.limit ?? 500) });
+      if (options.types !== undefined && options.types.length > 0) query.set("types", options.types.join(","));
+      if (after !== undefined) query.set("after", after);
+      const page = AgentEventExportPageSchema.parse(
+        await this.request<unknown>("GET", `/v1/tenant/agent-events?${query}`),
+      );
+      yield page;
+      if (page.caughtUp) return;
+      if (page.next === null || page.next === after)
+        throw new Error("Agent events export did not advance its cursor");
+      after = page.next;
+    }
   }
 
   private async *pageCalls(options: {
