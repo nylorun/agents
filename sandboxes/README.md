@@ -106,7 +106,7 @@ Substrate's egress are on. The `/v1/pods` contract is the same.
 - **The edge needs no DNS lookup in the actor:** the wrapper pins `<host address> <edge host>`
   in the actor's `/etc/hosts` at a fresh start, when the file is writable (Substrate keeps the
   actor's own edits to it across restores, and its egress routes the edge by TLS name). A
-  restored actor's first lookup can be lost (P1.8).
+  restored actor's first lookup can be lost.
 - **Egress** is the Agent's network (`network` in the PUT body: `preset`, `hosts`, `suffixes`):
   the edge by TLS passthrough, each host on 443 (passthrough) and 80, or everything for `open`.
 - **Keys**:
@@ -239,13 +239,3 @@ Subcommands: `sandboxes edge-cert <host> <dir>` writes `edge-ca.pem`, `edge.crt`
 | `NYLORUN_SANDBOXES_EDGE_HARNESS_UPSTREAM`, `_GATES_UPSTREAM`, `_KEYS_UPSTREAM` | where the edge forwards (`http://runtime:4200`, `http://gateway:4100`, `http://gateway:4200`) |
 
 `sandboxes healthcheck` probes `/ready` (the image has no shell).
-
-## Develop
-
-```sh
-cd sandboxes && go vet ./... && go test ./...      # -update rewrites the golden files
-docker build -f sandboxes/Dockerfile -t nylorun-sandboxes:dev .
-docker build -f images/computer/Dockerfile --build-arg VERSION=1.0 -t nylorun-computer:dev .
-bash images/computer/smoke.sh nylorun-computer:dev   # or BINARY=<built agent> without Docker
-npm run test:sandboxes:service -- --context docker-desktop   # or kind-nylorun --host-address 172.17.0.1
-```

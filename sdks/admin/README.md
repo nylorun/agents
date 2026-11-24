@@ -4,7 +4,7 @@ The Management API client (protocol 15): the Tenant's status, seed and reset, it
 models, credential coverage, MCP server previews, signing keys, settings and application keys, through
 `/v1/tenant/*` with a **management key**. It also holds the two helpers over the
 admin key that Studio needs. Depends only on `@nylorun/core`.
-Requires Node 24+. Vocabulary: [runtime/server/src/CONTEXT.md](../../runtime/server/src/CONTEXT.md).
+Requires Node 24+.
 
 Developer applications do **not** depend on this package: they use the Runtime
 API through `@nylorun/agents`. Operators' clients do: the CLI, Studio, CI and

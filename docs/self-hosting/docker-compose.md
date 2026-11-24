@@ -4,8 +4,7 @@ This release supports one machine: the **local Tenant** that `nylorun start`
 runs for a project (the Runtime, its gateway and harness, Studio, Postgres, Restate,
 s2-lite and RustFS, as Docker Compose project `nylorun-<tenant>`), an installation that
 serves that one **Tenant**, and the services the application's agents call as
-tools (HTTP tools and remote MCP servers) on the same machine or reachable from it. Vocabulary:
-[runtime/server/src/CONTEXT.md](../../runtime/server/src/CONTEXT.md).
+tools (HTTP tools and remote MCP servers) on the same machine or reachable from it.
 
 ```sh
 npx nylorun start
@@ -55,8 +54,7 @@ private addresses and backups, with a runnable stack in
 
 ## Serving people through an app server
 
-To put agents in front of people, run your own **app server** (vocabulary in
-[CONTEXT.md](../../runtime/server/src/CONTEXT.md)): it signs people in, holds an
+To put agents in front of people, run your own **app server**: it signs people in, holds an
 application key, and calls the Runtime API for each person with
 `client.as(subject, { scopes })` or the AG-UI handler
 ([sdks/agents/README.md](../../sdks/agents/README.md#acting-for-a-person-app-servers); a
@@ -1114,7 +1112,7 @@ against, not settings: Node's longest timer (2^31 - 1 ms); S3's part sizes (5 Mi
 its 1024-byte object key; S2's batch of 1000 records and 1 MiB; the sandboxes service's longest
 `?wait=` (30 s) and its 4096-byte pod variables; the
 `agent.egress` event's 16 running turns (its contract); W3C Trace Context's 512-character
-`tracestate`; the 24-hour floor of a wake's dedupe key (Durable Session Execution §12.3); and
+`tracestate`; the 24-hour floor of a wake's dedupe key; and
 Postgres's 65,535 bind parameters a statement, which bound `postgres.contentBatchRows`. Token
 lifetimes are checked against each other: `keys.runTokenTtlSeconds` and
 `keys.hostTokenTtlSeconds` at most `keys.tokenTtlMaxSeconds`, `keys.runTokenRenewSeconds`
@@ -1347,7 +1345,7 @@ below the run token's, the host token's longer than `harness.podRenewMs`, and
 `engine` holds the options of our engine (`createHarness` in `@nylorun/harness`), which a harness
 container, a pod's engine and the Tenant's own harness pass to it. Nothing is set by default:
 each option left out is the engine's own default, listed with `createHarness` in
-[runtime/harness/src/CONTEXT.md](../../runtime/harness/src/CONTEXT.md).
+[runtime/harness/src/api/harness.ts](../../runtime/harness/src/api/harness.ts).
 
 | Setting | Engine default | What it sets |
 | --- | --- | --- |

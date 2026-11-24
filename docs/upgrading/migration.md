@@ -5,7 +5,7 @@ versions work together, read [Compatibility](https://docs.nylorun.com/docs/compa
 
 # Subagents are files: `agent-folder/4`
 
-Additive (ADR-164). Nothing to do: formats 1 to 3 compile as before.
+Additive. Nothing to do: formats 1 to 3 compile as before.
 
 - **New format, `agent-folder/4`.** A subagent is one file, `agents/<id>.md`, as in Claude Code
   and Cursor. The root's `tools/`, `skills/`, `mcp.json`, `plugins/` and Runtime plugins are the
@@ -44,7 +44,7 @@ otherwise.
 
 # Telemetry for operators, and one content switch
 
-Additive, with two variables deprecated (ADR-159). Nothing to do unless you export trace content
+Additive, with two variables deprecated. Nothing to do unless you export trace content
 or name the service.
 
 - **Content on spans: `OTEL_INSTRUMENTATION_GENAI_CAPTURE_CONTENT`.** One switch from the GenAI
@@ -77,7 +77,7 @@ or name the service.
 
 # An Agent's compaction threshold, and a message's context
 
-Additive (ADR-157).
+Additive.
 
 - **Compaction threshold.** An Agent's version may set, in its harness settings,
   `harness.loop.compaction: { threshold, keepTokens, roles: { <role>: { threshold, keepTokens } } }`.
@@ -100,7 +100,7 @@ Additive (ADR-157).
 
 # Computers run the computer agent (`computer.agent: go`)
 
-Breaking for a chart install with computers (ADR-154 decision 4). Compose, `nylorun local` and
+Breaking for a chart install with computers. Compose, `nylorun local` and
 agent-sandbox are unchanged.
 
 - **What changes.** A computer's actor runs the computer agent, one static binary from
@@ -130,7 +130,7 @@ agent-sandbox are unchanged.
 
 # Computers on Kubernetes: the Runtime's Helm chart
 
-Additive: no breaking change (ADR-147, ADR-149, ADR-150). Compose, `nylorun local`, agent-sandbox
+Additive: no breaking change. Compose, `nylorun local`, agent-sandbox
 and the local `--backend substrate` preview with its edge run as before.
 
 - **The chart.** [`charts/nylorun-runtime`](../../charts/nylorun-runtime/README.md) installs the
@@ -167,7 +167,7 @@ the settings twice:
 # Agents declare the Runtime's features as plugins
 
 Additive: no protocol change. `agent-folder/1` and `agent-folder/2` folders compile and run as
-before (ADR-106, D84).
+before.
 
 - **`agent-folder/3`.** A folder names the Runtime's plugins it uses under `plugins:` in
   `AGENT.md`: `nylorun-memory`, `nylorun-triggers`, `nylorun-plan`, `nylorun-interactions`
@@ -307,7 +307,7 @@ version it was accepted for, as before, and the session's log says why (`turn.ve
 `reason: "variant_invalid"`). A variant may now also narrow an agent it uses as a tool: remove its
 tools and disable its MCP servers' tools, the rest of it unchanged.
 
-# Agent folders, complete (track T7)
+# Agent folders, complete
 
 Additive, with two deprecations. Agent folders now hold flows (`flow.json`), subagents
 (`agents/<id>/`) and vendored Agent Plugins (`plugins/<name>/`), take a `.nyloignore` and a
@@ -330,7 +330,7 @@ Additive, with two deprecations. Agent folders now hold flows (`flow.json`), sub
 # Agent folders
 
 Additive. `PUT /v1/agent-manifests/{name}` also takes an agent folder by hash, with
-`Content-Type: application/vnd.nylorun.folder+json` (track T6). Upload every file with
+`Content-Type: application/vnd.nylorun.folder+json`. Upload every file with
 `PUT /v1/files/sha256:<hex>`, then send `{ "format": "nylorun.folder.v2", "entries": [{ "path",
 "size", "sha256" }] }`. The Runtime compiles it with `@nylorun/core/folder`, answers `422
 folder_invalid` with every diagnostic by file, line and column when it does not compile, and keeps
@@ -509,7 +509,7 @@ harness together.
   from a saved manifest only: `PUT /v1/agents/{id} { manifest: "triage" }` tracks the manifest
   (and resolves its latest version now), `"triage@3"` pins version 3; inline recipe fields are
   gone, and `ownerUserId` is `owner`. An Agent runs one version at a time and evolves in place
-  (track T3): a `PUT` naming another version moves it (`?dryRun=true` for the plan), a save moves
+: a `PUT` naming another version moves it (`?dryRun=true` for the plan), a save moves
   every Agent that tracks the manifest, and each session's next turn runs the new version. A
   harness change applies at once; a pod's runtime change at its next start, on the same volume
   (`targetVersion`, `waitingFor`; `POST .../restart` applies it now), and a start that fails goes
@@ -766,7 +766,7 @@ only. Upgrade the Runtime, the SDKs, Studio, the CLI and any custom harness toge
   compaction functions take a `CompactionConfig`. `EngineToolConfig` is `EngineConfig` (the tool
   config with `loop` and `resendDelaysMs`), and `apiHost` takes it.
 
-- **The last limits are configuration (B15c).** Every default is the value before.
+- **The last limits are configuration.** Every default is the value before.
   - **21 more Runtime limits** (`GET`/`PUT /v1/tenant/limits`): `messageParts` (32),
     `pageItems` (200) and `exportPageItems` (1,000), `environmentEventItems` (1,000),
     `artifactLabels` (32), `labelKeyChars` (63) and `labelValueChars` (256), `setupCommandChars`
@@ -928,7 +928,7 @@ together. Sessions, Environments and their vaults carry over.
 
 ## Parallel turns, and egress on the Environment
 
-Part of protocol 14 (D66, D67).
+Part of protocol 14.
 
 - **Sessions on one Environment run their turns at the same time.** A turn start is no longer
   `409 environment_busy` because another session on the Environment has a turn running; one turn
@@ -1116,7 +1116,7 @@ Protocol 12 only adds to protocol 11: the Runtime serves clients of both, and no
 
 No migration runs.
 
-# Each turn is a trace, and every row that ends a call carries its timing (R7)
+# Each turn is a trace, and every row that ends a call carries its timing
 
 No protocol change, and nothing to do unless you read the session log yourself:
 
@@ -1140,7 +1140,7 @@ No protocol change, and nothing to do unless you read the session log yourself:
 
 Migration `0022` adds the gate's times to the usage ledger and runs at start.
 
-# Bring your own harness: harness ids and who wrote each event (R4)
+# Bring your own harness: harness ids and who wrote each event
 
 - **Our harness says `nylorun`.** A harness names itself in `hello` with its harness id, and ours
   is `nylorun`. A connection that says `@nylorun/harness` is refused with a message naming the
@@ -1159,7 +1159,7 @@ Migration `0022` adds the gate's times to the usage ledger and runs at start.
 
 To run a harness of your own, see [Harness API](../reference/harness-api.md).
 
-# Tool approvals are the Tenant's tool policy (R5)
+# Tool approvals are the Tenant's tool policy
 
 **`approval` leaves the manifest.** An agent no longer says which of its tool calls wait for a
 person: the operator does, once for every agent and every harness, with the Tenant's tool policy.
@@ -1371,7 +1371,7 @@ without install scripts, unless it resolves beside nylorun. Studio's model setti
 
 # Credentials for skills: two new vault credential kinds
 
-Vault credentials gain `environment_secret` and `environment_variable` (R2c), for skills whose
+Vault credentials gain `environment_secret` and `environment_variable`, for skills whose
 CLIs run in pod sandboxes. Nothing you use changes: existing credentials, routes and the protocol
 (10) are as they were. Two things are new to a client:
 
@@ -2844,8 +2844,6 @@ they report an older Host as `incompatible_host`.
 
 # Runtime Clients and Admin API (breaking beta)
 
-Vocabulary: [runtime/server/src/CONTEXT.md](../../runtime/server/src/CONTEXT.md).
-
 > Runtime V1 (above) replaces this release's launcher, its global
 > `@nylorun/runtime` install and the `nylorun-studio` binary. The client
 > packages, `src/main.ts` and the three deployment variables below still apply.
@@ -3049,8 +3047,6 @@ Later Runtimes no longer run this startup cleanup, so upgrade through this relea
 if a Tenant still has schema 3 turns in flight.
 
 # Runtime Tenants (breaking beta)
-
-Vocabulary: [runtime/server/src/CONTEXT.md](../../runtime/server/src/CONTEXT.md).
 
 One **Runtime Host** process serves many isolated **Tenants**. A Project
 attaches through a **Project link** (`.nylorun/link.json` + `credentials.json`),

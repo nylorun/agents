@@ -6,7 +6,6 @@ and does not import this package. Every Tenant serves two APIs on one URL: the
 **Runtime API** for developers (agents, sessions with AG-UI and
 A2A, Environments and their secrets, artifacts), whose client is `@nylorun/agents`, and the
 **Management API** for operators (`/v1/tenant/*`), whose client is `@nylorun/admin`.
-Vocabulary: [src/CONTEXT.md](./src/CONTEXT.md).
 
 Requires Node 24+. Build from the repository root:
 
@@ -46,7 +45,7 @@ database (`tenant_<id>` schemas), or by a pre-release build of one Tenant per da
 its timers and the Tenant's sweep (Durable Session Execution), and journals no effect:
 checkpoints, effects, events and the outbox are the Session Store's, and a wake or a pod
 Environment's reconcile is written to the outbox in the transaction that causes it, so a commit
-never loses it ([src/CONTEXT.md](src/CONTEXT.md)); every session's events are relayed from the record to
+never loses it; every session's events are relayed from the record to
 its own S2 stream, which history and SSE read (Durable Streams). One image runs every **service**,
 and `--service` picks what a process runs: `core` serves the Runtime API, the
 Management API and SSE and runs the stream relay, `loop` runs advances (the Worker), and
@@ -234,15 +233,6 @@ who may call it. Event streams are `text/event-stream` with an `itemSchema`. `ru
 them (`node scripts/build-openapi.mjs --write`), and `check-package` fails until they are
 updated.
 
-## HTTP layer
-
-Routes are Hono routes (`@hono/zod-openapi`), each declared once with who may call it
-(`api/http/define.ts`): that declaration serves the route, checks subject scopes and makes
-the OpenAPI document. `host/` holds the listeners, the `Host`
-check (in Node, before Hono) and the Host pipeline (`host/app.ts`); `api/` the routes of
-both APIs (`api/http/routes/`, `api/ag-ui/`, `api/a2a/`). Only `host/` and `api/` import
-Hono. `nylorun-operate` is `host/operate.ts`.
-
 ## Embedding and tests
 
 Tests and ephemeral embeds use `startEphemeralRuntime()` from
@@ -265,10 +255,6 @@ const runtime = await startEphemeralRuntime({
   database: "postgres://nylorun:nylorun@127.0.0.1:55432/my_test_db",
 });
 ```
-
-The package's own tests run every Session Store on Postgres: `npm test` gives each
-test file a database on the Docker test stack (`test/stack/compose.yaml`) and starts
-the stack when it is down; see [CONTRIBUTING.md](../../CONTRIBUTING.md).
 
 Save agents with `PUT /v1/agents/{agentId}` using the application principal (`saveAgent`
 in `@nylorun/agents`). The Runtime runs the agent from its manifest and never calls your
@@ -337,8 +323,7 @@ unfiltered, resumable model ledger export (`GET /v1/tenant/calls/model`, a manag
 safe transaction order. `tool-calls` adds `GET /v1/sessions/{id}/calls/tool`: each tool call of
 the session from the effect journal, with its input, status and sends. Existing list/history
 requests without `limit` retain their response shapes. These are public APIs for Studio,
-CLI and custom clients; clients never need database access. See the
-[API contracts, authorization, SDK examples and Studio handoff](https://github.com/nylorun/agents/blob/main/runtime/server/evidence/session-reads.md).
+CLI and custom clients; clients never need database access.
 
 ## Turns
 
@@ -380,15 +365,3 @@ creation-order index; the existing session index also serves session pages in
 reverse order. No data backfill, protocol bump or direct client database access is
 required. Studio can discover `artifact-reads` through `/health` before enabling
 a tenant-wide table; `@nylorun/agents` exposes the same API as `artifacts.page()`.
-
-[Recorded query plans](evidence/artifact-pages-evidence.json) use a disposable local
-Postgres 17 fixture: the public SDK drained 10,006 artifacts in 201 pages of at
-most 50 rows, without gaps or duplicates, in 796 ms. First/deep page queries used
-backward index scans with a tuple index condition on the deep page (0.014/0.028 ms).
-These are fixture timings, not production throughput estimates. Reproduce after
-building dependencies with:
-
-```sh
-ARTIFACT_READS_EVIDENCE="$PWD/runtime/server/evidence/artifact-pages-evidence.json" \
-  npm test --workspace @nylorun/runtime -- test/http/artifact-pages.test.ts
-```
