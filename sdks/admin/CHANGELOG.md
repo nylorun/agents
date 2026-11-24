@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.22.3-beta
+
+### Patch Changes
+
+- 8b3df7c: Help text, error messages, API descriptions and doc comments say what the behaviour is without naming internal plan or decision identifiers. No behaviour changes.
+- Pin core to the tested release.
+- Updated dependencies [807b302]
+- Updated dependencies [8b3df7c]
+- Updated dependencies [f872ddd]
+- Updated dependencies [0ebf870]
+- Updated dependencies [8390f9b]
+  - @nylorun/core@0.54.0-beta
+
 ## 0.22.2-beta
 
 ### Patch Changes
