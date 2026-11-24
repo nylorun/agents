@@ -42,6 +42,8 @@ const PINNED: Record<string, string> = {
   "https://docs.nylorun.com/schemas/agent-folder/v1/tool.json": "632f25d978ae5da96ba4abd1da5647066541a63d07af1a65579e21f45dc7c1a7",
   "https://docs.nylorun.com/schemas/agent-folder/v1/mcp.json": "d470edffee6646192dc030ce68d25d020ec2f9b710e818886e1a5703f0780094",
   "https://docs.nylorun.com/schemas/agent-folder/v1/flow.json": "eb30c5bce859a38c6184b7aa36c7c4dc1ee1806f1d2a5fde423986bfb9261362",
+  "https://docs.nylorun.com/schemas/harness-manifest/v1.7.json": "409a4db28066e6dfbf9fb85c9652b30f9cd79010e12925f50617f472e67c2fe4",
+  "https://docs.nylorun.com/schemas/agent-manifest/v8.7.json": "a5ffd586f0295c999db384c998f239c3173e6bbc31f16713b05e310c2fc3ad58",
   "https://docs.nylorun.com/schemas/harness-manifest/v1.6.json": "c134dde982bec2702ea66466bb4079c8ea64ee5dbf4d6cf3391544d5f5dc3a6e",
   "https://docs.nylorun.com/schemas/agent-manifest/v8.6.json": "4c7055e32def549bd9512f65f4ff235ccb037afbe2c74951114242c50a582fe7",
 };

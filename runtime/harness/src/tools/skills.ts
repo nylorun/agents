@@ -24,6 +24,7 @@
 import {
   SKILL_ENTRY,
   SKILLS_MOUNT,
+  pluginFolderOf,
   skillFolderOf,
   skillInstructions,
   type AgentManifest,
@@ -71,7 +72,7 @@ export interface SkillToolContext {
   readonly channel: Pick<HarnessChannel, "request">;
   readonly run: HarnessRun;
   /** The agent whose skill the call reads: the turn's agent, or the agent used as a tool. */
-  readonly agent: Pick<AgentManifest, "skills" | "engine">;
+  readonly agent: Pick<AgentManifest, "skills" | "engine" | "plugins">;
   /**
    * The most bytes of one file read into the model's context: the harness's `skillReadBytes`.
    * The answer is also held to the run's `limits.recordEntryBytes`, since it is one record entry.
@@ -177,6 +178,10 @@ export async function runSkillTool(
   const recordBytes = context.run.start.limits.recordEntryBytes;
   const maxBytes = Math.min(context.readBytes, recordBytes);
   const directory = `${skillFolderOf(skill)}/`;
+  // The folder of the Agent Plugin the skill came from, when that plugin is mounted whole: where the
+  // skill's references to the plugin's own files (agents/…, resources/…) are found.
+  const mounted = skill.plugin && (context.agent.plugins ?? []).find((plugin) => plugin.name === skill.plugin!.name && plugin.files);
+  const pluginPath = mounted?.files ? `${pluginFolderOf({ name: mounted.name, files: mounted.files })}/` : undefined;
   const tooLarge = (path: string) =>
     failed(
       "skill.resource_too_large",
@@ -204,6 +209,7 @@ export async function runSkillTool(
       content: skillInstructions(text),
       ...(resources.length === 0 ? {} : { resources }),
       ...(sandboxed ? { sandboxPath: directory } : {}),
+      ...(sandboxed && pluginPath ? { pluginPath } : {}),
     });
   }
 
@@ -268,9 +274,28 @@ export async function* definitionFileChunks(
 }
 
 /**
- * Mounts the skill folders of the run's tree in its sandbox, before a `sandbox` call: each one
- * the sandbox does not hold yet is written, read-only. A failed outcome (the call's, then) when
- * one cannot be; nothing when the tree has no skills.
+ * The Agent Plugins mounted whole by `manifest` and by the agents it uses as tools (they share its
+ * sandbox), by folder (`/plugins/<name>@<hash>`): each distinct version once.
+ */
+export function sandboxPluginsOf(
+  manifest: AgentManifest | undefined,
+  into = new Map<string, SkillFiles>(),
+): Map<string, SkillFiles> {
+  for (const plugin of manifest?.plugins ?? []) {
+    if (!plugin.files) continue;
+    const folder = pluginFolderOf({ name: plugin.name, files: plugin.files });
+    if (!into.has(folder)) into.set(folder, plugin.files);
+  }
+  for (const tool of manifest?.tools ?? [])
+    if (tool.agent !== undefined && !("kind" in tool.agent))
+      sandboxPluginsOf(tool.agent as AgentManifest, into);
+  return into;
+}
+
+/**
+ * Mounts the skill folders of the run's tree in its sandbox, and the folders of the Agent Plugins
+ * it mounts whole, before a `sandbox` call: each one the sandbox does not hold yet is written,
+ * read-only. A failed outcome (the call's, then) when one cannot be; nothing when the tree has none.
  */
 export async function mountSkills(
   files: HarnessFiles,
@@ -278,7 +303,8 @@ export async function mountSkills(
   run: HarnessRun,
   signal: AbortSignal,
 ): Promise<FailedFileOutcome | undefined> {
-  for (const [folder, skill] of sandboxSkillsOf(run.start.manifest as AgentManifest)) {
+  const manifest = run.start.manifest as AgentManifest;
+  for (const [folder, skill] of [...sandboxSkillsOf(manifest), ...sandboxPluginsOf(manifest)]) {
     const mounted = await files.mount(
       run,
       folder,

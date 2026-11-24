@@ -52,7 +52,8 @@
         "a2a-steer",
         "computer-move",
         "model-roles",
-        "plugin-subagents"
+        "plugin-subagents",
+        "plugin-files"
       ]
     },
     "description": "For developers: agent manifests, Agents, sessions (with AG-UI and A2A) and artifacts, through `@nylorun/agents`. Every Tenant serves it on its one URL, beside the Management API (`/openapi/management.json`). Every request sends `Nylorun-Protocol`. Who may call each operation is its `security` and its `x-nylorun-credentials` and `x-nylorun-scopes` (the subject scopes that reach it) fields: an application key (servers) or a trusted issuer's token (browsers and apps)."
@@ -6761,6 +6762,12 @@
                       ]
                     }
                   },
+                  "plugins": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/PluginManifest"
+                    }
+                  },
                   "requires": {
                     "type": "object",
                     "properties": {
@@ -7115,6 +7122,12 @@
                       ]
                     }
                   },
+                  "plugins": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/PluginManifest"
+                    }
+                  },
                   "requires": {
                     "type": "object",
                     "properties": {
@@ -7466,6 +7479,12 @@
                           "additionalProperties": false
                         }
                       ]
+                    }
+                  },
+                  "plugins": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/PluginManifest"
                     }
                   },
                   "requires": {
@@ -7955,6 +7974,12 @@
                   ]
                 }
               },
+              "plugins": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/PluginManifest"
+                }
+              },
               "requires": {
                 "type": "object",
                 "properties": {
@@ -8335,6 +8360,12 @@
                         ]
                       }
                     },
+                    "plugins": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/PluginManifest"
+                      }
+                    },
                     "requires": {
                       "type": "object",
                       "properties": {
@@ -8685,6 +8716,29 @@
             "type": "boolean"
           }
         },
+        "additionalProperties": false
+      },
+      "PluginManifest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "version": {
+            "type": "string",
+            "minLength": 1
+          },
+          "files": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "name"
+        ],
         "additionalProperties": false
       },
       "HarnessEngine": {
@@ -24502,6 +24556,12 @@
                         ]
                       }
                     },
+                    "plugins": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/PluginManifest"
+                      }
+                    },
                     "requires": {
                       "type": "object",
                       "properties": {
@@ -24792,7 +24852,7 @@
           "plugins": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/PluginLabel"
+              "$ref": "#/components/schemas/PluginManifest"
             }
           },
           "outputSchema": {

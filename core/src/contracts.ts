@@ -40,7 +40,7 @@ import { FILE_NAME_MAX, FILE_PATH_MAX, LINK_TARGET_MAX } from "./utils/file-syst
 export { FILE_NAME_MAX, FILE_PATH_MAX } from "./utils/file-systems.js";
 import { DEFAULT_HARNESS, HARNESS_ID_PATTERN, isHarnessId } from "./utils/harness-id.js";
 export { DEFAULT_HARNESS, HARNESS_ID_PATTERN, isHarnessId };
-import { isDefinitionFileHash, skillFilesIssue } from "./utils/definition-files.js";
+import { isDefinitionFileHash, pluginFilesIssue, skillFilesIssue } from "./utils/definition-files.js";
 import { MEMORY_ACCESS, MEMORY_INSTRUCTIONS_MAX, MEMORY_OPERATIONS } from "./utils/memory.js";
 export {
   MEMORY_ACCESS,
@@ -74,6 +74,7 @@ export {
   SKILL_TOTAL_BYTES_DEFAULT,
   definitionFilesOf,
   isDefinitionFileHash,
+  mountedPluginsOf,
   skillsOf,
 } from "./utils/definition-files.js";
 export {
@@ -150,6 +151,22 @@ const pluginLabelSchema = z
   .object({ name: z.string().min(1), version: z.string().min(1).optional() })
   .strict()
   .meta({ id: "PluginLabel" });
+/**
+ * An Agent Plugin an agent was composed with; `files`, when the plugin holds files beyond the parts
+ * the manifest carries, are mounted read-only in the sandbox at `/plugins/<name>@<hash>/`.
+ */
+const pluginManifestSchema = z
+  .object({
+    name: z.string().min(1),
+    version: z.string().min(1).optional(),
+    files: z.record(z.string(), z.string()).optional(),
+  })
+  .strict()
+  .superRefine((plugin, ctx) => {
+    const issue = plugin.files === undefined ? undefined : pluginFilesIssue(plugin.files);
+    if (issue) ctx.addIssue({ code: "custom", path: ["files"], message: `Plugin '${plugin.name}' ${issue}` });
+  })
+  .meta({ id: "PluginManifest" });
 /** One tool's settings on an MCP server. */
 const mcpToolSettingsSchema = z
   .object({
@@ -406,6 +423,7 @@ const agentManifestSchema = z
       tools: z.array(toolManifestSchema).optional(),
       skills: z.record(z.string(), skillManifestSchema).optional(),
       mcpServers: z.record(z.string(), mcpServerSchema).optional(),
+      plugins: z.array(pluginManifestSchema).optional(),
       requires: agentRequirementsSchema.optional(),
       engine: harnessEngineField,
       // Reserved for Functions, which are deferred: developer code the Runtime will run from
@@ -2240,7 +2258,7 @@ const agentHarnessObject = z
       tools: z.array(toolManifestSchema).optional(),
       skills: z.record(z.string(), harnessSkillSchema).optional(),
       mcpServers: z.record(z.string(), harnessMcpServerSchema).optional(),
-      plugins: z.array(pluginLabelSchema).optional(),
+      plugins: z.array(pluginManifestSchema).optional(),
       outputSchema: definitionJson.optional(),
       loop: harnessLoopField,
       memory: harnessMemoryField,

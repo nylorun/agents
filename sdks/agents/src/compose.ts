@@ -35,7 +35,7 @@ import {
   type RuntimeSection,
 } from "@nylorun/core/contracts";
 import type { AgentHarnessSection, HarnessMcpServer, HarnessSkill } from "@nylorun/core";
-import { sectionGaps, type PluginLabel, type SkillFileSource } from "@nylorun/core/define";
+import { sectionGaps, type PluginLabel, type PluginManifest, type SkillFileSource } from "@nylorun/core/define";
 import { requirementGaps, type ComposedManifest } from "./agent-manifests.js";
 import { loadMcpServers, loadPlugin, type PluginDiagnostic } from "./plugins/load.js";
 import { hashFolder, loadSkillsFromDirectory, type LoadedSkill, type SkillDiagnostic } from "./skills/load.js";
@@ -159,7 +159,7 @@ function agentHarness(
 ): AgentHarnessSection {
   const skills: Record<string, HarnessSkill> = {};
   const servers: Record<string, HarnessMcpServer> = {};
-  const plugins: PluginLabel[] = [];
+  const plugins: PluginManifest[] = [];
   const addSkill = (skill: HarnessSkill, from: string) => {
     if (skills[skill.name]) throw new ComposeError(where, `Skill ${skill.name} of ${from} is declared twice`);
     skills[skill.name] = skill;
@@ -203,7 +203,9 @@ function agentHarness(
     }
     for (const [key, server] of Object.entries(loaded.mcpServers))
       addServer(key, { ...(server as HarnessMcpServer), plugin: label }, entry);
-    plugins.push(label);
+    // A plugin holding files beyond those parts is mounted whole: its files are uploaded too.
+    for (const [sha256, source] of Object.entries(loaded.fileSources ?? {})) files.set(sha256, source);
+    plugins.push(loaded.files ? { ...label, files: loaded.files } : label);
   }
   // Credentials: the slot each server or HTTP tool authenticates with.
   let tools = file.tools;

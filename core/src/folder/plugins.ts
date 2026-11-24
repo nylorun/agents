@@ -43,11 +43,17 @@ export interface PluginLabel {
   readonly version?: string;
 }
 
-/** A plugin's skills and servers, labelled, with the file each came from. */
+/** A plugin's skills and servers, labelled, with the file each came from, and the plugins mounted whole. */
 export interface FoldedPlugins {
   readonly servers: Map<string, { readonly server: Record<string, unknown>; readonly file: string }>;
   readonly skills: Map<string, { readonly skill: Record<string, unknown>; readonly file: string }>;
+  /** By name: each plugin holding files beyond the parts the manifest carries, with all its files. */
+  readonly mounted: Map<string, { readonly name: string; readonly version?: string; readonly files: Record<string, string> }>;
 }
+
+/** A plugin file the manifest already carries: its plugin.json, servers, skills and subagent files. */
+const carried = (path: string) =>
+  path === PLUGIN_FILE || path === "mcp.json" || path === ".mcp.json" || path.startsWith("skills/") || pluginSubagentFile(path) !== undefined;
 
 /** The files of `plugins/<name>/` the compiler reads, relative to the plugin's folder. */
 export function pluginTextPaths(paths: readonly string[]): string[] {
@@ -80,7 +86,7 @@ export function pluginLabelOf(manifest: unknown): PluginLabel | undefined {
 
 /** Folds every plugin under `plugins/`. */
 export function foldPlugins(ctx: FolderContext): FoldedPlugins {
-  const folded: FoldedPlugins = { servers: new Map(), skills: new Map() };
+  const folded: FoldedPlugins = { servers: new Map(), skills: new Map(), mounted: new Map() };
   for (const [folder, paths] of foldersUnder("plugins", ctx.entries.keys())) foldPlugin(ctx, folder, paths, folded);
   return folded;
 }
@@ -92,9 +98,11 @@ function foldPlugin(ctx: FolderContext, folder: string, paths: readonly string[]
     ctx.report("error", code, message, at, path, { key });
   // What it holds that Nylorun does not read: one note per top-level part.
   const noted = new Set<string>();
+  // In agent-folder/4 a plugin's agents/*.md are subagents, read by the format 4 expansion.
+  const v4 = ctx.engineFacts().v4 !== undefined;
   for (const path of paths) {
     const top = path.split("/")[0]!;
-    if (READ.has(top) || isSecretShaped(path.split("/").at(-1)!) || noted.has(top)) continue;
+    if (READ.has(top) || isSecretShaped(path.split("/").at(-1)!) || noted.has(top) || (v4 && top === "agents")) continue;
     noted.add(top);
     const isFolder = path.includes("/");
     ctx.report(
@@ -143,6 +151,18 @@ function foldPlugin(ctx: FolderContext, folder: string, paths: readonly string[]
   }
   if (!valid) return;
   const label = pluginLabelOf(manifest)!;
+
+  // Its own files, mounted whole in the sandbox when it holds any the manifest doesn't carry, as
+  // other hosts give a plugin's root: every file but secret-shaped ones.
+  const kept = paths.filter((path) => !isSecretShaped(path.split("/").at(-1)!)).sort();
+  if (kept.some((path) => !carried(path))) {
+    const files: Record<string, string> = {};
+    for (const path of kept) {
+      const entry = ctx.entries.get(prefix + path);
+      if (entry) files[path] = `sha256:${entry.sha256}`;
+    }
+    folded.mounted.set(label.name, { ...label, files });
+  }
 
   // mcp.json, as Agent Plugins writes it: no $schema reads as 1.0.0, and one naming another format is
   // refused. Claude Code's .mcp.json when there is none.

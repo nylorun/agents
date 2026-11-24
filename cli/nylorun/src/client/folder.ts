@@ -136,7 +136,8 @@ async function fixFolder(pack: PackedFolder, diagnostics: readonly AgentFolderDi
 
 /**
  * `check`'s lines for the Agent Plugins a compiled manifest holds: one per plugin, with the
- * subagents, skills and MCP servers it brings, as each is labelled in the manifest.
+ * subagents, skills and MCP servers it brings, as each is labelled in the manifest, and how many
+ * of its files are mounted in the sandbox when it is mounted whole.
  */
 export function pluginLines(manifest: unknown): string[] {
   const harness = (manifest as { harness?: Record<string, unknown> } | undefined)?.harness ?? {};
@@ -154,10 +155,19 @@ export function pluginLines(manifest: unknown): string[] {
     if (tool.agent !== undefined && typeof tool.name === "string") add(tool.plugin, "subagents", tool.name);
   for (const [name, skill] of Object.entries((harness.skills ?? {}) as Record<string, { plugin?: unknown }>)) add(skill?.plugin, "skills", name);
   for (const [name, server] of Object.entries((harness.mcpServers ?? {}) as Record<string, { plugin?: unknown }>)) add(server?.plugin, "servers", name);
+  const mounted = new Map<string, number>();
+  for (const plugin of Array.isArray(harness.plugins) ? (harness.plugins as { name?: unknown; version?: unknown; files?: Record<string, unknown> }[]) : [])
+    if (typeof plugin.name === "string" && plugin.files) {
+      const key = typeof plugin.version === "string" ? `${plugin.name} ${plugin.version}` : plugin.name;
+      mounted.set(key, Object.keys(plugin.files).length);
+      if (!plugins.has(key)) plugins.set(key, { subagents: [], skills: [], servers: [] });
+    }
   return [...plugins.entries()]
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
     .map(([plugin, parts]) => {
       const listed = (["subagents", "skills", "servers"] as const).filter((part) => parts[part].length > 0).map((part) => `${part} ${parts[part].sort().join(", ")}`);
+      const files = mounted.get(plugin);
+      if (files !== undefined) listed.push(`${files} ${files === 1 ? "file" : "files"} mounted at /plugins/`);
       return `  plugin ${plugin}: ${listed.join("; ")}`;
     });
 }
