@@ -334,6 +334,11 @@ export interface SendParams {
    */
   removeTools?: readonly string[];
   /**
+   * `metadata.skill` (Host feature `person-started-skills`): the skill a person starts with a new
+   * message, as a session message's `skill`.
+   */
+  skill?: string;
+  /**
    * `metadata.role` (Host feature `model-roles`): the model role the context's session is opened
    * with when this message opens it, as `PUT /v1/sessions/{id}`'s `role`. A context already open
    * keeps the role it was opened with.
@@ -446,6 +451,15 @@ function parseRemoveTools(metadata: Record<string, unknown>): readonly string[] 
   return value as string[];
 }
 
+/** `metadata.skill`: a skill's name, 1 to 64 characters (a session message's `skill`). */
+function parseSkill(metadata: Record<string, unknown>): string | undefined {
+  const value = metadata.skill;
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "string" || value.length < 1 || value.length > 64)
+    return a2aFail("invalidParams", "message.metadata.skill must be a skill's name of 1 to 64 characters", {}, "message.metadata.skill");
+  return value;
+}
+
 /** `metadata.role`: a model role's name (`AGENT_ROLE_PATTERN`), as a session's `role`. */
 function parseRole(metadata: Record<string, unknown>): string | undefined {
   const value = metadata.role;
@@ -519,6 +533,7 @@ export function parseSendParams(params: Record<string, unknown>): SendParams {
     metadata.removeTools === undefined && isObject(params.metadata) ? params.metadata : metadata
   );
   const role = parseRole(metadata.role === undefined && isObject(params.metadata) ? params.metadata : metadata);
+  const skill = parseSkill(metadata.skill === undefined && isObject(params.metadata) ? params.metadata : metadata);
   const configuration = params.configuration;
   if (configuration !== undefined && configuration !== null && !isObject(configuration))
     a2aFail("invalidParams", "configuration must be an object", {}, "configuration");
@@ -572,6 +587,7 @@ export function parseSendParams(params: Record<string, unknown>): SendParams {
     ...(push ? { push } : {}),
     delivery,
     ...(removeTools ? { removeTools } : {}),
+    ...(skill !== undefined ? { skill } : {}),
     ...(role !== undefined ? { role } : {}),
     ...(answer ? { answer } : {}),
   };

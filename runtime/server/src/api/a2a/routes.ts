@@ -552,6 +552,7 @@ async function sendMessage(
         idempotencyKey,
         ...body,
         ...(send.removeTools ? { removeTools: [...send.removeTools] } : {}),
+        ...(send.skill !== undefined ? { skill: send.skill } : {}),
       } as SessionCommand,
       async () => {
         const active = (await contextSession(caller, sessionId))?.activeTurnId;

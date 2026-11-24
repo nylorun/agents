@@ -93,6 +93,11 @@ export interface A2aSendOptions {
    * session message's `removeTools`. Sent as `metadata.removeTools`; a new message only.
    */
   removeTools?: readonly string[];
+  /**
+   * The skill a person starts with this message (Host feature `person-started-skills`), as a
+   * session message's `skill`. Sent as `metadata.skill`; a new message only.
+   */
+  skill?: string;
   /** Where the agent pushes this task's updates; verify each with `verifyA2aPush`. */
   push?: PushNotificationConfig;
   /** Answer at once with the task (`SUBMITTED` or `WORKING`) instead of waiting. */
@@ -238,7 +243,7 @@ export function createA2aClient(options: A2aClientOptions): A2aClient {
 
   async function sendMessage(
     message: Message,
-    options: Omit<A2aSendOptions, "messageId" | "parts" | "contextId" | "taskId" | "metadata" | "extensions" | "delivery" | "removeTools">
+    options: Omit<A2aSendOptions, "messageId" | "parts" | "contextId" | "taskId" | "metadata" | "extensions" | "delivery" | "removeTools" | "skill">
   ): Promise<Task> {
     const configuration: Record<string, unknown> = {};
     if (options.returnImmediately !== undefined)
@@ -278,6 +283,7 @@ export function createA2aClient(options: A2aClientOptions): A2aClient {
         ...send.metadata,
         ...(send.delivery ? { delivery: send.delivery } : {}),
         ...(send.removeTools?.length ? { removeTools: [...send.removeTools] } : {}),
+        ...(send.skill !== undefined ? { skill: send.skill } : {}),
       };
       return sendMessage(
         {

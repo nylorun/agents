@@ -16,6 +16,7 @@
  * key: the harness waits a moment and asks core again with the same intent, and core
  * counts the send, answering `execute` again or the call's outcome once it reached its cap.
  */
+import { startedSkillsOf, withPersonStartedSkills } from "../tools/person-started.js";
 import {
   HarnessApiError,
   effectRequestHash,
@@ -274,7 +275,13 @@ export function apiHost(
       return runSkillTool(effect, {
         channel,
         run,
-        agent: agentOf(run.start.manifest as AgentManifest, effect),
+        // A skill only a person starts is served for the root's turn that names it, never a subagent.
+        agent: withPersonStartedSkills(
+          agentOf(run.start.manifest as AgentManifest, effect),
+          effect.agent === undefined
+            ? startedSkillsOf((run.start.checkpoint as { input?: unknown }).input)
+            : undefined,
+        ),
         readBytes: engine.skillReadBytes,
         sandboxed: run.start.agent?.sandbox !== undefined,
         signal,
@@ -338,7 +345,7 @@ function pause(ms: number, signal: AbortSignal): Promise<void> {
 function agentOf(
   manifest: AgentManifest,
   effect: HostEffect,
-): Pick<AgentManifest, "skills" | "engine"> {
+): Pick<AgentManifest, "skills" | "engine" | "plugins"> {
   if (effect.agent === undefined) return manifest;
   return (
     delegatesOf(manifest).find((delegate) => delegate.manifest.id === effect.agent!.id)?.manifest ??

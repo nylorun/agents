@@ -225,6 +225,7 @@ const skillManifestSchema = z
     description: z.string().min(1),
     files: z.record(z.string(), z.string()),
     plugin: pluginLabelSchema.optional(),
+    disableModelInvocation: z.literal(true).optional(),
   })
   .strict()
   .superRefine((skill, ctx) => {
@@ -2161,6 +2162,7 @@ const harnessSkillSchema = z
     description: z.string().min(1),
     files: z.record(z.string(), z.string()),
     plugin: pluginLabelSchema.optional(),
+    disableModelInvocation: z.literal(true).optional(),
     secrets: z
       .array(z.string().regex(ENVIRONMENT_NAME_PATTERN, "A skill's secrets are environment variable names"))
       .optional(),
@@ -3514,6 +3516,13 @@ const messageBase = {
   removeTools: RemoveToolsSchema.optional(),
   delivery: MessageDeliverySchema.optional(),
   context: MessageContextSchema.optional(),
+  /**
+   * The skill a person starts with this message (Host feature `person-started-skills`): one of the
+   * root agent's skills, by name, offered to the model for this turn even when only a person may
+   * start it (`disableModelInvocation`). A name the session's agent doesn't hold is
+   * `400 unknown_skill`. A message naming a skill waits for its own turn: it never steers.
+   */
+  skill: z.string().min(1).max(64).optional(),
 };
 /**
  * One part of a user message (protocol 6): text, or a file by artifact id. A file part without
@@ -4158,6 +4167,8 @@ export const CommandMessagePayloadSchema = z
     removeTools: z.array(z.string()).optional(),
     /** The context items the message carried for its turn (Host feature `message-context`). */
     context: z.array(z.object({ type: z.string().optional(), value: jsonValue }).strict()).optional(),
+    /** The skill a person started with the message (Host feature `person-started-skills`). */
+    skill: z.string().optional(),
     delivery: MessageDeliverySchema.optional(),
     /** Set when the message waited in the session's queue (protocol 17): its id there. */
     queuedMessageId: z.string().optional(),

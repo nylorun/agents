@@ -58,6 +58,8 @@ export interface LoadedSkill {
    * from its SKILL.md's frontmatter `secrets`: sorted, each once.
    */
   readonly secrets?: readonly string[];
+  /** Only a person starts it: its SKILL.md's `disable-model-invocation: true`. */
+  readonly disableModelInvocation?: true;
   /** Every file of the folder by its `/`-separated path, as `sha256:<hex>`. */
   readonly files: Readonly<Record<string, string>>;
   /** Each file's bytes, by `sha256:<hex>`, for the client to upload. */
@@ -153,6 +155,7 @@ export function loadSkillsFromDirectory(
       name: parsed.name,
       description: parsed.description,
       ...(parsed.secrets === undefined ? {} : { secrets: parsed.secrets }),
+      ...(parsed.disableModelInvocation ? { disableModelInvocation: true as const } : {}),
       ...readFiles(`skill '${parsed.name}'`, boundary, directoryReal, diagnostics, prefix),
     };
   }
@@ -164,6 +167,8 @@ export interface ParsedSkill {
   name: string;
   description: string;
   secrets?: string[];
+  /** Only a person starts it: `disable-model-invocation: true`. */
+  disableModelInvocation?: true;
   instructions: string;
 }
 
@@ -194,12 +199,16 @@ function readSkill(text: string, directoryName: string): ParsedSkill | string {
       !secrets.every((item) => typeof item === "string" && ENVIRONMENT_NAME_PATTERN.test(item)))
   )
     return "has secrets that are not a list of environment variable names";
+  const personOnly: unknown = parsed.data["disable-model-invocation"];
+  if (personOnly !== undefined && typeof personOnly !== "boolean")
+    return "has a disable-model-invocation that is not true or false";
   return {
     name,
     description,
     ...(secrets === undefined || secrets.length === 0
       ? {}
       : { secrets: [...new Set(secrets as string[])].sort() }),
+    ...(personOnly === true ? { disableModelInvocation: true as const } : {}),
     instructions: parsed.content.replace(/^\r?\n/, ""),
   };
 }
