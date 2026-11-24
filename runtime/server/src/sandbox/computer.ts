@@ -107,6 +107,58 @@ export async function computerAccess(ctx: TenantContext, id: string, signal?: Ab
   }
 }
 
+/** How long core waits for a computer's activity before an idle suspend. */
+export const ACTIVITY_TIMEOUT_MS = 5_000;
+
+/** What a computer answers on `GET /v1/activity`: commands running, and the last start or end. */
+export interface ComputerActivity {
+  readonly running: number;
+  /** Ms since the epoch; undefined before its first command. */
+  readonly lastActivityAt?: number;
+}
+
+/**
+ * Running computer `name`'s activity, through the sandbox gateway, within `ACTIVITY_TIMEOUT_MS`.
+ * Undefined when it can't be read (an older computer answers 404): the caller suspends as before.
+ * It does not wake the computer: it asks only one that runs.
+ */
+export async function computerActivity(
+  ctx: Pick<TenantContext, "pods">,
+  name: string,
+  http: typeof fetch = fetch,
+): Promise<ComputerActivity | undefined> {
+  const computers = computersOf(ctx);
+  if (!computers) return undefined;
+  try {
+    const response = await http(`${computers.gatewayUrl}/${name}/v1/activity`, {
+      headers: { "x-nylorun-ticket": signTicket(computers.ticketKey, name, Date.now() + computers.ttlMs) },
+      signal: AbortSignal.timeout(ACTIVITY_TIMEOUT_MS),
+    });
+    if (!response.ok) return undefined;
+    const body = (await response.json()) as { running?: unknown; lastActivityAt?: unknown };
+    if (typeof body.running !== "number") return undefined;
+    const last = typeof body.lastActivityAt === "string" ? Date.parse(body.lastActivityAt) : Number.NaN;
+    return { running: body.running, ...(Number.isFinite(last) ? { lastActivityAt: last } : {}) };
+  } catch {
+    return undefined;
+  }
+}
+
+/** How often a computer's disk is measured before an idle suspend, at most. */
+export const DISK_MEASURE_EVERY_MS = 60 * 60_000;
+const lastMeasured = new Map<string, number>();
+
+/**
+ * Whether to measure computer `key`'s disk before this idle suspend: when this process last did
+ * over `DISK_MEASURE_EVERY_MS` ago, so a short idle window doesn't wait for `du` every time.
+ */
+export function measureDiskNow(key: string, now = Date.now()): boolean {
+  const last = lastMeasured.get(key);
+  if (last !== undefined && now - last < DISK_MEASURE_EVERY_MS) return false;
+  lastMeasured.set(key, now);
+  return true;
+}
+
 /** How long the disk's measure before an idle suspend may take. */
 export const DISK_MEASURE_TIMEOUT_MS = 20_000;
 /** What the measure runs on the computer: the size of what its disk keeps, in KiB. */
@@ -156,7 +208,10 @@ export function diskBytesOf(stdout: string): number | undefined {
   return found ? kib * 1024 : undefined;
 }
 
-/** Records the computer's first answer since it started: its UID, and `agent.running` or `agent.relaunched`. */
+/**
+ * Records the computer's first answer since it started: its UID, `agent.running` or
+ * `agent.relaunched`, and `agent.resumed` when this answer is what made it `running`.
+ */
 async function firstContact(ctx: TenantContext, id: string, podUid: string): Promise<void> {
   await ctx.store.tx(async (t) => {
     const environment = await t.environment(id, { lock: true });
@@ -165,6 +220,7 @@ async function firstContact(ctx: TenantContext, id: string, podUid: string): Pro
     const now = new Date().toISOString();
     const epoch = pod.hostEpoch + 1;
     await t.updateEnvironmentPod(id, { podUid, hostEpoch: epoch, observed: "running", reason: null }, now);
+    if (pod.observed !== "running") await t.agentEvent(id, "agent.resumed", { cause: "use" });
     if (pod.podUid !== undefined) await t.agentEvent(id, "agent.relaunched", { hostEpoch: epoch });
     else await t.agentEvent(id, "agent.running", { hostEpoch: epoch });
   });

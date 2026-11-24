@@ -5,8 +5,10 @@
  *
  * - A turn does not wake a sleeping computer; its first command does, and a failed one is
  *   still asked to run by a turn.
- * - An idle suspend measures the disk first (`diskBytes` on `agent.suspended`), and a wake
- *   logs how long it waited.
+ * - An idle suspend measures the disk first (`diskBytes` on `agent.suspended`), at most hourly,
+ *   and a wake logs how long it waited; each stretch of awake time starts with `agent.resumed`.
+ * - A command that outlives its turn holds the computer awake: the idle suspend waits until no
+ *   command has started or ended for the idle period.
  * - A `virtual` Agent becomes a computer with an explicit `PUT`, keeping its sessions,
  *   memory, vault and triggers, seeded from another Agent's disk version; a save alone does not
  *   move it, and every refusal.
@@ -24,7 +26,7 @@ import { Agent } from "@nylorun/core/define";
 import type { RuntimeSection } from "@nylorun/core/contracts";
 import { localBackend } from "../../src/adapters/sandbox/local.js";
 import { computerHandler } from "../../src/harness/computer.js";
-import { DISK_MEASURE_COMMAND } from "../../src/sandbox/computer.js";
+import { DISK_MEASURE_COMMAND, signTicket } from "../../src/sandbox/computer.js";
 import { podName } from "../../src/sandbox/pods/name.js";
 import type { ExecRequest, SandboxHandle } from "../../src/sandbox/types.js";
 import type { Logger } from "../../src/tenant/types.js";
@@ -41,6 +43,8 @@ let runtime: Awaited<ReturnType<typeof startTestTenant>>;
 let gate: Promise<void> | undefined;
 let fake: FakeSandboxes;
 let gateway: Server;
+/** The private half of the computers' ticket key: what core signs with. */
+let ticketKey: import("node:crypto").KeyObject;
 /** Every command each computer ran, by sandbox name. */
 const ran = new Map<string, string[]>();
 /** Each computer's workspace on this machine, by sandbox name. */
@@ -138,6 +142,7 @@ function computerHandle(name: string, local: SandboxHandle, root: string): Sandb
 
 beforeAll(async () => {
   const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+  ticketKey = privateKey;
   const handlers = new Map<string, Promise<ReturnType<typeof computerHandler>>>();
   const handlerOf = (name: string) => {
     let handler = handlers.get(name);
@@ -211,6 +216,10 @@ const nameOf = (id: string) => podName(runtime.handle.envelope.id, id, 0);
 describe("a computer wakes on its first command", { timeout: 90_000 }, () => {
   it("measures the disk before an idle suspend", async () => {
     await sleepingComputer("wake/one", "wake-one");
+    // Its awake time starts with agent.resumed and ends with the suspend.
+    const lifecycle = (await events("wake/one")).filter((event) => ["agent.resumed", "agent.suspended"].includes(event.type));
+    expect(lifecycle.map((event) => event.type)).toEqual(["agent.resumed", "agent.suspended"]);
+    expect(lifecycle[0]?.payload).toEqual({ cause: "use" });
     const suspended = (await events("wake/one")).find((event) => event.type === "agent.suspended");
     expect(suspended?.payload).toEqual({ reason: "idle", diskBytes: 16 * 1024 });
     expect(logged.find((line) => line.message === "computer suspended")?.fields).toEqual({ agentId: "wake/one", diskBytes: 16 * 1024 });
@@ -380,5 +389,33 @@ describe("a virtual Agent becomes a computer", { timeout: 90_000 }, () => {
     // from on an existing Agent whose kind does not change.
     const plain = await call("PUT", path("move/source"), { manifest: "move-source", from: { agent: "move/bot", version: 1 } });
     expect(plain.status).toBe(409);
+  });
+});
+
+describe("a command that outlives its turn", { timeout: 90_000 }, () => {
+  it("holds the computer awake until no command has run for the idle period", async () => {
+    const name = await sleepingComputer("hold/one", "hold-one");
+    await open("hold-s1", "hold/one");
+    // A command wakes it; then one is left running past its turn, as a build would be.
+    expect((await bash("hold-s1", "true")).status).toBe(200);
+    const gatewayUrl = `http://127.0.0.1:${(gateway.address() as AddressInfo).port}`;
+    const started = await fetch(`${gatewayUrl}/${name}/v1/exec`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-nylorun-ticket": signTicket(ticketKey, name, Date.now() + 600_000) },
+      body: JSON.stringify({ id: "build", command: "sleep 5", timeoutMs: 30_000, waitMs: 0 }),
+    });
+    expect(await started.json()).toEqual({ state: "running" });
+    const ends = Date.now() + 5_000;
+    // Past the 2 s idle period, while it runs: still awake.
+    await new Promise((resolve) => setTimeout(resolve, 4_000));
+    expect((await view("hold/one")).compute.pod).toMatchObject({ desired: "running", observed: "running" });
+    // Once it has ended and the idle period has passed, it suspends, and not before the end.
+    await until("idle suspended after the command", () => view("hold/one"), (body) => body.compute.pod.desired === "suspended", 30_000);
+    expect(Date.now()).toBeGreaterThanOrEqual(ends);
+    const kinds = (await events("hold/one")).filter((event) => ["agent.resumed", "agent.suspended"].includes(event.type));
+    expect(kinds.map((event) => event.type)).toEqual(["agent.resumed", "agent.suspended", "agent.resumed", "agent.suspended"]);
+    // Measured within the hour already: the second suspend doesn't wait for du.
+    expect(kinds[1]?.payload.diskBytes).toBe(16 * 1024);
+    expect(kinds[3]?.payload).toEqual({ reason: "idle" });
   });
 });

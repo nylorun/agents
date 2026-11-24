@@ -17,6 +17,7 @@ import {
   type SQLWrapper,
 } from "drizzle-orm";
 import type {
+  AgentEvent,
   CostSplit,
   LiveEvent,
   ModelCall,
@@ -38,6 +39,7 @@ import { createPostgresReadClient, type PostgresClient } from "./connect.js";
 import { hostTuning } from "../../tuning.js";
 import { toolCallDuration, toolCallStatus } from "../../harness-api/tool-status.js";
 import {
+  agentEvents,
   effects,
   artifacts,
   modelUsage,
@@ -534,6 +536,43 @@ export function createPostgresReadStore(source: PostgresClient, tenantId: string
         return {
           calls: items.map(publicCall),
           next: last ? cursor.encode([last.txid, last.id]) : (after ?? null),
+          caughtUp: rows.length <= limit,
+          asOf: new Date().toISOString(),
+        };
+      }),
+    exportAgentEvents: (after, types, limit) =>
+      read(async (tx) => {
+        // Filtered pages keep their own cursors: one read with other types is refused.
+        const cursor = readCursor(tenantId, "agent-events", { types: types ? [...types].sort().join(",") : null });
+        const key = keyOf(cursor.decode(after), 3);
+        if (
+          key &&
+          (key[0] === null ||
+            !/^\d+$/.test(key[0]) ||
+            BigInt(key[0]) > 18446744073709551615n ||
+            key[2] === null ||
+            !/^\d+$/.test(key[2]))
+        )
+          fail(400, "Invalid export cursor", { code: "cursor_invalid" });
+        const rows = await tx
+          .select({ body: agentEvents.body, txid: agentEvents.txid, agentId: agentEvents.agentId, seq: agentEvents.seq })
+          .from(agentEvents)
+          .where(
+            and(
+              sql`${agentEvents.txid} < pg_snapshot_xmin(pg_current_snapshot())`,
+              key
+                ? sql`(${agentEvents.txid}, ${agentEvents.agentId}, ${agentEvents.seq}) > (${key[0]}::xid8, ${key[1]}, ${Number(key[2])})`
+                : undefined,
+              types === undefined ? undefined : inArray(agentEvents.type, [...types]),
+            ),
+          )
+          .orderBy(asc(agentEvents.txid), asc(agentEvents.agentId), asc(agentEvents.seq))
+          .limit(limit + 1);
+        const items = rows.slice(0, limit);
+        const last = items.at(-1);
+        return {
+          events: items.map((row) => row.body as AgentEvent),
+          next: last ? cursor.encode([last.txid, last.agentId, String(last.seq)]) : (after ?? null),
           caughtUp: rows.length <= limit,
           asOf: new Date().toISOString(),
         };

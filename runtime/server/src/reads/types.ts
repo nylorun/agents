@@ -1,4 +1,6 @@
 import type {
+  AgentEventExportPage,
+  AgentEventType,
   ArtifactKind,
   ArtifactPage,
   ModelCallExportPage,
@@ -41,6 +43,15 @@ export interface ReadStore {
     access: ReadAccess,
   ): Promise<ModelCallsPage>;
   exportModel(after: string | undefined, limit: number): Promise<ModelCallExportPage>;
+  /**
+   * Every Agent's events in safe transaction order: none that commits later sorts before one
+   * already read, so a reader keeping `next` never misses one. `types` keeps only those.
+   */
+  exportAgentEvents(
+    after: string | undefined,
+    types: readonly AgentEventType[] | undefined,
+    limit: number,
+  ): Promise<AgentEventExportPage>;
   /** A session's tool calls, from the effect journal, in the order they were first sent. */
   toolCalls(
     id: string,

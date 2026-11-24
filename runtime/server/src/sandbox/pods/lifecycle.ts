@@ -27,8 +27,12 @@
  *   sandbox to its last suspend before resuming it.
  * - **Drained** (Agent Substrate): a worker that stops gives its actors 30 minutes to be
  *   suspended. The sandboxes service suspends each, records `drainedAt` and resumes it on
- *   another worker; a new `drainedAt` is `agent.suspended` (reason `drain`), once, and a pod
- *   that is `Moving` waits rather than fail at the ready deadline.
+ *   another worker; a new `drainedAt` is `agent.suspended` (reason `drain`) and `agent.resumed`
+ *   (cause `drain`), once, and a pod that is `Moving` waits rather than fail at the ready deadline.
+ * - **Awake time**: a pod that becomes `running` (its first start, a resume, a restart) writes
+ *   `agent.resumed`, so every stretch of awake time starts with an event and ends with the next
+ *   `agent.suspended`, `.failed`, `.lost`, `.reset`, `.deleted`, `.start_failed` or `.resumed`.
+ *   A meter pairs them; the Runtime meters nothing.
  * - **Lost**: an incarnation that has run (a pod joined) whose Sandbox is gone or whose volume
  *   is missing is `lost` (`agent.lost`): its host epoch moves, its Sandbox is deleted, and
  *   only a reset brings the Environment back. agent-sandbox recreates a deleted claim empty, so
@@ -281,7 +285,9 @@ export function decide(facts: PodFacts): PodDecision {
   // held and resumes it on another worker (suspend before drain). Recorded once per drain.
   if (status.drainedAt !== undefined && status.drainedAt !== pod.drainedAt) {
     patch.drainedAt = status.drainedAt;
+    // The move keeps it awake: its awake time goes on, on another worker.
     events.push(event("agent.suspended", { reason: "drain" }));
+    events.push(event("agent.resumed", { cause: "drain" }));
   }
   const opId = opIdOf({ k8sName: pod.k8sName, rev });
   if (desired === "suspended" && !status.exists) {
@@ -314,6 +320,7 @@ export function decide(facts: PodFacts): PodDecision {
       if (pod.observed !== "running") {
         patch.observed = "running";
         patch.reason = null;
+        events.push(event("agent.resumed", { cause: "use" }));
         if (now > lastActive) {
           patch.lastActiveAt = new Date(now).toISOString();
           lastActive = now;

@@ -194,6 +194,9 @@ export function hostAuthority(ctx: TenantContext): HostAuthority {
           },
           now,
         );
+        // A join can be what makes the pod `running`: its awake time starts here.
+        if (pod.desired === "running" && pod.observed !== "running")
+          await t.agentEvent(sandboxId, "agent.resumed", { cause: "use" });
         if (pod.podUid !== podUid) {
           if (pod.podUid !== undefined) await t.agentEvent(sandboxId, "agent.relaunched", { hostEpoch: epoch });
           else await t.agentEvent(sandboxId, "agent.running", { hostEpoch: epoch });

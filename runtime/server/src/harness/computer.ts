@@ -16,7 +16,9 @@
  * `{state: "done", result}`; `POST /v1/exec/{id}/attach` waits again. A command's result is kept 10
  * minutes after it ends. After a drain, the next attach reaches this process on the new worker, its
  * commands moved with the memory snapshot. SIGTERM on Substrate means the worker is stopping: the
- * engine keeps running, so the sandboxes service can suspend it.
+ * engine keeps running, so the sandboxes service can suspend it. `GET /v1/activity` answers how many
+ * commands run and when one last started or ended: core asks it before an idle suspend, so a
+ * command that outlives its turn keeps the computer awake.
  *
  * `POST /v1/disk` runs one disk operation (`sandbox/disk-fs.ts`, a `WireDiskOp`: list, read in
  * ranges, clear, put) on the computer's own disk, its workspace and `/harness`, for core's disk
@@ -107,9 +109,17 @@ export type ComputerExecAnswer =
   | { readonly state: "done"; readonly result: ExecResult }
   | { readonly state: "failed"; readonly message: string };
 
+/** `GET /v1/activity`: the commands running, and when one last started or ended (null before). */
+export interface ComputerActivity {
+  readonly running: number;
+  readonly lastActivityAt: string | null;
+}
+
 /** The commands a computer runs, by id: start, join, attach, cancel. */
 export class ComputerCommands {
   private readonly commands = new Map<string, Command>();
+  /** When a command last started or ended. */
+  private last: number | undefined;
 
   constructor(private readonly handle: Pick<SandboxHandle, "exec">) {}
 
@@ -128,20 +138,28 @@ export class ComputerCommands {
         controller.signal,
       );
       const created: Command = { done, controller };
+      this.last = Date.now();
       done.then(
         (result) => {
           created.result = result;
-          created.endedAt = Date.now();
+          created.endedAt = this.last = Date.now();
         },
         (error: unknown) => {
           created.error = error instanceof Error ? error.message : String(error);
-          created.endedAt = Date.now();
+          created.endedAt = this.last = Date.now();
         },
       );
       this.commands.set(request.id, created);
       command = created;
     }
     return this.wait(command, request.waitMs);
+  }
+
+  /** What the Runtime asks before it suspends an idle computer. */
+  activity(): ComputerActivity {
+    let running = 0;
+    for (const command of this.commands.values()) if (command.endedAt === undefined) running += 1;
+    return { running, lastActivityAt: this.last === undefined ? null : new Date(this.last).toISOString() };
   }
 
   /** Undefined when the computer doesn't know the command. */
@@ -234,6 +252,7 @@ export function computerHandler(options: {
       );
       if (!checked.ok) return failure(response, 401, "unauthorized", `Ticket refused: ${checked.reason}`);
       const path = url.searchParams.get("path") ?? "";
+      if (request.method === "GET" && url.pathname === "/v1/activity") return send(response, 200, commands.activity());
       if (request.method === "GET" && url.pathname === "/v1/info")
         return send(response, 200, { workspace, diskRoots, version: RUNTIME_VERSION });
       if (request.method === "POST" && url.pathname === "/v1/exec") {

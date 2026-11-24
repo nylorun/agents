@@ -6,6 +6,8 @@
 //   - GET /ready (no ticket: the template's wake-up probe) is 200 while the workspace is writable;
 //   - every other route needs X-Nylorun-Ticket, a compact JWS core signs with Ed25519, with aud
 //     nylorun-computer, sub this actor's name and exp ahead (401 unauthorized);
+//   - GET /v1/activity: the commands running, and when one last started or ended, which the
+//     Runtime asks before it suspends an idle computer;
 //   - GET /v1/info; POST /v1/exec starts command id, or joins it while it runs, and answers within
 //     waitMs (at most 50 s) running or done; POST /v1/exec/{id}/attach waits again, and
 //     /v1/exec/{id}/cancel kills it (130); a result is kept 10 minutes after the command ends;
@@ -133,6 +135,10 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) error {
 		return &failure{http.StatusUnauthorized, "unauthorized", "Ticket refused: " + reason}
 	}
 	query := r.URL.Query()
+	if r.Method == http.MethodGet && pathname == "/v1/activity" {
+		send(w, http.StatusOK, s.commands.Activity())
+		return nil
+	}
 	if r.Method == http.MethodGet && pathname == "/v1/info" {
 		roots := map[string]string{"workspace": s.o.Workspace}
 		if s.o.HarnessRoot != "" {
@@ -349,6 +355,33 @@ type Commands struct {
 
 	mu       sync.Mutex
 	commands map[string]*command
+	// last is when a command last started or ended; zero before the first.
+	last time.Time
+}
+
+// Activity is what the Runtime asks before it suspends an idle computer: the commands still
+// running, and when one last started or ended (null before the first).
+type Activity struct {
+	Running        int     `json:"running"`
+	LastActivityAt *string `json:"lastActivityAt"`
+}
+
+// Activity answers GET /v1/activity.
+func (c *Commands) Activity() Activity {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	answer := Activity{}
+	for _, cmd := range c.commands {
+		if cmd.endedAt.IsZero() {
+			answer.Running++
+		}
+	}
+	if !c.last.IsZero() {
+		// As JavaScript's toISOString writes it.
+		at := c.last.UTC().Format("2006-01-02T15:04:05.000Z")
+		answer.LastActivityAt = &at
+	}
+	return answer
 }
 
 type command struct {
@@ -374,6 +407,7 @@ func (c *Commands) Start(id string, request ExecRequest, wait time.Duration) Ans
 	if !ok {
 		cmd = &command{done: make(chan struct{}), cancel: make(chan struct{})}
 		c.commands[id] = cmd
+		c.last = c.now()
 		go func() {
 			result, err := c.run(request, cmd.cancel)
 			c.mu.Lock()
@@ -383,6 +417,7 @@ func (c *Commands) Start(id string, request ExecRequest, wait time.Duration) Ans
 				cmd.result = &result
 			}
 			cmd.endedAt = c.now()
+			c.last = cmd.endedAt
 			c.mu.Unlock()
 			close(cmd.done)
 		}()
