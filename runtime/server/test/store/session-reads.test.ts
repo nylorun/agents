@@ -161,3 +161,43 @@ it("closes the read pool when Runtime initialization fails", async () => {
     await rm(root, { recursive: true, force: true });
   }
 });
+
+/** An Agent event row as the record writes it; its body is the public event. */
+const agentEvent = (sql: ReturnType<typeof testPool>, agentId: string, seq: number, type: string) => sql`
+  insert into nylorun_streams.agent_events (agent_id, seq, type, body)
+  values (${agentId}, ${seq}, ${type}, ${sql.json({ agentId, seq, type, time: "2026-11-24T10:00:00.000Z", payload: {} })})`;
+
+it("exports every Agent's events in safe transaction order, filtered by type", async () => {
+  const sql = testPool();
+  const tenant = newTenantId();
+  const reads = createPostgresReadStore(sql, tenant);
+  const held = await sql.reserve();
+  try {
+    await held`begin`;
+    await agentEvent(held, "b", 0, "agent.resumed");
+    await agentEvent(sql, "a", 0, "agent.resumed");
+    await agentEvent(sql, "a", 1, "agent.egress");
+    // The held transaction is older: nothing after it is safe to read yet.
+    expect((await reads.exportAgentEvents(undefined, undefined, 10)).events).toEqual([]);
+    await held`commit`;
+    await expect
+      .poll(async () => (await reads.exportAgentEvents(undefined, undefined, 10)).events.map((e) => `${e.agentId}/${e.seq}`), {
+        timeout: 10_000,
+      })
+      .toEqual(["b/0", "a/0", "a/1"]);
+    const first = await reads.exportAgentEvents(undefined, ["agent.resumed"], 1);
+    expect(first.events.map((e) => `${e.agentId}/${e.seq}`)).toEqual(["b/0"]);
+    expect(first.caughtUp).toBe(false);
+    const second = await reads.exportAgentEvents(first.next!, ["agent.resumed"], 10);
+    expect(second.events.map((e) => `${e.agentId}/${e.seq}`)).toEqual(["a/0"]);
+    expect(second.caughtUp).toBe(true);
+    // Nothing new: the cursor comes back as it went.
+    expect((await reads.exportAgentEvents(second.next!, ["agent.resumed"], 10)).next).toBe(second.next);
+    // A cursor is bound to its types.
+    await expect(reads.exportAgentEvents(first.next!, undefined, 10)).rejects.toThrow();
+  } finally {
+    await held`rollback`.catch(() => undefined);
+    held.release();
+    await reads.close();
+  }
+});

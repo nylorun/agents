@@ -792,6 +792,35 @@
           "expect": { "status": 401, "json": { "error": { "code": "unauthorized", "message": "Ticket refused: no ticket" } } }
         }
       ]
+    },
+    {
+      "name": "activity: commands running, and the last start or end",
+      "steps": [
+        {
+          "request": { "method": "GET", "path": "/v1/activity", "ticket": "none" },
+          "expect": { "status": 401, "json": { "error": { "code": "unauthorized", "message": "Ticket refused: no ticket" } } }
+        },
+        {
+          "request": { "method": "GET", "path": "/v1/activity" },
+          "expect": { "status": 200, "json": { "running": 0, "lastActivityAt": null } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/exec", "body": { "id": "busy", "command": "sleep 1", "timeoutMs": 10000, "waitMs": 0 } },
+          "expect": { "status": 200, "json": { "state": "running" } }
+        },
+        {
+          "request": { "method": "GET", "path": "/v1/activity" },
+          "expect": { "status": 200, "json": { "running": 1, "lastActivityAt": { "$matches": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$" } } }
+        },
+        {
+          "request": { "method": "POST", "path": "/v1/exec/busy/attach", "body": { "waitMs": 10000 } },
+          "expect": { "status": 200, "json": { "state": "done", "result": { "exitCode": 0, "stdout": "", "stderr": "", "killed": false, "timedOut": false } } }
+        },
+        {
+          "request": { "method": "GET", "path": "/v1/activity" },
+          "expect": { "status": 200, "json": { "running": 0, "lastActivityAt": { "$matches": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$" } } }
+        }
+      ]
     }
   ]
 }

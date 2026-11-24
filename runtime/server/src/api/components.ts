@@ -45,6 +45,7 @@ import {
   SessionUsageTotalsSchema,
   ModelCallsPageSchema,
   ModelCallExportPageSchema,
+  AgentEventExportPageSchema,
   AgentPageSchema,
   ToolCallSchema,
   ToolCallsPageSchema,
@@ -183,6 +184,7 @@ export const AgentDiskVersions = named("AgentDiskVersions", AgentDiskVersionsSch
 export const ListAgentsResponse = named("ListAgentsResponse", ListAgentsResponseSchema);
 export const DeleteAgentResponse = named("DeleteAgentResponse", DeleteAgentResponseSchema);
 export const ListAgentEventsResponse = named("ListAgentEventsResponse", ListAgentEventsResponseSchema);
+export const AgentEventExportPage = named("AgentEventExportPage", AgentEventExportPageSchema);
 export const ArtifactVersionView = named("ArtifactVersionView", ArtifactVersionViewSchema);
 export const ArtifactView = named("ArtifactView", ArtifactViewSchema);
 export const ArtifactListItem = named("ArtifactListItem", ArtifactListItemSchema);

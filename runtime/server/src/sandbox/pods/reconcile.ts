@@ -28,7 +28,7 @@ import { podLifecycleConfig, podSpecOf } from "./spec.js";
 import { podKeysOf } from "./keys.js";
 import { hostTuning } from "../../tuning.js";
 import { idleMsOf, revertStart } from "../../tenant/agent-versions.js";
-import { computerDiskBytes } from "../computer.js";
+import { computerActivity, computerDiskBytes, measureDiskNow } from "../computer.js";
 
 /** What a reconcile asks of the `Sandbox` object next. */
 export interface SandboxReconcileResult {
@@ -79,14 +79,23 @@ export async function reconcileSandbox(
     now: Date.now(),
     trigger,
   });
-  // A running computer (its sandbox ready) about to be suspended as idle has its disk measured
-  // first: the size is recorded on `agent.suspended`. A measure that fails records
-  // none and holds nothing up; a turn or a use since the row was read decides again instead.
+  // A running computer (its sandbox ready) about to be suspended as idle is asked first whether a
+  // command still runs on it: a command that outlives its turn holds it until none has started or
+  // ended for the idle period, and a suspend never lands on one. Then its disk is measured, at most
+  // hourly, and the size recorded on `agent.suspended`. A measure that fails records none and
+  // holds nothing up; a turn or a use since the row was read decides again instead.
   const idleSuspend = decision.events.find(
     (item) => item.type === "agent.suspended" && (item.payload as { reason?: string }).reason === "idle",
   );
   if (pods.computer && idleSuspend && current?.ready) {
-    const diskBytes = await computerDiskBytes(ctx, row.pod.k8sName);
+    const activity = await computerActivity(ctx, row.pod.k8sName);
+    if (activity) {
+      const now = Date.now();
+      const due = activity.running > 0 ? now + lifecycle.idleMs : (activity.lastActivityAt ?? 0) + lifecycle.idleMs;
+      if (due > now) return { arm: [{ timer: "idle", at: due }] };
+    }
+    const measure = measureDiskNow(`${ctx.config.tenantId}/${row.pod.k8sName}`);
+    const diskBytes = measure ? await computerDiskBytes(ctx, row.pod.k8sName) : undefined;
     if (diskBytes !== undefined)
       decision = {
         ...decision,

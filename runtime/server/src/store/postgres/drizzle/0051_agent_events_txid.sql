@@ -1,0 +1,2 @@
+ALTER TABLE "nylorun_streams"."agent_events" ADD COLUMN "txid" "xid8" DEFAULT pg_current_xact_id() NOT NULL;--> statement-breakpoint
+CREATE INDEX "agent_events_export" ON "nylorun_streams"."agent_events" USING btree ("txid","agent_id","seq");

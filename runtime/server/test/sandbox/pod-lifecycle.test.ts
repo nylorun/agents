@@ -85,6 +85,20 @@ describe("pod lifecycle", () => {
     expect(ready.patch).toMatchObject({ observed: "running" });
   });
 
+  it("starts each stretch of awake time with agent.resumed, once", () => {
+    // Its first start, and a resume after an idle suspend.
+    expect(decide(facts({})).events).toEqual([{ type: "agent.resumed", payload: { cause: "use" } }]);
+    const resumed = row({ observed: "suspended", rev: 3, podUid: "uid-1", lastActiveAt: new Date(T0).toISOString() });
+    const ready = decide(facts({ row: resumed, status: status({ opId: `${NAME}.r3` }) }));
+    expect(ready.patch).toMatchObject({ observed: "running" });
+    expect(ready.events).toEqual([{ type: "agent.resumed", payload: { cause: "use" } }]);
+    // Already running: nothing new on a reconcile.
+    const running = row({ observed: "running", podUid: "uid-1", lastActiveAt: new Date(T0).toISOString() });
+    expect(decide(facts({ row: running })).events).toEqual([]);
+    // Not ready yet: no event.
+    expect(decide(facts({ status: status({ ready: false }) })).events).toEqual([]);
+  });
+
   it("applies again when the Sandbox carries another revision, without a new token", () => {
     const decision = decide(facts({ row: row({ rev: 2, observed: "running" }) }));
     expect(decision.apply).toEqual({ mode: "Running", rotateJoin: false });
@@ -165,6 +179,17 @@ describe("pod lifecycle", () => {
     expect(decision.apply).toBeUndefined();
   });
 
+  it("doesn't suspend as idle a pod that has just become ready: it runs, and idle starts now", () => {
+    // The idle timer and the ready poll fire together: the pod is ready, not yet seen running.
+    const starting = row({ observed: "creating", lastActiveAt: new Date(T0).toISOString() });
+    const decision = decide(facts({ row: starting, trigger: "idle", now: T0 + 61_000 }));
+    expect(decision.apply).toBeUndefined();
+    expect(decision.patch).toMatchObject({ observed: "running", lastActiveAt: new Date(T0 + 61_000).toISOString() });
+    expect(decision.patch.desired).toBeUndefined();
+    expect(decision.events).toEqual([{ type: "agent.resumed", payload: { cause: "use" } }]);
+    expect(decision.arm).toContainEqual({ timer: "idle", at: T0 + 61_000 + 60_000 });
+  });
+
   it("records a drain once, and waits for a moving pod instead of failing it (suspend before drain)", () => {
     const drainedAt = "2026-10-03T12:00:00.5Z";
     // Long past the ready deadline: a pod that has run for days.
@@ -173,7 +198,11 @@ describe("pod lifecycle", () => {
     const moving = status({ ready: false, podPhase: undefined, reason: "Moving", message: "suspended because its worker stopped", drainedAt });
     const first = decide(facts({ row: running, status: moving, now: later }));
     expect(first.patch).toEqual({ drainedAt });
-    expect(first.events).toEqual([{ type: "agent.suspended", payload: { reason: "drain" } }]);
+    // The move keeps its awake time going: suspended and resumed together.
+    expect(first.events).toEqual([
+      { type: "agent.suspended", payload: { reason: "drain" } },
+      { type: "agent.resumed", payload: { cause: "drain" } },
+    ]);
     expect(first.retryAfterMs).toBeDefined();
     expect(first.apply).toBeUndefined();
     // Recorded: no second event while it moves, and none once it runs again.

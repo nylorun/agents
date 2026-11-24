@@ -1,13 +1,14 @@
 /** Read-only sub-resources and opt-in pages. The execution routes retain their contracts. */
 import type { OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
-import { SESSION_STATUSES, type ModelCall, type SessionUsageTotals as UsageTotals } from "@nylorun/core/contracts";
+import { AGENT_EVENT_TYPES, SESSION_STATUSES, type AgentEventType, type ModelCall, type SessionUsageTotals as UsageTotals } from "@nylorun/core/contracts";
 import { PROTOCOL_HEADER } from "@nylorun/core/compatibility";
 import {
   SessionManifestView,
   SessionUsageTotals,
   ModelCallsPage,
   ModelCallExportPage,
+  AgentEventExportPage,
   ToolCallsPage,
   TurnTrace,
 } from "../../components.js";
@@ -286,6 +287,45 @@ export function readRoutes(api: OpenAPIHono<TenantEnv>): void {
         200,
         usageByKind(c.req.header(PROTOCOL_HEADER)) ? page : { ...page, calls: page.calls.map(callBefore18) },
       );
+    },
+  );
+  const agentEventsQuery = exportQuery
+    .extend({
+      types: z.string().optional().meta({ description: "Only these event types, comma-separated (`agent.resumed,agent.suspended`)" }),
+    })
+    .strict();
+  // Every Agent's lifecycle events, for an operator's meter or audit: a management key, as itself.
+  tenantRoute(
+    api,
+    { credentials: ["management"], scopes: "never" },
+    {
+      method: "get",
+      path: "/v1/tenant/agent-events",
+      tags: ["Tenant"],
+      summary: "Export every Agent's events in safe transaction order",
+      description:
+        "Every Agent's lifecycle events (the events of `GET /v1/agents/{agentId}/events`), in the order their transactions committed: an event that commits later never sorts before one already read, so a reader that keeps `next` misses none and repeats none. A computer's awake time starts at `agent.resumed` and ends at the same Agent's next `agent.suspended`, `.failed`, `.lost`, `.reset`, `.deleted`, `.start_failed` or `.resumed`. `next` is bound to `types`: read on with the same filter.",
+      request: { query: agentEventsQuery },
+      responses: {
+        200: {
+          description: "A resumable page of events",
+          content: { "application/json": { schema: AgentEventExportPage } },
+        },
+        400: { description: "An unknown event type, or a cursor read with other types (`invalid_request`, `cursor_invalid`)" },
+      },
+    },
+    async (c) => {
+      const q = parseQuery(agentEventsQuery, c.req.query());
+      const types = q.types?.split(",").map((type) => type.trim()).filter(Boolean);
+      const unknown = types?.find((type) => !(AGENT_EVENT_TYPES as readonly string[]).includes(type));
+      if (unknown !== undefined) fail(400, `types: ${unknown} is not an Agent event type`);
+      const limit = await pageSize(c.env.tenant, q.limit, { fallback: EXPORT_PAGE_DEFAULT, name: "exportPageItems" });
+      const page = await readStoreOf(c.env.tenant).exportAgentEvents(
+        q.after,
+        types?.length ? (types as AgentEventType[]) : undefined,
+        limit,
+      );
+      return jsonResponse(200, page);
     },
   );
 }

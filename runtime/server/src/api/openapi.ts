@@ -351,6 +351,7 @@ const MANAGEMENT_TAGS: readonly Tag[] = [
       "PUT /v1/tenant/model/selection",
       "GET /v1/tenant/usage",
       "GET /v1/tenant/calls/model",
+      "GET /v1/tenant/agent-events",
       "GET /v1/tenant/budgets",
       "PUT /v1/tenant/budgets",
     ],

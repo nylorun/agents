@@ -27,8 +27,12 @@
  *   sandbox to its last suspend before resuming it.
  * - **Drained** (Agent Substrate): a worker that stops gives its actors 30 minutes to be
  *   suspended. The sandboxes service suspends each, records `drainedAt` and resumes it on
- *   another worker; a new `drainedAt` is `agent.suspended` (reason `drain`), once, and a pod
- *   that is `Moving` waits rather than fail at the ready deadline.
+ *   another worker; a new `drainedAt` is `agent.suspended` (reason `drain`) and `agent.resumed`
+ *   (cause `drain`), once, and a pod that is `Moving` waits rather than fail at the ready deadline.
+ * - **Awake time**: a pod that becomes `running` (its first start, a resume, a restart) writes
+ *   `agent.resumed`, so every stretch of awake time starts with an event and ends with the next
+ *   `agent.suspended`, `.failed`, `.lost`, `.reset`, `.deleted`, `.start_failed` or `.resumed`.
+ *   A meter pairs them; the Runtime meters nothing.
  * - **Lost**: an incarnation that has run (a pod joined) whose Sandbox is gone or whose volume
  *   is missing is `lost` (`agent.lost`): its host epoch moves, its Sandbox is deleted, and
  *   only a reset brings the Environment back. agent-sandbox recreates a deleted claim empty, so
@@ -239,7 +243,10 @@ export function decide(facts: PodFacts): PodDecision {
 
   let desired = pod.desired;
   let rev = pod.rev;
-  if (facts.trigger === "idle" && desired === "running" && !facts.busy) {
+  // Ready on this revision but not yet seen running (the idle timer and the ready poll fired
+  // together): it runs first, and its idle period starts now, below.
+  const becomingReady = status.ready && pod.observed === "creating" && status.opId === opIdOf(pod);
+  if (facts.trigger === "idle" && desired === "running" && !facts.busy && !becomingReady) {
     const last = Date.parse(pod.lastActiveAt ?? row.createdAt);
     const due = last + facts.config.idleMs;
     if (now >= due) {
@@ -250,7 +257,7 @@ export function decide(facts: PodFacts): PodDecision {
       patch.hostEpoch = pod.hostEpoch + 1;
       events.push(event("agent.suspended", { reason: "idle" }));
     } else arm.push({ timer: "idle", at: due });
-  } else if (facts.trigger === "idle" && desired === "running") {
+  } else if (facts.trigger === "idle" && desired === "running" && !becomingReady) {
     // Busy: a turn's end arms the timer again, but look again anyway, so a turn that never ends
     // cleanly doesn't keep the pod running for good.
     arm.push({ timer: "idle", at: now + facts.config.idleMs });
@@ -281,7 +288,9 @@ export function decide(facts: PodFacts): PodDecision {
   // held and resumes it on another worker (suspend before drain). Recorded once per drain.
   if (status.drainedAt !== undefined && status.drainedAt !== pod.drainedAt) {
     patch.drainedAt = status.drainedAt;
+    // The move keeps it awake: its awake time goes on, on another worker.
     events.push(event("agent.suspended", { reason: "drain" }));
+    events.push(event("agent.resumed", { cause: "drain" }));
   }
   const opId = opIdOf({ k8sName: pod.k8sName, rev });
   if (desired === "suspended" && !status.exists) {
@@ -314,6 +323,7 @@ export function decide(facts: PodFacts): PodDecision {
       if (pod.observed !== "running") {
         patch.observed = "running";
         patch.reason = null;
+        events.push(event("agent.resumed", { cause: "use" }));
         if (now > lastActive) {
           patch.lastActiveAt = new Date(now).toISOString();
           lastActive = now;
@@ -322,8 +332,9 @@ export function decide(facts: PodFacts): PodDecision {
       // The image it runs, pinned by digest from now on.
       const digest = pod.imageDigest === undefined ? imageDigestOf(status.imageID, facts.image) : undefined;
       if (digest !== undefined) patch.imageDigest = digest;
-      // Whatever woke it, a running pod has an idle timer (the idle trigger armed its own above).
-      if (facts.trigger !== "idle")
+      // Whatever woke it, a running pod has an idle timer (the idle trigger armed its own above,
+      // unless this is when it became ready).
+      if (facts.trigger !== "idle" || becomingReady)
         arm.push({ timer: "idle", at: lastActive + facts.config.idleMs });
       return done();
     }

@@ -1399,6 +1399,8 @@ export const AGENT_EVENT_TYPES = [
   "agent.deleted",
   // Kind `pod` (Host feature `sandbox-pods`).
   "agent.running",
+  // Its computer became ready: created, resumed, restarted, or moved off a draining worker.
+  "agent.resumed",
   "agent.suspended",
   "agent.relaunched",
   "agent.lost",
@@ -1474,6 +1476,13 @@ export const AGENT_EVENT_PAYLOADS = {
     .passthrough(),
   /** A pod joined and serves the Agent. */
   "agent.running": z.object({ hostEpoch: z.number().int() }).passthrough(),
+  /**
+   * Its pod became ready, so its awake time starts at this event's `time`: created, resumed,
+   * restarted, or (`drain`) moved to another worker, written with the drain's `agent.suspended`.
+   * The awake time ends at the Agent's next `agent.suspended`, `.failed`, `.lost`, `.reset`,
+   * `.deleted`, `.start_failed` or `.resumed`.
+   */
+  "agent.resumed": z.object({ cause: z.enum(["use", "drain"]) }).passthrough(),
   /**
    * Stopped (`POST .../stop`, or idle): the volume is kept; the next turn starts it again.
    * `drain` (Agent Substrate): its worker stopped, so it was suspended with everything it held
@@ -6327,6 +6336,19 @@ export const ModelCallExportPageSchema = z
   })
   .strict();
 export type ModelCallExportPage = z.infer<typeof ModelCallExportPageSchema>;
+/**
+ * A page of every Agent's events, in safe transaction order (`GET /v1/tenant/agent-events`):
+ * `next` reads on, and `caughtUp` says the page reached the newest committed event.
+ */
+export const AgentEventExportPageSchema = z
+  .object({
+    events: z.array(AgentEventSchema),
+    next: z.string().nullable(),
+    caughtUp: z.boolean(),
+    asOf: z.string(),
+  })
+  .strict();
+export type AgentEventExportPage = z.infer<typeof AgentEventExportPageSchema>;
 /**
  * A turn's status in the turn index (Host feature `turns`): `running` from its first
  * `command.message` and again after an answer, `paused` while it waits for a person, then one of

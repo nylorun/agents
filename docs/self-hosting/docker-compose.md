@@ -374,7 +374,8 @@ which had agent definitions, environment manifests and Environments:
   [Computer images](computer-images.md) says what an image needs, how to build one for a coding
   computer, and how a cluster pulls it from its own registry (`imageMirrors`).
 - **Lifecycle**: `lifecycle.idle` stops a pod after that long without a turn (at most the
-  Tenant's `limits.idle`); `lifecycle.deleteAfter` deletes the Agent, its vault and its disk
+  Tenant's `limits.idle`, default 15 minutes; a short one such as `60s` suits Agent Substrate,
+  whose computers wake in about a second); `lifecycle.deleteAfter` deletes the Agent, its vault and its disk
   once it has gone that long unused (no turn, change, secret write, stop or reset). The default
   is never.
 - **Owner guard**: with `owner` set, only that owner's sessions may run on the Agent, checked
@@ -443,10 +444,22 @@ which had agent definitions, environment manifests and Environments:
 - **A computer wakes on its first command.** A turn on a computer that sleeps reaches
   its model without waking it; the run's first command wakes it (`environment.state` `creating`,
   then `running`), and only a failed computer is asked to run by a turn. Before an idle suspend
-  the Runtime measures the computer's disk (`du` of `/workspace` and `/skills`, at most 20 s)
-  and records it as `diskBytes` on `agent.suspended`; the host log has `computer suspended`
-  (with `diskBytes`) and `computer ready` (with `waitedMs`), and the sandboxes service logs
-  `substrate suspended` (with `ms`, or the error).
+  the Runtime asks the computer whether a command still runs (`GET /v1/activity`): a command
+  that outlives its turn, such as a build, keeps the computer awake until none has started or
+  ended for the idle period, and commands end by their own timeout. It then measures the
+  computer's disk (`du` of `/workspace` and `/skills`, at most 20 s, at most once an hour) and
+  records it as `diskBytes` on `agent.suspended`; the host log has `computer suspended` (with
+  `diskBytes` when measured) and `computer ready` (with `waitedMs`), and the sandboxes service
+  logs `substrate suspended` (with `ms`, or the error).
+- **A computer's awake time, for metering.** Each time a pod becomes ready (created, resumed,
+  restarted, or moved off a draining worker, cause `drain`) its Agent's stream gets
+  `agent.resumed`; its awake time ends at the same Agent's next `agent.suspended`, `.failed`,
+  `.lost`, `.reset`, `.deleted`, `.start_failed` or `.resumed`. An event's `time` is when its
+  transaction committed. `GET /v1/tenant/agent-events?types=…&after=…` (management key;
+  `client.tenant.exportAgentEvents()`) returns every Agent's events in safe transaction order: a
+  reader that keeps `next` misses none and repeats none, so a meter can pair them into intervals
+  and price them as it likes. The Runtime meters nothing itself. A Tenant reset of its Agents
+  deletes their events: collect them first.
 - **Forking.** An Agent's kind, harness and storage are fixed for its life, so a change to those
   is a fork: `POST /v1/agents/{id}/fork` with `{ "id": "users/alice/analyst-2" }`
   (`client.agents.fork()`) makes a new Agent from the source's manifest at its latest version

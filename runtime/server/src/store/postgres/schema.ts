@@ -1066,7 +1066,9 @@ export const a2aPushes = nylorun.table(
 
 /**
  * Each Agent's lifecycle stream (`nylorun.agent-event/1`), numbered from 0 per Agent id. Written
- * only by the record module; not published to the stream relay.
+ * only by the record module; not published to the stream relay. `txid` orders every Agent's
+ * events for `GET /v1/tenant/agent-events` (migration 0051): rows written before share the
+ * migration's.
  */
 export const agentEvents = nylorunStreams.table(
   "agent_events",
@@ -1076,8 +1078,12 @@ export const agentEvents = nylorunStreams.table(
     type: text().notNull(),
     body: jsonText().notNull(),
     committedAt: timestamp({ withTimezone: true, mode: "string" }).notNull().defaultNow(),
+    txid: xid8().notNull().default(sql`pg_current_xact_id()`),
   },
-  (t) => [primaryKey({ name: "agent_events_pkey", columns: [t.agentId, t.seq] })],
+  (t) => [
+    primaryKey({ name: "agent_events_pkey", columns: [t.agentId, t.seq] }),
+    index("agent_events_export").on(t.txid, t.agentId, t.seq),
+  ],
 );
 
 /**
