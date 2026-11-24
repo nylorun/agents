@@ -26,10 +26,14 @@ export function startedSkillsOf(input: unknown): ReadonlySet<string> {
 }
 
 /** The agent as its model sees it: each skill only a person starts left out unless `started` names it. */
-export function withPersonStartedSkills<T extends Pick<AgentManifest, "skills">>(agent: T, started: ReadonlySet<string> = NONE): T {
+export function withPersonStartedSkills<T extends Pick<AgentManifest, "skills">>(
+  agent: T,
+  started: ReadonlySet<string> = NONE,
+): T {
   const skills = agent.skills;
   if (!skills) return agent;
-  const shown = (skill: NonNullable<AgentManifest["skills"]>[string]) => skill.disableModelInvocation !== true || started.has(skill.name);
+  const shown = (skill: NonNullable<AgentManifest["skills"]>[string]) =>
+    skill.disableModelInvocation !== true || started.has(skill.name);
   if (Object.values(skills).every(shown)) return agent;
   const kept = Object.fromEntries(Object.entries(skills).filter(([, skill]) => shown(skill)));
   const { skills: _, ...rest } = agent;

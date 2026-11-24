@@ -278,7 +278,9 @@ export function apiHost(
         // A skill only a person starts is served for the root's turn that names it, never a subagent.
         agent: withPersonStartedSkills(
           agentOf(run.start.manifest as AgentManifest, effect),
-          effect.agent === undefined ? startedSkillsOf((run.start.checkpoint as { input?: unknown }).input) : undefined,
+          effect.agent === undefined
+            ? startedSkillsOf((run.start.checkpoint as { input?: unknown }).input)
+            : undefined,
         ),
         readBytes: engine.skillReadBytes,
         sandboxed: run.start.agent?.sandbox !== undefined,
