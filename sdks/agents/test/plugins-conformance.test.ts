@@ -28,6 +28,18 @@ function manifest(name: string, extra: Record<string, unknown> = {}): string {
   });
 }
 
+it("reads a plugin.json and mcp.json without $schema as Agent Plugins 1.0.0", () => {
+  const directory = root();
+  write(directory, "plugin.json", JSON.stringify({ name: "demo", version: "0.1.1", displayName: "Demo" }));
+  write(directory, "mcp.json", JSON.stringify({ mcpServers: { github: { type: "streamable-http", url: "https://mcp.example.com/github" } } }));
+  write(directory, "skills/triage/SKILL.md", "---\nname: triage\ndescription: Triage.\n---\nBody.\n");
+  const loaded = loadPlugin(directory);
+  expect(loaded.name).toBe("demo");
+  expect(loaded.skills.triage?.name).toBe("triage");
+  expect(Object.keys(loaded.mcpServers)).toEqual(["github"]);
+  expect(loaded.diagnostics.map((item) => item.code)).toEqual(["plugin.unknown-field"]);
+});
+
 it("rejects an unsupported schema before discovering components", () => {
   const directory = root();
   write(directory, "plugin.json", JSON.stringify({ $schema: "https://example.com/other", name: "demo" }));

@@ -1,5 +1,4 @@
 {
-  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "egm",
   "displayName": "Elephant-Goldfish Model",
   "version": "0.1.1",
@@ -21,11 +20,7 @@
         "developerName": "Google",
         "brandColor": "#1B6EF3",
         "category": "Productivity",
-        "capabilities": [
-          "Develop ideas",
-          "Review plans and documents",
-          "Check software against designs"
-        ],
+        "capabilities": ["Develop ideas", "Review plans and documents", "Check software against designs"],
         "defaultPrompt": [
           "Help me turn this idea into a clear plan.",
           "Review this proposal for gaps and unclear assumptions.",
