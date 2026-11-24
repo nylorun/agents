@@ -225,10 +225,17 @@ describe("an Agent Plugin mounted whole", () => {
       manifestSchemaVersion: 7,
       id: "bot",
       plugins: [{ name: "review", files }],
-      tools: [{ name: "helper", agent: { manifestSchemaVersion: 7, id: "helper", plugins: [{ name: "review", files }] } }],
+      tools: [
+        {
+          name: "helper",
+          agent: { manifestSchemaVersion: 7, id: "helper", plugins: [{ name: "review", files }] },
+        },
+      ],
     } as unknown as AgentManifest;
     const folders = sandboxPluginsOf(tree);
-    expect([...folders.keys()]).toEqual([expect.stringMatching(/^\/plugins\/review@[0-9a-f]{12}$/)]);
+    expect([...folders.keys()]).toEqual([
+      expect.stringMatching(/^\/plugins\/review@[0-9a-f]{12}$/),
+    ]);
     expect([...folders.values()]).toEqual([files]);
   });
 });

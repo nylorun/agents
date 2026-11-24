@@ -180,8 +180,14 @@ export async function runSkillTool(
   const directory = `${skillFolderOf(skill)}/`;
   // The folder of the Agent Plugin the skill came from, when that plugin is mounted whole: where the
   // skill's references to the plugin's own files (agents/…, resources/…) are found.
-  const mounted = skill.plugin && (context.agent.plugins ?? []).find((plugin) => plugin.name === skill.plugin!.name && plugin.files);
-  const pluginPath = mounted?.files ? `${pluginFolderOf({ name: mounted.name, files: mounted.files })}/` : undefined;
+  const mounted =
+    skill.plugin &&
+    (context.agent.plugins ?? []).find(
+      (plugin) => plugin.name === skill.plugin!.name && plugin.files,
+    );
+  const pluginPath = mounted?.files
+    ? `${pluginFolderOf({ name: mounted.name, files: mounted.files })}/`
+    : undefined;
   const tooLarge = (path: string) =>
     failed(
       "skill.resource_too_large",

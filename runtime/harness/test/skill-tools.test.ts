@@ -96,7 +96,10 @@ describe("load_skill from a plugin mounted whole", () => {
     const files = { "resources/standard.md": hash("b"), "skills/triage/SKILL.md": hash("a") };
     const output = await runSkillTool(call("load_skill", { name: "triage" }), {
       ...context(channel, { sandboxed: true }),
-      agent: { skills: { triage: { ...triage, plugin: { name: "review" } } }, plugins: [{ name: "review", files }] },
+      agent: {
+        skills: { triage: { ...triage, plugin: { name: "review" } } },
+        plugins: [{ name: "review", files }],
+      },
     });
     expect(output).toMatchObject({
       kind: "completed",
@@ -104,7 +107,10 @@ describe("load_skill from a plugin mounted whole", () => {
     });
     const elsewhere = await runSkillTool(call("load_skill", { name: "triage" }), {
       ...context(channel, { sandboxed: false }),
-      agent: { skills: { triage: { ...triage, plugin: { name: "review" } } }, plugins: [{ name: "review", files }] },
+      agent: {
+        skills: { triage: { ...triage, plugin: { name: "review" } } },
+        plugins: [{ name: "review", files }],
+      },
     });
     expect((elsewhere as { output: Record<string, unknown> }).output.pluginPath).toBeUndefined();
   });
