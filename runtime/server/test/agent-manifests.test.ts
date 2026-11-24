@@ -1,5 +1,5 @@
 /**
- * Agent manifests (protocol 16, track T2): versions saved with `If-Match` and a dry-run plan by
+ * Agent manifests (protocol 16): versions saved with `If-Match` and a dry-run plan by
  * section; the checks between the harness and runtime sections (`422 manifest_inconsistent`);
  * Agents made from one version, tracking (a save moves them) or pinned (a save leaves them);
  * secret slots, written by value; and forks onto a newer version.

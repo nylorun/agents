@@ -1,5 +1,5 @@
 /**
- * The stream relay on Postgres logical replication (Durable Streams §7, §13, §20): rows
+ * The stream relay on Postgres logical replication: rows
  * committed to `nylorun_streams.session_events` reach their streams exactly once and in
  * order, through a crash, an S2 outage, a dropped slot and a second relay.
  *

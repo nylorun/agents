@@ -1,5 +1,5 @@
 /**
- * Trusted issuers (Host feature `trusted-issuers`, F9 I2): JWTs from the operator's identity
+ * Trusted issuers (Host feature `trusted-issuers`): JWTs from the operator's identity
  * provider, configured in the identity file, verified against an in-test JWKS server or static
  * keys. Covers what verification refuses, the JWKS cache and outage, what an issuer token
  * reaches (its own sessions, the Agents its grants name), browsers, and `GET /v1/me` for every

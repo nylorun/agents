@@ -1,5 +1,5 @@
 /**
- * G6 — Indistinguishability of another Tenant named and a Tenant not opened. A rejected
+ * Indistinguishability of another Tenant named and a Tenant not opened. A rejected
  * credential is told apart since protocol 9: `401` with a `Bearer` challenge (OAuth 2.1 §5.3).
  */
 import { expect, it } from "vitest";
@@ -18,7 +18,7 @@ import {
   tenantHeaders,
 } from "./support.js";
 
-it("G6: another Tenant named and a Tenant that could not open are byte-identical", async () => {
+it("another Tenant named and a Tenant that could not open are byte-identical", async () => {
   const unavailable = createFakeModule({
     tenant: {
       state: "unavailable",
@@ -48,7 +48,7 @@ it("G6: another Tenant named and a Tenant that could not open are byte-identical
   );
 });
 
-it("G6: credential-rejected is a 401 challenge, unlike another Tenant named (protocol 9)", async () => {
+it("credential-rejected is a 401 challenge, unlike another Tenant named (protocol 9)", async () => {
   const host = await startSecurityHost({ tenantName: "alpha" });
   const other = await startSecurityHost({ tenantName: "beta" });
   const a = host.tenant;

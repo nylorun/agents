@@ -29,11 +29,11 @@ export interface McpRequestOptions {
 export interface McpCallOptions extends McpRequestOptions {
   /**
    * The call's effect id. A gate keeps a keyed call's outcome, so a re-send after a takeover
-   * joins it (F4.1), and the server gets it in `_meta` (R5.5).
+   * joins it, and the server gets it in `_meta`.
    */
   readonly key?: string;
   /**
-   * The call's span context (R7.4), sent as the `traceparent` header on the call's requests where
+   * The call's span context, sent as the `traceparent` header on the call's requests where
    * this process holds the connection. A client of the gates service leaves it out: the gate reads
    * it from the call's journal row.
    */
@@ -44,7 +44,7 @@ export interface McpCallOptions extends McpRequestOptions {
    */
   readonly errorExcerptChars?: number;
   /**
-   * The largest answer kept, in bytes: the Tenant's Runtime limit `toolAnswerBytes` (R2b C11).
+   * The largest answer kept, in bytes: the Tenant's Runtime limit `toolAnswerBytes`.
    * A larger one is `mcp.too-large`. Required where this process holds the connection; a client
    * of the gates service leaves it out, since the gate reads the limit itself.
    */
@@ -67,7 +67,7 @@ export interface McpToolPage {
 
 /**
  * A `tools/call` answer: the raw `CallToolResult`, with each credential value sent for the call
- * that it echoes replaced by `[redacted]` (R2b C8).
+ * that it echoes replaced by `[redacted]`.
  */
 export interface McpCallAnswer {
   readonly result: Record<string, unknown>;
@@ -109,13 +109,13 @@ export type McpToolFailure = {
   readonly kind: "failed";
   readonly code: string;
   readonly message: string;
-  /** True when calling again may work (R2b C7). */
+  /** True when calling again may work. */
   readonly retryable?: boolean;
   /** With `credential_rejected`: the server. */
   readonly server?: string;
   /** With `credential_rejected` of the workload token: the gateway that refused it (#496). */
   readonly gateway?: string;
-  /** How many credential values the message had in it, replaced (R2b C8). */
+  /** How many credential values the message had in it, replaced. */
   readonly redacted?: number;
 };
 
@@ -125,17 +125,17 @@ export type McpToolOutcome =
   | McpToolFailure;
 
 /**
- * How a tool call failed at the transport or the server (R2b C7), as the gate answers it:
+ * How a tool call failed at the transport or the server, as the gate answers it:
  * - `mcp.unreachable`: never sent (address policy, DNS, refused connection, TLS, a connection
  *   that could not be opened). Calling again may work.
- * - `credential_rejected`: the server answered `401` (C1), or the gateway of a credential's `via`
+ * - `credential_rejected`: the server answered `401`, or the gateway of a credential's `via`
  *   reported that the server behind it did (#495).
  * - `mcp.forbidden`: the server answered `403`.
  * - `mcp.error`: the server answered a JSON-RPC error; the message has its code.
  * - `mcp.status`: the server answered another HTTP error status, without a JSON-RPC error.
  * - `mcp.lost`: sent, and the answer was lost, so the tool may have run. The model sees it, and
- *   decides whether to call again (R5; it replaced R2b's read-only and idempotent exception).
- * - `mcp.too-large`: the answer passed the Tenant's Runtime limit `toolAnswerBytes` (R2b C11),
+ *   decides whether to call again (it replaced an earlier read-only and idempotent exception).
+ * - `mcp.too-large`: the answer passed the Tenant's Runtime limit `toolAnswerBytes`,
  *   as an HTTP tool's answer is `http.too-large`. The tool ran; its answer was not kept.
  */
 export type McpFailureCode =
@@ -157,11 +157,11 @@ export interface McpCallFailure {
   readonly server?: string;
   /** With `credential_rejected` of the workload token: the gateway that refused it (#496). */
   readonly gateway?: string;
-  /** How many credential values the message had in it, replaced (R2b C8). */
+  /** How many credential values the message had in it, replaced. */
   readonly redacted?: number;
 }
 
-/** A tool call that failed with a code the model can act on (R2b C7). */
+/** A tool call that failed with a code the model can act on. */
 export class McpCallFailed extends Error {
   constructor(readonly failure: McpCallFailure) {
     super(failure.message);
@@ -195,9 +195,9 @@ export class McpCallFailed extends Error {
 }
 
 /**
- * A request the server answered `401` (R2b C1): it rejected the vault's credential, or wanted one
+ * A request the server answered `401`: it rejected the vault's credential, or wanted one
  * and got none. Through a credential's `via`, also a gateway's answer reporting that the server
- * behind it did (`gateway-outcomes.ts`, #495). Never retried, since nothing the gate holds changes between tries (Q4). A tool
+ * behind it did (`gateway-outcomes.ts`, #495). Never retried, since nothing the gate holds changes between tries. A tool
  * call that meets it fails with `credential_rejected` for the model to see; at discovery it is the
  * server's `failed` diagnostic.
  */
@@ -208,7 +208,7 @@ export class CredentialRejected extends McpCallFailed {
     readonly sent: boolean,
     /**
      * The answer's `WWW-Authenticate`, which may name the server's protected-resource metadata
-     * (RFC 9728 `resource_metadata`): a tool preview reads it (R2b C12). Never shown to the model.
+     * (RFC 9728 `resource_metadata`): a tool preview reads it. Never shown to the model.
      */
     readonly challenge?: string,
     /** The gateway at `via` that refused the Runtime's workload token (#496): an expired or unrotated token. */
@@ -234,7 +234,7 @@ export class CredentialRejected extends McpCallFailed {
  * A request its connection can no longer make, refused before it reached a tool: the server
  * answered `404` to the connection's `Mcp-Session-Id` (the session is gone, MCP 2025-06-18
  * "Session Management"), or the credential's `via` now sends the server's requests elsewhere.
- * Whoever holds the connection drops it, opens it again and sends the call once more (R2b C7).
+ * Whoever holds the connection drops it, opens it again and sends the call once more.
  * When that fails too, it is `mcp.unreachable`: nothing ran.
  */
 export class McpConnectionStale extends McpCallFailed {
@@ -261,7 +261,7 @@ export function unreachable(server: string, error: unknown, chars?: number): Mcp
 }
 
 /**
- * What one MCP operation sent (R2b C7, C8), kept for the requests the SDK makes under it: the
+ * What one MCP operation sent, kept for the requests the SDK makes under it: the
  * credential values, whether a request was sent in full, and for a tool call whether its answer
  * was lost on the way back.
  */
@@ -272,11 +272,11 @@ interface Tracker {
   lost?: string;
   /** A tool call's largest answer (`McpCallOptions.maxResultBytes`). */
   readonly maxResultBytes?: number;
-  /** A tool call's answer passed `maxResultBytes` (R2b C11). */
+  /** A tool call's answer passed `maxResultBytes`. */
   tooLarge?: boolean;
   /** A tool call's: aborted when its answer is lost or too large, so the call ends now. */
   readonly calling?: AbortController;
-  /** A tool call's span context (R7.4), sent as `traceparent` on its requests. */
+  /** A tool call's span context, sent as `traceparent` on its requests. */
   readonly traceparent?: string;
   /** How much of a failed answer an error quotes (`errorExcerptChars`). */
   readonly errorChars: number;
@@ -309,7 +309,7 @@ function tracked<T>(
 }
 
 /**
- * Where a `tools/call` carries its key (R5.5): MCP has no standard key field, and `_meta` is the
+ * Where a `tools/call` carries its key: MCP has no standard key field, and `_meta` is the
  * spec's place for extra request data. The key is the call's effect id, the same on every send,
  * so a server that reads it can run the call once.
  */
@@ -331,8 +331,8 @@ export const UNPREFIXED_TOOLS_META_KEY = "nylorun/unprefixed-tools";
 
 /**
  * An SDK `Client` as an `McpClient`. Its answers and failures carry no credential value sent
- * with them (R2b C8), and a failed call is an `McpCallFailed` (C7). A keyed call sends its key in
- * `_meta` (R5.5). Through a `gateway`, an answer that reports the server refused the credential
+ * with them, and a failed call is an `McpCallFailed`. A keyed call sends its key in
+ * `_meta`. Through a `gateway`, an answer that reports the server refused the credential
  * is `CredentialRejected`, as a `401` is (#495), and a gateway's `toolPrefix` is taken off the
  * tools it lists and put back on the calls (#494): everything after this client names the
  * server's own tools.
@@ -427,7 +427,7 @@ export async function openMcpServer(input: {
    * Host that refuses private addresses refuses them here too. Default: no limits.
    */
   policy?: OutboundPolicy;
-  /** Ends `initialize` (a tool preview's timeout, R2b C12). */
+  /** Ends `initialize` (a tool preview's timeout). */
   signal?: AbortSignal;
   /**
    * How much of a failed answer an error quotes: the Tenant's Runtime limit `errorExcerptChars`
@@ -444,7 +444,7 @@ export async function openMcpServer(input: {
       initial.credentialIds;
     throw error;
   }
-  // A credential with `via` sends the server's requests there (R2b C2); the manifest's URL still
+  // A credential with `via` sends the server's requests there; the manifest's URL still
   // names the server for its credential, its tools and its diagnostics.
   const url = new URL(endpointOf(input.server, initial));
   const fetchImpl = authorizedFetch(input.server, url, authorize, input.policy ?? {}, errorChars);
@@ -481,7 +481,7 @@ export async function openMcpServer(input: {
 
 /**
  * What a server's `initialize` said to do with its tools, as it said it, without a credential
- * value sent (C8). The harness decides how much of it the model reads.
+ * value sent. The harness decides how much of it the model reads.
  */
 export function serverInstructions(text: unknown, secrets: readonly string[]): string | undefined {
   if (typeof text !== "string" || text.trim().length === 0) return undefined;
@@ -592,7 +592,7 @@ export async function callMcpTool(
     if (!(error instanceof McpCallFailed)) throw error;
     // The connection's to handle: its holder opens it again and sends the call once more.
     if (error instanceof McpConnectionStale) throw error;
-    // The model sees it, `mcp.lost` included: sent, then lost, so the tool may have run (R5).
+    // The model sees it, `mcp.lost` included: sent, then lost, so the tool may have run.
     return error.outcome();
   }
   const { result } = answer;
@@ -608,7 +608,7 @@ export async function callMcpTool(
   if ("structuredContent" in result && result.structuredContent !== undefined)
     return { kind: "completed", output: result.structuredContent, ...redacted };
   // Text alone is the text. With an image, audio or a resource in it, every part stays, and the
-  // harness stores the bytes as artifacts before it reports the outcome (R2b C11).
+  // harness stores the bytes as artifacts before it reports the outcome.
   const text =
     "content" in result && onlyText(result.content) ? textContent(result.content) : undefined;
   if (text !== undefined) return { kind: "completed", output: text, ...redacted };
@@ -715,7 +715,7 @@ function authorizedFetch(
     if (result.status === "authorized")
       for (const [key, value] of Object.entries(result.headers)) headers.set(key, value);
     const tracker = tracking.getStore();
-    // The tool call's span (R7.4): per request, so a pooled connection carries each call's own.
+    // The tool call's span: per request, so a pooled connection carries each call's own.
     if (tracker?.traceparent) headers.set("traceparent", tracker.traceparent);
     if (tracker && result.status === "authorized")
       for (const secret of credentialSecrets(result.headers, result.identity)) tracker.secrets.add(secret);
@@ -820,7 +820,7 @@ function tooLargeFailure(server: string, maxResultBytes: number): McpCallFailed 
   });
 }
 
-/** What a tool call's failure means (R2b C7). */
+/** What a tool call's failure means. */
 function failureOf(server: string, error: unknown, tracker: Tracker): McpCallFailed {
   if (error instanceof McpCallFailed) return error;
   if (tracker.tooLarge) return tooLargeFailure(server, tracker.maxResultBytes ?? 0);
@@ -841,12 +841,12 @@ function failureOf(server: string, error: unknown, tracker: Tracker): McpCallFai
   return tracker.sent ? lostFailure(server, detail, chars) : unreachableFailure(server, detail, chars);
 }
 
-/** `value` with the operation's credential values replaced (R2b C8). */
+/** `value` with the operation's credential values replaced. */
 function scrubbed(value: unknown, tracker: Tracker): unknown {
   return tracker.secrets.size === 0 ? value : scrub(value, [...tracker.secrets], { valuesOnly: true });
 }
 
-/** `error` with no credential value in its message (R2b C8). */
+/** `error` with no credential value in its message. */
 function scrubError(error: unknown, tracker: Tracker): unknown {
   if (tracker.secrets.size === 0) return error;
   if (error instanceof McpCallFailed) {
@@ -863,9 +863,9 @@ function scrubError(error: unknown, tracker: Tracker): unknown {
 }
 
 /**
- * A tool call's answer whose body reports its loss (R2b C7): a stream that breaks after the
+ * A tool call's answer whose body reports its loss: a stream that breaks after the
  * request was sent ends the call as lost, now, instead of at the SDK's request timeout. One that
- * passes the call's `maxResultBytes` ends it as `mcp.too-large` (C11), before more of it is read.
+ * passes the call's `maxResultBytes` ends it as `mcp.too-large`, before more of it is read.
  */
 function watched(response: Response, tracker: Tracker): Response {
   const source = response.body!.getReader();

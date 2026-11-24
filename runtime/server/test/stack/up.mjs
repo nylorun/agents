@@ -5,8 +5,8 @@
 //   node test/stack/up.mjs        # npm run test:stack:up
 //   node test/stack/up.mjs down   # npm run test:stack:down
 //
-// NYLORUN_TEST_PROFILES (comma-separated) adds Compose profiles: `traces` starts the R7 exit
-// test's OpenTelemetry Collector, writing to NYLORUN_TEST_OTEL_DIR.
+// NYLORUN_TEST_PROFILES (comma-separated) adds Compose profiles: `traces` starts the tracing
+// end-to-end test's OpenTelemetry Collector, writing to NYLORUN_TEST_OTEL_DIR.
 import { spawnSync } from "node:child_process";
 import { chmodSync, mkdirSync } from "node:fs";
 import { connect } from "node:net";

@@ -56,7 +56,7 @@ function PlanSummary({ plan }: { plan: AgentForkPlan }) {
 }
 
 /**
- * Forks `source` into a new Agent (`POST /v1/agents/{id}/fork`, Q15): how an Agent moves to
+ * Forks `source` into a new Agent (`POST /v1/agents/{id}/fork`): how an Agent moves to
  * another manifest version, since none ever changes what it runs. Check shows the plan first.
  */
 export function ForkSheet({

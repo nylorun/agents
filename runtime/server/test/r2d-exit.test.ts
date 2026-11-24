@@ -1,5 +1,5 @@
 /**
- * The exit test of track R2d step 1 (Environments, protocol 11; Agents since protocol 16), the
+ * The end-to-end test of Environments (protocol 11; Agents since protocol 16), the
  * lines a Runtime without a cluster can run, end to end over the Runtime API the way an app
  * would, with the SDK (`@nylorun/agents`, protocol 16):
  *
@@ -147,7 +147,7 @@ afterAll(async () => {
   if (server?.listening) await new Promise((resolve) => server.close(resolve));
 });
 
-describe("the R2d exit, step 1", { timeout: 60_000 }, () => {
+describe("Agents' vaults and compute, end to end", { timeout: 60_000 }, () => {
   it("an app makes Alice's Agent and writes her GitHub token and the team npm token into it", async () => {
     const agent = await client.agents.put("users/alice/web", {
       manifest: "web",

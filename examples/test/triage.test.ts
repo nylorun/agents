@@ -1,5 +1,5 @@
 /**
- * The agent folder in `agents/triage/` (track T6): `mcp.json` names `${GITHUB_TOKEN}` in its
+ * The agent folder in `agents/triage/`: `mcp.json` names `${GITHUB_TOKEN}` in its
  * `Authorization` header and no `runtime.json` declares the slot, so the compiler derives a bearer
  * slot bound to the server's URL and says where. A typo is named by file, line and column, and the
  * SDK sends nothing.

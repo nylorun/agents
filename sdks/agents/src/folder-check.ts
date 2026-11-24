@@ -11,7 +11,7 @@ import {
 } from "@nylorun/core/folder";
 import type { PackedFolder } from "./folder.js";
 
-/** The agent folder of a manifest (track T7): what `nylorun export --folder` writes. */
+/** The agent folder of a manifest: what `nylorun export --folder` writes. */
 export { folderOfManifest, type FolderOfManifest, type FolderOfManifestOptions } from "@nylorun/core/folder";
 
 /**

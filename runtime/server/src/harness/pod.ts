@@ -1,12 +1,12 @@
 /**
- * The engine in a pod sandbox (F7.2, D42): its credentials. It holds no harness token. Before
+ * The engine in a pod sandbox: its credentials. It holds no harness token. Before
  * each connection to the Harness API it renews its host token (`host/renew`), or, with none or
  * one refused (its epoch moved), exchanges the join token mounted in the pod (`host/join`,
  * read afresh each time: a reset writes a new one). The egress token minted with the host token
  * is the password of the proxy every command gets (`proxyEnv`); both are renewed every
  * `RENEW_MS`, well inside their 15-minute life.
  *
- * The join answer also carries the installation's egress CA (R2c, D50). The engine writes it,
+ * The join answer also carries the installation's egress CA. The engine writes it,
  * after the public roots, to a trust bundle on the pod (`caBundleFile`) and points every
  * command's trust variables at it, so a CLI trusts the leaf egress-gate presents for a host an
  * `environment_secret` is bound to. The bundle is rewritten only when the CA changes.
@@ -29,7 +29,7 @@ interface Held {
 /** What to run and copy on a new disk (`sandbox/setup.ts` in core), from the join answer. */
 export interface DiskSetup {
   readonly recipeVersion: number;
-  /** The sha256 of the commands and files (track T3): a marker with another runs the setup again. */
+  /** The sha256 of the commands and files: a marker with another runs the setup again. */
   readonly setupHash?: string;
   readonly commands: readonly { readonly command: string; readonly cwd: string; readonly timeoutMs: number }[];
   readonly files: readonly { readonly index: number; readonly path: string }[];
@@ -69,7 +69,7 @@ export interface PodHost {
   /** The last join's volume starts from a disk version core writes: no setup runs on it… */
   readonly seeded: boolean;
   /**
-   * …unless it is a fork onto other setup (Q17): the setup runs once core has written the
+   * …unless it is a fork onto other setup: the setup runs once core has written the
    * version, which it does through this engine's connection, so the engine connects first.
    */
   readonly afterSeed: boolean;
@@ -88,7 +88,7 @@ class Refused extends Error {}
  * The engine's first join, tried again while the edge can't be reached. On Agent Substrate a new
  * actor can start before its egress policy reaches the egress gateway, so its first request to
  * the edge fails at the network ("fetch failed"), and an engine that then exited stayed down: an
- * actor's main process is not restarted the way a pod's container is (E13, 2 of 3 first starts on
+ * actor's main process is not restarted the way a pod's container is (2 of 3 first starts on
  * a GitHub runner). A refusal (400, 401) is final at once; anything else is tried again with a
  * pause from 250 ms doubling to 5 s, until `budgetMs` (default 4 min, inside the Runtime's 5-minute
  * ready deadline) has passed.
@@ -128,10 +128,10 @@ export function podHost(
     renewMs?: number;
     /** Where the engine keeps the volume's id (on the volume): a new volume gets a new one. */
     volumeFile?: string;
-    /** Where the engine writes the trust bundle: the public roots and the egress CA (R2c). */
+    /** Where the engine writes the trust bundle: the public roots and the egress CA. */
     caBundleFile?: string;
     /**
-     * Agent Substrate's egress CA (`NYLORUN_SANDBOX_EGRESS_CA_FILE`, ADR-142): Substrate's egress
+     * Agent Substrate's egress CA (`NYLORUN_SANDBOX_EGRESS_CA_FILE`): Substrate's egress
      * ends TLS for the hosts whose keys it adds, so commands trust it with no proxy in between.
      */
     extraCaFile?: string;
@@ -283,7 +283,7 @@ export function podHost(
         bundled !== undefined && options.caBundleFile
           ? Object.fromEntries(TRUST_VARIABLES.map((name) => [name, options.caBundleFile!]))
           : {};
-      // On Agent Substrate there is no proxy: Substrate's egress adds keys on its own (ADR-142),
+      // On Agent Substrate there is no proxy: Substrate's egress adds keys on its own,
       // and commands only need to trust its CA.
       if (!config.egressProxy) return options.extraCaFile ? trustOnly : {};
       const url = new URL(config.egressProxy);
@@ -303,7 +303,7 @@ export function podHost(
         NO_PROXY: "localhost,127.0.0.1",
         no_proxy: "localhost,127.0.0.1",
         // Node's fetch (and corepack's pnpm and yarn) use the proxy only with this set; the engine
-        // drops `*_PROXY` names from the image's own environment, so it comes from here (ADR-92 §10).
+        // drops `*_PROXY` names from the image's own environment, so it comes from here.
         NODE_USE_ENV_PROXY: "1",
       };
     },

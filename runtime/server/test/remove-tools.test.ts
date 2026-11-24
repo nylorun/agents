@@ -1,6 +1,6 @@
 /**
  * A message's `removeTools` (Host feature `remove-tools`) and turn variants across versions
- * (track T3): the Runtime takes the named tools out of the version the turn runs, after the turn's
+ *: the Runtime takes the named tools out of the version the turn runs, after the turn's
  * first segment re-pins the session to its Agent's version (`repinTurn`), so a session that always
  * sends them still moves. A whole turn manifest is validated again against the new version; one
  * that is no variant of it keeps the turn on the version it pinned (`turn.version_kept`).

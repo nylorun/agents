@@ -1,5 +1,5 @@
 /**
- * `agent-folder/2` (ADR-100): a folder declares every engine feature it uses, and our engine adds
+ * `agent-folder/2`: a folder declares every engine feature it uses, and our engine adds
  * nothing else. `AGENT.md` names the format (`format: agent-folder/2`, or `2`) and, in its
  * `engine:` block, the features no other key declares:
  *
@@ -11,7 +11,7 @@
  *   artifacts: { read: true, save: false }          # save needs a computer
  *   outputs: true                                   # save /workspace/outputs when a turn ends; needs a computer
  *   toolSearch: false                               # no automatic deferral; a server's own `deferred` still applies
- *   triggers: true                                  # the triggers tool and its text (D83); the root agent's only
+ *   triggers: true                                  # the triggers tool and its text; the root agent's only
  *   instructions:                                   # a block's wording, replaced by a file under engine/
  *     memory: engine/memory.md
  * ```
@@ -54,12 +54,12 @@ export interface EngineScopeFacts {
   readonly memory: boolean;
   /** The uploaded folder's runtime sets `selfWake`. */
   readonly selfWake: boolean;
-  /** The uploaded folder is `agent-folder/3` (ADR-106). */
+  /** The uploaded folder is `agent-folder/3`. */
   readonly v3?: boolean;
   /** Its plugins, under format 3: a subagent's are a subset. */
   readonly plugins?: readonly { readonly name: import("../plugins/index.js").PluginName; readonly tools: readonly string[] }[];
   /**
-   * The uploaded folder is `agent-folder/4` (ADR-164): its folders under `agents/` are subagent
+   * The uploaded folder is `agent-folder/4`: its folders under `agents/` are subagent
    * files, expanded with the library. What they may not inherit unnamed: the root's skills with
    * secrets and servers it gives a credential.
    */
@@ -176,7 +176,7 @@ export function engineDeclarations(
       engine.toolSearch = value.toolSearch;
     }
   }
-  // triggers: the root agent's (D83). A subagent whose parent declares them is refused in
+  // triggers: the root agent's. A subagent whose parent declares them is refused in
   // `nested.ts`; one whose parent does not, here.
   if (value.triggers !== undefined) {
     const at = ["engine", "triggers"];
@@ -245,7 +245,7 @@ export function engineBlocksOf(
     readonly memory?: { readonly root: boolean; readonly access?: "read_write" | "read_only"; readonly index?: boolean };
     readonly plan: boolean;
     readonly connections: boolean;
-    /** The root agent declares `engine.triggers` (D83). */
+    /** The root agent declares `engine.triggers`. */
     readonly triggers?: boolean;
     /** The root agent has `ask` (`agent-folder/3`, `harness.loop.ask`). */
     readonly ask?: boolean;

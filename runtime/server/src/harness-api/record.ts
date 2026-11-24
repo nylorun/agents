@@ -5,7 +5,7 @@
  * a flow's HTTP stages and HTTP verifiers; an agent's tool call whose target the session has,
  * protocol 15: an `mcp` tool it discovered and the turn leaves enabled, by `{server, tool}`; an
  * `http` tool it declares; a `sandbox` operation when it has a sandbox; a `harness` tool), or
- * fails a tool call it cannot run (no target, as an author's code tool has, R2 M6, or one the
+ * fails a tool call it cannot run (no target, as an author's code tool has, or one the
  * session lacks). A tool call is routed by its target, never by its name. `recordOutcome`
  * records what the harness's call returned, as the harness reported it: one record entry, refused
  * past the Runtime limit `recordEntryBytes` (`limit_exceeded`), since the harness shapes tool
@@ -15,10 +15,10 @@
  * Rows store the request's hash (`requestHash`) and, for a model call, the request without its
  * prompt: drift is a hash compare. Rows written before carry their full request, hashed on read.
  *
- * Every row a run journals keeps when it was journaled (`startedAt`, R7.1), and a rejoin keeps
+ * Every row a run journals keeps when it was journaled (`startedAt`), and a rejoin keeps
  * it: an outcome's `durationMs` is the journal's window, from the intent to the outcome. A model
  * call's outcome event also carries what the meter recorded for it (`modelOutcomeFacts`). A tool
- * row keeps its span's context (`traceparent`, R7.4), which the `execute` answer carries to the
+ * row keeps its span's context (`traceparent`), which the `execute` answer carries to the
  * harness and the Tool Gate reads with the row.
  */
 import {
@@ -85,7 +85,7 @@ export interface RecordScope {
   readonly lease: Lease;
   readonly signal: AbortSignal;
   /**
-   * Who reported what this scope records (R4.9): the run's harness, so the events derived from
+   * Who reported what this scope records: the run's harness, so the events derived from
    * its intents and outcomes are its claim. Absent, core recorded what it saw itself.
    */
   readonly writer?: EventWriter;
@@ -125,13 +125,13 @@ export async function recordIntent(
   const request = effect as HostEffect;
   // Read before the transaction: the first read of the Tenant may create the key.
   const key = await traceKey(ctx.store);
-  /** Triggers a `triggers` call wrote (D83): armed once the transaction commits. */
+  /** Triggers a `triggers` call wrote: armed once the transaction commits. */
   const toArm: AgentTriggerRow[] = [];
   const answer = await ctx.store.tx(async (t): Promise<IntentAnswer | "flow"> => {
     toArm.length = 0;
     const s = await ownedSession(t, lease, request.sessionId);
     if (s.status === "cancelled" || s.activeTurnId !== request.turnId) throw TURN_CANCELLED();
-    // A tool call's span context (R7.4), kept on its row.
+    // A tool call's span context, kept on its row.
     const traced = () => ({ traceparent: toolTraceparent(key, ctx.store.tenantId, s, request) });
     // An aborted advance starts no effect; the advance decides what the abort means.
     signal.throwIfAborted();
@@ -141,10 +141,10 @@ export async function recordIntent(
         throw new HarnessApiError("effect_drift", "Effect identity request drift");
       if (existing.status === "completed") return { status: "completed", outcome: existing.outcome! };
       // A call its previous owner left running at the gate: re-send it, same key and request,
-      // to join it or collect its outcome (P1.2).
+      // to join it or collect its outcome.
       if (existing.status === "invoking" && request.kind === "model" && recoversModelCalls(ctx))
         return { status: "execute", rejoin: true };
-      // An operation the Runtime serves that a person approved while it was held (D83): served
+      // An operation the Runtime serves that a person approved while it was held: served
       // now, as the turn resumes, in this transaction; never resent.
       if (
         existing.status === "invoking" &&
@@ -153,7 +153,7 @@ export async function recordIntent(
         existing.approval?.approved === true
       )
         return { status: "completed", outcome: await serveRuntimeRow(t, s, existing, scope, toArm) };
-      // A tool call a crash, a shutdown or a lost gate hop interrupted (R5.3, R5.4).
+      // A tool call a crash, a shutdown or a lost gate hop interrupted.
       if (existing.status === "invoking" && existing.request.kind === "tool")
         return resend(t, s, existing, recoversToolCalls(ctx));
       if (request.kind === "agent" && existing.status === "pending" && existing.agentSessionId) {
@@ -193,7 +193,7 @@ export async function recordIntent(
       return { status: "execute", traceparent: row.traceparent! };
     }
     if (request.kind === "inputs") {
-      // The messages steered into the running turn (D85), taken before a step: journaled with
+      // The messages steered into the running turn, taken before a step: journaled with
       // what was taken, empty or not, so a replay takes the same messages at the same step.
       const step = Number((request.input as { step?: unknown } | null | undefined)?.step);
       const events = await takeSteeredMessages(t, s, s.id, Number.isInteger(step) && step > 0 ? step : 1);
@@ -239,12 +239,12 @@ export async function recordIntent(
     }
     const agentManifest = manifestFor(s.manifest, request.agent);
     if (!agentManifest) throw new Error(`Agent '${request.agent?.id ?? ""}' is not used as a tool`);
-    // An operation the Runtime serves itself (track T4): settled here, in the call's own
+    // An operation the Runtime serves itself: settled here, in the call's own
     // transaction, keyed by its effect id, so a replay finds it completed. The Tenant's tool
-    // policy decides it first (D83): a rule of kind `runtime` may deny it or hold it for a person.
+    // policy decides it first: a rule of kind `runtime` may deny it or hold it for a person.
     if (request.kind === "tool" && request.target?.kind === "runtime") {
       const row: StoredEffect = { request, requestHash, status: "invoking", ...firstSend(toolKindOf(s, agentManifest, request)) };
-      // Off means off (ADR-100): a call the session's agent cannot make is refused unasked.
+      // Off means off: a call the session's agent cannot make is refused unasked.
       const unavailable = request.target.operation === "triggers" ? await triggersRefusal(t, s, request) : undefined;
       if (unavailable) {
         row.attempts = 0;
@@ -279,7 +279,7 @@ export async function recordIntent(
         ? { ...firstSend(toolKindOf(s, agentManifest, request)), ...traced() }
         : { startedAt: new Date().toISOString() }),
     };
-    // The Tenant's tool policy decides an MCP or HTTP tool call as it is journaled (R5 step 2).
+    // The Tenant's tool policy decides an MCP or HTTP tool call as it is journaled.
     if (row.toolKind === "mcp" || row.toolKind === "http") {
       const decided = await bypolicy(t, s, row, row.toolKind);
       if (decided) return decided;
@@ -301,7 +301,7 @@ export async function recordIntent(
 }
 
 /**
- * Serves the `runtime` effect of tool row `row` in `t` and settles the row (track T4, D72, D83):
+ * Serves the `runtime` effect of tool row `row` in `t` and settles the row:
  * `memory`, `schedule_wake` or `triggers`. Rows a `triggers` call wrote go on `toArm`.
  */
 async function serveRuntimeRow(
@@ -328,14 +328,14 @@ async function serveRuntimeRow(
  * undefined when it can:
  *
  * - `mcp`: the tool `{server, tool}` of an MCP server its agent declares, as the session
- *   discovered it (`tool.unknown` otherwise), left enabled by the turn's manifest (R2b C9,
- *   `tool.disabled`);
- * - `http`: an HTTP tool its agent declares under that name in the turn's manifest (R2 M3), which
+ *   discovered it (`tool.unknown` otherwise), left enabled by the turn's manifest
+ *   (`tool.disabled`);
+ * - `http`: an HTTP tool its agent declares under that name in the turn's manifest, which
  *   crosses the Tool Gate;
  * - `sandbox`: one of the sandbox operations, in a session with a sandbox;
  * - `harness`: a tool the harness runs in its own process; its egress gate is its only control.
- * - `runtime`: served by `recordIntent` itself, before this (`schedule_wake`, track T4; `memory`,
- *   track T5; `triggers`, D83), after the Tenant's tool policy.
+ * - `runtime`: served by `recordIntent` itself, before this (`schedule_wake`, `memory`,
+ *   `triggers`), after the Tenant's tool policy.
  *
  * No target, and anything else, runs nothing (`tool.unavailable`).
  */
@@ -380,18 +380,18 @@ interface ToolRefusal {
   readonly message: string;
 }
 
-/** Core's own write during the scope's run (R4.9): core saw it, in that run. */
+/** Core's own write during the scope's run: core saw it, in that run. */
 function coreIn(scope: RecordScope): EventWriter | undefined {
   const runId = scope.writer?.runId;
   return runId === undefined ? undefined : { source: { kind: "core", id: "runtime" }, runId };
 }
 
 /**
- * The answer to a tool row still `invoking` (R5.3, R5.4): a crash, a shutdown or a lost gate
+ * The answer to a tool row still `invoking`: a crash, a shutdown or a lost gate
  * hop interrupted its send. An MCP or HTTP call (it crosses the Tool Gate, which hands the tool
  * its key) is sent again, one more attempt, until the Tenant's `toolAttempts`; then it fails to the
  * model. Any other call (sandbox, harness, core-served) has no key to dedupe on: it fails to the
- * model now, and is not run again (Q2).
+ * model now, and is not run again.
  */
 async function resend(t: Tx, s: Session, row: StoredEffect, rejoin: boolean): Promise<IntentAnswer> {
   if (!isGateToolEffect(s, row.request)) {
@@ -420,7 +420,7 @@ async function resend(t: Tx, s: Session, row: StoredEffect, rejoin: boolean): Pr
   return rejoin ? { status: "execute", rejoin: true, ...traced } : { status: "execute", ...traced };
 }
 
-/** The span context of tool call `request` (R7.4): its turn's trace, and its own span. */
+/** The span context of tool call `request`: its turn's trace, and its own span. */
 function toolTraceparent(
   key: TraceKey,
   tenantId: string,
@@ -432,7 +432,7 @@ function toolTraceparent(
 }
 
 /**
- * The Tenant's tool policy on a tool call being journaled (R5 step 2, `gates/policy.ts`), or
+ * The Tenant's tool policy on a tool call being journaled (`gates/policy.ts`), or
  * undefined when it runs. `deny`: the call fails to the model as `tool.denied`, unsent. `ask`:
  * the row waits as `held` and the effect is pending; the segment ends waiting, the turn pauses,
  * and `approve` answers it (`tenant/commands.ts`). The Tool Gate refuses a row not `invoking`, so
@@ -490,7 +490,7 @@ function unrunnableTool(request: HostEffect): ToolRefusal {
 
 /**
  * Records the outcome of a call the harness ran: `value`, with its transcript events, or the
- * `error` that left it uncertain. Only a cancel discards an outcome in hand (§10.7): after any
+ * `error` that left it uncertain. Only a cancel discards an outcome in hand: after any
  * other abort (shutdown, deadline) it is recorded, so the next advance replays it.
  */
 export async function recordOutcome(
@@ -507,7 +507,7 @@ export async function recordOutcome(
       if (!effect) return { status: "uncertain" };
       const { request } = effect;
       const active = s && s.status !== "cancelled" && s.activeTurnId === request.turnId;
-      // A tool call whose fate the harness could not learn fails to the model (R5.3): it may
+      // A tool call whose fate the harness could not learn fails to the model: it may
       // have run, and nothing sends it again. A cancel already settled it.
       if (request.kind === "tool") {
         if (effect.status === "completed") return { status: "completed", outcome: effect.outcome! };
@@ -530,7 +530,7 @@ export async function recordOutcome(
       return { status: "uncertain" };
     });
   }
-  // What a harness reports never carries the Runtime's own tokens into the record (R4).
+  // What a harness reports never carries the Runtime's own tokens into the record.
   const value = redactTokens(result.value);
   return ctx.store.tx(async (t) => {
     const s = await t.assertEpoch<Session>(lease.sessionId, lease.epoch);
@@ -550,7 +550,7 @@ export async function recordOutcome(
     if (request.kind === "tool") {
       // Settled already: a re-send after a lost hop collected what the first send recorded.
       if (effect.status === "completed") return { status: "completed" as const, outcome: effect.outcome! };
-      // What the call returned is the harness's claim (R4.9).
+      // What the call returned is the harness's claim.
       const outcome = await settleToolRow(t, s, effect, value, { writer: scope.writer });
       if (request.context?.role === "verify-http") await recordVerdict(t, request, value);
       return { status: "completed" as const, outcome };
@@ -562,12 +562,12 @@ export async function recordOutcome(
     const model = request.kind === "model";
     const failed = model ? modelFailed(request, value) : undefined;
     // A summary call is never an assistant message: the compaction's transcript edit names it,
-    // and `context.compacted` is written with that edit (Q4).
+    // and `context.compacted` is written with that edit.
     const summarizing = model && request.purpose === "summary";
     const transcript = failed || summarizing || !model ? undefined : assistantMessage(request, value);
     if (request.context?.role === "verify-http") await recordVerdict(t, request, value);
     const writer = scope.writer;
-    // The call's span (R7.1): the journal's window, and the meter's row for it when a gate ran it.
+    // The call's span: the journal's window, and the meter's row for it when a gate ran it.
     const facts =
       failed || transcript
         ? modelOutcomeFacts(effectId, effect, await t.modelUsageOf(effectId))

@@ -1,8 +1,8 @@
 /**
- * Agents (protocol 16; Environments from protocol 11, D55, D56): an Agent is made from a saved
+ * Agents (protocol 16; Environments from protocol 11): an Agent is made from a saved
  * agent manifest, has its own id and vault and outlives the sessions on it; sessions on one share
- * its workspace and run their turns at once (protocol 14, D66); it moves between versions of its
- * manifest (track T3), and its manifest's name is fixed (`409 agent_fixed_field`);
+ * its workspace and run their turns at once (protocol 14); it moves between versions of its
+ * manifest, and its manifest's name is fixed (`409 agent_fixed_field`);
  * the owner guard admits only its owner's sessions, at open and at every turn start; a token
  * caller reaches only the Agents its issuer grants, at every turn start; `agents:write` guards
  * changes; the Tenant limits how many there are; and `lifecycle.deleteAfter` deletes an unused
@@ -428,7 +428,7 @@ describe("sessions on an Agent", { timeout: 60_000 }, () => {
     });
   });
 
-  it("runs the turns of several sessions on one Agent at once (D66); disk work waits for them", async () => {
+  it("runs the turns of several sessions on one Agent at once; disk work waits for them", async () => {
     await make("parallel/ws");
     await open("parallel-a", "parallel/ws");
     await open("parallel-b", "parallel/ws");

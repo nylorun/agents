@@ -398,7 +398,7 @@ export async function startRun(
   caller: { subject: string; access: SessionAccess | undefined },
   body: unknown,
   response: ServerResponse,
-  /** The request's trace context (R7.4): the turn the run starts joins the caller's trace. */
+  /** The request's trace context: the turn the run starts joins the caller's trace. */
   trace?: TraceContext
 ): Promise<void> {
   // Clients before AG-UI 1.0 send `null` for optional fields (`forwardedProps`,

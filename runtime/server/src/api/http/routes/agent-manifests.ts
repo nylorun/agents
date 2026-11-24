@@ -2,10 +2,10 @@
  * Agent manifests (`/v1/agent-manifests/**`, protocol 16): save, read, list and delete the named,
  * versioned documents Agents are made from, each with a harness and a runtime section. A save
  * moves every Agent that tracks the manifest to the new version; a pinned one stays. Reading needs `agents:read` (or a write scope), saving and deleting
- * `agent-manifests:write`, from any client (Q12). A token caller reaches none: a manifest holds
+ * `agent-manifests:write`, from any client. A token caller reaches none: a manifest holds
  * an agent's instructions, tools and servers. A save may send an agent folder by hash instead of
- * the manifest (track T6): the Runtime compiles it and keeps it as the version's source, and
- * `source/diff` compares two versions' sources (track T7).
+ * the manifest: the Runtime compiles it and keeps it as the version's source, and
+ * `source/diff` compares two versions' sources.
  */
 import type { OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";

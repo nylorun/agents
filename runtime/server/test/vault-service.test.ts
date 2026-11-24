@@ -182,7 +182,7 @@ describe("VaultService administration", () => {
     expect(await status(vault.getEnvironmentSecret("missing", "token"))).toBe(404);
   });
 
-  it("seals a fork's copies where the vault key is, and inserts them without it (Q15, F4.2)", async () => {
+  it("seals a fork's copies where the vault key is, and inserts them without it", async () => {
     const { vault, store, read, environment } = await setup();
     await environment("ada/v1");
     await vault.putEnvironmentSecret(
@@ -451,7 +451,7 @@ describe("VaultService authorize", () => {
   });
 });
 
-describe("VaultService header and gateway credentials (R2b C2)", () => {
+describe("VaultService header and gateway credentials", () => {
   const DD_API = "datadog-api-key-plaintext-0f9e8d7c";
   const DD_APP = "datadog-app-key-plaintext-6b5a4f3e";
   const GATEWAY = "https://gateway.example.com/mcp/datadog";
@@ -659,7 +659,7 @@ describe("VaultService routing at use (secret-routing)", () => {
   });
 });
 
-describe("sessionCredentials identity header (R2b C2)", () => {
+describe("sessionCredentials identity header", () => {
   it("names a person's session owner, and nobody for an installation session", async () => {
     const { vault, environment } = await setup();
     await environment("shared");

@@ -1,5 +1,5 @@
 /**
- * P1.2: a model call that outlives the process that sent it. With the gates service
+ * A model call that outlives the process that sent it. With the gates service
  * (`NYLORUN_TEST_MODEL_GATE=http`: a gate on 127.0.0.1 in this process), a call keeps running
  * at the gate when its owner dies or shuts down; the next advance re-sends it from the journal
  * and joins it, so the turn completes with one provider call and nothing `uncertain`. A user
@@ -150,7 +150,7 @@ it("finishes a turn whose owner died mid-call: the next advance re-sends the cal
 
   const next = worker.advance("s1", new AbortController().signal);
   await vi.waitFor(async () => expect((await view(runtime)).status).toBe("running"));
-  // The new owner re-sent the call under its own run token and joined it (F5, G4); the old
+  // The new owner re-sent the call under its own run token and joined it; the old
   // owner's token is stale now.
   await vi.waitFor(() => expect(runtime.gate!.runGrants.token("s1")).not.toBe(staleToken));
   const refused = await realFetch(`${runtime.gate!.url}/nylorun/v1/model-calls`, {

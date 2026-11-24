@@ -3,7 +3,7 @@
  * (`McpSnapshot`, `@nylorun/core/harness-api`), pinned on the session. The Runtime never names a
  * tool for the model: it states facts per turn (`mcpFactsOf`, `turn.start.mcp`), and checks a
  * call by its identity (`{server, tool}` of its agent): discovered (`mcpToolIn`) and left enabled
- * by the turn's manifest (`isEnabledIn`, R2b C9).
+ * by the turn's manifest (`isEnabledIn`).
  */
 import type { EventPayload } from "@nylorun/core/contracts";
 import {
@@ -27,9 +27,9 @@ export interface McpDiagnostic {
   readonly outcome: "connected" | "refused" | "failed";
   readonly message: string;
   readonly credentialIds?: readonly string[];
-  /** How many listed tools the server's `tools` settings disable (R2b C9). */
+  /** How many listed tools the server's `tools` settings disable. */
   readonly disabled?: number;
-  /** Keys of the server's `tools` settings that name no tool it listed (R2b C9). */
+  /** Keys of the server's `tools` settings that name no tool it listed. */
   readonly unknownTools?: readonly string[];
 }
 
@@ -87,7 +87,7 @@ export function mcpToolIn(
     ?.tools.find((item) => item.name === tool);
 }
 
-/** The tool's settings in `manifest` (R2b C9); the defaults when its server is not there. */
+/** The tool's settings in `manifest`; the defaults when its server is not there. */
 export function mcpToolSettingsIn(
   manifest: AgentManifest,
   agentId: string | undefined,
@@ -98,7 +98,7 @@ export function mcpToolSettingsIn(
   return declared ? mcpToolSettings(declared.server, tool) : { enabled: true, approval: "never" };
 }
 
-/** True when the tool's settings in `manifest` leave it enabled (R2b C9). */
+/** True when the tool's settings in `manifest` leave it enabled. */
 export function isEnabledIn(
   manifest: AgentManifest,
   agentId: string | undefined,

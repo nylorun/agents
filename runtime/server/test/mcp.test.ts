@@ -78,7 +78,7 @@ async function probe(options: {
       res.end();
       return;
     }
-    // The call arrived and its answer is lost: it may have run (R2b C7).
+    // The call arrived and its answer is lost: it may have run.
     if (body?.method === "tools/call" && state.failCalls) {
       req.socket.destroy();
       return;
@@ -248,7 +248,7 @@ it("discovers a remote MCP server with a bearer and calls it from the Runtime", 
       expect.objectContaining({
         authorization: `Bearer ${TOKEN}`,
         toolset: "issues",
-        // The call's span context (R7.4), on the call's own request only.
+        // The call's span context, on the call's own request only.
         traceparent: expect.stringMatching(/^00-[0-9a-f]{32}-[0-9a-f]{16}-01$/),
       }),
     ]);
@@ -517,7 +517,7 @@ it("pins the discovery snapshot and lets a new session discover again", async ()
   }
 });
 
-it("gives a lost MCP answer to the model as mcp.lost, and never sends the call again (R5)", async () => {
+it("gives a lost MCP answer to the model as mcp.lost, and never sends the call again", async () => {
   const remote = await probe({ name: "github", tool: "get_issue" });
   remote.failCalls = true;
   const seen: unknown[] = [];

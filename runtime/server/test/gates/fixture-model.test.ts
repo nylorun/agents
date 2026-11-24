@@ -1,5 +1,5 @@
 /**
- * The fixture model's script (R4.3): the scripted markers, and the release demo it keeps.
+ * The fixture model's script: the scripted markers, and the release demo it keeps.
  */
 import { describe, expect, it } from "vitest";
 import type { ModelCall } from "@nylorun/core/harness-api";

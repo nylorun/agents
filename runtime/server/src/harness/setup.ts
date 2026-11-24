@@ -1,17 +1,17 @@
 /**
- * The disk's setup in a pod Environment's engine (R2d step 2): after it joins and before it takes
+ * The disk's setup in a pod Environment's engine: after it joins and before it takes
  * any turn, the engine copies the recipe's input files and runs its setup commands, once per
  * volume. A marker on the volume (`/harness/setup.json`, `{ volumeId, recipeVersion, setupHash,
  * status }`) says it was done: a resume finds it and skips, a reset (a new volume, a new volume
- * id) runs it again, and so does a start on a new version whose setup differs (`setupHash`,
- * track T3). A marker without a hash (written before T3) counts as this setup's. Commands run as the sandbox tools' do (`localExec`): `/bin/sh -c` in `cwd`, with the
+ * id) runs it again, and so does a start on a new version whose setup differs (`setupHash`).
+ * A marker without a hash (written by an older Runtime) counts as this setup's. Commands run as the sandbox tools' do (`localExec`): `/bin/sh -c` in `cwd`, with the
  * Environment's variables and secrets (as the sentinel) and egress through egress-gate.
  *
  * A failure is reported to core, which fails the pod and the turn waiting for it; the engine then
  * polls until a turn start asks the pod to run again, and runs the setup again from the start.
  *
  * A volume seeded from a disk version skips it (the version holds what setup made), except on a
- * fork onto other setup (Q17): the engine connects first, waits until core has written the
+ * fork onto other setup: the engine connects first, waits until core has written the
  * version, then runs the setup on it as above. Turns wait until it reports the setup done.
  */
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
@@ -23,9 +23,9 @@ import { hostTuning } from "../tuning.js";
 
 export interface DiskSetupOptions {
   readonly host: Pick<PodHost, "setup" | "setupState" | "reportSetup" | "setupFile"> & {
-    /** The volume starts from a disk version (R2d step 3): it holds what setup made. */
+    /** The volume starts from a disk version: it holds what setup made. */
     readonly seeded?: boolean;
-    /** A fork onto other setup (Q17): run it once core has written the version. */
+    /** A fork onto other setup: run it once core has written the version. */
     readonly afterSeed?: boolean;
   };
   /** Runs one command as the sandbox tools do (`localExec`). */
@@ -136,7 +136,7 @@ export async function prepareDisk(options: DiskSetupOptions): Promise<void> {
   let setup = options.host.setup;
   const volumeId = await readText(options.volumeFile);
   if (options.host.afterSeed) {
-    // A fork onto other setup (Q17): wait until core has written the disk version, then run it.
+    // A fork onto other setup: wait until core has written the disk version, then run it.
     for (;;) {
       if (options.signal?.aborted) return;
       const state = await options.host.setupState().catch(() => undefined);

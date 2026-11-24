@@ -70,7 +70,7 @@ export const sandboxUsage = `  sandbox enable --context <name> [--tenant <name>]
 const ENABLE_USAGE =
   "nylorun local sandbox enable --context <name> [--tenant <name>] [--backend agent-sandbox|substrate] [--host-address <ip>] [--bind-address <ip>] [--probe-ports <allowed>,<denied>] [--no-pull]";
 
-/** The default workload image (D36), pre-pulled with the Runtime image. */
+/** The default workload image, pre-pulled with the Runtime image. */
 export const DEFAULT_SANDBOX_IMAGE = "python:3.13-slim";
 
 /** Preferred host ports for the Harness API, gates and egress (pods reach them). */
@@ -277,7 +277,7 @@ export async function installCluster(
 }
 
 /**
- * `enable --backend substrate` against one context (ADR-138, preview): checks Substrate is
+ * `enable --backend substrate` against one context (preview): checks Substrate is
  * installed, makes the Tenant's namespace and RBAC, finds the Docker host's address as pods see
  * it, and names the edge for actors in CoreDNS. The atespace is made later, by the sandboxes
  * image's substrate-setup, once cluster.json is written.
@@ -320,8 +320,8 @@ export async function installSubstrate(
 
   let hostAddress = input.hostAddress;
   if (!hostAddress) {
-    // A pod's first lookup can find no IPv4 address on a cluster that just started (P1.8 rerun:
-    // once, while 10 of 10 by hand did), so it is tried three times before `enable` gives up.
+    // A pod's first lookup can find no IPv4 address on a cluster that just started (seen
+    // once in a test run, while 10 of 10 by hand found one), so it is tried three times before `enable` gives up.
     for (let attempt = 0; attempt < 3 && !hostAddress; attempt += 1) {
       const lookup = await k.run(
         ["run", "nylorun-host-lookup", "-n", namespace, "--rm", "-i", "--quiet", "--restart=Never", `--image=${PROBE_IMAGE}`, "--", "nslookup", "host.docker.internal"],
@@ -412,7 +412,7 @@ async function prepareSubstrate(deps: SandboxDeps, root: string, cluster: Cluste
 }
 
 /**
- * Keys at Substrate's egress (ADR-142): deploys the keys provider with this Tenant's entry (the
+ * Keys at Substrate's egress: deploys the keys provider with this Tenant's entry (the
  * edge's keys port, its token and CA, and the Host's outside credential source when the shell
  * names one), keeping other Tenants' entries, and checks Substrate's egress asks it. Returns
  * whether it does: when not, keys stay off and `enable` says how to turn them on.

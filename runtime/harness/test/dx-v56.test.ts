@@ -118,7 +118,7 @@ describe("DX v5.6 ergonomics", () => {
 });
 
 describe("DX v5.6 agent-as-JSON", () => {
-  it("round-trips Agent.from(agent.toJSON(), implementations) with the same hash (T28)", async () => {
+  it("round-trips Agent.from(agent.toJSON(), implementations) with the same hash", async () => {
     const refund = tool({
       name: "refund",
       input: z.object({ amount: z.number() }),
@@ -151,7 +151,7 @@ describe("DX v5.6 agent-as-JSON", () => {
     expect(result.status).toBe("completed");
   });
 
-  it("checkCompatibility fails on wrong manifest hash (D4)", () => {
+  it("checkCompatibility fails on wrong manifest hash", () => {
     const a = Agent({ id: "a", name: "A", instructions: "one" }).build();
     const b = Agent({ id: "a", name: "A", instructions: "two" }).build();
     const state = {
@@ -172,7 +172,7 @@ describe("DX v5.6 agent-as-JSON", () => {
 });
 
 describe("DX v5.6 durable acceptance", () => {
-  it("D1 pause resume via engine", async () => {
+  it("pause resume via engine", async () => {
     const agent = Agent({ id: "a", name: "A" })
       .tools(
         tool({
@@ -214,7 +214,7 @@ describe("DX v5.6 durable acceptance", () => {
     expect(records.length).toBeGreaterThan(0);
   });
 
-  it("D2 crash continue from last record", async () => {
+  it("crash continue from last record", async () => {
     const agent = Agent({ id: "a", name: "A" })
       .tools(
         tool({
@@ -259,7 +259,7 @@ describe("DX v5.6 durable acceptance", () => {
     expect(JSON.stringify(resumed.state)).toContain('"redelivery":true');
   });
 
-  it("D6 ask wait parks and resumes", async () => {
+  it("ask wait parks and resumes", async () => {
     const agent = Agent({ id: "a", name: "A" })
       .tools(
         tool({

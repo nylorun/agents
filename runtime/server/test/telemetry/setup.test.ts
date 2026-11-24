@@ -1,5 +1,5 @@
 /**
- * The process's telemetry as `host/main.ts` starts it (ADR-159): `/metrics` served in Prometheus
+ * The process's telemetry as `host/main.ts` starts it: `/metrics` served in Prometheus
  * format, OTLP exports that fail dropped and counted, the samplers, and a port that cannot be
  * bound logged rather than fatal.
  */

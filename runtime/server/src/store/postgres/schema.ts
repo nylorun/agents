@@ -1,5 +1,5 @@
 /**
- * The tables of a Tenant database (session-store.md §2–§3): the source drizzle-kit generates
+ * The tables of a Tenant database: the source drizzle-kit generates
  * the migrations from (`drizzle/`, `CONTRIBUTING.md` "Adding a migration") and the query
  * builder's view of them. Column names are the camelCase keys in snake_case (`casing:
  * "snake_case"`, here, in `db.ts` and in `drizzle.config.ts`).
@@ -9,7 +9,7 @@
  *   ledger, the model budgets, the Tool Gate's crossings, file artifacts with their versions,
  *   the agents and their manifests, the definition files those manifests name, the control
  *   bus's signals, the wake outbox, and A2A push configs with their outbox.
- * - `nylorun_streams` holds the record (Durable Streams §6): `session_events`,
+ * - `nylorun_streams` holds the record: `session_events`,
  *   `session_log_heads`, the Agents' `agent_events`, the Tenant's `tenant_events` and the relay's
  *   `relay_slots`. The relay's publication is custom SQL
  *   (`drizzle/0002_stream_relay.sql`).
@@ -116,7 +116,7 @@ export const tenant = nylorun.table(
     /** The number of migrations applied when the row was last migrated (`migrate.ts`). */
     schemaVersion: integer().notNull(),
     singleton: boolean().notNull().default(true).unique("tenant_singleton_key"),
-    /** The basin generation session streams go to (Durable Streams §8.1). */
+    /** The basin generation session streams go to. */
     basinGeneration: integer().notNull().default(0),
     /** Earlier generations whose basins are still to be deleted. */
     retiredGenerations: integer().array().notNull().default(sql`'{}'`),
@@ -226,7 +226,7 @@ export const agents = nylorun.table(
     lastUsedAt: timestamp({ withTimezone: true, mode: "string" }).notNull().defaultNow(),
     createdAt: textC().notNull(),
     updatedAt: textC().notNull(),
-    // Kind `pod` (F7.2, D34): null otherwise. `tenant/environments.ts` and the `Sandbox`
+    // Kind `pod`: null otherwise. `tenant/environments.ts` and the `Sandbox`
     // object's reconcile (`sandbox/pods/reconcile.ts`) are the only writers.
     /** The agent-sandbox Sandbox's name, `sbx-<16 base32>-g<volume_gen>` (`podName`). */
     k8sName: textC(),
@@ -260,25 +260,25 @@ export const agents = nylorun.table(
      * a join with another one means the volume was replaced (its files are gone), so `lost`.
      */
     volumeId: text(),
-    /** The workload image by digest, from the first ready pod on (Q14): later pods run it. */
+    /** The workload image by digest, from the first ready pod on: later pods run it. */
     imageDigest: textC(),
-    /** Unused since ADR-161 (no image carries the engine); was ADR-99's `{ version, digest? }`. */
+    /** Unused (no image carries the engine); was the engine image's `{ version, digest? }`. */
     engineImage: jsonText(),
     /** When its Agent Substrate worker last stopped under it (the sandboxes service's `drainedAt`). */
     drainedAt: text(),
     /**
-     * The disk lease (R2d step 3): `{ kind, version?, startedAt, until }` while a snapshot, a
+     * The disk lease: `{ kind, version?, startedAt, until }` while a snapshot, a
      * restore or a seed copies the disk; turns are refused until it ends or `until` passes.
      */
     diskOp: jsonText(),
     /**
-     * The disk version the next volume starts from: `{ artifactId, version }` (R2d step 3). A
-     * fork onto other setup adds `setup: true` (Q17): once the version is written (`written`),
+     * The disk version the next volume starts from: `{ artifactId, version }`. A
+     * fork onto other setup adds `setup: true`: once the version is written (`written`),
      * the seed stays until the engine reports the setup done, and turns wait for both.
      */
     diskSeed: jsonText(),
     /**
-     * The agent manifest it was made from and the version of it that it runs (track T3 moves it:
+     * The agent manifest it was made from and the version of it that it runs (a move changes it:
      * `PUT /v1/agents/{id}`, and a save of the manifest for a tracking one).
      */
     manifestName: textC().notNull(),
@@ -287,19 +287,19 @@ export const agents = nylorun.table(
     manifestRef: text({ enum: ["tracking", "pinned"] }).notNull(),
     /** The hash of the manifest version it runs. */
     manifestHash: textC().notNull(),
-    /** `on`, or `off` once paused (track T6); nothing sets `off` yet. */
+    /** `on`, or `off` once paused; nothing sets `off` yet. */
     desiredState: text({ enum: ["on", "off"] }).notNull().default("on"),
-    /** The Agent it was forked from: `{ agent, disk }` (Q15). Never changed. */
+    /** The Agent it was forked from: `{ agent, disk }`. Never changed. */
     forkedFrom: jsonText(),
     /**
-     * The manifest version it is moving to while it is outdated (track T3, D73): it waits for its
+     * The manifest version it is moving to while it is outdated: it waits for its
      * required secrets, or for its pod's next start. `manifestVersion` stays the one it runs.
      */
     targetVersion: integer(),
-    /** A version that failed to start (T3): a tracking Agent does not move to it again on its own. */
+    /** A version that failed to start: a tracking Agent does not move to it again on its own. */
     failedVersion: integer(),
     /**
-     * While a pod starts on a new version (T3): `{ from, startedAt }`, what it ran before, which a
+     * While a pod starts on a new version: `{ from, startedAt }`, what it ran before, which a
      * failed start reverts to. Cleared when the new pod's harness joins.
      */
     startCheck: jsonText(),
@@ -311,10 +311,10 @@ export const agents = nylorun.table(
 );
 
 /**
- * An Agent's triggers (track T4, D74): what its manifest's `runtime.triggers` declares is the
+ * An Agent's triggers: what its manifest's `runtime.triggers` declares is the
  * manifest's; whether each one is on and when it fires next is the Agent's, here. A booked wake
- * (D77) is a row of kind `wake` with id `wake:<sessionId>`. A trigger an agent made with the
- * `triggers` tool (D83) is a row of origin `agent`, its definition (a `Trigger`, as a manifest
+ * is a row of kind `wake` with id `wake:<sessionId>`. A trigger an agent made with the
+ * `triggers` tool is a row of origin `agent`, its definition (a `Trigger`, as a manifest
  * entry holds it) and title on the row, with the session and turn that made it. Postgres holds
  * the truth: one durable timer per active trigger is armed from `nextFireAt`, and the sweep
  * re-arms an overdue one, so the execution's timers can be rebuilt from these rows.
@@ -337,7 +337,7 @@ export const agentTriggers = nylorun.table(
     endpointId: textC(),
     /**
      * A webhook trigger's signing secret, sealed with the Tenant's vault key: only the keys service
-     * opens it, to verify a delivery (D75).
+     * opens it, to verify a delivery.
      */
     sealedSecret: jsonText(),
     /** A booked wake's session, its note and the effect that booked it. */
@@ -345,12 +345,12 @@ export const agentTriggers = nylorun.table(
     note: text(),
     effectId: text(),
     /**
-     * Where its definition comes from (D83, D88): `manifest` (the version's `runtime.triggers`),
+     * Where its definition comes from: `manifest` (the version's `runtime.triggers`),
      * `agent` (`definition`, made with the `triggers` tool), `api` (`definition`, put by a client
      * over the API) or `wake` (a booked wake).
      */
     origin: text({ enum: ["manifest", "agent", "api", "wake"] }).notNull().default("manifest"),
-    /** Who put an `api` trigger (D88): the caller's principal. */
+    /** Who put an `api` trigger: the caller's principal. */
     principal: text(),
     /** An agent-made or put trigger's title, its definition, and the session and turn that made it. */
     title: text(),
@@ -370,7 +370,7 @@ export const agentTriggers = nylorun.table(
 );
 
 /**
- * An Agent's memories (track T5, D72): one row per Markdown file under `/memories`, its content
+ * An Agent's memories: one row per Markdown file under `/memories`, its content
  * inline (the Runtime limit `memoryBytes`, 100 KiB by default, bounds it). `version` counts the
  * changes to this path; `description` is its frontmatter's, for the pinned index. A write locks the
  * one row it changes, so writes to different memories never wait on each other.
@@ -391,7 +391,7 @@ export const memories = nylorun.table(
 );
 
 /**
- * One row per change to an Agent's memories (D72): what changed it, the content it left (`null`
+ * One row per change to an Agent's memories: what changed it, the content it left (`null`
  * for a delete), and who made it, with the session, turn and trigger run of a turn's write.
  * Versions belong to the Agent, so they outlive a deleted memory; they go with the Agent. Ids
  * increase with time (`newMemoryVersionId`), so they page newest first.
@@ -418,10 +418,10 @@ export const memoryVersions = nylorun.table(
 );
 
 /**
- * Each run of an Agent's triggers (D74): one per fire, delivery or run by hand, keyed by what
+ * Each run of an Agent's triggers: one per fire, delivery or run by hand, keyed by what
  * caused it (`runKey`: `fire:<trigger>:<due ms>`, `webhook:<trigger>:<delivery id>`,
  * `manual:<trigger>:<idempotency key>`), so a repeated cause makes no second run. Kept for the
- * Runtime limit `triggerRunRetentionMs`. `streamedAt` is the Tenant runs stream's outbox (D83):
+ * Runtime limit `triggerRunRetentionMs`. `streamedAt` is the Tenant runs stream's outbox:
  * set once the run is in the `runs` stream; the sweep appends a run still unset.
  */
 export const triggerRuns = nylorun.table(
@@ -440,7 +440,7 @@ export const triggerRuns = nylorun.table(
     sessionId: textC(),
     turnId: textC(),
     queuedMessageId: textC(),
-    /** Its trigger's origin and title when it ran (D83, D88), for the runs stream after the trigger is gone. */
+    /** Its trigger's origin and title when it ran, for the runs stream after the trigger is gone. */
     origin: text({ enum: ["manifest", "agent", "api", "wake"] }).notNull().default("manifest"),
     title: text(),
     /** When it was appended to the Tenant's `runs` stream (ISO), or null until then. */
@@ -471,7 +471,7 @@ export const agentManifests = nylorun.table(
     savedBy: jsonText().notNull(),
     createdAt: textC().notNull(),
     /**
-     * The agent folder the version was compiled from (track T6): `{ compiler, files, bytes,
+     * The agent folder the version was compiled from: `{ compiler, files, bytes,
      * entries }`, each entry `{ path, size, sha256 }` of a definition file. Null for a version
      * saved as JSON.
      */
@@ -481,7 +481,7 @@ export const agentManifests = nylorun.table(
 );
 
 /**
- * A vault (D56): the host model's (`id = 'host'`), or one Environment's, created and deleted with
+ * A vault: the host model's (`id = 'host'`), or one Environment's, created and deleted with
  * it (`environment_id`, unique, deleted with the Environment's row). No other vault exists.
  */
 export const vaults = nylorun.table(
@@ -598,11 +598,11 @@ export const signingKeys = nylorun.table(
 );
 
 /**
- * The model usage ledger (P1.3): one row per model call a gate served, written after the call.
+ * The model usage ledger: one row per model call a gate served, written after the call.
  * A second row for the same effect (a call the gate ran again after a gateway restart) is
  * flagged `duplicate`; both were billed. Budgets read their spend from it. Token counts are 0
  * when the provider sent none. `startedAt`, `endedAt` and `firstTokenMs` are the gate's own
- * timing of the call (R7.1, migration 0022); null on rows written before, and `firstTokenMs`
+ * timing of the call (migration 0022); null on rows written before, and `firstTokenMs`
  * when the provider streamed nothing. The `cost*Usd` columns split `costUsd` by token kind, at the
  * prices the adapter applied (migration 0037); null on rows written before. `attempts` and
  * `retries` say how many times the gate called the provider for the answer, and why again
@@ -669,7 +669,7 @@ export const modelUsage = nylorun.table(
 );
 
 /**
- * Model budgets (P1.3): hard caps the model gate checks before each call, at least one limit
+ * Model budgets: hard caps the model gate checks before each call, at least one limit
  * set. One row per scope: `turn` and `tenant` use `*`, `manifest` the agent manifest's name. `period` is the
  * UTC `day` or `month` the spend is counted over, or null for `turn`.
  */
@@ -687,7 +687,7 @@ export const modelBudgets = nylorun.table(
 );
 
 /**
- * The turn index (A2A design §9, Host feature `turns`): one row per turn, written by `Tx.event`
+ * The turn index (Host feature `turns`): one row per turn, written by `Tx.event`
  * in the transaction of each event that changes the turn (`store/postgres/turns.ts`), so it
  * agrees with the session's log. The session's Agent, owner and A2A context are copied in when
  * the turn starts. `txid` is the transaction that last changed the row: the change feed reads
@@ -732,9 +732,9 @@ export const turns = nylorun.table(
 );
 
 /**
- * Each session's queue (protocol 17, D76): messages that arrived while its turn ran or waited, in
+ * Each session's queue (protocol 17): messages that arrived while its turn ran or waited, in
  * order (`seq`), until a turn takes them: the next turn, or the running one before a step for a
- * steered message (D85). A row holds the command as sent, the turn input its
+ * steered message. A row holds the command as sent, the turn input its
  * message gives the engine (file parts pinned when it was queued), and who sent it.
  */
 export const sessionQueue = nylorun.table(
@@ -753,11 +753,11 @@ export const sessionQueue = nylorun.table(
     writer: jsonText().notNull(),
     /** The W3C trace context it was sent with. */
     trace: jsonText(),
-    /** What sent it when not a client (track T4): a trigger's run, or the session's own wake. */
+    /** What sent it when not a client: a trigger's run, or the session's own wake. */
     cause: jsonText(),
     createdAt: textC().notNull(),
     /**
-     * `steer` (D85): the running turn may take it before a step (the `inputs` effect); `queue`:
+     * `steer`: the running turn may take it before a step (the `inputs` effect); `queue`:
      * it waits for the turn to end. Either starts the next turn if the running one didn't take it.
      */
     delivery: text({ enum: ["queue", "steer"] }).notNull().default("queue"),
@@ -769,7 +769,7 @@ export const sessionQueue = nylorun.table(
 );
 
 /**
- * The Tool Gate's keyed MCP calls (F4.1 G3): one row per call, written by the gates service
+ * The Tool Gate's keyed MCP calls: one row per call, written by the gates service
  * before it calls the server and given the answer after. A re-send whose row has an answer
  * gets it; one whose row has none, and that the gateway no longer runs, was lost with an
  * earlier gateway and answers `uncertain`, so a call is never run twice. Rows are deleted a
@@ -791,7 +791,7 @@ export const toolCrossings = nylorun.table(
 );
 
 /**
- * Artifacts (blueprint D35, F8.1 and F8.2): an id, a name and numbered versions. The bytes are in
+ * Artifacts: an id, a name and numbered versions. The bytes are in
  * the Object store under each version's `blobKey` (a folder's: its manifest); a blob counts only
  * once its version row commits. `sessionId` is the session the artifact belongs to, or null for
  * a Tenant-wide one an application made. `latestVersion` is the newest version's number.
@@ -809,10 +809,10 @@ export const artifacts = nylorun.table(
     labelsJson: text(),
     createdAt: textC().notNull(),
     updatedAt: text().notNull(),
-    /** The Agent whose disk versions this folder holds (R2d step 3); one per Agent. */
+    /** The Agent whose disk versions this folder holds; one per Agent. */
     environmentId: textC(),
     /**
-     * `model`: our engine stored it only for its model to see (ADR-139); null for an output.
+     * `model`: our engine stored it only for its model to see; null for an output.
      * Such an artifact is readable by id and never listed.
      */
     audience: text({ enum: ["model"] }),
@@ -857,7 +857,7 @@ export const artifactVersions = nylorun.table(
 );
 
 /**
- * The content-addressed files each folder version references (F8.2), one row per distinct
+ * The content-addressed files each folder version references, one row per distinct
  * SHA-256: the index that says which `blobs/sha256/<hex>` objects are still in use, so deleting
  * a folder removes only the files no other version names, and the Tenant total counts each file
  * once. The manifest itself stays the source of truth for paths.
@@ -882,7 +882,7 @@ export const artifactContent = nylorun.table(
 );
 
 /**
- * The definition files the Tenant holds (track R2 M4): files a definition names by the SHA-256
+ * The definition files the Tenant holds: files a definition names by the SHA-256
  * of their bytes (a skill's folder), uploaded with `PUT /v1/files/sha256:<hex>`. The bytes are
  * in the Object store at `definitions/sha256/<hex>`; a row counts them only once they are
  * stored. `sha256` is `sha256:<hex>`.
@@ -915,7 +915,7 @@ export const definitionFileUses = nylorun.table(
 );
 
 /**
- * The control bus (D21, D48): signals between the processes that have the Tenant open,
+ * The control bus: signals between the processes that have the Tenant open,
  * written in the transaction that commits what they announce and notified on
  * `nylorun_control` at commit (`control.ts`). A row outlives its notification so a process
  * whose listener was down catches up; the Tenant sweep deletes old ones. `created_at` is the
@@ -946,7 +946,7 @@ export const controlSignals = nylorun.table(
 );
 
 /**
- * The wake outbox (architecture §12.3): one row per wake a committed transaction asked for
+ * The wake outbox: one row per wake a committed transaction asked for
  * (`Tx.wake`), written in that transaction, so a commit never loses its wake. The row is
  * deleted once Durable Session Execution has accepted the wake; until then the Tenant sweep
  * delivers it again, with the same idempotency key (`dedupe_key`, or `wake:<id>` without
@@ -972,7 +972,7 @@ export const wakes = nylorun.table(
 );
 
 /**
- * The sandbox signal outbox (F7.2): one row per pod sandbox reconcile or timer a committed
+ * The sandbox signal outbox: one row per pod sandbox reconcile or timer a committed
  * transaction asked for (`Tx.signalSandbox`), kept and delivered as the wake outbox's rows are
  * (`attempts`, `retry_at`, `parked_at`). A reconcile is sent with the idempotency key
  * `signal:<id>`; a timer (`kind` `arm`) is its `timer` at `at` (ms since the epoch). Not in
@@ -1081,7 +1081,7 @@ export const agentEvents = nylorunStreams.table(
 );
 
 /**
- * The Tenant's stream (`nylorun.tenant-event/1`, ADR-159): keys, signing keys, tool policy,
+ * The Tenant's stream (`nylorun.tenant-event/1`): keys, signing keys, tool policy,
  * settings, vault credentials written and used, and Studio sign-ins, numbered from 0. Written only
  * by the record module, under the stream's append lock; not published to the stream relay. `at`
  * is the event's time; `payload` never holds a secret value (`TENANT_EVENT_PAYLOADS`). A reset

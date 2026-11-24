@@ -1,5 +1,5 @@
 /**
- * The exit test of track R2b (MCP credentials without OAuth, and the rest of the MCP client): one
+ * The end-to-end test of MCP credentials without OAuth, and the rest of the MCP client: one
  * agent, run end to end over the Runtime and Management APIs, the way an operator and an app
  * would. The operator saves the agent manifest, whose runtime section declares a secret slot per
  * credential; the app makes the Agents and fills their vaults; the operator previews a server's
@@ -356,7 +356,7 @@ afterAll(async () => {
   for (const server of servers) if (server.listening) await new Promise((resolve) => server.close(resolve));
 });
 
-describe("the R2b exit", () => {
+describe("MCP credentials and client, end to end", () => {
   it("the operator previews a server's tools with an Agent's credentials", async () => {
     const preview = await management("/v1/tenant/mcp/preview", { url: keyed.url, name: "keyed", agentId: SHARED });
     expect(preview.status, preview.text).toBe(200);

@@ -14,7 +14,7 @@ import {
   McpError as CoreMcpError,
 } from "@nylorun/core/define";
 
-/** Flow Agents Phase 1: the agents package's Agent adds .skills() and .plugin(). */
+/** Flow agents: the agents package's Agent adds .skills() and .plugin(). */
 
 function write(directory: string, path: string, contents: string): void {
   const file = join(directory, path);

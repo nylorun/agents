@@ -1,7 +1,7 @@
 /**
- * F4.2: `nylorun start` keeps the Tenant's vault key in `keys/vault-kek`, which only the gateway
- * container mounts. It creates the key once, keeps it across starts, and moves the key a stack
- * before F4.2 kept in `tenant/vault-kek`.
+ * `nylorun start` keeps the Tenant's vault key in `keys/vault-kek`, which only the gateway
+ * container mounts. It creates the key once, keeps it across starts, and moves the key an older
+ * stack kept in `tenant/vault-kek`.
  */
 import { existsSync, statSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -33,7 +33,7 @@ it("creates a 32-byte key, mode 0600, in a 0700 keys directory, and keeps it", a
   expect(await readFile(p.vaultKey, "utf8")).toBe(key);
 });
 
-it("moves the key a stack before F4.2 kept in tenant/", async () => {
+it("moves the key an older stack kept in tenant/", async () => {
   const p = await paths();
   await mkdir(p.tenant, { recursive: true });
   const legacy = join(p.tenant, "vault-kek");

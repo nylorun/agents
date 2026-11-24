@@ -1,5 +1,5 @@
 /**
- * The Tenant a database holds (tenancy.md §1, §4; session-store.md §2). One database is one
+ * The Tenant a database holds. One database is one
  * Tenant: its state in the schema `nylorun`, its record in `nylorun_streams`, and its
  * envelope in the one row of `nylorun.tenant`. There is no catalog.
  *

@@ -1,6 +1,6 @@
 apiVersion: v2
 name: nylorun-runtime
-description: The Nylorun Runtime on an Agent Substrate cluster, with computers (ADR-147, ADR-148, ADR-149)
+description: The Nylorun Runtime on an Agent Substrate cluster, with computers
 type: application
 # Versioned with @nylorun/runtime; Studio's image tag is the annotation. The release sets all
 # three (scripts/release/pins.mjs).

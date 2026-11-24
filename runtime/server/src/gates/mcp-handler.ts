@@ -1,14 +1,14 @@
 /**
- * Remote MCP servers in the gates service (F4.1): the gate holds each session's connection to a
+ * Remote MCP servers in the gates service: the gate holds each session's connection to a
  * declared `streamable-http` or `sse` server, authorizes it with the Tenant vault and runs
  * `tools/list` and `tools/call` on it. The loop names the server; the gate
  * finds it in the session's pinned manifest, so the loop never chooses a URL or a credential.
  *
  * A failure is an answer (`{ok: false, error}`), shaped so the loop's diagnostics read it as
- * they read a failure in their own process; a tool call's failure is coded (R2b C7). A call's
- * result and failure carry no credential value sent for it (`sdkClient`, C8), so neither does
+ * they read a failure in their own process; a tool call's failure is coded. A call's
+ * result and failure carry no credential value sent for it (`sdkClient`), so neither does
  * its `tool_crossings` row. Logs one line per call, never arguments, results or credentials, and
- * measures each for operators (`mcp.client.operation.duration`, ADR-159).
+ * measures each for operators (`mcp.client.operation.duration`).
  */
 import type { McpServerManifest } from "@nylorun/core/define";
 import {
@@ -46,7 +46,7 @@ export interface McpHandlerOptions {
 }
 
 export interface McpHandler {
-  /** Opens the connection; answers the server's instructions when it gave any (R2b C10). */
+  /** Opens the connection; answers the server's instructions when it gave any. */
   connect(
     tenantId: string | undefined,
     server: McpServerRef,
@@ -65,9 +65,9 @@ export interface McpHandler {
       effectId: string;
       name: string;
       arguments: Record<string, unknown>;
-      /** The call's `Idempotency-Key`, sent to the server in `_meta` (R5.5). */
+      /** The call's `Idempotency-Key`, sent to the server in `_meta`. */
       key?: string;
-      /** The call's span context from its journal row (R7.4), sent as `traceparent`. */
+      /** The call's span context from its journal row, sent as `traceparent`. */
       traceparent?: string;
     },
     signal: AbortSignal,
@@ -178,7 +178,7 @@ export function createMcpHandler(options: McpHandlerOptions): McpHandler {
     try {
       return await connection(tenantId, server);
     } catch (error) {
-      // The call was never sent, so the model may try again (R2b C7). A gate that cannot serve
+      // The call was never sent, so the model may try again. A gate that cannot serve
       // the session is not the server's failure, and stays as it was.
       if (!call || error instanceof GateRefusal || error instanceof NotDeclared) throw error;
       const limits = await vaults
@@ -217,7 +217,7 @@ export function createMcpHandler(options: McpHandlerOptions): McpHandler {
 
   /**
    * One `tools/call`. A connection found stale before the tool saw the call is opened again, and
-   * the call sent once more (R2b C7).
+   * the call sent once more.
    */
   async function callOnce(
     tenantId: string | undefined,
@@ -263,7 +263,7 @@ export function createMcpHandler(options: McpHandlerOptions): McpHandler {
     connect: (tenantId, server) =>
       answer("connect", server, async () => {
         const { instructions } = (await connection(tenantId, server)).connection;
-        // The server's instructions, for the note on its deferred tools (R2b C10).
+        // The server's instructions, for the note on its deferred tools.
         return instructions === undefined ? null : { instructions };
       }),
     list: (tenantId, server, cursor, signal) =>
@@ -316,10 +316,10 @@ export function createMcpHandler(options: McpHandlerOptions): McpHandler {
 const MCP_METHODS = { connect: "initialize", list: "tools/list", call: "tools/call" } as const;
 
 /**
- * One request to a remote MCP server, measured (ADR-159): `mcp.client.operation.duration` with
+ * One request to a remote MCP server, measured: `mcp.client.operation.duration` with
  * `mcp.method.name`, `gen_ai.tool.name` for a tool call and `error.type` for a failure (its code);
  * with span export, a tool call's CLIENT span `tools/call {tool}`, under the call's own trace
- * context (the effect's span, R7.4).
+ * context (the effect's span).
  */
 function startMcpOperation(
   what: keyof typeof MCP_METHODS,
@@ -373,7 +373,7 @@ function fields(server: McpServerRef) {
   };
 }
 
-/** An error as the loop's `diagnosticFromError` reads it, with a coded failure's code (R2b C7). */
+/** An error as the loop's `diagnosticFromError` reads it, with a coded failure's code. */
 function errorOf(error: unknown): McpGateError {
   if (error instanceof GateRefusal) return { message: error.outcome.message };
   if (error instanceof McpCallFailed)

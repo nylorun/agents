@@ -65,7 +65,7 @@ test("reads rules from TypeScript, a shell command's JSON body, or a rule alone"
   assert.throws(() => rulesOf(`put({ rules: [ruleFor("x")] })`), /not a literal list/);
 });
 
-test("a tool policy rule with a model-facing server__tool name fails (the 0.31 review's C1)", async () => {
+test("a tool policy rule with a model-facing server__tool name fails", async () => {
   const c1 = `<!-- doc-test: tool-policy -->\n${fence}ts\nawait createAdmin().toolPolicy.put({\n  rules: [\n    { effect: "ask", server: "github", tool: "github__delete_*" },\n  ],\n});\n${fence}\n`;
   const { failures } = await run(c1);
   assert.equal(failures.length, 1);

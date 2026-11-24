@@ -63,7 +63,7 @@ async function startHost() {
 }
 
 it(
-  "F2-4: tenant models set lists the Tenant's /models catalog then cancels cleanly",
+  "tenant models set lists the Tenant's /models catalog then cancels cleanly",
   { timeout: 15_000 },
   async () => {
     const root = await project("configure-cli-");

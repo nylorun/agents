@@ -1,4 +1,4 @@
-// What the network invariant and the red-team suite share (F7.2, S10): a Tenant with sandboxes
+// What the network invariant and the red-team suite share (S10): a Tenant with sandboxes
 // enabled on a cluster, one pod Agent (protocol 16) made through the Runtime API and
 // joined, a busybox
 // probe pod in the sandbox namespace (under the same NetworkPolicy as every sandbox pod), and
@@ -21,7 +21,7 @@ export const EGRESS_TOKEN_AUD = "nylorun-egress";
 /** `runtime/server/src/tenant/run-token.ts`. */
 export const RUN_TOKEN_TYP = "nylorun-run+jwt";
 export const RUN_TOKEN_AUD = "nylorun-gates";
-/** `runtime/server/src/tenant/host-token.ts`: the host token core mints at join (D42). */
+/** `runtime/server/src/tenant/host-token.ts`: the host token core mints at join. */
 export const HOST_TOKEN_TYP = "nylorun-host+jwt";
 export const HOST_TOKEN_AUD = "nylorun-harness-api";
 /** `runtime/server/src/harness-api/ws-server.ts`: where a pod's engine exchanges its join token. */

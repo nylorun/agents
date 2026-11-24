@@ -1,8 +1,8 @@
 /**
- * Triggers a client puts on one Agent (D88): `PUT /v1/agents/{agentId}/triggers/{triggerId}` with
+ * Triggers a client puts on one Agent: `PUT /v1/agents/{agentId}/triggers/{triggerId}` with
  * a `Trigger`, exactly as a definition's `runtime.triggers` entry holds it, and an optional title.
  *
- * - **Origin `api`.** The row keeps its own definition, like an agent-made trigger (D83), and the
+ * - **Origin `api`.** The row keeps its own definition, like an agent-made trigger, and the
  *   principal that put it. Upgrades and moves never touch it (`mergeAgentTriggers` merges
  *   `manifest` rows only); `DELETE` removes it; pause, resume, run and a webhook's secret work as
  *   for any trigger; it fires through `fireTimer` and `deliverRun` like every other.
@@ -55,7 +55,7 @@ function timingOf(trigger: Trigger): { session: string; schedule?: string; timez
 }
 
 /**
- * `PUT /v1/agents/{agentId}/triggers/{triggerId}` (D88): creates or replaces the Agent's `api`
+ * `PUT /v1/agents/{agentId}/triggers/{triggerId}`: creates or replaces the Agent's `api`
  * trigger `triggerId` and answers it as the list shows it. `principal` is who put it; `origin` is
  * the URL origin the request reached, for a webhook's URL.
  */

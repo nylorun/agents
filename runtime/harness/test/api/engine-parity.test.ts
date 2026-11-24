@@ -1,6 +1,6 @@
 /**
  * `previewTurn` (`@nylorun/core/engine`, exported by `@nylorun/agents`) against what this harness
- * sends the model (ADR-100): for agent folders of both formats, the system text and the tool list
+ * sends the model: for agent folders of both formats, the system text and the tool list
  * of the first model call of a turn, the root's and a subagent's, are the preview's.
  */
 import { afterEach, describe, expect, it } from "vitest";
@@ -85,7 +85,7 @@ const FOLDERS: Record<string, Record<string, string>> = {
     "mcp.json": MCP,
     "agents/scout/AGENT.md": SCOUT.replace("{engine}", ""),
   },
-  "agent-folder/2, with triggers (D83)": {
+  "agent-folder/2, with triggers": {
     "AGENT.md":
       "---\nname: helper\ndescription: Helps.\nformat: agent-folder/2\nengine:\n  triggers: true\n---\nHelp the person.\n",
     "runtime.json": JSON.stringify({ kind: "none", selfWake: true }),
@@ -268,7 +268,7 @@ function seen(call: any) {
   };
 }
 
-describe("previewTurn and the harness (ADR-100)", () => {
+describe("previewTurn and the harness", () => {
   it.each(Object.keys(FOLDERS))("show the same turn: %s", async (name) => {
     const manifest = compiled(FOLDERS[name]!);
     const calls = await modelCalls(turnStart(manifest));
@@ -285,8 +285,8 @@ describe("previewTurn and the harness (ADR-100)", () => {
     }
   });
 
-  it("offers the triggers tool and its text to the root agent only (D83)", async () => {
-    const manifest = compiled(FOLDERS["agent-folder/2, with triggers (D83)"]!);
+  it("offers the triggers tool and its text to the root agent only", async () => {
+    const manifest = compiled(FOLDERS["agent-folder/2, with triggers"]!);
     const calls = await modelCalls(turnStart(manifest));
     const root = seen(calls.root);
     expect(root.tools.map((tool: any) => tool.name)).toEqual([

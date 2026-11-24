@@ -3,8 +3,7 @@
  * snapshot and argv. Pure: `host/main.ts` passes the process environment and
  * arguments; nothing here reads ambient state.
  *
- * `--service core,loop` names the Runtime services the process runs (blueprint
- * §19, D12): one image runs every service, and a container may pack several.
+ * `--service core,loop` names the Runtime services the process runs: one image runs every service, and a container may pack several.
  * Without the flag a process runs core and loop. `--role api|worker|all` is
  * the deprecated name of the same choice (core, loop, or both). `gates` (the
  * Model Gate) never shares a process with core or loop: it holds the
@@ -13,12 +12,12 @@
  * listener (`NYLORUN_GATES_LISTEN_*`), and only one that runs loop parses
  * where to reach the gate (`NYLORUN_GATES_URL`). Both read
  * `NYLORUN_GATES_TOKEN`. In a container, loop requires the gate: the loop
- * process must never hold a model credential. `egress` (egress-gate, F7.2) joins gates and keys
+ * process must never hold a model credential. `egress` (egress-gate) joins gates and keys
  * in the gateway and parses its listener (`NYLORUN_EGRESS_LISTEN_*`, default `0.0.0.0:4200`).
  * The credential resolver is gone (protocol 10): its `NYLORUN_RESOLVER_*` variables are ignored,
  * and the Host logs `resolver_removed` when one is set.
  *
- * `harness` (F6.2) runs alone: it holds the harness credential and nothing else. It connects to
+ * `harness` runs alone: it holds the harness credential and nothing else. It connects to
  * core's Harness API listener (`NYLORUN_HARNESS_URL`, `NYLORUN_HARNESS_TOKEN`), calls models and
  * remote MCP servers through the gates service (`NYLORUN_GATES_URL`, with run tokens only), and
  * keeps its workspaces under `NYLORUN_HARNESS_ROOT`. It refuses to start with a database, the
@@ -36,14 +35,14 @@
  * The Postgres, Restate and S2 endpoints are parsed and validated here;
  * `infra/*` builds the clients from them. So is the Object store (`NYLORUN_OBJECT_STORE_*`),
  * which every service may read; `host/main.ts` builds the `BlobStore` from it. So is who the Host's Tenant is when its database
- * holds none yet (`NYLORUN_TENANT_ID`, `NYLORUN_TENANT_NAME`). So are traces (R7.2), for a
+ * holds none yet (`NYLORUN_TENANT_ID`, `NYLORUN_TENANT_NAME`). So are traces, for a
  * process running core: where they go (`OTEL_EXPORTER_OTLP_ENDPOINT`, or
  * `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, with `OTEL_EXPORTER_OTLP_HEADERS`), what they say of
  * their source (`OTEL_SERVICE_NAME`, `OTEL_RESOURCE_ATTRIBUTES`) and which content they carry
  * (`OTEL_INSTRUMENTATION_GENAI_CAPTURE_CONTENT`; for one release still `NYLORUN_TRACE_CONTENT` and
  * `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=true`, with a deprecation warning). So is the
- * live telemetry of every process that runs core, loop or the gateway's services (ADR-159,
- * `telemetry/`): its metric exporters (`OTEL_METRICS_EXPORTER`, `OTEL_EXPORTER_PROMETHEUS_*`), its
+ * live telemetry of every process that runs core, loop or the gateway's services
+ * (`telemetry/`): its metric exporters (`OTEL_METRICS_EXPORTER`, `OTEL_EXPORTER_PROMETHEUS_*`), its
  * OTLP endpoints, its sampler (`OTEL_TRACES_SAMPLER`, `_ARG`) and its `service.name`.
  * So is the Host tuning (`NYLORUN_TUNING`, `tuning.ts`), for every service: its timings,
  * retries and internal sizes. So is the outside credential provider
@@ -70,9 +69,9 @@ export type RuntimeServices = ReadonlySet<RuntimeService>;
 export const RUNTIME_SERVICES: readonly RuntimeService[] = ["core", "loop", "gates", "keys", "egress", "harness", "computer"];
 
 /**
- * Services that may share a process (D12): they hold the same secrets and parse the same
- * trust class of input. keys joins gates (F4.2), and egress joins them (F7.2). The harness
- * (F6.2) runs agent code's neighbours and holds only its own credential: it shares with nothing.
+ * Services that may share a process: they hold the same secrets and parse the same
+ * trust class of input. keys joins gates, and egress joins them. The harness
+ * runs agent code's neighbours and holds only its own credential: it shares with nothing.
  */
 const SERVICE_GROUPS: readonly (readonly RuntimeService[])[] = [
   ["core", "loop"],
@@ -99,7 +98,7 @@ export const DEFAULT_SERVICES: RuntimeServices = new Set<RuntimeService>([
   "loop",
 ]);
 
-/** Services of the blueprint this release doesn't have yet. */
+/** Service names this release doesn't have yet. */
 const LATER_SERVICES: readonly string[] = [
   "sandboxes",
 ];
@@ -172,7 +171,7 @@ export interface EgressConfig {
   listen: { host: string; port: number };
   /**
    * NYLORUN_EGRESS_KEYS_TOKEN: the token Agent Substrate's keys provider presents to the decide
-   * route on this listener (ADR-142); none: the route is off. 32 bytes or more as hex.
+   * route on this listener; none: the route is off. 32 bytes or more as hex.
    */
   keysToken?: string;
 }
@@ -187,7 +186,7 @@ export interface ModelGateEndpoint {
  * Core's Harness API listener (`NYLORUN_HARNESS=remote`, or sandbox pods): where harnesses
  * connect, and the credential they present (`NYLORUN_HARNESS_TOKEN`), which nothing else
  * accepts. With sandbox pods and no harness container there is no token: only pods' host tokens
- * are accepted (F7.2).
+ * are accepted.
  */
 export interface HarnessListenConfig {
   listen: ContainerListen;
@@ -195,7 +194,7 @@ export interface HarnessListenConfig {
 }
 
 /**
- * Sandbox pods (`NYLORUN_SANDBOXES_URL`, F7.2): the sandboxes service core drives them with, its
+ * Sandbox pods (`NYLORUN_SANDBOXES_URL`): the sandboxes service core drives them with, its
  * token, and the Runtime image pods copy the engine from.
  */
 export interface SandboxesConfig {
@@ -204,7 +203,7 @@ export interface SandboxesConfig {
   /** `NYLORUN_SANDBOX_HARNESS_IMAGE` (the stack sets it to the Runtime image). */
   harnessImage: string;
   /**
-   * Computers (ADR-149): `NYLORUN_SANDBOX_GATEWAY_URL`, the sandbox gateway, and
+   * Computers: `NYLORUN_SANDBOX_GATEWAY_URL`, the sandbox gateway, and
    * `NYLORUN_COMPUTER_TICKET_KEY_FILE`, the key core signs tickets with. With them, every pod
    * Agent is a computer: its runs go to the harness container.
    */
@@ -212,7 +211,7 @@ export interface SandboxesConfig {
 }
 
 /**
- * The engine in a pod sandbox (`--service harness` with `NYLORUN_SANDBOX_KIND=pod`, F7.2): no
+ * The engine in a pod sandbox (`--service harness` with `NYLORUN_SANDBOX_KIND=pod`): no
  * harness token; it joins with the join token mounted in the pod.
  */
 export interface PodHostConfig {
@@ -227,7 +226,7 @@ export interface PodHostConfig {
   /** `NYLORUN_EGRESS_PROXY`: egress-gate's address, or undefined while it is not published. */
   egressProxy?: string;
   /**
-   * `NYLORUN_SANDBOX_EGRESS_CA_FILE`: Agent Substrate's egress CA (ADR-142), which commands trust
+   * `NYLORUN_SANDBOX_EGRESS_CA_FILE`: Agent Substrate's egress CA, which commands trust
    * for the hosts whose keys Substrate's egress adds.
    */
   egressCaFile?: string;
@@ -269,7 +268,7 @@ export interface StackConfig {
   workloadToken?: { file?: string; origins?: string[] };
   /**
    * `NYLORUN_MODEL_HOST_IDENTITY`: the comma-separated providers whose models may use the Host's
-   * own identity (ADR-71, `vault/host-identity.ts`). Absent: none.
+   * own identity (`vault/host-identity.ts`). Absent: none.
    */
   modelHostIdentity?: string[];
   /**
@@ -284,7 +283,7 @@ export interface StackConfig {
   egress?: EgressConfig;
   /** Present when the process runs the harness service (`--service harness`). */
   harness?: HarnessServiceConfig;
-  /** `--service computer` (ADR-149): the engine in a computer. */
+  /** `--service computer`: the engine in a computer. */
   computer?: ComputerServiceConfig;
   /**
    * `NYLORUN_HARNESS` (`in-process` or `remote`; absent means `in-process`), for a process running
@@ -294,7 +293,7 @@ export interface StackConfig {
   harnessMode?: "in-process" | "remote";
   /** Present when `harnessMode` is `remote`, or with `sandboxes`: core's Harness API listener. */
   harnessListener?: HarnessListenConfig;
-  /** Present when the process runs core or loop and `NYLORUN_SANDBOXES_URL` is set (F7.2). */
+  /** Present when the process runs core or loop and `NYLORUN_SANDBOXES_URL` is set. */
   sandboxes?: SandboxesConfig;
   /**
    * Present when the process runs core or loop and `NYLORUN_GATES_URL` is set: its model calls,
@@ -305,7 +304,7 @@ export interface StackConfig {
   modelGate?: ModelGateEndpoint;
   /**
    * Present when the process runs core or loop and `NYLORUN_KEYS_URL`, or else
-   * `NYLORUN_GATES_URL`, is set (F4.2): its vault writes and token signing cross the gateway's
+   * `NYLORUN_GATES_URL`, is set: its vault writes and token signing cross the gateway's
    * keys service, with `NYLORUN_GATES_TOKEN`, and it never reads the vault key. A loop in a
    * container always has it, since it requires `NYLORUN_GATES_URL`.
    */
@@ -349,20 +348,20 @@ export interface StackConfig {
   /** Present when the process runs core or loop: who its Tenant is on first start. */
   tenant?: TenantSettings;
   /**
-   * The Object store (blueprint D35) behind the `BlobStore` seam's `s3` adapter, from
+   * The Object store behind the `BlobStore` seam's `s3` adapter, from
    * `NYLORUN_OBJECT_STORE_*`; the local stack's RustFS. Absent: the Tenant keeps blobs on disk
    * (the `fs` adapter, `TenantPaths.blobs`).
    */
   objectStore?: ObjectStoreConfig;
   /**
    * Present when the process runs core and an `OTEL_*` or `NYLORUN_TRACE_CONTENT` variable is set:
-   * how spans are made, for the trace projector and the trace route (R7.2, R7.5). `export` is
-   * present only with an endpoint (Q5): without one there is no replication slot and no cost.
+   * how spans are made, for the trace projector and the trace route. `export` is
+   * present only with an endpoint: without one there is no replication slot and no cost.
    */
   traces?: TraceConfig;
   /**
    * Present when the process runs core, loop or the gateway's services (gates, keys, egress): its
-   * live telemetry (ADR-159), which `host/main.ts` starts. Always present for those: metrics are
+   * live telemetry, which `host/main.ts` starts. Always present for those: metrics are
    * served on `/metrics` by default.
    */
   telemetry?: TelemetryConfig;
@@ -378,7 +377,7 @@ export interface StackConfig {
   tuning?: { values: HostTuning; overrides: Record<string, unknown> };
 }
 
-/** Traces (R7.2), from the standard `OTEL_*` variables. */
+/** Traces, from the standard `OTEL_*` variables. */
 export interface TraceConfig {
   /** `OTEL_SERVICE_NAME` (default `nylorun-runtime`) and `OTEL_RESOURCE_ATTRIBUTES`. */
   resource: TraceResource;
@@ -406,7 +405,7 @@ export interface ObjectStoreConfig {
 }
 
 /**
- * The Tenant a Host creates when its database holds none (tenancy.md §4). Later starts open the
+ * The Tenant a Host creates when its database holds none. Later starts open the
  * Tenant the database holds; only principals missing from it are added.
  */
 export interface TenantSettings {
@@ -801,7 +800,7 @@ function parseTuning(env: EnvSnapshot): StackConfig["tuning"] {
 }
 
 /**
- * `StackConfig.traces` (R7.2). The OTLP endpoint is the collector's base URL, to which
+ * `StackConfig.traces`. The OTLP endpoint is the collector's base URL, to which
  * `/v1/traces` is added; `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` is the full URL and wins. Headers
  * and resource attributes are `key=value` lists separated by commas, values percent-encoded (the
  * OTel SDK environment specification).
@@ -828,7 +827,7 @@ function parseTraces(env: EnvSnapshot, warnings: SettingWarning[]): TraceConfig 
 export const CAPTURE_CONTENT_VALUES = ["NO_CONTENT", "SPAN_ONLY", "EVENT_ONLY", "SPAN_AND_EVENT"] as const;
 
 /**
- * The content spans carry (ADR-159 §5), from `OTEL_INSTRUMENTATION_GENAI_CAPTURE_CONTENT`, read
+ * The content spans carry, from `OTEL_INSTRUMENTATION_GENAI_CAPTURE_CONTENT`, read
  * without regard to case: `NO_CONTENT` (the default) none, `SPAN_ONLY` every kind. The event forms
  * wait for OTLP logs: `EVENT_ONLY` acts as `NO_CONTENT` and `SPAN_AND_EVENT` as `SPAN_ONLY`, with a
  * warning; an unknown value is `NO_CONTENT`, with a warning, never a failed start.
@@ -921,7 +920,7 @@ function otlpTarget(env: EnvSnapshot, signal: "traces" | "metrics"): { url: stri
 const DEFAULT_OTLP_ENDPOINT = "http://localhost:4318";
 
 /**
- * `StackConfig.telemetry` (ADR-159). Metrics: `OTEL_METRICS_EXPORTER`, a comma list of
+ * `StackConfig.telemetry`. Metrics: `OTEL_METRICS_EXPORTER`, a comma list of
  * `prometheus`, `otlp` and `none` (default `prometheus`, and `otlp` too when an OTLP endpoint is
  * set; an unknown name is skipped with a warning). Prometheus listens on
  * `OTEL_EXPORTER_PROMETHEUS_HOST`:`OTEL_EXPORTER_PROMETHEUS_PORT` (default `0.0.0.0:9464`). Spans:
@@ -1074,7 +1073,7 @@ function parseWorkloadToken(env: EnvSnapshot): StackConfig["workloadToken"] {
   return { ...(file ? { file } : {}), ...(origins ? { origins } : {}) };
 }
 
-/** `StackConfig.modelHostIdentity` (ADR-71): each a provider that can use the Host's identity. */
+/** `StackConfig.modelHostIdentity`: each a provider that can use the Host's identity. */
 function parseModelHostIdentity(env: EnvSnapshot): StackConfig["modelHostIdentity"] {
   const raw = read(env, "NYLORUN_MODEL_HOST_IDENTITY");
   if (raw === undefined) return undefined;
@@ -1213,7 +1212,7 @@ function parseHarnessListener(env: EnvSnapshot, tokenRequired = true): HarnessLi
 const HARNESS_REFUSED = ["NYLORUN_DATABASE_URL", "NYLORUN_GATES_TOKEN", "NYLORUN_KEYS_URL"];
 
 /**
- * The engine in a computer (ADR-149), from the variables its template carries: the port, the
+ * The engine in a computer, from the variables its template carries: the port, the
  * ticket key's public half and the file with the actor's name. It holds no Runtime credential.
  */
 function parseComputerService(env: EnvSnapshot): ComputerServiceConfig {

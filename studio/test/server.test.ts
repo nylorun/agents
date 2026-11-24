@@ -775,7 +775,7 @@ test("configuration helpers validate the Runtime URL and admin key file", async 
   }
 });
 
-// --- Embedding (Studio §8) -------------------------------------------------------------------
+// --- Embedding -------------------------------------------------------------------
 
 const EMBEDDERS = ["nylorun://localhost", "http://nylorun.localhost"] as const;
 
@@ -1085,7 +1085,7 @@ test("the container entry refuses invalid configuration, naming the variable", a
   }
 });
 
-// --- forwarded sign-in (F9 S1) and allowed hosts ---------------------------------------------
+// --- forwarded sign-in and allowed hosts ---------------------------------------------
 
 const b64 = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64url");
 /** A JWT-shaped token; the fake Runtime's `me` map decides whether it is valid. */
@@ -1299,7 +1299,7 @@ test("parseAllowedHosts accepts host names with optional ports and refuses anyth
     assert.throws(() => parseAllowedHosts(bad), /is not a Host value/, bad);
 });
 
-test("Tenant › Traffic reads the Runtime's /metrics live, for this Tenant only (ADR-159)", async () => {
+test("Tenant › Traffic reads the Runtime's /metrics live, for this Tenant only", async () => {
   const metrics = createServer((req, res) => {
     res.setHeader("content-type", "text/plain");
     res.end(
@@ -1357,7 +1357,7 @@ test("Tenant › Traffic reads the Runtime's /metrics live, for this Tenant only
   }
 });
 
-// --- sign-ins on the Tenant's stream (ADR-159) ---------------------------------------------------
+// --- sign-ins on the Tenant's stream ---------------------------------------------------
 
 /** Waits for the sign-ins Studio records in the background. */
 async function signInsOf(runtime: { signIns: { authorization: string | undefined; body: unknown }[] }, count: number) {

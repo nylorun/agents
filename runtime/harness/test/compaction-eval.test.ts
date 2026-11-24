@@ -1,5 +1,5 @@
 /**
- * Compaction evaluation (Model Calls W1.5). Opt-in: it calls a real model.
+ * Compaction evaluation. Opt-in: it calls a real model.
  *
  * The harness makes no model call of its own, so the eval takes the model from a module whose
  * default export is a `ModelAdapter` (`@nylorun/core/define`): one over the Runtime's `piModel`

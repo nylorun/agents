@@ -137,8 +137,8 @@ func TestRenderImageEntrypoint(t *testing.T) {
 func TestNormalizeRefusesBuiltin(t *testing.T) {
 	spec := driver.Spec{OpID: "op", Mode: "Running", Image: "ghcr.io/nylorun/bot-worker:0.38.0-beta", Entrypoint: "builtin"}
 	var refusal *driver.Error
-	if err := spec.Normalize(); !errors.As(err, &refusal) || refusal.Status != http.StatusBadRequest || !strings.Contains(refusal.Message, "ADR-161") {
-		t.Fatalf("builtin is refused (ADR-161), got %v", err)
+	if err := spec.Normalize(); !errors.As(err, &refusal) || refusal.Status != http.StatusBadRequest || !strings.Contains(refusal.Message, "retired") {
+		t.Fatalf("builtin is refused, got %v", err)
 	}
 }
 

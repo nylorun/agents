@@ -41,7 +41,7 @@ export interface ReadStore {
     access: ReadAccess,
   ): Promise<ModelCallsPage>;
   exportModel(after: string | undefined, limit: number): Promise<ModelCallExportPage>;
-  /** A session's tool calls (R5.2), from the effect journal, in the order they were first sent. */
+  /** A session's tool calls, from the effect journal, in the order they were first sent. */
   toolCalls(
     id: string,
     turnId: string | undefined,
@@ -49,7 +49,7 @@ export interface ReadStore {
     access: ReadAccess,
   ): Promise<ToolCallsPage>;
   /**
-   * One turn's events (R7.5), in log order: the session's rows whose `turnId` is `turnId`. Empty
+   * One turn's events, in log order: the session's rows whose `turnId` is `turnId`. Empty
    * for a turn the session never had.
    */
   turnEvents(id: string, turnId: string, access: ReadAccess): Promise<LiveEvent[]>;

@@ -1,5 +1,5 @@
 /**
- * The run tokens of a harness process (F5, F6.2): the credential of its model and MCP calls at
+ * The run tokens of a harness process: the credential of its model and MCP calls at
  * the gates. Each comes with a run (the `lease` answer's grant) or a renewal (`lease.renew`);
  * the HTTP gate clients read a session's token on every request (`RunTokens`).
  *

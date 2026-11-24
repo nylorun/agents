@@ -34,7 +34,7 @@ import (
 // MaxWait bounds GET ?wait=.
 const MaxWait = 30 * time.Second
 
-// Backend runs the sandboxes: agent-sandbox's driver, or Substrate's (ADR-138).
+// Backend runs the sandboxes: agent-sandbox's driver, or Substrate's.
 type Backend interface {
 	Put(ctx context.Context, name string, spec driver.Spec) (driver.Status, error)
 	Delete(ctx context.Context, name string) (driver.Status, error)
@@ -72,7 +72,7 @@ type Info struct {
 	// Atespace and SubstrateVersion, with backend substrate.
 	Atespace         string `json:"atespace,omitempty"`
 	SubstrateVersion string `json:"substrateVersion,omitempty"`
-	// Computer says every sandbox is a computer (ADR-149): core sends its runs to the harness
+	// Computer says every sandbox is a computer: core sends its runs to the harness
 	// container and reaches its workspace through the sandbox gateway.
 	Computer bool `json:"computer,omitempty"`
 }

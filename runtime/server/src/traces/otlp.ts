@@ -1,13 +1,13 @@
 /**
- * OTLP/HTTP JSON (R7.2): the encoder of a batch of spans as `resourceSpans`, and the poster that
+ * OTLP/HTTP JSON: the encoder of a batch of spans as `resourceSpans`, and the poster that
  * delivers one to the collector's `/v1/traces`. Hand-built JSON, no OpenTelemetry SDK: the spans
  * are mapped from records (`map.ts`), not timed from live code.
  *
  * Delivery never holds the log back: a `429`, a `5xx` or a lost connection is tried again three
  * times with backoff, then the batch is dropped and logged (`trace_export_dropped`); any other
  * answer drops it at once, and its spans are counted on `nylorun.telemetry.dropped` (`signal`
- * `traces`, `exporter` `projector`, ADR-159). Either way `post` resolves, and the projector acknowledges the rows,
- * so a dead collector makes Postgres keep no WAL. The trace route (R7.5) re-reads any turn.
+ * `traces`, `exporter` `projector`). Either way `post` resolves, and the projector acknowledges the rows,
+ * so a dead collector makes Postgres keep no WAL. The trace route re-reads any turn.
  */
 import { RUNTIME_VERSION } from "../version.js";
 import { GENAI_SEMCONV, type OtlpKeyValue, type OtlpSpan } from "./map.js";
@@ -16,7 +16,7 @@ import { instruments } from "../telemetry/telemetry.js";
 
 /** What every batch says about its source: `OTEL_SERVICE_NAME` and `OTEL_RESOURCE_ATTRIBUTES`. */
 export interface TraceResource {
-  /** `service.name`; default `nylorun-runtime`, as the process's own telemetry (ADR-159). */
+  /** `service.name`; default `nylorun-runtime`, as the process's own telemetry. */
   readonly serviceName: string;
   /** More resource attributes, as `OTEL_RESOURCE_ATTRIBUTES` sets them. */
   readonly attributes?: Readonly<Record<string, string>>;

@@ -1,5 +1,5 @@
 /**
- * R2b C1 and C2, end to end over the Runtime API, with the credentials in Agents' vaults: header map credentials, gateway routing (`via`),
+ * MCP credentials, end to end over the Runtime API, with the credentials in Agents' vaults: header map credentials, gateway routing (`via`),
  * the identity header, and a `401` the model sees as `credential_rejected`, for remote MCP servers
  * and HTTP tools alike. With `NYLORUN_TEST_MODEL_GATE=http` the gates service makes every call
  * (`gates/tool-gate-credentials.test.ts`); otherwise the Tenant does, in process.
@@ -243,7 +243,7 @@ beforeAll(async () => {
   runtime = await startTestTenant({ applicationKey: APP, modelProvider: model });
   client = createClient({ url: runtime.url, key: runtime.applicationKey, tenant: runtime.tenantId });
   const input = z.object({ orderId: z.string() });
-  // A manifest header with a credential header's name loses to the credential (R2b C2). The
+  // A manifest header with a credential header's name loses to the credential. The
   // MCP servers name no credential: the vault's secret for their URL is theirs.
   await register(
     Agent({ id: "keyed" }).mcp({
@@ -425,7 +425,7 @@ describe("a credential with via (a gateway)", () => {
   });
 });
 
-describe("a 401 (R2b C1)", () => {
+describe("a 401", () => {
   it("gives the model credential_rejected for an MCP tool call, once, with a diagnostic", async () => {
     const result = await run(ADA, "locked__echo", "u:ada");
     expect(result.status).toBe("completed");

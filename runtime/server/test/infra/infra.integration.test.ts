@@ -61,7 +61,7 @@ describe.skipIf(!STACK_ENABLED)("infra factories on the test stack", () => {
     }
   });
 
-  it("stays ready with S2 unreachable (D48)", async () => {
+  it("stays ready with S2 unreachable", async () => {
     const port = await freePort();
     const infra = createInfra(
       stackConfig({ NYLORUN_S2_ENDPOINT: `http://127.0.0.1:${port}` }),

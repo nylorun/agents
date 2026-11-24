@@ -99,7 +99,7 @@ export async function putSession(
 
 /**
  * `putSession`'s work in transaction `t`: also how a trigger's first run opens the session it
- * names (track T4), in the run's transaction.
+ * names, in the run's transaction.
  */
 export async function openSessionIn(
   ctx: TenantContext,
@@ -128,12 +128,12 @@ export async function openSessionIn(
     ownerUserId: body.ownerUserId,
     opaque,
   });
-  // The version the Agent runs, both sections (T3): its loop manifest, harness and sandbox spec.
+  // The version the Agent runs, both sections: its loop manifest, harness and sandbox spec.
   const { pin, version } = await pinOf(t, agent);
   await checkSkillLimit(t, pin.manifest, agent);
   const config = await readSandboxConfig(t);
-  // Placement (D38, D52): where this session's harness may run, decided now and kept.
-  // A computer's harness runs in the harness container (ADR-149).
+  // Placement: where this session's harness may run, decided now and kept.
+  // A computer's harness runs in the harness container.
   checkPlacement(config, agent.kind, pin.harness, ctx.pods?.computer !== undefined);
   if (agent.kind === "pod") await requirePods(ctx.pods, `Agent ${agent.id}`);
   // The model the version names (`harness.model`, Host feature `agent-model`), or names for the

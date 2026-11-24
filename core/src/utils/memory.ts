@@ -24,7 +24,7 @@ export type MemoryAccess = (typeof MEMORY_ACCESS)[number];
 export const MEMORY_OPERATIONS = ["create", "str_replace", "insert", "delete", "rename"] as const;
 export type MemoryOperation = (typeof MEMORY_OPERATIONS)[number];
 
-// Control characters (C0, DEL, C1) and the backslash; a path holds neither.
+// Control characters (DEL) and the backslash; a path holds neither.
 const FORBIDDEN = /[\u0000-\u001f\u007f-\u009f\\]/;
 
 /**

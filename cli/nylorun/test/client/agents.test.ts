@@ -231,7 +231,7 @@ describe("nylorun agents", () => {
     }
   });
 
-  it("pins, tracks, plans a move, and restarts an Agent on its pending version (track T3)", async () => {
+  it("pins, tracks, plans a move, and restarts an Agent on its pending version", async () => {
     const { deps, fetch } = await running();
     expect(await agentsCommand(deps, ["pin", "user-7", "2"])).toBe(0);
     const pinned = fetch.requests.filter((item) => item.init?.method === "PUT" && item.url.includes("/v1/agents/user-7")).at(-1)!;

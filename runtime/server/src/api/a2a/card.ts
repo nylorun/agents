@@ -3,7 +3,7 @@
  * description and one skill, never its instructions, tools or MCP servers. Its one interface is
  * the Runtime's own JSON-RPC endpoint (A2A 1.0) at the URL the caller reached, or
  * `NYLORUN_PUBLIC_URL`; a gateway that publishes the card (the SDK's) lists its own URL,
- * provider and security schemes instead. Capabilities (profile v2 §3): no streaming, push
+ * provider and security schemes instead. Capabilities (profile v2): no streaming, push
  * notifications when the Runtime has a push secret, no extended card, and the profile's five
  * extensions, all optional.
  */

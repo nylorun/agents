@@ -1,5 +1,5 @@
 /**
- * The triggers capability (D83): an agent whose version declares `harness.engine.triggers` lists,
+ * The triggers capability: an agent whose version declares `harness.engine.triggers` lists,
  * creates and deletes its own triggers with the `triggers` tool, which the Runtime serves as a
  * `runtime` effect. Its rows are origin `agent`; they fire through the same door as a manifest's,
  * into the calling session (`this`) or one of their own (`<session>_t_<id>`). The Tenant's tool
@@ -41,9 +41,9 @@ const model: ModelProvider = async (effect) => {
     results.push(JSON.stringify(prompt.at(-1)));
     return { output: [{ type: "text", text: "done" }] };
   }
-  // A run under the nylorun-triggers plugin starts with its [trigger] line (ADR-106).
+  // A run under the nylorun-triggers plugin starts with its [trigger] line.
   const call = last?.match(/(?:^|\n)call (.*)$/s)?.[1];
-  // The plugin's tool is nylorun__triggers to the model (ADR-106).
+  // The plugin's tool is nylorun__triggers to the model.
   const name = (input.tools ?? []).some((tool) => tool.name === "nylorun__triggers") ? "nylorun__triggers" : "triggers";
   if (call) return { output: [{ type: "tool-call", id: `call-${calls.length}`, name, args: JSON.parse(call) }] };
   return { output: [{ type: "text", text: "ok" }] };
@@ -518,7 +518,7 @@ describe("the Tenant runs stream", () => {
   });
 });
 
-describe("the nylorun-triggers plugin (ADR-106)", () => {
+describe("the nylorun-triggers plugin", () => {
   const PLUGIN = { triggers: true, plugins: [{ name: "nylorun-triggers" as const, tools: ["triggers"], sha256: pluginOf("nylorun-triggers").sha256 }] };
 
   it("answers with the time, frames a run, and lets a triggered turn set a one-off follow-up, never a schedule", async () => {

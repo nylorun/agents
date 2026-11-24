@@ -1,5 +1,5 @@
 /**
- * R5 step 2: the Tenant's tool policy. The strictest matching rule decides, a call no rule
+ * The Tenant's tool policy. The strictest matching rule decides, a call no rule
  * matches runs, and every selector a rule sets must match. Protocol 15: a rule names a tool by
  * its identity (an MCP tool's own name on its server, an HTTP tool's declared name), never by the
  * name a harness gave the model; a stored rule that does refuses every call.
@@ -155,7 +155,7 @@ describe("a call as the policy reads it (protocol 15)", () => {
   });
 
   it("finds a pinned approval by the tool's identity", () => {
-    // A manifest saved before R5 step 2, as a pinned session keeps it.
+    // A manifest saved before the Tenant's tool policy, as a pinned session keeps it.
     const manifest = {
       manifestSchemaVersion: 7,
       id: "support",

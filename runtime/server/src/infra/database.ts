@@ -1,6 +1,6 @@
 /**
  * Builds the Host's Postgres connection pool from the stack configuration
- * (architecture §12.2, §14.5): the pool on the Tenant's database, for its bootstrap and its
+ *: the pool on the Tenant's database, for its bootstrap and its
  * Session Store; the Host ends it at shutdown. The driver stays behind
  * `store/postgres/connect.ts`.
  */

@@ -1,5 +1,5 @@
 /**
- * The stream relay (Durable Streams §7): feeds S2 from the record, exactly once and in order
+ * The stream relay: feeds S2 from the record, exactly once and in order
  * per session.
  *
  * - **Input.** Committed transactions from a `ChangeSource`, in commit order. The source

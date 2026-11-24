@@ -55,7 +55,7 @@ function model(verdicts: readonly object[] = [{ pass: true }], seen: Record<stri
           ],
         };
       case "shouter": {
-        // Its input is one Map item, `{ word }`, after the original request (D12).
+        // Its input is one Map item, `{ word }`, after the original request.
         const word = /"word":\s*"(\w+)"/.exec(messagesOf(effect).at(-1) ?? "")?.[1] ?? "?";
         return { output: [{ type: "json", value: { loud: word.toUpperCase() } }] };
       }
@@ -173,7 +173,7 @@ describe("workflow manifest v3, end to end", { timeout: 30_000 }, () => {
     expect(await client.agentManifests.list()).toEqual([]);
   });
 
-  it("shows a later agent the original request beside its own input (D12)", async () => {
+  it("shows a later agent the original request beside its own input", async () => {
     const seen: Record<string, string[]> = {};
     const desk = Agent({ id: "desk" })
       .pipe(Agent({ id: "drafter" }).instructions("Draft."), Agent({ id: "editor" }).instructions("Edit."))

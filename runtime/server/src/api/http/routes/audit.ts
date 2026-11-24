@@ -1,5 +1,5 @@
 /**
- * The Tenant's audit (`/v1/tenant/audit`, the Management API, ADR-159): its stream read newest
+ * The Tenant's audit (`/v1/tenant/audit`, the Management API): its stream read newest
  * first, and the one event a client writes, Studio's sign-in, which only Studio's own key may
  * record. Every other Tenant event is written by the change it records.
  */

@@ -27,7 +27,7 @@ const substrates = {
     "pg-logical-replication",
   ],
 };
-// The streams module (Durable Streams §7.6) depends only on its own contracts: it receives an
+// The streams module depends only on its own contracts: it receives an
 // already-authorized Tenant and session, never reaches into tenant, engine, API or store code.
 const moduleImports = {
   runtime: [
@@ -37,7 +37,7 @@ const moduleImports = {
       forbidden: ["tenant", "core", "api", "store", "host", "execution"],
       except: [],
     },
-    // The record module (blueprint D27) is the write path into the record. It runs its
+    // The record module is the write path into the record. It runs its
     // statements through the store's RecordWriter and never imports tenant, engine, API, gate
     // or stream code.
     {
@@ -45,7 +45,7 @@ const moduleImports = {
       forbidden: ["tenant", "core", "api", "host", "execution", "gates", "streams"],
       except: [],
     },
-    // A harness (F6, D37) runs the engine and its calls with what it is given: the executors
+    // A harness runs the engine and its calls with what it is given: the executors
     // and the Harness API. It reaches no store, record, key, vault, stream, execution, API or
     // infrastructure code, and never the provider adapter.
     {
@@ -56,7 +56,7 @@ const moduleImports = {
     },
   ],
 };
-// The provider adapter runs behind the Model Gate (blueprint §15): the loop calls the gate and
+// The provider adapter runs behind the Model Gate: the loop calls the gate and
 // never pi-ai, so it never holds a model credential. `node/` and `configuration.ts` re-export
 // the adapter for embedders.
 const restrictedModules = {
@@ -85,7 +85,7 @@ const recordInserts = {
 const httpFramework = {
   runtime: { packages: ["hono", "@hono/[^/\"']+", "@asteasolutions/[^/\"']+"], dirs: ["host", "api"] },
 };
-// The Session Store's driver and query builder stay behind store/postgres/ (session-store.md §3):
+// The Session Store's driver and query builder stay behind store/postgres/:
 // postgres.js and drizzle-orm are imported there only; drizzle-kit is a development tool and is
 // never imported by shipped code.
 const storeDriver = {
@@ -171,7 +171,7 @@ export function checkBoundaries(name) {
           inserts.dirs.some((dir) => inside.startsWith(`${dir}/`)) ||
           inserts.files.includes(inside.replace(/\.(?:d\.ts|ts|js)$/, ""));
         if (!allowed && inserts.pattern.test(source))
-          throw new Error(`${path} inserts into the record; only record/ may (blueprint D27)`);
+          throw new Error(`${path} inserts into the record; only record/ may`);
       }
       const store = storeDriver[name];
       if (store) {

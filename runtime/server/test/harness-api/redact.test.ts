@@ -1,5 +1,5 @@
 /**
- * The Runtime's own tokens never reach the record from what a harness reports (R4, HC14).
+ * The Runtime's own tokens never reach the record from what a harness reports.
  */
 import { describe, expect, it } from "vitest";
 import { REDACTED_TOKEN, redactTokens } from "../../src/harness-api/redact.js";

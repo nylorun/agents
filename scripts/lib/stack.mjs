@@ -390,7 +390,7 @@ const managementKeys = new Map();
 
 /**
  * The Host's one Tenant from `nylorun-operate status`, once it is open, with a key for the
- * checks: the application key `checks` (F9 I1), put with `nylorun tenant keys put checks` once per
+ * checks: the application key `checks`, put with `nylorun tenant keys put checks` once per
  * Tenant in this process and reused after. Putting it again would rotate it, and a linked
  * project's `project` key is never touched. It reaches the Runtime API only; `/v1/tenant/*`
  * takes the management key (`stack.managementKey()`, or `stack.tenant()` for both).

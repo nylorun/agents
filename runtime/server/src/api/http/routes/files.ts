@@ -1,5 +1,5 @@
 /**
- * Definition files (track R2 M4): `PUT /v1/files/sha256:{hex}` uploads one file a definition
+ * Definition files: `PUT /v1/files/sha256:{hex}` uploads one file a definition
  * names by its content hash (a skill's), `HEAD` says whether the Tenant holds it. Application
  * key only: definitions are the application's, not a person's. The Tenant's skill limit is
  * `GET`/`PUT /v1/tenant/skills`, a Management API route.

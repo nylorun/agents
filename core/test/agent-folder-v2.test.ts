@@ -39,7 +39,7 @@ const codes = (diagnostics: readonly AgentFolderDiagnostic[], severity: AgentFol
 const agent = (front: string, body = "Help.") => `---\nname: helper\ndescription: Helps.\n${front}---\n${body}\n`;
 const COMPUTER = JSON.stringify({ kind: "virtual" });
 
-describe("agent-folder/2 (ADR-100)", () => {
+describe("agent-folder/2", () => {
   it("keeps agent-folder/1, and a folder with no format, exactly as before", () => {
     const none = compile({ "AGENT.md": agent(""), "runtime.json": COMPUTER });
     const one = compile({ "AGENT.md": agent("format: agent-folder/1\n"), "runtime.json": COMPUTER });

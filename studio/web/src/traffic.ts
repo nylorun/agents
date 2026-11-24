@@ -1,5 +1,5 @@
 /**
- * Tenant › Traffic (ADR-159): the Runtime's own metrics, as the Studio server read them from each
+ * Tenant › Traffic: the Runtime's own metrics, as the Studio server read them from each
  * process's `/metrics`, turned into rows. OpenTelemetry names, Prometheus spelling: a name's dots
  * are underscores and counters end `_total`; the Runtime's exporter adds no unit suffix, and one a
  * Prometheus server adds (`_seconds`) is read the same. Counts are since each

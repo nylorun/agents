@@ -1,5 +1,5 @@
 /**
- * A pod Environment's lifecycle as a pure decision (F7.2, D34, protocol 11): create, ready,
+ * A pod Environment's lifecycle as a pure decision (protocol 11): create, ready,
  * failed, idle, lost, delete and reset's retiring Sandbox. No TTL: an unused Environment is
  * deleted by the Tenant sweep (`lifecycle.deleteAfter`), not here.
  */
@@ -127,7 +127,7 @@ describe("pod lifecycle", () => {
   });
 
   it("runs the idle period from when a slow start became ready, not from the ask", () => {
-    // P1.8 rerun: a 56 s start on a cold node was suspended as idle 3.6 s after it ran.
+    // A 56 s start on a cold node was once suspended as idle 3.6 s after it ran.
     const asked = row({ observed: "creating", lastActiveAt: new Date(T0).toISOString() });
     const ready = decide(facts({ row: asked, now: T0 + 56_000 }));
     expect(ready.patch).toMatchObject({ observed: "running", lastActiveAt: new Date(T0 + 56_000).toISOString() });
@@ -286,7 +286,7 @@ describe("pod lifecycle", () => {
     expect(decision.retryAfterMs).toBeGreaterThan(0);
   });
 
-  it("pins the image the first ready pod runs by digest, and runs that digest from then on (Q14)", () => {
+  it("pins the image the first ready pod runs by digest, and runs that digest from then on", () => {
     const pulled = `docker.io/library/python@sha256:${"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}`;
     expect(imageDigestOf(pulled, "python:3.13-slim")).toBe(pulled);
     expect(imageDigestOf(`docker-pullable://${pulled}`, "python:3.13-slim")).toBe(pulled);
@@ -306,7 +306,7 @@ describe("pod lifecycle", () => {
       harnessImage: "ghcr.io/nylorun/runtime:0.15",
     });
     expect(spec.image).toBe(pulled);
-    // The resolved network rides along for the Substrate backend (ADR-138).
+    // The resolved network rides along for the Substrate backend.
     expect(spec.network).toMatchObject({ preset: "dev", suffixes: [] });
     expect(spec.network?.hosts).toContain("pypi.org");
     const open = podSpecOf({
@@ -320,7 +320,7 @@ describe("pod lifecycle", () => {
     expect(open.network).toEqual({ preset: "open", hosts: ["api.acme.dev"], suffixes: [".example.com"] });
   });
 
-  it("copies the engine into every image, and a custom harness keeps its own entrypoint (ADR-161)", () => {
+  it("copies the engine into every image, and a custom harness keeps its own entrypoint", () => {
     const repo = "ghcr.io/nylorun/bot-worker";
     const digest = `${repo}@sha256:${"c".repeat(64)}`;
     const input = {
@@ -337,7 +337,7 @@ describe("pod lifecycle", () => {
     expect(pinned).toMatchObject({ image: digest, harnessImage: "ghcr.io/nylorun/runtime:0.38.0-beta" });
     expect(pinned).not.toHaveProperty("entrypoint");
     expect(podSpecOf({ ...input, harness: "acme", pod: row().pod }).entrypoint).toBe("image");
-    // A computer runs our engine whatever harness drives it (ADR-149): the harness runs outside.
+    // A computer runs our engine whatever harness drives it: the harness runs outside.
     const computer = podSpecOf({ ...input, config: {}, harness: "acme", computer: true, pod: row().pod });
     expect(computer).not.toHaveProperty("entrypoint");
     expect(computer).toMatchObject({ harnessImage: "ghcr.io/nylorun/runtime:0.38.0-beta" });

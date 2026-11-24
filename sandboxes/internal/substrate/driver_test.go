@@ -694,7 +694,7 @@ func TestFakeRefusesARepointThatChangesTheEngine(t *testing.T) {
 		t.Fatal(err)
 	}
 	r.wait(t, "suspended")
-	// The template the Runtime upgrade renders, as the driver did before it kept the engine (E12).
+	// The template the Runtime upgrade renders, as the driver did before it kept the engine.
 	rendered, err := RenderTemplate(settings(), func() driver.Spec { s := upgraded("op-2"); _ = s.Normalize(); return s }(),
 		Resolved{Image: "python:3.13-slim@sha256:x", Harness: "ghcr.io/nylorun/runtime@sha256:" + strings.Repeat("b", 64)}, "join-token-1")
 	if err != nil {
@@ -938,7 +938,7 @@ func (b *lockedBuffer) lines(msg string) []map[string]any {
 	return found
 }
 
-// Each suspend is logged with its time, or its error (ADR-154 D1): the computers report reads them.
+// Each suspend is logged with its time, or its error: the computers report reads them.
 func TestSuspendIsLogged(t *testing.T) {
 	r := newRig(t)
 	logs := &lockedBuffer{}

@@ -1,5 +1,5 @@
 /**
- * The `keys` service's route on the gateway's listener (F4.2, `contract.ts`): one operation of
+ * The `keys` service's route on the gateway's listener (`contract.ts`): one operation of
  * `Keys` per request, run with the vault key of the gateway's Tenant. Errors keep their status,
  * code and details. Logs the operation, its outcome and an internal failure's cause, never an
  * argument or a result.
@@ -16,7 +16,7 @@ import { KEYS_OPERATIONS, type Keys, type KeysOperation } from "../../keys/keys.
 export function mountKeysRoutes<E extends Env>(
   app: Hono<E>,
   options: {
-    /** Core's credential: no run token reaches the keys (F5). */
+    /** Core's credential: no run token reaches the keys. */
     readonly authorized: MiddlewareHandler<E>;
     /** The gateway's Tenant's keys; rejects when the Tenant is not ready. */
     readonly keys: () => Promise<Keys>;

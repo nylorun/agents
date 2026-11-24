@@ -1,11 +1,11 @@
 /**
- * The example harness (`examples/harness-minimal`, R4.8), written only against
+ * The example harness (`examples/harness-minimal`), written only against
  * `@nylorun/core/harness-api`, runs turns on a real Runtime beside ours: a custom harness runs
  * from its pod's image (protocol 16), so each pod Agent whose manifest names `minimal`
  * (`harness.id`) gets the example in its pod mode, which joins with the pod's join token and
  * connects over the Harness API's WebSocket with its host token, and says `hello` as `minimal`;
  * our harness (a harness service over a loopback WebSocket) stays connected. Sessions on those
- * Agents run on the example, the others on ours (R4.1). Its model
+ * Agents run on the example, the others on ours. Its model
  * calls go through the Model Gate on the fixture model, metered there, and its bash calls are
  * journaled like ours. A harness built from the Harness API is held to what ours is: one run per
  * turn, effect ids keyed by turn and segment, cancels within 2 s, a restart that replays its
@@ -191,7 +191,7 @@ it("completes fixture turns on the example beside ours, each harness serving its
   });
   const assistant = first.find((item) => item.type === "message.assistant");
   expect(assistant?.payload).toMatchObject({ text: "fixture ok" });
-  // The example wrote it: the log says so (R4.9).
+  // The example wrote it: the log says so.
   expect(assistant).toMatchObject({ source: { kind: "harness", id: "minimal" }, evidence: "claimed" });
   const calls = (await api(runtime, "GET", "/v1/sessions/s1/calls/model")).body.calls;
   expect(calls).toHaveLength(1);

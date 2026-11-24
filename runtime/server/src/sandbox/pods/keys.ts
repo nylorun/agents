@@ -1,5 +1,5 @@
 /**
- * The hosts a pod sandbox has a key for (ADR-142), as the sandboxes service renders them on Agent
+ * The hosts a pod sandbox has a key for, as the sandboxes service renders them on Agent
  * Substrate: an https rule per host whose header Substrate's egress asks the keys provider for.
  * agent-sandbox ignores them (egress-gate adds keys there).
  *

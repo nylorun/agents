@@ -1,5 +1,5 @@
 /**
- * ADR-71: a model may use the Host's identity. A `host_identity` credential for `google-vertex`
+ * A model may use the Host's identity. A `host_identity` credential for `google-vertex`
  * keeps no secret, only the project and location. The Model Gate calls Agent Platform with Google's
  * Application Default Credentials, and only while the operator lends them
  * (`NYLORUN_MODEL_HOST_IDENTITY`). The Tenant's routes are in `host-identity-tenant.test.ts`.

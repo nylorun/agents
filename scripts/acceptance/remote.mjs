@@ -1,5 +1,5 @@
 /**
- * Remote access check (Phase 2, W2.3): an app server on this machine reaching a
+ * Remote access check: an app server on this machine reaching a
  * Runtime on another machine through its reverse proxy, as DEPLOYMENT.md
  * "Reaching the Runtime from another machine" sets it up.
  *
@@ -169,7 +169,7 @@ async function r1() {
 /**
  * The fixture model calls lookup_order on a turn's first step, then answers. The tool is an
  * HTTP tool of `service` (this machine), reached through the tunnel; the Tenant's tool policy
- * holds each call for approval (R5 step 2).
+ * holds each call for approval.
  */
 function checkAgent(service) {
   return Agent({ id: "remote-check", name: "Remote check" })
@@ -218,7 +218,7 @@ async function main() {
   try {
     await client.agentManifests.save({ agent });
     await client.agents.put(agentId, { manifest: agent.id });
-    // Each lookup waits for a person (R5 step 2): the Tenant's tool policy, with the management key.
+    // Each lookup waits for a person: the Tenant's tool policy, with the management key.
     const policy = await fetch(`${url}/v1/tenant/tool-policy`, {
       method: "PUT",
       headers: runtimeHeaders({ "content-type": "application/json" }, managementKey),

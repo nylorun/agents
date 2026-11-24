@@ -140,7 +140,7 @@ describe("RunTranslator", () => {
     ]);
   });
 
-  it("skips a step that said nothing, which is in the log for its timing (R7.1)", () => {
+  it("skips a step that said nothing, which is in the log for its timing", () => {
     const t = new RunTranslator("t1", "r1");
     const empty = event("message.assistant", {
       invocationId: "inv_e",
@@ -214,7 +214,7 @@ describe("messagesFromEvents", () => {
     ]);
   });
 
-  it("skips a step that said nothing (R7.1)", () => {
+  it("skips a step that said nothing", () => {
     expect(
       messagesFromEvents([
         event("command.message", { type: "message", idempotencyKey: "m1", content: "hi" }),

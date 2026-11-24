@@ -92,7 +92,7 @@ export function interactionOf(raw: unknown): PendingInteraction | undefined {
       : "question";
   let detail: Record<string, unknown> | undefined;
   if (engineKind === "approval" && kind === "approval") {
-    // A held tool call names its tool; its arguments stay with the Runtime (profile v2 §1).
+    // A held tool call names its tool; its arguments stay with the Runtime (profile v2).
     const held = Object.fromEntries(
       (["server", "tool", "reason"] as const).flatMap((key) =>
         typeof raw[key] === "string" ? [[key, raw[key]]] : []
@@ -126,7 +126,7 @@ export function pendingInteraction(session: SessionSnapshot): PendingInteraction
   return pendingInteractions(session)[0];
 }
 
-/** The state a task waiting on `interaction` is in (profile v2 §1). */
+/** The state a task waiting on `interaction` is in (profile v2). */
 export function interruptedState(interaction: PendingInteraction): TaskState {
   return interaction.kind === "question" ? "TASK_STATE_INPUT_REQUIRED" : "TASK_STATE_AUTH_REQUIRED";
 }
@@ -220,7 +220,7 @@ export function historyOf(events: readonly LiveEvent[], contextId: string, taskI
         break;
       case "message.assistant":
         // Agents used as tools speak inside the turn; only the agent's own words are history. A
-        // step that said nothing (`text: ""`, R7.1) is none.
+        // step that said nothing (`text: ""`) is none.
         if (!payload.agent && typeof payload.text === "string" && payload.text.trim() !== "")
           add(event.eventId, "ROLE_AGENT", [{ text: payload.text }]);
         break;
@@ -322,13 +322,13 @@ export function fileUrl(baseUrl: string | undefined, artifactId: string, version
 /**
  * The A2A artifact of a file the turn wrote (`artifact.created`, `artifact.version.created`), with
  * `files/v1`, or undefined for the caller's own uploads and for a file stored only for the model
- * (ADR-139). A folder is served as its zip.
+ *. A folder is served as its zip.
  */
 export function fileArtifact(payload: unknown, baseUrl: string | undefined): Artifact | undefined {
   if (!isRecord(payload) || typeof payload.artifactId !== "string" || typeof payload.name !== "string")
     return undefined;
   if (payload.source === "upload") return undefined;
-  // A file stored only for the model to see (ADR-139) is no output of the task.
+  // A file stored only for the model to see is no output of the task.
   if (payload.audience === "model") return undefined;
   const version = Number(payload.version);
   const folder = payload.kind === "folder";
@@ -368,7 +368,7 @@ function outputArtifact(output: unknown): Artifact | undefined {
  * The single translator from session events to A2A updates (profile v2, pushes): what one event
  * of the task's turn changes, as `StreamResponse`s. Every status update carries the event's time
  * as `status.timestamp`; clients order by it. Tool calls, arguments, results and delegations
- * never show (profile v2 §1): only states, step text, plans, interactions, files and the end.
+ * never show (profile v2): only states, step text, plans, interactions, files and the end.
  */
 export function updatesOf(event: LiveEvent, view: TaskView): StreamResponse[] {
   const { contextId, taskId } = view;
@@ -397,7 +397,7 @@ export function updatesOf(event: LiveEvent, view: TaskView): StreamResponse[] {
       return progress ? [status("TASK_STATE_WORKING", { metadata: { [A2A_EXTENSIONS.progress]: progress } })] : [];
     }
     case "environment.state":
-      // A computer waking for the task's first command, and ready (ADR-154 R3): a client shows
+      // A computer waking for the task's first command, and ready: a client shows
       // the wait. Other backends' states, and a computer stopping, aren't the caller's concern.
       return payload.backend === "computer" && (payload.state === "creating" || payload.state === "running")
         ? [status("TASK_STATE_WORKING", { metadata: { "environment.state": { state: payload.state, backend: "computer" } } })]
@@ -570,7 +570,7 @@ export function buildTask(input: BuildTaskInput): Task | undefined {
 }
 
 /**
- * A queued message's task while it waits (profile v2 §1): `SUBMITTED` since `queuedAt` (its
+ * A queued message's task while it waits (profile v2): `SUBMITTED` since `queuedAt` (its
  * `message.queued` event's time, or its queue row's), until a turn takes it.
  */
 export function submittedTask(contextId: string, taskId: string, queuedAt: string): Task {

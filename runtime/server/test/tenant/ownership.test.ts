@@ -1,6 +1,5 @@
 /**
- * Ownership and the Durable Execution seam on a real Tenant runtime (on Postgres; architecture
- * §10.5–10.6, §11.4, §17): racing advances, takeover, stale owners, duplicate wakes, and
+ * Ownership and the Durable Execution seam on a real Tenant runtime (on Postgres): racing advances, takeover, stale owners, duplicate wakes, and
  * wakes whose send failed or was cut off after commit, delivered from the wake outbox.
  */
 import { rm } from "node:fs/promises";

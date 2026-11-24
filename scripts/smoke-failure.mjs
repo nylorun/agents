@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Failures around a model call on a real `nylorun start` Tenant: a Worker killed
-// during a model effect (Runtime architecture §11.4 and §17, case 3), and the
-// Model Gate's hop (the gateway container, blueprint P1.1):
+// during a model effect, and the
+// Model Gate's hop (the gateway container):
 //
 //   node scripts/smoke-failure.mjs      # npm run test:failure
 //
@@ -16,17 +16,17 @@
 // 2. A turn starts; its model effect is committed as `invoking` and the call
 //    reaches the stub, which holds it.
 // 3. `docker compose kill runtime` mid-call, then `docker compose start runtime`.
-//    The gateway keeps the call (it is keyed by the effect id, P1.2).
+//    The gateway keeps the call (it is keyed by the effect id).
 // 4. Restate retries the advance on the restarted Runtime, which takes the
 //    session over once the dead Worker's lease lapses, re-sends the journaled
 //    call and joins it: the turn completes, nothing is `uncertain`, and the stub
 //    saw one call.
-//    The harness (F6.2) runs the turn and connects again to the restarted Runtime.
+//    The harness runs the turn and connects again to the restarted Runtime.
 // 5. The same for a graceful stop (SIGTERM) mid-call.
 // 5a. The harness killed (kill -9) mid model call: the gateway keeps the call; the
 //     restarted harness re-sends and joins it, so the stub saw one call.
 // 5b. The harness killed mid `bash`: a sandbox call has no key to dedupe on, so it
-//     fails to the model as `tool.interrupted` and is never run again (R5); the
+//     fails to the model as `tool.interrupted` and is never run again; the
 //     turn completes.
 // 6. Every call crossed the gateway (one model_call line per call); the
 //    runtime runs with the gate.
@@ -35,17 +35,17 @@
 // 8. Gateway killed mid-call: the same, and the stub's request is closed.
 // 9. Cancel mid-call: the stub sees its request aborted within 2 s.
 // 10. The gateway refuses a caller without the Host root's gateway token, a run
-//     token on the keys route, and core's credential on a model call (F5).
-// 11. A budget's cap is reached (P1.3): the turn fails with
+//     token on the keys route, and core's credential on a model call.
+// 11. A budget's cap is reached: the turn fails with
 //     model.budget_exhausted and the stub sees no call.
-// 12. A remote MCP call through the Tool Gate (F4.1): a stub MCP server holds
+// 12. A remote MCP call through the Tool Gate: a stub MCP server holds
 //     `slow`; `docker compose kill runtime` mid-call, then start it. The gateway
 //     keeps the call, the restarted Runtime re-sends and joins it: the turn
 //     completes, nothing is uncertain, and the server ran the tool once. The
 //     gateway logged the call (mcp_request); the runtime never did.
 // 13. Runtime and gateway both killed mid MCP call: the restarted gateway finds
 //     the call's crossing without an answer and runs it again under the same key
-//     (R5), sent to the server in `_meta`; the turn completes, nothing uncertain.
+//, sent to the server in `_meta`; the turn completes, nothing uncertain.
 //
 // The Tenant is always reset at the end.
 import assert from "node:assert/strict";
@@ -62,9 +62,9 @@ import { startStubModel } from "./lib/stub-model.mjs";
 
 
 /**
- * The stub MCP server (F4.1), run with `node -e` in the Runtime image: Streamable HTTP with JSON
+ * The stub MCP server, run with `node -e` in the Runtime image: Streamable HTTP with JSON
  * answers, one tool `slow` that holds every call until released. It counts calls, and lists
- * each call's idempotency key (R5) at `GET /keys`.
+ * each call's idempotency key at `GET /keys`.
  */
 const STUB_MCP = String.raw`
 const http = require("node:http");
@@ -157,7 +157,7 @@ const types = (history) => history.items.map((item) => item.type);
 const count = (history, type) => types(history).filter((t) => t === type).length;
 /**
  * The history once it holds `n` events of `type`. `/items` reads the session's stream, which
- * the relay feeds from the record after commit (Durable Streams §7, §9.4), so it can trail the
+ * the relay feeds from the record after commit, so it can trail the
  * session view, most after a restart. The relay keeps a session's order: what the record holds
  * before that event is in the history too.
  */
@@ -231,8 +231,8 @@ try {
       assert.ok(owner, "a Worker owns the session");
       console.log(`[failure] model call in flight under ${owner} (${elapsed()})`);
 
-      // Kill the Runtime mid-call: the gateway keeps the call, keyed by the effect id (P1.2).
-      // The harness (F6.2) runs the turn; it stays up and connects again.
+      // Kill the Runtime mid-call: the gateway keeps the call, keyed by the effect id.
+      // The harness runs the turn; it stays up and connects again.
       const harnessStarted = () =>
         docker(["inspect", "--format", "{{.State.StartedAt}} {{.RestartCount}}", `${stack.project}-harness`]);
       const harnessBefore = await harnessStarted();
@@ -308,7 +308,7 @@ try {
       assert.deepEqual(await stub(), { calls: 2, held: 0, aborted: 0 }, "one call per turn");
       console.log(`[failure] graceful stop mid-call: recovered with one provider call (${elapsed()})`);
 
-      // 5a. The harness (F6.2) killed mid model call: core loses the connection, the gateway
+      // 5a. The harness killed mid model call: core loses the connection, the gateway
       // keeps the call; the restarted harness re-sends it and joins it. One provider call.
       const harnessHealthy = () =>
         eventually(
@@ -347,7 +347,7 @@ try {
 
       // 5b. The harness killed mid `bash`: the workspace call is lost with it. A sandbox call has
       // no key to dedupe on, so it fails to the model as `tool.interrupted` at once and is never
-      // run again (R5); the model answers and the turn completes. Nothing is uncertain.
+      // run again; the model answers and the turn completes. Nothing is uncertain.
       await putAgent("sandboxed", {}, { kind: "virtual" });
       await request(runtimeUrl, tenant, "/v1/sessions/s3", {
         method: "PUT",
@@ -487,7 +487,7 @@ try {
         "fetch('http://gateway:4100/nylorun/v1/model-calls',{method:'POST',headers:{authorization:'Bearer '+'00'.repeat(32)}}).then(r=>console.log(r.status))",
       ]);
       assert.equal(refused.trim(), "401", "a wrong gates token is refused");
-      // Two credentials (F5): a run token, signed by the Tenant's key as core mints one, never
+      // Two credentials: a run token, signed by the Tenant's key as core mints one, never
       // reaches the keys; core's credential never calls the model.
       const crossed = await stack.compose([
         "exec", "-T", "-e", `SMOKE_TENANT=${tenant.id}`, "runtime", "node", "--input-type=module", "-e",
@@ -527,7 +527,7 @@ try {
       console.log(`[failure] a reached cap fails the turn with model.budget_exhausted (${elapsed()})`);
       console.log(`[failure] Model Gate cases passed (${elapsed()})`);
 
-      // 12. A remote MCP call through the Tool Gate (F4.1), held by the stub MCP server.
+      // 12. A remote MCP call through the Tool Gate, held by the stub MCP server.
       await docker([
         "run", "--detach", "--rm",
         "--name", mcpName,
@@ -592,7 +592,7 @@ try {
       console.log(`[failure] kill -9 mid MCP call: recovered with one tool run (${elapsed()})`);
 
       // 13. Runtime and gateway both killed mid MCP call: the call is lost with the gateway, so
-      // the restarted gateway runs it again under the same key (R5), and the turn completes.
+      // the restarted gateway runs it again under the same key, and the turn completes.
       await fetch(`http://${mcpPublished}/hold`, { method: "POST" });
       await toolMessage(2);
       await eventually(async () => (await mcpStub()).held === 1, {

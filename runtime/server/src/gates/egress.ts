@@ -1,5 +1,5 @@
 /**
- * egress-gate (F7.2, D42): the only way out of a pod sandbox to the internet. A CONNECT proxy in
+ * egress-gate: the only way out of a pod sandbox to the internet. A CONNECT proxy in
  * the gateway (`--service egress`, port 4200) that opens a TCP tunnel to a host the sandbox's spec
  * allows (`network.allow`), and nothing else. Pods reach it through `HTTPS_PROXY`/`HTTP_PROXY`
  * with their egress token as the proxy credential; NetworkPolicy lets them reach nothing but this
@@ -20,10 +20,10 @@
  * 6. the gate connects to that checked address (never to the name again) and pipes.
  *
  * On port 443 the tunnel waits for the client's TLS ClientHello and refuses it, closing the tunnel,
- * when its server name (SNI) isn't the CONNECT host, is missing, or the bytes aren't TLS (ADR-92
- * §11): a tunnel to an allowed host can't ask a shared front end for another one.
+ * when its server name (SNI) isn't the CONNECT host, is missing, or the bytes aren't TLS:
+ * a tunnel to an allowed host can't ask a shared front end for another one.
  *
- * A tunnel is opaque bytes, with two exceptions. First (R2c, D50): port 443 of a host that an
+ * A tunnel is opaque bytes, with two exceptions. First: port 443 of a host that an
  * `environment_secret` of a live session on the sandbox is bound to. There the gate terminates
  * TLS and sets the credential's header on every request (`egress-credentials.ts`), still sending
  * only to the checked address. Second, port 443 of a host the credential provider lists
@@ -33,17 +33,17 @@
  * included) is answered 405. Refusals are logged; the token
  * never is. Tunnels close after `idleMs` without traffic in either direction.
  *
- * Every connection to a named host on a live token is recorded once (R7.3, D67), when it closes
+ * Every connection to a named host on a live token is recorded once, when it closes
  * or at once when the gate refuses it, as `agent.egress` on the Environment's own stream:
  * the connection is the Environment's, since its token names the pod and turns run in parallel
- * (D66). `runningTurns` lists the turns active on the Environment as it opened, as context and
+ *. `runningTurns` lists the turns active on the Environment as it opened, as context and
  * never as an owner: one read, started as the name resolves and never waited for, so a turn that
  * moves while it is in flight may show either way. Host, port, outcome, bytes, duration and, for a
  * credential host, the request count and credential ids; never a header value, a path or a body. A refusal
  * before that (no token, a stale one, no `host:port`) stays a log line, and a client that hangs up
  * before the gate answers leaves nothing. A write never holds the tunnel up, and a failed one is
  * logged (`egress_record_failed`). Every connection, those refusals included, is also counted for
- * operators (`nylorun.egress.connections`, `nylorun.egress.bytes`, ADR-159); egress has no span.
+ * operators (`nylorun.egress.connections`, `nylorun.egress.bytes`); egress has no span.
  */
 import { lookup as dnsLookup } from "node:dns/promises";
 import { createServer, type IncomingMessage, type Server } from "node:http";
@@ -92,7 +92,7 @@ export interface EgressSandboxes {
   >;
 }
 
-/** One connection's record (R7.3, D67): `agent.egress`'s payload. */
+/** One connection's record: `agent.egress`'s payload. */
 export type EgressConnection = AgentEventPayload<"agent.egress">;
 
 /**
@@ -102,7 +102,7 @@ export type EgressConnection = AgentEventPayload<"agent.egress">;
  */
 export const EGRESS_RUNNING_TURNS_MAX = 16;
 
-/** Where egress-gate records connections (R7.3, D67). */
+/** Where egress-gate records connections. */
 export interface EgressRecord {
   /** The turns active on the Environment now, at most `EGRESS_RUNNING_TURNS_MAX`. */
   runningTurns(environmentId: string): Promise<readonly EgressRunningTurn[]>;
@@ -135,9 +135,9 @@ export interface StartEgressGateOptions {
   readonly blocked?: (address: string) => boolean;
   /** Tests replace how the checked address is dialled. */
   readonly dial?: (address: string, port: number) => Socket;
-  /** The vault and keys, for hosts an `environment_secret` is bound to (R2c). None: tunnels only. */
+  /** The vault and keys, for hosts an `environment_secret` is bound to. None: tunnels only. */
   readonly credentials?: EgressCredentials;
-  /** Where connections are recorded (R7.3). None: they are only logged. */
+  /** Where connections are recorded. None: they are only logged. */
   readonly record?: EgressRecord;
   /**
    * The outside credential provider (`NYLORUN_CREDENTIAL_PROVIDER_URL`): the hosts it lists for an
@@ -145,8 +145,8 @@ export interface StartEgressGateOptions {
    */
   readonly provider?: CredentialProvider;
   /**
-   * NYLORUN_EGRESS_KEYS_TOKEN: the keys provider's token for the decide route (ADR-142,
-   * `egress-decide.ts`). None: the route is off.
+   * NYLORUN_EGRESS_KEYS_TOKEN: the keys provider's token for the decide route
+   * (`egress-decide.ts`). None: the route is off.
    */
   readonly keysToken?: string;
 }
@@ -254,7 +254,7 @@ function answer(socket: Duplex, status: number, message: string, headers: string
 const counted = new WeakSet<Duplex>();
 
 /**
- * A connection's metrics (ADR-159; no span, D67): `nylorun.egress.connections` with
+ * A connection's metrics (no span): `nylorun.egress.connections` with
  * `nylorun.egress.outcome` (`allowed`, `refused`) and, for a refusal, `nylorun.egress.reason`;
  * and, for an allowed one, `nylorun.egress.bytes` each way (`network.io.direction` `transmit`
  * up from the sandbox, `receive` down to it). Counted once per connection, as it ends.
@@ -278,7 +278,7 @@ function countEgress(
 }
 
 /**
- * One connection's record (R7.3): written once, at a refusal or at the close, after the answer
+ * One connection's record: written once, at a refusal or at the close, after the answer
  * and off the tunnel's path. The running turns are read once, started when `opened()` is first
  * called, as the connection opens, and kept for the write; the tunnel never waits for the read.
  */
@@ -286,7 +286,7 @@ interface ConnectionRecord {
   opened(): void;
   refused(status: number, reason: string): void;
   closed(tally?: EgressTally): void;
-  /** A host an `environment_secret` is bound to: the gate terminates TLS (R2c). */
+  /** A host an `environment_secret` is bound to: the gate terminates TLS. */
   credentialBound: boolean;
 }
 
@@ -403,7 +403,7 @@ export async function startEgressGate(options: StartEgressGateOptions): Promise<
   ): Promise<boolean> {
     if (!provider || port !== 443 || sandbox.owner === undefined) return false;
     if (sandbox.ceiling && !withinCeiling(host, sandbox.ceiling)) return false;
-    // An exact name or a `*.suffix` pattern, matched as `network.allow`'s are (v0.26 TM-E1).
+    // An exact name or a `*.suffix` pattern, matched as `network.allow`'s are.
     return egressAllows(host, await provider.hosts(sandboxId, sandbox.owner));
   }
   const open = new Map<string, Set<Duplex>>();
@@ -519,7 +519,7 @@ export async function startEgressGate(options: StartEgressGateOptions): Promise<
     });
     client.write(CONNECT_ESTABLISHED);
     if (port === 443) {
-      // The server name the client asks for must be the host it was allowed (ADR-92 §11).
+      // The server name the client asks for must be the host it was allowed.
       const hello = await clientHello(client, head, options.helloMs ?? 15_000);
       if (hello.serverName !== host.toLowerCase()) {
         const reason = hello.serverName === undefined ? `sni_${hello.problem ?? "missing"}` : "sni_mismatch";
@@ -599,7 +599,7 @@ export async function startEgressGate(options: StartEgressGateOptions): Promise<
     return undefined;
   }
 
-  // Agent Substrate's keys provider asks here what to add to a keyed request (ADR-142).
+  // Agent Substrate's keys provider asks here what to add to a keyed request.
   const decideRoute = egressDecideHandler({
     ...(options.keysToken ? { token: options.keysToken } : {}),
     sandboxes: { live: (sandboxId) => sandboxes.live(sandboxId) },
@@ -673,7 +673,7 @@ export function storeEgressSandboxes(store: SessionStore): EgressSandboxes {
           epoch: pod.hostEpoch,
           ...(pod.podUid ? { podUid: pod.podUid } : {}),
           name: pod.k8sName,
-          // The applied allowlist: a recipe change writes it at once (Q8).
+          // The applied allowlist: a recipe change writes it at once.
           allow: sandbox.applied.network?.allowedHosts ?? [],
           ...(owner === undefined ? {} : { owner }),
           ...(ceiling === undefined ? {} : { ceiling }),
@@ -684,7 +684,7 @@ export function storeEgressSandboxes(store: SessionStore): EgressSandboxes {
 }
 
 /**
- * `EgressRecord` over the Tenant's record (R7.3, D67). The running turns are the sessions on the
+ * `EgressRecord` over the Tenant's record. The running turns are the sessions on the
  * Environment whose body has an `activeTurnId`, in id order, at most `EGRESS_RUNNING_TURNS_MAX`.
  * The write is `agent.egress` on the Environment's stream, under its row's lock; a deleted
  * Environment gets nothing.

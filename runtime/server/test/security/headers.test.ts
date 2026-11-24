@@ -1,5 +1,5 @@
 /**
- * G5 — Header rules: nothing in a request selects the Tenant (protocol 5). A request without
+ * Header rules: nothing in a request selects the Tenant (protocol 5). A request without
  * `Nylorun-Tenant` reaches the Host's Tenant; one naming another Tenant, or a malformed one,
  * is the opaque 404 before the Tenant sees it; query and body name nothing.
  */
@@ -13,7 +13,7 @@ import {
   startSecurityHost,
 } from "./support.js";
 
-it("G5: a request without Nylorun-Tenant reaches the Host's Tenant", async () => {
+it("a request without Nylorun-Tenant reaches the Host's Tenant", async () => {
   const host = await startSecurityHost();
   const { status, body } = await getJson(`${host.url}/v1/tenant`, {
     headers: protocolHeaders({ authorization: `Bearer ${host.tenant.managementKey}` }),
@@ -22,7 +22,7 @@ it("G5: a request without Nylorun-Tenant reaches the Host's Tenant", async () =>
   expect(body).toMatchObject({ tenant: expect.objectContaining({ id: host.tenant.id }) });
 });
 
-it("G5: Nylorun-Tenant naming another Tenant, or malformed, is the opaque 404 and changes nothing", async () => {
+it("Nylorun-Tenant naming another Tenant, or malformed, is the opaque 404 and changes nothing", async () => {
   const host = await startSecurityHost();
   const before = await countTenantRows(host, "definitions");
   for (const named of [newTenantId(), "not-a-tenant-id"]) {
@@ -44,7 +44,7 @@ it("G5: Nylorun-Tenant naming another Tenant, or malformed, is the opaque 404 an
   expect(await countTenantRows(host, "definitions")).toBe(before);
 });
 
-it("G5: the Tenant cannot be named by query or body", async () => {
+it("the Tenant cannot be named by query or body", async () => {
   const host = await startSecurityHost();
   const a = host.tenant;
   const other = newTenantId();

@@ -1,5 +1,5 @@
 /**
- * The trace projector on Postgres logical replication (R7.2): turns run by a test Tenant reach
+ * The trace projector on Postgres logical replication: turns run by a test Tenant reach
  * an OTLP receiver in this process as one trace per turn; a slot reset to an earlier position
  * posts byte-identical spans; a receiver that is down for the whole run costs only its spans,
  * and the slot is acknowledged anyway.

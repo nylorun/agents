@@ -10,7 +10,7 @@ import {
   tenantHeaders,
 } from "./support.js";
 
-it("C3: missing Nylorun-Protocol returns 426 before authentication", async () => {
+it("missing Nylorun-Protocol returns 426 before authentication", async () => {
   const tenantId = FAKE_TENANT_ID;
   const module = createFakeModule();
   const resolve = vi.spyOn(module, "resolve");
@@ -25,7 +25,7 @@ it("C3: missing Nylorun-Protocol returns 426 before authentication", async () =>
   expect(resolve).not.toHaveBeenCalled();
 });
 
-it("C3: unsupported Nylorun-Protocol returns 426 before resolve", async () => {
+it("unsupported Nylorun-Protocol returns 426 before resolve", async () => {
   const tenantId = FAKE_TENANT_ID;
   const module = createFakeModule();
   const resolve = vi.spyOn(module, "resolve");
@@ -45,7 +45,7 @@ it("C3: unsupported Nylorun-Protocol returns 426 before resolve", async () => {
   expect(resolve).not.toHaveBeenCalled();
 });
 
-it("C3: the Admin API's old paths require the protocol first, as any route does", async () => {
+it("the Admin API's old paths require the protocol first, as any route does", async () => {
   const { url } = await startTestHost();
   const missing = await getJson(`${url}/v1/admin/host`, {
     headers: { authorization: `Bearer ${"0".repeat(64)}` },
@@ -60,7 +60,7 @@ it("C3: the Admin API's old paths require the protocol first, as any route does"
   expect(bad.status).toBe(426);
 });
 
-it("P18: the Host serves protocol 16, 17 and 18 clients, and refuses 4 to 15 and 19 with 426", async () => {
+it("the Host serves protocol 16, 17 and 18 clients, and refuses 4 to 15 and 19 with 426", async () => {
   const { url } = await startTestHost({ module: createFakeModule() });
   for (const version of ["4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "19"]) {
     const { status, body } = await getJson(`${url}/v1/agents`, {
@@ -81,7 +81,7 @@ it("P18: the Host serves protocol 16, 17 and 18 clients, and refuses 4 to 15 and
   const { [PROTOCOL_HEADER]: _protocol, ...unversioned } = tenantHeaders();
   const link = await getJson(`${url}/v1/artifact-links/not-a-token`, { headers: unversioned });
   expect(link.status).not.toBe(426);
-  // A webhook delivery (T4) carries neither the header nor a credential, nor JSON.
+  // A webhook delivery carries neither the header nor a credential, nor JSON.
   const delivery = await fetch(`${url}/v1/webhooks/wh_${"0".repeat(32)}`, {
     method: "POST",
     headers: { "content-type": "text/plain" },

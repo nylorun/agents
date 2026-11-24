@@ -1,11 +1,11 @@
 /**
- * Failure cases of architecture §17 about Workers, on Postgres + Restate + S2 (`README.md`):
+ * Failure cases about Workers, on Postgres + Restate + S2 (`README.md`):
  *
- * - §17.3 a Worker killed during a model effect;
- * - §17.4 two advances racing for one session;
- * - §17.9 cancel delivered to another Worker;
- * - §17.10 a Restate abort during a long advance;
- * - §17.12 cancel while S2 is down.
+ * - 3 a Worker killed during a model effect;
+ * - 4 two advances racing for one session;
+ * - 9 cancel delivered to another Worker;
+ * - 10 a Restate abort during a long advance;
+ * - 12 cancel while S2 is down.
  */
 import { afterEach, describe, expect, it } from "vitest";
 import type { LiveEvent } from "@nylorun/core/contracts";
@@ -69,8 +69,8 @@ function slowModel(ms: number) {
   return model;
 }
 
-describe.skipIf(!STACK_ENABLED)("§17 Worker failures on Postgres, Restate and S2", () => {
-  it("§17.3 a Worker killed during a model effect: the effect is uncertain after takeover, never called again, and the session is usable", async () => {
+describe.skipIf(!STACK_ENABLED)("Worker failures on Postgres, Restate and S2", () => {
+  it("a Worker killed during a model effect: the effect is uncertain after takeover, never called again, and the session is usable", async () => {
     const t = failureTenant();
     const model = controlledModel(); // ignores its signal, like a call cut off by a crash
     t.onDispose(() => model.release());
@@ -131,7 +131,7 @@ describe.skipIf(!STACK_ENABLED)("§17 Worker failures on Postgres, Restate and S
     expect(model.calls).toBe(2);
   });
 
-  it("§17.4 two advances racing for one session: busy while the owner lives, ownership.lost once it is taken over, and no duplicate event", async () => {
+  it("two advances racing for one session: busy while the owner lives, ownership.lost once it is taken over, and no duplicate event", async () => {
     const t = failureTenant();
     const model = controlledModel();
     t.onDispose(() => model.release());
@@ -196,7 +196,7 @@ describe.skipIf(!STACK_ENABLED)("§17 Worker failures on Postgres, Restate and S
     expect(model.calls).toBe(1);
   });
 
-  it("§17.9 cancel delivered to another Worker: the API node's cancel aborts the model call on the Worker through the control bus", async () => {
+  it("cancel delivered to another Worker: the API node's cancel aborts the model call on the Worker through the control bus", async () => {
     const t = failureTenant();
     const model = controlledModel({ honorAbort: true });
     t.onDispose(() => model.release());
@@ -233,10 +233,10 @@ describe.skipIf(!STACK_ENABLED)("§17 Worker failures on Postgres, Restate and S
     expect(await completeHistory(workerNode)).toEqual(history);
   });
 
-  it("§17.12 cancel while S2 is down: the cancel reaches the Worker over the Postgres control bus, nothing of the cancelled turn is written after it, and the stream matches once S2 returns", async () => {
+  it("cancel while S2 is down: the cancel reaches the Worker over the Postgres control bus, nothing of the cancelled turn is written after it, and the stream matches once S2 returns", async () => {
     const t = failureTenant();
     // Both nodes reach s2-lite through a proxy the test takes down. Cancel never needed S2
-    // (D48): its signal goes over Postgres and aborts the Worker's model call all the same.
+    //: its signal goes over Postgres and aborts the Worker's model call all the same.
     const proxy = await tcpProxy(Number(new URL(stackEndpoints().s2.endpoint).port));
     t.atEnd(() => proxy.close());
     const model = controlledModel({ honorAbort: true });
@@ -292,7 +292,7 @@ describe.skipIf(!STACK_ENABLED)("§17 Worker failures on Postgres, Restate and S
     expect(model.calls).toBe(2);
   });
 
-  describe("§17.10 a Restate abort during a long advance", () => {
+  describe("a Restate abort during a long advance", () => {
     // Restate aborts an attempt that makes no journal progress for inactivity + abort timeout.
     // These timeouts (0.6 s together) stand in for the adapter's one-hour defaults.
     const shortTimeouts = { timeouts: { inactivityMs: 300, abortMs: 300 } };

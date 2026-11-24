@@ -1,5 +1,5 @@
 /**
- * The Host's identity for model calls (ADR-71): a model credential of type `host_identity` holds
+ * The Host's identity for model calls: a model credential of type `host_identity` holds
  * no secret, only the Google Cloud project and location. The model gate calls Agent Platform with
  * the Host's Google Application Default Credentials, which Google's client library finds at each
  * call (`GOOGLE_APPLICATION_CREDENTIALS`, gcloud's file, or the metadata server on Google Cloud).

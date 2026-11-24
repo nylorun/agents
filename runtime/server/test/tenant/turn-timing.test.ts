@@ -1,5 +1,5 @@
 /**
- * A turn's timing (R7.1, `tenant/turn-timing.ts`): its end carries its running time, waits for a
+ * A turn's timing (`tenant/turn-timing.ts`): its end carries its running time, waits for a
  * person included, how long it waited, its agent and its totals from the usage ledger.
  */
 import { describe, expect, it } from "vitest";

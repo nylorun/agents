@@ -1,5 +1,5 @@
 /**
- * An embedded Studio's session (Studio §8.4): the bearer token lives in this
+ * An embedded Studio's session: the bearer token lives in this
  * module only, never in storage, a cookie or the URL.
  *
  * - `redeem` exchanges the embedder's login token at `POST /_studio/sessions`.

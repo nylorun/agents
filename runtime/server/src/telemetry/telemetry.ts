@@ -1,5 +1,5 @@
 /**
- * Live telemetry for operators (ADR-159): the process's one Meter and, when spans export, one
+ * Live telemetry for operators: the process's one Meter and, when spans export, one
  * Tracer, made with the OpenTelemetry API and SDK, with no automatic instrumentation. The Runtime
  * stores none of it: metrics live in the process's memory, served on `/metrics` and pushed over
  * OTLP; spans go over OTLP only.

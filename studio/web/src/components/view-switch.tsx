@@ -3,7 +3,7 @@ import { Tabs as TabsPrimitive } from "radix-ui";
 
 /**
  * A view switch inside a tab or a pane: a segmented control, the active view raised. Use it in a
- * `Tabs.Root` whose contents are the views; DESIGN.md has no tabs inside a tab.
+ * `Tabs.Root` whose contents are the views; Studio has no tabs inside a tab.
  */
 export function ViewSwitch({ label, children }: { label: string; children: ReactNode }) {
   return (

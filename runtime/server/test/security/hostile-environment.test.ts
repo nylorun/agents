@@ -1,5 +1,5 @@
 /**
- * G2 — Hostile environment (§23 verbatim list).
+ * Hostile environment.
  */
 import { existsSync, readFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -18,7 +18,7 @@ import {
   writeEvilJs,
 } from "./support.js";
 
-it("G2: hostile env does not influence vault, model, sandbox, or HOME layout", async () => {
+it("hostile env does not influence vault, model, sandbox, or HOME layout", async () => {
   const scratch = await mkdtemp(join(tmpdir(), "sec-g2-"));
   const evil = await writeEvilJs(scratch);
   const restore = applyHostileEnv(evil.path);

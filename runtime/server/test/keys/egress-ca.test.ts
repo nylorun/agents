@@ -1,5 +1,5 @@
 /**
- * The egress CA in keys (R2c, D50): created once per Tenant under a lock, its key sealed with the
+ * The egress CA in keys: created once per Tenant under a lock, its key sealed with the
  * vault key in the Tenant's settings, the same CA for every process; leaves for the caller's key.
  */
 import { X509Certificate } from "node:crypto";
@@ -10,7 +10,7 @@ import { createTestSessionStore } from "../support/store.js";
 
 const KEK = Buffer.alloc(32, 3);
 
-describe("the egress CA (R2c)", () => {
+describe("the egress CA", () => {
   it("is created once, concurrently too, and shared by every process of the Tenant", async () => {
     const store = await createTestSessionStore();
     const first = new EgressAuthority(store, () => KEK);

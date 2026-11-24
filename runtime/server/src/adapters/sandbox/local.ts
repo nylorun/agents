@@ -1,5 +1,5 @@
 /**
- * Local backend (F7.2): the workspace of the pod sandbox the engine runs in. The pod is the
+ * Local backend: the workspace of the pod sandbox the engine runs in. The pod is the
  * boundary (its own user, no capabilities, a read-only root, a NetworkPolicy that lets it reach
  * only the Harness API, the gates and egress-gate), so commands run as plain child processes:
  * `/bin/sh -c <command>` in `/workspace`, its own process group, killed whole on a timeout or a
@@ -34,7 +34,7 @@ export interface LocalBackendOptions {
   readonly proxyEnv?: () => Readonly<Record<string, string>>;
   /** The base environment of commands (the engine's allowlisted one); `NYLORUN_*` is dropped. */
   readonly env: Readonly<Record<string, string | undefined>>;
-  /** The engine's `/harness` on the same volume, a disk root of its versions (R2d step 3). */
+  /** The engine's `/harness` on the same volume, a disk root of its versions. */
   readonly harnessRoot?: string;
   /** The shell commands run under; default `/bin/bash` where the image has it, else `/bin/sh`. */
   readonly shell?: string;
@@ -42,7 +42,7 @@ export interface LocalBackendOptions {
 
 /**
  * The shell the `bash` tool's commands run under: bash, as the tool says, where the image has it;
- * `/bin/sh` (dash on Debian and Ubuntu) only in an image without it (ADR-92 §10).
+ * `/bin/sh` (dash on Debian and Ubuntu) only in an image without it.
  */
 export function commandShell(exists: (path: string) => boolean = executable): string {
   return exists("/bin/bash") ? "/bin/bash" : "/bin/sh";

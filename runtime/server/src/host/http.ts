@@ -60,7 +60,7 @@ export function sendJson(
   body: unknown,
 ): void {
   const payload = JSON.stringify(body);
-  // No Access-Control-* headers (D§11).
+  // No Access-Control-* headers.
   response.writeHead(status, jsonHeaders(payload));
   response.end(payload);
 }
@@ -128,7 +128,7 @@ export function protocolRejectedResponse(
 }
 
 /**
- * D§11 Host allowlist: loopback forms with the listening port, plus the
+ * Host allowlist: loopback forms with the listening port, plus the
  * configured host when `allowNonLoopback` is set.
  *
  * An explicit `allowedHosts` list (container mode) replaces that rule: only
@@ -175,7 +175,7 @@ export function isAllowedRequestHost(
 export function isJsonContentType(value: string | undefined): boolean {
   if (value === undefined) return false;
   const media = value.split(";")[0]!.trim().toLowerCase();
-  // An agent folder by hash (track T6) is JSON too.
+  // An agent folder by hash is JSON too.
   return media === "application/json" || media === AGENT_FOLDER_MEDIA_TYPE;
 }
 
@@ -210,7 +210,7 @@ export function redactRoutePath(pathname: string): string {
   }
   if (parts[1] === "v1" && parts[2] === "artifact-links" && parts.length > 3)
     return "/v1/artifact-links/:token";
-  // A webhook endpoint's id is its address: whoever has it may try to deliver (T4).
+  // A webhook endpoint's id is its address: whoever has it may try to deliver.
   if (parts[1] === "v1" && parts[2] === "webhooks" && parts.length > 3) return "/v1/webhooks/:endpointId";
   return pathname;
 }

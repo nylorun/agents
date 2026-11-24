@@ -4,7 +4,7 @@
 {{- $cluster := dict "namespace" .Release.Namespace "inCluster" true "backend" "substrate" "substrate" (dict "atespace" $atespace "systemNamespace" .Values.substrate.systemNamespace "apiService" .Values.substrate.apiService "serviceAccount" (printf "%s-sandboxes" $n) "workerSelector" .Values.substrate.workerSelector "computer" (dict "port" .Values.computer.port)) -}}
 {{- if .Values.keysProvider.enabled }}{{ $_ := set $cluster.substrate "keysProvider" "keys.nylorun.dev" }}{{ end -}}
 {{- with (.Values.sandboxes | default dict).imageMirrors }}{{ $_ := set $cluster "imageMirrors" . }}{{ end -}}
-# The sandboxes service in the cluster (ADR-147): each computer's lifecycle through Substrate's
+# The sandboxes service in the cluster: each computer's lifecycle through Substrate's
 # API, as editor of the Tenant's atespace, and the drain watch. One replica: it holds no lock.
 apiVersion: v1
 kind: ServiceAccount
@@ -84,7 +84,7 @@ spec:
       containers:
         - name: sandboxes
           image: {{ include "nylorun.image.sandboxes" . }}
-          # What serves each computer (ADR-154 decision 4): the computer agent's image, or the engine.
+          # What serves each computer: the computer agent's image, or the engine.
           args:
             - --computer-agent={{ include "nylorun.computer.agent" . }}
             {{- if eq (include "nylorun.computer.agent" .) "go" }}
@@ -141,7 +141,7 @@ spec:
   selector: {{- include "nylorun.selector" (dict "root" . "component" "sandboxes") | nindent 4 }}
   ports: [{ name: api, port: 4300, targetPort: api }]
 ---
-# The sandbox gateway (ADR-148): the computers' one way in, and atenet-router's only client the
+# The sandbox gateway: the computers' one way in, and atenet-router's only client the
 # Runtime adds. Its SPIFFE ID must be in the router's allowlist (NOTES).
 apiVersion: v1
 kind: ServiceAccount

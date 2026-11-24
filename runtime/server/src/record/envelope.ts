@@ -1,6 +1,6 @@
 /**
  * Builds a session event on the `nylorun.event/2` envelope and checks it against the event
- * catalog (Durable Streams §9.5) before a store writes it. Both stores call it inside
+ * catalog before a store writes it. Both stores call it inside
  * `Tx.event`, so nothing the catalog does not describe reaches a stream.
  */
 import { randomUUID } from "node:crypto";
@@ -17,7 +17,7 @@ import {
 } from "@nylorun/core/contracts";
 import { encodeCursor } from "./cursor.js";
 
-/** Core's own writes: what an event says when its writer says nothing (R4.9). */
+/** Core's own writes: what an event says when its writer says nothing. */
 export const CORE: EventWriter = { source: { kind: "core", id: "runtime" } };
 
 /** A write of an event the catalog does not describe: a bug in the writer. */
@@ -32,7 +32,7 @@ export class InvalidEventError extends Error {
 }
 
 export interface EventInput<T extends EventType> {
-  /** Who wrote it (R4.9); absent, core, observed. */
+  /** Who wrote it; absent, core, observed. */
   writer?: EventWriter;
   tenantId: string;
   sessionId: string;

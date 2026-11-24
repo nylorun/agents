@@ -1,5 +1,5 @@
 /**
- * Replay over the Harness API (F6.1), in JSON mode: a turn calls the model, delegates to a
+ * Replay over the Harness API, in JSON mode: a turn calls the model, delegates to a
  * subagent, and resumes by replay once the subagent's linked session has answered. The harness
  * asks core only about effects it has no outcome for, never sends a prompt, and reads the
  * transcript once.
@@ -99,7 +99,7 @@ it("replays a turn without its prompts: intents only for new effects, the transc
   const ids = intents.map((request) => request.p.effect.effectId);
   expect(new Set(ids).size).toBe(ids.length);
   const parent = intents.filter((request) => request.p.effect.sessionId === "s1");
-  // Before step 2, the root asks for the messages steered into the turn (D85, `inputs`).
+  // Before step 2, the root asks for the messages steered into the turn (`inputs`).
   const turn = ["model", "delegation", "agent", "delegation", "inputs", "model"];
   expect(parent.map((request) => request.p.effect.kind)).toEqual([...turn, ...turn]);
   for (const intent of intents.filter((request) => request.p.effect.kind === "model")) {

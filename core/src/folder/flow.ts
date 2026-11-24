@@ -1,5 +1,5 @@
 /**
- * `flow.json` (track T7, design §3.8): workflow manifest v3's node tree, as a folder writes it.
+ * `flow.json`: workflow manifest v3's node tree, as a folder writes it.
  * The node names are v3's (`agent`, `tool`, `chain`, `switch`, `parallel`, `map`, `loop`, and
  * `id` on any node), so a v3 tree pastes in. Two leaves differ, because a folder names things
  * instead of embedding them:

@@ -124,7 +124,7 @@ export function liveStatusFromEvents(
   return byPath;
 }
 
-/** A node's status dot, in DESIGN.md's greys: the darker the dot, the more it needs you. */
+/** A node's status dot, in Studio's status greys: the darker the dot, the more it needs you. */
 export function statusColor(status: NodeRunStatus): string {
   switch (status) {
     case "running":

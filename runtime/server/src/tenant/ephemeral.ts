@@ -104,7 +104,7 @@ export interface EphemeralRuntime {
 }
 
 /**
- * Private Host on port 0 serving one Tenant (D9 / A19). Durable only in its database (see the
+ * Private Host on port 0 serving one Tenant. Durable only in its database (see the
  * module comment).
  * Exported from `@nylorun/runtime` and `@nylorun/runtime/core`.
  */

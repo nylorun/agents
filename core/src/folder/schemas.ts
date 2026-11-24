@@ -1,5 +1,5 @@
 /**
- * The JSON Schema document of each kind of file in an agent folder (track T7, design §3.10), so
+ * The JSON Schema document of each kind of file in an agent folder, so
  * an editor checks and completes a folder's files as it is written, from the `json.schemas`
  * mapping `nylorun init` writes. Each `$id` is `https://docs.nylorun.com/schemas/agent-folder/v1/
  * <kind>.json`; the build writes them to `dist/schemas/agent-folder/`, exported as
@@ -81,12 +81,12 @@ function fromZod(schema: z.ZodType, defs: Json, description?: string): Json {
 /**
  * A kind's revision within format 1, when its document gained an optional key (a published `$id`
  * names one document for good): `AGENT.md` took `model` (Host feature `agent-model`), published
- * as `agent-md.1.json`, then `format: agent-folder/2` and `engine` (ADR-100), as `agent-md.2.json`,
- * then `engine.triggers` (D83), as `agent-md.3.json`, then `format: agent-folder/3` and
- * `plugins` (ADR-106), as `agent-md.4.json`, then `roles` (ADR-154), as `agent-md.5.json`, then
- * `format: agent-folder/4` and a subagent file's keys (ADR-164), as `agent-md.6.json`;
+ * as `agent-md.1.json`, then `format: agent-folder/2` and `engine`, as `agent-md.2.json`,
+ * then `engine.triggers`, as `agent-md.3.json`, then `format: agent-folder/3` and
+ * `plugins`, as `agent-md.4.json`, then `roles`, as `agent-md.5.json`, then
+ * `format: agent-folder/4` and a subagent file's keys, as `agent-md.6.json`;
  * `runtime.json` took a secret slot's `toolPrefix` (Host feature `secret-routing`), published as
- * `runtime.1.json`, then `limits.triggers` (D83), as `runtime.2.json`.
+ * `runtime.1.json`, then `limits.triggers`, as `runtime.2.json`.
  */
 const REVISIONS: Partial<Record<AgentFolderSchemaKind, number>> = { "agent-md": 6, runtime: 2 };
 
@@ -216,7 +216,7 @@ function agentMd(): Json {
     },
     metadata: { type: "object", description: "The manifest's metadata, as it is" },
   };
-  // agent-folder/4 (ADR-164): the narrowing keys a subagent file (agents/<id>.md) and the root take.
+  // agent-folder/4: the narrowing keys a subagent file (agents/<id>.md) and the root take.
   const toolNames = {
     anyOf: [{ type: "array", items: { type: "string" } }, { type: "string" }],
   };

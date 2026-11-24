@@ -1,5 +1,5 @@
 /**
- * Host and egress tokens (F7.2, D42): the ES256 JWTs a pod sandbox's engine holds once its
+ * Host and egress tokens: the ES256 JWTs a pod sandbox's engine holds once its
  * join token is exchanged (`sandbox/join.ts`). Both name one sandbox and one host epoch; a
  * join, a relaunch, a loss, an expiry, a stop or a reset moves the epoch, and a token of an
  * older one is refused. Signed by the keys service with the Tenant's current signing key,

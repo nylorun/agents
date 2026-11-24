@@ -1,17 +1,17 @@
 /**
- * The model calls (and, from F4.1, the remote MCP tool calls) the gates service is running or
- * has just finished, by caller key (blueprint §15, P1.2). A call with an `Idempotency-Key` (the loop's effect id) runs under its own
+ * The model calls (and the remote MCP tool calls) the gates service is running or
+ * has just finished, by caller key. A call with an `Idempotency-Key` (the loop's effect id) runs under its own
  * controller, so it outlives its client: when the runtime that sent it dies or shuts down, the
  * runtime that takes the session over re-sends the call and joins it, or gets the outcome kept
  * here, instead of calling the provider again.
  *
- * In memory, one gateway only (M2): a gateway restart loses these, and a re-sent call runs
+ * In memory, one gateway only: a gateway restart loses these, and a re-sent call runs
  * again (the ledger flags the duplicate). Outcomes are kept `ttlMs` after they settle; a call
  * that throws (an abort) is not kept.
  *
- * A call sent under a run token (F5) records the session and lease epoch that started it. A
+ * A call sent under a run token records the session and lease epoch that started it. A
  * re-send joins it only for the same session at the same or a newer epoch (the new owner after
- * a takeover, G4), and a cancel stops it only for the same session.
+ * a takeover), and a cancel stops it only for the same session.
  */
 import type { ModelGateOutcome } from "./model-gate.js";
 import { hostTuning } from "../tuning.js";
@@ -21,7 +21,7 @@ export class InflightConflict extends Error {
   override readonly name = "InflightConflict";
 }
 
-/** A re-send under an older lease epoch than the call's: never joins (G4). */
+/** A re-send under an older lease epoch than the call's: never joins. */
 export class InflightStale extends Error {
   override readonly name = "InflightStale";
 }

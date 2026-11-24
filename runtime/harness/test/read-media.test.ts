@@ -1,5 +1,5 @@
 /**
- * `read` of a sandbox file the model reads as media (ADR-139): our engine reads the bytes, stores
+ * `read` of a sandbox file the model reads as media: our engine reads the bytes, stores
  * them for the model only (`audience: "model"`) and answers with the file; a model that can't read
  * the kind, a file that isn't what its name says, and a missing file fail in words.
  */

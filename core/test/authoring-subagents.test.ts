@@ -9,7 +9,7 @@ import {
 } from "../src/define.js";
 import { AgentManifestSchema } from "../src/contracts.js";
 
-/** Flow Agents Phase 3: a flow agent is a subagent like any agent. */
+/** Flow agents: a flow agent is a subagent like any agent. */
 
 const agent = (id: string) => Agent({ id, description: `The ${id}.` }).instructions(`Be ${id}.`);
 const research = Agent({ id: "research", description: "Researches a question and reports back." })

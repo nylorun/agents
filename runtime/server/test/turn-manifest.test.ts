@@ -40,7 +40,7 @@ function manifest(
 }
 
 describe("turn-manifest", () => {
-  it("pins a valid message.manifest by hash without latching (LOOP-R26)", () => {
+  it("pins a valid message.manifest by hash without latching", () => {
     const pinned = manifest({ name: "pinned" });
     const pinnedHash = hashManifest(pinned);
     const store = memoryStore();
@@ -64,7 +64,7 @@ describe("turn-manifest", () => {
     expect(next).toEqual({ ok: true, manifest: pinned, hash: pinnedHash });
   });
 
-  it("rejects a non-variant message.manifest (LOOP-A6)", () => {
+  it("rejects a non-variant message.manifest", () => {
     const pinned = manifest({
       mcpServers: { gh: { name: "gh", type: "streamable-http", url: "https://x.example/mcp" } },
       tools: [],
@@ -93,7 +93,7 @@ describe("turn-manifest", () => {
     expect(own).toMatchObject({ ok: false, code: "loop.invalid-agent" });
   });
 
-  it("rebases state.manifestHash across pinned and variant turns (LOOP-R27, LOOP-A5)", () => {
+  it("rebases state.manifestHash across pinned and variant turns", () => {
     const pinned = manifest();
     const pinnedHash = hashManifest(pinned);
     const store = memoryStore();

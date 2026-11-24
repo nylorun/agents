@@ -124,7 +124,7 @@ export function turnManifestRequestOf(command: {
 
 /**
  * At turn start: if state's hash differs from the turn's, set `state.manifestHash`
- * to the turn's when both are the pin or validated variants (`loops.md` §4.2).
+ * to the turn's when both are the pin or validated variants.
  * Leaves state unchanged when either hash is unrelated (runDurable still rejects).
  */
 export function rebaseTurnState<S extends { manifestHash?: string }>(args: {

@@ -1,5 +1,5 @@
 /**
- * The example agent the A2A TCK runs against (A2A-E18, `.github/workflows/a2a-tck.yml`): a Runtime
+ * The example agent the A2A TCK runs against (`.github/workflows/a2a-tck.yml`): a Runtime
  * with one Agent, `tck`, published over A2A, behind a small app server that does what an app
  * server does for its partners (README "Serving people through an app server"): it holds the
  * application key, acts for one subject, serves the agent's card at

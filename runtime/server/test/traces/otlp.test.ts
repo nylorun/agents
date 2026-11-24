@@ -1,4 +1,4 @@
-/** OTLP/HTTP JSON (R7.2): the encoder, and a poster that retries, then drops and says so. */
+/** OTLP/HTTP JSON: the encoder, and a poster that retries, then drops and says so. */
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";

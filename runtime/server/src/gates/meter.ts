@@ -1,20 +1,20 @@
 /**
- * The meter (blueprint §15, P1.3). Every model call a gate serves is recorded once in the
+ * The meter. Every model call a gate serves is recorded once in the
  * Tenant's usage ledger (`model_usage`), by the gate itself: the gates service for the stack,
  * the in-process gate otherwise. A failed ledger write is logged and never fails the call.
  *
  * Before the call the meter checks the Tenant's budgets (hard caps). There is no reservation
- * (M7): a cap is reached when the scope's recorded spend, plus this gate's calls in flight in
+ *: a cap is reached when the scope's recorded spend, plus this gate's calls in flight in
  * the scope at the scope's average cost per call, reaches its limit. Calls in a turn run one
  * at a time, so a scope overspends by at most one call per concurrent call. The refusal is a
  * `budget_exhausted` failure, which the turn does not retry.
  *
- * The row also keeps the gate's own timing of the call (R7.1): `now()` before the call and
+ * The row also keeps the gate's own timing of the call: `now()` before the call and
  * after it, and the adapter's `firstTokenMs` (`evidence.extras`), so a model call's span is
  * what the gate measured; and the adapter's `attempts` and `retries`, so the call's event says
  * how many times the provider was called for it, and why again.
  *
- * Each call it runs is also measured for operators (`recordModelCall`, ADR-159): the meter is the
+ * Each call it runs is also measured for operators (`recordModelCall`): the meter is the
  * one place every gate's calls pass, in the gates service and in process alike.
  */
 import { randomUUID } from "node:crypto";
@@ -146,7 +146,7 @@ export function createMeter(options: MeterOptions): Meter {
 }
 
 /**
- * A model call's metrics (ADR-159): `gen_ai.client.inference.duration`, the usage counters
+ * A model call's metrics: `gen_ai.client.inference.duration`, the usage counters
  * `gen_ai.client.inference.usage.input_tokens` and `output_tokens`, and
  * `gen_ai.client.inference.time_to_first_chunk` when the adapter measured it, with
  * `gen_ai.operation.name` `chat`, `gen_ai.provider.name`, `gen_ai.request.model` and, for a
@@ -183,7 +183,7 @@ function providerOfModel(id: string | undefined): string | undefined {
   return id !== undefined && slash > 0 ? id.slice(0, slash) : undefined;
 }
 
-/** When the gate sent a call and when its answer was complete (R7.1). */
+/** When the gate sent a call and when its answer was complete. */
 export interface CallTiming {
   readonly startedAt: Date;
   readonly endedAt: Date;

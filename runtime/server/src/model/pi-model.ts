@@ -46,7 +46,7 @@ export interface ModelPreview {
 }
 
 /**
- * Retry and timeout settings for one model call (Model Calls §5, §6): the Tenant's Runtime limits
+ * Retry and timeout settings for one model call: the Tenant's Runtime limits
  * `model*` (`modelCallSettingsOf`), which the gates read for each call. Each left out is that
  * limit's default.
  */
@@ -134,7 +134,7 @@ export function piModel(options: PiModelOptions = {}): RuntimeModelAdapter {
   const settings = { ...modelCallSettingsOf(RUNTIME_LIMIT_DEFAULTS), ...options.settings };
   return async (call, context) => {
     context.signal.throwIfAborted();
-    // The first stream event's time, from here (R7.1): the meter keeps it on the usage row.
+    // The first stream event's time, from here: the meter keeps it on the usage row.
     const calledAt = Date.now();
     let firstEventAt: number | undefined;
     const root = options.root ?? "";
@@ -155,7 +155,7 @@ export function piModel(options: PiModelOptions = {}): RuntimeModelAdapter {
         throw error;
       }
     }
-    // The Host's identity (ADR-71): only while its operator still lends it.
+    // The Host's identity: only while its operator still lends it.
     if (stored.authType === "host_identity") {
       const refused = hostIdentityRefused(stored.provider);
       if (refused) return failure("auth", refused, false);
@@ -222,7 +222,7 @@ export function piModel(options: PiModelOptions = {}): RuntimeModelAdapter {
       sessionId: call.executionId,
       cacheRetention: "short" as const,
       ...(Object.keys(perCall).length > 0 ? { headers: perCall } : {}),
-      // With the Host's identity: where Agent Platform runs the call (ADR-71).
+      // With the Host's identity: where Agent Platform runs the call.
       ...(stored.authType === "host_identity" && stored.credential.env ? { env: stored.credential.env } : {}),
       timeoutMs: settings.requestTimeoutMs,
       maxRetries: settings.providerRetries,
@@ -290,7 +290,7 @@ export function piModel(options: PiModelOptions = {}): RuntimeModelAdapter {
         clearTimeout(timer);
       }
     };
-    // Each retry, for the outcome (Model Calls §6): the gate's ledger row and the call's event
+    // Each retry, for the outcome: the gate's ledger row and the call's event
     // carry how many times the provider was called, and why again.
     const retries: { attempt: number; delayMs: number; error: string }[] = [];
     const response = await retryModelCall(
@@ -382,10 +382,10 @@ export function piModel(options: PiModelOptions = {}): RuntimeModelAdapter {
             api: selected.api,
             model: selected.id,
           },
-          // The engine keeps the next prompt inside this window (Model Calls §7).
+          // The engine keeps the next prompt inside this window.
           contextWindow: selected.contextWindow,
           maxOutputTokens: selected.maxTokens,
-          // From the call to the provider's first stream event (R7.1); absent when none came.
+          // From the call to the provider's first stream event; absent when none came.
           ...(firstEventAt !== undefined ? { firstTokenMs: firstEventAt - calledAt } : {}),
           // The provider calls this answer took, and each retry before it: the ledger keeps them.
           attempts: tried.attempts,
@@ -675,7 +675,7 @@ function hostCredentialStore(
   stored: HostModelSecret,
   write: ((credential: Credential) => void | Promise<void>) | undefined,
 ): CredentialStore {
-  // The Host's identity (ADR-71): pi-ai's Vertex AI client uses Application Default Credentials
+  // The Host's identity: pi-ai's Vertex AI client uses Application Default Credentials
   // for this marker in place of a key.
   let current: Credential =
     stored.authType === "host_identity"

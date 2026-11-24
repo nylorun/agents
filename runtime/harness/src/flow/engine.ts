@@ -1,7 +1,7 @@
 /**
  * Flow engine for workflow manifest v3 (`flow-3`). A flow is data: every value a stage sees
  * comes from the flow's input and the outputs of the agents and tools before it. Returns
- * effects only (SD-I1).
+ * effects only.
  *
  * - The first stage gets the flow's input; every later stage gets the previous output.
  * - A Switch reads the previous output: a string is the case name, and so is an object's

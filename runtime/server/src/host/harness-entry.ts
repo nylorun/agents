@@ -2,7 +2,7 @@
  * The pod's engine (`--service harness` in a sandbox pod, or `--service computer` in a computer), on its own: what `main()` does for that
  * service, without importing the rest of the Host. `scripts/bundle-harness.mjs` bundles this file
  * into one script, which the Runtime image ships as `/engine/harness.mjs` and the sandboxes service
- * copies into each pod instead of `/app` (ADR-92 §5: 12 files instead of about 30,000).
+ * copies into each pod instead of `/app` (12 files instead of about 30,000).
  */
 import { baselineEnvironment } from "./environment.js";
 import { parseStackConfig } from "./stack-config.js";

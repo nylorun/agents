@@ -5,7 +5,7 @@ import { parseKek } from "./crypto.js";
 
 /**
  * Read the Tenant vault KEK from an explicit value or file path.
- * No environment override (A7).
+ * No environment override.
  */
 export function readVaultKek(options: {
   vaultKek?: Buffer | string | null;

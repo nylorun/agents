@@ -1,5 +1,5 @@
 /**
- * Trace export in tests (R7.2): an OTLP/HTTP receiver in the test process, and the trace
+ * Trace export in tests: an OTLP/HTTP receiver in the test process, and the trace
  * projector on a test Tenant's database, on a slot of the test's own. A slot belongs to the
  * Postgres server, not to a database, so each test names its own and drops it after.
  */

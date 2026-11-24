@@ -203,7 +203,7 @@ const protocolV2 = {
   protocol: { min: 2, max: 2, features: ["runtime-tenants"] },
 };
 
-test("D1: protocol parse and equality helpers", () => {
+test("protocol parse and equality helpers", () => {
   const parsed = parseProtocolConstants(`
 export const PROTOCOL_VERSION = 2;
 export const PROTOCOL_FEATURES = ["runtime-tenants"] as const;
@@ -222,7 +222,7 @@ export const HOST_PROTOCOL: ProtocolRange = {
   assert.equal(isBreakingBump("minor", "1.0.0"), false);
 });
 
-test("D1: protocol change without breaking bumps for core/runtime/agents/nylorun fails", () => {
+test("protocol change without breaking bumps for core/runtime/agents/nylorun fails", () => {
   assert.throws(
     () =>
       planVersions(versions, pins, [intent("harness", "minor")], {
@@ -233,7 +233,7 @@ test("D1: protocol change without breaking bumps for core/runtime/agents/nylorun
   );
 });
 
-test("D1: protocol change with only patch intent fails", () => {
+test("protocol change with only patch intent fails", () => {
   assert.throws(
     () =>
       planVersions(
@@ -251,7 +251,7 @@ test("D1: protocol change with only patch intent fails", () => {
   );
 });
 
-test("D1: protocol change with pre-1.0 minor bumps for core/runtime/agents/nylorun passes", () => {
+test("protocol change with pre-1.0 minor bumps for core/runtime/agents/nylorun passes", () => {
   const { plan } = planVersions(
     versions,
     pins,
@@ -269,7 +269,7 @@ test("D1: protocol change with pre-1.0 minor bumps for core/runtime/agents/nylor
   assert.equal(plan.packages.nylorun, "0.2.0-beta");
 });
 
-test("D1: protocol change after 1.0 requires major bumps", () => {
+test("protocol change after 1.0 requires major bumps", () => {
   const stable = {
     core: "1.0.0",
     cli: "1.0.0",
@@ -317,7 +317,7 @@ test("D1: protocol change after 1.0 requires major bumps", () => {
   assert.equal(plan.packages.core, "2.0.0-beta");
 });
 
-test("D1: unchanged protocol does not require breaking bumps", () => {
+test("unchanged protocol does not require breaking bumps", () => {
   const { plan } = planVersions(versions, pins, [intent("harness")], {
     currentProtocol: protocolV2,
     releasedProtocol: protocolV2,

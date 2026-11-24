@@ -14,7 +14,7 @@
  * agents' skills, runtime files), and refuses before sending a tool that runs your code or an
  * `approval`, as the Runtime runs agents from their manifests alone.
  *
- * `saveFolder` and `planFolder` take an agent folder (`packFolder`, track T6): they compile it
+ * `saveFolder` and `planFolder` take an agent folder (`packFolder`): they compile it
  * first with the Runtime's compiler and refuse one that does not compile (`FolderInvalidError`),
  * upload its files by hash, and send the folder, which the Runtime compiles again and keeps as the
  * version's source.

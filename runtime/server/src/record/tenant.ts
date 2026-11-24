@@ -1,5 +1,5 @@
 /**
- * The Tenant's stream (ADR-159): keys, signing keys, tool policy, settings, vault credentials
+ * The Tenant's stream: keys, signing keys, tool policy, settings, vault credentials
  * written and used, and Studio sign-ins (`TENANT_EVENT_TYPES`), numbered from 0 in
  * `nylorun_streams.tenant_events`, each with who acted (`principal`) and what wrote it (`source`).
  * The record module is its only writer; the store runs the two statements through

@@ -4,7 +4,7 @@ import type { Logger, TenantConfig } from "../tenant/types.js";
 /**
  * Builds the TenantConfig of the Host's Tenant for `openTenantRuntime`.
  * The sandbox backend here is the Host default; a Tenant's seeded `sandbox.backend`
- * setting overrides it when the Tenant opens (I1, A18).
+ * setting overrides it when the Tenant opens.
  */
 export function configForFactory(options: {
   hostRoot: string;

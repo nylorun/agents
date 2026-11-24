@@ -28,7 +28,7 @@ import {
 const AUDIT_PAGE = 50;
 
 /**
- * The Tenant's audit (ADR-159), newest first: keys, signing keys, tool policy and settings
+ * The Tenant's audit, newest first: keys, signing keys, tool policy and settings
  * changes, vault credentials written and used, and Studio sign-ins, each with who did it. The
  * Type filter reads again from the Runtime; "Load more" reads the next page. A row opens the
  * event.

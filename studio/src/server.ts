@@ -13,7 +13,7 @@
  *   `HttpOnly`, `SameSite=Strict` session cookie for `SESSION_TTL_MS`. The
  *   cookie is signed with a key derived from the admin key, so it survives
  *   Studio restarts and ends when the admin key changes (`nylorun local reset`).
- * - An embedder (Studio §8) mints a login token limited to one Tenant and one
+ * - An embedder mints a login token limited to one Tenant and one
  *   subject, passes it to the framed dashboard, which exchanges it at
  *   `POST /_studio/sessions` for a one-hour bearer session kept in memory. A
  *   session limited to a Tenant reaches only that Tenant.
@@ -36,8 +36,8 @@
  *   refused. Runtime calls use Studio's key (principal `studio`), derived
  *   from the admin key in memory (`deriveStudioToken`). No key ever reaches
  *   the browser.
- * - Each sign-in is recorded on the Tenant's stream (`studio.signed_in`,
- *   ADR-159) with Studio's key: a login token used (`token`, by `/login` or
+ * - Each sign-in is recorded on the Tenant's stream (`studio.signed_in`)
+ *   with Studio's key: a login token used (`token`, by `/login` or
  *   `POST /_studio/sessions`), a forwarded token admitted (`forwarded`), and
  *   the loopback address's own session when the dashboard says hello
  *   (`loopback`, at most once an hour). It is sent in the background: a
@@ -82,7 +82,7 @@ export const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const SESSION_VERSION = "v1";
 /** Sessions issued this far in the future (clock skew) are still accepted. */
 const SESSION_SKEW_MS = 60 * 1000;
-/** How long an embedded Studio's bearer session lasts: one hour (Studio §8.4). */
+/** How long an embedded Studio's bearer session lasts: one hour. */
 export const EMBED_SESSION_TTL_MS = 60 * 60 * 1000;
 const EMBED_SESSION_VERSION = "v2";
 const EMBED_AUDIENCE = "studio";
@@ -144,7 +144,7 @@ export type StudioServerOptions = Readonly<{
   /**
    * The Runtime's `/metrics` sources Tenant › Traffic reads live (`NYLORUN_STUDIO_METRICS_URLS`,
    * validated with `parseMetricsSources`): the runtime's and the gateway's. Default: none, and
-   * Traffic says where to turn it on. Studio stores none of it (ADR-159).
+   * Traffic says where to turn it on. Studio stores none of it.
    */
   metricsSources?: readonly MetricsSource[];
   /** Where Studio logs state changes made by an embedded session. Default: stdout. */
@@ -181,7 +181,7 @@ const SAFE_METHODS = new Set(["GET", "HEAD"]);
 const MAX_JSON_BODY = 4096;
 const TENANT_ID = /^[A-Za-z0-9_-]{1,128}$/;
 const TENANT_RUNTIME = /^\/_studio\/tenants\/([^/]+)\/runtime(\/.*)$/;
-/** Tenant › Traffic's read of the Runtime's own metrics (ADR-159). */
+/** Tenant › Traffic's read of the Runtime's own metrics. */
 const TENANT_METRICS = /^\/_studio\/tenants\/([^/]+)\/metrics$/;
 
 const ANALYTICS_ID = /^G-[A-Z0-9]{4,20}$/;
@@ -347,7 +347,7 @@ function verifiedClaims(
   return claims && typeof claims === "object" ? (claims as Record<string, unknown>) : undefined;
 }
 
-/** A bearer session: `v2.<base64url(claims)>.<signature>` (Studio §8.4). */
+/** A bearer session: `v2.<base64url(claims)>.<signature>`. */
 function issueEmbedSession(key: Buffer, claims: EmbedClaims): string {
   return issueClaims(key, EMBED_SESSION_VERSION, claims);
 }
@@ -574,7 +574,7 @@ function escapeHtml(value: string): string {
 
 /**
  * Adds the frame allowlist to `index.html`, so the embed bridge knows its
- * parents (§8.8), and the analytics measurement id when there is one.
+ * parents, and the analytics measurement id when there is one.
  */
 function injectIndexMeta(
   html: string,
@@ -738,7 +738,7 @@ export async function startStudioServer(
       );
       return;
     }
-    // Framed like the dashboard it leads to (Studio §8.9).
+    // Framed like the dashboard it leads to.
     response.removeHeader("x-frame-options");
     response.writeHead(302, {
       location: `/tenants/${encodeURIComponent(tenant.id)}${url.search}`,
@@ -929,7 +929,7 @@ export async function startStudioServer(
     json(response, 201, reply);
   };
 
-  /** `POST /_studio/sessions`: a login token becomes a bearer session (Studio §8.4). */
+  /** `POST /_studio/sessions`: a login token becomes a bearer session. */
   const createSession = async (
     request: IncomingMessage,
     response: ServerResponse,

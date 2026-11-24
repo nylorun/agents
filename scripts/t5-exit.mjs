@@ -1,10 +1,10 @@
 #!/usr/bin/env node
-// Track T5's exit test (Memory, D72) on a single-server install, as one scenario:
+// The end-to-end test of memory on a single-server install, as one scenario:
 //
 //   node scripts/t5-exit.mjs        # npm run test:t5-exit
 //
 // Starts a Tenant (Compose) with its fixture model and saves the agent manifest `keeper`: memory
-// on (`harness.memory`) and a schedule every minute on session `notes`, standing in for T4's
+// on (`harness.memory`) and a schedule every minute on session `notes`, standing in for an
 // hourly Agent. Then, with no client driving the schedule:
 //
 // - one fire writes a memory with the `memory` tool, and its version names the session and the
@@ -143,6 +143,6 @@ await withStack({ name: "nylorun-t5-exit", images, startArgs: ["--no-studio"] },
   check((await ok("GET", "/v1/agents/keeper/memories")).memories.length === 1, "still one memory");
 });
 if (failed) {
-  console.error("\nT5 exit test failed");
+  console.error("\nMemory end-to-end test failed");
   process.exitCode = 1;
-} else console.log("\nT5 exit test passed");
+} else console.log("\nMemory end-to-end test passed");

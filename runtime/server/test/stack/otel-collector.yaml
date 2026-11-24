@@ -1,4 +1,4 @@
-# The stock OpenTelemetry Collector of the R7 exit test (`r7-exit.integration.test.ts`): OTLP/HTTP
+# The stock OpenTelemetry Collector of the tracing end-to-end test (`r7-exit.integration.test.ts`): OTLP/HTTP
 # in, every batch appended as one OTLP JSON line to /out/traces.jsonl (the file exporter).
 receivers:
   otlp:

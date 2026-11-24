@@ -189,7 +189,7 @@ describe(".env and compose.yaml with sandboxes", () => {
     expect(runtime).toContain("target: /nylorun/sandboxes");
     const gateway = compose.slice(compose.indexOf("  gateway:"), compose.indexOf("  runtime:"));
     expect(gateway).not.toContain("sandboxes");
-    // F7.2: pods reach the Harness API and the gates on the Docker host's address only.
+    // Pods reach the Harness API and the gates on the Docker host's address only.
     expect(runtime).toContain(
       '"${NYLORUN_SANDBOX_BIND:?run nylorun local sandbox enable}:${NYLORUN_SANDBOX_HARNESS_PORT:?run nylorun local sandbox enable}:4200"',
     );

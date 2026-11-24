@@ -189,7 +189,7 @@ export function EmptyRow({ columns, children }: Readonly<{ columns: number; chil
 }
 
 /**
- * A status: a small grey dot and a word (DESIGN.md: the darker the dot, the more it needs you).
+ * A status: a small grey dot and a word (the darker the dot, the more it needs you).
  * Its words end in an ellipsis where there is no room, so a long note never runs over its cell.
  */
 export function StatusDot({ tone, children }: Readonly<{ tone: "ok" | "warn" | "error" | "busy" | "idle"; children: ReactNode }>) {

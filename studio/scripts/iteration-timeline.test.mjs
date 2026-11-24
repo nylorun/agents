@@ -5,7 +5,7 @@ import {
   iterationTimelineFromEvents,
 } from "../web/src/workflow/iteration-timeline.ts";
 
-/** Recorded loop.* fixtures (loops.md §4.6): a body turn, then its verifier's verdict. */
+/** Recorded loop.* fixtures: a body turn, then its verifier's verdict. */
 const fixtures = [
   {
     type: "loop.iteration",
@@ -42,7 +42,7 @@ const fixtures = [
   },
 ];
 
-test("LOOP-EV5: iteration timeline keeps count and verdicts", () => {
+test("iteration timeline keeps count and verdicts", () => {
   const rows = iterationTimelineFromEvents(fixtures);
   assert.equal(rows.length, 2);
   assert.equal(rows[0]?.n, 1);

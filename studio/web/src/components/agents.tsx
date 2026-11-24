@@ -110,7 +110,7 @@ export function AgentState({ state, title }: Readonly<{ state: string; title?: s
 
 /** The manifest version an Agent runs (`triage@3`), and whether it tracks or pins it. */
 /**
- * What a move left pending (track T3), after the version it runs: the version it moves to and
+ * What a move left pending, after the version it runs: the version it moves to and
  * what it waits for, or the version that failed to start.
  */
 export function pendingLabel(agent: AgentView): string {

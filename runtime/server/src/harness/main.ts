@@ -1,5 +1,5 @@
 /**
- * The harness service (`--service harness`, F6.2): the process that runs the Tenant's agent
+ * The harness service (`--service harness`): the process that runs the Tenant's agent
  * segments, MCP servers and sandboxes, apart from core. It holds one credential, the harness
  * token, for core's Harness API; its model and MCP calls present the run token of the run they
  * belong to (from the `lease` answer and each renewal), never the gates' credential. It opens no
@@ -8,7 +8,7 @@
  * Its files live under `NYLORUN_HARNESS_ROOT` (`/harness`): `sandboxes/` (workspaces and their
  * records). `/health` answers on 127.0.0.1 only.
  *
- * In a pod sandbox (`NYLORUN_SANDBOX_KIND=pod`, F7.2) it is that sandbox's engine: it first waits
+ * In a pod sandbox (`NYLORUN_SANDBOX_KIND=pod`) it is that sandbox's engine: it first waits
  * until the pod's NetworkPolicy is in force (`awaitNetworkPolicy`; quickly on a wake, when its
  * disk already holds the volume id an earlier pod wrote), then joins with the
  * pod's join token instead of a harness token (`pod.ts`), runs its disk's setup on a new volume
@@ -65,7 +65,7 @@ export async function runHarness(
       caBundleFile: join(config.root, "egress-ca-bundle.pem"),
       ...(config.pod.egressCaFile ? { extraCaFile: config.pod.egressCaFile } : {}),
     });
-    // Join, then make the disk ready (R2d step 2) before taking any turn. The first join is tried
+    // Join, then make the disk ready before taking any turn. The first join is tried
     // again while the edge can't be reached yet (a new Agent Substrate actor's egress policy).
     await firstJoin(pod, (message, fields) => logger.warn(message, fields));
     const host = pod;
@@ -77,7 +77,7 @@ export async function runHarness(
         markerFile: join(config.root, "setup.json"),
         logger,
       });
-    // A fork onto other setup (Q17) runs it after connecting: core writes its disk through the connection.
+    // A fork onto other setup runs it after connecting: core writes its disk through the connection.
     if (!pod.afterSeed) await prepare();
   }
   const token = pod ? (signal?: AbortSignal) => pod.token(signal) : config.token;

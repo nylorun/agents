@@ -9,7 +9,7 @@
 /** The tools our harness offers in a session with a sandbox (its `sandboxTools`). */
 export const SANDBOX_TOOLS = ["bash", "read", "write", "edit", "grep", "glob"] as const;
 
-/** `code`: a tool that would run your code, which the Runtime refuses at save (track R2). */
+/** `code`: a tool that would run your code, which the Runtime refuses at save. */
 export type ToolKind = "code" | "http" | "subagent" | "flow-subagent";
 
 export type SchemaField = {
@@ -45,7 +45,7 @@ export type McpServerView = {
   name: string;
   url?: string;
   plugin?: PluginLabel;
-  /** Every tool call waits for approval (a manifest saved before R5 step 2). */
+  /** Every tool call waits for approval (a manifest saved before the Tenant's tool policy). */
   approval?: true;
 };
 

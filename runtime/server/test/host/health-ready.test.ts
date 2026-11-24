@@ -18,7 +18,7 @@ import {
   startTestHost,
 } from "./support.js";
 
-it("C2: /health reports hostId, protocol, coreVersion and pid without auth", async () => {
+it("/health reports hostId, protocol, coreVersion and pid without auth", async () => {
   const { url, config } = await startTestHost();
   const { status, body } = await getJson(`${url}/health`);
   expect(status).toBe(200);
@@ -37,7 +37,7 @@ it("C2: /health reports hostId, protocol, coreVersion and pid without auth", asy
   expect(parsed).not.toHaveProperty("scopeId");
 });
 
-it("C2: /ready is 200 after listen once the Tenant is open", async () => {
+it("/ready is 200 after listen once the Tenant is open", async () => {
   const { url } = await startTestHost();
   const ready = await getJson(`${url}/ready`);
   expect(ready.status).toBe(200);
@@ -48,7 +48,7 @@ it("C2: /ready is 200 after listen once the Tenant is open", async () => {
   });
 });
 
-it("I-D5: /ready reports the open Tenant's harnesses, and none while it is not open", async () => {
+it("/ready reports the open Tenant's harnesses, and none while it is not open", async () => {
   const module = createFakeModule({
     tenant: { harness: { mode: "remote", connected: 2, workspace: true } },
   });
@@ -63,7 +63,7 @@ it("I-D5: /ready reports the open Tenant's harnesses, and none while it is not o
   expect(closed.body).not.toHaveProperty("harness");
 });
 
-it("C2: /ready is 503 while the Tenant could not be opened", async () => {
+it("/ready is 503 while the Tenant could not be opened", async () => {
   const { url } = await startTestHost({
     module: createFakeModule({
       tenant: {
@@ -80,7 +80,7 @@ it("C2: /ready is 503 while the Tenant could not be opened", async () => {
   });
 });
 
-it("C2: /ready is 503 while the Tenant opens", async () => {
+it("/ready is 503 while the Tenant opens", async () => {
   let finishStart!: () => void;
   const blocked = new Promise<void>((resolve) => {
     finishStart = resolve;

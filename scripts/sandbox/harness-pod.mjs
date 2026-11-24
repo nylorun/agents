@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// A custom harness as a pod's image (track R4, R4.4) on a real cluster:
+// A custom harness as a pod's image on a real cluster:
 //
 //   node scripts/sandbox/harness-pod.mjs --context docker-desktop
 //   node scripts/sandbox/harness-pod.mjs --context kind-nylorun --host-address 172.17.0.1

@@ -12,7 +12,7 @@ import type { HostConfigFile } from "../../src/host/config.js";
 import { configForFactory } from "../../src/host/config-for.js";
 import { createHostLogger } from "../../src/host/logger.js";
 
-it("C7: baselineEnvironment allowlists PATH, LANG, LC_*, TZ and drops NODE_OPTIONS", () => {
+it("baselineEnvironment allowlists PATH, LANG, LC_*, TZ and drops NODE_OPTIONS", () => {
   const env = baselineEnvironment({
     PATH: "/bin",
     LANG: "C.UTF-8",
@@ -33,7 +33,7 @@ it("C7: baselineEnvironment allowlists PATH, LANG, LC_*, TZ and drops NODE_OPTIO
   expect(env).not.toHaveProperty("HOME");
 });
 
-it("C7: hostProcessEnvironment sets Host HOME/TMPDIR and proxy, never NODE_OPTIONS", () => {
+it("hostProcessEnvironment sets Host HOME/TMPDIR and proxy, never NODE_OPTIONS", () => {
   const root = "/tmp/host-root";
   const paths = hostPaths(root);
   const config: HostConfigFile = {
@@ -61,7 +61,7 @@ it("C7: hostProcessEnvironment sets Host HOME/TMPDIR and proxy, never NODE_OPTIO
   expect(env).not.toHaveProperty("NODE_OPTIONS");
 });
 
-it("C8: configFor stub returns defaults in the Tenant directory", () => {
+it("configFor stub returns defaults in the Tenant directory", () => {
   const realRoot = mkdtempSync(join(tmpdir(), "cfg-"));
   try {
     const id = newTenantId();

@@ -77,7 +77,7 @@ export async function runTurn(ctx: RunContext, run: HarnessRun): Promise<void> {
       }
     }
     let checkpoint = start.checkpoint as DurableCheckpoint;
-    // The state is ours alone (R4.2): core never reads it. The turn's manifest is core's choice
+    // The state is ours alone: core never reads it. The turn's manifest is core's choice
     // (the pin, or a variant a message named), and the state follows it.
     if (
       start.engine === "agent" &&
@@ -94,7 +94,7 @@ export async function runTurn(ctx: RunContext, run: HarnessRun): Promise<void> {
     }
     // The session's MCP tools as our engine offers them (protocol 15): named, and laid out as our
     // state pinned them while the facts stay the same.
-    // The Agent's memory (track T5): its tool and rules for every agent of the tree, writes for
+    // The Agent's memory: its tool and rules for every agent of the tree, writes for
     // the root only, and its index pinned at the head of the conversation.
     const memory = start.engine === "agent" ? start.memory : undefined;
     const rootId = (start.manifest as AgentManifest).id;
@@ -106,9 +106,9 @@ export async function runTurn(ctx: RunContext, run: HarnessRun): Promise<void> {
         : undefined;
     const plan = loop?.plan === true;
     const connections = loop?.connections === true;
-    // `ask` (ADR-106, `nylorun-interactions`): the version's `harness.loop.ask`, for the root agent.
+    // `ask` (`nylorun-interactions`): the version's `harness.loop.ask`, for the root agent.
     const ask = loop?.ask === true;
-    // The triggers the agent sets up itself (D83): the version declares `harness.engine.triggers`,
+    // The triggers the agent sets up itself: the version declares `harness.engine.triggers`,
     // for the root agent only.
     const triggers = start.engine === "agent" && start.agent?.triggers === true;
     const engineTools = (agent: AgentManifest) =>
@@ -120,7 +120,7 @@ export async function runTurn(ctx: RunContext, run: HarnessRun): Promise<void> {
           access: memory.access,
           ...(memory.instructions === undefined ? {} : { instructions: memory.instructions }),
           root: agent.id === rootId,
-          // No index is pinned when the version sets `harness.memory.index: false` (ADR-100).
+          // No index is pinned when the version sets `harness.memory.index: false`.
           index: memory.index !== undefined,
         },
         plan && agent.id === rootId,
@@ -137,7 +137,7 @@ export async function runTurn(ctx: RunContext, run: HarnessRun): Promise<void> {
             taken: (agent) => engineTools(agent).tools.map((tool) => tool.name),
           })
         : undefined;
-    // What the agent's declarations leave our engine to say, not choose (ADR-100): claimed once,
+    // What the agent's declarations leave our engine to say, not choose: claimed once,
     // when the session's layout is decided.
     for (const diagnostic of mcp?.diagnostics ?? [])
       await ctx.channel
@@ -174,14 +174,14 @@ export async function runTurn(ctx: RunContext, run: HarnessRun): Promise<void> {
             // Another session wrote the memory since this one's last turn: its index again.
             ...(memory?.refresh ? { refreshPinned: true } : {}),
             ...(start.options.yieldAfter ? { yieldAfter: start.options.yieldAfter } : {}),
-            // Core answers the `inputs` effect (D85): messages steered into the turn.
+            // Core answers the `inputs` effect: messages steered into the turn.
             takeInputs: true,
             ...(start.model ? { model: start.model } : {}),
             files: filesOf(ctx, run, start, (start.manifest as AgentManifest).engine),
             loop: await agentLoopOf(ctx, run, sessionId, start),
           });
-    // Our engine's outputs folder (Q5): saved before the turn ends, while the run is held, for
-    // a root agent that declares nothing or declares `engine.outputs` (ADR-100).
+    // Our engine's outputs folder: saved before the turn ends, while the run is held, for
+    // a root agent that declares nothing or declares `engine.outputs`.
     if (
       start.engine === "agent" &&
       result.status === "completed" &&
@@ -244,7 +244,7 @@ function filesOf(
   return {
     ...(start.model ? { model: start.model } : {}),
     limits: start.limits,
-    // Reference lines offer `read_artifact` only to an agent that has it (ADR-100).
+    // Reference lines offer `read_artifact` only to an agent that has it.
     ...(engineFeaturesOf(engine, { computer: false }).artifactsRead
       ? {}
       : { artifactReads: false }),
@@ -330,7 +330,7 @@ function outputOf(
 }
 
 /**
- * What the segment says of a compaction it made (Q4): its transcript starts with a summary it did
+ * What the segment says of a compaction it made: its transcript starts with a summary it did
  * not start with, written by the root's summary calls. Our engine keeps one summary, first; a
  * segment that compacted twice names every summary call, and the facts of the last.
  */
@@ -353,13 +353,13 @@ function compactionOf(
   };
 }
 
-/** The compaction settings an Agent's version may set in `harness.loop.compaction` (ADR-157). */
+/** The compaction settings an Agent's version may set in `harness.loop.compaction`. */
 const AGENT_COMPACTION_KEYS = ["threshold", "keepTokens"] as const;
 
 /**
  * The loop settings for this run: the Host's, with the compaction settings the Agent's version
  * sets in `harness.loop.compaction` over them, and those of `roles[<role>]` over the Agent's for a
- * session opened with that role (ADR-157). A setting that is not a positive integer is left out,
+ * session opened with that role. A setting that is not a positive integer is left out,
  * and said once with an `engine.diagnostic`.
  */
 export async function agentLoopOf(

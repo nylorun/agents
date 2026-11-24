@@ -1,5 +1,5 @@
 /**
- * The agent folder of a manifest (track T7, D80): `folderOfManifest` is `compileAgentFolder` run
+ * The agent folder of a manifest: `folderOfManifest` is `compileAgentFolder` run
  * backwards. It writes the folder that compiles back to the same agent manifest v8, for an agent
  * saved as JSON or from TypeScript (`nylorun export --folder`) and for the three-file format
  * (`nylorun migrate folder`). Like the compiler it is pure: no file system, clock or network.
@@ -14,8 +14,8 @@
  *   `instructions/NN-<slug>.md`, zero-padded so path order and natural order agree.
  * - HTTP tools: `tools/<name>.json`, their schemas inline.
  * - Subagents (a tool with `agent`): `agents/<name>/`, an agent folder of the embedded agent
- *   manifest v7 (or a flow, workflow manifest v3), as the compiler reads one (design §3.3).
- * - Flows (`kind: "workflow"`, design §3.8): `AGENT.md` with no body and `inputSchema`
+ *   manifest v7 (or a flow, workflow manifest v3), as the compiler reads one.
+ * - Flows (`kind: "workflow"`): `AGENT.md` with no body and `inputSchema`
  *   (`input.schema.json`), `flow.json` with v3's node tree naming agents by id and tools by file
  *   name, and one flat `agents/<id>/` namespace at the flow root for every agent of the flow and
  *   of its sub-flows. A sub-flow is an `agents/<id>/` with its own `flow.json` over the same
@@ -32,7 +32,7 @@
  *   (`options.files`), a last `/workspace` entry becomes `files/`.
  * - Skills: the manifest has their files by hash only. Given the bytes (`options.files`, by
  *   `sha256:<hex>`), each skill is written as its folder; a `SKILL.md` that still says `secrets`
- *   loses that key, which `AGENT.md`'s `skills` block holds now (D80), so its hash changes.
+ *   loses that key, which `AGENT.md`'s `skills` block holds now, so its hash changes.
  *   Without them, a placeholder `SKILL.md` stands in and a note lists the files to copy in.
  *
  * What a folder cannot say is left out or written another way, with a note: an embedded agent's
@@ -341,7 +341,7 @@ function writeAgent(writer: Writer, place: Place, identity: Identity, harness: A
         files.set(file, moved);
         note(
           root
-            ? `skills/${key}/SKILL.md: secrets moved to AGENT.md's skills block (D80), so the file and its hash change.`
+            ? `skills/${key}/SKILL.md: secrets moved to AGENT.md's skills block, so the file and its hash change.`
             : `skills/${key}/SKILL.md: its secrets are left out, as only the root agent's skills get secrets, so the file and its hash change.`,
         );
       }
@@ -365,7 +365,7 @@ function writeAgent(writer: Writer, place: Place, identity: Identity, harness: A
     if (isObject(harness.loop)) front.loop = harness.loop;
     else note("harness.loop is not a map, which AGENT.md needs: it is left out.");
   }
-  // agent-folder/2 (ADR-100): the declarations, each replaced wording a file under engine/. The
+  // agent-folder/2: the declarations, each replaced wording a file under engine/. The
   // blocks are the compiler's to list again.
   if (harness.engine !== undefined && !root && !writer.declares)
     note("The subagent declares its engine features and the manifest does not: an agent-folder/1 folder cannot say so, so it gets the defaults.");
@@ -481,7 +481,7 @@ function writeEmbedded(writer: Writer, place: Place, id: string, agent: AgentMan
   const note = (text: string) => noteAt(writer, place, text);
   if (agent.id !== id) note(`The embedded agent's id is ${agent.id}, and in a folder it is its folder's name, ${id}.`);
   if (agent.name !== undefined)
-    note(`The agent's display name "${agent.name}" is left out: in a folder an agent's name is its id (design §3.2).`);
+    note(`The agent's display name "${agent.name}" is left out: in a folder an agent's name is its id.`);
   const identity: Identity = { name: id, description: agent.description, metadata: agent.metadata };
   // Its `id` is the agent's, not the harness's: `AGENT.md`'s name holds it.
   if (isWorkflow(agent)) {

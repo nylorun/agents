@@ -8,7 +8,7 @@ import { flowStageCounts, mermaidFromManifest, type WorkflowManifest } from "@/w
 type Mermaid = (typeof import("mermaid"))["default"];
 
 /**
- * Mermaid in DESIGN.md's zinc and white: a diagram is not a chart, so it takes no Sage. Flat
+ * Mermaid in Studio's zinc and white: a diagram is not a chart, so it takes no Sage. Flat
  * (the classic look), DM Sans, edges and their labels in muted-foreground. Strict, so a label is
  * text: Mermaid escapes it and sanitizes the SVG it returns.
  */

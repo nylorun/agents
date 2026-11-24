@@ -32,7 +32,7 @@ export interface ToolRouting {
   /** The sandbox spec the session pinned (`routing.sandbox.spec`); absent without a sandbox. */
   readonly spec?: SandboxManifest;
   readonly environmentId?: string;
-  /** Variables every sandbox command gets (R2c): secret names set to the sentinel, plain values. */
+  /** Variables every sandbox command gets: secret names set to the sentinel, plain values. */
   readonly environment?: Readonly<Record<string, string>>;
   readonly activeTurnId: string | null;
   /** Who the sandbox call's events are claimed for: the run's id. */
@@ -41,9 +41,9 @@ export interface ToolRouting {
 
 /**
  * Call the model for one effect, through the Model Gate. A provider failure comes back as a
- * failure outcome (Model Calls §6), whichever provider serves the call; only an abort throws, and
+ * failure outcome, whichever provider serves the call; only an abort throws, and
  * the advance decides what the abort means. The Tenant's fixture model is answered at the gate
- * too (R4.3).
+ * too.
  */
 export async function invokeModel(route: ModelRoute, request: HostEffect, signal: AbortSignal): Promise<unknown> {
   try {
@@ -64,7 +64,7 @@ export async function invokeModel(route: ModelRoute, request: HostEffect, signal
   } catch (error) {
     if (signal.aborted) {
       // A call that outlives this process stops only when told to: on a user cancel. After a
-      // shutdown or a lost lease the next owner re-sends it and picks up its outcome (P1.2).
+      // shutdown or a lost lease the next owner re-sends it and picks up its outcome.
       if (runAbortKind(signal) === "cancel" && route.modelGate.cancel)
         await route.modelGate.cancel({
           tenantId: route.tenantId,
@@ -110,7 +110,7 @@ export async function callMcpTool(
   signal: AbortSignal,
   /** The run's Runtime limit `toolAnswerBytes`: the largest answer kept where this process holds the connection. */
   maxResultBytes: number,
-  /** The call's span context (R7.4), sent as `traceparent` where this process holds the connection. */
+  /** The call's span context, sent as `traceparent` where this process holds the connection. */
   traceparent?: string
 ): Promise<unknown> {
   // The call names its tool by its identity (protocol 15): the server, and its own name there.
@@ -131,7 +131,7 @@ export async function callMcpTool(
 }
 
 /**
- * Calls an HTTP tool through the Tool Gate (R2 M3), keyed by the effect id: an agent's (the
+ * Calls an HTTP tool through the Tool Gate, keyed by the effect id: an agent's (the
  * effect's agent used as a tool, or the root), or a flow's HTTP stage or HTTP verifier. Its
  * outcome is the effect's value; a throw leaves the effect `uncertain`.
  */
@@ -139,7 +139,7 @@ export async function callHttpTool(
   gate: Pick<ToolGate, "callHttp">,
   request: HostEffect,
   signal: AbortSignal,
-  /** The call's span context (R7.4); the gates service reads its own from the journal. */
+  /** The call's span context; the gates service reads its own from the journal. */
   traceparent?: string
 ): Promise<unknown> {
   if (!gate.callHttp) throw new Error("This Runtime has no Tool Gate for HTTP tools");

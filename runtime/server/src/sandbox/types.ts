@@ -5,8 +5,8 @@
 import type { SandboxNetworkPreset } from "@nylorun/core/define";
 
 /**
- * `virtual` (just-bash, in process); `local` (the pod sandbox the engine runs in, F7.2);
- * `computer` (an Agent Substrate computer, reached through the sandbox gateway, ADR-149).
+ * `virtual` (just-bash, in process); `local` (the pod sandbox the engine runs in);
+ * `computer` (an Agent Substrate computer, reached through the sandbox gateway).
  */
 export type SandboxBackendName = "virtual" | "local" | "computer";
 /** What separates a sandbox from its host: the Runtime process, or a container boundary. */
@@ -47,7 +47,7 @@ export interface ExecRequest {
   readonly cwd: string;
   readonly timeoutMs: number;
   /**
-   * Variables this command gets on top of the backend's own (R2c): never a secret. The backend's
+   * Variables this command gets on top of the backend's own: never a secret. The backend's
    * proxy and trust variables win over them.
    */
   readonly env?: Readonly<Record<string, string>>;
@@ -89,7 +89,7 @@ export interface SandboxHandle {
   /**
    * The regular files under directory `dir`, recursively, with paths relative to it (`/`-
    * separated) in path order; symbolic links are skipped. Undefined when `dir` is not a
-   * directory. Stops after `maxEntries + 1` files (`truncated`). For the turn-end export (F8.2).
+   * directory. Stops after `maxEntries + 1` files (`truncated`). For the turn-end export.
    */
   listFiles?(dir: string, maxEntries: number): Promise<SandboxListing | undefined>;
   /**
@@ -100,13 +100,13 @@ export interface SandboxHandle {
   /** Release compute; files persist. */
   stop(): Promise<void>;
   /**
-   * Where the disk's roots are, for disk versions (R2d step 3, `sandbox/disk-fs.ts`): the
+   * Where the disk's roots are, for disk versions (`sandbox/disk-fs.ts`): the
    * workspace, and in a pod the engine's `/harness`. Absent for a backend without a disk.
    */
   readonly diskRoots?: DiskRoots;
   /**
    * Runs one disk operation where the disk is, for a backend whose disk is not on this machine
-   * (a computer, ADR-149: `POST /v1/disk`). When present, disk versions use it, not `diskRoots`.
+   * (a computer: `POST /v1/disk`). When present, disk versions use it, not `diskRoots`.
    */
   diskOp?(op: DiskOp, signal: AbortSignal): Promise<DiskAnswer>;
 }

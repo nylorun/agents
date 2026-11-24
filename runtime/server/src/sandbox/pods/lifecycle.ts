@@ -1,5 +1,5 @@
 /**
- * A pod Environment's lifecycle (blueprint D34, D36), as one pure decision: from the row, the
+ * A pod Environment's lifecycle, as one pure decision: from the row, the
  * Tenant's lifecycle settings, the Sandbox's status as the sandboxes service sees it and the
  * clock, what to ask of the service, what to write to the row, which events to record, and
  * when to look again. `reconcile.ts` gathers the facts, carries the decision out and runs it
@@ -39,9 +39,9 @@
  * - **Reset** (`tenant/environments.ts`) bumps the volume generation: a new name, so a new
  *   Sandbox and volume; the old name is `retiring` and deleted here.
  *
- * - **Setup** (R2d step 2): a failed setup (`sandbox/setup.ts`) leaves the pod `failed` with a
+ * - **Setup**: a failed setup (`sandbox/setup.ts`) leaves the pod `failed` with a
  *   reason that starts `setup:`, even while the pod is ready, until a turn start asks it to run.
- * - **Image** (Q14): the first ready pod's workload image is recorded by digest (`imageDigest`),
+ * - **Image**: the first ready pod's workload image is recorded by digest (`imageDigest`),
  *   and every later apply runs that digest, so a stop, relaunch or reset never pulls another
  *   image under the same tag. Only a digest of the repository the Environment asked for is
  *   pinned: an image id with no repository, or one a node gave a name of its own (kind names an
@@ -116,7 +116,7 @@ export function crashReasonOf(status: PodStatus): string | undefined {
   return `${CRASHED}${what}. What the Agent wrote since its last suspend is lost; its next turn starts it from that suspend.`;
 }
 
-/** The lifecycle settings (D36), read each time a decision is made. */
+/** The lifecycle settings, read each time a decision is made. */
 export interface PodLifecycleConfig {
   readonly idleMs: number;
 }
@@ -303,13 +303,13 @@ export function decide(facts: PodFacts): PodDecision {
   }
 
   if (desired === "running") {
-    // A failed setup (R2d step 2) stays failed until a turn start asks the pod to run again,
+    // A failed setup stays failed until a turn start asks the pod to run again,
     // though the pod itself is ready: its engine takes no turn meanwhile.
     if (pod.observed === "failed" && pod.reason?.startsWith(SETUP_FAILED)) return done();
     if (status.ready) {
       // Becoming ready counts as activity: the idle period runs from when the pod could first take
-      // a turn, so a slow start (a cold node's image pull) doesn't use it up (P1.8 rerun: a 56 s
-      // start was suspended as idle 3.6 s after it ran).
+      // a turn, so a slow start (a cold node's image pull) doesn't use it up (a 56 s
+      // start was once suspended as idle 3.6 s after it ran).
       let lastActive = Date.parse(pod.lastActiveAt ?? row.createdAt);
       if (pod.observed !== "running") {
         patch.observed = "running";
@@ -319,7 +319,7 @@ export function decide(facts: PodFacts): PodDecision {
           lastActive = now;
         }
       }
-      // The image it runs, pinned by digest from now on (Q14).
+      // The image it runs, pinned by digest from now on.
       const digest = pod.imageDigest === undefined ? imageDigestOf(status.imageID, facts.image) : undefined;
       if (digest !== undefined) patch.imageDigest = digest;
       // Whatever woke it, a running pod has an idle timer (the idle trigger armed its own above).

@@ -1,5 +1,5 @@
 /**
- * The names of our engine's text blocks (ADR-100): each piece of text our engine adds to an
+ * The names of our engine's text blocks: each piece of text our engine adds to an
  * agent's system text is a named block with a version (`memory@1`). An `agent-folder/2` manifest
  * lists the blocks it gets, with their hashes (`harness.engine.blocks`), and may replace a
  * block's wording (`harness.engine.instructions.<block>`). Kept apart from the blocks' text so

@@ -1,7 +1,7 @@
 import type { Tx } from "../store/types.js";
 
 /**
- * Slim the completed model effects of a turn that ended (Model Calls §9): drop the prompt
+ * Slim the completed model effects of a turn that ended: drop the prompt
  * and the answer, which the transcript already holds, and keep the identity and status.
  * Replay only ever reads the effects of a running segment. Tool, flow and uncertain rows
  * are never touched: status lists uncertain work.

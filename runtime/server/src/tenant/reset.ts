@@ -28,7 +28,7 @@ export interface ResetTenantContext {
 /**
  * Rename `dir` to a sibling, delete the sibling, recreate an empty `dir`.
  * Failure before rename leaves the original intact; after rename the empty
- * target is restored so the Tenant layout stays valid (A17).
+ * target is restored so the Tenant layout stays valid.
  */
 function replaceDirectory(dir: string): void {
   mkdirSync(dir, { recursive: true });
@@ -52,7 +52,7 @@ function replaceDirectory(dir: string): void {
 }
 
 /**
- * Reset Tenant durable state for `scope` (A17).
+ * Reset Tenant durable state for `scope`.
  * Caller must have already drained (`activeWork`). Deletes store state in one
  * transaction (`Tx.reset`), which also signals a sessions reset to every process on the
  * control bus, then does the filesystem rename+delete for sandboxes / log as needed. The host vault (model credentials), principals and settings stay.
@@ -75,7 +75,7 @@ export async function resetTenant(
     if (clearSessions && !clearSandboxes) await detachAllSessions(t);
     const scoped = clearAll ? "all" : "sessions";
     const keys = clearSessions ? await t.artifactBlobKeys(scoped) : [];
-    // Folders' content-addressed files: those no remaining folder names (F8.2).
+    // Folders' content-addressed files: those no remaining folder names.
     const content = clearSessions ? await t.artifactContentShas(scoped) : [];
     await t.reset(scope);
     // Every process moves its session streams to the new basin generation (control.ts).

@@ -1,5 +1,5 @@
 /**
- * The fixture model (R4.3): a deterministic, scripted model the Model Gate answers with when the
+ * The fixture model: a deterministic, scripted model the Model Gate answers with when the
  * Tenant's setting `model.fixture` is on (`PUT /v1/tenant/config/seed {fixtureModel: true}`).
  * The gate answers it itself, metered like any model (a `model_usage` row per call, provider
  * `fixture`, tokens counted from the text, cost 0), so every harness that calls the gate is seen

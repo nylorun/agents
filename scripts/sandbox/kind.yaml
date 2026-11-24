@@ -1,4 +1,4 @@
-# The kind cluster the CI `sandboxes` job runs pods on (F7.2, S0):
+# The kind cluster the CI `sandboxes` job runs pods on (S0):
 #
 #   kind create cluster --name nylorun --config scripts/sandbox/kind.yaml
 #

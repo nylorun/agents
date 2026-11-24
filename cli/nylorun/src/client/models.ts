@@ -2,7 +2,7 @@
  * `nylorun tenant models | usage | calls`: the Tenant's model, what its model calls used, and the
  * calls themselves, through the Management API. `models set` signs in with pi-ai (loaded only
  * there) at a terminal; with `--provider` and `--model` it takes an API key piped in instead, or
- * with `--host-identity` the Host's own Google identity (ADR-71),
+ * with `--host-identity` the Host's own Google identity,
  * for CI. A key is never an argument.
  */
 import { randomUUID } from "node:crypto";

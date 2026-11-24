@@ -1,5 +1,5 @@
 /**
- * The last limits B15 made Tenant settings (B15c): their defaults equal the values they replace,
+ * The last limits made Tenant settings: their defaults equal the values they replace,
  * and a lowered limit takes effect in each area: a message's parts, a page, labels, a manifest's
  * description, setup command and secret slots, a secret write, the tool policy, the budgets, and
  * an Agent's events.
@@ -40,7 +40,7 @@ async function lowered(limits: Partial<RuntimeLimits>, body: () => Promise<void>
   }
 }
 
-describe("the B15c limits", () => {
+describe("the request, upload, token and sandbox limits", () => {
   it("default to the values they replace, each within its ceiling", () => {
     expect(RUNTIME_LIMIT_DEFAULTS).toMatchObject({
       messageParts: 32,
@@ -209,7 +209,7 @@ describe("the B15c limits", () => {
   });
 });
 
-describe("the B15c checks", () => {
+describe("the request, upload, token and sandbox checks", () => {
   const limits = { ...RUNTIME_LIMIT_DEFAULTS, environmentSecretSlots: 1, secretValueChars: 3, secretHosts: 1 };
   it("name each limit a request passes", () => {
     expect(secretRequestIssues({ type: "environment_secret", value: "abcd", allowedHosts: ["a.b", "c.d"] }, limits)).toHaveLength(2);

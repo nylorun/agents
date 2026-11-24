@@ -1,4 +1,4 @@
-// Command computer is the computer agent (ADR-154 decision 4): the one process of an Agent
+// Command computer is the computer agent: the one process of an Agent
 // Substrate actor that is a computer, mounted from ghcr.io/nylorun/computer at /nylo and run as
 // /nylo/computer in place of the engine's `--service computer`. It serves the computer's routes
 // on NYLORUN_COMPUTER_PORT (internal/computer), runs as the actor's PID 1 (it reaps what

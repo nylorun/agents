@@ -230,7 +230,7 @@ describe("SendMessage params", () => {
     );
     expect(answer.answer).toEqual({ interactionId: "eff_1", approved: true });
     expect(parseSendParams({ ...message(), metadata: { delivery: "reject" } }).delivery).toBe("reject");
-    // a2a-steer (ADR-140): a session message's steer (D85).
+    // a2a-steer: a session message's steer.
     expect(parseSendParams(message({ metadata: { delivery: "steer" } })).delivery).toBe("steer");
   });
 
@@ -323,7 +323,7 @@ describe("buildTask", () => {
       },
       events: [
         sent,
-        // A step that said nothing is in the log for its timing (R7.1), not in the history.
+        // A step that said nothing is in the log for its timing, not in the history.
         event("message.assistant", turnId, { invocationId: "e", text: "", toolCalls: [], durationMs: 5 }),
         event("message.assistant", turnId, { invocationId: "i", text: "Let me check.", toolCalls: [] }),
         paused,

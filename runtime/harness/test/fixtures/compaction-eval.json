@@ -1,5 +1,5 @@
 {
-  "about": "Model Calls W1.5. Each scenario is a long agent session. Every fact is stated once, early, in a user message or a tool result; after compaction the model must answer the question from the summary alone. Filler steps make the history long enough to be summarized.",
+  "about": "Each scenario is a long agent session. Every fact is stated once, early, in a user message or a tool result; after compaction the model must answer the question from the summary alone. Filler steps make the history long enough to be summarized.",
   "scenarios": [
     {
       "name": "database-migration",

@@ -1,6 +1,6 @@
 /**
  * What `nylorun local sandbox enable --backend substrate` adds to a cluster that runs Agent
- * Substrate (ADR-138, Phase 1: preview): the sandboxes service's access to Substrate's API, the
+ * Substrate (preview): the sandboxes service's access to Substrate's API, the
  * Tenant's atespace (made by the sandboxes image's `substrate-setup`), and the name actors reach
  * the edge by, in CoreDNS.
  */
@@ -125,7 +125,7 @@ function block(entries: Map<string, string>): string[] {
 }
 
 /**
- * Keys at Substrate's egress (ADR-142): the keys provider, `sandboxes provider` from the sandboxes
+ * Keys at Substrate's egress: the keys provider, `sandboxes provider` from the sandboxes
  * image, runs beside Substrate's egress in its namespace. One per cluster: its config Secret holds
  * an entry per Tenant, by atespace. Substrate learns it at its own install
  * (`--credential-provider`); `enable` deploys it and checks that registration, never changing

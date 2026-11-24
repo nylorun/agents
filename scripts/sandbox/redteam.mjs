@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Red-team of a sandbox pod's credentials (F7.2, D42), on a real cluster:
+// Red-team of a sandbox pod's credentials, on a real cluster:
 //
 //   npm run test:sandboxes:redteam -- --context kind-nylorun --host-address 172.17.0.1
 //   npm run test:sandboxes:redteam -- --context docker-desktop
@@ -81,7 +81,7 @@ try {
 
     step("the Harness API listener: join-token replay from another pod, renewal with the wrong token");
     const joinToken = (await pod.inSandbox(`cat ${JOIN_TOKEN_FILE}`)).trim();
-    assert.ok(joinToken, "the pod's join token is readable in the pod (D42: a bearer the workload can read)");
+    assert.ok(joinToken, "the pod's join token is readable in the pod (a bearer the workload can read)");
     const join = (body) => http(host, ports.harness, "POST", HOST_JOIN_PATH, { body: JSON.stringify(body) });
     assert.equal(await join({ sandboxId, podUid: probeUid, joinToken }), 401, "a join token replayed from another pod is refused");
     assert.equal(await join({ sandboxId, podUid, joinToken: "x".repeat(43) }), 401, "a wrong join token is refused");

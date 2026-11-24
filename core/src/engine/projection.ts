@@ -1,5 +1,5 @@
 /**
- * What our engine adds to each agent of a session (protocol 15, ADR-100): the model-facing text
+ * What our engine adds to each agent of a session (protocol 15): the model-facing text
  * and tools that come with the session's Agent (its computer, `selfWake`), its memory, its loop
  * settings and the agent's skills, as the agent declares them (`engine`, `features.ts`). Our
  * harness offers exactly this (`@nylorun/harness`'s `engineToolsFor`), and `previewTurn` shows it.
@@ -104,7 +104,7 @@ export interface EngineProjection {
  * which may only view memory. `plan` offers `update_plan`: true for the session's root agent when
  * the version sets `harness.loop.plan`; `connections` offers `request_connection` alike
  * (`harness.loop.connections`). An agent whose own tools name one of them keeps its own.
- * `triggers` offers the `triggers` tool and its text (D83): true for the session's root agent when
+ * `triggers` offers the `triggers` tool and its text: true for the session's root agent when
  * the version declares `harness.engine.triggers` (`turn.start.agent.triggers`). What the agent
  * declares (`agent.engine`) decides the rest; a block it replaces is in its words.
  */
@@ -152,25 +152,25 @@ export function engineProjection(
     use("artifacts_read");
     instructions.push(text("artifacts_read", ARTIFACTS_READ_TEXT));
   }
-  // A session that may book its own next turn (track T4, D77).
+  // A session that may book its own next turn.
   const wake = runsOn?.selfWake === true;
   if (wake) {
     use("wake");
     instructions.push(text("wake", WAKE_TEXT));
   }
-  // The triggers the agent sets up itself (D83): the root agent's, when the version declares them.
+  // The triggers the agent sets up itself: the root agent's, when the version declares them.
   const own = (name: string) => (agent.tools ?? []).some((tool) => tool.name === name);
   const triggering = triggers && !own(TRIGGERS_TOOL);
   if (triggering) {
     use("triggers");
     instructions.push(text("triggers", TRIGGERS_TEXT));
   }
-  // The Agent's memory (track T5, D72).
+  // The Agent's memory.
   const writes = memory !== undefined && memory.root && memory.access === "read_write";
   if (memory) {
     use("memory");
     const own = replaced.memory;
-    // The rule that text from outside is data stays, whatever the folder's wording (ADR-100).
+    // The rule that text from outside is data stays, whatever the folder's wording.
     const rules = own === undefined ? memoryRules(writes, memory.index !== false) : `${own}\n${writes ? MEMORY_DATA_RULE : MEMORY_READ_ONLY_DATA_RULE}`;
     instructions.push([rules, ...(memory.instructions ? [`Memory instructions for this agent:\n${memory.instructions}`] : [])].join("\n\n"));
   }
@@ -206,7 +206,7 @@ export function engineProjection(
   };
 }
 
-/** The first line of server `nylorun`'s text (ADR-106). */
+/** The first line of server `nylorun`'s text. */
 export const RUNTIME_SERVER_HEADING =
   "# Server nylorun\nThe Runtime's own tools, from the plugins this agent declares. Their names begin with nylorun__.";
 
@@ -218,8 +218,8 @@ function networkSentence(hosts: readonly string[] | undefined): string {
 }
 
 /**
- * Our engine's tools and text for an agent that declares the Runtime's plugins (`agent-folder/3`,
- * ADR-106). The same tools as without plugins, with the same effects, named `nylorun__<tool>` for
+ * Our engine's tools and text for an agent that declares the Runtime's plugins (`agent-folder/3`).
+ * The same tools as without plugins, with the same effects, named `nylorun__<tool>` for
  * the model; the Runtime's words are one text, server `nylorun`, built from the declared plugins'
  * sections in their order; their skills join the agent's own. `outputs`, the skills' usage and
  * catalog, and the skills' folder note stay our engine's blocks.

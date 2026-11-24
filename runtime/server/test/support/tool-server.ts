@@ -1,6 +1,6 @@
 /**
  * The developer's service behind HTTP tools, for runtime tests: the Runtime runs no code of
- * the developer's during a session (track R2), so a test's tool code runs here and agents
+ * the developer's during a session, so a test's tool code runs here and agents
  * reach it with `http()` tools. Each tool is one path (`/<name>`), answered by the test's
  * handler with JSON; every call is kept, with the identity headers the Runtime sent.
  */

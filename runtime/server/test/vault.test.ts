@@ -52,7 +52,7 @@ async function boot(options: BootOpts = {}) {
     applicationKey: runtime.applicationKey,
     tenantId: runtime.tenantId,
     root: runtime.root,
-    // With `NYLORUN_TEST_MODEL_GATE=http` the gateway authorizes remote MCP servers (F4.1):
+    // With `NYLORUN_TEST_MODEL_GATE=http` the gateway authorizes remote MCP servers:
     // the runtime never holds the vault key that unseals the credentials.
     authorize: runtime.gate
       ? runtime.gate.authorizeMcp
@@ -152,7 +152,7 @@ it("keeps ciphertext unreadable without the key-encryption key", async () => {
       ).includes(Buffer.from(ADA_TOKEN)),
     ).toBe(false);
   if (process.env.NYLORUN_TEST_MODEL_GATE === "http") {
-    // The runtime never reads the vault key (F4.2), so it opens without one; the gateway,
+    // The runtime never reads the vault key, so it opens without one; the gateway,
     // which alone holds the key, refuses to unseal the credential.
     const keyless = await boot({ hostRoot: root, tenantId, vaultKek: null });
     try {

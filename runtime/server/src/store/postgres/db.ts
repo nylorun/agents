@@ -1,5 +1,5 @@
 /**
- * Drizzle on the Tenant database's pool (session-store.md §3): `drizzle-orm/postgres-js` over
+ * Drizzle on the Tenant database's pool: `drizzle-orm/postgres-js` over
  * the postgres.js pool `connect.ts` opens, with the snake_case column names `schema.ts`
  * defines. One Drizzle instance per pool.
  *

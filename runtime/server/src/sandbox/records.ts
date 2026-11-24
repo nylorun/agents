@@ -1,7 +1,7 @@
 /**
  * Where the SandboxManager keeps its workspaces' compute records (`SandboxRecords`). In core's
  * process the records are the Tenant's `sandboxes` table (`storeSandboxRecords`). A harness
- * process reaches no store (F6.2): it keeps them in a file on its volume
+ * process reaches no store: it keeps them in a file on its volume
  * (`fileSandboxRecords`), and core keeps its table in step from the harness's `sandbox.state`
  * claims and `workspace.sweep` answers.
  *

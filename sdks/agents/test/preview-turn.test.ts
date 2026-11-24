@@ -13,7 +13,7 @@ function folder(files: Record<string, string>): string {
   return dir;
 }
 
-describe("previewTurn (ADR-100)", () => {
+describe("previewTurn", () => {
   it("shows what a folder's agent reads and may call, offline", async () => {
     const dir = folder({
       "AGENT.md":
@@ -30,7 +30,7 @@ describe("previewTurn (ADR-100)", () => {
     expect(preview.pinned).toEqual([expect.stringContaining("<memory-index>")]);
   });
 
-  it("shows the triggers tool and its block for a root agent that declares engine.triggers (D83)", async () => {
+  it("shows the triggers tool and its block for a root agent that declares engine.triggers", async () => {
     const dir = folder({
       "AGENT.md": "---\nname: helper\ndescription: Helps.\nformat: agent-folder/2\nengine:\n  triggers: true\n---\nHelp the person.\n",
     });

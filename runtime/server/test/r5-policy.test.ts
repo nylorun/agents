@@ -1,5 +1,5 @@
 /**
- * The R5 step 2 exit: tool policy. An approval can wait a day and still run the exact input it
+ * Tool policy, end to end. An approval can wait a day and still run the exact input it
  * was shown, whichever harness sent the call: nothing holds a process while it waits, so it
  * survives a restart. A deny rule refuses a matching call before it reaches the tool. A session
  * pinned to a manifest that set `approval` keeps it, and an agent manifest that sets `approval`
@@ -108,7 +108,7 @@ async function items(runtime: Started) {
   return body.items;
 }
 
-describe("the R5 step 2 exit", { timeout: 60_000 }, () => {
+describe("tool policy, end to end", { timeout: 60_000 }, () => {
   it("refuses a call a deny rule matches before it reaches the tool; the model sees why", async () => {
     const service = await refundService();
     const seen: unknown[] = [];
@@ -127,7 +127,7 @@ describe("the R5 step 2 exit", { timeout: 60_000 }, () => {
         status: "failed",
         attempts: 0,
         error: expect.objectContaining({ code: "tool.denied", message: "Refunds over 10000 are refused" }),
-        // What the policy did (R7.1); never sent, so no gate times.
+        // What the policy did; never sent, so no gate times.
         policy: { decision: "deny", reason: "Refunds over 10000 are refused" },
       }),
     ]);
@@ -197,7 +197,7 @@ describe("the R5 step 2 exit", { timeout: 60_000 }, () => {
     expect((await settled(runtime)).status).toBe("completed");
     expect(service.requests()).toEqual([]);
     expect(JSON.stringify(seen)).toContain("tool.denied");
-    // Held, then denied by a person (R7.1): the policy asked, and nobody approved.
+    // Held, then denied by a person: the policy asked, and nobody approved.
     const completed = (await items(runtime)).find((item) => item.type === "tool.completed")!;
     expect(completed.payload.policy).toEqual({ decision: "ask", reason: expect.any(String) });
   });
@@ -206,7 +206,7 @@ describe("the R5 step 2 exit", { timeout: 60_000 }, () => {
     const service = await refundService();
     const runtime = await boot(refunder({ charge: "ch_4", amount: 10 }, []));
     await start(runtime, refundAgent(service.url).manifest);
-    // As saved before R5 step 2: the pinned HTTP tool asks for approval.
+    // As saved before the Tenant's tool policy: the pinned HTTP tool asks for approval.
     const store = await openTestSessionStore(runtime);
     try {
       await store.tx(async (t) => {

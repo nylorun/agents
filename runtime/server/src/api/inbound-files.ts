@@ -1,5 +1,5 @@
 /**
- * Files that arrive inside a message (multimodal messages, M7): the AG-UI and A2A endpoints take
+ * Files that arrive inside a message (multimodal messages): the AG-UI and A2A endpoints take
  * a file's bytes inline (base64), store them as an artifact of the message's session, and send
  * the message as `parts` through the session's normal command path, so every check a message
  * with file parts meets applies. AG-UI refuses a file by URL; A2A's `url` parts are fetched

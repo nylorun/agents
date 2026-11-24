@@ -23,12 +23,12 @@ import {
  * The revision of a document whose version kept its number while it gained an optional field (a
  * published `$id` names one document for good): agent manifest v8 and the harness file v1 took
  * `harness.model` (Host feature `agent-model`), published as `v8.1` and `v1.1`, then
- * `harness.engine` and `harness.memory.index` (ADR-100) and a secret slot's `toolPrefix` (Host
+ * `harness.engine` and `harness.memory.index` and a secret slot's `toolPrefix` (Host
  * feature `secret-routing`), published as agent manifest `v8.2`, harness file `v1.2` and runtime
- * file `v1.1`, then `harness.engine.triggers` and `runtime.limits.triggers` (D83), published as
+ * file `v1.1`, then `harness.engine.triggers` and `runtime.limits.triggers`, published as
  * agent manifest `v8.3`, harness file `v1.3` and runtime file `v1.2`, then `harness.engine.plugins`
- * (ADR-106), published as agent manifest `v8.4` and harness file `v1.4`, then `harness.roles`
- * (ADR-154), published as agent manifest `v8.5` and harness file `v1.5`.
+ *, published as agent manifest `v8.4` and harness file `v1.4`, then `harness.roles`
+ *, published as agent manifest `v8.5` and harness file `v1.5`.
  */
 const AGENT_MANIFEST_REVISION = 5;
 const HARNESS_MANIFEST_FILE_REVISION = 5;

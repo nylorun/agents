@@ -112,7 +112,7 @@ export class RunTranslator {
     switch (event.type) {
       case "message.assistant": {
         const p = event.payload;
-        // A step that said nothing is in the log for its timing (R7.1), never a message.
+        // A step that said nothing is in the log for its timing, never a message.
         if (p.agent || isEmptyAssistantMessage(p)) return none;
         this.sawAssistant = true;
         return { events: assistantEvents(p), finished: false };

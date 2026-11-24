@@ -1,5 +1,5 @@
 /**
- * The principals the Host gives its Tenant when it creates it (tenancy.md §4): the Studio
+ * The principals the Host gives its Tenant when it creates it: the Studio
  * principal, whose key the admin key derives, so Studio (and an app embedding it) stores none,
  * and, for the ephemeral Runtime, one application principal with a key of its own. The Tenant
  * keeps only their hashes. Every other key is put by name (`PUT /v1/tenant/keys/{keyId}`,

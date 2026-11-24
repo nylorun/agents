@@ -43,7 +43,7 @@ it("types a file by its name, and checks a declared media type", () => {
   expect(isText("image/png")).toBe(false);
 });
 
-it("checks a file's first bytes against its type (ADR-139)", () => {
+it("checks a file's first bytes against its type", () => {
   const bytes = (...values: (number | string)[]) =>
     new Uint8Array(values.flatMap((value) => (typeof value === "string" ? [...value].map((c) => c.charCodeAt(0)) : [value])));
   expect(matchesSignature("image/png", bytes(0x89, "PNG\r\n", 0x1a, 0x0a, 0, 0))).toBe(true);

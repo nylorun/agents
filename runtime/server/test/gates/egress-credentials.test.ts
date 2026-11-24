@@ -1,5 +1,5 @@
 /**
- * egress-gate's credential path (R2c, D50, `gates/egress-credentials.ts`): for a host an
+ * egress-gate's credential path (`gates/egress-credentials.ts`): for a host an
  * `environment_secret` is bound to, the gate terminates TLS with a leaf the egress CA signed and
  * sets the credential's header on every request, read afresh each time; every other host stays
  * an opaque tunnel. The upstream is a local HTTPS server with its own test CA; every name
@@ -185,7 +185,7 @@ afterAll(async () => {
   echo.close();
 });
 
-describe("egress-gate credentials (R2c)", () => {
+describe("egress-gate credentials", () => {
   it("sets the bound credential's header on every request, replacing the sentinel, and reads it afresh", async () => {
     vault.set("api.bound.test", { status: "released", header: "Authorization", value: "Bearer real-1", credentialId: "cred_1" });
     const proxy = await gate();
@@ -222,7 +222,7 @@ describe("egress-gate credentials (R2c)", () => {
     const proxy = await gate();
     const { status, socket } = await connectThrough(proxy, "plain.test:443");
     expect(status).toBe(200);
-    // A TLS client's hello naming the host (the gate checks it, ADR-92 §11), then any bytes:
+    // A TLS client's hello naming the host (the gate checks it), then any bytes:
     // the tunnel carries both untouched.
     const sent = Buffer.concat([await clientHelloFor("plain.test"), Buffer.from("opaque bytes")]);
     socket.write(sent);
@@ -263,7 +263,7 @@ describe("egress-gate credentials (R2c)", () => {
     expect(releases).toBe(0);
   });
 
-  it("records a credential connection once: its requests and the credentials set, by id only (R7.3)", async () => {
+  it("records a credential connection once: its requests and the credentials set, by id only", async () => {
     vault.set("api.bound.test", { status: "released", header: "Authorization", value: "Bearer real-1", credentialId: "cred_1" });
     const written: EgressConnection[] = [];
     const proxy = await gate({}, {

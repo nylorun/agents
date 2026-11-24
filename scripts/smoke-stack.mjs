@@ -16,7 +16,7 @@
 // `nylorun down` and `nylorun up` (the Compose files and the Tenant's data are kept),
 // checks that every file in the Host root belongs to this user (the bind
 // mount's UID/GID), and always ends with `nylorun local reset --yes`. The harness
-// (F6.2): it runs bash for an agent on a stub model, while the runtime container
+//: it runs bash for an agent on a stub model, while the runtime container
 // runs no child process. (Remote MCP through the gateway: scripts/smoke-failure.mjs.)
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
@@ -51,7 +51,7 @@ async function walk(dir) {
 
 /**
  * The history once it holds `n` events of `type`. `/items` reads the session's stream, which
- * the relay feeds from the record after commit (Durable Streams §7, §9.4), so it can trail the
+ * the relay feeds from the record after commit, so it can trail the
  * session view. The relay keeps a session's order: what the record holds before that event is
  * in the history too.
  */
@@ -67,7 +67,7 @@ const historyWith = (read, type, n = 1) =>
   );
 
 /**
- * The harness container (F6.2): status reports it remote and connected; it holds the harness
+ * The harness container: status reports it remote and connected; it holds the harness
  * token and nothing else; Restate's UI is not published. An agent with a sandbox runs its
  * tools in the harness: the runtime container runs only its own process.
  */
@@ -150,7 +150,7 @@ async function harnessChecks(stack, images, status) {
       .map((item) => JSON.stringify(item.payload));
     assert.ok(results.some((r) => r.includes("from-the-harness")), `bash ran: ${results}`);
 
-    // Exit check (F6.2): the sandbox runs in the harness; the runtime container runs nothing
+    // Exit check: the sandbox runs in the harness; the runtime container runs nothing
     // but its own process. Compose's healthcheck (`node -e fetch(.../health)`) runs in the
     // container too, every few seconds, so a process with its exact command does not count.
     const config = JSON.parse(await stack.compose(["config", "--format", "json"]));
@@ -216,7 +216,7 @@ try {
       await printenv("gateway", "NYLORUN_GATES_TOKEN"),
       "the runtime and the gateway share the gates token",
     );
-    // The Object store (F8.1): only the runtime and the gateway hold RustFS's credential.
+    // The Object store: only the runtime and the gateway hold RustFS's credential.
     const storeKey = await printenv("runtime", "NYLORUN_OBJECT_STORE_SECRET_KEY");
     assert.match(storeKey, /^[0-9a-f]{64}$/, "the runtime holds the Object store's secret key");
     assert.equal(await printenv("gateway", "NYLORUN_OBJECT_STORE_SECRET_KEY"), storeKey);
@@ -224,7 +224,7 @@ try {
     const mounted = (await stack.compose(["exec", "-T", "gateway", "ls", "-A", "/nylorun"])).trim();
     assert.equal(mounted, "keys\ntenant", "the gateway mounts only the Tenant directory and the vault key");
 
-    // Custody (F4.2): the vault key and the Host root's secrets are hidden from the runtime
+    // Custody: the vault key and the Host root's secrets are hidden from the runtime
     // container, and no file it can read holds the key.
     const vaultKey = (await readFile(join(home, "keys", "vault-kek"), "utf8")).trim();
     assert.equal(Buffer.from(vaultKey, "base64").length, 32, "nylorun start wrote the vault key");
@@ -263,7 +263,7 @@ console.log(JSON.stringify(found));
     assert.deepEqual(
       { postgres: readyBody.checks.postgres, restate: readyBody.checks.restate, s2: readyBody.checks.s2 },
       { postgres: true, restate: true, s2: undefined },
-      "/ready checks Postgres and Restate, never S2 (D48)",
+      "/ready checks Postgres and Restate, never S2",
     );
 
     // Restate loaded the key whose public half the Runtime was given.
@@ -289,7 +289,7 @@ console.log(JSON.stringify(found));
     const hello = await (await studio.get("/_studio/hello")).json();
     assert.equal(hello.tenant?.id, tenant.id, "Studio serves the Host's Tenant");
 
-    // Embedding (Studio §8): the origins set at start may frame the dashboard, and a
+    // Embedding: the origins set at start may frame the dashboard, and a
     // Tenant-limited token becomes a bearer session that reaches that Tenant only.
     assert.deepEqual(status.studio.embedOrigins, embedOrigins, "status lists the embed origins");
     const shell = await fetch(`${studio.origin}/tenants/${tenant.id}?embed=1`);

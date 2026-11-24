@@ -1,6 +1,6 @@
 /**
  * What artifacts, skills and disk versions may hold, and how many triggers an agent may make and
- * how often they run (D83): the Tenant's limits (`artifacts.config`, `skills.config` here, and the
+ * how often they run: the Tenant's limits (`artifacts.config`, `skills.config` here, and the
  * Runtime limits `diskVersion*`, `triggersPerAgent`, `triggerMinIntervalMs` and
  * `triggerRunsPerHour` of `limits.config`), and an Environment's, which its manifest sets
  * (`limits`). A limit the manifest leaves out is the Tenant's as it is when the limit is checked,
@@ -10,7 +10,7 @@
  *
  * Also the shape a manifest and an Environment's labels must fit, which the Tenant's Runtime
  * limits set (`manifestShapeIssues`, `labelIssues`), checked when they are put rather than by
- * their schemas (B15).
+ * their schemas.
  */
 import {
   SKILL_TOTAL_BYTES_DEFAULT,
@@ -39,7 +39,7 @@ export interface DiskLimits {
   readonly versionEntries: number;
 }
 
-/** How many triggers an Agent's agents may make, and how often its triggers run (D83). */
+/** How many triggers an Agent's agents may make, and how often its triggers run. */
 export interface TriggerLimits {
   /** The most triggers its agents may have made (`triggers` tool, origin `agent`). */
   readonly count: number;
@@ -147,7 +147,7 @@ export function limitIssues(set: EnvironmentLimits | undefined, tenant: StorageL
   check("skills.totalBytes", set?.skills?.totalBytes, tenant.skills.totalBytes);
   check("disk.versionBytes", set?.disk?.versionBytes, tenant.disk.versionBytes);
   check("disk.versionEntries", set?.disk?.versionEntries, tenant.disk.versionEntries, "entries");
-  // Trigger limits (D83): the Tenant's Runtime limits, set with PUT /v1/tenant/limits.
+  // Trigger limits: the Tenant's Runtime limits, set with PUT /v1/tenant/limits.
   const triggers = set?.triggers;
   if (triggers?.count !== undefined && triggers.count > tenant.triggers.count)
     issues.push(`limits.triggers.count asks for ${triggers.count} triggers; this Tenant allows at most ${tenant.triggers.count} (the Runtime limit triggersPerAgent).`);

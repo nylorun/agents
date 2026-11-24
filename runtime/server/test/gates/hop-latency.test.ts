@@ -1,5 +1,5 @@
 /**
- * What the Model Gate's hop costs (blueprint §15 target: p50 ≤ 15 ms, p99 ≤ 60 ms added).
+ * What the Model Gate's hop costs (target: p50 ≤ 15 ms, p99 ≤ 60 ms added).
  * Times 50 calls to a local OpenAI-compatible stub through the in-process gate and through
  * the HTTP gate (the gates service on 127.0.0.1), and prints the difference. Measures; does
  * not gate. Opt in:
@@ -52,7 +52,7 @@ describe.skipIf(!process.env.NYLORUN_BENCH)("Model Gate hop latency", () => {
       writeHostCredential: async () => {},
     };
     const token = "ab".repeat(32);
-    // The HTTP calls carry session s's run token (F5).
+    // The HTTP calls carry session s's run token.
     const runs = await runFixture();
     await runs.run("s", { agentId: "bot", turnId: "t" });
     gates = await startGates({

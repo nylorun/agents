@@ -1,6 +1,6 @@
 /**
  * The `PUT /v1/pods/{name}` body of a pod Environment: its applied recipe, the Tenant's lifecycle
- * settings (D36, read at every apply) and the incarnation's fences. The pod shape itself is
+ * settings (read at every apply) and the incarnation's fences. The pod shape itself is
  * rendered only by the sandboxes service.
  */
 import { parseSandboxDuration, parseSandboxSize, type SandboxManifest } from "@nylorun/core/define";
@@ -12,7 +12,7 @@ import type { SandboxPodState } from "../../store/types.js";
 import type { PodSpec } from "./client.js";
 import { opIdOf, type PodLifecycleConfig } from "./lifecycle.js";
 
-/** The pod's grace period to stop when the Tenant sets none (D34). */
+/** The pod's grace period to stop when the Tenant sets none. */
 export const DEFAULT_STOP_GRACE_SECONDS = 10;
 /** The volume's size when the sandbox asks for none. */
 export const DEFAULT_STORAGE_GIB = 5;
@@ -23,7 +23,7 @@ export const POD_HARNESS_ROOT = "/harness";
 export type PodSandboxSpec = SandboxManifest & { readonly storage?: string };
 
 /**
- * The lifecycle settings with their defaults: the Tenant's (D36), and the Environment's
+ * The lifecycle settings with their defaults: the Tenant's, and the Environment's
  * `lifecycle.idle` within the Tenant's `limits.idle` when `recipe` is given.
  */
 export function podLifecycleConfig(
@@ -58,7 +58,7 @@ export interface PodSpecInput {
   /** The Runtime image the engine is copied from. */
   readonly harnessImage: string;
   /**
-   * The harness the pod runs (R4.4): ours, copied in from `harnessImage`, or a custom one, which
+   * The harness the pod runs: ours, copied in from `harnessImage`, or a custom one, which
    * is the workload image itself and runs as its entrypoint.
    */
   readonly harness?: string;
@@ -67,7 +67,7 @@ export interface PodSpecInput {
   /** The keyed hosts (`keys.ts`), for Agent Substrate's egress. */
   readonly keys?: PodSpec["keys"];
   /**
-   * The pod is a computer (ADR-149): our engine runs there in computer mode whatever harness the
+   * The pod is a computer: our engine runs there in computer mode whatever harness the
    * Agent runs, since every harness runs outside it.
    */
   readonly computer?: boolean;
@@ -76,7 +76,7 @@ export interface PodSpecInput {
 export function podSpecOf(input: PodSpecInput): PodSpec {
   const { spec, pod, config } = input;
   const lifecycle = podLifecycleConfig(config);
-  // Pinned by digest once a pod ran it (Q14).
+  // Pinned by digest once a pod ran it.
   const image = pod.imageDigest ?? spec.image;
   const ours = input.computer === true || (input.harness ?? DEFAULT_HARNESS) === DEFAULT_HARNESS;
   return {

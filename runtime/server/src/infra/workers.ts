@@ -1,5 +1,5 @@
 /**
- * Worker lifecycle by service (architecture §6, blueprint §19).
+ * Worker lifecycle by service.
  *
  * | Services | Serves | `execution.start` |
  * | --- | --- | --- |

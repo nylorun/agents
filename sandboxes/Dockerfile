@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 #
-# ghcr.io/nylorun/sandboxes: the sandboxes service (D32), versioned with the Runtime.
+# ghcr.io/nylorun/sandboxes: the sandboxes service, versioned with the Runtime.
 # A static Go binary on distroless; it holds the cluster credentials and drives
 # agent-sandbox Sandboxes for the Runtime's core. Build from the monorepo root:
 #

@@ -99,7 +99,7 @@ async function sessionBelow(
 }
 
 /**
- * What a message to a busy session does when it says nothing (D76): a protocol 17 client's waits
+ * What a message to a busy session does when it says nothing: a protocol 17 client's waits
  * in the queue; a protocol 16 client's is refused, as before.
  */
 function deliveryFor(headers: Headers): "queue" | "reject" {
@@ -126,8 +126,8 @@ export function sessionRoutes(api: OpenAPIHono<TenantEnv>): void {
       },
     },
     async (c) => {
-      // A `traceparent` joins the turn to the caller's trace (R7.4); a malformed one is ignored. With
-      // span export the turn is the child of this request's server span (ADR-159).
+      // A `traceparent` joins the turn to the caller's trace; a malformed one is ignored. With
+      // span export the turn is the child of this request's server span.
       const trace = requestTraceContext(c.req.raw.headers);
       return jsonResponse(
         200,

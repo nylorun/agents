@@ -133,7 +133,7 @@ it("says why a server could not be reached instead of 'fetch failed'", async () 
   expect(diagnosticFromError("local", error).message).toMatch(/ECONNREFUSED/);
 });
 
-describe("a call that never reached its server (R2b C7)", () => {
+describe("a call that never reached its server", () => {
   /**
    * Connects to a fresh server at `host`, lists its tools, and drops the idle sockets, so the
    * call that follows opens a new one (a reused socket the server just closed is a lost call).

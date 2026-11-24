@@ -1,4 +1,4 @@
-# A2A TCK failures the Runtime's example agent is known to have (A2A-E18).
+# A2A TCK failures the Runtime's example agent is known to have.
 #
 # `.github/workflows/a2a-tck.yml` fails only on a failure not listed here
 # (`tck/compare.mjs`). One `<classname>::<name>` per line, as the TCK's JUnit report names it.
@@ -14,7 +14,7 @@ tests.compatibility.core_operations.test_artifacts.TestFileUrlArtifact::test_tas
 tests.compatibility.core_operations.test_artifacts.TestDataArtifact::test_task_has_data_artifact[jsonrpc]
 tests.compatibility.core_operations.test_artifacts.TestMessageResponse::test_returns_message_with_text_part[jsonrpc]
 
-# ListTasks: served by the turn index (A2A-E1 to E3), merged separately. Remove these once it is.
+# ListTasks: served by the turn index, merged separately. Remove these once it is.
 tests.compatibility.core_operations.test_requirements::test_must_requirement[CORE-LIST-001-jsonrpc]
 tests.compatibility.core_operations.test_requirements::test_must_requirement[CORE-LIST-002-jsonrpc]
 tests.compatibility.core_operations.test_requirements::test_must_requirement[CORE-LIST-003-jsonrpc]

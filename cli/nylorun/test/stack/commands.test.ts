@@ -658,7 +658,7 @@ describe("reset", () => {
     await runStackCommand("start", ["--no-studio"], deps);
     const paths = stackPaths(home);
     await writeFile(join(paths.tenant, "vault-kek"), "kek");
-    // `start` wrote the vault key beside the Tenant directory (F4.2); reset deletes it too.
+    // `start` wrote the vault key beside the Tenant directory; reset deletes it too.
     expect(existsSync(paths.vaultKey)).toBe(true);
     const env = await readFile(paths.env, "utf8");
     docker.streamed.length = 0;

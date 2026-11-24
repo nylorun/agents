@@ -1,5 +1,5 @@
 /**
- * Copies the Session Store's migrations into `dist/` (session-store.md §3): the SQL files and
+ * Copies the Session Store's migrations into `dist/`: the SQL files and
  * `meta/_journal.json` drizzle-kit wrote to `src/store/postgres/drizzle/`, next to the built
  * `store/postgres/migrate.js`, which reads them from there. drizzle-kit's snapshots stay in the
  * repository: the Runtime does not read them.

@@ -1,17 +1,17 @@
 /**
- * Agents (protocol 16; Environments from protocol 11, D55, D56): `PUT`, `GET` and `DELETE
+ * Agents (protocol 16; Environments from protocol 11): `PUT`, `GET` and `DELETE
  * /v1/agents/{id}`, the list, stop, reset, fork and the lifecycle stream; sessions on one, and the
  * checks every turn start makes on it.
  *
  * - **The instance of a manifest.** An Agent is made from one version of a saved agent manifest
  *   (`manifest: "name"`, tracking, or `"name@n"`, pinned; `agent-manifests.ts`) and runs one
  *   version of it at a time (`resolvedVersion`). A `PUT` on an existing id may change its labels
- *   and owner guard, and moves it to the version its `manifest` names (track T3,
- *   `agent-versions.ts`; `?dryRun=true` answers the plan); a save moves every Agent that tracks
+ *   and owner guard, and moves it to the version its `manifest` names
+ *   (`agent-versions.ts`; `?dryRun=true` answers the plan); a save moves every Agent that tracks
  *   the manifest. Its manifest's name, kind, harness and storage are fixed for its life: a fork
  *   makes a new Agent to change them. Its kind is its manifest's `runtime.kind` (`none` without a
  *   runtime section).
- * - **No scope, no main session** (D70, D71). The Runtime decides nothing about who uses an
+ * - **No scope, no main session**. The Runtime decides nothing about who uses an
  *   Agent or which sessions it has: the app opens sessions on it with ids it picks, and deleting
  *   a session (a sessions reset) only detaches it.
  * - **Its environment: one sandbox, one vault.** Kind `virtual` (a just-bash workspace in the
@@ -21,11 +21,11 @@
  *   one transaction. The store calls this part the Agent's environment (`Environment`, keyed by
  *   the Agent's id).
  * - **State on read.** `state` is derived when it is read, the first rule that holds: `paused`
- *   (desired `off`, track T6), `failing` (its compute failed or was lost, or a session's last
+ *   (desired `off`), `failing` (its compute failed or was lost, or a session's last
  *   turn failed), `input_required` (a session waits on a person, or a required secret is unset),
  *   `working` (a turn runs),
  *   `sleeping`; `attention` names the sessions behind each that holds (`stateOf`).
- * - **Secret slots** (D64): when its manifest declares `secrets`, a secret write sends only the
+ * - **Secret slots**: when its manifest declares `secrets`, a secret write sends only the
  *   value, the binding comes from the slot, and a name it does not declare is
  *   `409 secret_not_in_manifest` (`secretRequestFor`).
  * - **Access.** An application key reaches every Agent, and so does an application key acting
@@ -35,7 +35,7 @@
  * - **The owner guard.** When `owner` is set, only that owner's sessions may run on the Agent,
  *   checked when a session opens and at every turn start (`403 agent_owner_mismatch`; the opaque
  *   404 to a caller acting for a person).
- * - **Parallel turns (D66).** Sessions on one Agent run their turns at the same time and share
+ * - **Parallel turns.** Sessions on one Agent run their turns at the same time and share
  *   its `/workspace`; one turn per session stays. Disk work (snapshot, restore, stop, reset)
  *   waits until no turn runs (`409 agent_busy`), and a turn waits while a seed copies a disk.
  * - **Lifecycle.** `POST .../stop` suspends a pod (the volume is kept; the next turn starts it),
@@ -112,7 +112,7 @@ export function actorOf(scope: AuthScope): string {
   return subjectOf(scope) ?? "application";
 }
 
-/** A request's vault actor: its audit rows' name, and the principal the Tenant's stream names (ADR-159). */
+/** A request's vault actor: its audit rows' name, and the principal the Tenant's stream names. */
 export function vaultActorOf(scope: AuthScope): VaultActor {
   return { actor: actorOf(scope), principal: principalOf(scope) };
 }
@@ -157,8 +157,8 @@ const STATE_RANK: readonly AgentState[] = ["paused", "failing", "input_required"
  * An Agent's state (protocol 16), from its desired state, its compute and its sessions, and
  * every state that holds with the session behind it (`attention`), highest first. A session waits
  * on a person while it is paused (an approval or an interaction) or uncertain, and the Agent while
- * a move waits for its required secrets (track T3), or a required secret of the version it runs
- * has no value (`unsetSecrets`, track T7: a tool would fail when it is called); a session's last
+ * a move waits for its required secrets, or a required secret of the version it runs
+ * has no value (`unsetSecrets`: a tool would fail when it is called); a session's last
  * turn failed while it is `failed`; a turn runs while it is `running`, `runnable` or `waiting`.
  */
 export function stateOf(
@@ -169,10 +169,10 @@ export function stateOf(
 ): { state: AgentState; attention: AgentAttention[] } {
   const attention: AgentAttention[] = [];
   if (agent.desiredState === "off") attention.push({ state: "paused", reason: "desired off" });
-  // A move that waits for a person to set its required secrets (track T3).
+  // A move that waits for a person to set its required secrets.
   if (agent.targetVersion !== undefined && agent.appliedVersion === agent.version)
     attention.push({ state: "input_required", reason: `secret_required: version ${agent.targetVersion} waits for its required secrets` });
-  // A required secret of the version it runs, unset (track T7).
+  // A required secret of the version it runs, unset.
   for (const name of unsetSecrets)
     attention.push({ state: "input_required", reason: `secret_unset: required secret ${name} unset` });
   const pod = agent.pod;
@@ -182,7 +182,7 @@ export function stateOf(
   // its last suspend is gone all the same, so it is named until a turn starts the pod again.
   else if (pod && pod.reason?.startsWith(CRASHED) && pod.desired !== "deleted")
     attention.push({ state: "failing", reason: `compute crashed: ${pod.reason}` });
-  // A start on a new version failed and went back (track T3): until a start on a new one succeeds.
+  // A start on a new version failed and went back: until a start on a new one succeeds.
   if (agent.failedVersion !== undefined)
     attention.push({ state: "failing", reason: `start_failed: version ${agent.failedVersion} did not start` });
   for (const session of sessions) {
@@ -315,8 +315,8 @@ async function viewOf(
 }
 
 /**
- * The secret slots a secret write fills (D64): the version `environment` moves to while it is
- * outdated (track T3), so its new slots can be set before it applies, else the one it runs.
+ * The secret slots a secret write fills: the version `environment` moves to while it is
+ * outdated, so its new slots can be set before it applies, else the one it runs.
  */
 async function slotsAhead(t: Tx, environment: Environment): Promise<EnvironmentRecipe["secrets"]> {
   if (environment.targetVersion === undefined) return environment.applied.secrets;
@@ -328,7 +328,7 @@ async function slotsAhead(t: Tx, environment: Environment): Promise<EnvironmentR
 
 /**
  * The required secret slots of the version `environment` runs (its applied runtime) that its vault
- * holds no value for, by name: the Agent's attention (track T7), before a tool fails for want of
+ * holds no value for, by name: the Agent's attention, before a tool fails for want of
  * one. A move waiting on the next version's secrets is its own attention item (`stateOf`).
  */
 async function unsetRequiredSecrets(t: Tx, environment: Environment): Promise<string[]> {
@@ -366,7 +366,7 @@ export async function fileErrors(t: Tx, files: EnvironmentRecipe["files"]): Prom
   const errors: string[] = [];
   for (const file of files ?? []) {
     if ("files" in file) {
-      // Files by hash (Q6): each a definition file the Tenant holds.
+      // Files by hash: each a definition file the Tenant holds.
       const wanted = [...new Set(Object.values(file.files))];
       const held = await t.heldDefinitionFiles(wanted);
       for (const [path, sha256] of Object.entries(file.files))
@@ -411,9 +411,9 @@ type PodEnvironment = Environment & { pod: SandboxPodState };
 
 /**
  * Asks the pod to run (again), with the recipe applied: a new `rev`, so the service applies it.
- * Only a stopped or failed pod is asked, so image and resources never change mid-turn (Q8).
+ * Only a stopped or failed pod is asked, so image and resources never change mid-turn.
  *
- * A pod that runs but whose disk setup failed (R2d step 2) with its recipe unchanged keeps its pod:
+ * A pod that runs but whose disk setup failed with its recipe unchanged keeps its pod:
  * the failure is cleared and nothing applied, so its engine, which polls `GET host/setup` with its
  * host token, is told to run the setup again (a new apply would end that token).
  */
@@ -432,7 +432,7 @@ async function wantRunning(t: Tx, environment: PodEnvironment, now: string): Pro
     );
     return;
   }
-  // A move whose runtime waits for this start switches now (track T3).
+  // A move whose runtime waits for this start switches now.
   if (!(await switchTo(t, environment, now)) && environment.appliedVersion !== environment.version)
     await t.updateEnvironment(
       environment.id,
@@ -457,7 +457,7 @@ async function wantRunning(t: Tx, environment: PodEnvironment, now: string): Pro
  * `PUT /v1/agents/{id}`: creates the Agent and its vault (within the Tenant's limit on their
  * number) from a saved agent manifest's version, or finds the one with this id, so "get or
  * create" is one call. On an existing one, its labels and owner guard may change, and `manifest`
- * moves it to the version it names (track T3, `moveAgent`): `name` tracks the latest (unless that
+ * moves it to the version it names (`moveAgent`): `name` tracks the latest (unless that
  * failed to start), `name@n` pins `n`. Another manifest name is `409 agent_fixed_field`. Every
  * `PUT` counts as the Agent's use.
  */
@@ -534,7 +534,7 @@ export async function putAgent(
     const recipe = resolved.recipe;
     await checkFiles(t, recipe.files);
     const from = body.from === undefined ? undefined : await forkSource(t, scope, kind, body.from);
-    // A fork onto other setup runs it on the written disk (Q17).
+    // A fork onto other setup runs it on the written disk.
     const seed = from && fork?.setup ? { ...from, setup: true as const } : from;
     const tracking = ref.version === undefined ? ("tracking" as const) : ("pinned" as const);
     const row: Environment = {
@@ -593,9 +593,9 @@ export async function putAgent(
       deleting(again);
       return found(again);
     }
-    // Its triggers start active (D74); armed after the commit.
+    // Its triggers start active; armed after the commit.
     await createAgentTriggers(t, row);
-    // A fork starts with the source's memories as they are now, with no history (T5).
+    // A fork starts with the source's memories as they are now, with no history.
     if (fork) await t.copyMemories(fork.source, id, now);
     const vaultId = await ctx.vault.createEnvironmentVault(t, id, vaultActorOf(scope), fork?.sealed?.vaultId);
     if (fork?.sealed)
@@ -624,7 +624,7 @@ export async function putAgent(
   });
   await armAgentTriggers(ctx, id);
   // An Agent that became a computer leaves its virtual workspace behind: the disk is a workspace,
-  // and what a person keeps is saved elsewhere (ADR-141, ADR-154). Its disk versions stay.
+  // and what a person keeps is saved elsewhere. Its disk versions stay.
   if (becameComputer)
     await ctx.sandbox.removeSandbox(id).catch((error: unknown) =>
       ctx.config.logger.warn("virtual workspace not removed", {
@@ -641,7 +641,7 @@ export async function putAgent(
 }
 
 /**
- * The move a `PUT` naming `ref` asks of existing Agent `agent` (track T3): to version `n` for
+ * The move a `PUT` naming `ref` asks of existing Agent `agent`: to version `n` for
  * `name@n` (pinned), else to the latest version (tracking), unless that one failed to start, when
  * it stays on what it runs. Another manifest name is `409 agent_fixed_field`.
  */
@@ -667,7 +667,7 @@ async function moveOf(
 
 /**
  * A `PUT` on `virtual` Agent `agent` (locked, live) that moves it to a `pod` version on a Runtime
- * whose pods are computers (ADR-154 R13): the Environment row changes in place. Its id, sessions,
+ * whose pods are computers: the Environment row changes in place. Its id, sessions,
  * memory, vault, triggers, events and labels stay; its kind becomes `pod`, with a new computer on
  * a new volume as a created pod Agent gets one, seeded from `from` (a disk version of another
  * Agent with the same owner, checked as a fork's) when it is given. Recorded as
@@ -757,7 +757,7 @@ async function becomeComputer(
 }
 
 /**
- * `PUT /v1/agents/{id}?dryRun=true` (track T3): what moving existing Agent `id` to the version
+ * `PUT /v1/agents/{id}?dryRun=true`: what moving existing Agent `id` to the version
  * `body.manifest` names would do (`AgentMovePlan`), with nothing changed.
  */
 export async function planAgentPut(
@@ -778,7 +778,7 @@ export async function planAgentPut(
 
 /**
  * After a secret write on Agent `id`: a move that waited for its required secrets goes on once
- * they are set (track T3). Best effort: the write stands either way.
+ * they are set. Best effort: the write stands either way.
  */
 export async function secretWritten(ctx: TenantContext, id: string): Promise<void> {
   try {
@@ -805,7 +805,7 @@ export interface SecretWrite {
 }
 
 /**
- * The secret write `raw` asks of Environment `id` (D64). When what it runs declares secret
+ * The secret write `raw` asks of Environment `id`. When what it runs declares secret
  * slots, the name must be one (`409 secret_not_in_manifest`), and the body is `{ value }` (or
  * `{ headers }` for a `headers` slot) with the binding from the slot; a full typed body is
  * accepted only when its binding is the slot's. Without slots, today's typed body. Either way a
@@ -915,7 +915,7 @@ function slotRequest(slot: EnvironmentSecretSlot): Record<string, unknown> {
 }
 
 /**
- * The disk version a create's `from` names (R2d step 3): the caller's grants must reach the
+ * The disk version a create's `from` names: the caller's grants must reach the
  * source, a caller acting for a person must be its guard's owner, and kind `none` has no disk.
  */
 async function forkSource(
@@ -939,7 +939,7 @@ interface Fork {
   version: number;
   setup: boolean;
   /**
-   * The source's secrets sealed by keys for the new vault `vaultId` (F4.2), before the create's
+   * The source's secrets sealed by keys for the new vault `vaultId`, before the create's
    * transaction, which inserts them; absent with `secrets: none`.
    */
   sealed?: { vaultId: string; copies: SealedSecretCopies };
@@ -947,12 +947,12 @@ interface Fork {
 }
 
 /**
- * `POST /v1/agents/{id}/fork` (Q15): copies an Agent into a new one, which is how an Agent changes
+ * `POST /v1/agents/{id}/fork`: copies an Agent into a new one, which is how an Agent changes
  * what is fixed for its life (its manifest, kind, harness or storage). A new Agent `body.id` is made from the manifest
  * (default the source's manifest name, tracking, at its latest version), its disk started from a
  * version of the source's (`latest` takes a snapshot first, refused during a turn), and its
  * secrets copied inside the Runtime. A fork onto other setup runs that setup on the copied disk
- * before its first turn (Q17). The source keeps what it runs, its disk and its sessions. With
+ * before its first turn. The source keeps what it runs, its disk and its sessions. With
  * `dryRun`, the plan only.
  */
 export async function forkAgent(
@@ -1038,7 +1038,7 @@ export async function forkAgent(
   if (body.dryRun) return { dryRun: true, plan: planned };
   // `latest`: a version of the disk as it is now, between turns (an unchanged disk makes none).
   const disk = planned.disk === "latest" ? (await snapshotEnvironment(ctx, sourceId, scope)).version : planned.disk;
-  // Keys holds the vault key (F4.2): it seals the copies first, outside the create's transaction,
+  // Keys holds the vault key: it seals the copies first, outside the create's transaction,
   // and the create inserts them, so the fork is still one commit.
   const vaultId = randomUUID();
   const sealed =
@@ -1105,7 +1105,7 @@ export interface AgentFilters {
   labels: Record<string, string>;
   state?: string;
   manifest?: string;
-  /** Only Agents moving to another version (track T3): waiting for their secrets or their pod's start. */
+  /** Only Agents moving to another version: waiting for their secrets or their pod's start. */
   outdated?: boolean;
 }
 
@@ -1166,7 +1166,7 @@ export async function wakePod(ctx: TenantContext, id: string): Promise<boolean> 
   });
 }
 
-/** Whether a disk lease (R2d step 3) holds `environment` now. */
+/** Whether a disk lease holds `environment` now. */
 export function diskHeld(environment: Environment, now = Date.now()): boolean {
   return environment.diskOp !== undefined && Date.parse(environment.diskOp.until) > now;
 }
@@ -1201,7 +1201,7 @@ async function deleteIn(
   await t.agentEvent(id, "agent.deleted", { reason });
   // Its triggers and their runs go with it; a timer still armed finds no row.
   await t.deleteAgentTriggers(id);
-  // So do its memories and their versions (T5).
+  // So do its memories and their versions.
   await t.deleteAgentMemories(id);
   await ctx.vault.deleteEnvironmentVault(t, id, actor);
   // Its disk versions go with it; their manifests' bytes are the caller's, after the commit.
@@ -1252,7 +1252,7 @@ export async function deleteAgent(
 }
 
 /**
- * Deletes every Environment unused for its `lifecycle.deleteAfter` (Q13): no turn, recipe
+ * Deletes every Environment unused for its `lifecycle.deleteAfter`: no turn, recipe
  * change, secret write, stop or reset since. One with a turn running waits for the next sweep.
  * Run by the Tenant sweep.
  */
@@ -1327,7 +1327,7 @@ export async function stopAgent(
 }
 
 /**
- * `POST /v1/agents/{id}/restart` (track T3): applies a pending version now, refused during a
+ * `POST /v1/agents/{id}/restart`: applies a pending version now, refused during a
  * turn. With `retry`, it first moves the Agent to the version that failed to start again. A
  * running pod stops, so the next turn starts it on the version; a stopped or failed one is asked
  * to run at once. Kinds `virtual` and `none` apply a version at once anyway.
@@ -1403,7 +1403,7 @@ export async function resetAgent(
 /**
  * Gives pod Environment `environment` (locked) a new pod on a new, empty volume, the next volume
  * generation, with its recipe applied: the old Sandbox and volume are retired. With `seed`, the
- * new volume starts from that disk version before any turn (R2d step 3): a restore, or the
+ * new volume starts from that disk version before any turn: a restore, or the
  * recovery of a lost volume.
  */
 export async function newVolume(
@@ -1420,7 +1420,7 @@ export async function newVolume(
   const now = new Date().toISOString();
   const volumeGen = pod.volumeGen + 1;
   const epoch = pod.hostEpoch + 1;
-  // A move whose runtime waits for a start switches now (track T3).
+  // A move whose runtime waits for a start switches now.
   await switchTo(t, environment, now);
   await t.updateEnvironment(
     id,
@@ -1486,7 +1486,7 @@ export async function agentEventsOf(
 }
 
 /**
- * The owner guard (Q7): refuses a session of `ownerUserId` on an Environment guarded for
+ * The owner guard: refuses a session of `ownerUserId` on an Environment guarded for
  * another owner. A caller acting for a person (`opaque`) gets the 404 of a missing one.
  */
 function checkOwner(environment: Environment, ownerUserId: string, opaque: boolean): void {
@@ -1525,12 +1525,12 @@ export async function recordAttachment(t: Tx, sessionId: string, agentId: string
  * Checks a turn start on a session that names an Environment, in the command's transaction
  * after the session row lock: the Environment still exists, a token caller's grants reach it,
  * its owner guard admits the session's owner, and no disk copy holds it. Other sessions' turns
- * do not stop it (D66). Holds the Environment row's lock until the transaction ends, so a turn
+ * do not stop it. Holds the Environment row's lock until the transaction ends, so a turn
  * start and disk work on one Environment are decided one after the other.
  *
  * A pod Environment must also be usable: not lost (`agent_lost`), on a Runtime with
  * sandbox pods (`agent_unavailable`). A stopped or failed pod is asked to run again, with
- * its recipe applied, after the commit. A computer (ADR-154 R3) is not: it wakes on the run's
+ * its recipe applied, after the commit. A computer is not: it wakes on the run's
  * first command; only a failed one is asked to run, and a running one's turn counts as use.
  */
 export async function checkAgentTurn(
@@ -1553,7 +1553,7 @@ export async function checkAgentTurn(
     fail(403, `Agent ${id} is for another owner's sessions (its owner guard).`, {
       code: "agent_owner_mismatch",
     });
-  // The harness the turn would run on (R4.1, Q9): a pod about to wake runs its recipe's. A
+  // The harness the turn would run on: a pod about to wake runs its recipe's. A
   // session never moves to another harness: its state is that harness's. An Environment's
   // harness never changes since protocol 14, so this refuses a session whose Environment id was
   // deleted and made again with another harness, and an Environment changed in place before
@@ -1566,7 +1566,7 @@ export async function checkAgentTurn(
       details: { harness: harnessOf(session), agentHarness: runs },
     });
   if (environment.kind === "none") return;
-  // A snapshot or restore copies the disk between turns (R2d step 3); a seed's turn waits.
+  // A snapshot or restore copies the disk between turns; a seed's turn waits.
   refuseDiskCopy(environment);
   const pod = environment.pod;
   if (!pod) return;
@@ -1579,7 +1579,7 @@ export async function checkAgentTurn(
       code: "agent_lost",
     });
   const now = new Date().toISOString();
-  // A computer wakes on its first command (ADR-154 R3): its run goes to the harness container,
+  // A computer wakes on its first command: its run goes to the harness container,
   // and the run's first sandbox call opens it (`computer.open` → `computerAccess` → `wakePod`).
   // A failed one is still asked to run, so a turn revives it; a running one counts the turn as use.
   if (ctx?.pods?.computer !== undefined) {
@@ -1611,7 +1611,7 @@ export async function detachAllSessions(t: Tx): Promise<void> {
 
 /**
  * Marks the end of a turn's segment on Environment `id`: it was used now (`deleteAfter` counts
- * from here), and for a running pod idle counts from now and the idle timer is armed (D34).
+ * from here), and for a running pod idle counts from now and the idle timer is armed.
  * Best effort.
  */
 export async function touchAgent(ctx: TenantContext, id: string): Promise<void> {
@@ -1637,7 +1637,7 @@ export async function touchAgent(ctx: TenantContext, id: string): Promise<void> 
 
 /**
  * Re-arms the idle timer of every running pod after the Tenant's settings change, so a shorter
- * `limits.idle` applies to pods already idle (D36: the settings are read whenever a timer is
+ * `limits.idle` applies to pods already idle (the settings are read whenever a timer is
  * set). Best effort.
  */
 export async function rearmPodTimers(ctx: TenantContext): Promise<void> {

@@ -1,6 +1,6 @@
 /**
- * The R7 exit, as the plan words it: one trace per turn in a stock OTel collector, with a span for
- * every model and tool crossing; since D67 an egress connection is the Agent's, on its stream
+ * Tracing end to end: one trace per turn in a stock OTel collector, with a span for
+ * every model and tool crossing; an egress connection is the Agent's, on its stream
  * naming the turn, and has no span. Exporting the same log again, or reading it from the
  * trace route, gives the same span ids. A collector that is down costs those spans and nothing
  * else: turns run and Postgres keeps no extra WAL. No credential value or prompt appears in any
@@ -128,7 +128,7 @@ async function hookServer(): Promise<string> {
 
 /**
  * Opens one tunnel through egress-gate to `releases.test:443` (an echo server), sends a TLS
- * ClientHello for that host, as the gate requires on 443 (ADR-92 §11), and closes it.
+ * ClientHello for that host, as the gate requires on 443, and closes it.
  */
 async function tunnelOnce(gate: EgressGate): Promise<void> {
   const hello = await clientHelloFor("releases.test");
@@ -168,7 +168,7 @@ const model: ModelProvider = async (effect) => {
   };
 };
 
-describe.skipIf(!COLLECTOR)("the R7 exit", { timeout: 180_000 }, () => {
+describe.skipIf(!COLLECTOR)("tracing, end to end", { timeout: 180_000 }, () => {
   let runtime: Awaited<ReturnType<typeof startTestTenant>>;
   let projector: Awaited<ReturnType<typeof startTestProjector>>;
   const logged: { message: string; fields?: Record<string, unknown> }[] = [];
@@ -281,7 +281,7 @@ describe.skipIf(!COLLECTOR)("the R7 exit", { timeout: 180_000 }, () => {
     expect(ended.status, ended.error).toBe("completed");
     first = ended.turnId;
     // egress-gate records a tunnel when it closes, after the command's answer, on the Agent's
-    // stream, naming the turn that ran (D67).
+    // stream, naming the turn that ran.
     await until("the tunnel's record", async () => {
       const response = await fetch(`${runtime.url}/v1/agents/ws%2Fs1/events?types=agent.egress`, { headers });
       const { events } = (await response.json()) as { events: { payload: { runningTurns: { sessionId: string; turnId: string }[] } }[] };

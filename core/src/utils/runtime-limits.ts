@@ -191,12 +191,12 @@ const harnessLimits = {
  *   Agent refused their turn's start (its disk being copied, its pod lost, the Agent deleted); the
  *   start is tried again meanwhile, and after it they fail (`queue.failed`).
  *
- * Flows (`workflows.md` §13):
+ * Flows:
  * - `flowConcurrency`: the most effects one flow turn runs at once; the rest wait their turn.
  * - `flowMapItems`: the most items one map stage may fan out to (`map.too-many-items` past it).
  * - `flowLoopIterations`: the most iterations one loop stage runs (`loop.too-many-iterations`).
  *
- * Agent folders (track T7, checked when a folder is saved, and by the compiler):
+ * Agent folders (checked when a folder is saved, and by the compiler):
  * - `folderFiles`: the most files one agent folder holds.
  * - `folderBytes`: the most bytes its files hold together.
  * - `folderTextFileBytes`: the largest Markdown or JSON file of a folder the compiler reads.
@@ -591,7 +591,7 @@ export const RUNTIME_LIMIT_DEFAULTS: RuntimeLimits = Object.freeze({
   flowConcurrency: 8,
   flowMapItems: 1_000,
   flowLoopIterations: 100,
-  // T6's fixed values (`AGENT_FOLDER_LIMITS` in `@nylorun/core/folder`).
+  // The compiler's fixed values (`AGENT_FOLDER_LIMITS` in `@nylorun/core/folder`).
   folderFiles: 2_000,
   folderBytes: 50 * 1024 * 1024,
   folderTextFileBytes: 1024 * 1024,

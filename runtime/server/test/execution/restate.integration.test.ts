@@ -196,7 +196,7 @@ describe.skipIf(!STACK_ENABLED)("Restate execution", () => {
     expect(fired).toHaveLength(1);
   });
 
-  it("runs a timer set again from inside its own fire after that fire (track T4's re-arm)", async () => {
+  it("runs a timer set again from inside its own fire after that fire (a trigger's re-arm)", async () => {
     // A trigger arms its next time from inside `fire`: the `set` waits behind the running
     // handler, so the handler's own clear of the old time cannot erase the new one.
     const fired: number[] = [];

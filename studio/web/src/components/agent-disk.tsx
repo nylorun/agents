@@ -34,7 +34,7 @@ const bytes = (n: number) =>
         : `${(n / 1024 ** 3).toFixed(2)} GiB`;
 
 /**
- * An Agent's disk versions (R2d step 3, Host feature `environment-disk-versions`): keep one
+ * An Agent's disk versions (Host feature `environment-disk-versions`): keep one
  * between turns (the toolbar's ⋯), and from each row's ⋯ browse its files, put it back, fork a
  * new Agent from it or delete it. The versions are versions of one folder artifact the Agent
  * owns, read through `/v1/artifacts`; a row opens it in the artifact inspector on the right.

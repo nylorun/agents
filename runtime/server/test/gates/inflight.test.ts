@@ -1,5 +1,5 @@
 /**
- * Keyed model calls in the gates service (`gates/inflight.ts`, P1.2): a call outlives its
+ * Keyed model calls in the gates service (`gates/inflight.ts`): a call outlives its
  * client, a re-send joins it or gets its outcome, a different request under the same key is a
  * conflict, and outcomes expire.
  */
@@ -97,7 +97,7 @@ describe("InflightCalls", () => {
     running.settle(answer("c"));
   });
 
-  it("joins a run's call only for its session, at the same or a newer epoch (F5, G4)", async () => {
+  it("joins a run's call only for its session, at the same or a newer epoch", async () => {
     const calls = createInflightCalls();
     const call = held();
     const first = calls.run("t:e1", "h1", call.start, { sessionId: "s1", epoch: 2 });

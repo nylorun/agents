@@ -1,5 +1,5 @@
 /**
- * `nylorun init <path>` (tracks T6 and T7): writes a new agent folder's `AGENT.md`, named after
+ * `nylorun init <path>`: writes a new agent folder's `AGENT.md`, named after
  * the path's last segment (`init agents/hello` names it `hello`). `--example` adds a tool, an
  * MCP server and a trigger, each explained in the folder's README.md, and the result passes
  * `nylorun check`. It also sets up the project, at the nearest directory with `.git` (else the
@@ -8,7 +8,7 @@
  * - `.gitattributes` with `* text=auto eol=lf` when there is none, so a Windows checkout keeps
  *   LF line endings;
  * - `.nylorun/credentials.json` in `.gitignore` when nothing ignores it yet;
- * - the editor's schema mapping (design §3.10): `.vscode/settings.json` `json.schemas`, merged into
+ * - the editor's schema mapping: `.vscode/settings.json` `json.schemas`, merged into
  *   the file, which is left alone when it is not plain JSON.
  *
  * It reads no Runtime.
@@ -34,7 +34,7 @@ The first run in a project (the nearest directory with .git, else this one) also
 .gitattributes (* text=auto eol=lf), ignores .nylorun/credentials.json in .gitignore, and maps the
 folder files to their JSON Schemas in .vscode/settings.json, each only when it is missing.`;
 
-/** Where the editor finds each agent folder file's schema (design §3.10). */
+/** Where the editor finds each agent folder file's schema. */
 export const SCHEMA_BASE = "https://docs.nylorun.com/schemas/agent-folder/v1";
 
 /** The project `init` sets up: the nearest directory from `cwd` up with `.git`, else `cwd`. */

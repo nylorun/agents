@@ -1,5 +1,5 @@
 /**
- * Off means off (ADR-100): what this harness does for an agent that declares its engine features
+ * Off means off: what this harness does for an agent that declares its engine features
  * (`engine`, `agent-folder/2`) and leaves one out, beside what it does for one that declares
  * nothing (`agent-folder/1`).
  */

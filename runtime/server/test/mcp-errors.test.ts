@@ -1,5 +1,5 @@
 /**
- * R2b C6, C7 and C8 end to end over the Tenant API: a renamed MCP tool the model can call, MCP
+ * MCP tool names, failures and secrets, end to end over the Tenant API: a renamed MCP tool the model can call, MCP
  * failures the model sees with a code, a lost answer the model sees only for a read-only tool,
  * and no credential value in a tool's result, error or event. With `NYLORUN_TEST_MODEL_GATE=http`
  * the gates service makes every call (`gates/tool-gate-errors.test.ts`); otherwise the Tenant
@@ -19,7 +19,7 @@ import { deploy, manifestOf, writeManifest, type AgentSource, type DeployOptions
 const APP = "mcp-errors-app-key-aaaaaaaaaaaaaa";
 const TOKEN = "mcp-bearer-plaintext-0a1b2c3d4e5f";
 const HTTP_KEY = "http-tool-key-plaintext-6a7b8c9d";
-/** Not a credential: it survives, though its key looks secret (Q16). */
+/** Not a credential: it survives, though its key looks secret. */
 const NEXT_TOKEN = "cursor-page-2-abcdefghijkl";
 
 interface Seen {
@@ -224,7 +224,7 @@ afterAll(async () => {
   for (const server of servers) await new Promise((resolve) => server.close(resolve));
 });
 
-describe("tool names every model accepts (R2b C6)", () => {
+describe("tool names every model accepts", () => {
   it("lists a dotted tool under a name the model can call, and calls the server by its own", async () => {
     const result = await run("faulty", "faulty__files_read");
     expect(result.discovered).toEqual({
@@ -253,7 +253,7 @@ describe("tool names every model accepts (R2b C6)", () => {
   });
 });
 
-describe("errors the model can act on (R2b C7)", () => {
+describe("errors the model can act on", () => {
   /** The failure the model saw, and the `tool.completed` error it was recorded as. */
   async function failed(tool: string) {
     const result = await run("faulty", tool);
@@ -293,7 +293,7 @@ describe("errors the model can act on (R2b C7)", () => {
     expect(faulty.calls("lookup")).toBe(1);
   });
 
-  it("any other tool's lost answer is mcp.lost to the model too, and is not sent again (R5)", async () => {
+  it("any other tool's lost answer is mcp.lost to the model too, and is not sent again", async () => {
     const { model, event } = await failed("faulty__charge");
     expect(model).toMatchObject({ kind: "failed", code: "mcp.lost" });
     expect(event).toMatchObject({ code: "mcp.lost" });
@@ -310,7 +310,7 @@ describe("errors the model can act on (R2b C7)", () => {
   });
 });
 
-describe("no secret in a result (R2b C8)", () => {
+describe("no secret in a result", () => {
   it("replaces the bearer a server echoes in its result, and keeps nextToken", async () => {
     const result = await run("faulty", "faulty__echo");
     expect(result.status).toBe("completed");

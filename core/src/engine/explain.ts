@@ -1,5 +1,5 @@
 /**
- * What `nylorun check --explain` prints (ADR-100): each engine feature an agent of a compiled
+ * What `nylorun check --explain` prints: each engine feature an agent of a compiled
  * folder gets, and the tools and text blocks it adds, from the same projection the harness runs
  * (`previewTurn`). MCP tools are not known offline, so tool search says only whether the agent's
  * MCP tools may be deferred.
@@ -76,7 +76,7 @@ const TOOLS: Readonly<Record<EngineFeature, readonly string[]>> = {
   connections: [REQUEST_CONNECTION_TOOL, ASK_TOOL],
   toolSearch: [TOOL_SEARCH_TOOL, TOOL_CALL_TOOL],
 };
-/** The Runtime plugin that declares each feature in an `agent-folder/3` folder (ADR-106). */
+/** The Runtime plugin that declares each feature in an `agent-folder/3` folder. */
 const PLUGIN_OF: Readonly<Partial<Record<EngineFeature, string>>> = {
   sandbox: "nylorun-sandbox",
   "artifacts.save": "nylorun-artifacts",
@@ -108,7 +108,7 @@ function explainOne(
 ): ExplainedAgent {
   const declared = preview.features.declared;
   const by = (feature: EngineFeature): string => {
-    // agent-folder/3: the plugin that brings it (ADR-106), or skills/ and the plugins' skills.
+    // agent-folder/3: the plugin that brings it, or skills/ and the plugins' skills.
     if (facts.plugins) return PLUGIN_OF[feature] ?? (feature === "skills" ? "skills/ and the plugins' skills" : `engine.${feature}`);
     switch (feature) {
       case "skills":
@@ -128,7 +128,7 @@ function explainOne(
     }
   };
   const blocks = new Set(preview.blocks.map((block) => block.name));
-  // A Runtime plugin's tool matches by its own name (nylorun__memory is memory, ADR-106), and is
+  // A Runtime plugin's tool matches by its own name (nylorun__memory is memory), and is
   // shown by the name the model reads, the one `removeTools` and tool policy take.
   const modelNames = new Map(preview.engineTools.map((name) => [runtimeToolOf(name) ?? name, name]));
   const tools = new Set(modelNames.keys());

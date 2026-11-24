@@ -1,4 +1,4 @@
-/** Trace ids (R7.2, Q3) and trace context in (R7.4). */
+/** Trace ids and trace context in. */
 import { randomBytes } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {

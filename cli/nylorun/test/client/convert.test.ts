@@ -45,7 +45,7 @@ const calls = (deps: Awaited<ReturnType<typeof remote>>) =>
     .filter((request) => !request.url.endsWith("/health"))
     .map((request) => `${request.init?.method ?? "GET"} ${request.url.slice(URL_.length)}`);
 
-/** Triage as T6's TypeScript saved it: two instructions, a server with a credential, a pod-less runtime. */
+/** Triage as its TypeScript version saved it: two instructions, a server with a credential, a pod-less runtime. */
 const TRIAGE: AgentManifestV8 = {
   manifestSchemaVersion: 8,
   name: "triage",
@@ -151,7 +151,7 @@ describe("nylorun export --folder", () => {
     expect(await exportCommand(deps, ["--folder", "brief"])).toBe(0);
     expect(deps.lines).toEqual(["Wrote 4 files to brief."]);
     expect(deps.errors).toEqual([
-      `  note: agents/b/: The agent's display name "Bee" is left out: in a folder an agent's name is its id (design §3.2).`,
+      `  note: agents/b/: The agent's display name "Bee" is left out: in a folder an agent's name is its id.`,
       "It compiles to a different manifest: see the notes, then check it with nylorun check brief.",
     ]);
     expect(JSON.parse(await readFile(join(dir, "brief", "flow.json"), "utf8"))).toEqual({ chain: [{ agent: "a" }, { agent: "b" }] });
@@ -223,7 +223,7 @@ describe("nylorun migrate folder", () => {
     await expect(migrateCommand(deps, ["folder", "support"])).rejects.toMatchObject({ exitCode: 2 });
     expect(await migrateCommand(deps, ["folder", "support", "--out", "../support-folder"])).toBe(0);
     expect(deps.errors).toEqual([
-      "  note: skills/labels/SKILL.md: secrets moved to AGENT.md's skills block (D80), so the file and its hash change.",
+      "  note: skills/labels/SKILL.md: secrets moved to AGENT.md's skills block, so the file and its hash change.",
       "It compiles to a different manifest: see the notes, then check it with nylorun check ../support-folder.",
     ]);
     const out = join(dir, "support-folder");

@@ -1,5 +1,5 @@
 /**
- * `agent-folder/3` (ADR-106): a folder declares the Runtime's features as plugins, by name, and
+ * `agent-folder/3`: a folder declares the Runtime's features as plugins, by name, and
  * narrows their tools with the settings any MCP server takes:
  *
  * ```yaml
@@ -37,7 +37,7 @@ export const AGENT_FOLDER_V3 = "agent-folder/3";
 export const V3_REFUSED_KEYS = ["memory"] as const;
 /**
  * The `loop` keys a v3 folder declares as plugins instead. `loop` itself stays the harness's own
- * settings, such as `compaction` (ADR-157).
+ * settings, such as `compaction`.
  */
 export const V3_REFUSED_LOOP_KEYS = ["plan", "connections", "ask"] as const;
 /** The keys of `engine:` a v3 folder declares as plugins instead. */

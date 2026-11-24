@@ -1,5 +1,5 @@
 /**
- * An Agent's versions (track T3, D73): which version of its agent manifest it runs, how it moves
+ * An Agent's versions: which version of its agent manifest it runs, how it moves
  * to another, and which version a session's turn runs.
  *
  * - **One version at a time.** An Agent runs one version of its manifest (`manifestVersion`),
@@ -12,7 +12,7 @@
  *   any other applies at once. A version that adds a required secret with no value the version
  *   can use waits for it (`resumeMove` after each secret write). Its manifest's name, kind,
  *   harness and storage are fixed for its life (`409 agent_fixed_field`), but for one kind
- *   change: a `PUT` on a `virtual` Agent may make it a computer (ADR-154 R13, `becomeComputer`).
+ *   change: a `PUT` on a `virtual` Agent may make it a computer (`becomeComputer`).
  * - **The start check** (pods): a start on a new version records what ran before
  *   (`startCheck`) until the new pod's harness joins (`passStartCheck`). A failed setup, a failed
  *   pod or a start past the Host's `tenant.upgradeStartMs` goes back to it (`revertStart`): the
@@ -118,7 +118,7 @@ export function applyPin(session: Session, pin: SessionPin): void {
  *
  * Leaves the session as it is for a flow and a flow's linked session, a later segment, a turn
  * with any journaled effect, a version whose harness is not the session's (an Agent's harness is
- * fixed for its life, D73), a turn on a variant with no request recorded (accepted by an older
+ * fixed for its life), a turn on a variant with no request recorded (accepted by an older
  * Runtime), and a variant that is no variant of the new version: then the turn runs on the
  * version it pinned, and `turn.version_kept` says why.
  */
@@ -185,7 +185,7 @@ export interface Move {
  * the target's runtime resolved against the Tenant's limits (a `400` when it no longer fits),
  * what it changes, the fixed fields it would change, and the required secrets it would wait for.
  *
- * `becomeComputer` (ADR-154 R13): a `PUT` on the Agent itself, on a Runtime whose pods are
+ * `becomeComputer`: a `PUT` on the Agent itself, on a Runtime whose pods are
  * computers, may move a `virtual` Agent to a `pod` version; its storage is then the new volume's.
  * Every other kind change, and any kind change a save would make, is refused as a fixed field.
  */

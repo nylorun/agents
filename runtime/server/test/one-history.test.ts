@@ -1,5 +1,5 @@
 /**
- * One history (blueprint P0.3), outside shadow mode: the session row holds no transcript, the
+ * One history, outside shadow mode: the session row holds no transcript, the
  * engine resumes from the transcript folded from the record, a row written by the previous
  * release is taken over, and a cancelled turn's recorded edits are undone.
  */

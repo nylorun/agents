@@ -99,7 +99,7 @@ export async function prepareVersions(repo) {
       );
     await writeFile(versionPath, next);
   }
-  // D7: nylorun's image pins (nylorun.runtime, nylorun.studio) equal the
+  // Nylorun's image pins (nylorun.runtime, nylorun.studio) equal the
   // tested Runtime and Studio: the version this plan publishes, or keeps.
   const pin = (name) => calculated.plan.packages[name] ?? before[name];
   await syncImagePins(repo, { runtime: pin("runtime"), studio: pin("studio") });

@@ -77,7 +77,7 @@ describe("parseTranscriptEvent", () => {
     expect(failed?.payload).toMatchObject({ error: { code: "sandbox.error" } });
   });
 
-  it("types the timing of a model call's outcome, a tool call's and a turn's (R7.1)", () => {
+  it("types the timing of a model call's outcome, a tool call's and a turn's", () => {
     const gate = { startedAt: "2026-10-11T00:00:00.100Z", endedAt: "2026-10-11T00:00:01.000Z" };
     const assistant = parseTranscriptEvent(
       event("message.assistant", {

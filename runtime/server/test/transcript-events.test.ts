@@ -138,7 +138,7 @@ it("writes message.assistant per model step and tool.completed for Runtime-run t
       "message.assistant",
     ]);
 
-    // Span-ready rows (R7.1): each outcome names its effect and carries the journal's window.
+    // Span-ready rows: each outcome names its effect and carries the journal's window.
     // No gate metered these calls (the test's model provider) or ran the sandbox tools.
     for (const row of [...messages, ...tools]) {
       expect(row.effectId).toEqual(expect.any(String));
@@ -199,7 +199,7 @@ it("pauses for approval on an HTTP tool with an output schema, with the call id 
     const interactionId = (waits[0] as { interaction: { id: string } })
       .interaction.id;
     expect(service.calls).toEqual([]);
-    // The turn waits for a person: that wait is not its running time (R7.1).
+    // The turn waits for a person: that wait is not its running time.
     await new Promise((resolve) => setTimeout(resolve, 400));
     await session.approve(interactionId, true, { idempotencyKey: "a1" });
     expect((await settle(session, ["completed", "failed"])).status).toBe(
@@ -221,7 +221,7 @@ it("pauses for approval on an HTTP tool with an output schema, with the call id 
       invocationId: interaction.invocationId,
       toolName: "save",
       output: { saved: true },
-      // What the tool policy did (R7.1): it held the call, and the app's key approved it.
+      // What the tool policy did: it held the call, and the app's key approved it.
       policy: { decision: "ask", reason: expect.any(String), approvedBy: expect.any(String) },
     });
     const started = Date.parse(ofType(items, "command.message")[0]!.time);
@@ -245,7 +245,7 @@ it("pauses for approval on an HTTP tool with an output schema, with the call id 
   }
 });
 
-it("writes one message.assistant for a step that said nothing, which history skips (R7.1)", async () => {
+it("writes one message.assistant for a step that said nothing, which history skips", async () => {
   const runtime = await startTestTenant({
     applicationKey: APP,
     modelProvider: async () => ({ output: [] }),

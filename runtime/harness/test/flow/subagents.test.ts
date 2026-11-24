@@ -11,7 +11,7 @@ import {
 } from "../../src/run/index.js";
 
 /**
- * Flow Agents Phase 3: a flow agent used as a tool runs in its own linked session. The
+ * Flow agents: a flow agent used as a tool runs in its own linked session. The
  * durable engine asks the host for it with one `agent` effect and settles the tool call
  * with the flow's output.
  */

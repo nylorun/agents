@@ -1,5 +1,5 @@
 /**
- * Converting to agent folders (track T7, D80):
+ * Converting to agent folders:
  *
  * - `nylorun export --folder <name>[@<version>]` writes the agent folder of a saved manifest, from
  *   JSON or TypeScript (`folderOfManifest`, `@nylorun/core/folder`), read with the Runtime API.

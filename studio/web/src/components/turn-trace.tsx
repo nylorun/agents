@@ -43,7 +43,7 @@ function factsOf(row: TraceRow): string {
  * A turn as a trace: its spans from the per-turn trace route, which builds them from the log on
  * each read, so a turn's trace lasts as long as its session. Telemetry, for the developer: the
  * turn, each model call and each tool call, with times. HTTP attempts and egress are the
- * operator's, in their own tools (ADR-159).
+ * operator's, in their own tools.
  */
 export function TurnTrace({
   tenantId,

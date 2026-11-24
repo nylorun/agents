@@ -1,11 +1,11 @@
 /**
- * R2d step 2 against an in-memory sandboxes service: a pod Agent's `setup` and `files` (its
+ * Pod setup against an in-memory sandboxes service: a pod Agent's `setup` and `files` (its
  * manifest's runtime section). The join hands the engine its disk's plan; input files come only
  * through the host routes, indexed into the applied recipe; a failed setup fails the pod (and
  * stays failed while the pod is ready) until a turn start asks it to run again; a session's
  * artifact or a missing version is refused when the manifest is saved, and so is setup on a
  * virtual Agent. A new version's setup runs at the pod's next start on the same volume, and a
- * start that fails goes back to the version the Agent ran (track T3).
+ * start that fails goes back to the version the Agent ran.
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Agent } from "@nylorun/core/define";
@@ -160,7 +160,7 @@ describe("a pod Agent's setup and input files", { timeout: 90_000 }, () => {
     expect(state.retry).toBe(true);
   });
 
-  it("copies files by content hash: refused until the Tenant holds them, then served as a folder (Q6)", async () => {
+  it("copies files by content hash: refused until the Tenant holds them, then served as a folder", async () => {
     const { createHash } = await import("node:crypto");
     const bytes = "#!/bin/sh\necho kit\n";
     const sha256 = `sha256:${createHash("sha256").update(bytes).digest("hex")}`;

@@ -96,11 +96,11 @@ export type StartTestTenantOptions = Partial<TenantConfig> & {
    */
   harness?: TenantOpenHooks["harness"];
   harnessTap?: TenantOpenHooks["harnessTap"];
-  /** Sandbox pods (F7.2): the sandboxes service, e.g. `test/support/fake-sandboxes.ts`. */
+  /** Sandbox pods: the sandboxes service, e.g. `test/support/fake-sandboxes.ts`. */
   pods?: TenantOpenHooks["pods"];
-  /** The outside credential provider (`TenantOpenHooks.credentialProvider`, CP-E). */
+  /** The outside credential provider (`TenantOpenHooks.credentialProvider`). */
   credentialProvider?: TenantOpenHooks["credentialProvider"];
-  /** How the trace route makes spans (`TenantOpenHooks.traces`, R7.5). */
+  /** How the trace route makes spans (`TenantOpenHooks.traces`). */
   traces?: TenantOpenHooks["traces"];
   /** Wraps the Tenant's `fs` Object store (to watch what it is asked to store). */
   wrapBlobs?: (blobs: BlobStore) => BlobStore;
@@ -109,7 +109,7 @@ export type StartTestTenantOptions = Partial<TenantConfig> & {
 /**
  * The harness mode of the suite, `NYLORUN_TEST_HARNESS`: `memory` (default) and `json` run the
  * Tenant's harness in process over a memory channel; `ws` runs a harness service over a loopback
- * WebSocket, with its own MCP pool and sandboxes and no store (F6.2).
+ * WebSocket, with its own MCP pool and sandboxes and no store.
  */
 export function testHarnessMode(): "memory" | "json" | "ws" {
   const mode = process.env.NYLORUN_TEST_HARNESS ?? "memory";
@@ -145,7 +145,7 @@ export async function patchStoredSession(
 }
 
 /**
- * Minimal in-process HTTP shim over \`openTenantRuntime\` for runtime tests (§5.5). The
+ * Minimal in-process HTTP shim over \`openTenantRuntime\` for runtime tests. The
  * Tenant is the one Tenant of a database of its own (`./store.ts`), created on first start
  * and found again by a restart with the same `tenantId`. `close()` drops the database unless
  * the root is retained.
@@ -324,8 +324,8 @@ export async function startTestTenant(
   else if (options.useHostModel && gate) hooks.modelGate = gate.modelGate;
   if (options.toolGate) hooks.toolGate = options.toolGate;
   else if (gate) hooks.toolGate = gate.toolGate;
-  // The keys service (F4.2): the Tenant never reads the vault key; the gate does. Its
-  // advances mint their run tokens through it into the clients' grants (F5).
+  // The keys service: the Tenant never reads the vault key; the gate does. Its
+  // advances mint their run tokens through it into the clients' grants.
   if (gate) {
     hooks.keys = gate.keys;
     hooks.runGrants = gate.runGrants;
@@ -425,7 +425,7 @@ export type TestGate = GatesServer & {
   /** Core's credential (`NYLORUN_GATES_TOKEN`). */
   token: string;
   /**
-   * The gateway's vault authorization of a session's remote MCP server (F4.1): what
+   * The gateway's vault authorization of a session's remote MCP server: what
    * `TenantHandle.authorize` does in process, with the vault key only the gateway holds.
    */
   authorizeMcp(

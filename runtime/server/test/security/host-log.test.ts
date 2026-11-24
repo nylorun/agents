@@ -1,5 +1,5 @@
 /**
- * G8 — Host log contains no Tenant log record, bearer, API key, or KEK.
+ * Host log contains no Tenant log record, bearer, API key, or KEK.
  */
 import { randomUUID } from "node:crypto";
 import { expect, it } from "vitest";
@@ -14,7 +14,7 @@ import {
 
 const agent = Agent({ id: "log-bot", name: "Log Bot" }).build();
 
-it("G8: Host log omits Tenant records, bearer, API keys, and KEK material", async () => {
+it("Host log omits Tenant records, bearer, API keys, and KEK material", async () => {
   const host = await startSecurityHost({
     sandboxBackend: "virtual",
     model: { kind: "scripted", output: "ok" },

@@ -14,7 +14,7 @@ export const REPO_BRIEF_SKILLS = projectAsset("agents/repo-brief/skills", EXAMPL
 export type RepoBriefServices = Readonly<{ toolsUrl?: string; mcpUrl?: string }>;
 
 /**
- * Every manifest-only piece in one flow agent (track R2): ask it to brief you on a public
+ * Every manifest-only piece in one flow agent: ask it to brief you on a public
  * GitHub repository, named as owner/repo.
  *
  *   triage → switch ┬ repo:    map(researcher) → parallel(overview, risks) → loop(writer, editor) → publish_brief

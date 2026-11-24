@@ -34,7 +34,7 @@ export interface TenantStatusContext {
   stuckInvocations?: () => Promise<StuckInvocation[]>;
   /** This Tenant's Durable Streams status (`streamsStatus` in `streams.ts`). */
   streamsStatus?: () => Promise<StreamsStatus>;
-  /** The Tenant's harnesses (F6.2). */
+  /** The Tenant's harnesses. */
   harness?: HarnessStatus;
 }
 
@@ -85,7 +85,7 @@ async function executionStatus(
   }
 }
 
-/** Build `TenantStatusSchema` with secrets redacted (A14). */
+/** Build `TenantStatusSchema` with secrets redacted. */
 export async function buildTenantStatus(
   ctx: TenantStatusContext,
 ): Promise<TenantStatus> {
@@ -135,14 +135,14 @@ export async function buildTenantStatus(
 }
 
 /**
- * Insert-if-absent Tenant configuration seed (A18).
+ * Insert-if-absent Tenant configuration seed.
  * Response lists field names only; never secret values.
  */
 export async function seedTenantConfig(
   ctx: {
     store: SessionStore;
     vault: VaultService;
-    /** Seals the seeded model credential (F4.2). */
+    /** Seals the seeded model credential. */
     keys: Pick<Keys, "putHostModel">;
   },
   body: SeedTenantConfigRequest,

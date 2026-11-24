@@ -59,7 +59,7 @@ const report = {
   defaultImage: "python:3.13-slim",
 };
 
-it("F2-4: doctor sandbox prints Tenant API report (snapshot)", async () => {
+it("doctor sandbox prints Tenant API report (snapshot)", async () => {
   const url = await runtime(report);
   const deps = testDeps(await temporaryHome(), {
     fetch: (input, init) => fetch(input, init),

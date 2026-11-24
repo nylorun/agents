@@ -1,5 +1,5 @@
 /**
- * Model Calls P2 gate (design §10): a long turn runs in segments that each end at a step
+ * A long turn runs in segments that each end at a step
  * boundary, so no advance reaches its deadline, and the turn completes as one turn.
  */
 import { afterEach, expect, it } from "vitest";

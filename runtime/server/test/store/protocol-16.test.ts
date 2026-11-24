@@ -1,5 +1,5 @@
 /**
- * Protocol 16: migration `0032_agents` is a fresh start for Agents (track T2). It closes every
+ * Protocol 16: migration `0032_agents` is a fresh start for Agents. It closes every
  * open session (`closedReason: "protocol_16"`) and leaves one closed before as it is, drops
  * agent definitions and environment manifests, deletes the Environments with their vaults (the
  * host's stays), workspaces, disks and streams, and renames `environments` to `agents`; the usage

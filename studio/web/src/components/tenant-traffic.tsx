@@ -93,7 +93,7 @@ function Rows({
 }
 
 /**
- * Tenant › Traffic (ADR-159): how the Runtime is running, for the operator on a laptop. API
+ * Tenant › Traffic: how the Runtime is running, for the operator on a laptop. API
  * requests by route and client, model calls, tool calls, turns, queue waits and egress, from the
  * runtime's and the gateway's own `/metrics`, read every 10 s. Counts are since each process
  * started; "Now" is the rate between the last two reads. Nothing is stored: history belongs in the

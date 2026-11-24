@@ -1,5 +1,5 @@
 /**
- * Disk versions of a pod Agent (R2d step 3) against an in-memory sandboxes service: a
+ * Disk versions of a pod Agent against an in-memory sandboxes service: a
  * snapshot copies the volume through the pod's engine (`/workspace` and `/harness`, not the
  * engine's own files); a restore gives the pod a new volume, seeded from the version once its
  * engine connects, and turns wait for it; a lost volume with a version is recovered from the
@@ -248,7 +248,7 @@ describe("disk versions of a pod Agent", { timeout: 90_000 }, () => {
   });
 });
 
-describe("a pod fork onto other setup (Q17)", { timeout: 90_000 }, () => {
+describe("a pod fork onto other setup", { timeout: 90_000 }, () => {
   it("copies the disk through the source's engine, then holds turns until the new setup has run on it", async () => {
     const podbox = (setup: string): RuntimeSection => ({ kind: "pod", setup: [{ command: setup }] });
     expect(await save("podbox", podbox("echo v1"))).toBe(1);

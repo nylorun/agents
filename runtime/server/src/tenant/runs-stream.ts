@@ -1,5 +1,5 @@
 /**
- * The Tenant's runs stream (D83): every run of every Agent's triggers, in the `runs` stream of the
+ * The Tenant's runs stream: every run of every Agent's triggers, in the `runs` stream of the
  * Tenant's current basin (Durable Streams, `streams/types.ts`), kept 7 days, and served at
  * `GET /v1/runs/stream` as server-sent events from a cursor.
  *
@@ -16,7 +16,7 @@
  * answered `410 cursor_expired`. Without S2 (tests, a local Host) the in-memory streams hold it,
  * and a restart loses what was unread.
  *
- * Nothing inside the Runtime reads it or waits on it (D48): it serves API listeners only.
+ * Nothing inside the Runtime reads it or waits on it: it serves API listeners only.
  */
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { TenantRun } from "@nylorun/core/contracts";

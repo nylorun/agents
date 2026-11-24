@@ -1,5 +1,5 @@
 /**
- * The pod engine's disk setup (R2d step 2, `harness/setup.ts`): input files then commands, once
+ * The pod engine's disk setup (`harness/setup.ts`): input files then commands, once
  * per volume (the marker), a failure reported and the setup run again when core says so.
  */
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -91,7 +91,7 @@ describe("prepareDisk", () => {
     expect(await readFile(join(work, "all.txt"), "utf8")).toBe("seed\na\nb\n");
   });
 
-  it("runs a new version's setup on the same volume once its hash differs (track T3)", async () => {
+  it("runs a new version's setup on the same volume once its hash differs", async () => {
     const work = join(root, "workspace");
     const one: DiskSetup = {
       recipeVersion: 1,
@@ -149,7 +149,7 @@ describe("prepareDisk", () => {
     expect(JSON.parse(await readFile(join(root, "setup.json"), "utf8")).recipeVersion).toBe(2);
   });
 
-  it("skips a seeded volume, but on a fork onto other setup waits for the written disk and runs it (Q17)", async () => {
+  it("skips a seeded volume, but on a fork onto other setup waits for the written disk and runs it", async () => {
     const work = join(root, "workspace");
     const setup: DiskSetup = {
       recipeVersion: 1,

@@ -153,7 +153,7 @@ services:
       NYLORUN_GATES_ALLOWED_HOSTS: gateway:4100
       NYLORUN_GATES_TOKEN: \${NYLORUN_GATES_TOKEN:?run nylorun start}
       NYLORUN_DATABASE_URL: postgres://nylorun:\${NYLORUN_POSTGRES_PASSWORD}@postgres:5432/nylorun
-      # The Object store, where model-gate will read file parts (F8.1).
+      # The Object store, where model-gate will read file parts.
       NYLORUN_OBJECT_STORE_ENDPOINT: http://rustfs:9000
       NYLORUN_OBJECT_STORE_ACCESS_KEY: nylorun
       NYLORUN_OBJECT_STORE_SECRET_KEY: \${NYLORUN_OBJECT_STORE_SECRET_KEY:?run nylorun start}
@@ -162,7 +162,7 @@ services:
       # Host tuning (timings, retries, internal sizes; JSON): from the shell that runs \`nylorun start\`.
       NYLORUN_TUNING: \${NYLORUN_TUNING:-}
       # Providers whose models may call with this machine's own identity, such as google-vertex
-      # with Google's Application Default Credentials (ADR-71): from the shell that runs
+      # with Google's Application Default Credentials: from the shell that runs
       # \`nylorun start\`. Empty: none. Every Tenant on this Host may use it.
       NYLORUN_MODEL_HOST_IDENTITY: \${NYLORUN_MODEL_HOST_IDENTITY:-}
       # An outside credential provider egress-gate hands an Agent owner's connected hosts to, and
@@ -321,7 +321,7 @@ services:
       # Extra Host values Studio serves behind a sign-in proxy (studio.acme.dev),
       # comma-separated; from the environment of nylorun start.
       NYLORUN_STUDIO_ALLOWED_HOSTS: \${NYLORUN_STUDIO_ALLOWED_HOSTS:-}
-      # Tenant › Traffic reads the runtime's and the gateway's own metrics, live (ADR-159).
+      # Tenant › Traffic reads the runtime's and the gateway's own metrics, live.
       NYLORUN_STUDIO_METRICS_URLS: runtime=http://runtime:9464/metrics,gateway=http://gateway:9464/metrics
     volumes:
       - \${NYLORUN_HOST_ROOT}/host-credentials.json:/run/nylorun/host-credentials.json:ro

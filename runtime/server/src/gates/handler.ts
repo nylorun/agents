@@ -1,7 +1,7 @@
 /**
  * Serves one model call in the gates service: opens the Tenant's vault (the database's one
  * Tenant; a call naming another is refused) and calls the model (the fixture model while the
- * Tenant's `model.fixture` is on, R4.3) through `inProcessModelGate`, the same code the loop ran before the gate, so outcomes,
+ * Tenant's `model.fixture` is on) through `inProcessModelGate`, the same code the loop ran before the gate, so outcomes,
  * retries, classification and redaction are unchanged. The meter records the call's usage in
  * the Tenant's ledger. Logs one line per call, with its attempts, and one per retry, never the
  * prompt, the output or a credential.

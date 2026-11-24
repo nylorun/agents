@@ -1,18 +1,18 @@
 /**
- * The Tenant's keys by name (F9 I1), managed through the Management API (`/v1/tenant/keys`,
- * application keys only) and `nylorun-operate keys`. A key is a principal (F9-D11): its id is the key's name
+ * The Tenant's keys by name, managed through the Management API (`/v1/tenant/keys`,
+ * application keys only) and `nylorun-operate keys`. A key is a principal: its id is the key's name
  * (`APPLICATION_KEY_ID_PATTERN`), the key is 64 hex characters (`mintBearerToken`), and the
  * Tenant keeps only its SHA-256. Putting a key creates the principal or rotates its key;
  * deleting it removes the row. Either way the old key stops authenticating on its next request,
  * since authentication reads the principal on every request (`auth.ts`).
  *
- * `studio` is derived from the admin key (F9-D9): it is never put or deleted here. `bootstrap` is
+ * `studio` is derived from the admin key: it is never put or deleted here. `bootstrap` is
  * the management key a Host registers from `NYLORUN_MANAGEMENT_KEY_FILE`: its file is its only
  * source. A key has a role (protocol 8): `application` reaches the Runtime API, `management` the
  * Management API; a key keeps its role when it is rotated.
  *
  * Each put and delete records `key.created` or `key.revoked` on the Tenant's stream in its own
- * transaction (ADR-159), as `by`: never the key itself.
+ * transaction, as `by`: never the key itself.
  */
 import {
   APPLICATION_KEY_ID_PATTERN,

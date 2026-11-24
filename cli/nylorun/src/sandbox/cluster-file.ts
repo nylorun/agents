@@ -26,7 +26,7 @@ export interface ClusterFile {
   ports: { harness: number; gates: number; egress: number };
   networkPolicy: { enforced: boolean; probedAt: string };
   enabledAt: string;
-  /** agent-sandbox when absent; substrate for Agent Substrate (ADR-138, preview). */
+  /** agent-sandbox when absent; substrate for Agent Substrate (preview). */
   backend?: "agent-sandbox" | "substrate";
   /** Agent Substrate: where the Tenant's actors live and the edge actors reach the Runtime by. */
   substrate?: {
@@ -36,7 +36,7 @@ export interface ClusterFile {
     serviceAccount: string;
     endpoint?: string;
     version?: string;
-    /** keysPort: where the keys provider reaches the egress service's decide route (ADR-142). */
+    /** keysPort: where the keys provider reaches the egress service's decide route. */
     edge: { host: string; harnessPort: number; gatesPort: number; keysPort?: number };
     workerSelector?: Record<string, string>;
     /** The keys provider's name, once it is deployed and registered with Substrate's egress. */
@@ -89,7 +89,7 @@ const LOOPBACK = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
 /**
  * How the sandboxes container reaches the API server. One on this machine's loopback
  * (Docker Desktop's `https://127.0.0.1:<port>`) is dialled at `host.docker.internal:<port>`
- * while the certificate is still verified against the kubeconfig's host (Experiment 2, Q3).
+ * while the certificate is still verified against the kubeconfig's host.
  */
 export function apiRoute(server: string): { dial: string; tlsServerName: string } {
   const url = new URL(server);

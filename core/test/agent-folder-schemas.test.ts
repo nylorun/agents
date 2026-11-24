@@ -30,7 +30,7 @@ import { parseMarkdown } from "../src/folder/frontmatter.js";
 import { jsonSchemaIssues } from "../src/folder/json-schema.js";
 import { schemaErrors } from "./support/json-schema-instances.js";
 
-/** The JSON Schema of each kind of file in an agent folder (track T7, design §3.10). */
+/** The JSON Schema of each kind of file in an agent folder. */
 
 type Json = Record<string, unknown>;
 
@@ -188,8 +188,8 @@ describe("agent folder JSON Schemas", () => {
   });
 
   it("are published at the $id the compiler takes in $schema and nylorun init maps", () => {
-    // AGENT.md gained `model`, then `engine` (ADR-100), then `engine.triggers` (D83): revision 3;
-    // runtime.json a slot's `toolPrefix`, then `limits.triggers` (D83): revision 2.
+    // AGENT.md gained `model`, then `engine`, then `engine.triggers`: revision 3;
+    // runtime.json a slot's `toolPrefix`, then `limits.triggers`: revision 2.
     const revision: Record<string, string> = { "agent-md": ".6", runtime: ".2" };
     for (const kind of AGENT_FOLDER_SCHEMA_KINDS)
       expect(SCHEMAS[kind].$id).toBe(`https://docs.nylorun.com/schemas/agent-folder/v1/${kind}${revision[kind] ?? ""}.json`);
@@ -271,7 +271,7 @@ describe("agent folder JSON Schemas", () => {
   });
 
   it("name exactly the keys the compiler takes", () => {
-    // agent-folder/4 (ADR-164): a subagent file's keys, and the root's tools and disallowedTools.
+    // agent-folder/4: a subagent file's keys, and the root's tools and disallowedTools.
     expect(keysOf(SCHEMAS["agent-md"])).toEqual(sorted([...AGENT_KEYS, ...SUBAGENT_FILE_KEYS]));
     expect(keysOf(defsOf("agent-md").McpServerSettings)).toEqual(sorted(PLUGIN_SERVER_SETTING_KEYS));
     expect(SERVER_SETTING_KEYS.every((key) => PLUGIN_SERVER_SETTING_KEYS.includes(key))).toBe(true);

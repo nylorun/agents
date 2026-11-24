@@ -48,7 +48,7 @@ import {
 } from "@nylorun/core/contracts";
 import { AdminError, rejection } from "./errors.js";
 
-/** The Tenant's stream (ADR-159): its event types, and an event and a page of them as `tenant.audit` reads them. */
+/** The Tenant's stream: its event types, and an event and a page of them as `tenant.audit` reads them. */
 export { TENANT_EVENT_TYPES } from "@nylorun/core/contracts";
 export type { TenantAuditPage, TenantEvent, TenantEventSource, TenantEventType } from "@nylorun/core/contracts";
 
@@ -74,7 +74,7 @@ export interface ManagementTenant {
   /** Resets the Tenant's sessions (`sessions`), its Agents and their sessions (`agents`), or `all`. */
   reset(request: Body<ResetTenantRequest>): Promise<ResetTenantResponse>;
   /**
-   * A page of the Tenant's audit (ADR-159, Host feature `tenant-audit`), newest first: keys,
+   * A page of the Tenant's audit (Host feature `tenant-audit`), newest first: keys,
    * signing keys, tool policy and settings changes, vault credentials written and used, and Studio
    * sign-ins, each with who did it and never a secret. Only `types`, and only events at or after
    * `since` and before `until` (ISO times), when given; pass the page's `nextCursor` as `cursor`,

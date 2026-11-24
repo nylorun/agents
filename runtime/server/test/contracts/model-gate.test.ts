@@ -17,7 +17,7 @@ modelGateContract("in-process", async (host) => ({
 }));
 
 // The loop's client over HTTP to the gates service, which runs in this process: the stubbed
-// provider `fetch` serves both. The calls are one session's, under its run token (F5).
+// provider `fetch` serves both. The calls are one session's, under its run token.
 let runs: Promise<RunFixture> | undefined;
 modelGateContract("http", async (host) => {
   runs ??= runFixture().then(async (fixture) => {

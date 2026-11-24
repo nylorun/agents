@@ -386,7 +386,7 @@ const MANAGEMENT_TAGS: readonly Tag[] = [
   {
     name: "Audit",
     description:
-      "The Tenant's stream (ADR-159, Host feature `tenant-audit`): keys put and deleted, signing keys rotated and revoked, tool policy and settings changes, vault credentials written and used, and Studio sign-ins, each with who did it and never a secret, newest first. `admin.tenant.audit`.",
+      "The Tenant's stream (Host feature `tenant-audit`): keys put and deleted, signing keys rotated and revoked, tool policy and settings changes, vault credentials written and used, and Studio sign-ins, each with who did it and never a secret, newest first. `admin.tenant.audit`.",
     operations: ["GET /v1/tenant/audit", "POST /v1/tenant/audit/studio-sign-in"],
   },
   {

@@ -1,5 +1,5 @@
 /**
- * The `memory` tool over the Harness API (track T5, D72): `turn.start.memory` carries the Agent's
+ * The `memory` tool over the Harness API: `turn.start.memory` carries the Agent's
  * memory access, instructions and the index a harness pins; a call is a `runtime` effect,
  * operation `memory`, which core serves in the intent's own transaction. Writes are versioned to
  * the turn and recorded as `memory.updated` and `agent.memory_updated`; a replayed call applies
@@ -108,7 +108,7 @@ async function start(memory: { access?: "read_write" | "read_only"; instructions
   return { runtime, turn };
 }
 
-it("starts a turn with no memory index for a version that sets memory.index false (ADR-100)", async () => {
+it("starts a turn with no memory index for a version that sets memory.index false", async () => {
   const { turn } = await start({ instructions: "Keep release conventions.", index: false });
   const first = await turn("s1");
   expect(first.input.memory).toEqual({ access: "read_write", instructions: "Keep release conventions.", truncated: false });

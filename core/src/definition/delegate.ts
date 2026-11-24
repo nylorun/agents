@@ -56,7 +56,7 @@ export const DELEGATE_INPUT_SCHEMA: JsonObject = normalizeSchema(taskSchema, "in
  * Whether a subagent's own `inputSchema` can take the task a tool call hands it: any string.
  * False when its `type` excludes `"string"`, when it pins the value (`const`, `enum`), or when
  * no branch of `anyOf`/`oneOf` (or not every branch of `allOf`) can take one. Other keywords
- * (`minLength`, `pattern`) narrow which strings fit and are left to the run (ADR-162).
+ * (`minLength`, `pattern`) narrow which strings fit and are left to the run.
  */
 export function acceptsTaskInput(schema: unknown): boolean {
   if (schema === true || schema === undefined) return true;
@@ -76,7 +76,7 @@ export function acceptsTaskInput(schema: unknown): boolean {
   return true;
 }
 
-/** Why a subagent used as a tool can't take its task, or undefined when it can (ADR-162). */
+/** Why a subagent used as a tool can't take its task, or undefined when it can. */
 export function delegateInputIssue(id: string, inputSchema: unknown): string | undefined {
   if (inputSchema === undefined || acceptsTaskInput(inputSchema)) return undefined;
   return `'${id}' is used as a tool, so it receives { task } as a string; its inputSchema must accept a string or be left out`;

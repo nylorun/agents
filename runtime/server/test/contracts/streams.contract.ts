@@ -1,5 +1,5 @@
 /**
- * Durable Streams contract (architecture §12.4). Every `DurableStreams` runs
+ * Durable Streams contract. Every `DurableStreams` runs
  * this suite: the in-memory fake and the S2 adapter on s2-lite. Each test uses
  * a new Tenant and deletes it afterwards.
  */

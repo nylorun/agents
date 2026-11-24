@@ -61,7 +61,7 @@ export interface ModelCandidate {
   readonly evidence?: ModelEvidence;
 }
 
-/** Why a model call failed in a known way (Model Calls §6.1). */
+/** Why a model call failed in a known way. */
 export type ModelFailureCode =
   | "context_overflow"
   | "rate_limited"
@@ -209,7 +209,7 @@ export type PromptContentPart =
       readonly args: JsonObject;
     };
 
-/** The provider, API and model that produced an assistant message (Model Calls §12). */
+/** The provider, API and model that produced an assistant message. */
 export interface ModelProducer {
   readonly provider: string;
   readonly api?: string;
@@ -260,7 +260,7 @@ export interface ModelAdapterContext {
   readonly invocationId: string;
   readonly signal: AbortSignal;
   /**
-   * Set when the engine calls the model to summarize history (Model Calls §8). Engine-internal:
+   * Set when the engine calls the model to summarize history. Engine-internal:
    * the call's effect says `purpose: "summary"`, and the compaction's facts go with its
    * transcript edit.
    */

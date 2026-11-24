@@ -40,7 +40,7 @@ export interface InProcessModelGateOptions {
 /**
  * The files a call names, from the Tenant's artifacts, limited to the call's session: in
  * process, the loop's own request; over HTTP, the session of the run token's claims, which the
- * gate's route puts on the request (F5). A request without a session reads no file at all.
+ * gate's route puts on the request. A request without a session reads no file at all.
  */
 export function callFiles(
   store: SessionStore,
@@ -108,7 +108,7 @@ export async function modelCallSettings(store: SessionStore): Promise<Required<M
 }
 
 /**
- * Serves one call: from the fixture model while the Tenant's `model.fixture` setting is on (R4.3),
+ * Serves one call: from the fixture model while the Tenant's `model.fixture` setting is on,
  * else from `gate`. Read per call, so a seed applies to the next call.
  */
 export async function serve(

@@ -1,5 +1,5 @@
 /**
- * Agent manifests (protocol 16, track T2): `/v1/agent-manifests/{name}`, named and versioned
+ * Agent manifests (protocol 16): `/v1/agent-manifests/{name}`, named and versioned
  * documents with what runs inside an agent's loop (`harness`) and what the Runtime provides
  * around it (`runtime`). They replace agent definitions (`PUT /v1/agents/:id` before protocol
  * 16) and environment manifests.
@@ -7,7 +7,7 @@
  * - **Versions.** A save whose manifest hashes the same as the latest answers it unchanged; any
  *   other writes the next version. A version is never changed or deleted alone.
  * - **Tracking Agents move.** Saving a version moves every Agent that tracks the manifest to it
- *   (track T3, `moveAgent`), in the save's transaction: at once, at its pod's next start, or once
+ *   (`moveAgent`), in the save's transaction: at once, at its pod's next start, or once
  *   its required secrets are set. A pinned Agent stays, and so does one the version cannot move
  *   (a fixed field) or whose start failed on it. The plan counts both.
  * - **Both sections at once.** The Runtime sees both sections, so it checks them against each
@@ -20,15 +20,15 @@
  *   Agents it moves and how many stay on older versions. `If-Match: <version>` refuses
  *   (`412 manifest_changed`) a save whose latest version moved since the client read it; `0` asks
  *   for a manifest that does not exist yet.
- * - **Every client is equal** (Q12): a version records who saved it (`savedBy`).
- * - **Agent folders** (track T6, D79): the same route takes a folder by hash
+ * - **Every client is equal**: a version records who saved it (`savedBy`).
+ * - **Agent folders**: the same route takes a folder by hash
  *   (`application/vnd.nylorun.folder+json`). The Runtime reads the files the compiler needs from
  *   the definition file store, compiles them with `@nylorun/core/folder` (a folder that does not
  *   compile is `422 folder_invalid`, every diagnostic in `details.diagnostics`), and saves the
  *   manifest as above, with the folder kept as the version's source (`source`, its files recorded
  *   as the version's definition files). A folder whose manifest is unchanged saves no new
  *   version, so its source is not saved either. What a folder may hold is the Tenant's Runtime
- *   limits `folderFiles`, `folderBytes` and `folderTextFileBytes` (track T7), which the compiler
+ *   limits `folderFiles`, `folderBytes` and `folderTextFileBytes`, which the compiler
  *   is given too; `source/diff` compares two versions' sources by path and hash.
  */
 import {
@@ -178,7 +178,7 @@ export function sectionChanges(before: Partial<AgentManifestV8> | undefined, aft
   return changes;
 }
 
-/** The Agents a save of version `to` moves (track T3), by when it applies, and those that stay behind. */
+/** The Agents a save of version `to` moves, by when it applies, and those that stay behind. */
 interface Moves {
   now: number;
   nextStart: number;
@@ -201,7 +201,7 @@ async function agentsBehind(t: Tx, name: string, to: number): Promise<{ agent: E
 
 /**
  * Plans (or with `apply`, makes) the move of each Agent that tracks manifest `version.name` to
- * `version` (track T3): each under its row lock, in the save's transaction.
+ * `version`: each under its row lock, in the save's transaction.
  */
 async function moveTracking(t: Tx, version: AgentManifestRow, apply: boolean): Promise<Moves> {
   const moves: Moves = { now: 0, nextStart: 0, secrets: 0, behind: 0 };
@@ -267,10 +267,10 @@ function warningsOf(ctx: TenantContext, manifest: AgentManifestV8, to: number, m
 async function errorsOf(t: Tx, manifest: AgentManifestV8): Promise<{ errors: string[]; missing: string[]; oversized: { name: string; bytes: number }[]; limitBytes: number }> {
   const loop = loopManifestOf(manifest);
   const errors: string[] = [];
-  // The Runtime runs agents from their manifests alone (track R2): no tool may need it.
+  // The Runtime runs agents from their manifests alone: no tool may need it.
   const code = codeToolRefusal(loop);
   if (code) errors.push(code);
-  // Tool approvals are the Tenant's tool policy, decided at the Tool Gate (R5 step 2).
+  // Tool approvals are the Tenant's tool policy, decided at the Tool Gate.
   const approval = approvalRefusal(loop);
   if (approval) errors.push(approval);
   const declared = declaredSandboxes(loop);
@@ -435,7 +435,7 @@ async function saveManifest(
     // A folder's every file too: the version keeps its source.
     for (const entry of folder?.source.entries ?? []) shas.add(`sha256:${entry.sha256}`);
     if (shas.size > 0) await t.insertDefinitionFileUses(manifestFileOwner(name), hash, [...shas]);
-    // Every Agent that tracks the manifest moves to the new version (track T3).
+    // Every Agent that tracks the manifest moves to the new version.
     const moves = await moveTracking(t, row, true);
     return {
       manifest: viewOf(row, await t.agentsOfManifest(name)),
@@ -447,7 +447,7 @@ async function saveManifest(
 }
 
 /**
- * `PUT /v1/agent-manifests/{name}` with an agent folder by hash (track T6): reads the files the
+ * `PUT /v1/agent-manifests/{name}` with an agent folder by hash: reads the files the
  * compiler needs from the definition file store, compiles the folder (`422 folder_invalid` when
  * it does not), then saves or plans the manifest as a JSON save does, keeping the folder as the
  * version's source.

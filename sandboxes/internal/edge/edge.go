@@ -1,4 +1,4 @@
-// Package edge is the TLS front Substrate actors reach the Runtime through (ADR-138, Phase 1).
+// Package edge is the TLS front Substrate actors reach the Runtime through.
 // Substrate's egress gateway refuses WebSocket upgrades on cleartext and intercepted HTTP, so an
 // actor's engine reaches the Harness API (a WebSocket) and the gates over TLS that the gateway
 // passes through by name. The edge terminates that TLS and forwards to the Runtime's listeners on

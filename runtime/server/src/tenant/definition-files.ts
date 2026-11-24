@@ -1,5 +1,5 @@
 /**
- * Definition files (track R2 M4): the files a definition names by the SHA-256 of their bytes,
+ * Definition files: the files a definition names by the SHA-256 of their bytes,
  * today a skill's folder (`SkillManifest.files`). A client uploads each one once
  * (`PUT /v1/files/sha256:<hex>`); its bytes go to the Object store at
  * `definitions/sha256/<hex>`, and a `definition_files` row says the Tenant holds it. A

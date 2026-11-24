@@ -50,7 +50,7 @@ test("proxy forwards the bearer and Protocol header, names no Tenant, and allows
         const response = await fetch(
           `${origin}/_studio/runtime/v1/tenant/model`,
           {
-            // A browser's own label is replaced: Studio labels what it forwards (ADR-159).
+            // A browser's own label is replaced: Studio labels what it forwards.
           headers: { host: `127.0.0.1:${address.port}`, "nylorun-client": "sdk" },
           },
         );
@@ -530,7 +530,7 @@ test("proxy forwards a session's pinned manifest, usage, tool calls and turn tra
         assert.equal((await fetch(`${base}/v1/sessions/s1/manifest`)).status, 200);
         assert.equal((await fetch(`${base}/v1/sessions/s1/usage`)).status, 200);
         assert.equal((await fetch(`${base}/v1/sessions/s1/calls/model?limit=50&cursor=c1`)).status, 200);
-        // A session's tool calls and a turn's trace, for the Events tab's Trace view (ADR-159).
+        // A session's tool calls and a turn's trace, for the Events tab's Trace view.
         assert.equal((await fetch(`${base}/v1/sessions/s1/calls/tool?turnId=t1`)).status, 200);
         assert.equal((await fetch(`${base}/v1/sessions/s1/turns/t1/trace`)).status, 200);
         assert.equal((await fetch(`${base}/v1/sessions/s1/turns/t1`)).status, 404);
@@ -873,7 +873,7 @@ test("proxy reads the Tenant's page and forwards a same-origin settings change o
   );
 });
 
-test("a JSON write past the default request body is read up to the Tenant's requestBodyBytes (B15c)", async () => {
+test("a JSON write past the default request body is read up to the Tenant's requestBodyBytes", async () => {
   let limit = 2 * 1024 * 1024;
   const seen: string[] = [];
   await withUpstream(

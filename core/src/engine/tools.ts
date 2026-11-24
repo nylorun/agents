@@ -1,5 +1,5 @@
 /**
- * Our engine's own tools as the model reads them (protocol 15, ADR-100): each tool's name,
+ * Our engine's own tools as the model reads them (protocol 15): each tool's name,
  * description, input schema and the effect its calls make. Our harness runs them
  * (`@nylorun/harness`); the compiler and the SDK's `previewTurn` read the same definitions, so
  * what a preview shows is what a session is offered. Their schemas reach the model: change them
@@ -30,7 +30,7 @@ export interface EngineTool {
   readonly inputSchema: JsonObject;
   readonly outputSchema?: JsonObject;
   /**
-   * Not in the model's tool list (R2b C10): the model finds it with `tool_search` and runs it
+   * Not in the model's tool list: the model finds it with `tool_search` and runs it
    * with `tool_call`, which makes the call as this tool's own.
    */
   readonly deferred?: boolean;
@@ -39,7 +39,7 @@ export interface EngineTool {
   /** What runs its calls: their effects' `target` (an MCP tool's identity, our engine's `harness`). */
   readonly target?: EffectTarget;
   /**
-   * The name its calls' effects carry (`toolName`), when the model reads another (ADR-106): a
+   * The name its calls' effects carry (`toolName`), when the model reads another: a
    * Runtime plugin's tool is `nylorun__memory` to the model and `memory` to its effect, so the
    * record, tool policy and the harness's dispatch see it as without plugins.
    */
@@ -106,7 +106,7 @@ const pathField = { type: "string", minLength: 1 };
 
 /**
  * The sandbox tools, in the order the model reads them, with `workspace` named in their text
- * and `limits` in their schemas: all six, or those `names` lists (ADR-100, `engine.sandbox`),
+ * and `limits` in their schemas: all six, or those `names` lists (`engine.sandbox`),
  * still in our order. Each is a `sandbox` effect named by its operation.
  */
 export function sandboxTools(
@@ -419,7 +419,7 @@ export function memoryToolOf(writes: boolean): EngineTool {
 export const SCHEDULE_WAKE_TOOL = "schedule_wake";
 const RUNTIME_WAKE: EffectTarget = Object.freeze({ kind: "runtime", operation: "schedule_wake" });
 
-/** `schedule_wake` (track T4): a `runtime` effect. */
+/** `schedule_wake`: a `runtime` effect. */
 export function wakeToolOf(): EngineTool {
   return {
     name: SCHEDULE_WAKE_TOOL,
@@ -441,13 +441,13 @@ export function wakeToolOf(): EngineTool {
 
 // --- triggers --------------------------------------------------------------------------------
 
-/** The triggers tool's name (D83). */
+/** The triggers tool's name. */
 export const TRIGGERS_TOOL = "triggers";
 /** What serves a `triggers` call: the Runtime, in the call's own transaction. */
 export const RUNTIME_TRIGGERS: EffectTarget = Object.freeze({ kind: "runtime", operation: "triggers" });
 
 /**
- * `triggers` (D83): list, create and delete the triggers the calling session made, for an agent
+ * `triggers`: list, create and delete the triggers the calling session made, for an agent
  * whose version declares `engine.triggers`; the root agent's only. A `runtime` effect, operation
  * `triggers`; its input is `TriggerToolInputSchema`'s.
  */
@@ -636,13 +636,13 @@ function definedOf<T extends object>(value: T): Partial<T> {
 
 // --- ask -------------------------------------------------------------------------------------
 
-/** The question tool's name (ADR-106, `nylorun-interactions`). */
+/** The question tool's name (`nylorun-interactions`). */
 export const ASK_TOOL = "ask";
 /** The most characters of a question, of a reason, and of one choice, and the most choices. */
 export const ASK_LIMITS = Object.freeze({ questionChars: 1000, whyChars: 280, choiceChars: 120, choices: 6 });
 
 /**
- * `ask` (ADR-106): the agent asks whoever gave it the task a question it can't answer itself,
+ * `ask`: the agent asks whoever gave it the task a question it can't answer itself,
  * and waits. It runs in the harness, as `request_connection` does: a first call pauses the turn
  * with an interaction of kind `response` whose metadata says `kind: "question"`, which the A2A
  * server shows as a question (`INPUT_REQUIRED`); the answer runs it again with the value.

@@ -43,7 +43,7 @@ type Cluster struct {
 	NetworkPolicy NetworkPolicy `json:"networkPolicy"`
 	EnabledAt     string        `json:"enabledAt"`
 	// Backend is what runs the Tenant's sandboxes: agent-sandbox (the default when absent) or
-	// substrate (ADR-138, Phase 1: preview).
+	// substrate (preview).
 	Backend string `json:"backend,omitempty"`
 	// Substrate is the Agent Substrate setup, with backend substrate.
 	Substrate *Substrate `json:"substrate,omitempty"`
@@ -51,7 +51,7 @@ type Cluster struct {
 	// uses the pod's own Kubernetes credentials, and Dial, TLSServerName and CAData are unused.
 	InCluster bool `json:"inCluster,omitempty"`
 	// ImageMirrors maps an image repository to the repository that serves the same images
-	// (ADR-161): a workload image in a mapped repository is pulled from its mirror, with its digest
+	//: a workload image in a mapped repository is pulled from its mirror, with its digest
 	// or tag kept, and reported under the name the Agent asked for.
 	ImageMirrors map[string]string `json:"imageMirrors,omitempty"`
 	// Mirrors is ImageMirrors, validated by ParseCluster.
@@ -82,13 +82,13 @@ type Substrate struct {
 	// Edge is the TLS front actors reach the Harness API and the gates through. Unused with
 	// Computer: a computer dials nothing to the Runtime.
 	Edge Edge `json:"edge"`
-	// Computer, when set, makes every sandbox a computer (ADR-149): its engine runs no loop and
+	// Computer, when set, makes every sandbox a computer: its engine runs no loop and
 	// serves commands and files on Port, reached through the sandbox gateway and atenet-router.
 	Computer *Computer `json:"computer,omitempty"`
 	// WorkerSelector picks the worker pool, e.g. {"ate.dev/sandbox-class": "gvisor"}; empty: any.
 	WorkerSelector map[string]string `json:"workerSelector,omitempty"`
 	// KeysProvider is the keys provider's name (keys.nylorun.dev) when `enable` deployed it and
-	// found it registered with Substrate's egress (ADR-142); empty: keys are off.
+	// found it registered with Substrate's egress; empty: keys are off.
 	KeysProvider string `json:"keysProvider,omitempty"`
 }
 
@@ -118,7 +118,7 @@ type Edge struct {
 	Host        string `json:"host"`
 	HarnessPort int    `json:"harnessPort"`
 	GatesPort   int    `json:"gatesPort"`
-	// KeysPort is where the keys provider reaches the egress service's decide route (ADR-142).
+	// KeysPort is where the keys provider reaches the egress service's decide route.
 	// Actors' policies never allow it.
 	KeysPort int `json:"keysPort,omitempty"`
 }
@@ -146,7 +146,7 @@ type Config struct {
 	// TokenFile holds the ServiceAccount token for the API server.
 	TokenFile string
 	// ComputerAgent is what serves a computer (--computer-agent): ComputerAgentGo, the computer
-	// agent, or ComputerAgentEngine (the default), the Runtime's engine (ADR-154 decision 4).
+	// agent, or ComputerAgentEngine (the default), the Runtime's engine.
 	ComputerAgent string
 	// ComputerImage is the computer agent's image, by digest (--computer-image), for
 	// ComputerAgentGo.

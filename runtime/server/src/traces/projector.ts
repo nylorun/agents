@@ -1,10 +1,10 @@
 /**
- * The trace projector (R7.2, Q1): a second reader of the session log, beside the stream relay. It
+ * The trace projector: a second reader of the session log, beside the stream relay. It
  * reads committed `session_events` from its own replication slot (`nylorun_trace_export`, on the
  * relay's publication), maps each row to at most one span (`map.ts`), and posts them as OTLP to the
  * operator's collector. It holds no state that changes a span but content (a tool call's arguments,
  * known when it mapped the call's request), so a replay of its slot posts the same spans with the
- * same ids. It never reads S2 (D48), and no turn waits for it.
+ * same ids. It never reads S2, and no turn waits for it.
  *
  * - **One process at a time.** The slot is the leader election, as for the relay: every process
  *   running core runs a projector, and one reads.
@@ -13,7 +13,7 @@
  * - **Acknowledged in commit order** once a transaction's spans are posted or dropped, so a dead
  *   collector makes Postgres keep no WAL. A transaction with no span is acknowledged with the
  *   rest. While the collector is slow, more than `maxQueuedSpans` waiting are dropped. Every
- *   dropped span is counted on `nylorun.telemetry.dropped` (`exporter` `projector`, ADR-159).
+ *   dropped span is counted on `nylorun.telemetry.dropped` (`exporter` `projector`).
  * - **Turns.** A bounded cache keeps each turn's trace (`turnTraceOf`) from its `command.message`;
  *   a turn not in it (after a restart mid turn, or one evicted) reads its `command.message` once.
  */

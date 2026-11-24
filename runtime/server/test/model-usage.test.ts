@@ -1,5 +1,5 @@
 /**
- * The model usage ledger (blueprint P1.3): whichever gate serves the call, every model call
+ * The model usage ledger: whichever gate serves the call, every model call
  * that answers is recorded once, and `GET /v1/tenant/usage` totals the rows by scope. A call
  * that fails records nothing. Providers are faked by answering the custom endpoint's requests.
  */
@@ -123,7 +123,7 @@ describe.each([["in-process"], ["http"]] as const)("over the %s Model Gate", (tr
     expect((await usage("?scope=manifest&id=other")).body).toMatchObject({ calls: 0 });
   });
 
-  it("puts the gate's timing and metered usage on the outcome, and the turn's totals on its end (R7.1)", async () => {
+  it("puts the gate's timing and metered usage on the outcome, and the turn's totals on its end", async () => {
     provider(() => answer("hi"));
     const { client, usage } = await tenant();
     const session = await client.createSession({ id: "s1", agent: "bot", ownerUserId: "ada" });
@@ -140,7 +140,7 @@ describe.each([["in-process"], ["http"]] as const)("over the %s Model Gate", (tr
       meteredUsage: { inputTokens: 12, outputTokens: 3, totalTokens: 15 },
     });
     expect(payload.meteredUsage).not.toHaveProperty("costUsd");
-    // One provider call answered it: no retry to report (Model Calls §6).
+    // One provider call answered it: no retry to report.
     expect(payload.attempts).toBe(1);
     expect(payload).not.toHaveProperty("retries");
     const { startedAt, endedAt } = payload.gate as { startedAt: string; endedAt: string };
@@ -159,7 +159,7 @@ describe.each([["in-process"], ["http"]] as const)("over the %s Model Gate", (tr
     expect(turn).toMatchObject({ calls: 1, tokens: 15 });
   });
 
-  it("puts a call's retries on its message.assistant and its ledger row (Model Calls §6)", async () => {
+  it("puts a call's retries on its message.assistant and its ledger row", async () => {
     const counter = provider(() => (counter.calls() === 1 ? cut() : answer("after the cut")));
     const { client, usage } = await tenant();
     const session = await client.createSession({ id: "s1", agent: "bot", ownerUserId: "ada" });
@@ -177,7 +177,7 @@ describe.each([["in-process"], ["http"]] as const)("over the %s Model Gate", (tr
     expect((await usage()).body).toMatchObject({ calls: 1, tokens: 15 });
   });
 
-  it("puts the retries on model.failed when every attempt is cut (Model Calls §6)", async () => {
+  it("puts the retries on model.failed when every attempt is cut", async () => {
     const counter = provider(() => cut());
     const { client } = await tenant();
     const session = await client.createSession({ id: "s1", agent: "bot", ownerUserId: "ada" });
@@ -207,7 +207,7 @@ describe.each([["in-process"], ["http"]] as const)("over the %s Model Gate", (tr
     await session.input("hello", { idempotencyKey: "m1" });
     expect((await settle(session)).status).toBe("failed");
     expect((await usage()).body).toMatchObject({ calls: 0 });
-    // Nothing was metered: the outcome's span is the journal's window alone (R7.1).
+    // Nothing was metered: the outcome's span is the journal's window alone.
     const { items } = await session.history();
     const failed = items.find((item) => item.type === "model.failed")!.payload as Record<string, unknown>;
     expect(failed).toMatchObject({ effectId: expect.any(String), durationMs: expect.any(Number) });

@@ -1,5 +1,5 @@
 /**
- * Flow limits (`workflows.md` §13): the Tenant's Runtime limits `flowConcurrency`, `flowMapItems`
+ * Flow limits: the Tenant's Runtime limits `flowConcurrency`, `flowMapItems`
  * and `flowLoopIterations` (`PUT /v1/tenant/limits`), read where they are checked. Core holds a
  * flow turn to `flowConcurrency` when it dispatches effects; the flow engine checks the other two,
  * which a flow's `turn.start` carries (`flowLimitsOf`).

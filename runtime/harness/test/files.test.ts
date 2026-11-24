@@ -151,7 +151,7 @@ const live = (key: string, mediaType: string, size: number, name = key): LiveFil
 
 describe("representFiles", () => {
   const encoder = new TextEncoder();
-  it("sends only the newest tool files as media, and never caps a person's (ADR-139)", async () => {
+  it("sends only the newest tool files as media, and never caps a person's", async () => {
     const { context } = seam({}, { model: model(["text", "image"]) });
     const uploaded: LiveFile[] = [0, 1].map((i) => ({
       ...live(`up${i}`, "image/png", 5),

@@ -1,5 +1,5 @@
 /**
- * Triggers a client puts on one Agent (D88): `PUT /v1/agents/{agentId}/triggers/{triggerId}`
+ * Triggers a client puts on one Agent: `PUT /v1/agents/{agentId}/triggers/{triggerId}`
  * creates or replaces the Agent's trigger of origin `api` in the `Trigger` shape a definition
  * uses. The same body again changes nothing; another origin's id is refused; the checks and the
  * shared `count` apply; `DELETE` removes it; a move to a new version leaves it; every change is on

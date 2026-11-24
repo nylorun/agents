@@ -3,7 +3,7 @@ import type { Logger } from "../tenant/types.js";
 
 /**
  * Host logger: JSON lines to stdout (CLI redirects to `runtime.log`). A line written while a span
- * is active (with span export, the request's server span, ADR-159) carries its `trace_id` and
+ * is active (with span export, the request's server span) carries its `trace_id` and
  * `span_id`, so a log line joins its trace.
  */
 export function createHostLogger(

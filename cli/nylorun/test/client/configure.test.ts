@@ -83,7 +83,7 @@ async function fixture(answers = ["1", "1"]) {
   return { root, input, output, text: () => text, catalog };
 }
 
-it("F2-4: saves selection from Tenant model catalog and cleans up listeners", async () => {
+it("saves selection from Tenant model catalog and cleans up listeners", async () => {
   const test = await fixture();
   login.mockImplementation(async () =>
     state.store!.modify("fixture", async () => ({

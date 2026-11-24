@@ -5,7 +5,7 @@
  * opens a capability link with no other credential and no `Nylorun-Protocol`. The Tenant's
  * limits are `GET`/`PUT /v1/tenant/artifacts`.
  *
- * Folders (F8.2) come from turn-end exports: a version's tree, one file by path (with Range), a
+ * Folders come from turn-end exports: a version's tree, one file by path (with Range), a
  * diff between two versions and a streamed zip. A folder's capability link opens its zip, or
  * one file when minted with `file`.
  *

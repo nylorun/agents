@@ -82,7 +82,7 @@ export interface TurnState {
 export interface ExecutionState {
   readonly version: 1;
   readonly agentId: string;
-  /** Definition binding — required for resume after Phase 2. Optional on legacy states. */
+  /** Definition binding — required for resume. Optional on legacy states. */
   readonly manifestHash?: string;
   readonly executionId: string;
   readonly outputContract?: JsonObject;
@@ -101,13 +101,13 @@ export interface ExecutionState {
    */
   readonly state?: JsonObject;
   /**
-   * Which of the session's MCP tools our engine defers (R2b C10, `McpLayout`), decided once for
+   * Which of the session's MCP tools our engine defers (`McpLayout`), decided once for
    * the facts whose hash it names and kept while they stay the same.
    */
   readonly mcpLayout?: { readonly factsHash: string; readonly deferred: readonly string[] };
   /**
    * Text our engine keeps at the head of the conversation, after the instructions: the Agent's
-   * memory index (track T5), pinned at the session's first turn so the prompt's prefix stays
+   * memory index, pinned at the session's first turn so the prompt's prefix stays
    * the same. A compaction drops it, and the next segment pins the index of that moment.
    */
   readonly pinned?: readonly string[];
@@ -163,6 +163,6 @@ export type RunResult<Output = string> =
   | { readonly status: "failed"; readonly state: ExecutionState; readonly error: Tripwire }
   /**
    * A durable segment ended at a step boundary so the turn continues in a new segment
-   * (Model Calls §10). The state is mid-turn; resume it with `{ kind: "continue" }`.
+   *. The state is mid-turn; resume it with `{ kind: "continue" }`.
    */
   | { readonly status: "yielded"; readonly state: ExecutionState };

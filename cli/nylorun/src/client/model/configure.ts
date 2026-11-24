@@ -48,7 +48,7 @@ export type Selection = Readonly<{
 
 /**
  * Build a pi-ai registry for interactive login. Catalog listing prefers the
- * Management API payload when provided (F2-4).
+ * Management API payload when provided.
  */
 function modelsFor(
   { builtinModels, createProvider, stream, streamSimple }: PiAi,

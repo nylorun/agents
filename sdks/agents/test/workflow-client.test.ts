@@ -33,7 +33,7 @@ function healthOk() {
   });
 }
 
-describe("SessionClient.input (WF-R4 / WF-C6)", () => {
+describe("SessionClient.input", () => {
   it("sends content for string values", async () => {
     let body: unknown;
     const client = new AgentsClient({
@@ -85,7 +85,7 @@ describe("SessionClient.input (WF-R4 / WF-C6)", () => {
   });
 });
 
-describe("SessionClient.pending (WF-C6)", () => {
+describe("SessionClient.pending", () => {
   it("returns waits from inspect", async () => {
     const waits = [
       {
@@ -113,7 +113,7 @@ describe("SessionClient.pending (WF-C6)", () => {
   });
 });
 
-describe("SessionClient.sandbox (WF-C6)", () => {
+describe("SessionClient.sandbox", () => {
   it("POSTs built-ins to the session sandbox endpoint", async () => {
     let seen: { path: string; body: unknown } | undefined;
     const client = new AgentsClient({
@@ -133,7 +133,7 @@ describe("SessionClient.sandbox (WF-C6)", () => {
   });
 });
 
-describe("SessionClient.observe follow (WF-EV8 / WF-C6)", () => {
+describe("SessionClient.observe follow", () => {
   it("merges linked agent session events when follow is true", async () => {
     const sse = (events: { id: string; data: unknown }[], hold?: AbortSignal) => {
       const stream = new ReadableStream<Uint8Array>({

@@ -58,7 +58,7 @@ var Waits = map[string]func(Status) bool{
 type Cache struct {
 	sandboxes, pods, claims cache.SharedIndexInformer
 	namespace               string
-	// mirrors maps a pulled image back to the repository it mirrors (ADR-161).
+	// mirrors maps a pulled image back to the repository it mirrors.
 	mirrors Mirrors
 	mu      sync.Mutex
 	changed chan struct{}

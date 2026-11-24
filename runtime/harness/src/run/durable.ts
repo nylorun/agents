@@ -53,7 +53,7 @@ export interface HostEffect {
   /**
    * `delegation` journals when an agent used as a tool starts and settles; hosts record it and resolve it at once.
    * Flow effects: `agent` and `tool` (node) — each carries `path`, `key`, and `iterations`.
-   * `inputs` (D85) takes the messages steered into the running turn before a step; hosts answer it
+   * `inputs` takes the messages steered into the running turn before a step; hosts answer it
    * at once with `{events}`.
    */
   readonly kind: "model" | "tool" | "delegation" | "agent" | "inputs";
@@ -161,7 +161,7 @@ export async function runDurable(options: {
   engineTools?: (agent: AgentManifest) => EngineTools;
   /**
    * Text to keep at the head of the conversation (`ExecutionState.pinned`): the memory index
-   * block (`memoryIndexBlock`, track T5). The state keeps what it pinned at the session's first
+   * block (`memoryIndexBlock`). The state keeps what it pinned at the session's first
    * turn, and after a compaction takes this; without it, the state drops its pinned text. Not
    * hashed.
    */
@@ -171,10 +171,10 @@ export async function runDurable(options: {
    * Agent's memory changed elsewhere since (`turn.start.memory.refresh`).
    */
   refreshPinned?: boolean;
-  /** Segment rollover (Model Calls §10): yield after this many steps or milliseconds. */
+  /** Segment rollover: yield after this many steps or milliseconds. */
   yieldAfter?: { readonly steps?: number; readonly ms?: number };
   /**
-   * Ask the host for the messages steered into the turn (D85) before every step but its first:
+   * Ask the host for the messages steered into the turn before every step but its first:
    * an `inputs` effect, which a host that serves it answers at once with `{events}`. Off unless
    * set; the Harness API run sets it, since core serves it. Not hashed.
    */
@@ -253,7 +253,7 @@ export async function runDurable(options: {
       ...(tool.description === undefined ? {} : { description: tool.description }),
       inputSchema: schemaFromJSON(tool.inputSchema),
       ...(tool.outputSchema ? { outputSchema: schemaFromJSON(tool.outputSchema) } : {}),
-      // No approval here: the Tool Gate holds a call its policy asks a person about (R5 step 2).
+      // No approval here: the Tool Gate holds a call its policy asks a person about.
       async execute(args: unknown, ctx: any) {
         const previous = patchTail;
         let release!: () => void;
@@ -310,7 +310,7 @@ export async function runDurable(options: {
       ...(engine?.tools ?? []),
       ...sessionTools.filter((tool) => (tool.agentId ?? manifest.id) === agent.id),
     ];
-    // Deferred tools stay out of the model's list; `tool_call` runs them (R2b C10).
+    // Deferred tools stay out of the model's list; `tool_call` runs them.
     const owned = mine.filter((tool) => !tool.deferred);
     const deferred = new Map(mine.filter((tool) => tool.deferred).map((tool) => [tool.name, tool]));
     const tools: Record<string, any> = {};
@@ -397,7 +397,7 @@ export async function runDurable(options: {
     },
   };
   /**
-   * The messages steered into the root's turn (D85), before step `stepNumber`: an `inputs`
+   * The messages steered into the root's turn, before step `stepNumber`: an `inputs`
    * effect, journaled by core even when empty, so a replay takes the same at the same step. A
    * core that doesn't know the kind (`invalid`) turns taking off for this run: its steers start
    * the next turn instead.
@@ -499,7 +499,7 @@ function withPinned(
 }
 
 /**
- * `memory` (track T5): each command's parameters are checked before the call is sent
+ * `memory`: each command's parameters are checked before the call is sent
  * (`checkMemoryCall`), so a call the Runtime would refuse is never journaled; the model reads the
  * error text and may call again.
  */
@@ -524,7 +524,7 @@ function identityOf(
 ): Pick<HostEffect, "toolName" | "agent" | "target" | "skill"> {
   const skill = skillOfToolCall(agent, tool, input);
   return {
-    // A Runtime plugin's tool carries its own name (ADR-106): `memory`, not `nylorun__memory`.
+    // A Runtime plugin's tool carries its own name: `memory`, not `nylorun__memory`.
     toolName: tool.effectName ?? tool.name,
     ...(tool.target === undefined ? {} : { target: tool.target }),
     ...(skill === undefined ? {} : { skill }),
@@ -542,7 +542,7 @@ type HostedTool = (tool: DurableSessionTool) => {
 };
 
 /**
- * `tool_call` (R2b C10): runs a deferred tool by name, as that tool's own call. It checks the
+ * `tool_call`: runs a deferred tool by name, as that tool's own call. It checks the
  * arguments against the tool's `inputSchema` first, so a mistake comes back to the model as a
  * failed result it can fix. The effect then names the tool and its identity (`target`), so the
  * record routes it and records `tool.completed` as for a direct call, the host shapes its result,

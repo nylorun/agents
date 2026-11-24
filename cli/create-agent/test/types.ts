@@ -43,7 +43,7 @@ await client.saveAgent(agent);
 const linked = await createClient();
 await linked.agentManifests.save({ agent });
 await linked.agents.put("test", { manifest: "test" });
-// @ts-expect-error Approval is the Tenant's tool policy, not the tool's (R5 step 2).
+// @ts-expect-error Approval is the Tenant's tool policy, not the tool's.
 http({ name: "x", input: z.object({}), url: "https://example.com", approval: "always" });
 // @ts-expect-error Action handlers were removed: the Runtime runs agents from their manifests alone.
 void sdk.createActionHandler;

@@ -1,5 +1,5 @@
 /**
- * The Runtime vault (docs/design/runtime/vault.md, D56): one vault per Environment, created and
+ * The Runtime vault (docs/design/runtime/vault.md): one vault per Environment, created and
  * deleted with it, holding the Environment's secrets; and the host vault, which holds the model
  * credential. Storage is the async Session Store (`store/types.ts`); this module holds no SQL.
  *
@@ -12,7 +12,7 @@
  * createEnvironmentVault(t: Tx, environmentId: string, actor: VaultActor, id?: string): Promise<string>
  * deleteEnvironmentVault(t: Tx, environmentId: string, actor: VaultActor): Promise<void>
  *
- * // A fork's secrets (Q15): `Keys` seals the copies with the vault key in its own transaction,
+ * // A fork's secrets: `Keys` seals the copies with the vault key in its own transaction,
  * // before the fork's; the fork's transaction inserts them, so the process that forks never
  * // holds the key.
  * sealEnvironmentSecretCopies(from, vaultId, slots | null): Promise<SealedSecretCopies>
@@ -25,12 +25,12 @@
  * getEnvironmentSecret(environmentId, name): Promise<AgentSecretView>
  * deleteEnvironmentSecret(environmentId, name, actor): Promise<{ id: string }>
  *
- * // The shell's variables of a session's sandbox, in the caller's transaction (R2c).
+ * // The shell's variables of a session's sandbox, in the caller's transaction.
  * environmentVariables(t: Tx, environmentId: string | undefined): Promise<Record<string, string>>
  *
  * // Use: opens its own transactions; never call it inside one. `sessionCredentials`
  * // (`vault/sources.ts`) calls it for a session's MCP servers and HTTP tools; a tool preview
- * // (R2b C12, `mcp/preview.ts`) for no session; egress-gate releases shell secrets.
+ * // (`mcp/preview.ts`) for no session; egress-gate releases shell secrets.
  * authorize(input: { sessionId?; environmentId?; url }): Promise<AuthorizeResult>
  * releaseEnvironmentSecret(input: { environmentId; host }): Promise<…>
  *
@@ -73,14 +73,14 @@
  * ## Audit
  *
  * Every write and use of a credential writes a `vault_audit` row naming its actor, and, in the
- * same transaction, the Tenant event it is (ADR-159): `credential.created` (also a fork's copy),
+ * same transaction, the Tenant event it is: `credential.created` (also a fork's copy),
  * `.rotated`, `.deleted` or `.used`, with the row's vault, credential, session, target and
  * outcome, never a value. A vault made or deleted with its Agent is on the Agent's stream
  * (`agent.created`, `agent.deleted`) instead. Setting or selecting the host model also records
  * `settings.changed` (`model`). Who the event names comes from the request's credential
  * (`VaultActor`); the Runtime's own writes and every use name `host` or the sweep.
  *
- * ## Credentials (R2b C2)
+ * ## Credentials
  *
  * A tool credential is bound to the URL a manifest names and sends a `bearer` token or a
  * `headers` map, both sealed. Its `via` (where requests go, such as a gateway) and `identity`
@@ -142,7 +142,7 @@ export type HostModelSecret = {
   provider: string;
   model: string;
   baseUrl?: string;
-  /** A custom endpoint's window, output limit, reasoning, inputs and pi-ai compat (Model Calls §7). */
+  /** A custom endpoint's window, output limit, reasoning, inputs and pi-ai compat. */
   settings?: CustomModelSettings;
   /** The inputs the operator added to catalog models, by `<provider>/<model>` (protocol 12). */
   addedInputs?: Readonly<Record<string, readonly ModelInput[]>>;
@@ -161,7 +161,7 @@ export type HostModelSecret = {
 type SecretPayload = {
   /** A `bearer` credential's token. */
   token?: string;
-  /** An `environment_secret`'s value (R2c). */
+  /** An `environment_secret`'s value. */
   value?: string;
   /** A `headers` credential's map, names lower-cased. */
   headers?: Record<string, string>;
@@ -195,11 +195,11 @@ export interface SealedSecretCopies {
 type CredentialBinding = {
   /** A `bearer` or `headers` credential's server URL; absent for the environment kinds. */
   url?: string;
-  /** An `environment_secret`'s variable, hosts and header (R2c); sealed into its AAD. */
+  /** An `environment_secret`'s variable, hosts and header; sealed into its AAD. */
   secretName?: string;
   allowedHosts?: string[];
   inject?: EnvironmentSecretInject;
-  /** An `environment_variable`'s name and plain value (R2c): not a secret. */
+  /** An `environment_variable`'s name and plain value: not a secret. */
   variableName?: string;
   variableValue?: string;
   via?: string;
@@ -255,12 +255,12 @@ export type AuthorizeResult =
 /**
  * Who changed a vault: the name its `vault_audit` rows keep (`actor`: the subject a request acted
  * for, else `application`) and the principal the Tenant's stream names, from the request's
- * credential (`principal`, ADR-159): a request's change (source `api`). A bare name is both, for
+ * credential (`principal`): a request's change (source `api`). A bare name is both, for
  * the Runtime's own changes (source `runtime`: `host`, the sweep).
  */
 export type VaultActor = string | { readonly actor: string; readonly principal: string };
 
-/** The Tenant event of each audited credential action (ADR-159). */
+/** The Tenant event of each audited credential action. */
 const CREDENTIAL_EVENTS = {
   create: "credential.created",
   rotate: "credential.rotated",
@@ -296,7 +296,7 @@ export class VaultService {
   // --- an Environment's vault (caller's transaction) ------------------------------
 
   /**
-   * Creates Environment `environmentId`'s vault (D56), in the transaction that creates it; answers
+   * Creates Environment `environmentId`'s vault, in the transaction that creates it; answers
    * its id, `id` when given (a fork's, whose secrets were sealed for it first).
    */
   async createEnvironmentVault(t: Tx, environmentId: string, actor: VaultActor, id: string = randomUUID()): Promise<string> {
@@ -334,10 +334,10 @@ export class VaultService {
   }
 
   /**
-   * Seals Environment `from`'s secrets again for vault `vaultId`, a fork's new vault (Q15): each
+   * Seals Environment `from`'s secrets again for vault `vaultId`, a fork's new vault: each
    * value is unsealed and sealed under the new vault's and credential's ids, which its AAD binds.
    * Needs the vault key, so callers reach it through `Keys`; it reads `from` in its own
-   * transaction and writes nothing. With `slots` (what the fork runs declares secret slots, D64),
+   * transaction and writes nothing. With `slots` (what the fork runs declares secret slots),
    * only the names it declares are sealed, each with its slot's binding; a value the slot's type
    * cannot take is left behind. The fork's transaction inserts the copies
    * (`insertEnvironmentSecretCopies`).
@@ -548,7 +548,7 @@ export class VaultService {
   }
 
   /**
-   * The variables a session's sandbox commands get (R2c, D50): each `environment_secret`'s name
+   * The variables a session's sandbox commands get: each `environment_secret`'s name
    * set to the sentinel, and each `environment_variable`'s value, from the Environment's vault.
    * Reads rows only; no plaintext. Run in the caller's transaction.
    */
@@ -573,9 +573,9 @@ export class VaultService {
 
   /**
    * The header egress-gate sets on a request from Environment `environmentId`'s sandbox to
-   * `host` (R2c, D50): the `environment_secret` of its vault bound to `host`, its value unsealed
+   * `host`: the `environment_secret` of its vault bound to `host`, its value unsealed
    * and rendered into its format. `none` when no secret is bound to the host; `refused` when the
-   * sealed value cannot be read. One query and one unseal per call; nothing is cached (E3).
+   * sealed value cannot be read. One query and one unseal per call; nothing is cached.
    * Plaintext exists only in the returned header.
    */
   async releaseEnvironmentSecret(input: {
@@ -614,7 +614,7 @@ export class VaultService {
    * it, or none (`unauthenticated`) without an Environment or such a credential.
    */
   async authorize(input: {
-    /** The session the request is made for; absent for a tool preview (R2b C12). */
+    /** The session the request is made for; absent for a tool preview. */
     sessionId?: string;
     environmentId?: string;
     url: string;
@@ -644,7 +644,7 @@ export class VaultService {
           .sort((a, b) => a.id.localeCompare(b.id));
         if (matches.length === 0) return { result: { status: "unauthenticated", url, headers: {} } };
         if (matches.length > 1) {
-          // Refused at write (D56); kept as a guard.
+          // Refused at write; kept as a guard.
           await this.audit(t, {
             actor: "host",
             action: "use",
@@ -826,7 +826,7 @@ export class VaultService {
         const credentialId = hostModelCredentialId(body.provider);
         await this.deleteHostProviderRows(t, body.provider);
         // The workload token is read on every call and never stored (#496); the Host's identity
-        // too (ADR-71), which keeps only where its calls go.
+        // too, which keeps only where its calls go.
         const payload: HostSecretPayload =
           body.auth.type === "api_key"
             ? {
@@ -1187,7 +1187,7 @@ function coverageEntry(
 }
 
 /**
- * Refuses a write that would bind a second credential to a host or a URL (D56): `others` are
+ * Refuses a write that would bind a second credential to a host or a URL: `others` are
  * the vault's other credentials.
  */
 function conflictOf(
@@ -1472,7 +1472,7 @@ export function hostModelAad(provider: string, model: string): Buffer {
 
 /**
  * What a user credential's ciphertext is bound to: its vault, id, type and URL; for an
- * `environment_secret` (R2c) also its variable, hosts and header, so the value can never be sent
+ * `environment_secret` also its variable, hosts and header, so the value can never be sent
  * anywhere else without a new seal.
  */
 function credentialAad(
@@ -1499,7 +1499,7 @@ function credentialAad(
 }
 
 /**
- * A copied credential's type, binding and payload under a slot of the fork (D64): its value with
+ * A copied credential's type, binding and payload under a slot of the fork: its value with
  * the slot's binding, or undefined when the slot's type cannot take it.
  */
 function rebind(
@@ -1545,7 +1545,7 @@ function rebind(
   }
 }
 
-/** The sealed payload and unsealed binding of a shell credential named `name` (R2c). */
+/** The sealed payload and unsealed binding of a shell credential named `name`. */
 function environmentCredential(
   name: string,
   body:
@@ -1570,7 +1570,7 @@ function requestHash(body: unknown): string {
   return canonical(rest);
 }
 
-/** The `environment_secret` credentials of Environment `environmentId` bound to `host` (R2c). */
+/** The `environment_secret` credentials of Environment `environmentId` bound to `host`. */
 async function environmentSecretsFor(t: Tx, environmentId: string, host: string): Promise<UserCredentialRow[]> {
   const lower = host.toLowerCase();
   const vault = await t.vaultOfEnvironment(environmentId);
@@ -1585,7 +1585,7 @@ async function environmentSecretsFor(t: Tx, environmentId: string, host: string)
 }
 
 /**
- * Whether the credential in `row` fills secret slot `slot` (D64): of the slot's type, with its
+ * Whether the credential in `row` fills secret slot `slot`: of the slot's type, with its
  * binding (the hosts and header of an `environment_secret`, the URL of a `bearer` or `headers`).
  */
 export function slotHolds(slot: EnvironmentSecretSlot, row: Pick<VaultCredentialRow, "type" | "bindingJson">): boolean {
@@ -1605,7 +1605,7 @@ export function slotHolds(slot: EnvironmentSecretSlot, row: Pick<VaultCredential
 }
 
 /**
- * Which of Agent `environmentId`'s credentials are live (track T3, D73): with secret slots in the
+ * Which of Agent `environmentId`'s credentials are live: with secret slots in the
  * runtime it applies, only those that fill a slot of the name (`slotHolds`). Another stays in the
  * vault, dormant: a slot the version dropped, or one whose binding changed until it gets a value
  * again. Without slots, every one.
@@ -1654,7 +1654,7 @@ export function routingOf(
 }
 
 /**
- * The hosts Environment `environmentId`'s sandbox has a key for (ADR-142), each with the header
+ * The hosts Environment `environmentId`'s sandbox has a key for, each with the header
  * the key goes in: the hosts of its live `environment_secret`s and of its applied
  * `environment_secret` slots, filled or not, so a slot whose value is removed still has its rule
  * and fails closed. Read in `t` from the clear binding: no value is read and no key is needed.

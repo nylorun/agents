@@ -42,12 +42,12 @@ describe("parseServices", () => {
     });
   });
 
-  it("runs keys with gates (F4.2), and never with core or loop", () => {
+  it("runs keys with gates, and never with core or loop", () => {
     expect(parseServices(["--service", "gates,keys"])).toEqual({ services: services("gates", "keys") });
     expect(() => parseServices(["--service", "core,keys"])).toThrow(/may not share a process/);
   });
 
-  it("runs egress with gates and keys (F7.2), and never with core or loop", () => {
+  it("runs egress with gates and keys, and never with core or loop", () => {
     expect(parseServices(["--service", "gates,keys,egress"])).toEqual({
       services: services("gates", "keys", "egress"),
     });
@@ -122,7 +122,7 @@ describe("parseServices", () => {
   });
 });
 
-/** The default telemetry of a process (ADR-159): `/metrics` on port 9464, no OTLP. */
+/** The default telemetry of a process: `/metrics` on port 9464, no OTLP. */
 function telemetryOf(serviceName: string, host: string) {
   return { resource: { serviceName, attributes: {} }, metrics: { prometheus: { host, port: 9464 } } };
 }
@@ -140,7 +140,7 @@ describe("parseStackConfig", () => {
       services: new Set(["core", "loop"]),
       endpoints: {},
       tenant: { name: "default" },
-      // A local Host serves /metrics on loopback (ADR-159).
+      // A local Host serves /metrics on loopback.
       telemetry: telemetryOf("nylorun-runtime", "127.0.0.1"),
     });
   });
@@ -417,7 +417,7 @@ describe("parseStackConfig: where the loop reaches the gate", () => {
         ["--service", "core,loop"],
       ).modelGate,
     ).toEqual({ url: "http://gateway:4100", token });
-    // core reaches the Tool Gate too: it closes MCP connections outside a run (F4.1).
+    // core reaches the Tool Gate too: it closes MCP connections outside a run.
     expect(
       parseStackConfig({ NYLORUN_GATES_URL: "http://gateway:4100", NYLORUN_GATES_TOKEN: token }, [
         "--service",
@@ -507,7 +507,7 @@ describe("NYLORUN_BROWSER_ACCESS (protocol 7)", () => {
 
 const HARNESS_TOKEN = "ab".repeat(32);
 
-describe("NYLORUN_HARNESS (F6.2)", () => {
+describe("NYLORUN_HARNESS", () => {
   it("runs the harness in process by default", () => {
     expect(parseStackConfig({}, []).harnessMode).toBeUndefined();
     expect(parseStackConfig({ NYLORUN_HARNESS: "in-process" }, [])).toMatchObject({ harnessMode: "in-process" });
@@ -590,7 +590,7 @@ describe("--service harness", () => {
   });
 });
 
-describe("sandbox pods (F7.2)", () => {
+describe("sandbox pods", () => {
   const pod = {
     NYLORUN_SANDBOX_KIND: "pod",
     NYLORUN_HARNESS_URL: "http://192.168.65.254:47321",
@@ -655,7 +655,7 @@ describe("sandbox pods (F7.2)", () => {
     ).toThrow(/NYLORUN_SANDBOX_HARNESS_IMAGE is required/);
   });
 
-  it("reaches computers through the sandbox gateway with a ticket key (ADR-149)", () => {
+  it("reaches computers through the sandbox gateway with a ticket key", () => {
     const base = {
       NYLORUN_SANDBOXES_URL: "http://sandboxes:4300",
       NYLORUN_SANDBOXES_TOKEN: "ef".repeat(32),
@@ -781,7 +781,7 @@ describe("the Host's Tenant", () => {
   });
 });
 
-describe("NYLORUN_CREDENTIAL_PROVIDER_* (CP-E)", () => {
+describe("NYLORUN_CREDENTIAL_PROVIDER_*", () => {
   const provider = {
     NYLORUN_CREDENTIAL_PROVIDER_URL: "http://172.17.0.1:18793/edge/provider/",
     NYLORUN_CREDENTIAL_PROVIDER_TOKEN: "t".repeat(32),
@@ -862,7 +862,7 @@ describe("NYLORUN_OBJECT_STORE_*", () => {
   });
 });
 
-describe("traces (R7.2)", () => {
+describe("traces", () => {
   it("export nothing without an endpoint, with no content and the default service name", () => {
     expect(parseStackConfig({}, []).traces).toBeUndefined();
     expect(parseStackConfig({ OTEL_SERVICE_NAME: "agents" }, []).traces).toEqual({
@@ -905,7 +905,7 @@ describe("traces (R7.2)", () => {
   });
 });
 
-describe("trace content (ADR-159 §5)", () => {
+describe("trace content", () => {
   const ALL = ["user", "outputs", "tool-results", "errors"];
   const contentOf = (env: Record<string, string>) => parseTraceContent(env, []).content;
   const warningsOf = (env: Record<string, string>) => {
@@ -965,7 +965,7 @@ describe("trace content (ADR-159 §5)", () => {
   });
 });
 
-describe("telemetry (ADR-159)", () => {
+describe("telemetry", () => {
   const gates = { NYLORUN_GATES_TOKEN: "a".repeat(64), NYLORUN_GATES_ALLOWED_HOSTS: "gateway:4100" };
   const container = { NYLORUN_ALLOWED_HOSTS: "runtime:4000" };
 

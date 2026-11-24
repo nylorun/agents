@@ -1,8 +1,8 @@
 /**
- * An Agent's triggers and their runs (track T4, D74): read them, pause and resume one, run one now
+ * An Agent's triggers and their runs: read them, pause and resume one, run one now
  * (keyed by `Idempotency-Key`), and page the runs; make a webhook trigger's signing secret, and
- * take a sender's delivery at its endpoint (D75), an anonymous, unversioned route. What a trigger is lives in the Agent's manifest
- * (`runtime.triggers`), or, for one its agents made with the `triggers` tool (D83), on the Agent:
+ * take a sender's delivery at its endpoint, an anonymous, unversioned route. What a trigger is lives in the Agent's manifest
+ * (`runtime.triggers`), or, for one its agents made with the `triggers` tool, on the Agent:
  * these routes change only what the Agent owns, its status, and delete an agent's trigger.
  */
 import type { OpenAPIHono } from "@hono/zod-openapi";

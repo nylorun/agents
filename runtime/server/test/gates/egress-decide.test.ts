@@ -1,5 +1,5 @@
 /**
- * The keys provider's decide route (ADR-142, `gates/egress-decide.ts`): the verified actor must be
+ * The keys provider's decide route (`gates/egress-decide.ts`): the verified actor must be
  * the sandbox's current incarnation; a vault binding wins and returns the header value; a host the
  * outside source lists for the owner, inside the ceiling, is allowed with no value; anything else
  * is not found. The token gates the route, and the route is off without one.

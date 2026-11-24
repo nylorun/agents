@@ -1,5 +1,5 @@
 /**
- * The `triggers` tool (D83): an agent whose version declares `harness.engine.triggers` lists,
+ * The `triggers` tool: an agent whose version declares `harness.engine.triggers` lists,
  * creates and deletes its own triggers. The Runtime serves each call as a `runtime` effect
  * (operation `triggers`), in the call's own transaction, keyed by the effect id, so a replayed turn
  * changes nothing twice (`harness-api/record.ts`). The Tenant's tool policy decides it first (a
@@ -64,7 +64,7 @@ function reaches(row: AgentTriggerRow, sessionId: string): boolean {
   return row.createdSessionId === sessionId || (row.definition as Trigger | null)?.session === sessionId;
 }
 
-/** Whether the version session `s` runs declares the Runtime's `nylorun-triggers` plugin (ADR-106). */
+/** Whether the version session `s` runs declares the Runtime's `nylorun-triggers` plugin. */
 async function declaresTriggersPlugin(t: Tx, s: Pick<Session, "definition">): Promise<boolean> {
   if (!s.definition) return false;
   const body = (await t.agentManifest(s.definition.name, s.definition.version))?.body as AgentManifestV8 | undefined;
@@ -81,7 +81,7 @@ async function declaresTriggers(t: Tx, s: Pick<Session, "definition">): Promise<
 
 /**
  * Why session `s` cannot make `triggers` call `request` at all, before the Tenant's tool policy
- * is asked (off means off, ADR-100): its version does not declare `engine.triggers`
+ * is asked (off means off): its version does not declare `engine.triggers`
  * (`tool.unavailable`), or an agent used as a tool made it (`tool.forbidden`). Undefined when it can.
  */
 export async function triggersRefusal(
@@ -145,7 +145,7 @@ export async function serveTriggersTool(
     return completed({ id: input.id, deleted: true });
   }
   // create: never from a turn a trigger or a booked wake started. Under the `nylorun-triggers`
-  // plugin (ADR-106) such a turn may still set a one-off follow-up in its own session, as a woken
+  // plugin such a turn may still set a one-off follow-up in its own session, as a woken
   // turn books the next wake: never a schedule, never a session of its own.
   if (s.turnCause !== undefined) {
     const plugin = await declaresTriggersPlugin(t, s);
@@ -185,7 +185,7 @@ export async function serveTriggersTool(
   const agent = await liveEnvironment(t, s.agentId);
   const inForce = triggerLimitsInForce(runtime, agent?.applied?.limits);
   if (!existing) {
-    // One count for every trigger not from the definition: the tool's and the API's (D88).
+    // One count for every trigger not from the definition: the tool's and the API's.
     const made = (await t.agentTriggers(s.agentId)).filter((row) => originOf(row) === "agent" || originOf(row) === "api").length;
     if (made >= inForce.count)
       return failed("tool.limit", `This Agent has ${made} triggers, the most it can have. Delete one to add another.`);

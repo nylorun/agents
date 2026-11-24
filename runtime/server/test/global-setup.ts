@@ -1,5 +1,5 @@
 /**
- * Global setup of both vitest configs (session-store.md §5). Every Session Store test runs on
+ * Global setup of both vitest configs. Every Session Store test runs on
  * the test stack's Postgres (`test/stack/compose.yaml`), so `npm test` needs Docker:
  *
  * 1. When Postgres does not answer, starts the test stack (`test/stack/up.mjs`), unless

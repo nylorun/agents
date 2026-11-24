@@ -9,7 +9,7 @@ import {
 import { addPart } from "./support/parts.js";
 
 /**
- * Flow Agents Phase 1: the new ReAct methods compile to exactly today's manifests.
+ * Flow agents: the new ReAct methods compile to exactly today's manifests.
  * The hashes below were recorded with the builder before the change; they move only with the
  * manifest schema version (re-recorded for manifest v7, the flat manifest, after checking each
  * printed manifest: top-level instructions, tools and mcpServers, no capabilities, no runtime).

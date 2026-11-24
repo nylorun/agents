@@ -186,7 +186,7 @@ export function readRoutes(api: OpenAPIHono<TenantEnv>): void {
       cursor: z.string().optional(),
     })
     .strict();
-  // What ran, with what input, how many sends and how it ended (R5.2): the effect journal's tool
+  // What ran, with what input, how many sends and how it ended: the effect journal's tool
   // rows, readable as the model calls are.
   tenantRoute(
     api,
@@ -219,7 +219,7 @@ export function readRoutes(api: OpenAPIHono<TenantEnv>): void {
       );
     },
   );
-  // A turn's spans (R7.5): the same mapping the trace projector posts, from the turn's log rows,
+  // A turn's spans: the same mapping the trace projector posts, from the turn's log rows,
   // with the installation's content opt-ins. Spans carry cost: the application's, as /calls are.
   tenantRoute(
     api,

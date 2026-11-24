@@ -56,7 +56,7 @@ function staticHeaders(
       ? "public, max-age=31536000, immutable"
       : "no-store",
     "x-content-type-options": "nosniff",
-    // Dashboard files may be framed by the allowlist only (Studio §8.9); no
+    // Dashboard files may be framed by the allowlist only; no
     // X-Frame-Options, which cannot name origins.
     "content-security-policy": `frame-ancestors ${options.frameAncestors}`,
   };

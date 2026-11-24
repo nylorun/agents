@@ -248,7 +248,7 @@ function toolResult(value: unknown, index: number): ToolResult {
   }
 }
 
-/** A completed result's files (R2b C11): a media type and the host's reference each. */
+/** A completed result's files: a media type and the host's reference each. */
 function resultFiles(value: unknown, index: number): readonly ToolResultFile[] {
   if (!Array.isArray(value)) fail(`Tool result ${index} files must be an array`);
   return Object.freeze(

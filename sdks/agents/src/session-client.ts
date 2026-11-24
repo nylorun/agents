@@ -37,7 +37,7 @@ import { RunsClient } from "./runs.js";
 import { Transport, id, segment, type Destination } from "./http.js";
 import { observeSSE } from "./sse.js";
 
-/** Application-principal access to a session's sandbox built-ins (workflows.md §8). */
+/** Application-principal access to a session's sandbox built-ins. */
 export type SessionSandbox = {
   readonly [K in SandboxToolName]: (
     args: Record<string, unknown>,
@@ -214,13 +214,13 @@ export type CommandOptions = {
 /**
  * A message's options. `delivery` says what a message to a busy session does (protocol 17):
  * `queue` (the default) waits for the running turn to end, `reject` is refused with
- * `409 session_busy`, and `steer` (Host feature `steer`, D85) joins the running turn before its next
+ * `409 session_busy`, and `steer` (Host feature `steer`) joins the running turn before its next
  * step; the queued answer's `delivery` says which applied. `removeTools` names the tools the message's turn may not use (Host feature
  * `remove-tools`): a declared tool or an agent used as a tool by its name (in the agent and in
  * the agents it uses as tools), an MCP server's tool as `<server>__<tool>`, a whole MCP server by
  * its name. It applies to the version the turn runs, so the session still moves to its Agent's
  * new versions; names that version does not have are ignored. `context` (Host feature
- * `message-context`, ADR-157) holds facts for the message's own turn only: the model reads them
+ * `message-context`) holds facts for the message's own turn only: the model reads them
  * after the history on every call of that turn, and later turns leave them out.
  */
 export type MessageOptions = CommandOptions & {
@@ -260,7 +260,7 @@ export class SessionClient {
   }
   /**
    * Start a turn. Strings become `message.content`; any other JSON value becomes
-   * `message.data` (workflows.md §5).
+   * `message.data`.
    */
   async input(value: string | JsonValue, options: MessageOptions) {
     const base = {
@@ -529,7 +529,7 @@ export class SessionClient {
 
   /**
    * Own session stream plus linked agent sessions announced in `node.agent`
-   * events, merged by `time` then arrival order (workflows.md §11).
+   * events, merged by `time` then arrival order.
    */
   private async *observeFollowing(options: {
     cursor?: string;

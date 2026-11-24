@@ -1,5 +1,5 @@
 /**
- * The control bus of an open Tenant (blueprint D21, D48): the signals one process sends the
+ * The control bus of an open Tenant: the signals one process sends the
  * others with the Tenant open, on Postgres (`Tx.signal`, `SessionStore.followSignals`). They
  * never go through S2, which only serves API listeners.
  *

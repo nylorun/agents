@@ -281,11 +281,11 @@ func (d *Driver) Put(ctx context.Context, name string, spec driver.Spec) (driver
 	}
 	// An actor keeps the engine it was created with. Substrate v1.0.0 repoints an actor only to a
 	// template with identical volumes, and the engine is an image volume pinned by digest, so a
-	// new Runtime image would strand every existing pod (E12). The pod then runs that engine until
+	// new Runtime image would strand every existing pod. The pod then runs that engine until
 	// a new incarnation; the Runtime's Harness API check at hello still guards it.
 	// The same holds for the computer agent's image. Between the engine and the agent there is no
 	// keeping: the move changes the volume, which Substrate refuses to repoint (RepointRefused),
-	// and the computer gets a new volume from its latest disk version (ADR-154 decision 4).
+	// and the computer gets a new volume from its latest disk version.
 	kept := EngineReference(current)
 	switch {
 	case kept == "" || current == nil:
@@ -512,7 +512,7 @@ func (d *Driver) driveOnce(ctx context.Context, name, opID, mode string, reverte
 	return false, err
 }
 
-// suspend suspends the actor and logs how long it took, or why it failed (ADR-154 D1): the
+// suspend suspends the actor and logs how long it took, or why it failed: the
 // weekly computers report reads these lines. An actor that isn't running has nothing to suspend
 // and logs nothing.
 func (d *Driver) suspend(ctx context.Context, name string) error {

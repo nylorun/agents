@@ -1,5 +1,5 @@
 /**
- * An Agent's memories over the Runtime API (track T5, D72), shaped like Anthropic's memory stores:
+ * An Agent's memories over the Runtime API, shaped like Anthropic's memory stores:
  * list and read them, write one whole (create or replace, with an optional `content_sha256`
  * precondition), delete one or a folder, and read the versions every change leaves. Writes go
  * through the memory service (`memory/service.ts`), as a model's do, so the same paths, limits

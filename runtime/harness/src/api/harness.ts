@@ -32,7 +32,7 @@ export const DEFAULT_TRANSCRIPT_CACHE_MB = 256;
 /** How soon a `lease` request that failed is sent again, by default. */
 export const DEFAULT_LEASE_RETRY_MS = 100;
 /**
- * The waits before each resend of a tool call whose gate hop lost its answer (R5.3), by default;
+ * The waits before each resend of a tool call whose gate hop lost its answer, by default;
  * the last repeats.
  */
 export const DEFAULT_RESEND_DELAYS_MS: readonly number[] = Object.freeze([1_000, 2_000, 4_000]);
@@ -52,12 +52,12 @@ export interface HarnessOptions {
   /** How soon a `lease` request that failed is sent again. Default `DEFAULT_LEASE_RETRY_MS` (100 ms). */
   readonly leaseRetryMs?: number;
   /**
-   * The waits before each resend of a tool call whose gate hop lost its answer (R5.3); the last
+   * The waits before each resend of a tool call whose gate hop lost its answer; the last
    * repeats. Default `DEFAULT_RESEND_DELAYS_MS` (1, 2, then 4 s).
    */
   readonly resendDelaysMs?: readonly number[];
   /**
-   * Compaction (Model Calls §8): the kept tail, the reply's reserve, the estimate. Each left out
+   * Compaction: the kept tail, the reply's reserve, the estimate. Each left out
    * is its default (`DEFAULT_COMPACTION_CONFIG`).
    */
   readonly compaction?: Partial<CompactionConfig>;

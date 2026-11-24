@@ -1,5 +1,5 @@
 /**
- * Calls of several sessions on one workspace (D66): each session's calls run in the order it sends
+ * Calls of several sessions on one workspace: each session's calls run in the order it sends
  * them, different sessions' calls run at the same time, a cancel ends only its own call, a stop or
  * removal waits for the calls running, and each version of a skill gets its own folder, written
  * once per open handle (`mountFolder`, protocol 15).

@@ -12,11 +12,11 @@ import {
 } from "./support.js";
 
 /**
- * A8: Studio's trusted proxy builds upstream headers without Origin
+ * Studio's trusted proxy builds upstream headers without Origin
  * (studio/src/proxy.ts). A proxy-shaped request must succeed; an Origin
  * would be rejected (covered in loopback tests).
  */
-it("A8: Studio proxy-shaped upstream request has no Origin and is accepted", async () => {
+it("Studio proxy-shaped upstream request has no Origin and is accepted", async () => {
   const tenantId = FAKE_TENANT_ID;
   const module = createFakeModule();
   const { url } = await startTestHost({ module });

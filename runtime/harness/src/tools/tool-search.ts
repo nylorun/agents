@@ -1,5 +1,5 @@
 /**
- * Deferred MCP tools (R2b C10, Q20), run by our engine: `tool_search` finds an agent's deferred
+ * Deferred MCP tools, run by our engine: `tool_search` finds an agent's deferred
  * tools, ranked with BM25 over their names and descriptions, and returns each match's name,
  * description and `inputSchema`; `tool_call` runs one by name, as that tool's own call
  * (`deferredToolCall` in `run/durable.ts`). `tool_search` is our engine's tool (`harness`): it

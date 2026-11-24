@@ -1,5 +1,5 @@
 /**
- * R2b C7: a pooled MCP connection that can no longer make requests is dropped, opened again,
+ * A pooled MCP connection that can no longer make requests is dropped, opened again,
  * and the call sent once more, since the tool never saw it: a server that ended the connection's
  * session (`404` to its `Mcp-Session-Id`, MCP 2025-06-18 "Session Management"), or a credential
  * whose `via` now sends the server's requests elsewhere. In the loop's pool (in process) and in

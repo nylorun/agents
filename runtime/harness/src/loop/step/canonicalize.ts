@@ -5,8 +5,8 @@ import { copyJson } from "@nylorun/core/define";
 import { memoryAliasOf } from "@nylorun/core/contracts";
 
 /**
- * A call to `memory.<command>` or `memory/<command>` when the model was offered `memory` (track
- * T5, E-P1): the `memory` tool with that command, as the conversation records it from then on.
+ * A call to `memory.<command>` or `memory/<command>` when the model was offered `memory`:
+ * the `memory` tool with that command, as the conversation records it from then on.
  * A call whose own `command` disagrees with its name stays as it was, and fails as unknown.
  */
 export function memoryAliasCall(

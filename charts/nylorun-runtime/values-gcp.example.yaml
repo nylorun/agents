@@ -55,6 +55,6 @@ prepull:
   tolerations:
     - { key: ate.dev/sandboxClass, operator: Equal, value: gvisor, effect: NoSchedule }
 
-# Keys at Substrate's egress (ADR-142): install Substrate with --credential-provider naming it.
+# Keys at Substrate's egress: install Substrate with --credential-provider naming it.
 keysProvider:
   enabled: true

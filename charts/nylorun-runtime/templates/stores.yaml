@@ -1,6 +1,6 @@
 {{- $n := include "nylorun.name" . -}}
 {{- $secret := include "nylorun.secret" . -}}
-# Restate: one node, its log and state on a persistent disk (ADR-147 decision 11).
+# Restate: one node, its log and state on a persistent disk.
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -28,7 +28,7 @@ spec:
             - { name: RESTATE_WORKER__INVOKER__REQUEST_IDENTITY_PRIVATE_KEY_PEM_FILE, value: /run/nylorun/restate/identity.pem }
             {{- if .Values.restate.snapshots.enabled }}
             {{- $endpoint := include "nylorun.objectStore.endpoint" . }}
-            # Partition snapshots in the object store (ADR-147 decision 11).
+            # Partition snapshots in the object store.
             - { name: RESTATE_WORKER__SNAPSHOTS__DESTINATION, value: {{ printf "s3://%s/%s" .Values.objectStore.bucket .Values.restate.snapshots.path | quote }} }
             {{- with .Values.restate.snapshots.interval }}
             - { name: RESTATE_WORKER__SNAPSHOTS__SNAPSHOT_INTERVAL, value: {{ . | quote }} }

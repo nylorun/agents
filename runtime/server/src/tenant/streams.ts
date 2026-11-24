@@ -1,5 +1,5 @@
 /**
- * The Durable Streams seam of an open Tenant (Durable Streams §7–§9), wired by one
+ * The Durable Streams seam of an open Tenant, wired by one
  * `wireStreams(ctx, …)` call in the composition root:
  *
  * - **Record.** Every event is written to the record in its transaction (`Tx.event`). The
@@ -17,7 +17,7 @@
  *   and `streamsStatus` reports the basin's state.
  * - **Readers.** History and session SSE read the session's stream
  *   (`tenant/session-streams.ts`). Those are the only readers: S2 serves API listeners, and
- *   nothing internal reads or writes it (D48). Signals between processes go over the control
+ *   nothing internal reads or writes it. Signals between processes go over the control
  *   bus on Postgres (`control.ts`).
  *
  * The caller passes the streams: the Host's S2 streams, or `MemoryStreams` for tests and a

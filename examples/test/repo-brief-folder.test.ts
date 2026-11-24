@@ -1,11 +1,11 @@
 /**
- * The Repo brief flow as an agent folder (track T7, design §3.8): the 23 Markdown and JSON files
+ * The Repo brief flow as an agent folder: the 23 Markdown and JSON files
  * of `agents/repo-brief-folder/` compile to the manifest the TypeScript `agents/repo-brief` saves.
  * Two differences are by design, and the comparison names them:
  *
  * - **Instructions.** A folder has one instruction string per Markdown file, wrapped as written;
- *   the engine joins them with a blank line, so the prompt is the same text (as in T6's triage).
- * - **Display names.** In a folder, an agent's `name` is its id (design §3.2), so an embedded
+ *   the engine joins them with a blank line, so the prompt is the same text (as in the triage agent).
+ * - **Display names.** In a folder, an agent's `name` is its id, so an embedded
  *   agent has no display name ("Triage", "Brief writer") beside its id.
  *
  * And back (`folderOfManifest`, `nylorun export --folder`): the TypeScript flow's manifest writes
@@ -89,7 +89,7 @@ it("writes the TypeScript flow's manifest as a folder that compiles back to it, 
       ["writer", "Brief writer"],
       ["editor", "Editor"],
       ["decline", "Decline"],
-    ].map(([id, name]) => `agents/${id}/: The agent's display name "${name}" is left out: in a folder an agent's name is its id (design §3.2).`),
+    ].map(([id, name]) => `agents/${id}/: The agent's display name "${name}" is left out: in a folder an agent's name is its id.`),
   );
   expect([...folder.files.keys()]).toEqual([
     "AGENT.md",

@@ -1,5 +1,5 @@
 /**
- * R2b C6: a declared tool's name and an MCP server's name, which prefixes its tools' names, are
+ * A declared tool's name and an MCP server's name, which prefixes its tools' names, are
  * names every model provider accepts: `^[A-Za-z0-9_-]{1,64}$`, the rule agent tools already use.
  * A manifest naming one otherwise is refused at save.
  */

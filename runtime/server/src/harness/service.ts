@@ -1,5 +1,5 @@
 /**
- * A harness service (F6.2): a harness that runs the Tenant's segments and serves its workspaces
+ * A harness service: a harness that runs the Tenant's segments and serves its workspaces
  * over the Harness API, with its own MCP pool and SandboxManager, and no store. `main.ts` runs
  * one as `--service harness`; a Tenant opened with `harness: "ws"` (tests) runs one in its own
  * process over a loopback WebSocket.
@@ -136,7 +136,7 @@ export function startHarnessService(options: HarnessServiceOptions): HarnessServ
       );
   };
 
-  // Computers (ADR-149): one manager per computer, on the computer backend, opened with
+  // Computers: one manager per computer, on the computer backend, opened with
   // `computer.open` for the latest run that used it. Before each request it asks core where the
   // computer is now (`computer.current`): after a restore, a reset or a lost volume's recovery
   // the computer has a new volume and a new address, and the access held for the last one is
@@ -220,7 +220,7 @@ export function startHarnessService(options: HarnessServiceOptions): HarnessServ
       case "workspace.write":
       case "workspace.exec": {
         if ("disk" in (params as object)) {
-          // A disk version's read or write (R2d step 3).
+          // A disk version's read or write.
           const call = params as WorkspaceDiskCall;
           const answer = await sandbox().disk(
             refOf(call.session),
@@ -275,7 +275,7 @@ export function startHarnessService(options: HarnessServiceOptions): HarnessServ
     logger,
     executors,
     serve,
-    // Our harness: its hello names our harness id (R4.1).
+    // Our harness: its hello names our harness id.
     name: DEFAULT_HARNESS,
     ...(options.version ? { version: options.version } : {}),
     features: { workspace: { backends: backends.map((backend) => backend.name) } },

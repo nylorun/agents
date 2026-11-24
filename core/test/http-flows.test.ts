@@ -125,7 +125,7 @@ describe("an HTTP stage", () => {
     expect(codesOf(() => Agent({ id: "d" }).pipe(refund).build())).toEqual([]);
   });
 
-  it("refuses approval on a stage: tool approvals are the Tenant's tool policy (R5 step 2)", () => {
+  it("refuses approval on a stage: tool approvals are the Tenant's tool policy", () => {
     expect(() =>
       http({ name: "approved", input: z.object({}), url: "https://example.com/x", approval: "always" } as never)
     ).toThrow(/approval was removed/);

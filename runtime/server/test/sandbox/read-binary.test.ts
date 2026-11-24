@@ -1,5 +1,5 @@
 /**
- * The sandbox's `read` of a binary file (ADR-139): it fails in words instead of numbering decoded
+ * The sandbox's `read` of a binary file: it fails in words instead of numbering decoded
  * bytes, which a model can't tell from text.
  */
 import { describe, expect, it } from "vitest";

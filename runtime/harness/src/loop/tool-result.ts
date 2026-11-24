@@ -12,7 +12,7 @@ export function toolResult(
 ): ToolResult {
   const identity = { callId: call.callId, toolName: call.toolName };
   if (outcome.kind === "completed") {
-    // A preview the Runtime made of a result too large to show is not the tool's output (R2b C11).
+    // A preview the Runtime made of a result too large to show is not the tool's output.
     const checked =
       outcome.truncated === true ? undefined : definition.outputSchema?.validate(outcome.output);
     if (checked && !checked.ok)
@@ -52,7 +52,7 @@ export function toolResult(
   );
 }
 
-/** A file the model sees beside a tool's output (R2b C11): a media type and the host's reference. */
+/** A file the model sees beside a tool's output: a media type and the host's reference. */
 function fileOf(file: ToolResultFile): ToolResultFile {
   if (typeof file?.mediaType !== "string" || file.mediaType === "" || file.reference === undefined)
     throw new HarnessError(

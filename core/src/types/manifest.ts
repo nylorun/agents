@@ -170,7 +170,7 @@ export interface AgentManifest {
   /** What the agent needs of its session's Environment, checked when a session opens. */
   readonly requires?: AgentRequirements;
   /**
-   * The engine features the agent declares (ADR-100, `agent-folder/2`): with it, our engine adds
+   * The engine features the agent declares (`agent-folder/2`): with it, our engine adds
    * only what it names; without it, every default of `agent-folder/1`.
    */
   readonly engine?: HarnessEngine;
@@ -180,7 +180,7 @@ export interface AgentManifest {
 export type EngineSandboxTool = "bash" | "read" | "write" | "edit" | "grep" | "glob";
 
 /**
- * The engine features an agent declares (ADR-100): `harness.engine` of an agent manifest v8,
+ * The engine features an agent declares: `harness.engine` of an agent manifest v8,
  * `engine` of the loop manifest the harness runs. Its presence turns the defaults off: an agent
  * with it gets no engine tool and no engine text it does not name. Memory, skills, `loop` and
  * `runtime.selfWake` stay declared by their own keys.
@@ -194,14 +194,14 @@ export interface HarnessEngine {
   readonly outputs?: boolean;
   /** MCP tools deferred behind `tool_search` when their schemas pass the threshold. */
   readonly toolSearch?: boolean;
-  /** The `triggers` tool and its text (D83): the root agent sets up its own triggers. */
+  /** The `triggers` tool and its text: the root agent sets up its own triggers. */
   readonly triggers?: boolean;
   /** A block's wording replaced by the folder's text, by block name. */
   readonly instructions?: Readonly<Partial<Record<EngineBlockName, string>>>;
   /** The engine text blocks the agent gets, each with its version and the hash of its text. */
   readonly blocks?: readonly EngineBlockRef[];
   /**
-   * The Runtime's plugins the agent declares (`agent-folder/3`, ADR-106), each with the tools left
+   * The Runtime's plugins the agent declares (`agent-folder/3`), each with the tools left
    * on and the hash of its files. With it, the engine presents its tools as the server `nylorun`.
    */
   readonly plugins?: readonly HarnessEnginePlugin[];
@@ -288,7 +288,7 @@ export interface AgentHarnessSection {
    * feature `model-roles`): a session opened with `role` runs on that role's model.
    */
   readonly roles?: Readonly<Record<string, string>>;
-  /** The engine features the agent declares (ADR-100), for itself; its subagents declare their own. */
+  /** The engine features the agent declares, for itself; its subagents declare their own. */
   readonly engine?: HarnessEngine;
 }
 

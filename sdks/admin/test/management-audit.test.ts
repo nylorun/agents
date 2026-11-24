@@ -1,7 +1,7 @@
 import { expect, it } from "vitest";
 import { createManagementClient } from "../src/index.js";
 
-it("reads a page of the Tenant's audit with GET /v1/tenant/audit (ADR-159)", async () => {
+it("reads a page of the Tenant's audit with GET /v1/tenant/audit", async () => {
   const requests: string[] = [];
   const page = { events: [], nextCursor: null };
   const client = createManagementClient({

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// The network invariant of sandbox pods (F7.2, D42), on a real cluster:
+// The network invariant of sandbox pods, on a real cluster:
 //
 //   npm run test:sandboxes:network -- --context kind-nylorun --host-address 172.17.0.1
 //   npm run test:sandboxes:network -- --context docker-desktop

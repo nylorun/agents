@@ -1,10 +1,10 @@
 /**
- * R2 M3: HTTP tools. The Runtime makes the request itself, through the Tool Gate (in process, or
+ * HTTP tools. The Runtime makes the request itself, through the Tool Gate (in process, or
  * the gates service with `NYLORUN_TEST_MODEL_GATE=http`, `gates/tool-gate-http.test.ts`): the
  * input as JSON, the identity headers, the run-once key as `Idempotency-Key` and the credential
  * of the session's Agent; the answer, a failure status, a timeout or a refused address is what the model
  * sees. A `GET` or `DELETE` tool sends no body: its URL parameters fill the path and the rest
- * of its input is the query string. The Tenant's tool policy (R5 step 2) holds a call an `ask` rule matches, an HTTP tool's
+ * of its input is the query string. The Tenant's tool policy holds a call an `ask` rule matches, an HTTP tool's
  * or a remote MCP server's, until the session's `approve`.
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
@@ -149,7 +149,7 @@ beforeAll(async () => {
     kind: "none",
     secrets: { billing: { type: "bearer", url: `${target.url}/refunds` } },
   });
-  // The calls a person approves (R5 step 2): `approved`, and every tool of `shop`.
+  // The calls a person approves: `approved`, and every tool of `shop`.
   const policy = await fetch(`${runtime.url}/v1/tenant/tool-policy`, {
     method: "PUT",
     headers: { ...runtime.managementHeaders(), "content-type": "application/json" },
@@ -324,7 +324,7 @@ describe("a GET or DELETE HTTP tool call", () => {
   });
 });
 
-describe("the Tenant's tool policy asks (R5 step 2)", () => {
+describe("the Tenant's tool policy asks", () => {
   it("holds an HTTP tool call for approval, then makes it", async () => {
     const before = target.seen.length;
     const session = await call("approved", { orderId: "B-1" });

@@ -11,7 +11,7 @@ import { hostTuning } from "../tuning.js";
 /**
  * The longest token read: a token arrives in a request's headers (a bearer) or its URL (a
  * capability link), which Node refuses past `http.maxHeaderSize` (16 KiB unless
- * `--max-http-header-size` says otherwise). A dependency's constant, not a limit (B15).
+ * `--max-http-header-size` says otherwise). A dependency's constant, not a limit.
  */
 export const MAX_TOKEN_BYTES = maxHeaderSize;
 /** The clock skew accepted when a token's times are checked (`keys.clockToleranceSeconds`). */

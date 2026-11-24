@@ -12,11 +12,10 @@ import { startToolServer, type ToolServer } from "./support/tool-server.js";
 import { setToolPolicy } from "./support/tool-policy.js";
 
 /**
- * G3 / system-design.md §10 — client-only parity suite.
+ * Client-only parity suite.
  * The same cases run against one agent and one workflow through the SDK only. The worker's
  * tool is an HTTP tool on a test service: the Runtime runs no code of the developer's.
  *
- * Ledger: SD-PAR1 … SD-PAR9 (L9).
  */
 
 const APP = "workflow-parity-app-token-aaaaaa";
@@ -24,7 +23,7 @@ const APP = "workflow-parity-app-token-aaaaaa";
 type Kind = "agent" | "workflow";
 
 type Gates = {
-  /** When true, the model calls the tool the Tenant's tool policy holds for a human (R5 step 2). */
+  /** When true, the model calls the tool the Tenant's tool policy holds for a human. */
   requireApproval: boolean;
   /** When true, the tool's service holds its answer until released (cancel / kill / redeploy). */
   holdRun: boolean;
@@ -292,12 +291,12 @@ function ownerSessionOf(
 }
 
 describe.each([["agent"], ["workflow"]] as const)(
-  "parity suite (%s) — system-design.md §10 / G3",
+  "parity suite (%s)",
   (kind) => {
     it(
-      "SD-PAR1..9: register, input, observe/cursor, inspect/history, approve, cancel, kill/restart, redeploy pin, idempotency",
+      "register, input, observe/cursor, inspect/history, approve, cancel, kill/restart, redeploy pin, idempotency",
       async () => {
-        // --- SD-PAR1 register ---
+        // --- register ---
         const gates = createGates();
         gates._armHold();
         const first = await startTestTenant({
@@ -323,7 +322,7 @@ describe.each([["agent"], ["workflow"]] as const)(
         if (kind === "workflow") expect(harnessKind).toBe("workflow");
         else expect(harnessKind).not.toBe("workflow");
 
-        // --- SD-PAR2 create session + input (happy path completes) ---
+        // --- create session + input (happy path completes) ---
         const sessionA = await client.createSession({
           id: `parity-${kind}-a`,
           agent: "parity",
@@ -345,7 +344,7 @@ describe.each([["agent"], ["workflow"]] as const)(
           )
         ).toBe(false);
 
-        // --- SD-PAR3 observe + resume from cursor ---
+        // --- observe + resume from cursor ---
         const sessionB = await client.createSession({
           id: `parity-${kind}-b`,
           agent: "parity",
@@ -377,7 +376,7 @@ describe.each([["agent"], ["workflow"]] as const)(
           )
         ).toBe(true);
 
-        // --- SD-PAR4 inspect + history ---
+        // --- inspect + history ---
         // Turn completion settles the session to idle/completed (both are terminal).
         const viewB = await waitStatus(sessionB, ["idle", "completed"]);
         expect(viewB).toMatchObject({
@@ -395,8 +394,8 @@ describe.each([["agent"], ["workflow"]] as const)(
           historyB.items.some((e) => e.type === "turn.completed")
         ).toBe(true);
 
-        // --- SD-PAR5 approve an interaction ---
-        // Answer on the session that owns the wait (P10): root for agents,
+        // --- approve an interaction ---
+        // Answer on the session that owns the wait: root for agents,
         // linked agent session when a workflow surfaces aggregated waits.
         gates.requireApproval = true;
         const sessionC = await client.createSession({
@@ -416,7 +415,7 @@ describe.each([["agent"], ["workflow"]] as const)(
         const histC = await sessionC.history();
         expect(histC.items.some((e) => e.type === "turn.completed")).toBe(true);
 
-        // --- SD-PAR6 cancel mid-run ---
+        // --- cancel mid-run ---
         gates.requireApproval = false;
         gates.holdRun = true;
         gates._armHold();
@@ -433,7 +432,7 @@ describe.each([["agent"], ["workflow"]] as const)(
         const cancelled = await waitStatus(sessionD, ["cancelled"]);
         expect(cancelled.status).toBe("cancelled");
 
-        // --- SD-PAR7 kill Runtime mid-run and restart ---
+        // --- kill Runtime mid-run and restart ---
         // Pause for approval (durable), kill Runtime, restart, then approve.
         gates.requireApproval = true;
         gates.holdRun = false;
@@ -480,7 +479,7 @@ describe.each([["agent"], ["workflow"]] as const)(
         expect(histE.items.some((e) => e.type === "turn.completed")).toBe(true);
         expect((await sessionE2.inspect()).manifestHash).toBe(pinnedHashBefore);
 
-        // --- SD-PAR8 redeploy mid-run (pinning) ---
+        // --- redeploy mid-run (pinning) ---
         const sessionF = await client2.createSession({
           id: `parity-${kind}-f`,
           agent: "parity",
@@ -511,7 +510,7 @@ describe.each([["agent"], ["workflow"]] as const)(
         const afterView = await sessionF.inspect();
         expect(afterView.manifestHash).toBe(pinF);
 
-        // The Agent tracks its manifest, so the save moved it (track T3): the paused turn kept
+        // The Agent tracks its manifest, so the save moved it: the paused turn kept
         // its pin to the end, and a new session on it pins version 2. An Agent pinned to version
         // 2 runs the redeployed definition too.
         gates.requireApproval = false;
@@ -538,7 +537,7 @@ describe.each([["agent"], ["workflow"]] as const)(
         await sessionF2.input("new pin", { idempotencyKey: "msg-f2" });
         await doneF2;
 
-        // --- SD-PAR9 same input twice with same idempotency key ---
+        // --- same input twice with same idempotency key ---
         const sessionG = await client2.createSession({
           id: `parity-${kind}-g`,
           agent: "parity",

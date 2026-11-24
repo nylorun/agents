@@ -1,5 +1,5 @@
 /**
- * Telemetry for tests (ADR-159): a MeterProvider read in memory and, with `spans`, a
+ * Telemetry for tests: a MeterProvider read in memory and, with `spans`, a
  * TracerProvider that keeps its spans in memory, made current with `useTelemetry` as
  * `host/main.ts` does with its own. `close()` goes back to the no-op.
  */

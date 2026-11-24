@@ -1,5 +1,5 @@
 name: A2A TCK
-# A2A 1.0 conformance on the JSON-RPC binding (A2A-E18): the official A2A TCK
+# A2A 1.0 conformance on the JSON-RPC binding: the official A2A TCK
 # (github.com/a2aproject/a2a-tck) against an example agent the Runtime publishes over A2A
 # (runtime/server/test/a2a/tck/serve.tck.ts, on the test stack's Postgres). The run fails only on
 # a failure not in runtime/server/test/a2a/tck-known-failures.txt; its reports are kept as an

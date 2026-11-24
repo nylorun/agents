@@ -1,5 +1,5 @@
 /**
- * The loop's client of the gates service (blueprint §15, P1.1): each vault-backed model call
+ * The loop's client of the gates service: each vault-backed model call
  * is one POST to the gate and one JSON answer, `gates/contract.ts`. The loop never sees the
  * model credential.
  *
@@ -11,7 +11,7 @@
  * thrown `uncertain`. Only an abort of the caller's signal throws. The client never retries;
  * the gate retries the provider.
  *
- * The credential is the session's run token (F5), read per request from the advance's grant:
+ * The credential is the session's run token, read per request from the advance's grant:
  * the gate takes session, turn and agent from it, so the body no longer names them. A call for
  * a session without a grant fails at once; it never falls back to core's credential.
  */

@@ -95,7 +95,7 @@ function projectTool(
       : { outputSchema: schemas.outputSchema.jsonSchema }),
     ...(delegate === undefined ? {} : { agent: delegate.manifest }),
     ...(http === undefined ? {} : { http: { ...http.http } }),
-    // A pinned manifest's, from before R5 step 2: identity only.
+    // A pinned manifest's, from before the Tenant's tool policy: identity only.
     ...(http?.approval === undefined ? {} : { approval: http.approval }),
   };
 }

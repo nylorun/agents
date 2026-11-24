@@ -1,5 +1,5 @@
 /**
- * F8.1 file artifacts (protocol 6): one streamed upload, list, Range downloads, capability links,
+ * File artifacts (protocol 6): one streamed upload, list, Range downloads, capability links,
  * limits, `artifact.*` events, delete, a subject's reach, and an image named by a message part
  * reaching the model. Every test runs on the `fs` BlobStore; the S3 path is the conformance
  * suite's (`test/blob/`).

@@ -1,5 +1,5 @@
 /**
- * The Harness API over a WebSocket (F6.2): one JSON text message per frame. Either end watches
+ * The Harness API over a WebSocket: one JSON text message per frame. Either end watches
  * the connection: core pings every `pingMs` (Host tuning `harness.pingMs`, 30 s), the harness
  * answers (`ws` does it), and an end that hears nothing from the other for `silenceMs`
  * (`harness.silenceMs`, 90 s) drops the connection. A message

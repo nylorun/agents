@@ -66,7 +66,7 @@ export async function reconcileSandbox(
       return undefined;
     }
   };
-  // While a start would apply a new version (track T3), it idles at most `tenant.upgradeIdleMs`.
+  // While a start would apply a new version, it idles at most `tenant.upgradeIdleMs`.
   const lifecycle = { ...podLifecycleConfig(config, row.recipe), idleMs: idleMsOf(config, row) };
   const current = await status(row.pod.k8sName);
   let decision = decide({
@@ -80,7 +80,7 @@ export async function reconcileSandbox(
     trigger,
   });
   // A running computer (its sandbox ready) about to be suspended as idle has its disk measured
-  // first (ADR-154 D1): the size is recorded on `agent.suspended`. A measure that fails records
+  // first: the size is recorded on `agent.suspended`. A measure that fails records
   // none and holds nothing up; a turn or a use since the row was read decides again instead.
   const idleSuspend = decision.events.find(
     (item) => item.type === "agent.suspended" && (item.payload as { reason?: string }).reason === "idle",
@@ -119,7 +119,7 @@ export async function reconcileSandbox(
 
   let keys: Awaited<ReturnType<typeof podKeysOf>> | undefined;
   if (decision.apply) {
-    // The keyed hosts are read at every apply (ADR-142): a host bound or connected later reaches
+    // The keyed hosts are read at every apply: a host bound or connected later reaches
     // the sandbox's rules on its next start, resume or reset.
     try {
       keys = await podKeysOf(ctx, {
@@ -212,7 +212,7 @@ export async function reconcileSandbox(
       await t.updateEnvironmentPod(sandboxId, finalPatch, new Date().toISOString());
     for (const item of decision.events) await t.agentEvent(sandboxId, item.type, item.payload as never);
     if (epochMoved) await t.signal({ type: "host.revoked", sandboxId, epoch: finalPatch.hostEpoch! });
-    // A pod that failed to start on a new version goes back to the version it ran (track T3).
+    // A pod that failed to start on a new version goes back to the version it ran.
     if (finalPatch.observed === "failed" && current.startCheck) {
       const failed = (await t.environment(sandboxId, { lock: true }))!;
       await revertStart(t, failed, finalPatch.reason ?? "The pod failed", new Date().toISOString());
@@ -225,7 +225,7 @@ export async function reconcileSandbox(
     await ctx.sandbox.removeSandbox(sandboxId).catch(() => undefined);
     return {};
   }
-  // A lost volume with a disk version starts again from the latest one (R2d step 3).
+  // A lost volume with a disk version starts again from the latest one.
   if (patch.observed === "lost" && (await recoverLostVolume(ctx, sandboxId).catch(() => false)))
     return { retryAfterMs: 0 };
   return {

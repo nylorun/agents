@@ -1,5 +1,5 @@
 /**
- * A harness's connection to core (F6.2): a WebSocket to the Harness API listener, with the
+ * A harness's connection to core: a WebSocket to the Harness API listener, with the
  * harness credential (`Authorization: Bearer`, `NYLORUN_HARNESS_TOKEN`) and the API version
  * header. Each connection runs one `createHarness`: it says `hello`, leases runs, and answers
  * core's `workspace.*` requests (`serve`). When the connection is lost its runs stop (core gives
@@ -23,7 +23,7 @@ export interface HarnessClientOptions
   /** The Harness API, e.g. `ws://runtime:4200/nylorun/harness/v1` (`NYLORUN_HARNESS_URL`). */
   readonly url: string;
   /**
-   * `NYLORUN_HARNESS_TOKEN`, or, for a pod sandbox's engine (F7.2), a function that answers
+   * `NYLORUN_HARNESS_TOKEN`, or, for a pod sandbox's engine, a function that answers
    * a current host token before each connection (it renews, or joins again). The signal aborts
    * it when the attempt is dropped.
    */

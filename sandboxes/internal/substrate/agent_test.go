@@ -18,7 +18,7 @@ var update = flag.Bool("update", false, "rewrite the golden files")
 
 const agentImage = "ghcr.io/nylorun/computer:1.0"
 
-// agentSettings are computers that run the computer agent (ADR-154 decision 4).
+// agentSettings are computers that run the computer agent.
 func agentSettings() Settings {
 	s := computerSettings()
 	s.ComputerAgent, s.ComputerImage = AgentGo, agentImage

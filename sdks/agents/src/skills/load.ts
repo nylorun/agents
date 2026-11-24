@@ -146,7 +146,7 @@ export function loadSkillsFromDirectory(
       diagnostics.push({
         severity: "warning",
         code: `${prefix}.skill-secrets`,
-        message: `Skill '${parsed.name}': secrets in SKILL.md is deprecated (D80), since it is not an Agent Skills key: an agent folder lists a skill's secrets in AGENT.md's skills block, where nylorun migrate folder moves them. It is still read until a later release.`,
+        message: `Skill '${parsed.name}': secrets in SKILL.md is deprecated, since it is not an Agent Skills key: an agent folder lists a skill's secrets in AGENT.md's skills block, where nylorun migrate folder moves them. It is still read until a later release.`,
         path: skillFile,
       });
     skills[parsed.name] = {

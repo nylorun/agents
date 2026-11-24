@@ -1,5 +1,5 @@
 /**
- * Hard caps (blueprint P1.3): a runaway loop stops at its cap. The provider always answers with
+ * Hard caps: a runaway loop stops at its cap. The provider always answers with
  * a tool call, and the agent's one HTTP tool always succeeds, so only the turn's token cap ends the
  * turn: it fails with `model.budget_exhausted`, having overspent by at most one call. Runs
  * through both Model Gates.

@@ -1,5 +1,5 @@
 /**
- * Test databases on the test stack's Postgres (`test/stack/compose.yaml`; session-store.md §5).
+ * Test databases on the test stack's Postgres (`test/stack/compose.yaml`).
  *
  * Global setup (`test/global-setup.ts`) migrates a template database once per run: both
  * schemas, no Tenant. Each test file gets its own database cloned from it

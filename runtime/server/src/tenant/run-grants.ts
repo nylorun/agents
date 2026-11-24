@@ -1,12 +1,12 @@
 /**
- * Run grants (F5, gate trust): the run token each advance of this process holds while it owns
+ * Run grants (gate trust): the run token each advance of this process holds while it owns
  * a session (`run-token.ts`). The advance mints one when it takes the lease (`grantRun`), the
  * lease heartbeat re-mints it before it expires (`renewRunGrant`), and it goes when the
  * advance ends or loses the lease (`dropRunGrant`). The HTTP gate clients read the session's
  * token on every request (`RunTokens`), so a re-mint applies to the next call.
  *
  * Only a Runtime whose gates are a service has grants (`TenantContext.runGrants`). With the
- * gates in this process nothing is minted (G6): the trust boundary is the gate's HTTP route.
+ * gates in this process nothing is minted: the trust boundary is the gate's HTTP route.
  */
 import type { Lease, TenantContext } from "./context.js";
 import { mintRunToken, type RunGrant } from "./run-token.js";

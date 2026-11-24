@@ -50,7 +50,7 @@ it("seals signing keys and quarantines the Tenant without its KEK", async () => 
         retainRoot: true,
       });
     if (process.env.NYLORUN_TEST_MODEL_GATE === "http") {
-      // The runtime never reads the vault key (F4.2), so it opens without one; the gateway,
+      // The runtime never reads the vault key, so it opens without one; the gateway,
       // which alone holds the key, refuses to sign or rotate with the sealed keys.
       const runtime = await keyless();
       try {

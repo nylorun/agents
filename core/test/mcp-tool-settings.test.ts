@@ -1,5 +1,5 @@
 /**
- * R2b C9: per-tool MCP settings. A `tools` map keyed by the server's own tool names, with `"*"`
+ * Per-tool MCP settings. A `tools` map keyed by the server's own tool names, with `"*"`
  * for the rest, and `deferred` on the server. A turn variant may only tighten them.
  */
 import { describe, expect, it } from "vitest";
@@ -92,14 +92,14 @@ describe("the manifest's MCP settings", () => {
   });
 });
 
-describe("a turn variant (Q18)", () => {
+describe("a turn variant", () => {
   const pinned = (server: Partial<McpServerManifest> = {}): AgentManifest => ({
     manifestSchemaVersion: 7,
     id: "bot",
     mcpServers: { github: { name: "github", ...github, ...server } as McpServerManifest },
   });
 
-  it("may disable a tool, and keeps a pinned approval but adds none (R5 step 2)", () => {
+  it("may disable a tool, and keeps a pinned approval but adds none", () => {
     const pin = pinned({ tools: { create_issue: { approval: "never" } } });
     // Tool approvals are the Tenant's tool policy: a variant cannot ask for one.
     expect(isVariantOf(pinned({ tools: { create_issue: { approval: "always" } } }), pin)).toBe(false);
@@ -139,7 +139,7 @@ describe("a turn variant (Q18)", () => {
   });
 });
 
-describe("approval, removed (R5 step 2)", () => {
+describe("approval, removed", () => {
   it("is refused by the builder, on a server or on a tool's settings", () => {
     expect(() => Agent({ id: "bot" }).mcp({ github: { ...github, approval: "always" } as never })).toThrow(/approval was removed/);
     expect(() =>

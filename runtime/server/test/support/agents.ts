@@ -35,13 +35,13 @@ export interface ManifestOptions {
   harness?: string;
   /** The harness section's `loop` settings. */
   loop?: Record<string, unknown>;
-  /** The harness section's `memory` (track T5). */
+  /** The harness section's `memory`. */
   memory?: AgentMemorySettings;
   /** The harness section's `model`, `<provider>/<model>` (Host feature `agent-model`). */
   model?: string;
   /** The harness section's `roles`, role → `<provider>/<model>` (Host feature `model-roles`). */
   roles?: Record<string, string>;
-  /** The harness section's `engine` (ADR-100): the engine features the agent declares. */
+  /** The harness section's `engine`: the engine features the agent declares. */
   engine?: { readonly triggers?: boolean } & Record<string, unknown>;
 }
 

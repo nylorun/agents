@@ -21,7 +21,7 @@ import { withTestSessionStore } from "../support/store.js";
 import { DEFAULT_HOST_TUNING, hostTuningOf, useHostTuning } from "../../src/tuning.js";
 
 /**
- * The Nylorun A2A profile v2 conformance suite (A2A-E15): what a v2 caller (Nylorun Bot's
+ * The Nylorun A2A profile v2 conformance suite: what a v2 caller (Nylorun Bot's
  * service) relies on, called the way it calls: straight to the Runtime with an application key
  * acting for a subject. Push signatures are verified here with `node:crypto` alone, as a receiver
  * that shares nothing with the Runtime would.
@@ -436,7 +436,7 @@ describe("a follow-up to a busy context", () => {
   });
 });
 
-describe("a steer to a context (a2a-steer, ADR-140)", () => {
+describe("a steer to a context (a2a-steer)", () => {
   it("is a Host feature", () => {
     expect(OPTIONAL_HOST_FEATURES).toContain("a2a-steer");
   });
@@ -464,7 +464,7 @@ describe("a steer to a context (a2a-steer, ADR-140)", () => {
       const steered = sent.result.task;
       expect(steered).toMatchObject({ contextId, status: { state: "TASK_STATE_SUBMITTED" }, metadata: { delivery: "steered" } });
       expect(steered.id).not.toBe(first.id);
-      // It waits in the session queue marked steer (D85) until the turn's next step takes it.
+      // It waits in the session queue marked steer until the turn's next step takes it.
       const sessionId = contextSessionId("u:org:ada", "slow", contextId);
       const queuedId = steered.id.split(".").at(-1);
       const rows = await withTestSessionStore(runtime, (store) => store.tx((t) => t.queuedMessages(sessionId)));

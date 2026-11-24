@@ -1,11 +1,11 @@
 /**
- * Failure cases of architecture §17 about event order and Durable Streams, on Postgres + Restate
+ * Failure cases about event order and Durable Streams, on Postgres + Restate
  * + S2 (`README.md`):
  *
- * - §17.5 no sequence gap under concurrent writers;
- * - §17.6 a relay append retried after an unacknowledged success;
- * - §17.7 S2 unavailable;
- * - §17.8 an SSE client reconnecting to a different API node.
+ * - 5 no sequence gap under concurrent writers;
+ * - 6 a relay append retried after an unacknowledged success;
+ * - 7 S2 unavailable;
+ * - 8 an SSE client reconnecting to a different API node.
  */
 import { afterEach, describe, expect, it } from "vitest";
 import type { LiveEvent } from "@nylorun/core/contracts";
@@ -59,8 +59,8 @@ function ticks(node: Node, sessionId: string, count: number, from: string) {
   );
 }
 
-describe.skipIf(!STACK_ENABLED)("§17 stream failures on Postgres, Restate and S2", () => {
-  it("§17.5 no sequence gap under concurrent writers on two nodes while turns run", async () => {
+describe.skipIf(!STACK_ENABLED)("stream failures on Postgres, Restate and S2", () => {
+  it("no sequence gap under concurrent writers on two nodes while turns run", async () => {
     const t = failureTenant();
     const worker = t.worker({ offset: 8, prefix: "gaps" });
     await worker.host.start();
@@ -90,7 +90,7 @@ describe.skipIf(!STACK_ENABLED)("§17 stream failures on Postgres, Restate and S
     }
   });
 
-  it("§17.6 relay appends retried after unacknowledged successes land exactly once", async () => {
+  it("relay appends retried after unacknowledged successes land exactly once", async () => {
     const t = failureTenant();
     // Appends reach S2, but the first three acknowledgements are lost on the way back.
     const faulty = new FaultyStreams(t.s2());
@@ -111,7 +111,7 @@ describe.skipIf(!STACK_ENABLED)("§17 stream failures on Postgres, Restate and S
     expect(new Set(history.map((event) => event.cursor)).size).toBe(history.length);
   });
 
-  it("§17.7 S2 unavailable: state commits, history is 503, and the stream is complete after S2 returns", async () => {
+  it("S2 unavailable: state commits, history is 503, and the stream is complete after S2 returns", async () => {
     const t = failureTenant();
     // The node reaches s2-lite through a proxy the test can take down.
     const proxy = await tcpProxy(Number(new URL(stackEndpoints().s2.endpoint).port));
@@ -151,7 +151,7 @@ describe.skipIf(!STACK_ENABLED)("§17 stream failures on Postgres, Restate and S
     expect(observer.close()).toEqual(history);
   });
 
-  it("§17.8 an SSE client reconnecting to a different API node resumes without a gap", async () => {
+  it("an SSE client reconnecting to a different API node resumes without a gap", async () => {
     const t = failureTenant();
     const model = controlledModel();
     t.onDispose(() => model.release());

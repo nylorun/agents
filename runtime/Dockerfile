@@ -16,11 +16,11 @@
 # bind-mounted Host root belong to the developer. Node and npx stay in the
 # image for stdio MCP servers.
 #
-# tini is installed for sandbox pods (F7.2): they copy /usr/bin/tini-static, node
+# tini is installed for sandbox pods: they copy /usr/bin/tini-static, node
 # and /engine from this image into the pod and run the engine under it as PID 1
 # (`tini -g -- node /nylo/engine/harness.mjs --service harness`), so any glibc workload image can host it.
 # /engine is the pod's engine bundled into one script plus the one native addon it loads
-# (ADR-92 §5): 12 files instead of /app's ~30,000, which every pod start used to copy.
+#: 12 files instead of /app's ~30,000, which every pod start used to copy.
 
 ARG NODE_IMAGE=node:24-bookworm-slim
 

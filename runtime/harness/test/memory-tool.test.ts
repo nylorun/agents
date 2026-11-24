@@ -1,8 +1,8 @@
 /**
- * `memory` (track T5, D72) in our engine: offered with Anthropic's schema when the session's
+ * `memory` in our engine: offered with Anthropic's schema when the session's
  * version sets `harness.memory`, view-only for a `read_only` agent and an agent used as a tool;
  * a `runtime` effect, operation `memory`; each command's parameters checked before the call is
- * sent; `memory.<command>` taken as the tool (E-P1); and the index pinned after the instructions.
+ * sent; `memory.<command>` taken as the tool; and the index pinned after the instructions.
  */
 import { describe, expect, it } from "vitest";
 import { Agent, type AgentManifest } from "@nylorun/core/define";

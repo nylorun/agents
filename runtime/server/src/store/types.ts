@@ -1,5 +1,5 @@
 /**
- * The Session Store seam (architecture §12.2).
+ * The Session Store seam.
  *
  * The Session Store records what happened. It is async, transactional and
  * tenant-scoped: one `SessionStore` per Tenant. Postgres is the
@@ -127,7 +127,7 @@ export const DOC_TABLES: readonly DocTable[] = [
   "links",
 ];
 
-/** Session lifecycle (architecture §10.2). */
+/** Session lifecycle. */
 export type SessionStatus =
   | "idle"
   | "runnable"
@@ -139,11 +139,11 @@ export type SessionStatus =
   | "failed"
   | "cancelled";
 
-/** Effect states (§10.3), plus the flow host's `queued` and `cancelled`. */
+/** Effect states, plus the flow host's `queued` and `cancelled`. */
 export type EffectStatus =
   | "pending"
   | "invoking"
-  /** A tool call the Tool Gate held for a person's approval (R5 step 2): nothing was sent. */
+  /** A tool call the Tool Gate held for a person's approval: nothing was sent. */
   | "held"
   | "completed"
   | "uncertain"
@@ -153,7 +153,7 @@ export type EffectStatus =
 export type EffectKind = HostEffect["kind"];
 
 /**
- * Ownership of a session by a Worker (§10.6). Read with the session; written
+ * Ownership of a session by a Worker. Read with the session; written
  * only through the ownership methods on `Tx`.
  */
 export interface SessionOwnership {
@@ -224,13 +224,13 @@ export interface Environment {
   lastUsedAt: string;
   createdAt: string;
   updatedAt: string;
-  /** Kind `pod`: the pod's lifecycle (F7.2). Absent otherwise. */
+  /** Kind `pod`: the pod's lifecycle. Absent otherwise. */
   pod?: SandboxPodState;
-  /** The disk lease while a snapshot, restore or seed copies the disk (R2d step 3). */
+  /** The disk lease while a snapshot, restore or seed copies the disk. */
   diskOp?: DiskOperation;
   /**
-   * The disk version the next volume starts from (R2d step 3). `setup` (a fork onto other setup,
-   * Q17): the setup runs once the version is written (`written`), and the seed stays until it is done.
+   * The disk version the next volume starts from. `setup` (a fork onto other
+   * setup): the setup runs once the version is written (`written`), and the seed stays until it is done.
    */
   diskSeed?: DiskSeed;
   /** The agent manifest it was made from and the version it resolved then, which it runs. */
@@ -240,22 +240,22 @@ export interface Environment {
   manifestRef: "tracking" | "pinned";
   /** The hash of that manifest version. */
   manifestHash: string;
-  /** `on`, or `off` once paused (track T6). */
+  /** `on`, or `off` once paused. */
   desiredState: "on" | "off";
-  /** The Agent it was forked from and the disk version it started from (Q15). */
+  /** The Agent it was forked from and the disk version it started from. */
   forkedFrom?: { agent: string; disk: number | null };
   /**
-   * The manifest version it moves to while it is outdated (track T3, D73): it waits for its
+   * The manifest version it moves to while it is outdated: it waits for its
    * required secrets or its pod's next start. Absent when it runs the version it should.
    */
   targetVersion?: number;
-  /** A version that failed to start (T3): a tracking Agent does not move to it again on its own. */
+  /** A version that failed to start: a tracking Agent does not move to it again on its own. */
   failedVersion?: number;
-  /** While a pod starts on a new version (T3): what it ran before, which a failed start reverts to. */
+  /** While a pod starts on a new version: what it ran before, which a failed start reverts to. */
   startCheck?: AgentStartCheck;
 }
 
-/** What a pod Agent ran before it started on a new version (track T3), and since when it starts. */
+/** What a pod Agent ran before it started on a new version, and since when it starts. */
 export interface AgentStartCheck {
   from: {
     manifestVersion: number;
@@ -270,7 +270,7 @@ export interface AgentStartCheck {
 export interface DiskSeed {
   artifactId: string;
   version: number;
-  /** Run the setup on the seeded disk (a fork onto other setup, Q17). */
+  /** Run the setup on the seeded disk (a fork onto other setup). */
   setup?: true;
   /** The version is written; with `setup`, the seed waits for the setup to be done. */
   written?: true;
@@ -284,7 +284,7 @@ export interface AgentManifestRow {
   hash: string;
   savedBy: { actor: string };
   createdAt: string;
-  /** The agent folder the version was compiled from (track T6); none for a version saved as JSON. */
+  /** The agent folder the version was compiled from; none for a version saved as JSON. */
   source?: AgentManifestSourceRecord;
 }
 
@@ -297,7 +297,7 @@ export interface AgentManifestSourceRecord {
   entries: { path: string; size: number; sha256: string }[];
 }
 
-/** A disk lease (R2d step 3): what holds the disk, since when, and until when unless renewed. */
+/** A disk lease: what holds the disk, since when, and until when unless renewed. */
 export interface DiskOperation {
   kind: "snapshot" | "restore" | "seed";
   version?: number;
@@ -307,7 +307,7 @@ export interface DiskOperation {
 }
 
 /**
- * A pod Environment's lifecycle columns (`environments`, F7.2, D34): what the Runtime wants
+ * A pod Environment's lifecycle columns (`environments`): what the Runtime wants
  * (`desired`), what it last saw (`observed`), and the fences of its incarnations.
  */
 export interface SandboxPodState {
@@ -334,7 +334,7 @@ export interface SandboxPodState {
   volumeId?: string;
   /**
    * The workload image by digest (`repo@sha256:…`), recorded the first time a pod of the
-   * Environment is ready (Q14): every later pod, after a stop, a relaunch or a reset, runs it.
+   * Environment is ready: every later pod, after a stop, a relaunch or a reset, runs it.
    */
   imageDigest?: string;
   /**
@@ -376,7 +376,7 @@ export interface Commit {
   readonly generations: readonly number[];
 }
 
-/** A Tenant's basin generations (Durable Streams §8.1). */
+/** A Tenant's basin generations. */
 export interface BasinGenerations {
   /** The basin session streams are written to and read from. */
   current: number;
@@ -466,7 +466,7 @@ export type TakeOwnership =
       status: "owned";
       /** The new epoch every later transaction of this advance must present. */
       epoch: number;
-      /** True when a previous owner's lease had expired without release: run takeover (§10.5 step 2). */
+      /** True when a previous owner's lease had expired without release: run takeover. */
       takeover: boolean;
       previous: SessionOwnership;
     }
@@ -496,7 +496,7 @@ export interface SessionStore {
   /** Reachability and schema check for Tenant status and `/ready`. Never throws. */
   health(): Promise<StoreHealth>;
   /**
-   * Follows the control bus (D21): calls `onSignal` once for each signal committed after the
+   * Follows the control bus: calls `onSignal` once for each signal committed after the
    * returned promise resolves, on every process that follows. Delivery is by notification,
    * backed by a poll of recent signals (every `pollMs`, and each time the listener connects
    * again) that catches the notifications a dropped connection missed. `onSignal` must not
@@ -566,7 +566,7 @@ export interface PendingRequest extends OutboxRef {
 }
 
 /**
- * A signal on the control bus (D21, D48): one process tells the others with the Tenant open.
+ * A signal on the control bus: one process tells the others with the Tenant open.
  * Signals are not events: they are never recorded in a session's log or streamed, and a
  * lost one costs latency, never correctness. They never go through S2.
  */
@@ -629,7 +629,7 @@ export interface Tx {
   put(table: DocTable, id: string, body: unknown): Promise<void>;
   /**
    * Deletes a document. Deleting a session keeps its record rows and log head
-   * (per-session record deletion is deferred, Durable Streams §15), so a session
+   * (per-session record deletion is deferred), so a session
    * created again with the same id continues its log and stream.
    */
   delete(table: DocTable, id: string): Promise<void>;
@@ -668,7 +668,7 @@ export interface Tx {
     turnId: string | null,
     type: T,
     payload: EventPayload<T>,
-    /** Who wrote it (R4.9): absent, core, observed. */
+    /** Who wrote it: absent, core, observed. */
     writer?: EventWriter,
   ): Promise<SessionEventOf<T>>;
 
@@ -688,7 +688,7 @@ export interface Tx {
    */
   listTurns(query: TurnListQuery): Promise<{ turns: TurnRow[]; total: number }>;
 
-  // --- outbox (architecture §12.3) ------------------------------------------
+  // --- outbox ------------------------------------------
 
   /**
    * Asks for an advance of `sessionId` once this transaction commits. The request is a row
@@ -752,7 +752,7 @@ export interface Tx {
    */
   enqueuePush(push: Omit<OutboxPush, "id">): Promise<void>;
 
-  // --- ownership (§10.6) ---------------------------------------------------
+  // --- ownership ---------------------------------------------------
 
   /**
    * Locks the session and takes ownership when it has no owner or the owner's
@@ -790,7 +790,7 @@ export interface Tx {
   ): Promise<StoredSession<T>>;
 
   /**
-   * What a run token's live check reads of a session (F5 gate trust): its lease epoch, status
+   * What a run token's live check reads of a session (gate trust): its lease epoch, status
    * and active turn, without the body. Undefined when the session is gone. Does not lock.
    */
   runState(sessionId: string): Promise<SessionRunState | undefined>;
@@ -829,12 +829,12 @@ export interface Tx {
   /**
    * Changes an Environment's columns other than its pod's (the caller holds the row's lock):
    * its kind (an Agent that becomes a computer), labels, recipe and version, the applied recipe and its version, the manifest version it runs
-   * and how it names it (track T3), the owner guard (`null` clears it), and when it was last used.
+   * and how it names it, the owner guard (`null` clears it), and when it was last used.
    */
   updateEnvironment(
     id: string,
     patch: {
-      /** Only `virtual` → `pod`, when an Agent becomes a computer (ADR-154 R13). */
+      /** Only `virtual` → `pod`, when an Agent becomes a computer. */
       kind?: Environment["kind"];
       labels?: Record<string, string>;
       recipe?: EnvironmentRecipe;
@@ -879,7 +879,7 @@ export interface Tx {
    */
   agentEvents(agentId: string, options?: AgentEventsQuery): Promise<AgentEvent[]>;
 
-  // --- the Tenant's stream (ADR-159) ------------------------------------------------
+  // --- the Tenant's stream ------------------------------------------------
 
   /**
    * Appends an event to the Tenant's stream through the record module, in this transaction: it
@@ -931,7 +931,7 @@ export interface Tx {
     filter?: { kinds?: readonly EffectKind[] },
   ): Promise<T[]>;
 
-  // Session queues (protocol 17, D76); the caller holds the session's lock.
+  // Session queues (protocol 17); the caller holds the session's lock.
   /** Adds a message at the end of its session's queue; returns its position in the queue's order. */
   enqueueMessage(row: Omit<QueuedMessageRow, "seq">): Promise<number>;
   /** A session's queued messages, first to go first. */
@@ -949,7 +949,7 @@ export interface Tx {
     after?: string;
     environmentId?: string;
   }): Promise<string[]>;
-  // Triggers (track T4, D74); runs are ordered by id, which `newRunId` makes strictly increase within a process.
+  // Triggers; runs are ordered by id, which `newRunId` makes strictly increase within a process.
   agentTriggers(agentId: string): Promise<AgentTriggerRow[]>;
   /** One trigger's state; with `lock`, its row is locked until the transaction ends. */
   agentTrigger(agentId: string, triggerId: string, options?: { lock?: boolean }): Promise<AgentTriggerRow | undefined>;
@@ -983,13 +983,13 @@ export interface Tx {
   /** Deletes runs fired before `before`; returns how many. */
   pruneTriggerRuns(before: string): Promise<number>;
   /**
-   * Runs of every Agent not yet on the Tenant's runs stream (D83), fired before `firedBefore`,
+   * Runs of every Agent not yet on the Tenant's runs stream, fired before `firedBefore`,
    * oldest first.
    */
   unstreamedTriggerRuns(options: { firedBefore: string; limit: number }): Promise<TriggerRunRow[]>;
   /** Marks runs as on the runs stream, at `at`; one already marked keeps its time. */
   markTriggerRunsStreamed(ids: readonly string[], at: string): Promise<void>;
-  // Memory (track T5, D72): paths are normalised `/memories/...` paths; versions page by id.
+  // Memory: paths are normalised `/memories/...` paths; versions page by id.
   /** One memory; with `lock`, its path is locked until the transaction ends, whether or not a row has it. */
   memory(agentId: string, path: string, options?: { lock?: boolean }): Promise<MemoryRow | undefined>;
   /**
@@ -1027,7 +1027,7 @@ export interface Tx {
 
   counts(): Promise<StoreCounts>;
 
-  // --- control bus (D21) ---------------------------------------------------
+  // --- control bus ---------------------------------------------------
 
   /**
    * Puts `signal` on the control bus: a row, and a notification Postgres sends every
@@ -1036,14 +1036,14 @@ export interface Tx {
   signal(signal: ControlSignal): Promise<void>;
   /**
    * Calls `listener` once this transaction has committed, in this process, and never on
-   * rollback: for what only a committed change may cause, such as a metric point (ADR-159). A
+   * rollback: for what only a committed change may cause, such as a metric point. A
    * listener that throws is reported to the store's `onError` and never fails the transaction.
    */
   afterCommit(listener: () => void): void;
   /** Deletes signals written before `before`. Returns how many. */
   pruneSignals(before: Date): Promise<number>;
 
-  // --- basin generations (Durable Streams §8.1) ----------------------------
+  // --- basin generations ----------------------------
 
   basinGenerations(): Promise<BasinGenerations>;
   /** Forgets a retired generation once its basin is deleted. */
@@ -1077,7 +1077,7 @@ export interface Tx {
   /** Rejects on a duplicate id, or a second vault for one Environment. */
   insertVault(row: VaultRow): Promise<void>;
   getVault(id: string): Promise<VaultRow | undefined>;
-  /** The vault of Environment `environmentId` (D56). */
+  /** The vault of Environment `environmentId`. */
   vaultOfEnvironment(environmentId: string): Promise<VaultRow | undefined>;
   updateVaultMetadata(id: string, metadataJson: string | null): Promise<void>;
   /** Deletes the vault and its credentials. */
@@ -1146,7 +1146,7 @@ export interface Tx {
   /** Appends a row, setting `duplicate` when one with the same `effectKey` exists; returns it. */
   recordModelUsage(row: ModelUsageWrite): Promise<ModelUsageRow>;
   /**
-   * The first row the gate recorded for the model call `effectKey` (R7.1), never a `duplicate`;
+   * The first row the gate recorded for the model call `effectKey`, never a `duplicate`;
    * undefined when no gate metered it.
    */
   modelUsageOf(effectKey: string): Promise<ModelUsageRow | undefined>;
@@ -1156,13 +1156,13 @@ export interface Tx {
   /** Replaces every budget with `rows`. */
   putModelBudgets(rows: readonly ModelBudgetRow[]): Promise<void>;
 
-  // --- tool crossings (F4.1) ------------------------------------------------
+  // --- tool crossings ------------------------------------------------
 
   toolCrossing(key: string): Promise<ToolCrossingRow | undefined>;
   /** Inserts the running call's row; false when a row with `key` already exists. */
   startToolCrossing(row: Pick<ToolCrossingRow, "key" | "hash" | "startedAt">): Promise<boolean>;
   /**
-   * Starts a lost call's row again (R5.3): `startedAt` moves on, on a row with no answer and
+   * Starts a lost call's row again: `startedAt` moves on, on a row with no answer and
    * `hash`. False when the row is gone, settled, or another request's.
    */
   restartToolCrossing(row: Pick<ToolCrossingRow, "key" | "hash" | "startedAt">): Promise<boolean>;
@@ -1171,11 +1171,11 @@ export interface Tx {
   /** Deletes rows that settled before `before`; returns how many. */
   pruneToolCrossings(before: string): Promise<number>;
 
-  // --- file artifacts (blueprint D35, F8.1) ----------------------------------
+  // --- file artifacts ----------------------------------
 
   /** The artifact `id`; with `lock`, its row is locked until the transaction ends. */
   artifact(id: string, options?: { lock?: boolean }): Promise<ArtifactRow | undefined>;
-  /** The folder artifact that holds Environment `environmentId`'s disk versions (R2d step 3). */
+  /** The folder artifact that holds Environment `environmentId`'s disk versions. */
   diskArtifact(environmentId: string, options?: { lock?: boolean }): Promise<ArtifactRow | undefined>;
   /** Artifacts by creation time, then id: those of one session when `sessionId` is given. */
   listArtifacts(filter?: { sessionId?: string }): Promise<ArtifactRow[]>;
@@ -1205,7 +1205,7 @@ export interface Tx {
   lockArtifactQuota(): Promise<void>;
   /**
    * The bytes the artifacts store: every file version, plus each distinct content-addressed file
-   * of the folders once (F8.2). With `environmentId`, only that Environment's artifacts: its disk
+   * of the folders once. With `environmentId`, only that Environment's artifacts: its disk
    * versions and its sessions' artifacts.
    */
   artifactBytes(scope?: { environmentId: string }): Promise<number>;
@@ -1214,7 +1214,7 @@ export interface Tx {
    * only, or of all of them.
    */
   artifactBlobKeys(scope: "sessions" | "all"): Promise<string[]>;
-  /** Records the distinct content-addressed files a folder version references (F8.2). */
+  /** Records the distinct content-addressed files a folder version references. */
   insertArtifactContent(
     artifactId: string,
     version: number,
@@ -1231,7 +1231,7 @@ export interface Tx {
    */
   artifactContentShas(scope: "sessions" | "all" | { artifactId: string }): Promise<string[]>;
 
-  // --- definition files (track R2 M4) ---------------------------------------
+  // --- definition files ---------------------------------------
 
   /** The definition file `sha256` (`sha256:<hex>`) names, once its bytes are stored. */
   definitionFile(sha256: string): Promise<DefinitionFileRow | undefined>;

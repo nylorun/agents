@@ -1,5 +1,5 @@
 /**
- * Agent folders (track T6, D79): `compileAgentFolder` turns a folder of Markdown and JSON into
+ * Agent folders: `compileAgentFolder` turns a folder of Markdown and JSON into
  * the agent manifest v8 the Runtime runs. It is pure: it reads no file system, clock, network
  * or environment, only the folder's entries and the bytes of the files it compiles, so the
  * Runtime (on every upload) and the CLI (`nylorun check`, offline) give one verdict. Every
@@ -87,7 +87,7 @@ import type { HarnessEngine } from "../types/manifest.js";
 /** The compiler format this version builds by default: a folder with no `format`, or `format: 1`. */
 export const AGENT_FOLDER_COMPILER = "agent-folder/1";
 /**
- * The formats this compiler builds: `agent-folder/1`, and `agent-folder/2` (ADR-100), whose
+ * The formats this compiler builds: `agent-folder/1`, and `agent-folder/2`, whose
  * folder declares every engine feature it uses (`folder/engine.ts`).
  */
 export const AGENT_FOLDER_FORMATS = ["agent-folder/1", "agent-folder/2", "agent-folder/3", "agent-folder/4"] as const;
@@ -194,7 +194,7 @@ export const PLUGIN_SERVER_SETTING_KEYS = [...SERVER_SETTING_KEYS, "credential"]
 export const TOOL_KEYS = ["description", "inputSchema", "outputSchema", "http"] as const;
 /**
  * The loop settings our harness reads from `loop`: `plan` (`true` offers the agent `update_plan`),
- * `connections` (`true` offers it `request_connection`), `ask`, and `compaction` (ADR-157: when
+ * `connections` (`true` offers it `request_connection`), `ask`, and `compaction` (when
  * the agent's sessions compact, `threshold` and `keepTokens`, and `roles.<role>` over them). A
  * custom harness reads its own.
  */
@@ -279,7 +279,7 @@ function classify(path: string): { kind: Kind } | { error: string; code: string 
     if (base.endsWith(".schema.json")) return { kind: "schema" };
     return { kind: "other" };
   }
-  // agent-folder/4 (ADR-164): a subagent is a file, with its flow file and schemas beside it.
+  // agent-folder/4: a subagent is a file, with its flow file and schemas beside it.
   if (top === "agents" && segments.length === 2) {
     if (base.endsWith(".flow.json")) return { kind: "subagent_flow" };
     if (base.endsWith(".schema.json")) return { kind: "schema" };
@@ -383,7 +383,7 @@ interface Origin {
  * compiler sets it when it compiles a folder inside another (`agents/<id>/`, a plugin's parts).
  */
 export function compileAgentFolder(input: CompileAgentFolderInput, scope?: FolderScope): CompiledAgentFolder {
-  // agent-folder/4 (ADR-164): its subagent files, expanded into the layout format 3 compiles.
+  // agent-folder/4: its subagent files, expanded into the layout format 3 compiles.
   if (!scope && folderIsV4(input)) return compileFormat4(input, (expanded) => compileFolder(expanded, undefined));
   return compileFolder(input, scope);
 }
@@ -393,7 +393,7 @@ function compileFolder(input: CompileAgentFolderInput, scope?: FolderScope): Com
   const diagnostics: AgentFolderDiagnostic[] = [];
   /** The folder's format: the uploaded folder's `format`, which a folder inside it shares. */
   let format: 1 | 2 = scope?.engineFacts?.format ?? 1;
-  /** The folder is `agent-folder/3` (ADR-106): its plugins stand for v2 declarations (folder/v3.ts). */
+  /** The folder is `agent-folder/3`: its plugins stand for v2 declarations (folder/v3.ts). */
   let v3 = scope?.engineFacts?.v3 === true;
   let v3Plugins: V3Plugins | undefined;
   const parsed = new Map<string, ParsedFile>();
@@ -669,7 +669,7 @@ function compileFolder(input: CompileAgentFolderInput, scope?: FolderScope): Com
   const instructions: string[] = [];
   let metadata: Record<string, unknown> | undefined;
   const origins: [readonly PropertyKey[], Origin][] = [];
-  /** agent-folder/4 (ADR-164): the uploaded folder is format 4, or this is one of its subagent files. */
+  /** agent-folder/4: the uploaded folder is format 4, or this is one of its subagent files. */
   const v4File = scope !== undefined && scope.role !== "plugin" && scope.engineFacts?.v4 !== undefined;
   let v4Root = false;
   /** What a format 4 subagent file, or root, keeps of what it inherits (folder/subagent-files.ts). */
@@ -738,7 +738,7 @@ function compileFolder(input: CompileAgentFolderInput, scope?: FolderScope): Com
         ["format"],
       );
     else if (!scope) format = folderFormatOf(front.format)!;
-    // agent-folder/3 (ADR-106): the plugins stand for agent-folder/2's declarations.
+    // agent-folder/3: the plugins stand for agent-folder/2's declarations.
     if (v3 && scope?.role !== "plugin") {
       const role = scope?.role === "subagent" ? "subagent" : "root";
       v3Plugins = v3Declarations(front, {
@@ -807,7 +807,7 @@ function compileFolder(input: CompileAgentFolderInput, scope?: FolderScope): Com
           ["model"],
         );
     }
-    // The model of each role a session may be opened with (Host feature `model-roles`, ADR-154).
+    // The model of each role a session may be opened with (Host feature `model-roles`).
     if (front.roles !== undefined) {
       if (!isObject(front.roles))
         error("value_invalid", "roles is a map from a role's name to its model, such as builder: anthropic/claude-sonnet-4-5", AGENT_FILE, ["roles"]);
@@ -859,7 +859,7 @@ function compileFolder(input: CompileAgentFolderInput, scope?: FolderScope): Com
       { at: { line: agent.bodyLine, column: 1 } },
     );
 
-  // A subagent file outside agent-folder/4 (ADR-164).
+  // A subagent file outside agent-folder/4.
   if (!v4Root && !v4File)
     for (const [path, kind] of kinds)
       if (kind === "subagent_file" || kind === "subagent_flow") {
@@ -891,7 +891,7 @@ function compileFolder(input: CompileAgentFolderInput, scope?: FolderScope): Com
           if (isObject(trigger)) checkSchedule(RUNTIME_FILE, ["triggers", id], trigger);
     }
   }
-  // --- engine: (agent-folder/2, ADR-100; folder/engine.ts) -------------------------------
+  // --- engine: (agent-folder/2; folder/engine.ts) -------------------------------
   /** Whether the session's Agent has a computer: the uploaded folder's runtime kind. */
   const runtimeKind = isObject(runtime) && typeof runtime.kind === "string" ? runtime.kind : "none";
   const computer = scope?.engineFacts ? scope.engineFacts.computer : runtimeKind === "virtual" || runtimeKind === "pod";
@@ -1317,7 +1317,7 @@ function compileFolder(input: CompileAgentFolderInput, scope?: FolderScope): Com
     tools.push(tool);
   }
   if (tools.length > 0) harness.tools = tools;
-  // agent-folder/4 (ADR-164): what a subagent file, or the root, keeps of the library.
+  // agent-folder/4: what a subagent file, or the root, keeps of the library.
   if (narrowing)
     narrowParts(harness, narrowing, {
       role: v4File ? "subagent" : "root",
@@ -1765,7 +1765,7 @@ function trimBlankLines(text: string): string {
 }
 
 /**
- * Checks `loop.compaction` (ADR-157): a map of `threshold` and `keepTokens`, positive whole numbers
+ * Checks `loop.compaction`: a map of `threshold` and `keepTokens`, positive whole numbers
  * of tokens, and `roles`, a map from a role's name to the same two. The harness also ignores a
  * value it cannot use, so a folder that passes here never changes how its sessions compact by
  * accident.

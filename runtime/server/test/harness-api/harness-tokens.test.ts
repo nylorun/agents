@@ -1,5 +1,5 @@
 /**
- * Per-harness tokens (R4.1): `nylorun-operate harness token put <id>` makes a custom harness's
+ * Per-harness tokens: `nylorun-operate harness token put <id>` makes a custom harness's
  * own credential for the Harness API listener, bound to its id. A connection with it may say only
  * that id in `hello`, so one harness cannot take another's sessions; the harness token stays
  * ours, bound to `nylorun`.

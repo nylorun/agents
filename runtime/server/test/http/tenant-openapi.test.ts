@@ -24,7 +24,7 @@ it("documents opt-in artifact pages and legacy metadata with the same artifact a
       .map((p: { name: string }) => [p.name, p]),
   );
   expect(Object.keys(parameters).sort()).toEqual(["cursor", "kind", "label", "limit", "sessionId"]);
-  // At most the Tenant's Runtime limit pageItems, checked by the route (B15).
+  // At most the Tenant's Runtime limit pageItems, checked by the route.
   expect(parameters.limit).toMatchObject({ required: false, schema: { minimum: 1 } });
   expect(parameters.limit.schema.maximum).toBeUndefined();
   expect(op.security).toEqual([{ applicationKey: [] }, { issuerToken: [] }]);
@@ -97,7 +97,7 @@ it("documents session commands for every caller that sends them, with their head
       .filter((parameter: { in: string }) => parameter.in === "header")
       .map((parameter: { name: string; required?: boolean }) => [parameter.name, parameter.required ?? false]),
   );
-  // Protocol 5: no request names the Tenant. W3C trace context joins the caller's trace (R7.4).
+  // Protocol 5: no request names the Tenant. W3C trace context joins the caller's trace.
   expect(headers).toEqual({
     "Nylorun-Protocol": true,
     "Nylorun-Subject": false,

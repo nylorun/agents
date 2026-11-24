@@ -50,7 +50,7 @@ function keysBlock(pems: string[]): string {
 }
 
 describe("parseIdentityFile", () => {
-  it("reads the issuers of the plan's example", () => {
+  it("reads the issuers of an example file", () => {
     const [issuer] = parseIdentityFile(
       file({ agents: '[support, "{org_id}/*"]' }),
       "identity.yaml",
@@ -71,7 +71,7 @@ describe("parseIdentityFile", () => {
     const [issuer] = parseIdentityFile(
       file({
         jwksFetch: "{ timeoutMs: 1000, maxKeys: 2 }",
-        // The file's author writes every grant: no count of them is a limit (B15).
+        // The file's author writes every grant: no count of them is a limit.
         agents: `[${Array.from({ length: 40 }, (_, i) => `"s${i}"`).join(", ")}]`,
       }),
     );

@@ -1,6 +1,6 @@
 /**
- * Track T5's exit test in process (`scripts/t5-exit.mjs` runs it on a Compose Tenant): the hourly
- * Agent from T4 writes a memory in one fire and reads it in the next, with an upgrade in between,
+ * The memory end-to-end test in process (`scripts/t5-exit.mjs` runs it on a Compose Tenant): an hourly
+ * Agent writes a memory in one fire and reads it in the next, with an upgrade in between,
  * and the memory's version names its session and trigger run.
  */
 import { afterAll, beforeAll, expect, it } from "vitest";

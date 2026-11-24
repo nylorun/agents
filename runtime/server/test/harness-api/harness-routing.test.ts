@@ -1,5 +1,5 @@
 /**
- * Harness ids and routing (R4.1): a session pins its harness when it opens (its Agent's
+ * Harness ids and routing: a session pins its harness when it opens (its Agent's
  * manifest's `harness.id`, else ours), and only a connection that said that id in `hello` takes
  * its runs. A custom harness runs from its pod's image (protocol 16): its Agent is a pod Agent,
  * and the pod's host takes its sessions' runs. A custom harness and ours share an installation

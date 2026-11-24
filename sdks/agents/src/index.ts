@@ -215,7 +215,7 @@ export {
 export { composeManifest, manifestFolders, ComposeError, AGENT_MANIFEST_FILE } from "./compose.js";
 export { AGENT_FOLDER_FILE, FolderError, FolderInvalidError, diagnosticLine } from "./folder.js";
 export { checkFolder, folderOfManifest, type FolderOfManifest, type FolderOfManifestOptions } from "./folder-check.js";
-// What the model of a turn reads and may call (ADR-100), offline: our engine's own code.
+// What the model of a turn reads and may call, offline: our engine's own code.
 export {
   ENGINE_BLOCK_NAMES,
   previewTurn,

@@ -14,9 +14,9 @@ function walKeepSize(): string {
 }
 
 /**
- * A local Tenant's Compose file (Runtime Architecture §14.3), written to
+ * A local Tenant's Compose file, written to
  * `<Host root>/docker/compose.yaml` by `nylorun start`. Each local Tenant is one installation
- * (tenancy.md §6): its own Compose project (`nylorun-<name>`, the file's `name`), volumes,
+ *: its own Compose project (`nylorun-<name>`, the file's `name`), volumes,
  * network and ports. Container, network and volume names are global on the Docker engine, so
  * every one is `<project>-<role>` (`nylorun-shop-studio`, network `nylorun-shop`, volume
  * `nylorun-shop-postgres`), labelled `dev.nylorun.tenant: <name>`; they are written here, from
@@ -34,13 +34,13 @@ function walKeepSize(): string {
  * `docker/restate-identity.pem`, mounted read-only; the Runtime gets the public
  * key as NYLORUN_RESTATE_IDENTITY_KEY.
  *
- * The combined packing (blueprint D12): the `runtime` container runs the core
+ * The combined packing: the `runtime` container runs the core
  * and loop services, and the `gateway` container runs gates: the Model Gate,
- * which alone reads model credentials, and the Tool Gate (F4.1), which alone
+ * which alone reads model credentials, and the Tool Gate, which alone
  * holds remote MCP connections and their credentials and makes every HTTP tool
  * request. Every model call, remote MCP call and HTTP tool call of the loop crosses it
  * (NYLORUN_GATES_URL, with NYLORUN_GATES_TOKEN from `.env`, or a run's token from the
- * harness). The gateway also runs keys (F4.2): the only
+ * harness). The gateway also runs keys: the only
  * holder of the vault key, it runs every vault write that touches a secret and signs
  * every token (NYLORUN_KEYS_URL). The gateway mounts only the Host's Tenant directory
  * (`tenant/`) and its keys directory (`keys/`, the vault key), read-only: never
@@ -50,13 +50,13 @@ function walKeepSize(): string {
  * it is down, model, MCP and HTTP tool calls fail, vault writes and
  * token minting answer 503, and the session takes the next message.
  *
- * The Object store (blueprint D35) is RustFS, single node and single drive, pinned by digest,
+ * The Object store is RustFS, single node and single drive, pinned by digest,
  * on the `rustfs` volume; it is not published. Its credential is the access key `nylorun` and
  * the secret key NYLORUN_OBJECT_STORE_SECRET_KEY from `.env`, and only the runtime and the
  * gateway receive it (NYLORUN_OBJECT_STORE_*). The runtime creates the bucket at boot and
  * reaches the store through its `s3` BlobStore.
  *
- * With `sandboxes` (after `nylorun local sandbox enable`, F7.2) the `sandboxes` service runs the
+ * With `sandboxes` (after `nylorun local sandbox enable`) the `sandboxes` service runs the
  * agent-sandbox driver: the only container holding the cluster credentials
  * (`<Host root>/sandboxes`, read-only), not published, reached by the runtime alone with
  * NYLORUN_SANDBOXES_TOKEN. The runtime gets an empty read-only mount over that directory.
@@ -68,7 +68,7 @@ function walKeepSize(): string {
  * CONNECT with the egress token, to the hosts the sandbox spec allows). The two HTTP listeners
  * accept that address as a Host.
  *
- * The harness (F6.2, `harness: "remote"`, the default) runs every agent turn and workspace in
+ * The harness (`harness: "remote"`, the default) runs every agent turn and workspace in
  * its own container: the runtime image with `--service harness`, connected to core's Harness
  * API (`ws://runtime:4200/nylorun/harness/v1`) with NYLORUN_HARNESS_TOKEN, its only
  * credential, and calling models and remote MCP servers through the gateway with each run's
@@ -92,9 +92,9 @@ export function renderComposeFile(
   name: string,
   options: {
     sandboxes?: true;
-    /** The sandboxes container serves the edge (backend substrate, ADR-138). */
+    /** The sandboxes container serves the edge (backend substrate). */
     sandboxEdge?: true;
-    /** The edge also serves the keys provider's port (ADR-142). */
+    /** The edge also serves the keys provider's port. */
     sandboxKeys?: true;
     harness?: "remote" | "in-process";
     restateUi?: true;
@@ -191,7 +191,7 @@ ${healthcheck("rustfs")}    restart: unless-stopped
       NYLORUN_GATES_ALLOWED_HOSTS: gateway:4100${sandboxes ? SANDBOXES_GATES_HOST : ""}
       NYLORUN_GATES_TOKEN: \${NYLORUN_GATES_TOKEN:?run nylorun start}
       NYLORUN_DATABASE_URL: postgres://nylorun:\${NYLORUN_POSTGRES_PASSWORD}@postgres:5432/nylorun
-      # The Object store, where model-gate will read file parts (F8.1).
+      # The Object store, where model-gate will read file parts.
       NYLORUN_OBJECT_STORE_ENDPOINT: http://rustfs:9000
       NYLORUN_OBJECT_STORE_ACCESS_KEY: nylorun
       NYLORUN_OBJECT_STORE_SECRET_KEY: \${NYLORUN_OBJECT_STORE_SECRET_KEY:?run nylorun start}
@@ -200,7 +200,7 @@ ${healthcheck("rustfs")}    restart: unless-stopped
       # Host tuning (timings, retries, internal sizes; JSON): from the shell that runs \`nylorun start\`.
       NYLORUN_TUNING: \${NYLORUN_TUNING:-}
       # Providers whose models may call with this machine's own identity, such as google-vertex
-      # with Google's Application Default Credentials (ADR-71): from the shell that runs
+      # with Google's Application Default Credentials: from the shell that runs
       # \`nylorun start\`. Empty: none. Every Tenant on this Host may use it.
       NYLORUN_MODEL_HOST_IDENTITY: \${NYLORUN_MODEL_HOST_IDENTITY:-}
       # An outside credential provider egress-gate hands an Agent owner's connected hosts to, and
@@ -331,7 +331,7 @@ ${healthcheck("runtime")}    restart: unless-stopped
       # Extra Host values Studio serves behind a sign-in proxy (studio.acme.dev),
       # comma-separated; from the environment of nylorun start.
       NYLORUN_STUDIO_ALLOWED_HOSTS: \${NYLORUN_STUDIO_ALLOWED_HOSTS:-}
-      # Tenant › Traffic reads the runtime's and the gateway's own metrics, live (ADR-159).
+      # Tenant › Traffic reads the runtime's and the gateway's own metrics, live.
       NYLORUN_STUDIO_METRICS_URLS: runtime=http://runtime:9464/metrics,gateway=http://gateway:9464/metrics
     volumes:
       - \${NYLORUN_HOST_ROOT}/host-credentials.json:/run/nylorun/host-credentials.json:ro
@@ -364,7 +364,7 @@ volumes:
 }
 
 /**
- * Telemetry (ADR-159), for the runtime and the gateway: from the shell that runs
+ * Telemetry, for the runtime and the gateway: from the shell that runs
  * \`nylorun start\`. Unset, each container serves its metrics on \`/metrics\` (port 9464, on the
  * Compose network only) and exports nothing; with an OTLP endpoint, metrics and spans go there too.
  */
@@ -392,7 +392,7 @@ const RESTATE_UI = `    networks: [store, default]
 `;
 
 /**
- * The harness service (F6.2): agent turns and workspaces, apart from core.
+ * The harness service: agent turns and workspaces, apart from core.
  * It holds the harness token only; models and remote MCP servers are reached through the
  * gateway with each run's token. Healthy once connected to core's Harness API.
  */
@@ -425,7 +425,7 @@ ${healthcheck("harness")}    restart: unless-stopped
 
 /**
  * The runtime reaches the sandboxes service on the Compose network with its token, and serves
- * the Harness API to sandbox pods (F7.2) on the Docker host's address.
+ * the Harness API to sandbox pods on the Docker host's address.
  */
 /** The identity file (`<Host root>/identity.yaml`): the trusted issuers, read at boot. */
 const IDENTITY_RUNTIME_ENV = `
@@ -457,7 +457,7 @@ const SANDBOXES_GATES_PORT = `    ports:
 `;
 
 /**
- * The edge (backend substrate, ADR-138): Substrate actors reach the Harness API and the gates
+ * The edge (backend substrate): Substrate actors reach the Harness API and the gates
  * over TLS that Substrate passes through; the sandboxes container terminates it and forwards to
  * runtime:4200 and gateway:4100 on \`default\`.
  */
@@ -467,17 +467,17 @@ const SANDBOXES_EDGE_PORTS = `
       - "\${NYLORUN_SANDBOX_BIND:?run nylorun local sandbox enable}:\${NYLORUN_SANDBOX_EDGE_GATES_PORT:?run nylorun local sandbox enable}:8444" # the edge: the gates, for actors`;
 
 /**
- * The edge's keys port (ADR-142): Substrate's keys provider reaches egress-gate's decide route on
+ * The edge's keys port: Substrate's keys provider reaches egress-gate's decide route on
  * gateway:4200 through it. No actor's egress policy allows it.
  */
 const SANDBOXES_EDGE_KEYS_PORT = `
       - "\${NYLORUN_SANDBOX_BIND:?run nylorun local sandbox enable}:\${NYLORUN_SANDBOX_EDGE_KEYS_PORT:?run nylorun local sandbox enable}:8445" # the edge: egress-gate's decide route, for the keys provider`;
 
-/** egress-gate (F7.2): pods' CONNECT proxy in the gateway. */
+/** egress-gate: pods' CONNECT proxy in the gateway. */
 const SANDBOXES_GATEWAY_ENV = `
       # egress-gate: the only way out of a sandbox pod, to the hosts its spec allows.
       NYLORUN_EGRESS_LISTEN_PORT: "4200"
-      # On Agent Substrate, the keys provider's token for egress-gate's decide route (ADR-142).
+      # On Agent Substrate, the keys provider's token for egress-gate's decide route.
       # Empty: the route is off.
       NYLORUN_EGRESS_KEYS_TOKEN: \${NYLORUN_EGRESS_KEYS_TOKEN:-}`;
 

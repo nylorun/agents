@@ -1,5 +1,5 @@
 /**
- * `previewTurn` (ADR-100, research E1): what the model of a session's turn reads and may call,
+ * `previewTurn`: what the model of a session's turn reads and may call,
  * from an agent's manifest alone, offline. It is built from the code our harness runs
  * (`engineProjection`, `mcpToolSet`), so the system text and the tool list it returns are the
  * ones a session's first model call carries, for the same facts: whether the session has a
@@ -66,7 +66,7 @@ export interface PreviewTurnOptions {
   /** The version sets `runtime.selfWake`. Default: an agent manifest v8's. */
   readonly selfWake?: boolean;
   /**
-   * The version declares `harness.engine.triggers` (D83): the root agent gets the `triggers` tool
+   * The version declares `harness.engine.triggers`: the root agent gets the `triggers` tool
    * and its text. Default: an agent manifest v8's.
    */
   readonly triggers?: boolean;
@@ -102,7 +102,7 @@ export interface AgentTurnPreview {
 export interface TurnPreview extends AgentTurnPreview {
   /** What our engine pins at the head of the conversation: the memory index block. */
   readonly pinned: readonly string[];
-  /** What our engine says instead of choosing (ADR-100), such as MCP tools past the deferral threshold. */
+  /** What our engine says instead of choosing, such as MCP tools past the deferral threshold. */
   readonly diagnostics: readonly McpToolDiagnostic[];
   /** Each subagent (`agents/<id>/`, an agent used as a tool), by id. */
   readonly agents: Readonly<Record<string, AgentTurnPreview>>;

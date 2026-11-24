@@ -1,6 +1,6 @@
 /**
  * Sharing an Agent (protocol 16; an Environment from protocol 11): sessions on one Agent share its
- * sandbox's workspace, keyed by the Agent's id, and run their turns at the same time (D66), a flow
+ * sandbox's workspace, keyed by the Agent's id, and run their turns at the same time, a flow
  * tree's sessions and other sessions alike.
  * `{ session }` sharing is gone: the Agent is what sessions share.
  */
@@ -117,7 +117,7 @@ it("shares the workspace of one Agent between sessions, and runs their turns at 
     "from a"
   );
 
-  // Both turns run at once (D66).
+  // Both turns run at once.
   expect((await message("solo-a")).status).toBe(200);
   await until(async () => ((await view("solo-a")).activeTurnId ? true : undefined));
   expect((await message("solo-b")).status).toBe(200);

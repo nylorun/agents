@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// The harness red-team smoke (F6.2 W8) on a real `nylorun start` Tenant:
+// The harness red-team smoke on a real `nylorun start` Tenant:
 //
 //   node scripts/smoke-redteam.mjs      # npm run test:redteam
 //

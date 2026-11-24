@@ -1,5 +1,5 @@
 /**
- * `schedule_wake` (track T4, D77): an agent whose manifest sets `runtime.selfWake` books its own
+ * `schedule_wake`: an agent whose manifest sets `runtime.selfWake` books its own
  * session's next turn. The Runtime serves the call (a `runtime` effect) in its own transaction:
  * one booking per session, a new one replacing it, bounded by the Tenant's limits; the booked turn
  * starts with the note as its message, as the session's own (`cause.kind: "self"`).

@@ -1,5 +1,5 @@
 /**
- * A remote MCP server's tools before an agent names it (`POST /v1/tenant/mcp/preview`, R2b C12,
+ * A remote MCP server's tools before an agent names it (`POST /v1/tenant/mcp/preview`,
  * the Management API): a management key (or Studio's key, acting as itself), as the vault routes
  * take. The keys service runs it (`Keys.previewMcp`), since it sends an Environment's
  * credential; this process never reads the plaintext.

@@ -1,7 +1,7 @@
 /**
  * Where a session's MCP or HTTP tool credential comes from: the vault of the Environment the
- * session names (D56), and nothing else. OSS holds no OAuth client and asks no credential
- * resolver (protocol 10, D49): a person's own keys live in the Environment the app maps to them.
+ * session names, and nothing else. OSS holds no OAuth client and asks no credential
+ * resolver (protocol 10): a person's own keys live in the Environment the app maps to them.
  *
  * Both authorize sites call this: the gateway (`gates/tenant-vaults.ts`, remote MCP servers and
  * HTTP tools in the gates service) and the Tenant (`tenant/effects.ts`, the in-process MCP pool
@@ -27,10 +27,10 @@ export interface McpCredentialRequest {
 
 /**
  * The credential of one request made for `session`: the answer of its Environment's vault
- * (`VaultService.authorize`). A credential with an identity header (R2b C2)
- * gets the session owner's subject in it (Q2), from the session row: the run token names no
+ * (`VaultService.authorize`). A credential with an identity header
+ * gets the session owner's subject in it, from the session row: the run token names no
  * owner, so neither the model nor the manifest can change it. A session whose owner is no
- * person (the reserved `installation`) sends none (Q3).
+ * person (the reserved `installation`) sends none.
  */
 export async function sessionCredentials(
   vault: Pick<VaultService, "authorize">,

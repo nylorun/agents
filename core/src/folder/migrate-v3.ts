@@ -1,5 +1,5 @@
 /**
- * `agent-folder/2` → `agent-folder/3` (ADR-106): the plugins that keep what an agent gets, written
+ * `agent-folder/2` → `agent-folder/3`: the plugins that keep what an agent gets, written
  * in place of the declarations they stand for. `nylorun migrate folder <dir> --to 3` runs it on a
  * folder's `AGENT.md` and each subagent's, and on `runtime.json`, then checks that every agent
  * keeps the same tools and features.
@@ -76,7 +76,7 @@ export function folderV3Edit(input: { readonly agentMd: string; readonly runtime
 
   // The frontmatter, edited in place: comments and the other keys stay as they are.
   doc.delete("memory");
-  // loop keeps the harness's own settings (compaction, ADR-157); its plan, connections and ask are plugins now.
+  // loop keeps the harness's own settings (compaction); its plan, connections and ask are plugins now.
   const loopNode = doc.get("loop", true);
   if (isMap(loopNode)) {
     for (const key of ["plan", "connections", "ask"]) loopNode.delete(key);

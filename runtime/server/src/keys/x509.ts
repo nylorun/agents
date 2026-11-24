@@ -1,5 +1,5 @@
 /**
- * The two certificates R2c needs (D50), built without a dependency: the installation's egress
+ * The two certificates egress-gate's TLS termination needs, built without a dependency: the installation's egress
  * CA, and a short-lived leaf for one host name that egress-gate presents when it terminates TLS
  * for a host an `environment_secret` is bound to. Node can parse X.509 but not build it, so this
  * writes the DER by hand. Both use ECDSA P-256 with SHA-256.

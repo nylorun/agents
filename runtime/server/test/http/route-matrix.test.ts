@@ -98,7 +98,7 @@ function callerHeaders(caller: Caller): Record<string, string> {
         "nylorun-scopes": "agents:read",
       };
     case "token":
-      // A trusted issuer's token (F9 I2).
+      // A trusted issuer's token.
       return bearer(issuerToken);
     case "token-browser":
       // The same token from a browser page: no toggle, no browser key (protocol 7).
@@ -198,7 +198,7 @@ function tenantOperations(): Operation[] {
     { method: "GET", path: "/v1/agent-manifests/bot/versions/1" },
     { method: "GET", path: "/v1/agent-manifests/missing" },
     { method: "DELETE", path: "/v1/agent-manifests/missing" },
-    // Definition files (R2 M4): the body does not hash to the name, so nothing is stored.
+    // Definition files: the body does not hash to the name, so nothing is stored.
     { method: "PUT", path: `/v1/files/${MISSING_FILE}`, body: INVALID },
     { method: "HEAD", path: `/v1/files/${MISSING_FILE}` },
     { method: "GET", path: "/v1/sessions" },
@@ -245,7 +245,7 @@ function tenantOperations(): Operation[] {
     { method: "GET", path: "/v1/artifacts?sessionId=s1" },
     { method: "GET", path: `/v1/artifacts/${MISSING_ARTIFACT}` },
     { method: "GET", path: `/v1/artifacts/${MISSING_ARTIFACT}/versions/latest/content` },
-    // Folder artifacts (F8.2).
+    // Folder artifacts.
     { method: "GET", path: `/v1/artifacts/${MISSING_ARTIFACT}/versions/latest/tree` },
     { method: "GET", path: `/v1/artifacts/${MISSING_ARTIFACT}/versions/1/files/app%2Findex.html` },
     { method: "GET", path: `/v1/artifacts/${MISSING_ARTIFACT}/versions/2/diff?from=1` },
@@ -274,7 +274,7 @@ function tenantOperations(): Operation[] {
     { method: "GET", path: "/v1/tenant/model" },
     { method: "PUT", path: "/v1/tenant/model", body: INVALID },
     { method: "PUT", path: "/v1/tenant/model/selection", body: INVALID },
-    // A tool preview (R2b C12): the body fails validation, so no server is called.
+    // A tool preview: the body fails validation, so no server is called.
     { method: "POST", path: "/v1/tenant/mcp/preview", body: INVALID },
     // Credential coverage: the body fails validation, so no Agent or vault is read.
     { method: "POST", path: "/v1/tenant/credential-coverage", body: INVALID },
@@ -306,7 +306,7 @@ function edgeOperations(): Operation[] {
     { method: "GET", path: "/v1/executors/connect" },
     { method: "GET", path: "/v1/actions" },
     { method: "POST", path: "/v1/actions/act-missing/claim", body: INVALID },
-    // Action endpoints and their delivery callbacks (track R2, protocol 8): gone.
+    // Action endpoints and their delivery callbacks (protocol 8): gone.
     { method: "GET", path: "/v1/endpoints" },
     { method: "PUT", path: "/v1/endpoints", body: INVALID },
     { method: "DELETE", path: "/v1/endpoints/ghost" },

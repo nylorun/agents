@@ -1,11 +1,11 @@
 /**
- * A turn's trace ids (R7.2, Q3): derived from the ids the log already holds, so every reader of
+ * A turn's trace ids: derived from the ids the log already holds, so every reader of
  * the log (the projector, a replay of its slot, the trace route) gives the same ids, and keyed
  * with the Tenant's trace key, so nobody computes them from a session id. Each is HMAC-SHA256
  * under the key, cut to 16 bytes (a trace id) or 8 (a span id), as lowercase hex.
  *
  * - **trace**: `trace|<tenant>|<session>|<turn>`, unless the turn arrived with a `traceparent`
- *   (R7.4): then that trace id.
+ *: then that trace id.
  * - **turn span**: `span|turn|<turn>`; every crossing's span is its child.
  * - **effect span**: `span|effect|<effect id>`, for a model or tool call or a flow stage.
  * - **event span**: `span|event|<session>|<seq>`, for a marker or a row without an effect id.
@@ -37,7 +37,7 @@ export function eventSpanOf(key: TraceKey, sessionId: string, seq: number): stri
   return hmacHex(key, `span|event|${sessionId}|${seq}`, 8);
 }
 
-/** W3C trace context (R7.4): `traceparent`, and `tracestate` when the caller sent one. */
+/** W3C trace context: `traceparent`, and `tracestate` when the caller sent one. */
 export interface TraceContext {
   readonly traceparent: string;
   readonly tracestate?: string;
@@ -62,12 +62,12 @@ export function parseTraceparent(value: string): { traceId: string; spanId: stri
 /**
  * The most `tracestate` the Runtime keeps: W3C Trace Context (Level 1, section 3.3.1.1) has
  * vendors propagate at least 512 characters of it, and lets one cut what is past that. A
- * standard's constant, not a limit (B15).
+ * standard's constant, not a limit.
  */
 const TRACESTATE_MAX = 512;
 
 /**
- * The trace context a request's headers carry (R7.4), or undefined without a valid
+ * The trace context a request's headers carry, or undefined without a valid
  * `traceparent`. A `tracestate` too long or with control characters is dropped, never the
  * `traceparent`. Kept normalized: `00-<trace>-<span>-<flags>`.
  */
@@ -93,7 +93,7 @@ export function traceparentOf(traceId: string, spanId: string): string {
 }
 
 /**
- * The trace id of turn `turnId`: the one its message arrived with (`inbound`, R7.4), else
+ * The trace id of turn `turnId`: the one its message arrived with (`inbound`), else
  * derived. The same as `turnTraceOf` reads from the turn's `command.message`.
  */
 export function turnTraceIdOf(

@@ -1,5 +1,5 @@
 /**
- * The Tenant's tool policy for a test Tenant (R5 step 2): the rules the Runtime applies to every
+ * The Tenant's tool policy for a test Tenant: the rules the Runtime applies to every
  * MCP and HTTP tool call, set on the Management API as an operator would.
  */
 import type { ToolRule } from "@nylorun/core/contracts";

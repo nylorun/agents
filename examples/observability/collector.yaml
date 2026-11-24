@@ -1,4 +1,4 @@
-# An OpenTelemetry Collector between the Runtime and your backend (ADR-159), for production: the
+# An OpenTelemetry Collector between the Runtime and your backend, for production: the
 # Runtime sends traces and metrics here over OTLP/HTTP, and the Collector keeps every trace with an
 # error or a slow turn, a quarter of the rest, and every metric, then sends them on.
 # Run it with otel/opentelemetry-collector-contrib (tail sampling is a contrib processor), e.g.

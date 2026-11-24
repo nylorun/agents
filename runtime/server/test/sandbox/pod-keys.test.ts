@@ -1,5 +1,5 @@
 /**
- * The keyed hosts core sends with a pod's spec (ADR-142, `sandbox/pods/keys.ts`): the vault's
+ * The keyed hosts core sends with a pod's spec (`sandbox/pods/keys.ts`): the vault's
  * secrets and slots (no value read) win, then the hosts the outside source lists for the owner,
  * inside the Tenant's ceiling; an embedder's provider without `keyedHosts` puts keys in
  * Authorization.

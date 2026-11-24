@@ -1,5 +1,5 @@
 /**
- * Per-harness tokens (R4.1): the credential a custom harness's container connects to the Harness
+ * Per-harness tokens: the credential a custom harness's container connects to the Harness
  * API listener with. Each is bound to one harness id, so a harness can only say that id in
  * `hello` and only take the sessions pinned to it. Our harness keeps the installation's
  * `NYLORUN_HARNESS_TOKEN`, bound to `nylorun`; a pod's harness holds neither (it joins).

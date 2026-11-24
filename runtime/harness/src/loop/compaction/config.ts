@@ -1,5 +1,5 @@
 /**
- * Our engine's configuration of compaction (Model Calls §8): how much history it keeps verbatim,
+ * Our engine's configuration of compaction: how much history it keeps verbatim,
  * the room it holds back for the reply, and the estimate it makes of what a prompt takes. A
  * harness sets any part of it (`createHarness({ compaction })`); each left out is its default.
  */
@@ -7,7 +7,7 @@
 export interface CompactionConfig {
   /**
    * Compact before a model call whose estimate passes this many tokens, when that is lower than the
-   * model's window minus the reply reserve (ADR-157). Absent: only the window's line.
+   * model's window minus the reply reserve. Absent: only the window's line.
    */
   readonly threshold?: number;
   /** The kept tail is at most this many tokens... */

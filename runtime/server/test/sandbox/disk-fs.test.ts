@@ -1,5 +1,5 @@
 /**
- * An Environment's disk as files (R2d step 3, `sandbox/disk-fs.ts`): a listing keeps modes,
+ * An Environment's disk as files (`sandbox/disk-fs.ts`): a listing keeps modes,
  * modification times, links and empty directories and skips the engine's own files; a put writes
  * them back (a large file in ranges); a clear keeps the engine's files; no path leaves its root.
  */

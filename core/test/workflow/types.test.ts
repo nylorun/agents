@@ -17,7 +17,7 @@ function tscBin(): string {
   return "tsc";
 }
 
-it("CHAIN-R5/SWITCH-R7/PAR-R7/MAP-R9/SWITCH-B4: type inference checks", () => {
+it("type inference checks", () => {
   try {
     execFileSync(tscBin(), ["-p", join(coreRoot, "test/workflow/types/tsconfig.json")], {
       cwd: coreRoot,

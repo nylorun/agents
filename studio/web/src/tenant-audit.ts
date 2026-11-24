@@ -1,5 +1,5 @@
 /**
- * Tenant › Audit: the Tenant's stream (GET /v1/tenant/audit, ADR-159) in words. Facts only: who
+ * Tenant › Audit: the Tenant's stream (GET /v1/tenant/audit) in words. Facts only: who
  * acted, what changed, which credential was used for which session. No event carries a secret,
  * so nothing here hides one.
  */

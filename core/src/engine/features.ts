@@ -1,5 +1,5 @@
 /**
- * What one agent gets of our engine's features (ADR-100), from what it declares and the facts of
+ * What one agent gets of our engine's features, from what it declares and the facts of
  * its session. An agent that declares nothing (`agent-folder/1`, an SDK-built agent) gets every
  * default: the six sandbox tools with a computer, `read_artifact`, `save_artifact` and the
  * outputs folder with a computer, and tool search. One that declares `engine` gets only what it

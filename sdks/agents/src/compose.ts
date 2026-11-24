@@ -17,7 +17,7 @@
  *
  * Each path is relative to the file that names it. Node only: it reads the files.
  *
- * Deprecated (D80): agent folders (`AGENT.md`) replace the three files, and every composed
+ * Deprecated: agent folders (`AGENT.md`) replace the three files, and every composed
  * manifest carries a warning naming `nylorun migrate folder`. It is still read.
  */
 import { existsSync, statSync } from "node:fs";
@@ -230,7 +230,7 @@ function agentHarness(
 }
 
 /**
- * The warning every three-file folder gets (D80): agent folders replace it. It is still read, and
+ * The warning every three-file folder gets: agent folders replace it. It is still read, and
  * removed in a later release.
  */
 export function threeFileDeprecation(dir: string): string {

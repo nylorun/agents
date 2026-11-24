@@ -1,5 +1,5 @@
 /**
- * The `BlobStore` seam (blueprint D35, F8.1): the only way the Runtime reaches the Object
+ * The `BlobStore` seam: the only way the Runtime reaches the Object
  * store. Bytes live here; what they mean lives in Postgres, which is the commit point: an
  * object counts only once a committed row references its key, so an orphaned upload is
  * garbage, never data. Keys are chosen by the Runtime (fresh random ids), so the seam needs no

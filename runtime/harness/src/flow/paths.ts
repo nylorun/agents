@@ -1,4 +1,4 @@
-/** Path, node key and iteration-vector helpers (workflows.md §6). */
+/** Path, node key and iteration-vector helpers. */
 
 /** Drop Map indices from a path to get the node key. */
 export function nodeKeyOf(path: string): string {
@@ -11,7 +11,7 @@ export function iterationsOf(vector: readonly number[]): string {
 }
 
 /**
- * Effect id for a flow effect (workflows.md §10).
+ * Effect id for a flow effect.
  * `role` separates two effects of one kind on one path, e.g. a tool node's runs after it asked.
  */
 export function flowEffectId(input: {

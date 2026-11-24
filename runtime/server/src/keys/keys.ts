@@ -1,12 +1,12 @@
 /**
- * The keys seam (blueprint §14, F4.2): everything that needs the vault key. Vault writes that
+ * The keys seam: everything that needs the vault key. Vault writes that
  * touch a secret (writing an Environment's secret, setting and selecting the host model;
  * rotation and selection decrypt the old secret first; sealing a fork's copies of its source's
  * secrets, which the fork's transaction then inserts) and all token signing (capability
  * links, run and host tokens, signing-key rotation) run here, whole, so the process that calls them never
  * holds the key or a private signing key.
  *
- * A tool preview (R2b C12, `previewMcp`) runs here too: it sends an Environment's credential to
+ * A tool preview (`previewMcp`) runs here too: it sends an Environment's credential to
  * the server it lists, so the process that reads the plaintext makes the request.
  *
  * Two implementations: `inProcessKeys` (embedding, the ephemeral Runtime, tests, and the gates
@@ -65,7 +65,7 @@ export interface Keys {
   selectHostModel(body: SelectHostModelRequest, actor: VaultActor): Promise<HostModelView>;
   /**
    * Environment `from`'s secrets sealed again for a fork's new vault `vaultId`, limited to
-   * `slots` when given (`VaultService.sealEnvironmentSecretCopies`, Q15). Writes nothing: the
+   * `slots` when given (`VaultService.sealEnvironmentSecretCopies`). Writes nothing: the
    * fork's transaction inserts the copies; call it before that transaction opens. `null`, not
    * `undefined`, crosses the wire.
    */
@@ -78,25 +78,25 @@ export interface Keys {
   sign(request: SignRequest): Promise<Signed>;
   /**
    * Rotates the signing keys (`SigningKeys.rotate`); 409 while the previous key may verify live
-   * tokens. Records `signing_key.rotated` as `by` in the same transaction (ADR-159).
+   * tokens. Records `signing_key.rotated` as `by` in the same transaction.
    */
   rotateSigningKeys(request: { maxTtlSeconds: number; force: boolean; by: TenantEventActor }): Promise<SigningKeyView[]>;
   /** Creates the current and standby keys when the Tenant has none. */
   ensureSigningKeys(): Promise<void>;
   /**
    * Lists a remote MCP server's tools with the Environment's credential for its URL
-   * (R2b C12, `mcp/preview.ts`); never calls a tool.
+   * (`mcp/preview.ts`); never calls a tool.
    */
   previewMcp(body: McpPreviewRequest): Promise<McpPreview>;
-  /** The egress CA's certificate (PEM), creating the CA when the Tenant has none (R2c, D50). */
+  /** The egress CA's certificate (PEM), creating the CA when the Tenant has none. */
   egressCa(): Promise<string>;
   /**
    * A short-lived leaf for `host` and the caller's P-256 public key (SPKI PEM), signed by the
-   * egress CA (R2c). The leaf's private key never reaches keys; the CA's never leaves it.
+   * egress CA. The leaf's private key never reaches keys; the CA's never leaves it.
    */
   signEgressLeaf(host: string, publicKey: string): Promise<string>;
   /**
-   * A new Standard Webhooks secret for Agent `agentId`'s trigger `triggerId` (track T4, D75), and
+   * A new Standard Webhooks secret for Agent `agentId`'s trigger `triggerId`, and
    * the same sealed with the vault key for the trigger's row. The secret leaves keys this once.
    */
   makeWebhookSecret(agentId: string, triggerId: string): Promise<{ secret: string; sealed: SealedWebhookSecret }>;

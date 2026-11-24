@@ -1,8 +1,8 @@
 /**
- * The secrets of an Environment's vault (D56, R2d): `PUT /v1/environments/{id}/secrets/{name}`
+ * The secrets of an Environment's vault: `PUT /v1/environments/{id}/secrets/{name}`
  * bodies. A `bearer` or a `headers` map for a tool URL, each with an optional `via` and identity
- * header (R2b C2); an `environment_secret` bound to hosts or a plain `environment_variable` for
- * the shell (R2c).
+ * header; an `environment_secret` bound to hosts or a plain `environment_variable` for
+ * the shell.
  */
 import { describe, expect, it } from "vitest";
 import { ERROR_CODES } from "../src/compatibility.js";
@@ -118,7 +118,7 @@ describe("tool credentials", () => {
   });
 });
 
-describe("shell credentials (R2c)", () => {
+describe("shell credentials", () => {
   const secret = (body: Record<string, unknown>) =>
     put({ type: "environment_secret", value: "ghp_x", allowedHosts: ["api.github.com"], ...body });
 

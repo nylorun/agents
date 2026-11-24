@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { MAX_HELLO_BYTES, readClientHello } from "../../src/gates/client-hello.js";
 import { clientHelloFor } from "../support/tls-hello.js";
 
-describe("readClientHello (ADR-92 §11)", () => {
+describe("readClientHello", () => {
   it("reads the server name a TLS client sends, lowercase", async () => {
     expect(readClientHello(await clientHelloFor("Registry.NPMJS.org"))).toEqual({ status: "complete", serverName: "registry.npmjs.org" });
     expect(readClientHello(await clientHelloFor(undefined))).toEqual({ status: "complete" });

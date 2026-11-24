@@ -1,5 +1,5 @@
 /**
- * `ListTasks` and `GetTask` from the turn index (A2A-E1 to E3): a context's session carries
+ * `ListTasks` and `GetTask` from the turn index: a context's session carries
  * `info.a2a`, so its turns are listable; `ListTasks` is the caller's own tasks with the Agent,
  * latest status change first, filtered by context, state and status time, paged with a token
  * bound to the query, counted; the change feed names each task's context and id.

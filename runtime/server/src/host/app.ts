@@ -1,6 +1,6 @@
 /**
  * The Host's request pipeline as a Hono app, in the order clients depend on: the request log and
- * the request's telemetry around everything (ADR-159: its `http.server.request.duration` point by
+ * the request's telemetry around everything (its `http.server.request.duration` point by
  * declared route and `Nylorun-Client`, and with span export its server span, active while the
  * request runs, so a command's turn is its child and log lines carry its ids), then Origin and
  * `OPTIONS`, Content-Type, `/health`, `/ready`, and Tenant routes, which go to the Host's one
@@ -95,7 +95,7 @@ export function createHostApp(options: HostAppOptions): Hono<HostEnv> {
     const started = Date.now();
     const clock = performance.now();
     const { incoming } = c.env;
-    // Telemetry (ADR-159): the request's server span, active for all it runs, and its duration.
+    // Telemetry: the request's server span, active for all it runs, and its duration.
     const route = routeOf(incoming);
     const labels = {
       method: methodOf(incoming.method),

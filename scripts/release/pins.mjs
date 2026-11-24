@@ -1,5 +1,5 @@
 /**
- * Image pins (D7, G3). `nylorun start` runs `ghcr.io/nylorun/runtime:<nylorun.runtime>`
+ * Image pins. `nylorun start` runs `ghcr.io/nylorun/runtime:<nylorun.runtime>`
  * and `ghcr.io/nylorun/studio:<nylorun.studio>` from cli/nylorun/package.json, so
  * each pin must equal the version of the package that the image is built from.
  * The release publishes both images before it publishes nylorun.
@@ -125,7 +125,7 @@ export async function syncChartPins(repo, { runtime, studio }) {
 }
 
 /**
- * Write cli/nylorun/package.json `nylorun.runtime` and `nylorun.studio` (D7), and the
+ * Write cli/nylorun/package.json `nylorun.runtime` and `nylorun.studio`, and the
  * chart's versions (`syncChartPins`). Called
  * from release:prepare with the versions the release publishes or keeps.
  */
@@ -146,7 +146,7 @@ export async function isImageOnly(repo, name) {
 }
 
 /**
- * Studio ships only as `ghcr.io/nylorun/studio` (Studio §9), so a public
+ * Studio ships only as `ghcr.io/nylorun/studio`, so a public
  * `@nylorun/studio` fails: it would publish Studio to npm again.
  */
 export async function assertStudioImageOnly(repo = root) {

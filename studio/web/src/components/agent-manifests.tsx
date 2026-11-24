@@ -43,7 +43,7 @@ const kindOf = (manifest: Pick<AgentManifestView, "manifest">) => manifest.manif
 const EDIT_HINT =
   "Manifests are not edited here: edit an agent's folder in its repository, then save its next version with Upload folder or nylorun apply.";
 
-/** A version saved from an agent folder (track T6), in words: its compiler and size. */
+/** A version saved from an agent folder, in words: its compiler and size. */
 const fromFolder = (source: NonNullable<AgentManifestView["source"]>) =>
   `Saved from an agent folder: ${source.compiler}, ${source.files === 1 ? "1 file" : `${source.files} files`}`;
 
@@ -59,10 +59,10 @@ type Type = "any" | "agent" | "flow";
 type Use = "any" | "used" | "unused";
 
 /**
- * The Tenant's agent manifests (protocol 16, track T2): one line each with its latest version,
+ * The Tenant's agent manifests (protocol 16): one line each with its latest version,
  * the kind of Agent it makes, how many Agents were made from it and when it was saved, searched
  * and filtered on top. A manifest is not edited here: its folder is saved from its repository
- * (`nylorun apply`) or uploaded (Upload folder, track T7). A row opens the manifest beside the
+ * (`nylorun apply`) or uploaded (Upload folder). A row opens the manifest beside the
  * list (`?selected=<name>&version=<n>`), as a readable spec or, with `&view=source`, the folder
  * it was saved from.
  */
@@ -297,7 +297,7 @@ export function AgentManifests({ tenantId, catalog }: Readonly<{ tenantId: strin
  * One manifest beside the list: a version (its latest unless `version` names one), its
  * description, the Agents made from it, and two views of the version: **Spec**, the version as a
  * readable spec, its harness section then its runtime section, one line each (a line opens its
- * part of the manifest), and **Source**, the agent folder it was saved from (track T7).
+ * part of the manifest), and **Source**, the agent folder it was saved from.
  */
 function ManifestPane({
   tenantId,

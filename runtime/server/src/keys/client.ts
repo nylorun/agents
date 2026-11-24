@@ -1,5 +1,5 @@
 /**
- * The runtime container's client of the `keys` service in the gateway (F4.2, `contract.ts`).
+ * The runtime container's client of the `keys` service in the gateway (`contract.ts`).
  * Over `node:http` rather than `fetch`, which tests and embedders may replace. A refusal comes
  * back as the error the operation threw in the gateway (`VaultError` or `HttpError`, same status,
  * code and details); a hop failure is a 503, so the API route answers that the gateway is down.

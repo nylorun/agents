@@ -1,5 +1,5 @@
 /**
- * The Management API (protocol 8, A2): `/v1/tenant/keys`, credential coverage and signing keys
+ * The Management API (protocol 8): `/v1/tenant/keys`, credential coverage and signing keys
  * under `/v1/tenant`, with a management key, through `@nylorun/admin`'s `createManagementClient`.
  * A management key issues application keys, never management keys. Application keys do not
  * reach the Management API, and the old paths (`/v1/vaults`, `/v1/access/signing-keys`) are

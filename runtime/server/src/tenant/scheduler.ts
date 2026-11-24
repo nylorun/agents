@@ -135,7 +135,7 @@ export function abortAll(
  * Close: wait until no advance runs on this process, for at most `timeoutMs`. Advances still
  * running then (an effect that ignores its abort signal) are abandoned and logged: they have
  * stopped renewing their lease, so it lapses and the next advance takes the session over
- * (§11.4); the epoch fences anything they still try to write. Returns their session ids.
+ *; the epoch fences anything they still try to write. Returns their session ids.
  */
 export async function waitForIdle(
   ctx: TenantContext,

@@ -159,7 +159,7 @@ export async function fetchHello(fetcher?: StudioFetch): Promise<StudioHello> {
 }
 
 /**
- * Tenant › Traffic's read (ADR-159): the Runtime's own metrics, which the Studio server reads live
+ * Tenant › Traffic's read: the Runtime's own metrics, which the Studio server reads live
  * from each process's `/metrics` and returns parsed. Nothing is stored.
  */
 export async function fetchTenantMetrics(

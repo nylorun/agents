@@ -18,7 +18,7 @@
  *
  * Triggers: what its manifest's `runtime.triggers` declares starts its turns with
  * no client connected, and so do the triggers its agents set up with the `triggers` tool
- * (`engine.triggers`, origin `agent`), and those a client puts on it (origin `api`, D88).
+ * (`engine.triggers`, origin `agent`), and those a client puts on it (origin `api`).
  * `triggers(id)` lists them with their status and next run, `putTrigger` creates or replaces the
  * Agent's own trigger, `pauseTrigger`, `resumeTrigger` and `runTrigger` change or run one,
  * `deleteTrigger` deletes one an agent made or a client put, `rotateWebhookSecret` makes a webhook trigger's signing secret, and `runs(id)`
@@ -457,7 +457,7 @@ export class AgentInstancesClient {
   }
 
   /**
-   * Creates or replaces the Agent's trigger `triggerId` of origin `api` (D88; Host feature
+   * Creates or replaces the Agent's trigger `triggerId` of origin `api` (Host feature
    * `api-triggers`): a `Trigger` exactly as a definition's `runtime.triggers` entry holds it, and an
    * optional `title`. A replaced one keeps its status; the same trigger again changes nothing. An
    * id the definition declares, or one an agent made, is refused (`409 trigger_conflict`); past

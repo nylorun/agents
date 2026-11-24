@@ -1,5 +1,5 @@
 /**
- * How a tool row of the effect journal reads (R5.1, R5.2), from its body alone: shared by the
+ * How a tool row of the effect journal reads, from its body alone: shared by the
  * journal (`tool-journal.ts`) and the session reads (`/calls/tool`).
  */
 import { durationBetween } from "../tenant/transcript.js";

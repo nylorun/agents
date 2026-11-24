@@ -1,5 +1,5 @@
 /**
- * R2b C9 and C10 end to end over the Runtime API. Per-tool settings on an MCP server: an
+ * Per-tool MCP settings and deferred tools, end to end over the Runtime API. Per-tool settings on an MCP server: an
  * allowlist through `"*": {enabled: false}`, approval per tool, a diagnostic for a key that names
  * no tool, and turn variants that may only tighten them: the turn's facts say which tools are
  * enabled, and the record refuses a call of one that is not (`tool.disabled`) or that the session
@@ -211,7 +211,7 @@ beforeAll(async () => {
       .mcp({
         ledger: { type: "streamable-http", url: ledger.url },
         funds: { type: "streamable-http", url: funds.url },
-        // One tool stays in the list whatever the size (Q21: settings override).
+        // One tool stays in the list whatever the size (settings override).
         archive: { type: "streamable-http", url: archive.url, tools: { archive_t00: { deferred: false } } },
       })
       .build().manifest,
@@ -222,7 +222,7 @@ beforeAll(async () => {
       .mcp({ small: { type: "streamable-http", url: small.url, tools: { epsilon: { deferred: true } } } })
       .build().manifest,
   );
-  // The calls a person approves (R5 step 2).
+  // The calls a person approves.
   await setToolPolicy(runtime, [
     // By the tool's identity (protocol 15): the server and the server's own name for the tool.
     { effect: "ask", server: "github", tool: "create_issue" },
@@ -235,7 +235,7 @@ afterAll(async () => {
   for (const server of servers) await new Promise((resolve) => server.close(resolve));
 });
 
-describe("per-tool settings (C9)", () => {
+describe("per-tool settings", () => {
   it("makes an allowlist with '*': {enabled: false}, and names a key no tool has", async () => {
     script({ name: "github__search_issues", args: { q: "bug" } });
     const session = await open("allow");
@@ -277,7 +277,7 @@ describe("per-tool settings (C9)", () => {
     expect(github.called).toContain("create_issue");
   });
 
-  it("lets a turn variant disable a tool, never ask for an approval (R5 step 2), and never widen", async () => {
+  it("lets a turn variant disable a tool, never ask for an approval, and never widen", async () => {
     script();
     const session = await open("allow");
     await settled(session);
@@ -329,7 +329,7 @@ describe("per-tool settings (C9)", () => {
   });
 });
 
-describe("deferred tools (C10)", () => {
+describe("deferred tools", () => {
   it("defers 60 tools across 3 servers, keeps one a setting lists, and gives the model tool_search and tool_call", async () => {
     script();
     const session = await open("big");
@@ -423,7 +423,7 @@ it("refuses a manifest of an earlier version: it is rebuilt (agent manifest 8)",
   expect((await fetch(`${runtime.url}/v1/agent-manifests/legacy`, { headers: runtime.headers() })).status).toBe(404);
 });
 
-describe("the turn's MCP facts (C9)", () => {
+describe("the turn's MCP facts", () => {
   const manifest = Agent({ id: "a" })
     .mcp({
       s: {

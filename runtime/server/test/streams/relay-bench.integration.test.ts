@@ -1,5 +1,5 @@
 /**
- * The stream relay's latency gate (Durable Streams §16.1, §20): commit to S2 acknowledgement,
+ * The stream relay's latency gate: commit to S2 acknowledgement,
  * p99 under 200 ms, on the test stack's Postgres (logical replication) and s2-lite, with 50
  * sessions committing one event per transaction. Opt in with `NYLORUN_BENCH=1` (it takes a
  * few seconds and its numbers depend on the machine); prints the percentiles.

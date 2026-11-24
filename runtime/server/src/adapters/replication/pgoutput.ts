@@ -1,8 +1,7 @@
 /**
- * The stream relay's change source on Postgres logical replication (Durable Streams §7.1,
- * §7.4, §7.6): a persistent `pgoutput` slot on the `nylorun_stream_relay` publication, read
+ * The stream relay's change source on Postgres logical replication: a persistent `pgoutput` slot on the `nylorun_stream_relay` publication, read
  * with `pg-logical-replication`. The only file importing it (with `pg`, which it needs). The
- * trace projector (R7.2) reads the same publication from a slot of its own
+ * trace projector reads the same publication from a slot of its own
  * (`traces/projector.ts`); for it a fresh slot means nothing to reconcile.
  *
  * - **One reader per slot.** Postgres lets one connection hold a slot, so every Runtime

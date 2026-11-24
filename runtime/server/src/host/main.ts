@@ -9,23 +9,23 @@
  * Execution and Durable Streams from the endpoints; `createHostExecution`
  * builds the process's execution; the Host serves the one Tenant its Postgres
  * database holds (`NYLORUN_DATABASE_URL`, required), and creates it there on
- * first start (`NYLORUN_TENANT_ID`, `NYLORUN_TENANT_NAME`; tenancy.md §4), trusting the issuers of the identity file
+ * first start (`NYLORUN_TENANT_ID`, `NYLORUN_TENANT_NAME`), trusting the issuers of the identity file
  * `NYLORUN_IDENTITY_FILE` names (Host feature `trusted-issuers`); with S2, a process running core
  * runs the stream relay, which feeds the Tenant's streams from the record over
  * logical replication (one process at a time holds the slot); with `OTEL_EXPORTER_OTLP_ENDPOINT`
  * it also runs the trace projector, which posts the record's spans over OTLP from a slot of its
- * own (R7.2); `/ready` reports
+ * own; `/ready` reports
  * the Tenant and the infrastructure checks. With an Object store
  * (`NYLORUN_OBJECT_STORE_*`) the Tenant's blobs go to it through the `s3` BlobStore, and a
  * process running core creates its bucket; without one they stay on disk (`fs`). A process
  * running the gates service (the local stack's `gateway` container) starts only the gate, and egress-gate with `egress` (`runGates`): it needs
- * neither host.json nor host-credentials.json, and reads the files a prompt names from the Object store. A process running the harness service (`--service harness`, F6.2)
+ * neither host.json nor host-credentials.json, and reads the files a prompt names from the Object store. A process running the harness service (`--service harness`)
  * starts only the harness (`harness/main.ts`), which connects to core's Harness API. With `NYLORUN_HARNESS=remote`
  * the Tenant runs no harness of its own: core starts the Harness API listener (`NYLORUN_HARNESS_LISTEN_*`) and
  * harnesses that present `NYLORUN_HARNESS_TOKEN` run its segments and hold its workspaces. See the startup order
  * in `main()`. Tests compose a Host without this entry, with `createHost` and an injected Tenant module.
  *
- * Live telemetry (ADR-159) starts here and only here, for a process running core, loop or the
+ * Live telemetry starts here and only here, for a process running core, loop or the
  * gateway's services (`startProcessTelemetry`): its metrics on `/metrics` (port 9464 by default)
  * and over OTLP, its spans over OTLP when an endpoint is set. A test Host binds no such port.
  */
@@ -148,7 +148,7 @@ function resolveHostRoot(): string {
   return resolve(root);
 }
 
-/** The Object store's `s3` BlobStore (D35), from `StackConfig.objectStore`. */
+/** The Object store's `s3` BlobStore, from `StackConfig.objectStore`. */
 function objectStore(config: ObjectStoreConfig): S3BlobStore {
   return createS3BlobStore({
     endpoint: config.endpoint,
@@ -386,7 +386,7 @@ export async function main(): Promise<void> {
   // running core runs one, once the Tenant is open (the relay reads its id); the replication
   // slot lets exactly one be active. Without S2, the Tenant relays its own commits.
   let relay: StreamRelay | undefined;
-  // With an OTLP endpoint (R7.2, Q5), the trace projector reads the record on its own slot: one
+  // With an OTLP endpoint, the trace projector reads the record on its own slot: one
   // process running core at a time, as for the relay. Without one there is no slot.
   const traceExport = stack.services.has("core") ? stack.traces?.export : undefined;
   let projector: TraceProjector | undefined;
@@ -434,7 +434,7 @@ export async function main(): Promise<void> {
   };
   // With the gates service the Tenant's vault-backed model calls, remote MCP calls and HTTP
   // tool calls cross it, and this process never reads a model or MCP credential.
-  // Their credentials (F5): each advance's run token for its session's model and tool calls,
+  // Their credentials: each advance's run token for its session's model and tool calls,
   // core's credential (NYLORUN_GATES_TOKEN) for MCP requests outside a run.
   const runGrants = stack.modelGate ? createRunGrants() : undefined;
   const modelGate =
@@ -446,15 +446,15 @@ export async function main(): Promise<void> {
       ? httpToolGate({ url: stack.modelGate.url, token: stack.modelGate.token, runTokens: runGrants })
       : undefined;
   // With the keys service, vault writes and token signing cross it, and this process never
-  // reads the vault key (F4.2).
+  // reads the vault key.
   const keys = stack.keys ? httpKeys({ url: stack.keys.url, token: stack.keys.token }) : undefined;
-  // The Object store (D35): the stack's S3 server through the BlobStore seam, handed to the
+  // The Object store: the stack's S3 server through the BlobStore seam, handed to the
   // Tenant (`TenantContext.blobs`). Without one the Tenant keeps blobs on disk. core creates
   // the bucket.
   const blobs = stack.objectStore ? objectStore(stack.objectStore) : undefined;
   if (blobs && stack.services.has("core"))
     void ensureBucket(blobs, stack.objectStore!.bucket, logger);
-  // Sandbox pods (F7.2): the sandboxes service, which alone holds the cluster's credentials.
+  // Sandbox pods: the sandboxes service, which alone holds the cluster's credentials.
   const pods = stack.sandboxes
     ? {
         client: httpSandboxesClient({ url: stack.sandboxes.url, token: stack.sandboxes.token }),
@@ -470,7 +470,7 @@ export async function main(): Promise<void> {
           : {}),
       }
     : undefined;
-  // The outside credential provider: each pod Agent segment's variables it names (CP-E).
+  // The outside credential provider: each pod Agent segment's variables it names.
   const credentialProvider = stack.credentialProvider
     ? createCredentialProvider(stack.credentialProvider, { logger })
     : undefined;
@@ -554,7 +554,7 @@ export async function main(): Promise<void> {
   // mode runs one `--service core,loop` process, which registers here. Then the
   // listener starts and opens the Tenant (migrating its database, creating it on
   // first start); opening arms its sweep, which recovers wakes lost with
-  // Restate's state (§14.8), and starts the stream relay. A Tenant that cannot
+  // Restate's state, and starts the stream relay. A Tenant that cannot
   // be opened leaves the Host listening but not ready; `nylorun-operate status` names the
   // cause.
   // The Harness API listener (NYLORUN_HARNESS=remote): only harnesses connect here, with the
@@ -566,7 +566,7 @@ export async function main(): Promise<void> {
       harnessListener = await startHarnessListener({
         ...stack.harnessListener.listen,
         ...(stack.harnessListener.token ? { token: stack.harnessListener.token } : {}),
-        // Sandbox pods join here and connect with host tokens (F7.2).
+        // Sandbox pods join here and connect with host tokens.
         ...(pods
           ? {
               hosts: async () => {
@@ -580,7 +580,7 @@ export async function main(): Promise<void> {
           const handle = resolved.kind === "open" ? resolved.handle : undefined;
           return handle?.attachHarness ? (channel, peer) => handle.attachHarness!(channel, peer) : undefined;
         },
-        // Custom harnesses connect with their own tokens (R4.1).
+        // Custom harnesses connect with their own tokens.
         harnessOfToken: async (token) => {
           const resolved = await module.resolve();
           return resolved.kind === "open" ? resolved.handle.harnessOfToken?.(token) : undefined;

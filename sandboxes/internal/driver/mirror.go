@@ -9,7 +9,7 @@ import (
 )
 
 // Mirrors maps an image repository to the repository that serves the same images
-// (cluster.json `imageMirrors`, ADR-161): a deployment's nodes pull an Agent's workload image
+// (cluster.json `imageMirrors`): a deployment's nodes pull an Agent's workload image
 // from its own registry, with the digest or tag the Agent named. Keys and values are
 // repositories with no tag or digest. The zero value maps nothing.
 type Mirrors struct {

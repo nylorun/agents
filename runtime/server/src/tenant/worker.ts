@@ -1,8 +1,8 @@
 /**
- * The Worker side of Durable Session Execution (architecture §12.3): what a `DurableExecution`
+ * The Worker side of Durable Session Execution: what a `DurableExecution`
  * calls for the Tenant, and the registry its handlers dispatch through by Tenant id.
  *
- * - `TenantWorker` is one open Tenant's handlers: `advance(sessionId, signal)` (§10.5, in
+ * - `TenantWorker` is one open Tenant's handlers: `advance(sessionId, signal)` (in
  *   `advance.ts`), `sweep()` (the Tenant sweep, in `sweep.ts`) and, optionally,
  *   `sandbox(sandboxId, trigger, signal)` (one pod sandbox's reconcile).
  * - `TenantWorkers` is the registry. Its `handlers` are the `WorkerHandlers` an execution is
@@ -28,7 +28,7 @@
  *    end), the advance has `advanceGraceMs` to return. One that does not (an effect that
  *    ignores its signal) is abandoned: the handler returns `busy`, so the execution runs the
  *    session again. The abandoned advance has stopped renewing its lease (`advance.ts`), so
- *    the next advance takes over when the lease lapses (§11.4), and the epoch fences anything
+ *    the next advance takes over when the lease lapses, and the epoch fences anything
  *    the abandoned one still tries to write.
  *
  * ## Abort reasons
@@ -37,7 +37,7 @@
  * advance treats them differently (`advance.ts`, `effects.ts`):
  *
  * - `cancel`: a user cancel (or a reset) committed first. Results that arrive afterwards are
- *   discarded and the turn stays cancelled (§10.7).
+ *   discarded and the turn stays cancelled.
  * - `deadline`: the advance ran too long (`AdvanceDeadlineError`). The segment settles as a
  *   normal outcome.
  * - `shutdown`: this Worker gives the advance up (Worker stop, Tenant close, the Restate
@@ -63,7 +63,7 @@ import type {
 import type { Logger } from "./types.js";
 import { hostTuning, MAX_TIMER_MS } from "../tuning.js";
 
-/** This process's Worker id: the `owner` it writes on the sessions it advances (§10.6). */
+/** This process's Worker id: the `owner` it writes on the sessions it advances. */
 export const WORKER_ID = `worker-${hostname()}-${process.pid}-${randomBytes(4).toString("hex")}`;
 
 
@@ -115,9 +115,9 @@ export interface TenantWorker {
   advance(sessionId: string, signal: AbortSignal): Promise<AdvanceResult>;
   /** One pass of the Tenant sweep. */
   sweep(): Promise<void>;
-  /** Reconciles one pod sandbox (F7.2). Only infrastructure errors throw. */
+  /** Reconciles one pod sandbox. Only infrastructure errors throw. */
   sandbox?(sandboxId: string, trigger: SandboxTrigger, signal: AbortSignal): Promise<SandboxResult>;
-  /** A durable timer it armed fired (track T4's triggers). Only infrastructure errors throw. */
+  /** A durable timer it armed fired (triggers). Only infrastructure errors throw. */
   fire?(key: string): Promise<void>;
 }
 

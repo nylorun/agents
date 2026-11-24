@@ -1,5 +1,5 @@
 /**
- * The harness service over WebSocket (F6.2): the Harness API listener accepts only the harness
+ * The harness service over WebSocket: the Harness API listener accepts only the harness
  * credential, on its path, with its header and an allowed Host; and a harness process with its
  * own sandbox and no store runs a turn with `bash`, claims its sandbox events, serves the
  * session's sandbox routes, and leaves them `503` once it is gone.

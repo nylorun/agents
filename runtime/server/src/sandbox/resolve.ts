@@ -28,7 +28,7 @@ export interface RecipeRequest {
   readonly lifecycle?: EnvironmentLifecycle;
   readonly setup?: readonly EnvironmentSetupCommand[];
   readonly files?: readonly EnvironmentFile[];
-  /** The secret slots (D64): passed through for every kind. */
+  /** The secret slots: passed through for every kind. */
   readonly secrets?: EnvironmentSecretSlots;
   /**
    * Artifact and skill limits: passed through for every kind, as set. The caller checks them
@@ -50,7 +50,7 @@ export function resolveRecipe(
   const { limits } = config;
   const errors: string[] = [];
   const pod = kind === "pod";
-  // Any harness id (R4.1): placement decides where it may run, when a session opens.
+  // Any harness id: placement decides where it may run, when a session opens.
   const harness = request.harness ?? DEFAULT_HARNESS;
   if (pod && harness !== DEFAULT_HARNESS && request.image === undefined)
     errors.push(`harness ${harness} needs image: a pod Agent runs its image as the harness.`);

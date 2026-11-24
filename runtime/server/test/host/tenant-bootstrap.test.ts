@@ -1,5 +1,5 @@
 /**
- * A Host and its Tenant (tenancy.md §4–§5, plan P9): the Host creates its Tenant in its
+ * A Host and its Tenant: the Host creates its Tenant in its
  * database on first start and serves it again after a restart; the Studio key the admin key
  * derives reaches it without naming it, and no other key is derived (protocol 7); a database it may not open leaves it not ready,
  * with the cause in the Tenant module's state (`nylorun-operate status` reads it from the database;

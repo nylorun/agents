@@ -1,5 +1,5 @@
 /**
- * `agent-folder/4` (ADR-164, D97): a subagent is one file, `agents/<id>.md`, and the manifest's
+ * `agent-folder/4`: a subagent is one file, `agents/<id>.md`, and the manifest's
  * `tools/`, `skills/`, `mcp.json`, `plugins/` and Runtime plugins are its **library**, which every
  * model loop in it draws on: the root's own, and each subagent's, which inherits it and narrows it
  * with `tools`, `disallowedTools`, `skills` and `mcpServers`.

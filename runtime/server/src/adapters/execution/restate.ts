@@ -1,5 +1,5 @@
 /**
- * Durable Session Execution on Restate (architecture §12.3).
+ * Durable Session Execution on Restate.
  *
  * The only module that imports the Restate SDK. It serves four virtual
  * objects on the Worker endpoint, all named with `servicePrefix`:
@@ -13,11 +13,11 @@
  *   keep one self-re-arming sweep chain per Tenant. The chain's generation is
  *   kept in the object's state, so arming is idempotent and a disarmed or
  *   replaced chain dies at its next link. The state is rebuildable: a Host
- *   re-arms its Tenant's sweep when it opens it, at every start (§14.8).
+ *   re-arms its Tenant's sweep when it opens it, at every start.
  * - `<prefix>NylorunTimer`, key `<tenantId>:<timer key>`. `set` records the
  *   latest time and sends a delayed `fire`; a `fire` for an older time is a
  *   no-op, which is how setting a key again replaces it.
- * - `<prefix>NylorunSandbox`, key `<tenantId>:<sandboxId>` (F7.2). Its
+ * - `<prefix>NylorunSandbox`, key `<tenantId>:<sandboxId>`. Its
  *   exclusive handlers serialize a pod sandbox's reconciles and timers:
  *   `reconcile` calls `WorkerHandlers.sandbox`; `arm` records a timer's latest
  *   time (`idle`, `ttl`, or the reconcile's own `retry`) and sends a delayed
@@ -32,7 +32,7 @@
  * repeated after its answer was lost therefore starts no second invocation.
  *
  * What Restate owns and what the Session Store owns, and where the two overlap on purpose,
- * is said once, under "Durable Session Execution" in `src/CONTEXT.md`.
+ * is said once, in `execution/types.ts`.
  */
 import { randomUUID } from "node:crypto";
 import { createServer, type Http2Server, type ServerHttp2Session } from "node:http2";
@@ -111,14 +111,14 @@ export interface RestateExecutionOptions {
   sweepIntervalMs?: number;
   /**
    * How long wakes with a `dedupeKey` are remembered. Default `execution.dedupeRetentionMs`;
-   * at least 24 hours (§12.3, `DEDUPE_RETENTION_MIN_MS`).
+   * at least 24 hours (`DEDUPE_RETENTION_MIN_MS`).
    */
   dedupeRetentionMs?: number;
   /**
    * Overwrite a deployment already registered at `workerAdvertisedUrl`, so a
    * restarted Worker with changed code takes effect. Default true, which suits
    * a stable URL on a developer machine. A Host in a container advertises a
-   * versioned URL without it (`workerDeployment` in `infra/execution.ts`, §14.6).
+   * versioned URL without it (`workerDeployment` in `infra/execution.ts`).
    */
   forceRegistration?: boolean;
   /**

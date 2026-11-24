@@ -97,7 +97,7 @@ function tightensServers(
 
 /**
  * Whether `candidate` is a valid turn-manifest variant of the session's pinned manifest
- * (`loops.md` §3.4). A variant may remove tools (agents used as tools and HTTP tools included),
+ *. A variant may remove tools (agents used as tools and HTTP tools included),
  * tighten its MCP servers' tool settings, and change its instructions, name,
  * description and metadata. An agent it uses as a tool may only be narrowed the same way: its
  * tools removed and its MCP servers' tool settings tightened (what `withoutTools` makes). Its skills and servers are setup: the sandbox holds the skills from
@@ -110,7 +110,7 @@ export function isVariantOf(
   if (candidate.id !== pinned.id) return false;
   if (candidate.manifestSchemaVersion !== pinned.manifestSchemaVersion) return false;
   if (!same(candidate.outputSchema, pinned.outputSchema)) return false;
-  // What the agent needs of its Environment was checked when the session opened (D65).
+  // What the agent needs of its Environment was checked when the session opened.
   if (!same(candidate.requires, pinned.requires)) return false;
   if (!removeOnlyTools(pinned.tools, candidate.tools)) return false;
   if (!same(candidate.skills, pinned.skills)) return false;
@@ -127,7 +127,7 @@ export function isVariantOf(
  *   disabled in the server's `tools` settings (`{enabled: false}`);
  * - `<server>`, an MCP server's name: every tool of it disabled (`"*"` and each entry);
  * - a Runtime plugin's tool, by the name the model reads (`nylorun__memory`) or its own name
- *   (`memory`): turned off in the declared plugin (ADR-106).
+ *   (`memory`): turned off in the declared plugin.
  *
  * A name that matches nothing is ignored: the version the turn runs may not have it. Returns
  * `manifest` itself when nothing matched.
@@ -141,7 +141,7 @@ export function withoutTools(manifest: AgentManifest, names: readonly string[]):
 
 function narrowAgent(agent: AgentManifest, removed: ReadonlySet<string>, root: boolean): AgentManifest {
   const { tools: _tools, mcpServers: _servers, engine: _engine, ...rest } = agent;
-  // A Runtime plugin's tool by the name the model reads (ADR-106): `nylorun__ask` turns `ask` off,
+  // A Runtime plugin's tool by the name the model reads: `nylorun__ask` turns `ask` off,
   // and so does its own name `ask`, the one events and `check --explain` show.
   const offPlugin = new Set(
     [...removed].flatMap((name) => runtimeToolOf(name) ?? (pluginOfTool(name) === undefined ? [] : [name])),

@@ -2,7 +2,7 @@
  * The Tenant-level fixture model (`tenant/model-setting.ts`): `fixtureModel: true` through
  * `PUT /v1/tenant/config/seed` makes that Tenant's model calls use the Runtime's fixture
  * model; another Tenant on the same Host keeps its own model path. The Model Gate answers it
- * (R4.3), so each call is metered like any model's.
+ *, so each call is metered like any model's.
  */
 import { randomUUID } from "node:crypto";
 import { afterEach, expect, it } from "vitest";

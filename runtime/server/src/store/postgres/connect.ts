@@ -33,7 +33,7 @@ export interface PostgresClientOptions {
  * (`db.ts`).
  *
  * Statements are prepared: one database holds one Tenant in fixed schemas, so every statement
- * is the same for the whole pool (session-store.md §2).
+ * is the same for the whole pool.
  *
  * The pool serves every request of the Host, so a statement or transaction that hangs must
  * not hold a connection forever: both are bounded by default.

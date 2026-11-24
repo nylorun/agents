@@ -1,7 +1,7 @@
 /**
- * The abort matrix through the Harness API (F6.1): a cancel, a deadline, a shutdown and a lost
+ * The abort matrix through the Harness API: a cancel, a deadline, a shutdown and a lost
  * lease each reach the harness's call with core's reason, and leave the session, its effects
- * and its events as the advance always left them (§10.7).
+ * and its events as the advance always left them.
  */
 import { rm } from "node:fs/promises";
 import { afterEach, describe, expect, it } from "vitest";
@@ -127,7 +127,7 @@ async function scenario(reason: Reason) {
   return { seen: model.seen, ...(await summary(runtime)) };
 }
 
-/** How each abort leaves the session (§10.7, `worker.ts` "Abort reasons"). */
+/** How each abort leaves the session (`worker.ts` "Abort reasons"). */
 const SETTLED: Record<Reason, { status: string; effects: { status: string }[]; events: string[] }> = {
   cancel: { status: "cancelled", effects: [{ status: "uncertain" }], events: ["turn.cancelled"] },
   deadline: { status: "uncertain", effects: [{ status: "uncertain" }], events: ["effect.uncertain"] },

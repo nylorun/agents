@@ -1,5 +1,5 @@
 /**
- * Session Store contract (architecture §12.2). Every `SessionStore`
+ * Session Store contract. Every `SessionStore`
  * implementation runs this suite; Postgres runs it in `store.test.ts`:
  *
  *   storeContract("postgres", async (options) => {
@@ -881,13 +881,13 @@ export function storeContract(name: string, factory: StoreFactory): void {
         });
       });
 
-      it("reads a call's first row with the gate's timing, never a duplicate (R7.1)", async () => {
+      it("reads a call's first row with the gate's timing, never a duplicate", async () => {
         const store = await fresh();
         const timing = {
           startedAt: "2030-01-01T00:00:00.000Z",
           endedAt: "2030-01-01T00:00:02.000Z",
           firstTokenMs: 400,
-          // The gate's attempts and retries (Model Calls §6, migration 0047), the error verbatim.
+          // The gate's attempts and retries (migration 0047), the error verbatim.
           attempts: 2,
           retries: [{ attempt: 2, delayMs: 2000, error: "Upstream stream ended before terminal chunk \u0000 \ud800" }],
         };

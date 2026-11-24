@@ -30,7 +30,7 @@ const core = (version) => {
   return `${parsed.major}.${parsed.minor}.${parsed.patch}`;
 };
 
-/** Breaking bump for D1: minor while 0.x, major after 1.0. */
+/** Breaking bump for a protocol change: minor while 0.x, major after 1.0. */
 export function isBreakingBump(type, version) {
   if (!type) return false;
   if (semver.major(core(version)) === 0)
@@ -140,7 +140,7 @@ function enforceProtocolReleaseRule(bumps, before, options = {}) {
 /**
  * Compute final versions once; Changesets applies this exact plan and writes notes.
  * options.currentProtocol / options.releasedProtocol override filesystem/git reads
- * used by the D1 protocol release rule (WS-H 11).
+ * used by the protocol release rule.
  */
 export function planVersions(
   before,

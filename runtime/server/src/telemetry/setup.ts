@@ -1,5 +1,5 @@
 /**
- * Starts a process's telemetry (ADR-159 §2–3): one MeterProvider and, when spans export, one
+ * Starts a process's telemetry: one MeterProvider and, when spans export, one
  * TracerProvider, from the settings `host/stack-config.ts` parsed. Only `host/main.ts` calls it,
  * so a Host a test makes with `createHost` binds no port.
  *

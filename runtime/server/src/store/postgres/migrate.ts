@@ -1,5 +1,5 @@
 /**
- * The migrations of a Tenant database (session-store.md §3) and the runner that applies them.
+ * The migrations of a Tenant database and the runner that applies them.
  *
  * drizzle-kit generates the migrations from `schema.ts` into `drizzle/` (SQL files and
  * `meta/_journal.json`); custom SQL migrations carry what it does not model (the schemas,

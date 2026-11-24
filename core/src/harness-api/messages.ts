@@ -53,7 +53,7 @@ export type ReleaseReason = z.infer<typeof ReleaseReasonSchema>;
  * outputs folder stores nothing (protocol 15), and `plan.updated` when the agent calls its
  * built-in `update_plan` tool, and `engine.diagnostic` when an agent's declarations leave it
  * something to say instead of choose, such as MCP tools past the deferral threshold of an agent
- * that does not declare tool search (ADR-100; both additive within v5).
+ * that does not declare tool search (both additive within v5).
  */
 export const HARNESS_CLAIMS = [
   "environment.state",

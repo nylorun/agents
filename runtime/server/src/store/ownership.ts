@@ -2,7 +2,7 @@ import type { SessionDoc, SessionStore, StoredSession, Tx } from "./types.js";
 
 /**
  * An advance's transaction found the session's epoch changed: another Worker
- * took ownership. The advance aborts with no write (§10.6).
+ * took ownership. The advance aborts with no write.
  */
 export class OwnershipLostError extends Error {
   readonly code = "ownership.lost";

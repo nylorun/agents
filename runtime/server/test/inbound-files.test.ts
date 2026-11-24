@@ -1,5 +1,5 @@
 /**
- * Inbound files (multimodal messages, M2 and M7; protocol 15): with a model in the vault that
+ * Inbound files (multimodal messages; protocol 15): with a model in the vault that
  * reads images and not PDFs, a PDF sent inline over AG-UI or A2A is accepted like any other
  * message's file, and the turn runs: the harness tells the model why it does not see it. A
  * message the Runtime refuses still takes the files stored for it. The A2A card names the files

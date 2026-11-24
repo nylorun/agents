@@ -1,5 +1,5 @@
 /**
- * `nylorun chat <agent> [--session <id>] [--message <text>]` (track T7): a conversation with an
+ * `nylorun chat <agent> [--session <id>] [--message <text>]`: a conversation with an
  * Agent from the terminal. It opens a session on the Agent (or reuses `--session`, opening it
  * with that id when it does not exist), sends `--message` once or each line of standard input,
  * and prints the assistant's text as each model step lands, until the turn ends. A turn that

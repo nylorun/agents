@@ -120,7 +120,7 @@ export function AgentPage({
     [sdk, name, version],
   );
   const manifest = useRead(loadManifest).data;
-  // The latest version of its manifest: a pinned Agent moves to it (track T3).
+  // The latest version of its manifest: a pinned Agent moves to it.
   const loadLatest = useCallback(
     async (signal: AbortSignal) =>
       name === undefined
@@ -163,7 +163,7 @@ export function AgentPage({
     onChanged?.();
   }, [reload, onChanged]);
 
-  /** Moves it within its manifest (track T3): `name` tracks, `name@n` pins; or applies a pending version. */
+  /** Moves it within its manifest: `name` tracks, `name@n` pins; or applies a pending version. */
   async function move(what: ManifestMove): Promise<void> {
     if (!s || name === undefined) return;
     setActing(true);

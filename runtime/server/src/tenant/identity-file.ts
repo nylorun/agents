@@ -1,5 +1,5 @@
 /**
- * The identity file (Host feature `trusted-issuers`, F9 I2): the YAML file
+ * The identity file (Host feature `trusted-issuers`): the YAML file
  * `NYLORUN_IDENTITY_FILE` names, listing the issuers whose JWTs the Runtime API accepts as
  * bearers. Read once at boot (`host/main.ts`); a change takes a restart. A malformed file stops
  * the boot with a message naming the issuer and the field. A key the file does not define is
@@ -162,7 +162,7 @@ export function issuerKey(key: KeyObject, kid?: string): IssuerKey {
   }
 }
 
-// The identity file's author writes every template; nothing a caller sends adds to one (B15).
+// The identity file's author writes every template; nothing a caller sends adds to one.
 const template = (what: string) =>
   z
     .string()
@@ -193,7 +193,7 @@ const IssuerEntrySchema = z
         }
       }, "must be an http(s) URL without credentials")
       .optional(),
-    // The file's author writes every key: no count of them is a limit (B15).
+    // The file's author writes every key: no count of them is a limit.
     keys: z.array(z.string().min(1)).min(1).optional(),
     subject: template("subject")
       .refine(
@@ -291,7 +291,7 @@ export function parseIdentityFile(
         ? (entry as { name: string }).name
         : `#${index + 1}`;
     const where = `issuer ${named}`;
-    // Protocol 11 renamed these (R2d Q11): refused, never read as no grants.
+    // Protocol 11 renamed these: refused, never read as no grants.
     if (entry && typeof entry === "object" && "sandboxes" in entry)
       return fail(`${where}: sandboxes: renamed environments in protocol 11`);
     const scopesNamed = JSON.stringify([

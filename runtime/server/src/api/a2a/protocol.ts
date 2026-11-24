@@ -118,7 +118,7 @@ export interface TaskPushNotificationConfig {
   authentication?: PushAuthentication;
 }
 
-/** The standard JSON-RPC codes and the A2A codes (spec §5.4, §9.5). */
+/** The standard JSON-RPC codes and the A2A codes. */
 export const A2A_ERRORS = {
   parse: { code: -32700, reason: "INVALID_JSON" },
   invalidRequest: { code: -32600, reason: "INVALID_REQUEST" },
@@ -248,7 +248,7 @@ function protoJsonKeys(value: unknown): unknown {
   return out;
 }
 
-/** `A2A-Version` as Major.Minor; empty means 0.3 (spec §3.6.2). */
+/** `A2A-Version` as Major.Minor; empty means 0.3. */
 export function checkVersion(value: string | null | undefined): void {
   const trimmed = (value ?? "").trim();
   const [major, minor] = trimmed === "" ? ["0", "3"] : trimmed.split(".");
@@ -261,7 +261,7 @@ export function checkVersion(value: string | null | undefined): void {
 }
 
 /**
- * At most 200 characters: an identifier's grammar is the protocol's (B15), the same in every
+ * At most 200 characters: an identifier's grammar is the protocol's, the same in every
  * installation, so its length is a constant, not a setting.
  */
 const MAX_ID = 200;
@@ -305,9 +305,9 @@ export type MessageInput =
   | { files: readonly ({ text: string } | RawFile | UrlFile)[] };
 
 /**
- * What a message to a busy context does (profile v2 §1): queued, refused with `CONTEXT_BUSY`, or
- * steered into the running turn before its next step (Host feature `a2a-steer`, ADR-140), as a
- * session message's `delivery: "steer"` (D85).
+ * What a message to a busy context does (profile v2): queued, refused with `CONTEXT_BUSY`, or
+ * steered into the running turn before its next step (Host feature `a2a-steer`), as a
+ * session message's `delivery: "steer"`.
  */
 export type Delivery = "queue" | "reject" | "steer";
 
@@ -350,7 +350,7 @@ export function parseHistoryLength(value: unknown, field: string): number | unde
   return value;
 }
 
-/** The input of one part: exactly one of `text`, `raw`, `url`, `data` (spec §4.1.6). */
+/** The input of one part: exactly one of `text`, `raw`, `url`, `data`. */
 function partKind(part: unknown, field: string): "text" | "data" | "raw" | "url" {
   if (!isObject(part)) return a2aFail("invalidParams", `${field} must be an object`, {}, field);
   const kinds = (["text", "raw", "url", "data"] as const).filter((k) => part[k] !== undefined);
@@ -493,7 +493,7 @@ function parseAnswer(metadata: Record<string, unknown>): InteractionAnswer | und
   return { interactionId, value: raw.value };
 }
 
-/** `SendMessage` params (spec §3.2.1), checked in the order a client can fix them. */
+/** `SendMessage` params, checked in the order a client can fix them. */
 export function parseSendParams(params: Record<string, unknown>): SendParams {
   const message = params.message;
   if (!isObject(message))

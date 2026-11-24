@@ -29,7 +29,7 @@ type Step =
   | { kind: "refused"; dir: string; name?: string; message: string; diagnostics: readonly AgentFolderDiagnostic[] };
 
 /**
- * Upload folder (track T7): pick an agent's folder in the browser, and Studio hashes each file,
+ * Upload folder: pick an agent's folder in the browser, and Studio hashes each file,
  * uploads the ones the Runtime does not hold, and shows the plan of saving it (what changes,
  * errors, warnings and the compiler's diagnostics) before it saves it, as `nylorun apply` does.
  * The manifest takes the name `AGENT.md` gives it.

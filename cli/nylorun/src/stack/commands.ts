@@ -414,7 +414,7 @@ export interface StackTenant {
   message?: string;
 }
 
-/** `GET /ready` (no key): whether the Tenant is open, and its harnesses (I-D5). */
+/** `GET /ready` (no key): whether the Tenant is open, and its harnesses. */
 interface StackReady {
   ready: boolean;
   tenant: boolean;
@@ -980,7 +980,7 @@ export interface StackStatus {
     /** `http://localhost:<port>`: also what an embedding app frames (same site as its own localhost). */
     url?: string;
     state: string;
-    /** Exact origins that may show Studio in a frame (Studio §8.9). */
+    /** Exact origins that may show Studio in a frame. */
     embedOrigins?: string[];
   };
   /** Restate's UI: `url` only while published (`nylorun start --restate-ui`). */
@@ -988,7 +988,7 @@ export interface StackStatus {
   /** The gateway container (the Model Gate), in the combined packing. */
   gateway: { state: string; healthy: boolean };
   /**
-   * Where agent turns, MCP servers and workspaces run (F6.2): `remote`, the harness container,
+   * Where agent turns, MCP servers and workspaces run: `remote`, the harness container,
    * or `in-process`, the runtime container (`NYLORUN_HARNESS` in .env). `connected` counts the
    * harnesses attached to the Tenant, as the Runtime reports them.
    */

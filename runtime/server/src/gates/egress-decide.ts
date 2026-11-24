@@ -1,5 +1,5 @@
 /**
- * The keys provider's decide route (ADR-142): on Agent Substrate, Substrate's egress adds a
+ * The keys provider's decide route: on Agent Substrate, Substrate's egress adds a
  * sandbox's keys, and the keys provider beside it asks the Tenant here, for every keyed request,
  * what to add. It is served on egress-gate's listener (the gateway's `--service egress`, 4200),
  * which the sandboxes service's edge forwards its keys port to; no actor's egress policy allows
@@ -17,7 +17,7 @@
  *    value; a refusal is 403;
  * 3. a host the outside credential source lists for the Agent's owner, inside the Tenant's egress
  *    ceiling, is allowed: `200 { fetch: { agentId, owner, host } }`, and the keys provider asks the
- *    source for the value. The Runtime never sees a person's key (ADR-82 §3, D49);
+ *    source for the value. The Runtime never sees a person's key;
  * 4. else `404 not_found`.
  *
  * Without the token setting the route is off (404). Every decision is logged, never a value.

@@ -1,9 +1,9 @@
 // Command sandboxes is Nylorun's sandboxes service: the only holder of the cluster
-// credentials, it runs the Tenant's sandboxes for the Runtime's core (D32): as agent-sandbox
-// Sandboxes, or as Agent Substrate actors (ADR-138, preview). `sandboxes healthcheck` probes
+// credentials, it runs the Tenant's sandboxes for the Runtime's core: as agent-sandbox
+// Sandboxes, or as Agent Substrate actors (preview). `sandboxes healthcheck` probes
 // /ready for the Compose health check; `sandboxes substrate-setup` makes the Tenant's atespace
 // once, as one of Substrate's owners (`nylorun local sandbox enable --backend substrate`);
-// `sandboxes provider` is the keys provider Substrate's egress asks for keys (ADR-142), as a pod
+// `sandboxes provider` is the keys provider Substrate's egress asks for keys, as a pod
 // in Substrate's namespace.
 package main
 
@@ -204,7 +204,7 @@ func substrateBackend(ctx context.Context, cfg config.Config, log *slog.Logger) 
 	settings := substrate.Settings{Atespace: sub.Atespace, WorkerSelector: sub.WorkerSelector, KeysProvider: sub.KeysProvider, ImageMirrors: cfg.Cluster.Mirrors}
 	var front *edge.Server
 	if port := sub.ComputerPort(); port > 0 {
-		// Computers (ADR-149): no edge; the template carries the key tickets are checked with.
+		// Computers: no edge; the template carries the key tickets are checked with.
 		private, err := ticket.LoadPrivate(envOr("NYLORUN_COMPUTER_TICKET_KEY_FILE", "/run/nylorun/computer/ticket.key"))
 		if err != nil {
 			closeConn()
@@ -216,7 +216,7 @@ func substrateBackend(ctx context.Context, cfg config.Config, log *slog.Logger) 
 			return nil, nil, err
 		}
 		settings.ComputerPort, settings.TicketKey = port, public
-		// What serves each computer: the computer agent's image, or the Runtime's engine (ADR-154).
+		// What serves each computer: the computer agent's image, or the Runtime's engine.
 		settings.ComputerAgent, settings.ComputerImage = cfg.ComputerAgent, cfg.ComputerImage
 		log.Info("sandboxes computers", "port", port, "agent", cfg.ComputerAgent, "image", cfg.ComputerImage)
 	} else {
@@ -296,7 +296,7 @@ func edgeFront(cfg config.Config, settings *substrate.Settings, log *slog.Logger
 		{Name: "gates", Listen: envOr("NYLORUN_SANDBOXES_EDGE_GATES_LISTEN", ":8444"), Upstream: gatesUp},
 	}}
 	if sub.Edge.KeysPort > 0 {
-		// The keys provider's way to the egress service's decide route (ADR-142); no actor rule
+		// The keys provider's way to the egress service's decide route; no actor rule
 		// allows this port.
 		keysUp, err := url.Parse(envOr("NYLORUN_SANDBOXES_EDGE_KEYS_UPSTREAM", "http://gateway:4200"))
 		if err != nil {
@@ -361,7 +361,7 @@ func substrateSetup() error {
 	return nil
 }
 
-// runProvider serves the keys provider (ADR-142): FetchSecret over mutual TLS on --listen, and
+// runProvider serves the keys provider: FetchSecret over mutual TLS on --listen, and
 // /readyz on --health.
 func runProvider(log *slog.Logger, args []string) error {
 	fs := flag.NewFlagSet("provider", flag.ContinueOnError)
@@ -418,7 +418,7 @@ func runProvider(log *slog.Logger, args []string) error {
 	}
 }
 
-// runGateway serves the sandbox gateway (ADR-148): the computers' one way in, through
+// runGateway serves the sandbox gateway: the computers' one way in, through
 // atenet-router, for callers with a computer ticket.
 func runGateway(log *slog.Logger, args []string) error {
 	fs := flag.NewFlagSet("gateway", flag.ContinueOnError)

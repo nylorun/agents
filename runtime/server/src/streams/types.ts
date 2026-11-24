@@ -1,5 +1,5 @@
 /**
- * The Durable Streams seam (Durable Streams §8).
+ * The Durable Streams seam.
  *
  * Durable Streams deliver what the record holds. Each Tenant has one S2 basin per basin
  * generation (`streams/basin.ts`); inside it:
@@ -7,10 +7,10 @@
  * | Stream | Contents | Written by | Read by |
  * | --- | --- | --- | --- |
  * | `sessions/<sessionId>` | every event of the session, in sequence | the stream relay, from the record | history and session SSE |
-| `runs` | every run of the Tenant's triggers (D83), kept 7 days | `tenant/runs-stream.ts`, after the commit that made the run, and the sweep | `GET /v1/runs/stream` |
+| `runs` | every run of the Tenant's triggers, kept 7 days | `tenant/runs-stream.ts`, after the commit that made the run, and the sweep | `GET /v1/runs/stream` |
  *
  * S2 serves API listeners only (history, SSE, AG-UI, A2A): nothing inside the Runtime signals
- * through it or waits on it (D48). Signals between processes go over the control bus on
+ * through it or waits on it. Signals between processes go over the control bus on
  * Postgres (`store/postgres/control.ts`).
  *
  * **Basin generations.** A session id is unique within its Tenant's basin generation. A
@@ -132,7 +132,7 @@ export interface DurableStreams {
   close(): Promise<void>;
   /**
    * Resolves when the backing service answers, rejects otherwise (the Tenant's status,
-   * `streamsStatus` in `tenant/streams.ts`; never readiness, D48). Absent for in-process implementations, which are
+   * `streamsStatus` in `tenant/streams.ts`; never readiness). Absent for in-process implementations, which are
    * always reachable.
    */
   probe?(signal: AbortSignal): Promise<void>;
@@ -142,7 +142,7 @@ export interface DurableStreams {
 // Stream names
 
 export const SESSION_STREAM_PREFIX = "sessions/";
-/** The Tenant's runs stream (D83): every run of its triggers, beside the session streams. */
+/** The Tenant's runs stream: every run of its triggers, beside the session streams. */
 export const RUNS_STREAM = "runs";
 /** How long the runs stream keeps a run: 7 days. */
 export const RUNS_STREAM_RETENTION_SECS = 7 * 24 * 3600;

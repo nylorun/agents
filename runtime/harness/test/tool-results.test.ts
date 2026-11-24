@@ -1,5 +1,5 @@
 /**
- * Tool results that fit (R2b C11, protocol 15), shaped by our engine before it reports them:
+ * Tool results that fit (protocol 15), shaped by our engine before it reports them:
  * the record refuses an entry past `recordEntryBytes`, so text past the cap becomes an artifact
  * with a preview, binary parts become artifacts (an image also a file for a model that reads it),
  * one step's results share a budget, and every stored result is keyed by its call and its bytes.
@@ -439,7 +439,7 @@ describe("the API host", () => {
   });
 });
 
-describe("tool result configuration (B15c)", () => {
+describe("tool result configuration", () => {
   it("keeps no preview under minPreviewBytes, and a cut message fits its limit as JSON", () => {
     expect(DEFAULT_TOOL_RESULT_CONFIG.minPreviewBytes).toBe(64);
     for (const limit of [200, 2_000]) {

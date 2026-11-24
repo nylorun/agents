@@ -2,7 +2,7 @@ import { hostTuning } from "./tuning.js";
 
 export interface ScrubOptions {
   /**
-   * Replace only `secrets` (R2b C8, Q16): no value under a secret-looking key, and no inline
+   * Replace only `secrets`: no value under a secret-looking key, and no inline
    * image data. A tool's answer keeps fields such as `nextToken`.
    */
   readonly valuesOnly?: boolean;

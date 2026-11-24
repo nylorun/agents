@@ -29,7 +29,7 @@ import {
  * the context, in one user message: each file's line, then what `files` (`representFiles`)
  * made of it, a media part, a `<file>` block or a note. Without `files`, each goes as its media
  * part. Their content reaches the model only in their own turn. `readable` false for an agent
- * without `read_artifact` (ADR-100): no reference line offers it. Last, when the turn's plan has
+ * without `read_artifact`: no reference line offers it. Last, when the turn's plan has
  * fallen behind, one line reminds the model to keep it (`planReminder`).
  */
 export function projectModelCall(
@@ -245,7 +245,7 @@ function projectToolResult(result: ToolResult, readable: boolean): PromptItem {
     status: result.kind,
     content: [
       textPart(JSON.stringify(toolResultPayload(result))),
-      // Files the tool returned, stored by the host (R2b C11): each is its reference line, and
+      // Files the tool returned, stored by the host: each is its reference line, and
       // goes to the model in its own turn with the turn's files.
       ...(result.kind === "completed" && result.files
         ? result.files.map((file) =>

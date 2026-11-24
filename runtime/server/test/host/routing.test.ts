@@ -64,7 +64,7 @@ it("ignores a Nylorun-Key header, which no longer names a Tenant (protocol 7)", 
   }
 });
 
-it("C3: tenant id in query or body is ignored for selection", async () => {
+it("tenant id in query or body is ignored for selection", async () => {
   const other = newTenantId();
   const { url } = await startTestHost({ module: createFakeModule() });
   const { status, body } = await getJson(

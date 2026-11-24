@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Bundles the pod's engine (dist/host/harness-entry.js) into one ESM script for the Runtime image's
- * /engine (ADR-92 §5). Native addons and optional modules stay outside: the image copies the one
+ * /engine. Native addons and optional modules stay outside: the image copies the one
  * the engine loads (@mongodb-js/zstd) beside the script, and node-liblzma is loaded inside a try.
  *
  *   node scripts/bundle-harness.mjs <out dir>

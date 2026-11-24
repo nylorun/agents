@@ -1,4 +1,4 @@
-// Package ticket reads and checks computer tickets (ADR-148, the Runtime on Kubernetes plan):
+// Package ticket reads and checks computer tickets:
 // compact JWS tokens core signs with Ed25519 (`alg: EdDSA`), with `aud: "nylorun-computer"`, `sub`
 // the sandbox's name and `exp` in seconds. The sandbox gateway checks them, and the computer's
 // engine checks them again with the public key its template carries.

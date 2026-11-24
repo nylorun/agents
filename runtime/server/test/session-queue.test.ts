@@ -1,5 +1,5 @@
 /**
- * A queue per session (protocol 17, track T4, D76): a message sent while the session's turn runs
+ * A queue per session (protocol 17): a message sent while the session's turn runs
  * waits in its queue, unless it asks `delivery: "reject"` (`409 session_busy`), and the turn that
  * ends starts the next one with every queued message, each its own user message. A protocol 16
  * client's message is refused as before; a cancel ends the turn, not the queue; the queue holds at

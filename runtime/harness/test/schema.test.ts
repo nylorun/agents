@@ -365,7 +365,7 @@ describe("Zod schemas", () => {
     await turn(result).handle.completed;
   });
 
-  it("does not check a host's preview of a result too large to show, and keeps its files (R2b C11)", async () => {
+  it("does not check a host's preview of a result too large to show, and keeps its files", async () => {
     let call = 0;
     const preview = { truncated: true, artifactId: "af_1", size: 200_000, preview: "…" };
     const files = [{ mediaType: "image/png", reference: { artifactId: "af_2", version: 1 } }];

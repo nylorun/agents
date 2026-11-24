@@ -1,5 +1,5 @@
 /**
- * Host tuning (`tuning.ts`, B15): one schema of the processes' timings, retries and internal
+ * Host tuning (`tuning.ts`): one schema of the processes' timings, retries and internal
  * sizes, each with a default equal to the value the Runtime used before; `NYLORUN_TUNING` sets
  * any of them, read once at start. A value set reaches the code that uses it.
  */
@@ -216,7 +216,7 @@ describe("the Host tuning schema", () => {
     expect(() => hostTuningOf({ streams: { relayBatchBytes: 2 * 1024 * 1024 } })).toThrow(/relayBatchBytes/);
     // The sandboxes service waits 30 s at most.
     expect(() => hostTuningOf({ pods: { waitMs: 60_000 } })).toThrow(/pods\.waitMs/);
-    // A dedupe key is kept a day at least (§12.3).
+    // A dedupe key is kept a day at least.
     expect(() => hostTuningOf({ execution: { dedupeRetentionMs: 60_000 } })).toThrow(/dedupeRetentionMs/);
     expect(() => hostTuningOf({ tenant: { openRetry: { minMs: 10, maxMs: 5 } } })).toThrow(
       /tenant\.openRetry: minMs must be at most maxMs/,
@@ -227,7 +227,7 @@ describe("the Host tuning schema", () => {
     expect(() => hostTuningOf({ postgres: { controlWindowSeconds: 1 } })).toThrow(/controlWindowSeconds/);
     expect(() => hostTuningOf({ engine: { compaction: { keepShare: 2 } } })).toThrow(/engine\.compaction\.keepShare/);
     expect(() => hostTuningOf({ engine: { outputs: { dir: "outputs" } } })).toThrow(/engine\.outputs\.dir/);
-    // B15c: Postgres binds 65,535 parameters a statement, four a content row.
+    // Postgres binds 65,535 parameters a statement, four a content row.
     expect(() => hostTuningOf({ postgres: { contentBatchRows: 16_384 } })).toThrow(/postgres\.contentBatchRows/);
     expect(hostTuningOf({ postgres: { contentBatchRows: 16_383 } }).postgres.contentBatchRows).toBe(16_383);
     // Token lifetimes against each other, and the advance deadline against Restate's.

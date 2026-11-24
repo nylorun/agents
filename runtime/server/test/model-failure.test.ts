@@ -1,10 +1,10 @@
 /**
- * Model Calls P0 (design §6): a provider failure is a known outcome, not a lost call. The
+ * A provider failure is a known outcome, not a lost call. The
  * turn retries, then fails cleanly with `model.<code>`, and the session takes the next
  * message. Providers are faked by answering the custom endpoint's requests.
  *
  * Every case runs twice: with the model called in the Tenant's process, and through the gates
- * service over HTTP (blueprint P1.1), which must behave the same.
+ * service over HTTP, which must behave the same.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Agent, createClient, type AgentsClient } from "@nylorun/agents";

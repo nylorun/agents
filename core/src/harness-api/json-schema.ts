@@ -73,16 +73,16 @@ export function harnessApiSchemas(): Record<string, z.ZodType> {
  * The revision of v5's document: the claims a harness may make grew within v5 (`plan.updated`,
  * additive: core accepts more, and a v5 harness that claims none of it is unchanged), and a
  * published `$id` names one document for good. Revision 2: `engine.diagnostic` among the claims,
- * `turn.start.memory.index` absent for a version that pins none (ADR-100), and
+ * `turn.start.memory.index` absent for a version that pins none, and
  * `turn.start.memory.refresh` (an optional field a v5 harness may ignore, keeping the index it
- * pinned). Revision 3: `turn.start.agent.triggers` and the `runtime` operation `triggers` (D83),
+ * pinned). Revision 3: `turn.start.agent.triggers` and the `runtime` operation `triggers`,
  * which a v5 harness that offers no `triggers` tool never sees. Revision 4: the effect kind `inputs`
- (D85): the messages steered into the running turn, which core answers at once and a v5 harness
+: the messages steered into the running turn, which core answers at once and a v5 harness
  that never asks for it never sees. Revision 5: `artifact.write` `begin` may carry
- `audience: "model"` (ADR-139), which core accepts and only our own engine sends. Revision 6:
- `routing.sandbox.computer` and the request `computer.open` (ADR-149), which a v5 harness never
+ `audience: "model"`, which core accepts and only our own engine sends. Revision 6:
+ `routing.sandbox.computer` and the request `computer.open`, which a v5 harness never
  sees unless the Tenant's pod Agents are computers. Revision 7: the request `computer.current`,
- which only a harness that drives computers sends. Revision 8: `turn.start.role` (ADR-157), the
+ which only a harness that drives computers sends. Revision 8: `turn.start.role`, the
  session's role, which the Runtime sends only to our own harness.
  */
 const SCHEMA_REVISION = 8;

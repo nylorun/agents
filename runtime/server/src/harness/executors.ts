@@ -1,5 +1,5 @@
 /**
- * A harness's executors (F6.1, F6.2): the model route, the Tool Gate (remote MCP and HTTP
+ * A harness's executors: the model route, the Tool Gate (remote MCP and HTTP
  * tools), an MCP pool and a SandboxManager, injected. They reach no store: a run's routing comes
  * with its `turn.start`, and the session's MCP discovery is recorded through core (`session.mcp`,
  * `prepare`).
@@ -34,7 +34,7 @@ export interface HarnessExecutorsOptions {
   /** The SandboxManager; a harness process creates it once `hello` names the Tenant. */
   readonly sandbox: () => SandboxManager;
   /**
-   * The manager of a run whose sandbox is a computer (`routing.sandbox.computer`, ADR-149): one on
+   * The manager of a run whose sandbox is a computer (`routing.sandbox.computer`): one on
    * the computer backend, opened with `computer.open`. Absent: such a run's sandbox calls fail.
    */
   readonly computer?: (run: HarnessRun) => SandboxManager;
@@ -62,7 +62,7 @@ export function harnessExecutors(options: HarnessExecutorsOptions): HarnessExecu
     recoversTools && atGate(effect, run);
   return {
     // Every call goes through the Model Gate (protocol 15); with the Tenant's fixture model on,
-    // the gate answers it (R4.3), metered like any call.
+    // the gate answers it, metered like any call.
     model: (effect, signal) => invokeModel(options.model, effect, signal),
     tool(effect, signal, run, call) {
       const routing = routingOf(run);
@@ -73,7 +73,7 @@ export function harnessExecutors(options: HarnessExecutorsOptions): HarnessExecu
       // its stage.
       if (isHttpToolCall(routing.rootManifest, effect))
         return callHttpTool(options.toolGate, effect, abortOn(signal, kinds), traceparent);
-      // A sandbox command joins its call's span (R7.4): a CLI that reads TRACEPARENT traces under it.
+      // A sandbox command joins its call's span: a CLI that reads TRACEPARENT traces under it.
       if (effect.target?.kind === "sandbox")
         return callSandboxTool(
           managerOf(run),
@@ -99,7 +99,7 @@ export function harnessExecutors(options: HarnessExecutorsOptions): HarnessExecu
       },
       tool: recovered,
     },
-    // A gate hop that lost the answer: the call is sent again with its key (R5.3).
+    // A gate hop that lost the answer: the call is sent again with its key.
     resends: (effect, error, run) => error instanceof GateCallLost && atGate(effect, run),
     async cancelAtGate(effect) {
       await options.toolGate.cancel?.({
@@ -155,7 +155,7 @@ async function withSandbox<T>(
 }
 
 /**
- * Readies the run's MCP servers (§10.5 step 3): a run without MCP facts (`turn.start.mcp`, the
+ * Readies the run's MCP servers: a run without MCP facts (`turn.start.mcp`, the
  * session's first) discovers their tools and records the snapshot (the first recorded wins);
  * later ones reconnect the snapshot's servers and record what failed. A turn's first segment also
  * discovers again each declared server the snapshot lacks (one that failed or was refused before),

@@ -13,7 +13,7 @@ import { startToolServer, type ToolServer } from "./support/tool-server.js";
 import { setToolPolicy } from "./support/tool-policy.js";
 
 /**
- * Phase 0 and Phase 1 exit gates: an AG-UI client drives the handler against a Runtime,
+ * An AG-UI client drives the handler against a Runtime,
  * through `toNodeListener` on `node:http`, inside a stub app server that authenticates the
  * person (`x-user`) and strips any `Nylorun-*` header its clients send. The handler calls the
  * Runtime as each person (`client.as`), so the Runtime enforces who owns which thread.
@@ -143,7 +143,7 @@ beforeAll(async () => {
     await client.agentManifests.save({ agent, runtime: { kind: "virtual" } });
     await client.agents.put(agent.id, { manifest: agent.id });
   }
-  // The guarded agent's save waits for a person (R5 step 2).
+  // The guarded agent's save waits for a person.
   await setToolPolicy(runtime, [{ effect: "ask", tool: "save", agent: "guarded" }]);
   const handler = createAgUiHandler({
     basePath: "/api/agui",
