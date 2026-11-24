@@ -1,5 +1,24 @@
 # @nylorun/agents
 
+## 0.43.0-beta
+
+### Minor Changes
+
+- 807b302: Skills only a person starts. A `SKILL.md` may set `disable-model-invocation: true`, as Claude Code's skills do; the compiler and the SDK carry it as the skill's `disableModelInvocation: true`. Such a skill is left out of the model's catalog and `load_skill` unless the turn's message names it: a message command's new `skill` (the SDK's `MessageOptions.skill`, an A2A message's `metadata.skill`). The named skill is offered for that turn only, and the model is told the person started it; an agent used as a tool never gets it. A name the session's agent doesn't hold is `400 unknown_skill`, and a message naming a skill waits for its own turn rather than steering one. Host feature `person-started-skills`; agent manifest `v8.7` and harness file `v1.7` take the field. Also fixes the SDK sending a message's `context` twice with parts.
+- f872ddd: An Agent Plugin's own files reach the sandbox. A vendored plugin holding files beyond its `plugin.json`, servers, skills and subagent files (a plugin's `resources/`, its persona files, its docs) carries all of them, but secret-shaped ones, by hash on its `harness.plugins` entry and on the loop manifest's new `plugins`, in the folder compiler and in the SDK's `.plugin()` and `harness.manifest.json` plugins. They are definition files: uploaded with the skills' files, named at save (`definition_files_missing`), bounded together as a skill's are, and served to the run. Before a sandbox call the harness mounts each such plugin read-only at `/plugins/<name>@<hash>/`, for the root and its subagents, and `load_skill` answers a plugin skill's `pluginPath`. A plugin holding only its parts carries no files, so its manifest doesn't change. Agent manifest schema `v8.7`, harness file `v1.7`, Host feature `plugin-files`; `nylorun check` says how many of a plugin's files are mounted.
+- 0ebf870: A vendored Agent Plugin loads as its author published it, with or without a `$schema`. A plugin's `plugin.json` and `mcp.json` without `$schema` read as Agent Plugins 1.0.0, in the folder compiler and in the SDK's `.plugin()` and `harness.manifest.json` plugins; a `$schema` that names another format is still refused (`plugin_invalid`, `plugin.schema-unsupported`). A `harness.manifest.json`'s own `mcpServers` file keeps its rule.
+
+### Patch Changes
+
+- 8b3df7c: Help text, error messages, API descriptions and doc comments say what the behaviour is without naming internal plan or decision identifiers. No behaviour changes.
+- Pin core to the tested release.
+- Updated dependencies [807b302]
+- Updated dependencies [8b3df7c]
+- Updated dependencies [f872ddd]
+- Updated dependencies [0ebf870]
+- Updated dependencies [8390f9b]
+  - @nylorun/core@0.54.0-beta
+
 ## 0.42.3-beta
 
 ### Patch Changes
