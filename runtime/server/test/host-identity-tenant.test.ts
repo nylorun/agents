@@ -1,5 +1,5 @@
 /**
- * ADR-71 at the Tenant's routes: `PUT /v1/tenant/model` takes a `host_identity` credential for
+ * The Host's identity at the Tenant's routes: `PUT /v1/tenant/model` takes a `host_identity` credential for
  * `google-vertex` only while the Host lends its identity, keeps no secret, and reports it as the
  * model's auth type. The Model Gate's side is in `host-identity.test.ts`.
  */

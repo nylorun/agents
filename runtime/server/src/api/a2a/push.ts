@@ -1,5 +1,5 @@
 /**
- * A2A push notifications (profile v2 §3, Host feature `a2a-profile-v2`): a caller registers a
+ * A2A push notifications (profile v2, Host feature `a2a-profile-v2`): a caller registers a
  * config for a task (inside `SendMessage`, or with `CreateTaskPushNotificationConfig`), and every
  * update of that task is POSTed to its URL, at least once, signed with Standard Webhooks.
  *

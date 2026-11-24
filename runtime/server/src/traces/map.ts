@@ -1,6 +1,6 @@
 /**
- * Row to span (R7.2): a pure function from one committed session event and its turn's trace to
- * at most one OTLP span, so the projector, a replay of its slot and the trace route (R7.5) give
+ * Row to span: a pure function from one committed session event and its turn's trace to
+ * at most one OTLP span, so the projector, a replay of its slot and the trace route give
  * the same spans. Nothing outside the row and the turn is read.
  *
  * | Row | Span |
@@ -15,17 +15,17 @@
  * Every other row, and every row without a turn, makes none. Every child's parent is the turn's
  * span, so a child exported before its turn ends still joins it.
  *
- * Timing: a span with a gate's own measurement (`gate`, R7.1) is that measurement; any other ends
+ * Timing: a span with a gate's own measurement (`gate`) is that measurement; any other ends
  * at the row's time and starts `durationMs` before it (the journal's window, exported as
  * `nylorun.effect.window_ms`). Egress has no span: a connection is the Environment's, not a
- * turn's (D67), and is read from the Environment's events.
+ * turn's, and is read from the Environment's events.
  *
  * Attribute names follow the OTel GenAI conventions at `GENAI_SEMCONV` (still in Development
  * status), recorded on the resource as `nylorun.semconv.genai`; the rest are `nylorun.*`. A span
  * never carries a person's id (`ownerUserId`, a subject, who approved), an identity header, an
  * idempotency key or a credential value (the log holds none). Content (what a person said, the
  * model's output and the tool calls it asked for, tool results and error messages) is left out
- * unless the installation opts in (`OTEL_INSTRUMENTATION_GENAI_CAPTURE_CONTENT=SPAN_ONLY`, ADR-159;
+ * unless the installation opts in (`OTEL_INSTRUMENTATION_GENAI_CAPTURE_CONTENT=SPAN_ONLY`;
  * `TraceContent`). Content attributes are structured OTLP values (`arrayValue`, `kvlistValue`), as
  * the conventions type them, each text in them cut at the Tenant's Runtime limit
  * `traceContentBytes` (`SpanSettings.contentBytes`) with the structure kept. A tool call's
@@ -40,7 +40,7 @@ import { effectSpanOf, eventSpanOf, parseTraceparent, traceIdOf, turnSpanOf, typ
 export const GENAI_SEMCONV = "open-telemetry/semantic-conventions-genai@622b2b6073b15e5ed886c3c12a65a892b9cd5c70";
 
 /**
- * The content an installation exports (Q4): `user` (what a person sent, on the turn's span),
+ * The content an installation exports: `user` (what a person sent, on the turn's span),
  * `outputs` (the model's text and tool calls, a tool call's arguments, and a turn's output),
  * `tool-results` and `errors` (error messages; their codes are always exported).
  * `OTEL_INSTRUMENTATION_GENAI_CAPTURE_CONTENT=SPAN_ONLY` turns on every kind; the deprecated
@@ -80,7 +80,7 @@ export interface OtlpSpan {
 }
 
 /**
- * A turn's trace: its trace id, its span, and the context it arrived with (R7.4). Built from the
+ * A turn's trace: its trace id, its span, and the context it arrived with. Built from the
  * turn's `command.message` (`turnTraceOf`), so it is the same wherever the log is read.
  */
 export interface TurnTrace {
@@ -180,7 +180,7 @@ export function spanOf(row: LiveEvent, turn: TurnTrace, settings: SpanSettings):
         .str("gen_ai.operation.name", "invoke_agent")
         .str("gen_ai.agent.id", p.agentId)
         .str("gen_ai.agent.name", agentName)
-        // The agent manifest version the turn ran (T3): an Agent moves between versions.
+        // The agent manifest version the turn ran: an Agent moves between versions.
         .int("nylorun.manifest.version", typeof manifest?.version === "number" ? manifest.version : undefined)
         .str("nylorun.turn.status", status)
         .int("nylorun.turn.paused_ms", p.pausedMs)
@@ -265,7 +265,7 @@ export function spanOf(row: LiveEvent, turn: TurnTrace, settings: SpanSettings):
         .str("gen_ai.agent.id", p.agent?.id)
         .str("nylorun.effect.id", p.effectId)
         .int("nylorun.effect.window_ms", p.durationMs)
-        // The gate's provider calls for this one (Model Calls §6): more than 1 after a retry.
+        // The gate's provider calls for this one: more than 1 after a retry.
         .int("nylorun.model.attempts", typeof p.attempts === "number" ? p.attempts : undefined)
         .str("nylorun.compaction.trigger", row.type === "context.compacted" ? p.trigger : undefined)
         .str("error.type", row.type === "model.failed" ? p.code : undefined)

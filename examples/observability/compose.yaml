@@ -1,4 +1,4 @@
-# Somewhere to see the Runtime's telemetry on one machine (ADR-159): Grafana's all-in-one
+# Somewhere to see the Runtime's telemetry on one machine: Grafana's all-in-one
 # OpenTelemetry backend (a Collector, Prometheus, Tempo, Loki and Grafana in one container), for
 # development only. The Runtime stores no telemetry of its own; point it here with the OTEL_*
 # variables in README.md.

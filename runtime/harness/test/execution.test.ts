@@ -234,7 +234,7 @@ describe("stateless execution", () => {
       onModelCall: async () => "plain",
     });
     expect(first.status).toBe("completed");
-    // A new version of the agent (track T3) adds an output schema; the host aligns the state's hash.
+    // A new version of the agent adds an output schema; the host aligns the state's hash.
     const next = Agent({ id: "a", name: "A" })
       .output(z.object({ count: z.number() }))
       .build();

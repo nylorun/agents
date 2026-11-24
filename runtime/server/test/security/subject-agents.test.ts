@@ -1,5 +1,5 @@
 /**
- * The access acceptance's A1 and A2 on a test Tenant (protocol 16): each subject of the
+ * The access acceptance's first two scenarios on a test Tenant (protocol 16): each subject of the
  * application key opens a session on its own Agent (`users/<role>/desk`, owner-guarded, made from
  * the agent manifest `desk`, which the app saved), follows its events, and its turn pauses for
  * the Tenant's tool policy, whose rule names the calling agent by its manifest (`agent: "desk"`),

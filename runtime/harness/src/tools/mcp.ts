@@ -1,6 +1,6 @@
 /**
  * The session's MCP tools as our engine offers them (protocol 15): named, deferred behind
- * `tool_search` past the threshold (only for an agent that declares tool search, ADR-100, or
+ * `tool_search` past the threshold (only for an agent that declares tool search, or
  * declares nothing), and laid out once per session's facts. The code is `@nylorun/core/engine`'s,
  * which the SDK's `previewTurn` runs too.
  */

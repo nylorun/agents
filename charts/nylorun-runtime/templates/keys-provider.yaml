@@ -1,6 +1,6 @@
 {{- if .Values.keysProvider.enabled }}
 {{- $ns := .Values.substrate.systemNamespace -}}
-# The keys provider (ADR-142), `sandboxes provider`, beside Substrate's egress in its namespace:
+# The keys provider, `sandboxes provider`, beside Substrate's egress in its namespace:
 # mutual TLS with its servicedns pod certificate, admitting only the egress's identity. It asks
 # this release's decide route (its config Secret, in secrets.yaml). Substrate names it at its own
 # install (--credential-provider, keys.nylorun.dev at nylorun-keys-provider.<ns>.svc:50051).

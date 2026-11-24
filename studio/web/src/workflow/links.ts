@@ -3,7 +3,7 @@ import { payloadOf, type EventLike, type WorkflowLink } from "./types.ts";
 /**
  * Build agent↔workflow links from `node.agent` events and optional Runtime
  * links-index records (fixtures when the public API is absent).
- * Path is the agent node path (workflows.md §7).
+ * Path is the agent node path.
  */
 export function linksFromEvents(
   events: readonly EventLike[],

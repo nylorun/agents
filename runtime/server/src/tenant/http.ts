@@ -1,6 +1,6 @@
 /**
  * The Tenant's typed rejections: what a route or the code it calls throws for the client to
- * see (`api/http/respond.ts` answers it), and the opaque 404 (D5) for what must not be told
+ * see (`api/http/respond.ts` answers it), and the opaque 404 for what must not be told
  * apart from nothing: a capability link the Runtime did not sign, a Tenant that is not this
  * Host's. Credentials are `401` with a challenge since protocol 9 (`resource-server.ts`).
  *
@@ -8,7 +8,7 @@
  */
 import { hostTuning } from "../tuning.js";
 
-/** D5's opaque failure: a 404 that says nothing of why. */
+/** The opaque failure: a 404 that says nothing of why. */
 export const OPAQUE_NOT_FOUND = {
   status: "rejected" as const,
   code: "not_found" as const,

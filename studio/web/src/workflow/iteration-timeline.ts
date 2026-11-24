@@ -1,6 +1,6 @@
 import { payloadOf, type EventLike, type IterationRecord } from "./types.ts";
 
-/** Build a per-Loop iteration timeline from `loop.*` events (loops.md §4.6). */
+/** Build a per-Loop iteration timeline from `loop.*` events. */
 export function iterationTimelineFromEvents(
   events: readonly EventLike[],
   options: { readonly path?: string } = {},

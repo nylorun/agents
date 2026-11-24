@@ -1,6 +1,6 @@
 /**
  * Pure helpers over the session document: turn-manifest pins and variants. The engine's state
- * is the harness's (R4.2): nothing here reads it.
+ * is the harness's: nothing here reads it.
  * No store access and no I/O. (The tools of an MCP snapshot
  * live in `mcp/snapshot.ts`.)
  *

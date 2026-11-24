@@ -679,7 +679,7 @@ function RouteNotFound({ what, segment }: RouteNotFoundProps) {
 }
 
 /**
- * `/tenants/:tenant/sessions/:session` (Studio §8.3): finds the session's Agent
+ * `/tenants/:tenant/sessions/:session`: finds the session's Agent
  * and replaces itself with the session's page under it. Embedders often know only
  * the session id.
  */
@@ -972,7 +972,7 @@ function SessionView({
 
   const busy =
     sending || ["loading", "running", "runnable", "waiting"].includes(status);
-  // Tool calls the Tool Gate holds for a person (R5 step 2).
+  // Tool calls the Tool Gate holds for a person.
   const approvals = useMemo(() => pendingApprovals(events), [events]);
 
   const attach = useCallback((files: readonly File[]) => {

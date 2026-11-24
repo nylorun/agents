@@ -14,7 +14,7 @@ function contextBlock(call: ModelCall): string | undefined {
   return start < 0 ? undefined : text.slice(start, text.indexOf("</runtime-context>") + 18);
 }
 
-describe("message context (ADR-157)", () => {
+describe("message context", () => {
   it("reaches every model call of its turn, after the history, and none of the next turn's", async () => {
     const calls: ModelCall[] = [];
     let step = 0;

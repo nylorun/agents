@@ -1,5 +1,5 @@
 /**
- * The fix-its an agent folder's diagnostics carry (track T7, `nylorun check --fix`): a rename to
+ * The fix-its an agent folder's diagnostics carry (`nylorun check --fix`): a rename to
  * the one did-you-mean, CRLF line ends, and a `SKILL.md`'s `secrets` moved to `AGENT.md`, each
  * attached only where one edit fixes it; and `applyFolderFixes`, which makes them.
  */

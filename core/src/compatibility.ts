@@ -278,7 +278,7 @@ export const OPTIONAL_HOST_FEATURES = [
    */
   "remove-tools",
   /**
-   * A message's `context` (ADR-157): up to 16 items `{type?, value}` for its own turn. Our engine puts
+   * A message's `context`: up to 16 items `{type?, value}` for its own turn. Our engine puts
    * them in the `<runtime-context>` block of every model call of that turn, after the history, and
    * later turns leave them out; `command.message` keeps them. Our harness also reads
    * `harness.loop.compaction` (`threshold`, `keepTokens`, per role), with the session's role in
@@ -286,13 +286,13 @@ export const OPTIONAL_HOST_FEATURES = [
    */
   "message-context",
   /**
-   * The Tenant's stream (ADR-159): `GET /v1/tenant/audit` (the Management API) pages, newest first,
+   * The Tenant's stream: `GET /v1/tenant/audit` (the Management API) pages, newest first,
    * the keys put and deleted, signing keys rotated and revoked, tool policy and settings changes,
    * vault credentials written and used, and Studio sign-ins, each with who did it and no secret.
    */
   "tenant-audit",
   /**
-   * The triggers capability (D83): an agent whose version declares `harness.engine.triggers` sets
+   * The triggers capability: an agent whose version declares `harness.engine.triggers` sets
    * up its own triggers with the `triggers` tool, kept by the Agent (`origin: agent` in
    * `GET /v1/agents/{id}/triggers`); `DELETE /v1/agents/{id}/triggers/{triggerId}` deletes one;
    * a tool rule of `kind: "runtime"` decides the operations the Runtime serves; the manifest's
@@ -300,14 +300,14 @@ export const OPTIONAL_HOST_FEATURES = [
    */
   "agent-triggers",
   /**
-   * Triggers a client puts on one Agent (D88): `PUT /v1/agents/{id}/triggers/{triggerId}` with a
+   * Triggers a client puts on one Agent: `PUT /v1/agents/{id}/triggers/{triggerId}` with a
    * `Trigger` and an optional `title` creates or replaces the Agent's `api` trigger; `DELETE`
    * removes it; the list shows `origin: api` and its `principal`; the trigger events carry `origin`,
    * `principal` and `changed`.
    */
   "api-triggers",
   /**
-   * A message's `delivery: "steer"` (D85): to a busy agent session it waits in the session queue
+   * A message's `delivery: "steer"`: to a busy agent session it waits in the session queue
    * marked `steer`, and our engine takes it into the running turn before its next step (the
    * `inputs` effect, Harness API 5.4). The answer and `message.queued` say which delivery applied;
    * a steer the turn doesn't take starts the next turn, as a queued message does.
@@ -324,15 +324,15 @@ export const OPTIONAL_HOST_FEATURES = [
    */
   "queue-recovery",
   /**
-   * The A2A endpoint's `message.metadata.delivery: "steer"` (ADR-140): a session message's steer
-   * (`steer`, D85). To a busy context the message waits marked `steer` and the running turn takes
+   * The A2A endpoint's `message.metadata.delivery: "steer"`: a session message's steer
+   * (`steer`). To a busy context the message waits marked `steer` and the running turn takes
    * it before its next step, its task then that turn's; to an idle context, a workflow's, or a
    * turn past its last step it is an ordinary queued message. The task `SendMessage` answers
    * carries `metadata.delivery`: `steered` or `queued`.
    */
   "a2a-steer",
   /**
-   * An Agent becomes a computer (ADR-154): on a Runtime whose pods are computers, a
+   * An Agent becomes a computer: on a Runtime whose pods are computers, a
    * `PUT /v1/agents/{id}` that moves a `virtual` Agent to a `pod` version changes its kind in place,
    * keeping its id, sessions, memory, vault and triggers; `from` seeds the new volume from a disk
    * version of another Agent with the same owner. `agent.version_changed` records `kindFrom` and
@@ -340,7 +340,7 @@ export const OPTIONAL_HOST_FEATURES = [
    */
   "computer-move",
   /**
-   * Model roles (ADR-154): an agent manifest's `harness.roles` (`roles:` in `AGENT.md`) maps a
+   * Model roles: an agent manifest's `harness.roles` (`roles:` in `AGENT.md`) maps a
    * role's name to a model, and a session opened with `role` (`PUT /v1/sessions/{id}`, or an A2A
    * message's `metadata.role`) runs on that role's model, checked as `harness.model` is; its model
    * record says `source: "role"` and the role. A role the version does not declare is
@@ -518,7 +518,7 @@ export const ERROR_CODES = [
    */
   "manifest_changed",
   /**
-   * An agent folder that does not compile (track T6): `422` when it is saved or planned.
+   * An agent folder that does not compile: `422` when it is saved or planned.
    * `details.diagnostics` names every problem, each with its file and, for parse and schema
    * errors, its line and column.
    */

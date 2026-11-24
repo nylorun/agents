@@ -1,5 +1,5 @@
 /**
- * HTTP tools (R2 M3): a tool the manifest describes as one HTTP request, made by the Tool Gate.
+ * HTTP tools: a tool the manifest describes as one HTTP request, made by the Tool Gate.
  * The loop names the tool; the gate finds its URL, method and credential in the session's pinned
  * manifest, as it finds a remote MCP server, so the loop never chooses a URL or a credential.
  *
@@ -11,7 +11,7 @@
  * answer, a timeout or a refused address as a failed outcome the model sees. `runHttpTool` adds
  * what a tool call needs: the declaration, the vault credential and the identity headers.
  *
- * A flow's HTTP stages and HTTP verifiers (R2) are called the same way: the ref names the flow
+ * A flow's HTTP stages and HTTP verifiers are called the same way: the ref names the flow
  * session and the stage key, and the gate finds the target in the pinned workflow manifest. The
  * `Nylorun-Agent-Id` is the flow agent's.
  */
@@ -53,7 +53,7 @@ export type HttpOutcome =
   | {
       readonly kind: "completed";
       readonly output: unknown;
-      /** How many credential values the answer echoed, replaced with `[redacted]` (R2b C8). */
+      /** How many credential values the answer echoed, replaced with `[redacted]`. */
       readonly redacted?: number;
     }
   | {
@@ -62,7 +62,7 @@ export type HttpOutcome =
       readonly message: string;
       /** With `credential_rejected`: the tool's `credential`. */
       readonly server?: string;
-      /** How many credential values the message had in it, replaced (R2b C8). */
+      /** How many credential values the message had in it, replaced. */
       readonly redacted?: number;
     };
 
@@ -91,7 +91,7 @@ export interface HttpToolCall {
   readonly turnId: string;
   readonly input: unknown;
   /**
-   * The call's span context (R7.4), sent as `traceparent`: in the gates service, from the call's
+   * The call's span context, sent as `traceparent`: in the gates service, from the call's
    * journal row (`gates/journal.ts`); in process, from core's `execute` answer. Never a body field.
    */
   readonly traceparent?: string;
@@ -234,7 +234,7 @@ export async function callHttpTarget(
         `The answer (HTTP ${result.status}) is larger than ${limits.toolAnswerBytes} bytes (the Runtime limit toolAnswerBytes)`,
       );
   }
-  // The service answered, so the outcome is known; never retried, and its body is not shown (R2b C1).
+  // The service answered, so the outcome is known; never retried, and its body is not shown.
   if (result.status === 401)
     return failed("credential_rejected", "The service answered HTTP 401: it rejected the credential, or needs one");
   const text = result.body.toString("utf8");
@@ -266,7 +266,7 @@ export async function callHttpTarget(
 }
 
 /**
- * An HTTP tool's request, measured (ADR-159): `http.client.request.duration` with
+ * An HTTP tool's request, measured: `http.client.request.duration` with
  * `http.request.method`, `http.response.status_code` when the service answered, and `error.type`
  * for a 4xx or 5xx (the status), a timeout, a request not sent or a connection lost. Never the URL
  * or its host.
@@ -359,7 +359,7 @@ export async function runHttpTool(
         );
       credential = authorized.headers;
       identity = authorized.identity;
-      // A credential with `via` sends the call there, a gateway (R2b C2, Q9): to its one URL, so
+      // A credential with `via` sends the call there, a gateway: to its one URL, so
       // it has no place for the tool's URL parameters.
       if (authorized.via !== undefined && httpPathParameters(http.url).length > 0)
         return failed(
@@ -383,7 +383,7 @@ export async function runHttpTool(
       ...(declared.outputSchema === undefined ? {} : { outputSchema: declared.outputSchema }),
     });
     // Nothing the service echoes of the credential reaches the model, an event or the gate's
-    // record of the call: its answer and the start of an error body alike (R2b C8).
+    // record of the call: its answer and the start of an error body alike.
     const outcome = scrubbedOutcome(answered, credentialSecrets(credential, identity));
     if (outcome.kind !== "failed" || outcome.code !== "credential_rejected" || http.credential === undefined)
       return outcome;

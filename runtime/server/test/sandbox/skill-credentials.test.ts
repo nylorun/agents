@@ -1,12 +1,12 @@
 /**
- * Credentials for skills (R2c, D50) in an Agent's vault (protocol 16; an Environment's from D56),
+ * Credentials for skills in an Agent's vault (protocol 16),
  * through the Runtime against an in-memory sandboxes service: a second secret for a host is
  * refused at write, and the owner guard keeps another owner's sessions off an Agent that serves
  * secrets; a pod
  * turn's commands see each `environment_secret` as `nylorun_managed` and each
  * `environment_variable` as its value; the vault releases the real header only for a bound host,
- * read afresh after a rotation. With an outside credential provider (CP-E), the variables it names
- * for the Agent's owner are set to the value it gives (a stand-in or a plain value, TM-E2), never
+ * read afresh after a rotation. With an outside credential provider, the variables it names
+ * for the Agent's owner are set to the value it gives (a stand-in or a plain value), never
  * over the vault's own. egress-gate's use of the
  * release is `gates/egress-credentials`, and of the provider `gates/egress-provider`.
  */
@@ -53,8 +53,8 @@ const podModel: ModelProvider = async (effect) => {
 const coreModel: ModelProvider = async () => ({ output: [{ type: "text", text: "core" }] });
 
 /**
- * The outside credential provider (CP-E): it names VERCEL_TOKEN (the stand-in), STRIPE_API_KEY
- * with a stand-in of its own and VERCEL_TEAM with a plain value (TM-E2), and REGION, which the
+ * The outside credential provider: it names VERCEL_TOKEN (the stand-in), STRIPE_API_KEY
+ * with a stand-in of its own and VERCEL_TEAM with a plain value, and REGION, which the
  * vault sets.
  */
 const providerAsks: { agentId: string; owner: string | undefined }[] = [];
@@ -166,7 +166,7 @@ afterAll(async () => {
   await runtime?.close();
 });
 
-describe("credentials for skills (R2c)", { timeout: 90_000 }, () => {
+describe("credentials for skills", { timeout: 90_000 }, () => {
   it("lists a secret and a variable, never a value", async () => {
     const listed = (await call("GET", `/v1/agents/${ENV}/secrets`)).body;
     expect(JSON.stringify(listed)).not.toContain(SECRET);
@@ -233,7 +233,7 @@ describe("credentials for skills (R2c)", { timeout: 90_000 }, () => {
         ["completed", "failed", "cancelled"].includes(body.status), 60_000);
       expect(done.status).toBe("completed");
       // The vault's secret and variable, and the provider's variables as the stand-in, its own
-      // stand-in and a plain value (CP-E, TM-E2), never over the vault's REGION.
+      // stand-in and a plain value, never over the vault's REGION.
       expect(await readFile(join(workspace, "env.txt"), "utf8")).toBe(
         "nylorun_managed eu-west-1 nylorun_managed sk_test_nylorun_managed team_ada\n",
       );

@@ -1,5 +1,5 @@
 /**
- * The Runtime limits B15 made Tenant settings (`GET`/`PUT /v1/tenant/limits`): their defaults
+ * The Runtime limits made Tenant settings (`GET`/`PUT /v1/tenant/limits`): their defaults
  * and ceilings, and a lowered limit taking effect in each area: a request body, an Agent's labels,
  * an agent manifest's runtime section and HTTP tool timeouts, and the MCP facts a session pins.
  */

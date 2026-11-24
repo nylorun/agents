@@ -47,12 +47,12 @@ describe("isVariantOf", () => {
     expect(isVariantOf(pinned, pinned)).toBe(true);
   });
 
-  it("rejects a changed id (LOOP-R16)", () => {
+  it("rejects a changed id", () => {
     const pinned = manifest();
     expect(isVariantOf(manifest({ id: "other" }), pinned)).toBe(false);
   });
 
-  it("allows free data fields and instructions, but not the output schema (LOOP-R17)", () => {
+  it("allows free data fields and instructions, but not the output schema", () => {
     const pinned = manifest({ name: "Coder", description: "v1" });
     const candidate = manifest({
       name: "Coder v2",
@@ -68,7 +68,7 @@ describe("isVariantOf", () => {
     expect(isVariantOf(typed, typed)).toBe(true);
   });
 
-  it("allows removing tools but not adding or changing them (LOOP-R18)", () => {
+  it("allows removing tools but not adding or changing them", () => {
     const pinned = manifest();
     expect(isVariantOf(manifest({ tools: [lookup] }), pinned)).toBe(true);
     expect(isVariantOf(manifest({ tools: undefined }), pinned)).toBe(true);
@@ -98,7 +98,7 @@ describe("isVariantOf", () => {
     expect(isVariantOf(manifest({ skills }), manifest())).toBe(false);
   });
 
-  it("keeps MCP servers, which may only be tightened (LOOP-R19, LOOP-R20)", () => {
+  it("keeps MCP servers, which may only be tightened", () => {
     const pinned = manifest({ mcpServers: mcp });
     expect(isVariantOf(manifest({ mcpServers: mcp }), pinned)).toBe(true);
     // Dropped, moved or relabelled servers are refused.
@@ -120,12 +120,12 @@ describe("isVariantOf", () => {
     expect(isVariantOf(manifest({ mcpServers: mcp }), manifest())).toBe(false);
   });
 
-  it("rejects adding a tool on a variant (LOOP-A6)", () => {
+  it("rejects adding a tool on a variant", () => {
     const pinned = manifest({ tools: [lookup] });
     expect(isVariantOf(manifest({ tools: [lookup, deploy] }), pinned)).toBe(false);
   });
 
-  it("treats a self-variant as valid against the pinned session (LOOP-R15)", () => {
+  it("treats a self-variant as valid against the pinned session", () => {
     const pinned = manifest({ name: "pinned" });
     const redeployed = manifest({ name: "redeployed-copy" });
     // Variant of the session pin — not of a later deploy digest.

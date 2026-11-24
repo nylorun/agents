@@ -1,5 +1,5 @@
 /**
- * The Harness API's server, one per Tenant (blueprint D37). Harnesses attach a channel each and
+ * The Harness API's server, one per Tenant. Harnesses attach a channel each and
  * keep `lease` requests waiting; an advance that took a session's lease *offers* its segment
  * (`offer`), and the first waiting harness takes it as a run. Offers are served in order; one
  * no harness takes within `offerWaitMs` ends `unavailable`.
@@ -9,7 +9,7 @@
  * output (answered once core has settled it, with the transcript's new cursor), a release, or
  * the connection's loss (`connection.lost`).
  *
- * F6.2: a harness readies the session's MCP servers itself and records what it found
+ * A harness readies the session's MCP servers itself and records what it found
  * (`session.mcp`), and a harness that declared `workspace` in `hello` serves the Tenant's
  * workspaces (`workspace`, the `workspace.*` requests). A harness claims `sandbox.*` events
  * only for a run it holds (its session, or the session owning the run's sandbox) or a session a
@@ -19,7 +19,7 @@
  * Protocol 15: a harness reads and writes its run's session's artifacts over the artifact seam
  * (`artifact.read`, `artifact.write`, `./artifacts.ts`); a run's open uploads end with it.
  *
- * F7.2: a pod sandbox's engine connects as that sandbox's *host* (`HarnessPeer.host`, from its
+ * A pod sandbox's engine connects as that sandbox's *host* (`HarnessPeer.host`, from its
  * host token): it leases only runs whose session is attached to its sandbox (`RunOffer.pod`),
  * serves only that sandbox's workspace (`workspace(..., { pod })`), and claims events only for
  * those. Every other connection (the harness container, the in-process harness) never leases a
@@ -80,12 +80,12 @@ export interface HarnessPeer {
   /** For logs. */
   readonly name: string;
   /**
-   * The harness id its credential is for (R4.1): `nylorun` for the harness token, a custom
+   * The harness id its credential is for: `nylorun` for the harness token, a custom
    * harness's id for its own token. Its `hello` must name it. Absent for an in-process
    * harness, which may name any id; a pod's host is checked against its Environment's harness.
    */
   readonly harness?: string;
-  /** A pod sandbox's engine (F7.2): the sandbox it hosts, at the host epoch of its token. */
+  /** A pod sandbox's engine: the sandbox it hosts, at the host epoch of its token. */
   readonly host?: { readonly sandboxId: string; readonly epoch: number };
 }
 
@@ -97,16 +97,16 @@ export interface RunOffer {
   readonly controller: AbortController;
   /** The transcript core folded at `start.transcript.cursor`, for `transcript.read`. */
   readonly transcript: readonly unknown[];
-  /** What the run token names, for its re-mint on renewal (F5). */
+  /** What the run token names, for its re-mint on renewal. */
   readonly run: RunOf;
   /** Called when a harness takes the run. */
   readonly onTaken?: () => void;
   /**
-   * The pod sandbox whose engine runs it (F7.2): only that sandbox's host takes it. Absent,
+   * The pod sandbox whose engine runs it: only that sandbox's host takes it. Absent,
    * only a harness that hosts no sandbox does.
    */
   readonly pod?: string;
-  /** The session's harness (R4.1): only a connection that said this id takes it. Default ours. */
+  /** The session's harness: only a connection that said this id takes it. Default ours. */
   readonly harness?: string;
   /** How long to wait for a harness to take it. Default the server's `offerWaitMs`. */
   readonly waitMs?: number;
@@ -144,7 +144,7 @@ export interface HarnessApiServer {
     target?: { readonly pod?: string; readonly minEpoch?: number }
   ): Promise<ResultOf<M>>;
   /**
-   * Pod sandbox `sandboxId`'s host epoch moved to `epoch` (F7.2): connections hosting it at an
+   * Pod sandbox `sandboxId`'s host epoch moved to `epoch`: connections hosting it at an
    * older epoch are closed.
    */
   revokeHost(sandboxId: string, epoch: number): void;
@@ -185,7 +185,7 @@ interface Connection {
   readonly peer: HarnessPeer;
   /** The pod sandbox it hosts, if any. */
   readonly host?: { readonly sandboxId: string; readonly epoch: number };
-  /** The harness id its `hello` named (R4.1); undefined until then, when it takes no run. */
+  /** The harness id its `hello` named; undefined until then, when it takes no run. */
   harness?: string;
   /** Declared `workspace` in its `hello`. */
   workspace: boolean;
@@ -210,7 +210,7 @@ interface Run {
   end(end: RunEnd): void;
 }
 
-/** What our harness said in `hello` before harness ids (R4.1): refused, with the new id. */
+/** What our harness said in `hello` before harness ids: refused, with the new id. */
 const LEGACY_NAME = "@nylorun/harness";
 
 const OUTPUTS: readonly string[] = [
@@ -241,7 +241,7 @@ export function createHarnessApiServer(
   let closed = false;
 
   /**
-   * A harness may take a run of its own harness id (R4.1): a pod sandbox's host its sandbox's
+   * A harness may take a run of its own harness id: a pod sandbox's host its sandbox's
    * runs, any other the rest.
    */
   const takes = (connection: Connection, run: Run) =>
@@ -259,7 +259,7 @@ export function createHarnessApiServer(
       queued.splice(i, 1);
       const lease = waiting.splice(at, 1)[0]!;
       run.connection = lease.connection;
-      // The run token the advance holds now (F5): the gate calls of this run present it.
+      // The run token the advance holds now: the gate calls of this run present it.
       run.grant = { ...run.grant, ...tokenOf(ctx, run.offer.lease) };
       runs.set(run.grant.runId, run);
       lease.resolve({ run: run.grant, input: run.offer.start });
@@ -274,7 +274,7 @@ export function createHarnessApiServer(
     return run;
   };
 
-  /** What a harness reports is its claim (R4.9): its harness id and, in a run, the run. */
+  /** What a harness reports is its claim: its harness id and, in a run, the run. */
   const writerOf = (connection: Connection, runId?: string): EventWriter => ({
     source: { kind: "harness", id: connection.harness ?? connection.peer.name },
     evidence: "claimed",
@@ -302,7 +302,7 @@ export function createHarnessApiServer(
       const p = params as Record<string, unknown>;
       if (method === "hello") {
         const { api, name, features } = p as ParamsOf<"hello">;
-        // R3's next version adds a window of supported versions; until then there is one.
+        // There is one supported version.
         if (api !== HARNESS_API_VERSION)
           throw new HarnessApiError(
             "invalid",
@@ -365,7 +365,7 @@ export function createHarnessApiServer(
         case "definition.file":
           return definitionFile(run, p as ParamsOf<"definition.file">, signal);
         case "computer.open": {
-          // Only the computer of the run's own session (ADR-149).
+          // Only the computer of the run's own session.
           const { environmentId } = p as ParamsOf<"computer.open">;
           const sandbox = run.offer.start.routing.sandbox;
           if (sandbox?.computer !== true || sandbox.environmentId !== environmentId)
@@ -400,7 +400,7 @@ export function createHarnessApiServer(
     };
 
   /**
-   * The harness id a `hello` names (R4.1): a harness id, and the one the connection's credential
+   * The harness id a `hello` names: a harness id, and the one the connection's credential
    * is for. A pod's host must be its Environment's harness, so an image that is not the harness
    * its recipe names never takes the Environment's runs.
    */
@@ -423,7 +423,7 @@ export function createHarnessApiServer(
           "invalid",
           `Environment ${connection.host.sandboxId} runs the ${expected} harness, and this pod says ${name}`
         );
-      // Its pod started on the version it switched to, setup done (track T3): the start check passed.
+      // Its pod started on the version it switched to, setup done: the start check passed.
       if (environment?.startCheck) await passStartCheck(ctx, connection.host.sandboxId, connection.host.epoch);
     }
     return name;
@@ -600,10 +600,10 @@ export function createHarnessApiServer(
   };
 
   /**
-   * A custom harness's output (R4.2): its state is its own, stored as sent and never read, so it
+   * A custom harness's output: its state is its own, stored as sent and never read, so it
    * must be JSON and at most the run's `limits.harnessStateBytes`; a larger one fails the turn
-   * (`limit_exceeded`), as an engine that threw would. It cannot pause for approvals in v2 (Q14):
-   * approvals read our engine's plan until R5 makes them core holds.
+   * (`limit_exceeded`), as an engine that threw would. It cannot pause for approvals in v2:
+   * approvals read our engine's plan.
    */
   const checkCustomOutput = (run: Run, method: string, params: Record<string, unknown>) => {
     if (method === "turn.paused")
@@ -671,7 +671,7 @@ export function createHarnessApiServer(
       const session = (params as { session?: { ownerId?: string } }).session?.ownerId;
       // A pod's workspace is its host's, whatever harness it is. Any other session's is served
       // by its own harness, if that harness serves workspaces: our harness's workspaces are not
-      // a custom harness's files (R4.1). Sweeps and removes go to ours.
+      // a custom harness's files. Sweeps and removes go to ours.
       const harness =
         pod !== undefined || session === undefined
           ? DEFAULT_HARNESS

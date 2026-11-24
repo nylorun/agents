@@ -1,5 +1,5 @@
 /**
- * Model Calls P1 gate (design §8, §9): a session whose history outgrows a 16k window keeps
+ * A session whose history outgrows a 16k window keeps
  * going, and what it stores grows with the window, not with the square of its length.
  */
 import { expect, it } from "vitest";
@@ -66,7 +66,7 @@ async function settle(session: ReturnType<AgentsClient["session"]>) {
 }
 
 // Shadow mode keeps the transcript on the row and checks the fold at every segment; lean
-// mode is production: the row holds no transcript and the fold rebuilds it (blueprint P0.3).
+// mode is production: the row holds no transcript and the fold rebuilds it.
 it.each([
   ["shadow", true],
   ["lean", false],
@@ -116,7 +116,7 @@ it.each([
           ).map((row) => row.body as LiveEvent),
         }),
       );
-      // Each compaction is a transcript edit that says so (Q4), naming its summary calls; one
+      // Each compaction is a transcript edit that says so, naming its summary calls; one
       // context.compacted follows each, and every summary call is named once.
       const edits = stored.events.filter(
         (event) => event.type === "transcript.updated" && (event.payload as { kind?: string }).kind === "compaction",

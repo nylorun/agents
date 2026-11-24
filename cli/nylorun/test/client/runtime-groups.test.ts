@@ -77,7 +77,7 @@ async function agentFolder(root: string, harness: Record<string, unknown> = {}) 
 const SKILL = "---\nname: triage\ndescription: Triage an issue.\n---\nLabel it.\n";
 const PLAN = { name: "support", from: 2, to: 3, unchanged: false, warnings: [], errors: [], behind: 1 };
 
-/** The warning every three-file folder gets (D80), naming the command that converts it. */
+/** The warning every three-file folder gets, naming the command that converts it. */
 const DEPRECATED = expect.stringMatching(/^support: warning: agent\.manifest\.json \(the three-file format\) is deprecated: nylorun migrate folder /);
 
 describe("nylorun apply", () => {

@@ -1,5 +1,5 @@
 /**
- * `GET /v1/runs/stream` (D83): the Tenant's runs stream, every run of every Agent's triggers as
+ * `GET /v1/runs/stream`: the Tenant's runs stream, every run of every Agent's triggers as
  * server-sent events from a cursor (`tenant/runs-stream.ts`). For an application credential that
  * reads Agents; a run may arrive twice, and a reader drops a run id it has seen.
  */

@@ -1,6 +1,6 @@
 /**
  * The Host's Durable Session Execution on a real Restate server (the Docker test stack), with
- * real Tenant runtimes on the test store (architecture §10.5–10.7, §11.4, §12.3, §14.8, §17).
+ * real Tenant runtimes on the test store.
  *
  * Worker endpoints are served on the host and advertised to Restate, which runs in Docker, as
  * `http://host.docker.internal:<port>`. Every Host execution uses a service prefix unique to
@@ -175,7 +175,7 @@ describe.skipIf(!STACK_ENABLED)("Host execution on Restate", () => {
     expect((await stored(runtime)).session.owner).toBeNull();
   });
 
-  it("rolls a long turn over into new segments through Restate (Model Calls §10)", async () => {
+  it("rolls a long turn over into new segments through Restate", async () => {
     const { host, execution } = hostExecution({ offset: 10, prefix: "rollover" });
     await host.start();
     let calls = 0;

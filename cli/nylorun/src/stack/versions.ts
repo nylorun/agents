@@ -19,7 +19,7 @@ export function cliVersion(): string {
   throw new CliError("nylorun's package.json has no version.", 1);
 }
 
-/** An image this CLI release pins in its `package.json` `nylorun` (D7). */
+/** An image this CLI release pins in its `package.json` `nylorun`. */
 export type PinnedImage = "runtime" | "studio";
 
 /**

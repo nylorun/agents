@@ -1,5 +1,5 @@
 /**
- * R5.3: a tool call whose gate hop lost its answer is sent again with the same key. The host
+ * A tool call whose gate hop lost its answer is sent again with the same key. The host
  * asks core again with the same intent, and core counts the send: it answers `execute` again,
  * or the call's outcome once the call reached its cap.
  */
@@ -81,7 +81,7 @@ function harness(options: {
   };
 }
 
-describe("a tool call whose gate hop lost the answer (R5.3)", { timeout: 20_000 }, () => {
+describe("a tool call whose gate hop lost the answer", { timeout: 20_000 }, () => {
   it("asks core again with the same intent and sends the call again", async () => {
     const h = harness({ answers: ["execute", "execute"], failures: 1 });
     expect(await h.host.resolveEffect(effect)).toEqual({

@@ -1,5 +1,5 @@
 /**
- * Opens the Host's Tenant on its Postgres database (tenancy.md §4–§5, plan P9).
+ * Opens the Host's Tenant on its Postgres database.
  *
  * The database holds one Tenant (`store/postgres/tenant.ts`): opening migrates it, creates
  * the Tenant on first start (from the Host's configuration: id, name, Studio and derived

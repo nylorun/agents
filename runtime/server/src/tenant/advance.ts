@@ -1,23 +1,23 @@
 /**
- * The advance (architecture §10.5): the Tenant's `WorkerHandlers.advance`. It takes ownership
+ * The advance: the Tenant's `WorkerHandlers.advance`. It takes ownership
  * of the session, runs one segment of its turn with the engine its definition asks for
  * (`runDurable` for agents, `runFlowDurable` for workflows) and settles the result — status,
  * checkpoint, `turn.*` events, linked-workflow wakes and fail-fast sibling cancels — then
  * releases ownership.
  *
- * Ownership (§10.6):
+ * Ownership:
  * - **Take.** One transaction takes the lease (`Tx.takeOwnership`). A live lease held by
  *   another advance returns `busy` with the time left on it; the execution re-wakes later.
  * - **Take over.** A previous owner whose lease expired without release died mid-advance:
  *   its `invoking` effects become `uncertain` with `effect.uncertain` events, in the same
- *   transaction (§11.4). This replaces the old startup recovery.
+ *   transaction. This replaces the old startup recovery.
  * - **Epoch-checked writes.** Every transaction of the advance and of the engine host
  *   (`effects.ts`) runs through `ownedTx`/`ownedSession`, which checks the epoch first. A
  *   mismatch throws `ownership.lost` with no write; the advance stops and returns `done`.
  * - **Heartbeat.** While the segment runs the lease is renewed (a column update): by the
  *   harness that holds the run (`lease.renew`), and by core until one takes it. A failed
  *   renewal aborts the segment.
- * - **Run token** (F5). Right after taking the lease the advance mints the run token its
+ * - **Run token**. Right after taking the lease the advance mints the run token its
  *   gate calls present (`run-grants.ts`); each renewal re-mints it before it expires, and it
  *   is dropped when the lease is lost or released. A harness gets it with its run.
  * - **Release** when the advance ends, whatever the outcome.
@@ -101,7 +101,7 @@ class SegmentStopped extends Error {
  * The harness holding the run went away without giving it back (`connection.lost`): an effect
  * it was running may still be running, or may have died with it. Like a Worker that died, the
  * advance keeps the lease, which lapses, so the next advance takes the session over and marks
- * what was `invoking` `uncertain` (§11.4). Never leaves `advance`.
+ * what was `invoking` `uncertain`. Never leaves `advance`.
  */
 class RunLost extends Error {
   override readonly name = "RunLost";
@@ -218,7 +218,7 @@ export async function advance(
           message: error instanceof Error ? error.message : String(error),
         })
       );
-    // The Environment was used: `deleteAfter`, and a pod's idle time (D34), count from the end
+    // The Environment was used: `deleteAfter`, and a pod's idle time, count from the end
     // of each segment.
     if (placed.environment !== undefined) await touchAgent(ctx, placed.environment);
   }
@@ -279,9 +279,9 @@ async function takeOwnership(ctx: TenantContext, id: string): Promise<Taken> {
 }
 
 /**
- * Takeover (§10.5 step 2, §11.4), inside the transaction that took ownership: the dead
+ * Takeover, inside the transaction that took ownership: the dead
  * owner's `invoking` effects become `uncertain` and are never invoked again, except model
- * calls when the gate recovers them (P1.2) and every tool call (R5.3): those stay `invoking`,
+ * calls when the gate recovers them and every tool call: those stay `invoking`,
  * and the replay decides. It re-sends a model call, and an MCP or HTTP tool call with the same
  * key; a sandbox or core-served tool call fails to the model as `tool.interrupted`
  * (`harness-api/tool-journal.ts`). When an effect marked `uncertain` belongs to the active
@@ -297,7 +297,7 @@ export async function takeOver(
   for (const effect of await t.invokingEffects<
     EffectDoc & { error?: string }
   >(s.id)) {
-    // Still running at the gate, or finished there: the replay re-sends it (P1.2).
+    // Still running at the gate, or finished there: the replay re-sends it.
     if (options.recoversModelCalls && effect.request.kind === "model") continue;
     if (effect.request.kind === "tool") continue;
     effect.status = "uncertain";
@@ -332,15 +332,15 @@ async function runRemoteSegment(
   let end: RunEnd | undefined;
   try {
     const segment = await startSegment(ctx, lease, { harness: true });
-    // A pod Environment's segment runs in its pod (F7.2), or fails when the pod cannot run it.
+    // A pod Environment's segment runs in its pod, or fails when the pod cannot run it.
     const unusable = podUnusable(ctx, segment);
     if (unusable) throw new Error(unusable);
-    // A computer's run goes to the harness container (ADR-149); `computer.open` waits for its
+    // A computer's run goes to the harness container; `computer.open` waits for its
     // seed, runs its setup and passes its start check.
     const computer = ctx.pods?.computer !== undefined;
-    // A new volume being seeded from a disk version takes no turn until it holds it (R2d step 3).
+    // A new volume being seeded from a disk version takes no turn until it holds it.
     if (!computer && segment.pod?.seeding) throw new HarnessUnavailable();
-    // A pod starting on a new version takes no turn until its harness joins (track T3): a start
+    // A pod starting on a new version takes no turn until its harness joins: a start
     // that fails goes back to the version it ran, and the turn's first segment re-pins to it.
     if (!computer && segment.pod?.starting) throw new HarnessUnavailable();
     const pod = computer ? undefined : segment.pod?.id;
@@ -352,7 +352,7 @@ async function runRemoteSegment(
       transcript: segment.transcript,
       run,
       onTaken,
-      // Only a connection of the session's harness takes its runs (R4.1).
+      // Only a connection of the session's harness takes its runs.
       harness: harnessOf(segment.current),
       // A pod that is starting, or resuming, takes longer than a harness already connected.
       ...(pod === undefined ? {} : { pod, waitMs: hostTuning().harnessApi.podOfferWaitMs }),
@@ -369,7 +369,7 @@ async function runRemoteSegment(
     stopIfLeaving(signal);
     if (end.kind === "released")
       throw new SegmentStopped(end.reason === "ownership.lost" ? "ownership.lost" : "shutdown");
-    // A harness's output never carries the Runtime's own tokens into the record (R4).
+    // A harness's output never carries the Runtime's own tokens into the record.
     const output = redactTokens(end.output);
     if (output.thrown) throw thrownError(output.thrown);
     const result = resultOf(output, segment);
@@ -389,7 +389,7 @@ async function runRemoteSegment(
         result,
         recorded ? output.transcript ?? [] : [],
         segment.cursor,
-        // The turn's end and its transcript are what the harness reported (R4.9).
+        // The turn's end and its transcript are what the harness reported.
         { source: { kind: "harness", id: harnessOf(started) }, evidence: "claimed", runId: output.runId }
       );
     }
@@ -434,7 +434,7 @@ function resultOf(output: TurnOutput, segment: SegmentStart): SegmentResult {
       effectIds: output.effectIds ?? [],
     };
   let state = output.state;
-  // Our engine's transcript shadow (tests); another harness's state is stored as sent (R4.2).
+  // Our engine's transcript shadow (tests); another harness's state is stored as sent.
   if (state !== undefined && transcriptShadow() && ours(current))
     state = withTranscript(state, applyUpdates(segment.transcript, output.transcript ?? []));
   const checkpoint =
@@ -501,7 +501,7 @@ async function settle(
   result: SegmentResult,
   updates: readonly TranscriptUpdate[] = [],
   cursor?: number,
-  /** Who reported the result (R4.9): the run's harness. */
+  /** Who reported the result: the run's harness. */
   writer?: EventWriter
 ): Promise<number | undefined> {
   const id = lease.sessionId;
@@ -520,7 +520,7 @@ async function settle(
       // A result can arrive during concurrent action persistence. Preserve the runnable marker.
       const resumeRequested = current.status === "runnable";
       if (result.status === "waiting" || result.status === "uncertain") {
-        // Tool calls the Tool Gate held for approval (R5 step 2): the turn pauses for a person.
+        // Tool calls the Tool Gate held for approval: the turn pauses for a person.
         const held = resumeRequested ? [] : await heldCalls(t, result.effectIds);
         if (held.length > 0) {
           current.status = "paused";
@@ -611,7 +611,7 @@ async function settle(
         });
         siblings.push(...cancelResult.agentSessionIds);
       }
-      // The turn's span (R7.1): a pause starts its wait; an end, its duration and totals.
+      // The turn's span: a pause starts its wait; an end, its duration and totals.
       const ended = result.status === "paused" ? undefined : await endTurn(t, current, s.activeTurnId);
       if (result.status === "paused") pauseTurn(current);
       else {
@@ -686,7 +686,7 @@ async function settle(
 }
 
 /**
- * The approvals a waiting segment's held tool calls ask for (R5 step 2), as `turn.paused`
+ * The approvals a waiting segment's held tool calls ask for, as `turn.paused`
  * interactions: each one's id is the call's effect id, which `approve` answers.
  */
 async function heldCalls(t: Tx, effectIds: readonly string[]) {
@@ -713,7 +713,7 @@ async function heldCalls(t: Tx, effectIds: readonly string[]) {
         ...(row.server === undefined ? {} : { server: row.server }),
         ...(row.tool === undefined ? {} : { tool: row.tool }),
         input: request.input ?? null,
-        // What a client renders the approval from (D83): the tool's identity and the call's input.
+        // What a client renders the approval from: the tool's identity and the call's input.
         metadata: {
           tool: row.tool ?? toolName,
           ...(row.toolKind === undefined ? {} : { kind: row.toolKind }),
@@ -764,12 +764,12 @@ async function settleFailure(
 }
 
 
-/** Whether the session runs our harness, whose state core may store lean (R4.2). */
+/** Whether the session runs our harness, whose state core may store lean. */
 const ours = (session: Session) => harnessOf(session) === HARNESS_ID;
 
 /**
  * `state` as the session row stores it: our engine's without its transcript (`history.ts`);
- * another harness's as it sent it, never read (R4.2).
+ * another harness's as it sent it, never read.
  */
 function leanOf<T>(session: Session, state: T): T {
   return ours(session) ? leanState(state) : state;
@@ -784,7 +784,7 @@ function leanCheckpoint<T extends object | undefined>(session: Session, checkpoi
 
 /**
  * Appends a segment's transcript edits; a snapshot moves `history.snapshot`. An edit the harness
- * marks as a compaction (`kind: "compaction"`, Q4) also writes `context.compacted`, from its facts
+ * marks as a compaction (`kind: "compaction"`) also writes `context.compacted`, from its facts
  * and the summary calls it names. Returns the seq of the last edit, if any.
  */
 async function recordTranscript(

@@ -1,5 +1,5 @@
 /**
- * The Tenant's stream (ADR-159, Host feature `tenant-audit`): each key put and delete, signing-key
+ * The Tenant's stream (Host feature `tenant-audit`): each key put and delete, signing-key
  * rotation and revocation, tool policy and setting change, and vault credential write and use
  * records one event, in the change's transaction, naming the principal of the request's
  * credential and never a secret. `GET /v1/tenant/audit` pages them newest first, filters by type

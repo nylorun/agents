@@ -4,15 +4,15 @@
  * leaves each tool `enabled`); our engine names each tool for the model, decides which to defer,
  * and makes each call an effect of the tool's identity (`target: {kind: "mcp", server, tool}`).
  *
- * - **Names** (R2b C6): `server__tool`, each character outside `[A-Za-z0-9_-]` replaced by `_`,
+ * - **Names**: `server__tool`, each character outside `[A-Za-z0-9_-]` replaced by `_`,
  *   since MCP allows `.` and 128 characters and OpenAI, Bedrock and Gemini on Vertex do not. A
  *   name over `MODEL_TOOL_NAME_MAX` (64), or a renamed one that collides, keeps 55 characters and
  *   adds `_` and 8 hex characters of the SHA-256 of the raw `server/tool`. A name the agent's own
  *   tools or an earlier tool already took leaves the tool out.
- * - **Deferral** (R2b C10): a tool the manifest defers, or, when the manifest says nothing, every
+ * - **Deferral**: a tool the manifest defers, or, when the manifest says nothing, every
  *   tool of an agent whose listed MCP tools would pass a share of the model's context window
  *   (`McpToolConfig`), leaves the model's list; the model finds it with `tool_search` and runs it
- *   with `tool_call`. An agent that declares its engine features (ADR-100) without
+ *   with `tool_call`. An agent that declares its engine features without
  *   `toolSearch: true` is never deferred automatically: past the share it keeps its tools, and
  *   the set says so (`diagnostics`).
  * - **The layout is pinned** (`McpLayout`, in our engine's state): decided the first time the
@@ -41,7 +41,7 @@ const NAME_HASH_CHARS = 8;
 export interface McpToolConfig {
   /**
    * The share of the model's context window past which an agent's MCP tools are deferred, when
-   * the manifest does not say (Q21). Default 0.1.
+   * the manifest does not say. Default 0.1.
    */
   readonly deferShare: number;
   /** Characters per token, to estimate what tool definitions take of a context window. Default 4. */
@@ -79,7 +79,7 @@ export function mcpToolConfigOf(set?: Partial<McpToolConfig>): McpToolConfig {
 const hexOf = (text: string) => bytesToHex(sha256(utf8ToBytes(text)));
 
 /**
- * The name the model knows an MCP tool by (R2b C6, Q13): `server__tool` with each character
+ * The name the model knows an MCP tool by: `server__tool` with each character
  * outside `[A-Za-z0-9_-]` replaced by `_`. A name over 64 characters, or one that collides
  * (`suffixed`), keeps 55 and adds `_` and 8 hex characters of the SHA-256 of the raw
  * `server/tool`.
@@ -138,7 +138,7 @@ export function mcpToolNames(
 }
 
 /**
- * The deferral our engine decided for a session's MCP tools (R2b C10): the identities of the
+ * The deferral our engine decided for a session's MCP tools: the identities of the
  * deferred ones (`mcpToolKey`), for the facts whose hash is `factsHash`. Kept in our engine's
  * state, so the session keeps it while its facts stay the same.
  */
@@ -182,7 +182,7 @@ export function deferredToolsNote(
   return [wording, ...lines].join("\n");
 }
 
-/** Something about the session's MCP tools our engine says instead of choosing (ADR-100). */
+/** Something about the session's MCP tools our engine says instead of choosing. */
 export interface McpToolDiagnostic {
   readonly code: "mcp_tools_inline";
   readonly message: string;

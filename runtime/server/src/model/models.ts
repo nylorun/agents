@@ -16,7 +16,7 @@ export type Selection = Readonly<{
   model: string;
   custom?: Readonly<{
     baseUrl: string;
-    /** Model Settings for the endpoint (Model Calls §7); defaults are deliberately small. */
+    /** Model Settings for the endpoint; defaults are deliberately small. */
     contextWindow?: number;
     maxTokens?: number;
     reasoning?: boolean;
@@ -33,7 +33,7 @@ export type Selection = Readonly<{
 
 /**
  * Build the pi-ai model registry from explicit credentials only.
- * Ambient process environment / provider env auth is never consulted (A7, A10).
+ * Ambient process environment / provider env auth is never consulted.
  */
 export function modelsFor(
   selection: Selection,

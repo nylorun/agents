@@ -1,5 +1,5 @@
 /**
- * A turn's timing and totals (R7.1), so the event that ends it is its span. The session body
+ * A turn's timing and totals, so the event that ends it is its span. The session body
  * keeps when its active turn started (`turnStartedAt`, set beside `activeTurnId`), how long it
  * has waited paused for a person (`pausedMs`), and since when it waits (`pausedAt`, while
  * paused). `turn.completed`, `turn.failed` and `turn.cancelled` carry `endTurn`'s facts.
@@ -13,9 +13,9 @@ import { durationBetween } from "./transcript.js";
 /** The turn timing a session body keeps. */
 export interface TurnTiming {
   turnStartedAt?: string;
-  /** The trace context the turn's message arrived with (R7.4); it ends with the turn. */
+  /** The trace context the turn's message arrived with; it ends with the turn. */
   turnTrace?: unknown;
-  /** What started the turn when not a client (track T4); it ends with the turn. */
+  /** What started the turn when not a client; it ends with the turn. */
   turnCause?: unknown;
   pausedMs?: number;
   pausedAt?: string;

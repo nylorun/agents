@@ -12,7 +12,7 @@ export default defineConfig({
   test: {
     include: ["test/**/*.integration.test.ts"],
     globalSetup: ["test/global-setup.ts"],
-    // One history (P0.3): every turn checks the folded transcript against the engine's.
+    // One history: every turn checks the folded transcript against the engine's.
     setupFiles: ["test/setup-database.ts", "test/setup/transcript-shadow.ts"],
     testTimeout: 60_000,
     hookTimeout: 60_000,

@@ -1,5 +1,5 @@
 /**
- * `read` of a sandbox file the turn's model reads as media (ADR-139): an image, a PDF, an Office
+ * `read` of a sandbox file the turn's model reads as media: an image, a PDF, an Office
  * document, audio or video, known by its extension. Our engine runs it here instead of in the
  * sandbox, which reads text: it reads the bytes (`files.read`), stores them as an artifact of the
  * session for the model only (`artifact.write` with `audience: "model"`, keyed by the call), and

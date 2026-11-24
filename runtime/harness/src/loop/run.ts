@@ -56,7 +56,7 @@ export async function execute(
     const started = Date.now();
     /** One compaction and retry per overflow; reset once a step succeeds. */
     let overflowCompacted = false;
-    /** Summarize older history into a compaction entry (Model Calls §8). */
+    /** Summarize older history into a compaction entry. */
     const compactHistory = async (
       trigger: "threshold" | "overflow",
       stepId: string,
@@ -74,7 +74,7 @@ export async function execute(
         config: compaction,
       });
       if (!next) return false;
-      // The pinned text is re-pinned fresh by the next segment (the memory index, track T5).
+      // The pinned text is re-pinned fresh by the next segment (the memory index).
       const { pinned: _pinned, ...state } = invocation.state;
       invocation.state = { ...state, transcript: next };
       await record();
@@ -130,7 +130,7 @@ export async function execute(
         if (!invocation.state.turn) invocation.state = { ...invocation.state, turn: { turnId } };
         return finish({ status: "yielded" });
       }
-      // Messages steered into the running turn (D85): every step but the turn's first may take
+      // Messages steered into the running turn: every step but the turn's first may take
       // them, after the tool results the model sees next, and never while a plan dispatches.
       if (internals.takeInputs && stepNumber > 1 && !invocation.state.plan) {
         // Each is a message's input as sent (text, or a user message with parts), as at turn start.
@@ -157,7 +157,7 @@ export async function execute(
       stepsRun++;
       const stepId = createId("step");
       // Keep the next prompt inside the model's window, and under the Agent's threshold when it
-      // sets a lower one (ADR-157), before it is sent.
+      // sets a lower one, before it is sent.
       const budget = contextBudget(invocation.state.transcript, options.model, compaction);
       const limit = compactionLimit(budget, compaction);
       if (

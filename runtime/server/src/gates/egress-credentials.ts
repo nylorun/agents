@@ -1,5 +1,5 @@
 /**
- * egress-gate's credential path (R2c, D50): how a skill's CLI authenticates while the secret
+ * egress-gate's credential path: how a skill's CLI authenticates while the secret
  * stays out of the sandbox. A CONNECT to port 443 of a host that an `environment_secret` of a
  * live session on the sandbox is bound to (`allowedHosts`) is not tunnelled: the gate answers
  * 200, terminates TLS with a fresh leaf for that host signed by the installation's egress CA
@@ -12,7 +12,7 @@
  * Nothing here knows a tool: the header name and its format are the credential's. A release the
  * vault refuses (two secrets for one host, an unreadable value) answers 502 and is logged, never
  * as an event; a value never is. Upgrades (WebSocket) and HTTP/2 are not served on this path.
- * Each connection keeps a tally for its `agent.egress` event (R7.3, D67): how many requests it
+ * Each connection keeps a tally for its `agent.egress` event: how many requests it
  * read and which credentials it set, by id.
  *
  * A host the outside credential provider lists (`credential-provider.ts`) and the vault does not
@@ -54,7 +54,7 @@ export interface EgressCredentials {
 /** The answer to a CONNECT the gate serves; a tunnel's byte counts leave it out. */
 export const CONNECT_ESTABLISHED = "HTTP/1.1 200 Connection Established\r\n\r\n";
 
-/** What one terminated connection did so far (R7.3): requests read, credentials set (ids). */
+/** What one terminated connection did so far: requests read, credentials set (ids). */
 export interface EgressTally {
   requests: number;
   readonly credentialIds: Set<string>;

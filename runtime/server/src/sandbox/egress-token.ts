@@ -1,5 +1,5 @@
 /**
- * Egress tokens (F7.2, D42), as egress-gate sees them: the proxy credential a pod's engine
+ * Egress tokens, as egress-gate sees them: the proxy credential a pod's engine
  * receives at join with its host token (`sandbox/join.ts`) and presents in `Proxy-Authorization`.
  * Minted and verified by `tenant/host-token.ts`, the one place host and egress tokens are made:
  *

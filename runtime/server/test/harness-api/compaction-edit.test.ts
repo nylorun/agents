@@ -1,5 +1,5 @@
 /**
- * Compaction is an explicit transcript edit (Q4, protocol 15): a harness marks the edit that
+ * Compaction is an explicit transcript edit (protocol 15): a harness marks the edit that
  * replaced older history with a summary (`kind: "compaction"`) and names the summary calls that
  * wrote it (`purpose: "summary"`). The record never parses the entries: it checks the calls, and
  * writes one `context.compacted` from the facts and the last call. A summary call is no

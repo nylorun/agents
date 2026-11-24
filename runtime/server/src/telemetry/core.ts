@@ -1,5 +1,5 @@
 /**
- * Core's metrics (ADR-159): how long turns take and how long queued messages wait. Both are
+ * Core's metrics: how long turns take and how long queued messages wait. Both are
  * recorded only for committed changes, by the process that committed them, so a rolled-back
  * transaction records nothing and no point is recorded twice.
  *

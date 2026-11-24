@@ -7,7 +7,7 @@ import { CliError } from "../errors.js";
 import type { DockerRunner } from "./docker.js";
 
 /**
- * The machine's local Tenants (tenancy.md §6): one installation per Tenant, each with its own
+ * The machine's local Tenants: one installation per Tenant, each with its own
  * Host root `~/.nylorun/tenants/<name>/`, Compose project `nylorun-<name>`, ports and volumes.
  */
 

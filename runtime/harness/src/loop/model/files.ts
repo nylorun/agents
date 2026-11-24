@@ -60,7 +60,7 @@ export type FileView =
 /** What `fileView` decides from: the turn's model and the Runtime limits. */
 export interface FileViewContext {
   /**
-   * False when the agent has no `read_artifact` (ADR-100, an `agent-folder/2` agent without
+   * False when the agent has no `read_artifact` (an `agent-folder/2` agent without
    * `engine.artifacts.read`): its files' reference lines do not offer it. Default true.
    */
   readonly artifactReads?: boolean;
@@ -129,7 +129,7 @@ export function fileNote(name: string, type: string, why: string): string {
  * The line a file stands for in a prompt (protocol 12): its name, artifact id and version, and
  * how the model reads it again. A file a tool returned names the tool. Every file is its line
  * once its turn is over; in its own turn the line labels what follows it. `readable` false for
- * an agent without `read_artifact` (ADR-100): the line names the file only.
+ * an agent without `read_artifact`: the line names the file only.
  */
 export function mediaReferenceLine(
   part: FilePart,
@@ -141,7 +141,7 @@ export function mediaReferenceLine(
     origin === "uploaded" ? "Uploaded artifact" : `Tool ${origin.tool} returned artifact`;
   if (!reference) return `[${what} (${part.mediaType})]`;
   const name = JSON.stringify(reference.name ?? reference.artifactId);
-  // An agent without `read_artifact` (ADR-100) is not offered it.
+  // An agent without `read_artifact` is not offered it.
   return `[${what} ${name} · ${reference.artifactId} v${reference.version}${readable ? " · read_artifact to view" : ""}]`;
 }
 
@@ -155,7 +155,7 @@ export interface LiveFile {
 }
 
 /**
- * The most files from tool results one model call carries as media (ADR-139). A file the model
+ * The most files from tool results one model call carries as media. A file the model
  * looked at stays in the turn's files and is sent on every later call of the turn; past these,
  * the oldest go as a note naming them, which `read_artifact` brings back. A person's own files
  * are never capped.
@@ -190,7 +190,7 @@ export async function representFiles(
         file.key,
         context ? fileView(file.part, context.model, context.limits) : { kind: "media" },
       );
-  // The newest tool files go as media; older ones past the cap, as a note (ADR-139).
+  // The newest tool files go as media; older ones past the cap, as a note.
   const capped = new Set<string>();
   if (context) {
     let kept = 0;

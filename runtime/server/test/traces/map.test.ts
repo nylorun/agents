@@ -1,4 +1,4 @@
-/** Row to span (R7.2): the mapping, the ids, what never leaves, and the content opt-ins. */
+/** Row to span: the mapping, the ids, what never leaves, and the content opt-ins. */
 import { randomBytes } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { effectSpanOf, traceIdOf, turnSpanOf } from "../../src/traces/ids.js";
@@ -40,7 +40,7 @@ function plainOf(value: OtlpAnyValue | undefined): unknown {
 }
 const ms = (nanos: string) => Number(BigInt(nanos) / 1_000_000n);
 
-/** A turn of a coding agent, as R7.1 and R7.3 record it. */
+/** A turn of a coding agent, as the Runtime records it. */
 function turnRows() {
   return [
     message(),
@@ -148,7 +148,7 @@ describe("spanOf", () => {
       // Named for the agent manifest the session runs; its id is the Agent (protocol 16).
       "gen_ai.agent.id": "users/alice/coder",
       "gen_ai.agent.name": "coder",
-      // The agent manifest version the turn ran (T3).
+      // The agent manifest version the turn ran.
       "nylorun.manifest.version": "2",
       "gen_ai.conversation.id": SESSION,
       "nylorun.turn.status": "completed",
@@ -198,7 +198,7 @@ describe("spanOf", () => {
     expect(failed).toMatchObject({ name: "chat", status: { code: STATUS.error } });
     expect(failed!.status.message).toBeUndefined();
     expect(attrs(failed)["error.type"]).toBe("rate_limited");
-    // The gate's provider calls for it (Model Calls §6); a call without them has none.
+    // The gate's provider calls for it; a call without them has none.
     expect(attrs(failed)["nylorun.model.attempts"]).toBe("3");
     expect(attrs(chat)).not.toHaveProperty("nylorun.model.attempts");
     expect(paused!.startTimeUnixNano).toBe(paused!.endTimeUnixNano);
@@ -258,7 +258,7 @@ describe("spanOf", () => {
     for (const secret of ["alice@example.com", "idem-secret-key", "idem-approve-secret"]) expect(everything).not.toContain(secret);
   });
 
-  it("records content as structured values (ADR-159), with each tool call's arguments", () => {
+  it("records content as structured values, with each tool call's arguments", () => {
     const out = spans(all);
     const [, chat, mcp, bash, , , , , root] = out;
     const value = (span: OtlpSpan | undefined, name: string) =>

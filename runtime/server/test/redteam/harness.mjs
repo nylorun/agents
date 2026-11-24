@@ -1,5 +1,5 @@
 /**
- * The harness red-team suite (F6.2 W8): what code running in the harness container can reach.
+ * The harness red-team suite: what code running in the harness container can reach.
  * `scripts/smoke-redteam.mjs` runs it with the harness service's own definition (its image,
  * user, environment, mounts and network), with the real harness stopped:
  *

@@ -1,5 +1,5 @@
 /**
- * G9 — 426 precedes authentication and mutation.
+ * 426 precedes authentication and mutation.
  */
 import { expect, it } from "vitest";
 import { TENANT_HEADER } from "@nylorun/core/compatibility";
@@ -12,7 +12,7 @@ import {
   untilTenantSettled,
 } from "./support.js";
 
-it("G9: unsupported protocol returns 426 with no Tenant log or row mutation", async () => {
+it("unsupported protocol returns 426 with no Tenant log or row mutation", async () => {
   const host = await startSecurityHost({
     sandboxBackend: "virtual",
     model: { kind: "scripted", output: "ok" },

@@ -6,7 +6,7 @@ import { pinnedVersion } from "./versions.js";
  * (local builds, CI images). The sandboxes service (`nylorun local sandbox enable`) is
  * versioned with the Runtime: `ghcr.io/nylorun/sandboxes:<runtime pin>`, or
  * `NYLORUN_SANDBOXES_IMAGE`. Postgres, Restate, s2-lite and RustFS are the
- * official images, pinned here; RustFS (the Object store, D35) by digest as well, so
+ * official images, pinned here; RustFS (the Object store) by digest as well, so
  * it is upgraded only on purpose.
  */
 export const PINNED_IMAGES = {

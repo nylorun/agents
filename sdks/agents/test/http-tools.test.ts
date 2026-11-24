@@ -1,7 +1,7 @@
 /**
- * R2 M3: `http()` declares a tool the Runtime runs as an HTTP request. It projects into the
- * manifest with `http`, and has no implementation. R2 M6: `agentManifests.save` refuses a tool that would
- * run your code. R5 step 2: approval is the Tenant's tool policy, not the tool's.
+ * `http()` declares a tool the Runtime runs as an HTTP request. It projects into the
+ * manifest with `http`, and has no implementation. `agentManifests.save` refuses a tool that would
+ * run your code. Approval is the Tenant's tool policy, not the tool's.
  */
 import { describe, expect, it } from "vitest";
 import { z } from "zod";

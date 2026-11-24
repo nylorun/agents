@@ -6,7 +6,7 @@ const reader = (stored: unknown) => ({
 });
 
 describe("the Tenant's stored sandbox settings", () => {
-  it("drops engine.images an older Runtime stored (ADR-161)", async () => {
+  it("drops engine.images an older Runtime stored", async () => {
     const config = await readSandboxConfig(
       reader({ limits: { idle: "30m" }, engine: { images: ["ghcr.io/nylorun/dev"] }, lifecycle: { stopGrace: "20s" } }),
     );

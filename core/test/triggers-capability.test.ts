@@ -1,5 +1,5 @@
 /**
- * The triggers capability (D83): `engine.triggers: true` in an agent-folder/2 folder's AGENT.md
+ * The triggers capability: `engine.triggers: true` in an agent-folder/2 folder's AGENT.md
  * compiles to `harness.engine.triggers`; the root agent gets the `triggers` tool (a `runtime`
  * effect, operation `triggers`) and the text block `triggers@1`; a subagent never does.
  */
@@ -57,7 +57,7 @@ const agent = (front: string, body = "Help.") => `---\nname: helper\ndescription
 const sub = (front: string) => `---\nname: scout\ndescription: Looks around.\n${front}---\nLook.\n`;
 const engineOf = (manifest: unknown) => (manifest as { harness: { engine?: Record<string, unknown> } }).harness.engine;
 
-describe("engine.triggers in an agent folder (D83)", () => {
+describe("engine.triggers in an agent folder", () => {
   it("compiles to harness.engine.triggers with the triggers@1 block, after wake", () => {
     const compiled = compile({ "AGENT.md": agent("format: agent-folder/2\nengine:\n  triggers: true\n") });
     expect(codes(compiled.diagnostics)).toEqual([]);
@@ -178,7 +178,7 @@ describe("engine.triggers in an agent folder (D83)", () => {
   });
 });
 
-describe("the triggers tool (D83)", () => {
+describe("the triggers tool", () => {
   const manifest: Pick<AgentManifest, "engine" | "tools" | "skills"> = { engine: { triggers: true } };
 
   it("comes with the projection's triggers flag, after schedule_wake, as a runtime effect", () => {
@@ -219,7 +219,7 @@ describe("the triggers tool (D83)", () => {
   });
 });
 
-describe("contracts for the triggers capability (D83)", () => {
+describe("contracts for the triggers capability", () => {
   it("takes tool rules of kind runtime, without a server", () => {
     const rule = { effect: "ask", kind: "runtime", tool: "triggers", when: { command: { equals: "create" }, session: { equals: "own" } } };
     expect(ToolRuleSchema.safeParse(rule).success).toBe(true);

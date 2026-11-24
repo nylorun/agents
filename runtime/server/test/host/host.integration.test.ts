@@ -145,7 +145,7 @@ describe.skipIf(!STACK_ENABLED)("Host on Postgres, Restate and S2", () => {
     expect(after.body.checks).not.toHaveProperty("s2");
   });
 
-  it("/ready stays 200 while S2 is unreachable: S2 only serves API listeners (D48)", async () => {
+  it("/ready stays 200 while S2 is unreachable: S2 only serves API listeners", async () => {
     const { host, listening } = await startHost({
       overrides: { NYLORUN_S2_ENDPOINT: `http://127.0.0.1:${await freePort()}` },
     });

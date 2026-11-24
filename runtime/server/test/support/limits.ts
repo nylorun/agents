@@ -12,7 +12,7 @@ export const noLimitsStore = {
     work({ getSetting: async () => undefined }),
 };
 
-/** The Runtime limits `model*` that model call settings stand for (B15). */
+/** The Runtime limits `model*` that model call settings stand for. */
 export function modelCallLimits(settings: ModelCallSettings): Partial<RuntimeLimits> {
   return {
     ...(settings.attempts === undefined ? {} : { modelAttempts: settings.attempts }),

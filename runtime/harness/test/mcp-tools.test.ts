@@ -1,5 +1,5 @@
 /**
- * The session's MCP tools as our engine names them (R2b C6, protocol 15): MCP allows `.` and 128
+ * The session's MCP tools as our engine names them (protocol 15): MCP allows `.` and 128
  * characters; OpenAI, Bedrock and Gemini on Vertex take `[A-Za-z0-9_-]` up to 64. Our engine
  * names each tool from the turn's facts, leaves out what the turn disables or it cannot use, makes
  * each call an effect of the tool's identity, and keeps its deferral in its state.
@@ -161,7 +161,7 @@ describe("the MCP tool set", () => {
   });
 });
 
-describe("the layout our engine pins (R2b C10)", () => {
+describe("the layout our engine pins", () => {
   const manifest = Agent({ id: "a" })
     .mcp({ s: { type: "streamable-http", url: "https://s.example.invalid/mcp" } })
     .build().manifest;

@@ -1,5 +1,5 @@
 /**
- * Folder artifacts (blueprint D35, F8.2). A folder version is a **manifest**: JSON
+ * Folder artifacts. A folder version is a **manifest**: JSON
  * `{ format, entries: [{ path, size, sha256, contentType }] }`, sorted by path, stored in the
  * Object store under the version's `blobKey` like a file's bytes. Each file's bytes are stored
  * once, content-addressed, at `blobs/sha256/<hex>`: a file that did not change between versions,
@@ -49,7 +49,7 @@ export function sortEntries(entries: readonly FolderEntry[]): FolderEntry[] {
 
 /**
  * The manifest's bytes, as stored: deterministic for the same entries. A v1 manifest keeps each
- * file's path, size, hash and type; a v2 one (a disk version, R2d step 3) every field.
+ * file's path, size, hash and type; a v2 one (a disk version) every field.
  */
 export function encodeManifest(
   entries: readonly FolderEntry[],

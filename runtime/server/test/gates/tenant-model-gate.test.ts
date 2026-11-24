@@ -1,5 +1,5 @@
 /**
- * P1.1 exit A: with the gates service, the loop never reads a model credential. A Tenant
+ * With the gates service, the loop never reads a model credential. A Tenant
  * opened with a gate never builds its own in-process gate (`tenantModelGate`, the only path in
  * the loop to `HostModelVault`), yet its vault-backed turns complete. Without one, it builds
  * exactly one.

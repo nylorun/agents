@@ -1,5 +1,5 @@
 /**
- * R2b C12: `POST /v1/tenant/mcp/preview` lists a remote MCP server's tools with the credential
+ * `POST /v1/tenant/mcp/preview` lists a remote MCP server's tools with the credential
  * for its URL in the vault of the Agent the request names (none without one), and calls none. With `NYLORUN_TEST_MODEL_GATE=http` the keys
  * service in the gates service runs it; otherwise the Tenant does, in process.
  */

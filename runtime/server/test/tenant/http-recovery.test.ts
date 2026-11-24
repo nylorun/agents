@@ -1,9 +1,9 @@
 /**
- * R2 M3: an HTTP tool call whose answer was lost with the process that made it is treated as a
+ * An HTTP tool call whose answer was lost with the process that made it is treated as a
  * remote MCP call is (`mcp-recovery.test.ts`). Through the Tool Gate the call outlives the Worker
  * that sent it: the next advance re-sends it under the same key and joins it, so the service
  * gets one request. Made in the Worker's own process, a call its dead owner left running may
- * have reached the service: it is sent again with the same key (R5.3, at least once), so a
+ * have reached the service: it is sent again with the same key (at least once), so a
  * service that dedupes on the key acts once. A flow's HTTP stage is recovered the same way.
  */
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
@@ -137,7 +137,7 @@ describe.each<[string, Kind]>([
     expect(service.keys()).toHaveLength(1);
   });
 
-  it("sends a call its dead owner made in process again, with the same key (R5.3)", async () => {
+  it("sends a call its dead owner made in process again, with the same key", async () => {
     // In process even when the suite runs the gates over HTTP (the integration job).
     vi.stubEnv("NYLORUN_TEST_MODEL_GATE", "");
     const service = await heldService();

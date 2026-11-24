@@ -17,7 +17,7 @@
  * Tenant yet, an old layout, a schema newer or older than this Runtime) and from the running
  * Host's `/ready` on this container's listen port. It needs no key, so it works when the Tenant
  * cannot open. `keys put` prints the new key once on stdout (with `--json`, the whole
- * response). `harness token put` makes a custom harness's own token (R4.1), bound to its harness
+ * response). `harness token put` makes a custom harness's own token, bound to its harness
  * id, and prints it once; putting it again rotates it. Exit codes: 0 done (`status`: the Tenant is open), 1 refused (an id, a role),
  * 2 the Tenant cannot be opened (`status` still prints it), 64 usage.
  */
@@ -123,7 +123,7 @@ export async function runOperate(argv: readonly string[], io: OperateIo): Promis
 
 type Command = (keys: OperatorKeys, io: OperateIo, store: SessionStore) => Promise<number>;
 
-/** `harness token put|list|rm` (R4.1). */
+/** `harness token put|list|rm`. */
 function harnessCommand(argv: readonly string[]): Command {
   const [, noun, verb, ...rest] = argv;
   const json = rest.includes("--json");

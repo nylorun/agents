@@ -2,7 +2,7 @@ import { eventLayer } from "@nylorun/agents";
 import type { StudioEvent } from "./event-presentation.ts";
 
 /**
- * Whose account the rows are (ADR-159): the agent's record (what it saw and did), the Runtime's
+ * Whose account the rows are: the agent's record (what it saw and did), the Runtime's
  * (what the Runtime did to the session), or both. A type this Studio doesn't know shows under All.
  */
 export type EventView = "agent" | "runtime" | "all";

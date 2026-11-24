@@ -70,7 +70,7 @@ export interface TranscriptFinalEntry {
   readonly output: JsonValue;
 }
 /**
- * A summary that replaced the older part of the transcript (Model Calls §8). It is always
+ * A summary that replaced the older part of the transcript. It is always
  * the first entry; the entries after it are the kept tail, sent verbatim.
  */
 export interface TranscriptCompactionEntry {

@@ -45,9 +45,9 @@ export interface EffectiveSandboxConfig {
     /** The most Environments the Tenant may hold. */
     readonly environments: number;
   };
-  /** Pods (F7.2, D36). */
+  /** Pods. */
   readonly lifecycle: { readonly stopGrace: string };
-  /** Where each harness may run (D38). */
+  /** Where each harness may run. */
   readonly placement: Readonly<Record<string, { readonly hosts: readonly PlacementHost[] }>>;
 }
 
@@ -96,7 +96,7 @@ export function effectiveSandboxConfig(config: TenantSandboxConfig): EffectiveSa
 
 /** Settings an older Runtime stored that this one no longer has: dropped on read, gone at the next write. */
 const RETIRED_SETTINGS = [
-  // The images that carried the engine (ADR-99), retired by ADR-161.
+  // The images that carried the engine, retired.
   "engine",
 ] as const;
 

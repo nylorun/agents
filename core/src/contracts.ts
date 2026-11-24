@@ -332,7 +332,7 @@ const agentRequirementsSchema = z
   })
   .strict();
 /**
- * The engine features an agent declares (ADR-100, `agent-folder/2`): `harness.engine` of an
+ * The engine features an agent declares (`agent-folder/2`): `harness.engine` of an
  * agent manifest v8 and `engine` of the loop manifest (v7) the harness runs. With it, our engine
  * adds only what it names; without it, the defaults of `agent-folder/1`.
  */
@@ -379,7 +379,7 @@ export const HarnessEngineSchema = z
         }),
       )
       .optional()
-      .meta({ description: "The Runtime's plugins the agent declares (agent-folder/3, ADR-106): each with the tools left on and the hash of its files" }),
+      .meta({ description: "The Runtime's plugins the agent declares (agent-folder/3): each with the tools left on and the hash of its files" }),
   })
   .meta({ id: "HarnessEngine" });
 const harnessEngineField = HarnessEngineSchema.optional();
@@ -704,7 +704,7 @@ const resourcesSchema = z
   })
   .strict();
 
-// --- Environments (protocol 11, R2d, blueprint D55 and D56) --------------------------------
+// --- Environments (protocol 11) --------------------------------
 
 /**
  * An Agent id (protocol 16; an Environment id before): 1–200 characters, one or more
@@ -869,7 +869,7 @@ export const EnvironmentFileSchema = z.union([
           relativeFilePath,
           z.string().refine(isDefinitionFileHash, { message: "each file is sha256:<64 lowercase hex>" }),
         )
-        // At most the Tenant's Runtime limit `environmentFilesPerEntry`, checked when made (Q6).
+        // At most the Tenant's Runtime limit `environmentFilesPerEntry`, checked when made.
         .refine((files) => Object.keys(files).length >= 1, { message: "files names at least one file" }),
     })
     .strict(),
@@ -945,7 +945,7 @@ export const EnvironmentLimitsSchema = z
       .strict()
       .optional(),
     /**
-     * Its triggers (D83), within the Tenant's Runtime limits `triggersPerAgent`,
+     * Its triggers, within the Tenant's Runtime limits `triggersPerAgent`,
      * `triggerMinIntervalMs` and `triggerRunsPerHour`: lowering one deletes nothing.
      */
     triggers: z
@@ -1006,7 +1006,7 @@ const runtimeFields = {
  * waits for its next start; one that adds a required secret waits for its value. Its manifest's
  * name, kind, harness and storage are fixed (`409 agent_fixed_field`); fork it to change them. One
  * kind change is not: on a Runtime whose pods are computers, a `PUT` that moves a `virtual` Agent to
- * a `pod` version makes it a computer in place (ADR-154), with its id, sessions, memory, vault and
+ * a `pod` version makes it a computer in place, with its id, sessions, memory, vault and
  * triggers. `?dryRun=true` answers the move's plan (`AgentMovePlan`) and changes nothing.
  */
 export const PutAgentRequestSchema = z
@@ -1377,33 +1377,33 @@ export const AGENT_EVENT_TYPES = [
   "agent.lost",
   "agent.reset",
   "agent.failed",
-  // Forked into a new Agent (Q15).
+  // Forked into a new Agent.
   "agent.forked",
-  // Moved to another version of its manifest (track T3, D73).
+  // Moved to another version of its manifest.
   "agent.outdated",
   "agent.version_changed",
   "agent.start_failed",
-  // egress-gate: every connection the Agent opens (R7, D67).
+  // egress-gate: every connection the Agent opens.
   "agent.egress",
-  // Triggers (track T4, D74): each run, and a trigger paused or resumed.
+  // Triggers: each run, and a trigger paused or resumed.
   "agent.run",
   "agent.trigger_paused",
   "agent.trigger_resumed",
   "agent.trigger_secret_rotated",
-  // Triggers an agent made with the triggers tool (D83), and one deleted by an agent or a person.
+  // Triggers an agent made with the triggers tool, and one deleted by an agent or a person.
   "agent.trigger_created",
   "agent.trigger_updated",
   "agent.trigger_deleted",
-  // Memory (track T5, D72): a turn changed the Agent's memories.
+  // Memory: a turn changed the Agent's memories.
   "agent.memory_updated",
 ] as const;
 export type AgentEventType = (typeof AGENT_EVENT_TYPES)[number];
-/** `agent.trigger_created` and `agent.trigger_updated`'s payload (D83, D88). */
+/** `agent.trigger_created` and `agent.trigger_updated`'s payload. */
 export const TriggerChangePayloadSchema = z
   .object({
     triggerId: z.string(),
     kind: z.enum(["schedule", "at", "webhook"]),
-    /** Absent on events recorded before D88, which were all `agent`. */
+    /** Absent on events recorded before triggers could be put over the API, which were all `agent`. */
     origin: z.enum(["agent", "api"]).optional(),
     /** The session whose agent made it: an `agent` trigger's. */
     sessionId: z.string().optional(),
@@ -1414,7 +1414,7 @@ export const TriggerChangePayloadSchema = z
     schedule: z.string().optional(),
     timezone: z.string().optional(),
     at: z.string().optional(),
-    /** On `agent.trigger_updated` from D88: the definition's fields that changed. */
+    /** On `agent.trigger_updated` of a Runtime that serves API triggers: the definition's fields that changed. */
     changed: z.array(z.string()).optional(),
     nextRunAt: z.string().nullable(),
   })
@@ -1451,7 +1451,7 @@ export const AGENT_EVENT_PAYLOADS = {
    * Stopped (`POST .../stop`, or idle): the volume is kept; the next turn starts it again.
    * `drain` (Agent Substrate): its worker stopped, so it was suspended with everything it held
    * and resumed on another worker; nothing was lost. `diskBytes`: a computer suspended as idle
-   * had its disk measured first (`/workspace` and `/skills`, ADR-154); absent when it could not be.
+   * had its disk measured first (`/workspace` and `/skills`); absent when it could not be.
    */
   "agent.suspended": z
     .object({ reason: z.enum(["stop", "idle", "restart", "drain"]), diskBytes: z.number().int().nonnegative().optional() })
@@ -1486,7 +1486,7 @@ export const AGENT_EVENT_PAYLOADS = {
     .passthrough(),
   /**
    * Runs version `to` of its manifest now: turns that start from here run it. `kindFrom` and
-   * `kindTo` when the move changed its kind: a `virtual` Agent became a computer (ADR-154).
+   * `kindTo` when the move changed its kind: a `virtual` Agent became a computer.
    */
   "agent.version_changed": z
     .object({
@@ -1527,8 +1527,8 @@ export const AGENT_EVENT_PAYLOADS = {
   /** A webhook trigger's signing secret was made or replaced; the one before stopped working. */
   "agent.trigger_secret_rotated": z.object({ triggerId: z.string() }).passthrough(),
   /**
-   * An agent made a trigger with the `triggers` tool (D83), or a client put one over the API
-   * (D88), or either replaced one with the same id (`agent.trigger_updated`): where it came from
+   * An agent made a trigger with the `triggers` tool, or a client put one over the API
+   *, or either replaced one with the same id (`agent.trigger_updated`): where it came from
    * (`origin`), the session whose agent made it (`sessionId`, for `agent`) or who put it
    * (`principal`, for `api`), the session it runs in (`session`), its timing, its title, its next
    * run, and on an update the fields that changed (`changed`).
@@ -1537,7 +1537,7 @@ export const AGENT_EVENT_PAYLOADS = {
   "agent.trigger_updated": TriggerChangePayloadSchema,
   /**
    * A trigger an agent made or a client put was deleted: by an agent of `sessionId`, or over the
-   * API (`principal`); `origin` says which kind of trigger it was (D88).
+   * API (`principal`); `origin` says which kind of trigger it was.
    */
   "agent.trigger_deleted": z
     .object({
@@ -1571,10 +1571,10 @@ export const ListAgentEventsResponseSchema = z
   .object({ events: z.array(AgentEventSchema) })
   .strict();
 
-/** The schema id of the Tenant's events (its stream in the record, ADR-159). */
+/** The schema id of the Tenant's events (its stream in the record). */
 export const TENANT_EVENT_SCHEMA = "nylorun.tenant-event/1";
 /**
- * The Tenant's stream (ADR-159, Host feature `tenant-audit`): who changed who may reach the Tenant
+ * The Tenant's stream (Host feature `tenant-audit`): who changed who may reach the Tenant
  * and what its sessions may do, and each use of a vault credential, read with
  * `GET /v1/tenant/audit`. Every type is the Runtime's record (layer `runtime`): the Runtime saw it
  * happen, in the change's own transaction where it could; no harness writes one. No payload carries
@@ -1700,7 +1700,7 @@ export const StudioSignInRequestSchema = z
 export type StudioSignInRequest = z.infer<typeof StudioSignInRequestSchema>;
 
 /**
- * A model role's name (Host feature `model-roles`, ADR-154): a lowercase letter, then up to 31
+ * A model role's name (Host feature `model-roles`): a lowercase letter, then up to 31
  * lowercase letters, digits and `-`, such as `builder`.
  */
 export const AGENT_ROLE_PATTERN = /^[a-z][a-z0-9-]{0,31}$/;
@@ -2066,7 +2066,7 @@ export function environmentSecretNameError(
     : "A credential name is 1-64 letters, digits, '.', '_' and '-'";
 }
 
-// --- Environment manifests (protocol 14, D63 to D65) -----------------------------------------
+// --- Environment manifests (protocol 14) -----------------------------------------
 
 const slotBase = {
   /** Whether a session whose agent needs it may open without it. Default false. */
@@ -2124,7 +2124,7 @@ export const EnvironmentSecretSlotsSchema = z
   });
 export type EnvironmentSecretSlots = z.infer<typeof EnvironmentSecretSlotsSchema>;
 
-// --- Agent manifest v8 (protocol 16, track T2) ----------------------------------------------
+// --- Agent manifest v8 (protocol 16) ----------------------------------------------
 
 /** The schema version of an agent manifest the Runtime saves at `/v1/agent-manifests/{name}`. */
 export const AGENT_MANIFEST_V8_SCHEMA_VERSION = 8;
@@ -2206,7 +2206,7 @@ export function agentModelChoice(value: string): { provider: string; model: stri
 }
 const harnessModelField = AgentModelSchema.optional();
 /**
- * `harness.roles` (Host feature `model-roles`, ADR-154): a model for each role a session may be
+ * `harness.roles` (Host feature `model-roles`): a model for each role a session may be
  * opened with (`PUT /v1/sessions/{id}` `role`, an A2A message's `metadata.role`), checked as
  * `harness.model` is. A session opened with no role runs on `harness.model`.
  */
@@ -2368,7 +2368,7 @@ export function triggerKindOf(trigger: Trigger): Exclude<TriggerKind, "wake"> {
  */
 export const TRIGGER_STATUSES = ["active", "paused", "completed"] as const;
 /**
- * Where a trigger's definition comes from (D83, D88): `manifest` (the version's `runtime.triggers`),
+ * Where a trigger's definition comes from: `manifest` (the version's `runtime.triggers`),
  * `agent` (made by an agent of the Agent's sessions with the `triggers` tool, kept by the Agent),
  * `api` (put on the Agent by a client, `PUT /v1/agents/{id}/triggers/{triggerId}`, kept by the
  * Agent with the principal that put it) or `wake` (a session's booked wake, never listed).
@@ -2388,7 +2388,7 @@ export const TriggerViewSchema = z
     title: z.string().nullable(),
     /** The session whose agent made it; null for a manifest's or an `api` trigger. */
     createdSessionId: z.string().nullable(),
-    /** Who put an `api` trigger (D88); null for every other origin. Absent from a Runtime before D88. */
+    /** Who put an `api` trigger; null for every other origin. Absent from a Runtime without API triggers. */
     principal: z.string().nullable().optional(),
     status: z.enum(TRIGGER_STATUSES),
     /** `manual`, `new` for one an upgrade added, `undeclared` for an agent's while the version lacks `engine.triggers`. */
@@ -2419,7 +2419,7 @@ export const TriggerListSchema = z.object({ triggers: z.array(TriggerViewSchema)
 export const TRIGGER_TITLE_MAX = 80;
 
 /**
- * The body of `PUT /v1/agents/{agentId}/triggers/{triggerId}` (D88): a `Trigger`, exactly as a
+ * The body of `PUT /v1/agents/{agentId}/triggers/{triggerId}`: a `Trigger`, exactly as a
  * definition's `runtime.triggers` entry holds it, and an optional `title`. It creates the Agent's
  * `api` trigger with that id, or replaces it; the same body again changes nothing.
  */
@@ -2428,7 +2428,7 @@ export const TriggerPutSchema = z
   .superRefine(checkTriggerKind);
 export type TriggerPut = z.infer<typeof TriggerPutSchema>;
 
-/** `in` of the `triggers` tool (D83): a delay in minutes, hours or days, such as `30m`, `2h`, `1d`. */
+/** `in` of the `triggers` tool: a delay in minutes, hours or days, such as `30m`, `2h`, `1d`. */
 export const TRIGGER_DELAY_PATTERN = /^[1-9][0-9]*(m|h|d)$/;
 /** Where an agent-made trigger runs: the calling session (`this`), or a session of its own (`own`). */
 export const TRIGGER_TOOL_SESSIONS = ["this", "own"] as const;
@@ -2451,7 +2451,7 @@ const triggerCreateSchema = z
       ctx.addIssue({ code: "custom", path: ["timezone"], message: "timezone goes with schedule" });
   });
 /**
- * A call of the `triggers` tool (D83), which the Runtime serves for an agent whose version
+ * A call of the `triggers` tool, which the Runtime serves for an agent whose version
  * declares `engine.triggers`: `list` the triggers the calling session made; `create` one (or
  * replace the session's own with the same `id`) with exactly one of `schedule` (with `timezone`),
  * `at` or `in`, the `session` it runs in and its `prompt`; `delete` one by `id`.
@@ -2483,7 +2483,7 @@ export const TriggerToolOutputSchema = z.union([
     status: z.enum(TRIGGER_STATUSES),
     nextRunAt: z.string().nullable(),
     session: z.string(),
-    /** The Runtime's clock when it answered, so the model knows the time (ADR-106). */
+    /** The Runtime's clock when it answered, so the model knows the time. */
     now: z.string().optional(),
   }),
   z.strictObject({ triggers: z.array(TriggerToolItemSchema), now: z.string().optional() }),
@@ -2516,7 +2516,7 @@ export const TriggerRunSchema = z
   .strict();
 export type TriggerRun = z.infer<typeof TriggerRunSchema>;
 /**
- * One run on the Tenant's runs stream (D83, `GET /v1/runs/stream`): a run of any Agent's
+ * One run on the Tenant's runs stream (`GET /v1/runs/stream`): a run of any Agent's
  * triggers, as `TriggerRunSchema` has it, with its Agent and its trigger's origin and title. A
  * run may arrive twice (after a crash between append and mark); a reader drops a `runId` it has
  * seen.
@@ -2770,7 +2770,7 @@ export type PutAgentManifestRequest = z.infer<typeof PutAgentManifestRequestSche
 export const AgentManifestSavedBySchema = z.object({ actor: z.string() }).strict();
 /** One version of an agent manifest. */
 /**
- * The edit that fixes a diagnostic, when only one edit can (track T7, `nylorun check --fix`):
+ * The edit that fixes a diagnostic, when only one edit can (`nylorun check --fix`):
  * `rename_key` renames the key at `line` and `column` of `file` from `from` to `to`, the one known
  * key it is close to; `crlf` makes `file`'s CRLF line ends LF; `move_skill_secrets` moves a
  * `SKILL.md`'s `secrets` to `AGENT.md`'s `skills` block, as `skills: { <skill>: { secrets } }`.
@@ -2793,7 +2793,7 @@ export const AgentFolderFixSchema = z
   .meta({ id: "AgentFolderFix" });
 export type AgentFolderFix = z.infer<typeof AgentFolderFixSchema>;
 /**
- * One problem or remark about an agent folder (track T6): an `error` keeps it from compiling.
+ * One problem or remark about an agent folder: an `error` keeps it from compiling.
  * `file` is the path in the folder, with the line and column when known; `pointer` the field in
  * the manifest; `fix` the edit that fixes it, when only one edit can.
  */
@@ -2811,7 +2811,7 @@ export const AgentFolderDiagnosticSchema = z
   .strict()
   .meta({ id: "AgentFolderDiagnostic" });
 export type AgentFolderDiagnostic = z.infer<typeof AgentFolderDiagnosticSchema>;
-/** The folder a version was compiled from (track T6): the compiler that built it, and its size. */
+/** The folder a version was compiled from: the compiler that built it, and its size. */
 export const AgentManifestSourceSummarySchema = z
   .object({
     /** The compiler format, such as `agent-folder/1`. */
@@ -2851,7 +2851,7 @@ export type AgentFolderEntry = z.infer<typeof AgentFolderEntrySchema>;
 export const AGENT_FOLDER_MEDIA_TYPE = "application/vnd.nylorun.folder+json";
 /**
  * `PUT /v1/agent-manifests/{name}` with `Content-Type: application/vnd.nylorun.folder+json`
- * (track T6): an agent folder by hash, each file uploaded first with `PUT /v1/files/sha256:<hex>`.
+ *: an agent folder by hash, each file uploaded first with `PUT /v1/files/sha256:<hex>`.
  */
 export const PutAgentFolderRequestSchema = z
   .object({
@@ -2879,7 +2879,7 @@ export const AgentManifestSourceSchema = z
   .strict();
 export type AgentManifestSource = z.infer<typeof AgentManifestSourceSchema>;
 /**
- * `GET /v1/agent-manifests/{name}/source/diff?from=&to=` (track T7): what changed between two
+ * `GET /v1/agent-manifests/{name}/source/diff?from=&to=`: what changed between two
  * versions' sources, by path and SHA-256. Each list is sorted by path; `unchanged` counts the
  * files both hold with the same bytes.
  */
@@ -3142,7 +3142,7 @@ export const ModelCallHeaderSourceSchema = z.discriminatedUnion("from", [
 ]);
 export type ModelCallHeaderSource = z.infer<typeof ModelCallHeaderSourceSchema>;
 /**
- * What the Runtime cannot learn from a custom OpenAI-compatible endpoint (Model Calls §7):
+ * What the Runtime cannot learn from a custom OpenAI-compatible endpoint:
  * its context window and output limit (default `CUSTOM_MODEL_SETTING_DEFAULTS`), whether it
  * reasons, what it reads (`inputs`; default text only) and pi-ai `compat` settings
  * (`thinkingFormat`, `thinkingTokenBudgetField`, `chatTemplateKwargs`, …). `headers` are sent on
@@ -3167,7 +3167,7 @@ export type CustomModelSettings = z.infer<typeof CustomModelSettingsSchema>;
  * endpoint only) the Runtime's workload token, read from `NYLORUN_WORKLOAD_TOKEN_FILE` on every
  * call and never stored (#496), or (`google-vertex` only, Host feature `model-host-identity`) the
  * Host's own identity: Google's Application Default Credentials, found at each call and never
- * stored, on a Host whose operator lends it with `NYLORUN_MODEL_HOST_IDENTITY` (ADR-71).
+ * stored, on a Host whose operator lends it with `NYLORUN_MODEL_HOST_IDENTITY`.
  */
 export const HOST_MODEL_AUTH_TYPES = ["api_key", "oauth", "workload", "host_identity"] as const;
 export type HostModelAuthType = (typeof HOST_MODEL_AUTH_TYPES)[number];
@@ -3434,7 +3434,7 @@ const commandBase = {
 /**
  * What a message to a busy session does (protocol 17): `queue` waits for the running turn to
  * end and starts the next one; `reject` is refused with `409 session_busy`. A protocol 17 client's
- * default is `queue`, a protocol 16 client's `reject`. `steer` (Host feature `steer`, D85) joins
+ * default is `queue`, a protocol 16 client's `reject`. `steer` (Host feature `steer`) joins
  * the running turn before its next step, when our engine runs it; a workflow session queues it,
  * and one the turn doesn't take starts the next turn like a queued message.
  */
@@ -3450,12 +3450,12 @@ export type MessageDelivery = z.infer<typeof MessageDeliverySchema>;
  * only narrows.
  */
 export const RemoveToolsSchema = z.array(z.string().min(1).max(256)).max(256);
-/** The most context items one message carries (ADR-157). */
+/** The most context items one message carries. */
 export const MESSAGE_CONTEXT_MAX_ITEMS = 16;
-/** The most bytes a message's context items take, as JSON (ADR-157). */
+/** The most bytes a message's context items take, as JSON. */
 export const MESSAGE_CONTEXT_MAX_BYTES = 16 * 1024;
 /**
- * A message's `context` (Host feature `message-context`, ADR-157): facts for its own turn only,
+ * A message's `context` (Host feature `message-context`): facts for its own turn only,
  * such as the time or who the agent is today. Our engine puts them in the `<runtime-context>` block
  * of every model call of that turn, after the history; later turns leave them out. The
  * `command.message` event keeps them.
@@ -3568,7 +3568,7 @@ export const SessionEventBodySchema = SessionCommandSchema;
 export type SessionCommand = z.infer<typeof SessionCommandSchema>;
 export type SessionEventBody = SessionCommand;
 export type MessageEventBody = z.infer<typeof MessageEventBodySchema>;
-/** The envelope every session event carries (`nylorun.event/2`, Durable Streams §9.5). */
+/** The envelope every session event carries (`nylorun.event/2`). */
 export const EVENT_SCHEMA = "nylorun.event/2";
 /**
  * Who wrote an event: the writer says so, not the event's type. `client` is a
@@ -3597,7 +3597,7 @@ export const EventSourceKindSchema = z.enum([
 ]);
 export type EventSourceKind = z.infer<typeof EventSourceKindSchema>;
 /**
- * Whose account an event is: the agent's or the Runtime's (ADR-159). A session's events have one each
+ * Whose account an event is: the agent's or the Runtime's. A session's events have one each
  * (`EVENT_CATALOG`); every event on an Agent's stream (`AGENT_EVENT_TYPES`) is the Runtime's.
  */
 export const EVENT_LAYERS = ["agent", "runtime"] as const;
@@ -3697,7 +3697,7 @@ export type AcceptedResponse = z.infer<typeof AcceptedResponseSchema>;
 /**
  * A message the session queued because a turn runs or waits (protocol 17): it starts the next
  * turn when this one ends. `position` counts from 1, the first to go. `delivery` is what applied
- * (D85): `steer` when the running turn takes it before a step, `queue` otherwise; a Host without
+ *: `steer` when the running turn takes it before a step, `queue` otherwise; a Host without
  * the feature `steer` leaves it out.
  */
 export const QueuedResponseSchema = z.object({
@@ -3766,7 +3766,7 @@ export const MeteredUsageSchema = z
   })
   .passthrough();
 /**
- * One retry of a model call (Model Calls §6): the attempt it started, the first counted as 1,
+ * One retry of a model call: the attempt it started, the first counted as 1,
  * the delay waited before it, and the error that ended the attempt before it, as the provider or
  * its SDK worded it, cut to 300 characters.
  */
@@ -3839,7 +3839,7 @@ export function isEmptyAssistantMessage(payload: {
   );
 }
 /**
- * `model.failed`: a model call that failed in a known way (Model Calls §6.4). The turn
+ * `model.failed`: a model call that failed in a known way. The turn
  * then fails with `model.<code>`, or recovers.
  */
 export const ModelFailedPayloadSchema = z
@@ -3854,7 +3854,7 @@ export const ModelFailedPayloadSchema = z
   .passthrough();
 /**
  * `context.compacted`: the harness summarized older history to fit the model's window
- * (Model Calls §8), and said so with the transcript edit that replaced it (`kind: "compaction"`,
+ *, and said so with the transcript edit that replaced it (`kind: "compaction"`,
  * protocol 15). Token counts are the harness's estimates; `invocationId` and the model facts are
  * the last summary call's. Written once per compaction, when the segment's edit is recorded.
  */
@@ -4022,7 +4022,7 @@ export const TurnCancelledPayloadSchema = z
 /**
  * `message.queued` (protocol 17): a message arrived while the session's turn ran or waited, and
  * waits in its queue. `position` counts from 1; the message's `command.message` is written when
- * a turn takes it. `delivery` (D85) says whether the running turn may take it before a step.
+ * a turn takes it. `delivery` says whether the running turn may take it before a step.
  */
 export const MessageQueuedPayloadSchema = z
   .object({
@@ -4065,7 +4065,7 @@ export const PlanUpdatedPayloadSchema = z
   .passthrough();
 /**
  * `queue.taken` (protocol 17): the turn that started with the queued messages, in order. With
- * `step` (D85), the running turn took steered messages before that step instead.
+ * `step`, the running turn took steered messages before that step instead.
  */
 export const QueueTakenPayloadSchema = z
   .object({
@@ -4130,7 +4130,7 @@ export const CommandMessagePayloadSchema = z
     manifest: z.unknown().optional(),
     /** The tools the message's turn may not use (Host feature `remove-tools`). */
     removeTools: z.array(z.string()).optional(),
-    /** The context items the message carried for its turn (ADR-157, Host feature `message-context`). */
+    /** The context items the message carried for its turn (Host feature `message-context`). */
     context: z.array(z.object({ type: z.string().optional(), value: jsonValue }).strict()).optional(),
     delivery: MessageDeliverySchema.optional(),
     /** Set when the message waited in the session's queue (protocol 17): its id there. */
@@ -4285,7 +4285,7 @@ export const TranscriptUpdatedPayloadSchema = z
 export const ArtifactSourceSchema = z.enum(["upload", "engine", "export", "snapshot"]);
 export type ArtifactSource = z.infer<typeof ArtifactSourceSchema>;
 /**
- * Who an artifact is for (ADR-139): `model` for a file our engine stored only so its model could
+ * Who an artifact is for: `model` for a file our engine stored only so its model could
  * see it (a sandbox image or PDF it read). Such an artifact stays in the session, readable by id,
  * but is no output: no A2A task file, no AG-UI history entry, not in a session's artifact list.
  * Absent for everything else.
@@ -4313,7 +4313,7 @@ export const ArtifactVersionPayloadSchema = z
     size: z.number().int().nonnegative(),
     sha256: z.string(),
     source: ArtifactSourceSchema,
-    /** `model`: stored only for the model to see (ADR-139); absent for an output. */
+    /** `model`: stored only for the model to see; absent for an output. */
     audience: ArtifactAudienceSchema.optional(),
     /** The tool call that saved it (`save_artifact`), when our engine did. */
     callId: z.string().optional(),
@@ -4370,7 +4370,7 @@ export const ArtifactExportFailedPayloadSchema = z
 
 /**
  * `engine.diagnostic`: our engine met something about the session's agent that the agent's
- * declarations decide, and says so instead of choosing for it (ADR-100), such as `mcp_tools_inline`:
+ * declarations decide, and says so instead of choosing for it, such as `mcp_tools_inline`:
  * an agent that does not declare `engine.toolSearch` has MCP tool schemas past the share of the
  * model's context window at which they would be deferred, and keeps them all in its tool list.
  */
@@ -4480,7 +4480,7 @@ export const McpDiscoveredPayloadSchema = z
   .passthrough();
 
 /**
- * The event catalog (Durable Streams §9.5): every session event type, its payload schema, its
+ * The event catalog: every session event type, its payload schema, its
  * payload schema version and who writes it. A type not listed here cannot be written. A type
  * with `visibility: "internal"` is recorded and folded by the Runtime but never served to
  * clients (SSE, history, AG-UI and A2A skip it).
@@ -4558,7 +4558,7 @@ export const EVENT_CATALOG = {
     source: EventSourceKind;
     version: number;
     /**
-     * Whose account the event is (ADR-159): `agent`, what the agent saw and did (inputs, model and
+     * Whose account the event is: `agent`, what the agent saw and did (inputs, model and
      * tool calls, the harness's own work, turns), for the developer reading the session; or
      * `runtime`, what the Runtime did to the session (queue, wakes, settings, the computer,
      * artifacts, diagnostics). A property of the type: the envelope does not carry it.
@@ -4569,7 +4569,7 @@ export const EVENT_CATALOG = {
 >;
 export type EventType = keyof typeof EVENT_CATALOG;
 export const EVENT_TYPES = Object.keys(EVENT_CATALOG) as readonly EventType[];
-/** An event type's layer (ADR-159); `undefined` for a type this version does not know. */
+/** An event type's layer; `undefined` for a type this version does not know. */
 export function eventLayer(type: string): EventLayer | undefined {
   return Object.hasOwn(EVENT_CATALOG, type) ? EVENT_CATALOG[type as EventType].layer : undefined;
 }
@@ -4746,7 +4746,7 @@ export const HostTenantSchema = z
   .strict();
 export type HostTenant = z.infer<typeof HostTenantSchema>;
 
-/** A stream relay's state (Durable Streams §7). */
+/** A stream relay's state. */
 export const StreamRelayStatusSchema = z
   .object({
     /** This process holds the replication slot (one process per slot does). */
@@ -5484,7 +5484,7 @@ export const TenantSandboxViewSchema = z
         namespace: z.string(),
         context: z.string(),
         ready: z.boolean(),
-        /** What runs the pods: `agent-sandbox` Sandboxes, or `substrate` actors (preview, ADR-138). */
+        /** What runs the pods: `agent-sandbox` Sandboxes, or `substrate` actors (preview). */
         backend: z.enum(["agent-sandbox", "substrate"]).optional(),
         /** With backend `substrate`: the Tenant's atespace and Substrate's version. */
         atespace: z.string().optional(),
@@ -5616,7 +5616,7 @@ export const ToolInputConditionSchema = z
 export type ToolInputCondition = z.infer<typeof ToolInputConditionSchema>;
 /**
  * One rule of the Tenant's tool policy, applied at the Tool Gate to every MCP and HTTP tool call
- * of every harness, and to the operations the Runtime serves itself (`kind: "runtime"`, D83). A
+ * of every harness, and to the operations the Runtime serves itself (`kind: "runtime"`). A
  * rule matches a call when every selector it sets matches: `tool` (the tool's identity: an MCP
  * tool's own name on its server, an HTTP tool's declared name, or a runtime operation:
  * `triggers`, `memory`, `schedule_wake`; never the name a harness gave the model; `*` for any run
@@ -5713,7 +5713,7 @@ export const AgUiRunErrorCodeSchema = z.enum([
 ]);
 export type AgUiRunErrorCode = z.infer<typeof AgUiRunErrorCodeSchema>;
 
-// --- Studio embedding (Studio design §8) ---------------------------------------------------
+// --- Studio embedding ---------------------------------------------------
 
 /**
  * A Tenant id as Studio's routes accept it.
@@ -5796,7 +5796,7 @@ function embed<const K extends string, S extends z.ZodRawShape>(kind: K, shape: 
   });
 }
 
-/** Every message between an embedder and Studio (Studio design §8.8). */
+/** Every message between an embedder and Studio. */
 export const StudioEmbedMessageSchema = z.discriminatedUnion("kind", [
   embed("ready", {
     protocols: z.array(z.number().int().positive()).min(1),
@@ -5863,7 +5863,7 @@ export function parseFrameAncestors(value: string): string[] {
   return [...new Set(entries)];
 }
 
-// --- File artifacts (protocol 6, blueprint D35, F8.1) ----------------------------------------
+// --- File artifacts (protocol 6) ----------------------------------------
 
 /** The JWT `typ` of a capability link's token (RFC 8725 explicit typing). */
 export const ARTIFACT_LINK_TOKEN_TYPE = "nylorun-artifact+jwt";
@@ -5930,7 +5930,7 @@ export const ArtifactViewSchema = z
     latestVersion: z.number().int().positive(),
     labels: z.record(z.string(), z.string()).optional(),
     /**
-     * `model`: our engine stored it only so its model could see it (ADR-139). Readable by id;
+     * `model`: our engine stored it only so its model could see it. Readable by id;
      * never in a list of artifacts. Absent for every other artifact.
      */
     audience: ArtifactAudienceSchema.optional(),
@@ -6009,7 +6009,7 @@ export const ArtifactLinkSchema = z
   .strict();
 export type ArtifactLink = z.infer<typeof ArtifactLinkSchema>;
 
-// --- Folder artifacts (protocol 6, F8.2) -------------------------------------------------------
+// --- Folder artifacts (protocol 6) -------------------------------------------------------
 
 /** The media type of a folder artifact and of its manifests. */
 export const FOLDER_CONTENT_TYPE = "application/vnd.nylorun.folder+json";

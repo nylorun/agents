@@ -45,7 +45,7 @@ export class McpPool {
       /**
        * Opens a declared remote (`streamable-http` or `sse`) server through a Tool Gate
        * (`ToolGate.openMcp`): the gate finds it in the session's pinned manifest and holds its
-       * credential, and the pool never sees either (F4.1, protocol 15).
+       * credential, and the pool never sees either (protocol 15).
        */
       readonly openRemote: (server: McpServerRef) => Promise<LiveConnection>;
     },
@@ -181,9 +181,9 @@ export class McpPool {
     serverToolName: string;
     args: unknown;
     manifest: AgentManifest;
-    /** The effect id: a gate runs the call once under it (F4.1). */
+    /** The effect id: a gate runs the call once under it. */
     effectId?: string;
-    /** The call's span context (R7.4), sent as `traceparent` on a connection this process holds. */
+    /** The call's span context, sent as `traceparent` on a connection this process holds. */
     traceparent?: string;
     /**
      * The largest answer kept on a connection this process holds: the Runtime limit
@@ -195,7 +195,7 @@ export class McpPool {
     const key = this.liveKey(input.sessionId, input.agentId, input.serverName);
     for (let attempt = 0; ; attempt += 1) {
       const live = await this.liveFor(input, key);
-      // No connection, so no call was sent: the model sees why, a 401 included (R2b C1, C7).
+      // No connection, so no call was sent: the model sees why, a 401 included.
       if (!("connection" in live)) return live;
       live.active += 1;
       try {

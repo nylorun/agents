@@ -1,6 +1,6 @@
 /**
  * The A2A artifact of a file a turn wrote (`fileArtifact`): a file stored only for the model to
- * see (ADR-139) is no output of the task, like the caller's own uploads.
+ * see is no output of the task, like the caller's own uploads.
  */
 import { expect, it } from "vitest";
 import { fileArtifact } from "../../src/api/a2a/tasks.js";

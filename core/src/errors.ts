@@ -29,7 +29,7 @@ export type HarnessErrorCode =
   | "model.invalid-directive"
   | "model.unsupported-content"
   | "model.unsupported-output-schema"
-  /** A provider failure the model adapter classified (Model Calls §6.1). */
+  /** A provider failure the model adapter classified. */
   | `model.${import("./types/model.js").ModelFailureCode}`
   | "configuration.duplicate-tool-name"
   | "configuration.invalid"

@@ -1,10 +1,10 @@
 /**
- * Packing an agent folder (track T6): `packFolder(dir)` lists every file with its size and SHA-256
+ * Packing an agent folder: `packFolder(dir)` lists every file with its size and SHA-256
  * and reads its bytes on demand. It skips `.git`, `.hg`, `.svn` and `node_modules`, what the
- * folder's `.nyloignore` names (gitignore rules, `folder-ignore.ts`; track T7), and follows no
+ * folder's `.nyloignore` names (gitignore rules, `folder-ignore.ts`), and follows no
  * symbolic link.
  *
- * `extends` in `runtime.json` (track T7, design §3.9) names a shared JSON file, inside the folder
+ * `extends` in `runtime.json` names a shared JSON file, inside the folder
  * or outside it, by a path relative to the file that names it. The packed `runtime.json` is the
  * merge, the folder's own keys winning (objects merge, arrays replace), so every saved version is
  * self-contained and its source is what was sent; `.nylorun/origin.json` in the pack names the

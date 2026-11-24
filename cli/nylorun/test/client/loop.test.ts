@@ -1,5 +1,5 @@
 /**
- * Both ends of the agent folder loop (track T7): `apply --agent`, the instructions' text diff in a
+ * Both ends of the agent folder loop: `apply --agent`, the instructions' text diff in a
  * plan, `apply --watch` and `nylorun chat`, against a fake Runtime.
  */
 import { mkdir, writeFile } from "node:fs/promises";

@@ -76,7 +76,7 @@ export async function linkedOutcome(
 
 /**
  * True when this Tenant's remote MCP and HTTP tool calls outlive the process that sent them
- * (the gates service, F4.1 G3): after a takeover or a shutdown, the journaled call is re-sent
+ * (the gates service): after a takeover or a shutdown, the journaled call is re-sent
  * and joins the running call or gets its answer, instead of becoming `uncertain`.
  */
 export function recoversToolCalls(ctx: TenantContext): boolean {
@@ -93,7 +93,7 @@ export function isGateToolEffect(s: Session, request: HostEffect): boolean {
 
 /**
  * True when this Tenant's vault-backed model calls outlive the process that sent them (the
- * gates service, P1.2): after a takeover or a shutdown, the journaled call is re-sent and joins
+ * gates service): after a takeover or a shutdown, the journaled call is re-sent and joins
  * the running call or gets its outcome, instead of becoming `uncertain`.
  */
 export function recoversModelCalls(ctx: TenantContext): boolean {
@@ -144,7 +144,7 @@ export async function resolveNewFlowEffect(
       request.sessionId,
       request.turnId
     );
-    // When the run journaled the effect (R7.1); a queued effect keeps it once dispatched.
+    // When the run journaled the effect; a queued effect keeps it once dispatched.
     const startedAt = (existing?.startedAt as string | undefined) ?? new Date().toISOString();
     if (!mayDispatchMore(active, await readRuntimeLimits(t))) {
       if (!existing || existing.status !== "queued")
@@ -181,7 +181,7 @@ export async function resolveNewFlowEffect(
         ...(request.iterations !== undefined ? { iterations: request.iterations } : {}),
       };
       await t.event(workflow.id, workflow.activeTurnId, "node.started", node);
-      // Nothing ran (R7.1): the stage's outcome row says so.
+      // Nothing ran: the stage's outcome row says so.
       await t.event(workflow.id, workflow.activeTurnId, "node.completed", {
         ...node,
         effectId: request.effectId,
@@ -198,7 +198,7 @@ export async function resolveNewFlowEffect(
   const body = request.input as {
     agentId: string;
     input: JsonValue;
-    /** The flow agent's input, when the stage's input differs from it (D12). */
+    /** The flow agent's input, when the stage's input differs from it. */
     flowInput?: JsonValue;
     path: string;
     /** The nested flow agents, outermost first, whose `agents` hold this leaf. */
@@ -235,7 +235,7 @@ export async function resolveNewFlowEffect(
     await ownedSession(t, lease, workflow.id);
     if (exists) return;
     const definition = leafDefinition(workflow, body, request);
-    // The flow's Agent (Q6) reaches every agent in the tree: its sandbox and its vault. Each leaf
+    // The flow's Agent reaches every agent in the tree: its sandbox and its vault. Each leaf
     // session runs on it, with the flow's manifest version, and its leaf agent's loop manifest.
     const sandbox = workflow.sandbox;
     const created: Session = {

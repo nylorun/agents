@@ -1,5 +1,5 @@
 /**
- * Disk versions of a virtual Agent (R2d step 3): a snapshot keeps a version of the workspace (an
+ * Disk versions of a virtual Agent: a snapshot keeps a version of the workspace (an
  * unchanged one makes none), a restore puts one back at once, `from` creates a new Agent from
  * another's version that then diverges, versions list and delete, a turn holds the disk, and
  * deleting the Agent deletes its versions.

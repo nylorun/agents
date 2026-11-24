@@ -3,7 +3,7 @@ import { packFolder, type AgentsClient } from "@nylorun/agents";
 import { EXAMPLES_ROOT } from "../shared/root.js";
 
 /**
- * An agent folder, not TypeScript (track T6): `AGENT.md` holds the agent's name, description and
+ * An agent folder, not TypeScript: `AGENT.md` holds the agent's name, description and
  * instructions, and `mcp.json` GitHub's MCP server, whose `Authorization: Bearer ${GITHUB_TOKEN}`
  * header names the `GITHUB_TOKEN` bearer slot the compiler derives for that server's exact URL.
  */

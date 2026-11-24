@@ -1,11 +1,11 @@
 #!/usr/bin/env node
-// Track T4's exit test (Wake, D74 to D77) on a single-server install, as one scenario:
+// The end-to-end test of triggers and wakes on a single-server install, as one scenario:
 //
 //   node scripts/t4-exit.mjs        # npm run test:t4-exit
 //
 // Starts a Tenant (Compose) with its fixture model, saves the agent manifest `wake` with an
 // every-minute schedule and a Standard Webhooks endpoint, makes the Agent `wake`, and checks the
-// blueprint's exit test clause by clause with no client driving the schedule:
+// end-to-end test's checks one by one with no client driving the schedule:
 //
 // - every run of the schedule lands in the session it names, opened by its first run;
 // - a signed delivery sent during a turn is queued, and starts the next turn;
@@ -16,7 +16,7 @@
 // - a server stopped across due times fires once, late, when it starts again, and backfills
 //   none; then the schedule goes on.
 //
-// The 24-hour run of the exit test is this scenario's schedule, left running: one minute here
+// The 24-hour run of the end-to-end test is this scenario's schedule, left running: one minute here
 // stands in for an hour.
 import assert from "node:assert/strict";
 import { createHmac, randomUUID } from "node:crypto";
@@ -197,6 +197,6 @@ await withStack({ name: "nylorun-t4-exit", images, startArgs: ["--no-studio"] },
   check((await tickRuns()).every((run) => run.sessionId === "inbox"), "every run of the schedule is on inbox");
 });
 if (failed) {
-  console.error("\nT4 exit test failed");
+  console.error("\nTriggers end-to-end test failed");
   process.exitCode = 1;
-} else console.log("\nT4 exit test passed");
+} else console.log("\nTriggers end-to-end test passed");

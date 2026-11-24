@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Track T2's exit test (Agents from one manifest, protocol 16) on a real cluster, as one scenario:
+// The end-to-end test of Agents from one manifest (protocol 16) on a real cluster, as one scenario:
 //
 //   node scripts/sandbox/t2-exit.mjs --context docker-desktop
 //   node scripts/sandbox/t2-exit.mjs --context kind-nylorun --host-address 172.17.0.1

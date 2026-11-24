@@ -1,5 +1,5 @@
 /**
- * Webhooks (track T4, D75): a webhook trigger's endpoint, `POST /v1/webhooks/{endpointId}`, takes
+ * Webhooks: a webhook trigger's endpoint, `POST /v1/webhooks/{endpointId}`, takes
  * Standard Webhooks deliveries with no credential and no protocol header. The signature is
  * verified with the secret the keys service sealed, the timestamp within the Host's tolerance;
  * a delivery id runs once; the payload reaches the model as labelled data under the prompt; a

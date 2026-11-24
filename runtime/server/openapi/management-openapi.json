@@ -7352,7 +7352,7 @@
           "Settings"
         ],
         "summary": "Set the Tenant's Agent compute settings",
-        "description": "Replaces the Tenant's settings (Tenant setting `environments.config`): the limits every Agent's runtime must fit, the pods' stop grace and where harnesses may run (`engine.images`, retired by ADR-161, is refused). A setting left out takes its default. Answers like `GET`: `config` is the Tenant's settings as stored: only what it set, in exactly the shape `PUT` takes, so a client changes one setting by putting `config` back with that change. `effective` is the configuration in force: `config` with every default filled in, sizes in MiB (`memoryMiB`).",
+        "description": "Replaces the Tenant's settings (Tenant setting `environments.config`): the limits every Agent's runtime must fit, the pods' stop grace and where harnesses may run (`engine.images` is retired and refused). A setting left out takes its default. Answers like `GET`: `config` is the Tenant's settings as stored: only what it set, in exactly the shape `PUT` takes, so a client changes one setting by putting `config` back with that change. `effective` is the configuration in force: `config` with every default filled in, sizes in MiB (`memoryMiB`).",
         "security": [
           {
             "managementKey": []
@@ -8118,7 +8118,7 @@
     },
     {
       "name": "Audit",
-      "description": "The Tenant's stream (ADR-159, Host feature `tenant-audit`): keys put and deleted, signing keys rotated and revoked, tool policy and settings changes, vault credentials written and used, and Studio sign-ins, each with who did it and never a secret, newest first. `admin.tenant.audit`."
+      "description": "The Tenant's stream (Host feature `tenant-audit`): keys put and deleted, signing keys rotated and revoked, tool policy and settings changes, vault credentials written and used, and Studio sign-ins, each with who did it and never a secret, newest first. `admin.tenant.audit`."
     },
     {
       "name": "Settings",

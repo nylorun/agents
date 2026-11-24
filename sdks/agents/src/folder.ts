@@ -1,5 +1,5 @@
 /**
- * Agent folders (track T6, D79): a folder of Markdown and JSON (`AGENT.md`, `mcp.json`,
+ * Agent folders: a folder of Markdown and JSON (`AGENT.md`, `mcp.json`,
  * `runtime.json`, `skills/`, `tools/`, `triggers/`, `files/`) that `@nylorun/core/folder`
  * compiles into agent manifest v8. `packFolder(dir)` (`folder-pack.ts`, Node only) lists it with
  * each file's size and hash, `checkFolder` compiles it offline with the same compiler the Runtime

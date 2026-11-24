@@ -7,7 +7,7 @@
  * The provider gets the call as an effect (`HostEffect`), rebuilt from the request: the ids, the
  * agent used as a tool, the call's purpose, and the call as its `input`. With a store, each call
  * is metered in the usage ledger like the Tenant's own gate's, and the Tenant's fixture model
- * setting is answered first (R4.3). It dies with its process: it never `recovers`.
+ * setting is answered first. It dies with its process: it never `recovers`.
  */
 import type { HostEffect } from "@nylorun/harness/run";
 import type { ModelProvider } from "../core/provider.js";

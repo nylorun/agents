@@ -58,7 +58,7 @@ const CALLS_AUTOLOAD = 1000;
 
 /**
  * One colour per token kind, the same in the session bar, the call chart and the column heads:
- * DESIGN.md's series in order, light to dark. Chart-4 and chart-3 are under 3:1 on white, so they
+ * Studio's chart series in order, light to dark. Chart-4 and chart-3 are under 3:1 on white, so they
  * carry the chart hairline (`CHART_HAIRLINE`).
  */
 const KIND_COLOR: Record<TokenKind, string> = {

@@ -96,7 +96,7 @@ securityContext:
 {{- end -}}
 
 {{/*
-The NetworkPolicy ingress rule for /metrics (port 9464, ADR-159): from `metrics.from` (NetworkPolicy
+The NetworkPolicy ingress rule for /metrics (port 9464): from `metrics.from` (NetworkPolicy
 peers, such as the namespace of the cluster's Prometheus), or from any pod when it is empty.
 */}}
 {{- define "nylorun.metrics.ingress" -}}
@@ -104,7 +104,7 @@ peers, such as the namespace of the cluster's Prometheus), or from any pod when 
   {{- with .Values.metrics.from }}
   from: {{- toYaml . | nindent 4 }}
 - ports: [{ port: 9464 }]
-  # Studio's Tenant › Traffic reads the runtime's and the gateway's /metrics (ADR-159).
+  # Studio's Tenant › Traffic reads the runtime's and the gateway's /metrics.
   from:
     - podSelector:
         matchLabels: {{- include "nylorun.selector" (dict "root" $ "component" "studio") | nindent 10 }}

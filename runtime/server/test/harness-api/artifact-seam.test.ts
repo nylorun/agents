@@ -249,7 +249,7 @@ describe.each(["memory", "ws"] as const)("the artifact seam over %s", (transport
     ]);
   });
 
-  it("keeps a file stored for the model out of every list, and marks it for the model (ADR-139)", async () => {
+  it("keeps a file stored for the model out of every list, and marks it for the model", async () => {
     const held = await hold(transport);
     const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
     const seen = await write(held, { op: "begin", key: "look1", name: "figure.png", contentType: "image/png", audience: "model", base64: toBase64(png) });

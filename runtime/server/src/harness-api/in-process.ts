@@ -1,5 +1,5 @@
 /**
- * The Tenant's own harness (D37): `@nylorun/harness/api` in this process, attached to the
+ * The Tenant's own harness: `@nylorun/harness/api` in this process, attached to the
  * Tenant's Harness API server over a memory channel, with the Tenant's model gate, MCP pool
  * and SandboxManager as its executors. It uses the same seams and gates as a remote one
  * (protocol 15): every model call goes through the Model Gate, every MCP server opens through
@@ -60,7 +60,7 @@ export async function startInProcessHarness(
     }),
     sandboxTools,
     logger: ctx.config.logger,
-    // Our harness: its hello names our harness id (R4.1).
+    // Our harness: its hello names our harness id.
     name: DEFAULT_HARNESS,
   });
   await harness.start();

@@ -118,7 +118,7 @@ export function keyAccess(access: RouteAccess): KeyAccess {
 /** A declared route: what `findTenantRoute` looks up. */
 interface Declared {
   readonly method: string;
-  /** The path as declared, `{param}`s and all: a request's `http.route` (ADR-159). */
+  /** The path as declared, `{param}`s and all: a request's `http.route`. */
   readonly path: string;
   readonly segments: readonly string[];
   readonly access: RouteAccess;
@@ -170,7 +170,7 @@ function authenticated(access: RouteAccess): MiddlewareHandler<TenantEnv> {
   };
 }
 
-/** W3C trace context a request may send (R7.4): the turn it starts joins the caller's trace. */
+/** W3C trace context a request may send: the turn it starts joins the caller's trace. */
 export const TraceHeaders = z.object({
   traceparent: z
     .string()
@@ -212,7 +212,7 @@ export function tenantRoute(
     security: open
       ? []
       : [...schemes.map((scheme) => ({ [scheme]: [] })), ...(access.anonymous ? [{}] : [])],
-    // A route's own headers (`traceparent`, R7.4) beside the common ones.
+    // A route's own headers (`traceparent`) beside the common ones.
     request: {
       ...route.request,
       headers: route.request?.headers instanceof z.ZodObject ? headers.extend(route.request.headers.shape) : headers,

@@ -1,4 +1,4 @@
-// Package gateway is the sandbox gateway (ADR-148): the one client of Agent Substrate's router
+// Package gateway is the sandbox gateway: the one client of Agent Substrate's router
 // the Runtime adds. Core and the harness call `/{sandbox}/…` with a computer ticket; the gateway
 // checks it, opens an mTLS CONNECT tunnel to atenet-router with `ate-target-actor:
 // <atespace>/<sandbox>`, and proxies the request to the computer's engine inside it. It holds no

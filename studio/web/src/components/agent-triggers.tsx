@@ -50,7 +50,7 @@ function runDetail(run: TriggerRun): string {
   return `${run.status === "skipped" ? "Skipped" : "Failed"}${run.reason ? `: ${run.reason.replace(/_/gu, " ")}` : ""}${late}`;
 }
 
-/** Where a trigger came from (D83, D88): its definition's version, the agent that made it, or who put it. */
+/** Where a trigger came from: its definition's version, the agent that made it, or who put it. */
 export function triggerFrom(t: Pick<TriggerView, "origin" | "title" | "createdSessionId" | "principal" | "kind">, version: number | string): string {
   if (t.kind === "wake" || t.origin === "wake") return "Self-wake";
   if (t.origin === "agent") return `Agent · ${t.title ?? t.createdSessionId ?? "its session"}`;
@@ -58,7 +58,7 @@ export function triggerFrom(t: Pick<TriggerView, "origin" | "title" | "createdSe
   return `Definition · v${version}`;
 }
 
-/** A trigger an agent made or a client put: its own to delete (D88); a definition's is the definition's. */
+/** A trigger an agent made or a client put: its own to delete; a definition's is the definition's. */
 const deletable = (t: Pick<TriggerView, "origin">) => t.origin === "agent" || t.origin === "api";
 
 /**

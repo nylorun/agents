@@ -1,10 +1,10 @@
 /**
- * The gates service's HTTP routes (blueprint §15, P1.1): the Model Gate's IR endpoint, the Tool
- * Gate's remote MCP routes (F4.1) and HTTP tool route (R2 M3), the keys service
- * (F4.2), and the health and readiness probes. Internal, so they are not in the published OpenAPI documents. The wire
+ * The gates service's HTTP routes: the Model Gate's IR endpoint, the Tool
+ * Gate's remote MCP routes and HTTP tool route, the keys service
+ *, and the health and readiness probes. Internal, so they are not in the published OpenAPI documents. The wire
  * formats are `gates/contract.ts` and `gates/tool-contract.ts`.
  *
- * Two credentials (F5, gate trust):
+ * Two credentials (gate trust):
  *
  * | Route | Accepts | Scope from |
  * | --- | --- | --- |
@@ -58,7 +58,7 @@ import type { RunClaims, RunTokenVerdict } from "../../tenant/run-token.js";
 import { adminKeyMatches } from "../../host/http.js";
 import { canonical } from "../../store/canonical.js";
 
-/** How the gateway checks a run token: its signature and claims, then its lease (G4). */
+/** How the gateway checks a run token: its signature and claims, then its lease. */
 export interface RunTokenCheck {
   verify(raw: string): Promise<RunTokenVerdict>;
   /** Why calls under `claims` are stale, or undefined while the lease is the session's. */
@@ -68,11 +68,11 @@ export interface RunTokenCheck {
 export interface GatesAppOptions {
   /** Core's credential (`NYLORUN_GATES_TOKEN`): keys, MCP requests outside a run. */
   readonly token: string;
-  /** Checks run tokens (F5): the credential of model calls and a session's MCP requests. */
+  /** Checks run tokens: the credential of model calls and a session's MCP requests. */
   readonly runs: RunTokenCheck;
   /** Serves an authenticated, well-formed call. */
   readonly modelGate: ModelCallHandler;
-  /** Keyed calls, which outlive their client (P1.2). */
+  /** Keyed calls, which outlive their client. */
   readonly inflight: InflightCalls;
   /** Whether the gate's dependencies answer (Postgres). */
   readonly ready: () => Promise<boolean>;
@@ -81,20 +81,20 @@ export interface GatesAppOptions {
    * model call's body, `toolAnswerBytes` a tool request's).
    */
   readonly limits: () => Promise<RuntimeLimits>;
-  /** Remote MCP servers (F4.1). Without it the MCP routes answer 404. */
+  /** Remote MCP servers. Without it the MCP routes answer 404. */
   readonly mcp?: McpHandler;
-  /** HTTP tool calls (R2 M3). Without it the HTTP calls route answers 404. */
+  /** HTTP tool calls. Without it the HTTP calls route answers 404. */
   readonly http?: {
     call(tenantId: string | undefined, call: HttpToolCall, signal: AbortSignal): Promise<HttpOutcome>;
   };
-  /** Keyed MCP and HTTP tool calls, which outlive their client and run once (F4.1 G3). */
+  /** Keyed MCP and HTTP tool calls, which outlive their client and run once. */
   readonly toolCalls?: ToolCalls;
   /**
-   * The journal check (R5.6): a run's tool call must be keyed, and journaled as sent. Without
+   * The journal check: a run's tool call must be keyed, and journaled as sent. Without
    * it the gate sends what it is asked to.
    */
   readonly journal?: JournalCheck;
-  /** The keys service's operations (F4.2). Without it the keys route answers 404. */
+  /** The keys service's operations. Without it the keys route answers 404. */
   readonly keys?: () => Promise<Keys>;
   /** Logs the keys service's requests and refused credentials. */
   readonly logger?: Logger;
@@ -261,7 +261,7 @@ export function createGatesApp(options: GatesAppOptions): Hono<GateEnv> {
     return scoped.ok ? { ok: true, server: scoped.ref } : scoped;
   };
 
-  /** The run a keyed call belongs to, for the in-flight map (G4). */
+  /** The run a keyed call belongs to, for the in-flight map. */
   const ownerOf = (c: Context<GateEnv>) => {
     const claims = c.get("run");
     return claims ? { sessionId: claims.sessionId, epoch: claims.epoch } : undefined;
@@ -269,7 +269,7 @@ export function createGatesApp(options: GatesAppOptions): Hono<GateEnv> {
 
   /**
    * Under a run token, the 400 or 409 for a tool call the effect journal does not hold, running,
-   * as sent (R5.6); else the call's span context from its row (R7.4), none under core's credential.
+   * as sent; else the call's span context from its row, none under core's credential.
    */
   const unjournaled = async (
     c: Context<GateEnv>,
@@ -347,7 +347,7 @@ export function createGatesApp(options: GatesAppOptions): Hono<GateEnv> {
       if (journaled.refused) return journaled.refused;
       const traced = journaled.traceparent ? { traceparent: journaled.traceparent } : {};
       try {
-        // Keyed: the call runs under its own signal, once, and outlives this request (G3). The
+        // Keyed: the call runs under its own signal, once, and outlives this request. The
         // hash covers the session, so a re-send joins only its own session's call.
         const answer =
           key && toolCalls
@@ -390,7 +390,7 @@ export function createGatesApp(options: GatesAppOptions): Hono<GateEnv> {
       const key = c.req.header("idempotency-key");
       const journaled = await unjournaled(c, request.tenantId, key, { kind: "http", tool: call.tool, input: call.input });
       if (journaled.refused) return journaled.refused;
-      // The span context from the call's journal row (R7.4), never from the body.
+      // The span context from the call's journal row, never from the body.
       if (journaled.traceparent) call = { ...call, traceparent: journaled.traceparent };
       try {
         // Keyed: runs once under its own signal and outlives this request, as an MCP call.
@@ -468,7 +468,7 @@ export function createGatesApp(options: GatesAppOptions): Hono<GateEnv> {
       try {
         let outcome: ModelGateOutcome;
         if (key) {
-          // Keyed: the call runs under its own signal and outlives this request (P1.2). The
+          // Keyed: the call runs under its own signal and outlives this request. The
           // gate serves one Tenant, so the effect id alone is the key. The hash covers the
           // token's scope, so the new owner's re-send after a takeover hashes the same.
           const hash = createHash("sha256").update(canonical({ ...scope, ...parsed.data })).digest("hex");

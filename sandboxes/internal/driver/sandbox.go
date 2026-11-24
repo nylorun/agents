@@ -82,8 +82,8 @@ type Spec struct {
 	Image string `json:"image,omitempty"`
 	// Entrypoint is what the workload container runs: "engine" (the default), the Runtime's
 	// engine copied in from HarnessImage; or "image", the workload image's own ENTRYPOINT and CMD:
-	// a custom harness built into the image (track R4), with nothing copied in. "builtin", an
-	// engine built into the image (ADR-99), is refused: no image carries the engine (ADR-161).
+	// a custom harness built into the image, with nothing copied in. "builtin", an
+	// engine built into the image, is refused: no image carries the engine.
 	Entrypoint string `json:"entrypoint,omitempty"`
 	// HarnessImage is the Runtime image the engine is copied from (init container nylo-copy).
 	HarnessImage string `json:"harnessImage,omitempty"`
@@ -102,7 +102,7 @@ type Spec struct {
 	// Network is the Agent's resolved network. agent-sandbox ignores it (egress-gate enforces
 	// it); the Substrate backend renders the actor's egress policy from it.
 	Network *SpecNetwork `json:"network,omitempty"`
-	// Keys are the hosts the sandbox has a key for (ADR-142). agent-sandbox ignores them
+	// Keys are the hosts the sandbox has a key for. agent-sandbox ignores them
 	// (egress-gate adds keys); the Substrate backend renders an https rule per host whose
 	// header the keys provider fills.
 	Keys *SpecKeys `json:"keys,omitempty"`
@@ -227,7 +227,7 @@ func (s *Spec) Normalize() error {
 			return invalid("harnessImage is required unless command is given")
 		}
 	case EntrypointBuiltin:
-		return invalid("entrypoint builtin is retired: no image carries the engine (ADR-161); use engine with harnessImage")
+		return invalid("entrypoint builtin is retired: no image carries the engine; use engine with harnessImage")
 	case EntrypointImage:
 		if s.HarnessImage != "" {
 			return invalid("harnessImage is not allowed with entrypoint image: the image is the harness")
@@ -316,7 +316,7 @@ func millicores(cpus float64) string {
 const (
 	EntrypointEngine = "engine"
 	EntrypointImage  = "image"
-	// EntrypointBuiltin is refused (ADR-161): it ran an engine built into the image (ADR-99).
+	// EntrypointBuiltin is refused: it ran an engine built into the image.
 	EntrypointBuiltin = "builtin"
 )
 
@@ -329,7 +329,7 @@ var EngineCommand = []string{
 
 // EngineCopy copies tini, node and the engine from the Runtime image into /nylo and links
 // /nylo/entry.mjs to it: the bundled engine (/engine, 12 files) when the image has it, else the
-// Runtime's /app (about 30,000 files), for an older Runtime image pinned by hand (ADR-92 §5).
+// Runtime's /app (about 30,000 files), for an older Runtime image pinned by hand.
 var EngineCopy = []string{"/bin/sh", "-c", "set -e; " +
 	"if [ -f /engine/harness.mjs ]; then " +
 	"cp -a /usr/bin/tini-static /usr/local/bin/node /engine /nylo/ && ln -s engine/harness.mjs /nylo/entry.mjs; " +
@@ -371,7 +371,7 @@ func Render(namespace, name string, spec Spec, urls PodURLs) *unstructured.Unstr
 		map[string]any{"name": VolumeName, "mountPath": "/workspace", "subPath": "workspace"},
 		map[string]any{"name": VolumeName, "mountPath": "/harness", "subPath": "harness"},
 		map[string]any{"name": "tmp", "mountPath": "/tmp"},
-		// The engine writes the session's skills here, read-only by mode (track R2 M4).
+		// The engine writes the session's skills here, read-only by mode.
 		map[string]any{"name": "skills", "mountPath": "/skills"},
 		map[string]any{"name": "join", "mountPath": JoinDir, "readOnly": true},
 	}
@@ -391,7 +391,7 @@ func Render(namespace, name string, spec Spec, urls PodURLs) *unstructured.Unstr
 			"runAsGroup":   uid,
 			"fsGroup":      uid,
 			// Own the disk once, not every file at every mount: a home full of installs and
-			// repositories took 15 to 21 s per mount with the default (ADR-92 §6).
+			// repositories took 15 to 21 s per mount with the default.
 			"fsGroupChangePolicy": "OnRootMismatch",
 			"seccompProfile":      map[string]any{"type": "RuntimeDefault"},
 		},
@@ -495,7 +495,7 @@ func New(client dynamic.Interface, namespace string, urls PodURLs) *Driver {
 	return &Driver{client: client, namespace: namespace, urls: urls, cache: NewCache(client, namespace)}
 }
 
-// WithMirrors makes the driver pull workload images from their mirrors (ADR-161) and report
+// WithMirrors makes the driver pull workload images from their mirrors and report
 // them under the names the specs asked for.
 func (d *Driver) WithMirrors(m Mirrors) *Driver {
 	d.mirrors = m
@@ -562,7 +562,7 @@ func (d *Driver) Put(ctx context.Context, name string, spec Spec) (Status, error
 			return Status{}, err
 		}
 	}
-	// The node pulls the workload image from its mirror, if it has one (ADR-161).
+	// The node pulls the workload image from its mirror, if it has one.
 	rendered := spec
 	rendered.Image = d.mirrors.To(spec.Image)
 	applied, err := d.sandboxes().Apply(ctx, name, Render(d.namespace, name, rendered, d.urls),

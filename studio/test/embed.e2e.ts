@@ -1,5 +1,5 @@
 /**
- * Embedding end to end (Studio §8), in Chromium and WebKit: a fixture embedder
+ * Embedding end to end, in Chromium and WebKit: a fixture embedder
  * on another origin frames the real dashboard, gets login tokens from a stub
  * embedder backend that holds the admin key, and speaks the message protocol.
  *

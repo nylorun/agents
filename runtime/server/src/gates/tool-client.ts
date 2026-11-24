@@ -1,21 +1,21 @@
 /**
- * The loop's client of the Tool Gate in the gates service (F4.1, `tool-contract.ts`): remote
+ * The loop's client of the Tool Gate in the gates service (`tool-contract.ts`): remote
  * MCP servers opened and called through the gate, which holds their connections and
- * credentials, and HTTP tools called by the gate (R2 M3).
+ * credentials, and HTTP tools called by the gate.
  * Over `node:http`, like the model gate's client (`http-client.ts`): a call answers only when it
  * has finished.
  *
  * Failures keep the meaning they had in the loop's own process:
  * - An MCP request that fails throws, so the pool reports a diagnostic. A tool call's coded
- *   failure (R2b C7) throws the `McpCallFailed` the loop's own call would have, which becomes a
+ *   failure throws the `McpCallFailed` the loop's own call would have, which becomes a
  *   failed outcome the model sees.
  * - An HTTP tool call throws only for the hop: its own failures are outcomes.
  * - A hop that lost the answer (the gate unreachable, the connection lost, a `5xx`, or a call
  *   another gateway process holds) throws `GateCallLost`: sending the call again with the same
- *   key joins it, collects its answer, or runs it again (R5.3). A gate's refusal (`4xx`) throws
+ *   key joins it, collects its answer, or runs it again. A gate's refusal (`4xx`) throws
  *   a plain error.
  *
- * Credentials (F5): a session's MCP requests and keyed cancels carry its run token, read per
+ * Credentials: a session's MCP requests and keyed cancels carry its run token, read per
  * request from the advance's grant, and leave the session out of the body: the gate takes it
  * from the token. MCP requests made outside a run (closing a pooled connection after the
  * advance ended) carry core's credential, `NYLORUN_GATES_TOKEN`, and name the session in the
@@ -50,7 +50,7 @@ import type { HttpOutcome, HttpToolCall } from "./http-tool.js";
 import type { RunTokens } from "../tenant/run-grants.js";
 
 /**
- * A keyed call whose answer the hop lost (R5.3): the gate never got it, the connection broke,
+ * A keyed call whose answer the hop lost: the gate never got it, the connection broke,
  * the gate answered `5xx`, or another gateway process holds the call. Sending it again with the
  * same key is safe: the gate joins the call, answers it from its crossing, or runs it again.
  */
@@ -63,7 +63,7 @@ export interface HttpToolGateOptions {
   readonly url: string;
   /**
    * `NYLORUN_GATES_TOKEN`: core's credential, for MCP requests outside a run. A
-   * harness has none (F6.2): its requests outside a run carry the session's last run token, or
+   * harness has none: its requests outside a run carry the session's last run token, or
    * nothing, and the gate refuses them.
    */
   readonly token?: string;
@@ -228,7 +228,7 @@ export function httpToolGate(options: HttpToolGateOptions): ToolGate {
 
     async openMcp(server: McpServerRef): Promise<LiveConnection> {
       // The credential is read per request: the connection outlives the advance that opened it.
-      // A gate answers the server's instructions (R2b C10); an older one answers null.
+      // A gate answers the server's instructions; an older one answers null.
       const connected = await answered<{ instructions?: unknown } | null>(
         MCP_CONNECT_PATH,
         scoped(server, (named) => ({ server: named })),
@@ -278,7 +278,7 @@ export function httpToolGate(options: HttpToolGateOptions): ToolGate {
     async callHttp(call: HttpToolCall, signal: AbortSignal): Promise<HttpOutcome> {
       const token = options.runTokens?.token(call.tool.sessionId);
       const { sessionId: _, ...unnamed } = call.tool;
-      // The gate reads the call's span context from its journal row (R7.4), not from the caller.
+      // The gate reads the call's span context from its journal row, not from the caller.
       const { traceparent: _traceparent, ...sent } = call;
       const body: HttpCallBody = { ...sent, tool: token ? unnamed : { ...call.tool } };
       return answered<HttpOutcome>(
@@ -300,9 +300,9 @@ export function httpToolGate(options: HttpToolGateOptions): ToolGate {
 
 /** An MCP failure the gate reported, as the loop's own MCP code would have thrown it. */
 function mcpError(error: McpGateError): Error {
-  // Held by another gateway process: send it again (R5.3).
+  // Held by another gateway process: send it again.
   if (error.uncertain) return new GateCallLost(error.message);
-  // Coded (R2b C7): the model sees it.
+  // Coded: the model sees it.
   if (error.failure) return McpCallFailed.from(error.failure);
   const thrown = new Error(error.message) as Error & { code?: number; credentialIds?: readonly string[] };
   if (error.code !== undefined) thrown.code = error.code;

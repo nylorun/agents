@@ -54,7 +54,7 @@ const fixtures = [
   },
 ];
 
-test("WF-EV9: liveStatusFromEvents colours nodes from seam fixtures", () => {
+test("liveStatusFromEvents colours nodes from seam fixtures", () => {
   const live = liveStatusFromEvents(fixtures);
   assert.equal(live.get("ship-feature/planner")?.status, "completed");
   assert.equal(

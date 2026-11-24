@@ -5,7 +5,7 @@ import { STATUS_DOT } from "@/lib/status";
 import { cn } from "@/lib/utils";
 
 /**
- * A tool call the Tool Gate holds for a person (R5 step 2): its tool by identity (`server / tool`
+ * A tool call the Tool Gate holds for a person: its tool by identity (`server / tool`
  * for an MCP tool, with the name the model called it by when that differs), why it is held, and
  * its input, with Approve and Deny. Approving sends the exact call shown; denying fails it to the
  * model as `tool.denied`, unsent.

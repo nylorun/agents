@@ -1,5 +1,5 @@
 /**
- * F4.1 G3, R5.3: keyed tool calls (MCP and HTTP tools) in the gates service. A re-send joins a
+ * Keyed tool calls (MCP and HTTP tools) in the gates service. A re-send joins a
  * running call or gets its answer; after a gateway restart the answer comes from
  * `tool_crossings`, and a call that was lost with the old gateway runs again under the same key
  * (at least once). A cancelled call never runs again under its key.
@@ -81,7 +81,7 @@ describe("keyed tool calls at the gate", () => {
     expect(held.calls()).toBe(1);
   });
 
-  it("runs a call lost with the old gateway again, under the same key (R5.3)", async () => {
+  it("runs a call lost with the old gateway again, under the same key", async () => {
     const held = heldMcp();
     const k = key();
     const before = createToolCalls({ vaults, logger: quiet });

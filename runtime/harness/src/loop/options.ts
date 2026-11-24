@@ -56,7 +56,7 @@ export function openExecution(
       "Saved state requires the original compatible agent and outputSchema",
     );
   if (canonical(state.outputContract) !== canonical(agent.output?.schema.jsonSchema)) {
-    // Between turns, a new version of the agent (track T3) may change its output schema: the next
+    // Between turns, a new version of the agent may change its output schema: the next
     // turn takes it. A turn in progress keeps the schema it started with.
     if (state.status === "active" || state.plan !== undefined)
       throw new HarnessError(

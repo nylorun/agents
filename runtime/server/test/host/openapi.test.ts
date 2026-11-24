@@ -137,8 +137,8 @@ it("serves both documents to anyone, but not to a browser", async () => {
 });
 
 /**
- * Internal roadmap codes: `track T3`, `D74`, `Q15`, `R2b C12`, `R5 step 2`, `R7.1`, `B15`, `F8.2`,
- * `M4`, `P0.3`, `T28`. Not `S2` (the stream store), a status code, a hash or base64.
+ * Internal plan codes (a track, decision, question or step number, as in the examples below).
+ * Not `S2` (the stream store), a status code, a hash or base64.
  */
 const ROADMAP_CODE = /\btrack [A-Z]\d|\b(?:[DQ]\d{1,3}|R\d{1,2}[a-d]?(?:\.\d+)?|[BCFIMPT]\d{1,2}(?:\.\d+)?)\b/;
 

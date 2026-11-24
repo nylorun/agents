@@ -1,5 +1,5 @@
 /**
- * Agent memory (track T5, D72), storage and the Runtime API: memories are rows the Agent owns,
+ * Agent memory, storage and the Runtime API: memories are rows the Agent owns,
  * with a version per change. The memory service applies Anthropic's memory tool commands
  * (`create`, `str_replace`, `insert`, `delete`, `rename`) with their result strings, within the
  * Runtime limits; the routes list, read, write whole (with a `content_sha256` precondition),

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Track T3's exit test (Agents that evolve, D73) on a real cluster, as one scenario:
+// The end-to-end test of Agents that evolve on a real cluster, as one scenario:
 //
 //   node scripts/sandbox/t3-exit.mjs --context docker-desktop
 //   node scripts/sandbox/t3-exit.mjs --context kind-nylorun --host-address 172.17.0.1

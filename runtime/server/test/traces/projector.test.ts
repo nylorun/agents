@@ -1,5 +1,5 @@
 /**
- * The trace projector (R7.2) over a change source in memory: batches, acknowledgement in commit
+ * The trace projector over a change source in memory: batches, acknowledgement in commit
  * order after a post or a drop, and a turn's trace read once after a restart.
  */
 import { randomBytes } from "node:crypto";

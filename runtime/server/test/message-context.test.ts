@@ -1,5 +1,5 @@
 /**
- * A message's `context` (Host feature `message-context`, ADR-157): facts for its own turn only.
+ * A message's `context` (Host feature `message-context`): facts for its own turn only.
  * The Runtime passes them to the turn as its input's `metadata.context`, keeps them on the
  * `command.message` event, and refuses more than its limits.
  */

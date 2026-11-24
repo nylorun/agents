@@ -1,5 +1,5 @@
 /**
- * Why the Host's Tenant could not be opened (tenancy.md §5). A cause is about the Tenant's
+ * Why the Host's Tenant could not be opened. A cause is about the Tenant's
  * own data or files (its database is newer than this Runtime, its vault key is missing, the
  * database has an old layout): the Host fails readiness, names the cause in the logs (and
  * `nylorun-operate status` reads it from the database), and answers Tenant requests with the opaque 404 until it is

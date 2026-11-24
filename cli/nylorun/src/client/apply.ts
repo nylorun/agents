@@ -1,5 +1,5 @@
 /**
- * `nylorun apply [dir…]`: saves the agent manifest each folder describes (protocol 16, track T2),
+ * `nylorun apply [dir…]`: saves the agent manifest each folder describes (protocol 16),
  * through the Runtime API. A folder's `agent.manifest.json` names its harness and runtime files;
  * `composeManifest` (`@nylorun/agents`) resolves them, hashes the skills, plugins and runtime
  * files they name and checks the harness file's `requires`. Each manifest is planned first
@@ -8,12 +8,12 @@
  * instead of overwriting it. A folder with neither an `AGENT.md` nor an `agent.manifest.json`
  * applies each subfolder that has one (`nylorun apply agents/`).
  *
- * An agent folder (a folder with `AGENT.md`, track T6) is compiled offline first, and one that does
+ * An agent folder (a folder with `AGENT.md`) is compiled offline first, and one that does
  * not compile sends nothing; otherwise its files go up by hash and the Runtime compiles it again
  * and keeps it as the version's source. Its plan adds the compiler's notes, and `--dry-run` prints
  * the compiled manifest.
  *
- * Track T7: a plan's change to the instructions prints their text diff (`plan-diff.ts`);
+ * A plan's change to the instructions prints their text diff (`plan-diff.ts`);
  * `--agent [<id>]` makes or moves the Agent after a save (`apply-agent.ts`); `--watch` checks and
  * plans again on each change, saving only with `--save` (`watch.ts`).
  */

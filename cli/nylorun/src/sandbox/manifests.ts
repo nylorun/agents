@@ -3,7 +3,7 @@ import { cliTuning } from "../tuning.js";
 
 /**
  * What `nylorun local sandbox enable` installs into a cluster. The agent-sandbox controller is
- * pinned (D32, Experiment 2): v1.0.10, API agents.x-k8s.io/v1beta1, its release manifest
+ * pinned: v1.0.10, API agents.x-k8s.io/v1beta1, its release manifest
  * verified by sha256 before it is applied. It is never upgraded or uninstalled here.
  */
 export const CONTROLLER_VERSION = "v1.0.10";
@@ -93,7 +93,7 @@ export function tenantManifests(namespace: string, tenant: string): object[] {
 
 /**
  * Every pod in the namespace: no ingress, and egress only to the Docker host on the
- * Harness API, gates and egress ports. No DNS: pods address the host by IP (D42).
+ * Harness API, gates and egress ports. No DNS: pods address the host by IP.
  */
 export function networkPolicy(
   namespace: string,

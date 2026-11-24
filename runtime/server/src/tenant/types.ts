@@ -35,7 +35,7 @@ export interface TenantPaths {
 export type TenantModelConfig =
   | { kind: "vault" } // shared default: Tenant vault selection, served by the Model Gate
   | { kind: "fixture" }
-  | { kind: "scripted"; output?: string }; // ephemeral/test only (D10)
+  | { kind: "scripted"; output?: string }; // ephemeral/test only
 
 export interface TenantConfig {
   // internal read model, never client-supplied
@@ -48,7 +48,7 @@ export interface TenantConfig {
   };
   model: TenantModelConfig;
   /**
-   * Segment rollover (Model Calls §10): a turn ends its segment at a step boundary after this
+   * Segment rollover: a turn ends its segment at a step boundary after this
    * many steps or milliseconds and continues in a new one, so no advance reaches its
    * deadline. Default the Host tuning's `harnessApi.rolloverSteps` and `rolloverMs` (50 steps,
    * 20 minutes).
@@ -62,7 +62,7 @@ export interface TenantConfig {
   /** Bounds the default Tenant sweep interval (`sweepIntervalMs`). Default: no bound. */
   leaseMs?: number;
   /**
-   * Ownership lease of an advance (§10.6); renewed every third while it runs. Default the Host
+   * Ownership lease of an advance; renewed every third while it runs. Default the Host
    * tuning's `tenant.ownerLeaseMs` (30 s).
    */
   ownerLeaseMs?: number;
@@ -120,7 +120,7 @@ export interface TenantSummary {
   ready: boolean;
   runningSessions: number;
   uncertainEffects: number;
-  /** The Tenant's harnesses (F6.2). */
+  /** The Tenant's harnesses. */
   harness?: HarnessStatus;
 }
 
@@ -149,11 +149,11 @@ export interface TenantHandle {
   close(): Promise<void>; // ends every stream this Tenant holds
   /** Serves a harness's Harness API channel until it closes. Returns a function that detaches it. */
   attachHarness?(channel: HarnessChannel, peer: HarnessPeer): () => void;
-  /** The Tenant's side of a sandbox pod's join (F7.2); absent without sandbox pods. */
+  /** The Tenant's side of a sandbox pod's join; absent without sandbox pods. */
   hostAuthority?(): HostAuthority | undefined;
-  /** The custom harness a per-harness token is for (R4.1), or undefined. */
+  /** The custom harness a per-harness token is for, or undefined. */
   harnessOfToken?(token: string): Promise<string | undefined>;
-  /** The Tenant's harnesses (F6.2), for `/ready`. */
+  /** The Tenant's harnesses, for `/ready`. */
   harnessStatus?(): HarnessStatus;
 }
 
@@ -167,7 +167,7 @@ export type TenantResolution =
   | { kind: "unavailable"; cause?: TenantCause };
 
 /**
- * The deep module (§8): the one Tenant a Host serves (tenancy.md §5). HTTP, the Worker and
+ * The deep module: the one Tenant a Host serves. HTTP, the Worker and
  * tests use only this.
  *
  * `start` opens the Tenant; the Host has it open from readiness to shutdown. There is no

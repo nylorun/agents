@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { TENANT_ID_PATTERN } from "@nylorun/core/compatibility";
 
 /**
- * S2 basin names for Tenants (architecture §12.4).
+ * S2 basin names for Tenants.
  *
  * S2 basin names are 8–48 characters of lowercase letters, digits and hyphens,
  * and cannot begin or end with a hyphen. Tenant ids are `tn_` plus a 26
@@ -35,7 +35,7 @@ export function validateBasinPrefix(prefix: string): string {
 }
 
 /**
- * The basin of one generation of a Tenant (Durable Streams §8.1). A Tenant reset moves the
+ * The basin of one generation of a Tenant. A Tenant reset moves the
  * Tenant to a new generation, so a session id it frees starts again in an empty basin.
  * `DurableStreams` methods take this key where they take a Tenant id; generation 0 is the
  * Tenant id itself, so existing basins keep their names.

@@ -125,8 +125,8 @@ export async function readAdminKey(paths: StackPaths): Promise<string | undefine
 
 /**
  * The Tenant's vault key in `keys/vault-kek` (32 random bytes, base64, mode 0600), which only the
- * gateway container mounts (F4.2): created if missing, or moved from `tenant/vault-kek`, where a
- * Host root before F4.2 kept it. The gateway never creates it.
+ * gateway container mounts: created if missing, or moved from `tenant/vault-kek`, where an
+ * older Host root kept it. The gateway never creates it.
  */
 export async function ensureVaultKey(paths: StackPaths): Promise<{ created: boolean; moved: boolean }> {
   await mkdir(paths.keys, { recursive: true, mode: 0o700 });

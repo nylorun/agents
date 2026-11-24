@@ -1,5 +1,5 @@
 /**
- * The event catalog covers every event the Runtime writes (Durable Streams §9.5, test 7).
+ * The event catalog covers every event the Runtime writes (test 7).
  * Writes are also validated at runtime (`record/envelope.ts`), so every test that runs a turn
  * checks its events against the catalog too.
  */

@@ -1,5 +1,5 @@
 /**
- * Host tokens (F7.2, D42): what a pod Agent's join token and host token reach, and what they
+ * Host tokens: what a pod Agent's join token and host token reach, and what they
  * do not. The join is bound to the token's hash and the Sandbox's current pod; a host token is
  * accepted only by the Harness API listener, for a connection that hosts its sandbox alone; an
  * older epoch, an egress token, a run token or a forged token is refused; a host connection
@@ -136,7 +136,7 @@ describe("host tokens", { timeout: 60_000 }, () => {
     expect(joined.status).toBe(200);
     const grant = (await joined.json()) as { hostToken: string; egressToken: string; epoch: number; caCertificate: string };
     expect(grant.epoch).toBe(1);
-    // The egress CA (R2c): a CA certificate, never its key, the same on every answer.
+    // The egress CA: a CA certificate, never its key, the same on every answer.
     expect(new X509Certificate(grant.caCertificate).ca).toBe(true);
     expect(JSON.stringify(grant)).not.toContain("PRIVATE KEY");
     const renewed = await post(HOST_RENEW_PATH, {}, grant.hostToken);

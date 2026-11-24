@@ -1,15 +1,15 @@
 /**
- * The Tool Gate's journal check (R5.6). Under a run token, the gate sends only a call core
+ * The Tool Gate's journal check. Under a run token, the gate sends only a call core
  * journaled: its `Idempotency-Key` (the effect id) names an `invoking` tool row of the token's
  * session and turn, for the same tool, with the same input. Anything else is refused before it
- * is sent, so a harness that skips the journal, ours or another (R4), gets nothing run, and
+ * is sent, so a harness that skips the journal, ours or another, gets nothing run, and
  * every call that runs has its row (`/calls/tool`) and its `tool.completed`. An MCP call is the
  * same tool when the row's target names the same agent, server and tool (protocol 15): the
  * record checked at the intent that the session discovered it and the turn leaves it enabled.
  *
  * Core's own credential (previews, calls outside a run) is not checked: it names no run.
  *
- * The row it reads also holds the call's span context (`traceparent`, R7.4), which core wrote at
+ * The row it reads also holds the call's span context (`traceparent`), which core wrote at
  * the intent: the gate sends it on to the tool without ever holding the trace key.
  */
 import type { HostEffect } from "@nylorun/harness/run";
@@ -32,7 +32,7 @@ export type GateToolCall =
 
 /**
  * What the journal says of a call: why it does not hold it, or that it does, with the call's span
- * context from the row (R7.4), which the gate sends on as `traceparent`.
+ * context from the row, which the gate sends on as `traceparent`.
  */
 export type JournalAnswer = { readonly refused: string } | { readonly refused?: undefined; readonly traceparent?: string };
 
@@ -81,7 +81,7 @@ export function journalCheck(vaults: TenantVaults): JournalCheck {
   };
 }
 
-/** A journaled call: its span context, when core recorded one (R7.4). */
+/** A journaled call: its span context, when core recorded one. */
 function held(row: EffectDoc): { traceparent?: string } {
   const traceparent = (row as { traceparent?: unknown }).traceparent;
   return typeof traceparent === "string" ? { traceparent } : {};

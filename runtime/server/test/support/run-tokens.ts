@@ -1,5 +1,5 @@
 /**
- * Run tokens for gate tests (F5): a test Tenant's store with its signing keys, sessions holding
+ * Run tokens for gate tests: a test Tenant's store with its signing keys, sessions holding
  * a lease on an active turn, and the run tokens an advance would mint for them, registered in
  * `grants` as `advance.ts` does.
  */
@@ -35,7 +35,7 @@ export interface RunFixture {
   update(sessionId: string, patch: Partial<Session>): Promise<void>;
   /**
    * Journals a tool call of the session's active turn, `invoking`, as core does before a harness
-   * sends it (R5.6). With `mcp`, the call names that server's tool as its target (protocol 15),
+   * sends it. With `mcp`, the call names that server's tool as its target (protocol 15),
    * which the gate matches the call against; without, the agent's HTTP tool `toolName`.
    */
   journal(

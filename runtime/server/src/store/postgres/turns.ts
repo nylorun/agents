@@ -1,5 +1,5 @@
 /**
- * The turn index (A2A design §9, Host feature `turns`): the `turns` table's writes and the typed
+ * The turn index (Host feature `turns`): the `turns` table's writes and the typed
  * queries on it. `Tx.event` calls `indexTurn` for every event it writes, in the same
  * transaction, so a turn's row changes exactly when its log does:
  *

@@ -4,7 +4,7 @@ import { connect, createServer, type AddressInfo } from "node:tls";
 import { describe, expect, it } from "vitest";
 import { createCertificateAuthority, issueLeafCertificate, leafKeyPair } from "../../src/keys/x509.js";
 
-describe("egress CA and leaf certificates (R2c)", () => {
+describe("egress CA and leaf certificates", () => {
   const authority = createCertificateAuthority({ commonName: "Nylorun egress CA (test)" });
 
   it("builds a CA that Node parses as a CA", () => {

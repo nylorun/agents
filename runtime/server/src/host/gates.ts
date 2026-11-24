@@ -1,9 +1,9 @@
 /**
- * The gates service's process (blueprint §15, §19): one listener serving the Model Gate's and
+ * The gates service's process: one listener serving the Model Gate's and
  * the Tool Gate's routes (`api/gate/routes.ts`), behind the same `Host` check as the Runtime's
  * listeners.
  * It opens no Tenant runtime, no Restate endpoint and no stream relay, and runs no migration;
- * it needs only the Postgres pool and the Host's tenant directory (read-only). Run tokens (F5)
+ * it needs only the Postgres pool and the Host's tenant directory (read-only). Run tokens
  * verify against the Tenant's public keys and session rows in that database.
  *
  * Nothing is written while a model call runs, so the server's request timeout sits above the
@@ -68,7 +68,7 @@ export interface StartGatesOptions {
   /** Tests replace how a remote MCP server is opened. */
   readonly openMcp?: typeof openMcpServer;
   /**
-   * Serve the keys service too (`--service gates,keys`, F4.2): vault writes and token signing
+   * Serve the keys service too (`--service gates,keys`): vault writes and token signing
    * with the Tenant's vault key. The gateway is then not ready until the key file is there.
    */
   readonly keys?: boolean;
@@ -125,7 +125,7 @@ export async function startGates(options: StartGatesOptions): Promise<GatesServe
   sweep.unref();
   const prune = setInterval(() => void toolCalls.prune(), tuning.toolCrossingPruneMs);
   prune.unref();
-  // Run tokens verify against the Tenant's public keys and session rows (F5): the same
+  // Run tokens verify against the Tenant's public keys and session rows: the same
   // database the ledger and `tool_crossings` use.
   const publicKeys: RunTokenKeyCache = new Map();
   const app = createGatesApp({
@@ -238,9 +238,9 @@ export interface StartEgressOptions {
 }
 
 /**
- * egress-gate (`--service egress`, F7.2): pods' CONNECT proxy, verifying egress tokens against the
+ * egress-gate (`--service egress`): pods' CONNECT proxy, verifying egress tokens against the
  * Tenant's public keys and reading its sandboxes from the same database as the gates, where it
- * also records each connection (R7.3). With a credential provider, the hosts it lists for an
+ * also records each connection. With a credential provider, the hosts it lists for an
  * Agent's owner are terminated and handed to it.
  */
 export async function startEgress(options: StartEgressOptions): Promise<EgressGate> {
@@ -261,7 +261,7 @@ export async function startEgress(options: StartEgressOptions): Promise<EgressGa
       return verifyEgressToken(vault.store, vault.tenantId, raw, publicKeys);
     },
     sandboxes: { live: async (sandboxId) => storeEgressSandboxes((await tenant.open()).store).live(sandboxId) },
-    // Each connection on the Tenant's record (R7.3): the gates' one write into it.
+    // Each connection on the Tenant's record: the gates' one write into it.
     record: {
       runningTurns: async (environmentId) => storeEgressRecord((await tenant.open()).store).runningTurns(environmentId),
       write: async (connection) => storeEgressRecord((await tenant.open()).store).write(connection),

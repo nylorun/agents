@@ -1,5 +1,5 @@
 /**
- * F4.2, the keys service: with it (`NYLORUN_TEST_MODEL_GATE=http`: a gates service on 127.0.0.1
+ * The keys service: with it (`NYLORUN_TEST_MODEL_GATE=http`: a gates service on 127.0.0.1
  * that also runs keys), the Tenant never reads the vault key. Vault writes, token signing and
  * signing-key rotation run in the gate, and the Tenant API answers exactly what it answered when
  * they ran in its own process: the same results, statuses, codes and details.

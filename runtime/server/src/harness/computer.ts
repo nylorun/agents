@@ -1,9 +1,9 @@
 /**
- * The computer (`--service computer`, ADR-149): the engine in an Agent Substrate actor when every
+ * The computer (`--service computer`): the engine in an Agent Substrate actor when every
  * harness runs outside the sandbox. It runs no loop, joins nothing and dials nothing to the
  * Runtime. It serves the sandbox handle (`SandboxHandle`: commands, files, listings) on
  * `NYLORUN_COMPUTER_PORT` (8080), which the sandbox gateway reaches through Substrate's router
- * (ADR-148), and runs each command as the `local` backend does: the image's shell in `/workspace`,
+ *, and runs each command as the `local` backend does: the image's shell in `/workspace`,
  * its own process group, the trust variables pointing at a bundle with Substrate's egress CA.
  *
  * Every route but `GET /ready` (the template's wake-up probe) needs `x-nylorun-ticket`: a compact
@@ -11,7 +11,7 @@
  * template carries), with `aud: "nylorun-computer"`, `exp` ahead, and `sub` this actor's name
  * (`NYLORUN_COMPUTER_NAME_FILE`), so a router client other than the gateway can't command it.
  *
- * Commands are a start and attaches (ADR-148 decision 5): `POST /v1/exec` starts command `id`, or
+ * Commands are a start and attaches: `POST /v1/exec` starts command `id`, or
  * joins it while it runs, and answers within `waitMs` (at most 50 s) with `{state: "running"}` or
  * `{state: "done", result}`; `POST /v1/exec/{id}/attach` waits again. A command's result is kept 10
  * minutes after it ends. After a drain, the next attach reaches this process on the new worker, its

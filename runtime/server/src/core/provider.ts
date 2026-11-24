@@ -39,7 +39,7 @@ export function gatewayModel(options: {
 
 /**
  * The fixture model as a provider (`model: {kind: "fixture"}` in the Runtime's config). The Tenant
- * setting `model.fixture` is answered by the Model Gate instead (R4.3); both answer the same way
+ * setting `model.fixture` is answered by the Model Gate instead; both answer the same way
  * (`gates/fixture-model.ts`).
  */
 export function toolFixtureModel(): ModelProvider {

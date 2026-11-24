@@ -257,7 +257,7 @@ describe("projectModelCall", () => {
     ]);
   });
 
-  it("shows the model whether a failed call may be retried (R2b C7)", () => {
+  it("shows the model whether a failed call may be retried", () => {
     const call = projectModelCall(
       request({
         transcript: [
@@ -290,7 +290,7 @@ describe("projectModelCall", () => {
     });
   });
 
-  it("names a result's files by reference lines, and sends this turn's after the conversation (R2b C11, protocol 12)", () => {
+  it("names a result's files by reference lines, and sends this turn's after the conversation (protocol 12)", () => {
     const reference = { artifactId: "af_1", version: 1, name: "shot.png", size: 10 };
     const line =
       '[Tool files__screenshot returned artifact "shot.png" · af_1 v1 · read_artifact to view]';

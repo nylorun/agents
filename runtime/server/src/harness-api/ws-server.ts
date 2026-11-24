@@ -1,5 +1,5 @@
 /**
- * The Harness API listener (F6.2): core's own port for harnesses (`NYLORUN_HARNESS_LISTEN_*`,
+ * The Harness API listener: core's own port for harnesses (`NYLORUN_HARNESS_LISTEN_*`,
  * default 4200), apart from the Runtime and Management APIs. It accepts the harness credential
  * (`NYLORUN_HARNESS_TOKEN`), and nothing else does; nothing else is served here.
  *
@@ -9,13 +9,13 @@
  * (`createChannel({ validate: true })`). Core pings every `harness.pingMs` (Host tuning, 30 s) and
  * drops a harness silent for `harness.silenceMs` (90 s); the connection then counts as lost (`connection.lost`).
  *
- * Sandbox pods (F7.2, D42) reach this listener too, on the Docker host's published port, and hold
+ * Sandbox pods reach this listener too, on the Docker host's published port, and hold
  * no harness token. A pod's engine exchanges its join token for a host token with `POST
  * /nylorun/harness/v1/host/join` (`{ sandboxId, podUid, joinToken }`), renews it with `POST
  * .../host/renew` (`Authorization: Bearer <host token>`), and upgrades with the host token as
  * its bearer: that connection hosts its sandbox alone (`HarnessPeer.host`). Both answer
- * `{ hostToken, egressToken, sandboxId, epoch, expiresAt, caCertificate }` (the egress CA, R2c),
- * and a join adds the disk's `setup` (R2d step 2). With its host token the engine also reads and
+ * `{ hostToken, egressToken, sandboxId, epoch, expiresAt, caCertificate }` (the egress CA),
+ * and a join adds the disk's `setup`. With its host token the engine also reads and
  * reports its setup (`GET|POST .../host/setup`) and reads its input files (`GET
  * .../host/files/{index}[/{path}]`). Every refusal is the same 401. The harness token is never
  * accepted as a host token, nor a host token anywhere but here.
@@ -42,7 +42,7 @@ import type { HarnessPeer } from "./server.js";
 import { hostTuning } from "../tuning.js";
 
 export { HOST_JOIN_PATH, HOST_RENEW_PATH };
-/** Where a pod's engine reads its setup and reports it (R2d step 2, `sandbox/setup.ts`). */
+/** Where a pod's engine reads its setup and reports it (`sandbox/setup.ts`). */
 export const HOST_SETUP_PATH = `${HARNESS_API_PATH}/host/setup`;
 /** Where it reads its input files: `/{index}`, and a folder's file `/{index}/{path}`. */
 export const HOST_FILES_PATH = `${HARNESS_API_PATH}/host/files`;
@@ -60,11 +60,11 @@ export interface HarnessListenerOptions {
   /** The open Tenant's `attachHarness`, or undefined while there is none. */
   readonly attach: () => Promise<HarnessAttach | undefined>;
   /**
-   * The custom harness a per-harness token is for (R4.1), or undefined. Absent, only the harness
+   * The custom harness a per-harness token is for, or undefined. Absent, only the harness
    * token and host tokens are accepted.
    */
   readonly harnessOfToken?: (token: string) => Promise<string | undefined>;
-  /** The open Tenant's host authority (sandbox pods, F7.2), or undefined without one. */
+  /** The open Tenant's host authority (sandbox pods), or undefined without one. */
   readonly hosts?: () => Promise<HostAuthority | undefined>;
   readonly logger: {
     info(message: string, fields?: Record<string, unknown>): void;
@@ -146,7 +146,7 @@ export async function startHarnessListener(options: HarnessListenerOptions): Pro
       request.on("error", reject);
     });
 
-  /** `host/join` and `host/renew` (F7.2); everything else here is the WebSocket upgrade. */
+  /** `host/join` and `host/renew`; everything else here is the WebSocket upgrade. */
   const serveHost = async (request: IncomingMessage, response: ServerResponse, path: string) => {
     if (request.method !== "POST") return reply(response, 405, undefined, { allow: "POST" });
     if (!allowed.has(String(request.headers.host ?? "").toLowerCase())) return reply(response, 421);
@@ -173,7 +173,7 @@ export async function startHarnessListener(options: HarnessListenerOptions): Pro
     }
   };
 
-  /** A pod's setup and input files (R2d step 2), with its host token. */
+  /** A pod's setup and input files, with its host token. */
   const serveSetup = async (request: IncomingMessage, response: ServerResponse, path: string) => {
     if (!allowed.has(String(request.headers.host ?? "").toLowerCase())) return reply(response, 421);
     const authority = await options.hosts?.().catch(() => undefined);
@@ -248,9 +248,9 @@ export async function startHarnessListener(options: HarnessListenerOptions): Pro
     if (!allowed.has(String(request.headers.host ?? "").toLowerCase()))
       return refuse(socket, 421, "Misdirected Request");
     const bearer = bearerOf(request.headers.authorization);
-    // A pod's host token (F7.2): checked against its sandbox before the upgrade.
+    // A pod's host token: checked against its sandbox before the upgrade.
     const hostToken = bearer !== undefined && options.hosts && tokenType(bearer) === HOST_TOKEN_TYP;
-    // The harness token is our harness's; any other is a custom harness's own, or refused (R4.1).
+    // The harness token is our harness's; any other is a custom harness's own, or refused.
     const ours = !hostToken && bearerMatches(request.headers.authorization, options.token);
     if (!hostToken && !ours && (bearer === undefined || !options.harnessOfToken))
       return refuse(socket, 401, "Unauthorized", { "WWW-Authenticate": "Bearer" });

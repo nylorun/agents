@@ -287,7 +287,7 @@ describe("pipe", () => {
   });
 });
 
-describe("the original request (D12)", () => {
+describe("the original request", () => {
   it("rides on every agent effect whose input is not the flow's input", async () => {
     const run1 = await run(Agent({ id: "f" }).pipe(agent("a"), agent("b")), { ask: "ship it" });
     expect(run1.seen[0]!.input).not.toHaveProperty("flowInput");

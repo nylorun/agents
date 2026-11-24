@@ -25,15 +25,15 @@ export interface StackPaths {
   /** tenant.json: the Tenant's name and the project it was created for. */
   record: string;
   /**
-   * identity.yaml: the trusted issuers (F9 I2), written by the operator. When it exists the
+   * identity.yaml: the trusted issuers, written by the operator. When it exists the
    * runtime reads it at boot (`NYLORUN_IDENTITY_FILE`).
    */
   identity: string;
   /** The Tenant directory: home, sandboxes, logs. */
   tenant: string;
-  /** The Tenant directory's parts the harness container mounts (F6.2): workspaces. */
+  /** The Tenant directory's parts the harness container mounts: workspaces. */
   harness: { sandboxes: string };
-  /** The keys directory, mounted only into the gateway (F4.2). */
+  /** The keys directory, mounted only into the gateway. */
   keys: string;
   /** The Tenant's vault key (KEK), `keys/vault-kek`. */
   vaultKey: string;

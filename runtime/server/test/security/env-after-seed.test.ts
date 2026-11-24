@@ -1,5 +1,5 @@
 /**
- * G3 — `.env` change after seeding leaves Tenant configuration unchanged.
+ * `.env` change after seeding leaves Tenant configuration unchanged.
  */
 import { randomUUID } from "node:crypto";
 import { expect, it } from "vitest";
@@ -16,7 +16,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-it("G3: ambient/env changes after seed do not overwrite Tenant config", async () => {
+it("ambient/env changes after seed do not overwrite Tenant config", async () => {
   const scratch = await mkdtemp(join(tmpdir(), "sec-g3-"));
   const evil = await writeEvilJs(scratch);
   const host = await startSecurityHost({

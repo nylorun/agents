@@ -1,5 +1,5 @@
 /**
- * The Runtime API's requests as telemetry (ADR-159 §3): one HTTP server span
+ * The Runtime API's requests as telemetry: one HTTP server span
  * `{method} {http.route}` per request, when spans export, and one `http.server.request.duration`
  * point, by the HTTP semantic conventions. `http.route` is the declared pattern, never a path with
  * its ids: an unknown route is `other`. `nylorun.client` says which client sent it, from the
@@ -145,7 +145,7 @@ function remoteParent(traceparent: string | undefined, tracestate: string | unde
 }
 
 /**
- * The trace context a command's turn is recorded with (R7.4): the request's server span when one
+ * The trace context a command's turn is recorded with: the request's server span when one
  * is recording, so the turn is its child, with the caller's `tracestate`; else the caller's own
  * `traceparent` (a malformed one is ignored), exactly as without telemetry.
  */

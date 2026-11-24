@@ -1,5 +1,5 @@
 /**
- * Run tokens (F5, `tenant/run-token.ts`): what core mints for an advance's lease, and what the
+ * Run tokens (`tenant/run-token.ts`): what core mints for an advance's lease, and what the
  * gateway accepts as one. Everything else is refused: another family's token, another Tenant's
  * or audience's, an expired one, one signed by a revoked key, an oversized one, and a header
  * that could name another key. The live check follows the session's lease.
@@ -54,7 +54,7 @@ async function signed(overrides: Record<string, unknown> = {}, typ = RUN_TOKEN_T
 }
 
 describe("run tokens", () => {
-  it("live as long as the Host tuning's keys.runTokenTtlSeconds says (B15)", async () => {
+  it("live as long as the Host tuning's keys.runTokenTtlSeconds says", async () => {
     useHostTuning(hostTuningOf({ keys: { runTokenTtlSeconds: 120, runTokenRenewSeconds: 60 } }));
     try {
       const grant = await runs.run("rt-short", { agentId: "bot", turnId: "turn-1" });

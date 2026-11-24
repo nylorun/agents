@@ -1,6 +1,6 @@
 /**
- * The Tool Gate seam (blueprint §12, F4.1). Every tool call that leaves the loop crosses one
- * `ToolGate`: a remote MCP server's connection and calls, and an HTTP tool's request (R2 M3).
+ * The Tool Gate seam. Every tool call that leaves the loop crosses one
+ * `ToolGate`: a remote MCP server's connection and calls, and an HTTP tool's request.
  * The gate owns what those need that the loop must not hold: the MCP and HTTP tool credentials,
  * and the outbound route.
  *
@@ -25,15 +25,15 @@ export interface ToolGate {
    */
   openMcp?(server: McpServerRef): Promise<LiveConnection>;
   /**
-   * Calls an HTTP tool of a session (R2 M3), keyed by the call's effect id. A failed request is
+   * Calls an HTTP tool of a session, keyed by the call's effect id. A failed request is
    * a failed outcome; it throws only when the call's fate is unknown (the gate was lost, or the
    * call was lost with it) or `signal` aborts. Absent: this Runtime cannot run HTTP tools.
    */
   callHttp?(call: HttpToolCall, signal: AbortSignal): Promise<HttpOutcome>;
   /**
-   * True when a keyed MCP or HTTP tool call outlives the caller's process (the gates service,
-   * G3): after a takeover or a shutdown, re-sending it joins the call or returns its outcome,
-   * and a call lost with the gateway runs again under the same key (R5.3).
+   * True when a keyed MCP or HTTP tool call outlives the caller's process (the gates
+   * service): after a takeover or a shutdown, re-sending it joins the call or returns its outcome,
+   * and a call lost with the gateway runs again under the same key.
    */
   readonly recovers?: boolean;
   /** Stops a keyed tool call that outlives its caller (a user cancel). Never rejects. */

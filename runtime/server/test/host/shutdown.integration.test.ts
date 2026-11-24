@@ -1,6 +1,6 @@
 /**
- * A graceful Worker stop on a real Restate server (the Docker test stack; architecture §10.5,
- * §11.4, `tenant/worker.ts` "Abort reasons"): the stop lands while the model answers, the
+ * A graceful Worker stop on a real Restate server (the Docker test stack;
+ * `tenant/worker.ts` "Abort reasons"): the stop lands while the model answers, the
  * answer is recorded, nothing is settled, and the next Worker at the same URL resumes the turn
  * from its checkpoint and completes it without calling the model again. The in-process
  * version is in `test/tenant/shutdown.test.ts`.

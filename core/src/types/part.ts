@@ -14,8 +14,8 @@ export interface SkillFileSource {
   readonly size: number;
   read(): Promise<Uint8Array>;
   /**
-   * The bytes as a stream, for a file too large to hold in memory (an org's skill of a gigabyte,
-   * ADR-93). When present, the client's upload sends it instead of `read()`'s bytes. Each call
+   * The bytes as a stream, for a file too large to hold in memory (an org's skill of a gigabyte).
+   * When present, the client's upload sends it instead of `read()`'s bytes. Each call
    * opens a new stream.
    */
   stream?(): ReadableStream<Uint8Array>;

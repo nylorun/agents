@@ -1,8 +1,8 @@
 /**
- * Agent folders (track T6, D79) on the command line, offline: `nylorun check [dir…]` compiles each
+ * Agent folders on the command line, offline: `nylorun check [dir…]` compiles each
  * agent folder with the compiler the Runtime runs (`@nylorun/core/folder`) and prints every
  * diagnostic by file, line and column (`--json` for CI), and `--fix` makes the edits the fixable
- * ones carry (track T7); `nylorun init <path>` (`init.ts`) writes a new folder. Neither reads a
+ * ones carry; `nylorun init <path>` (`init.ts`) writes a new folder. Neither reads a
  * Runtime. `nylorun apply` saves a folder (`apply.ts`).
  */
 import { createHash } from "node:crypto";

@@ -1,5 +1,5 @@
 /**
- * Durable Streams on S2 (architecture §12.4). The only file that imports the
+ * Durable Streams on S2. The only file that imports the
  * S2 SDK (`@s2-dev/streamstore`). Works against the S2 service and s2-lite,
  * which serve the same REST API.
  *
@@ -10,8 +10,8 @@
  * - The basin is created with `createStreamOnAppend` and `createStreamOnRead`, so
  *   `sessions/<id>` come into existence on first use. Its default stream config
  *   sets infinite retention, which session streams keep. The Tenant's `runs`
- *   stream (D83) is ensured with 7 days' retention (`ensureStream`). There are
- *   no other streams: signals between processes go over Postgres (D48).
+ *   stream is ensured with 7 days' retention (`ensureStream`). There are
+ *   no other streams: signals between processes go over Postgres.
  * - Bodies are JSON text in string records. Record timestamps are S2 arrival
  *   times.
  * - Appends use `appendRetryPolicy: "noSideEffects"`: the SDK retries only
@@ -19,7 +19,7 @@
  *   duplicated here. A caller retrying an unacknowledged append passes
  *   `matchSeq` (as the relay does) and gets `seq_mismatch` if it had landed.
  *
- * ## s2-lite behaviour (architecture §19 question 3), verified on
+ * ## s2-lite behaviour, verified on
  * `ghcr.io/s2-streamstore/s2:0.43.0` (`s2 lite`, in-memory) with SDK 0.27.0
  *
  * - **Retention.** The default stream config is `retentionPolicy: { ageSecs:

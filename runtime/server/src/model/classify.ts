@@ -19,7 +19,7 @@ const AUTH =
 
 /**
  * Classify a failed pi-ai response (`stopReason: "error"`) into a failure outcome
- * (Model Calls §6.1). Context overflow is checked first, with the binding's window so
+ *. Context overflow is checked first, with the binding's window so
  * silent overflow is caught too.
  */
 export function classifyAssistantError(

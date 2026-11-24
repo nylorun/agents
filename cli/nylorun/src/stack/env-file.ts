@@ -3,7 +3,7 @@ import { CliError } from "../errors.js";
 
 /**
  * Origins that may embed Studio by default: none. Embedding is opt-in: the operator lists
- * the exact origins of the app that frames Studio (`--studio-embed-origin`, Studio §8.9).
+ * the exact origins of the app that frames Studio (`--studio-embed-origin`).
  */
 export const DEFAULT_STUDIO_FRAME_ANCESTORS: readonly string[] = [];
 
@@ -59,7 +59,7 @@ export interface StackEnv {
   studioAnalyticsId: string;
   /** The Tenant's name, which the Runtime gives the Tenant it creates. */
   tenantName: string;
-  /** Present once `nylorun local sandbox enable` ran for the Tenant (F7.2). */
+  /** Present once `nylorun local sandbox enable` ran for the Tenant. */
   sandboxes?: SandboxStackEnv;
 }
 
@@ -80,14 +80,14 @@ export interface SandboxStackEnv {
   /** Where the pod-facing ports are published (127.0.0.1 on Docker Desktop). */
   bind: string;
   /**
-   * With the Substrate backend (ADR-138): the edge's host ports, the TLS front actors reach
+   * With the Substrate backend: the edge's host ports, the TLS front actors reach
    * the Harness API and the gates through, served by the sandboxes container.
    */
   edgeHarnessPort?: number;
   edgeGatesPort?: number;
   /**
    * With the Substrate backend: the edge's keys port, where the keys provider reaches
-   * egress-gate's decide route, and the token it presents there (ADR-142).
+   * egress-gate's decide route, and the token it presents there.
    */
   edgeKeysPort?: number;
   /** NYLORUN_EGRESS_KEYS_TOKEN, 32 bytes as hex. */
@@ -231,7 +231,7 @@ export function renderEnvFile(env: StackEnv): string {
             : []),
           ...(sandboxes.edgeKeysPort && sandboxes.keysToken
             ? [
-                "# Keys at Substrate's egress (ADR-142): the edge's port for the keys provider,",
+                "# Keys at Substrate's egress: the edge's port for the keys provider,",
                 "# and the token it presents to egress-gate's decide route.",
                 sandboxLine("edgeKeysPort"),
                 sandboxLine("keysToken"),

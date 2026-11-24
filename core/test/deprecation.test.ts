@@ -3,7 +3,7 @@ import { z } from "zod";
 import { Agent, tool } from "../src/define.js";
 import { resetDeprecationWarnings } from "../src/utils/deprecate.js";
 
-/** Flow Agents Phase 1: the old authoring forms warn once each; the new ones never do. */
+/** Flow agents: the old authoring forms warn once each; the new ones never do. */
 
 const look = tool({
   name: "look",

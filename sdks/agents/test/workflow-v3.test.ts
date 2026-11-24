@@ -110,7 +110,7 @@ describe("agentManifests.save with a flow agent", () => {
   });
 });
 
-describe("a flow agent used as a tool (Phase 3)", () => {
+describe("a flow agent used as a tool", () => {
   const research = Agent({ id: "research", description: "Researches a question." }).pipe(
     Agent({ id: "searcher" }).instructions("Search.").plugin(pluginFolder()).output(z.object({ word: z.string() })),
     Agent({ id: "summarizer" }).instructions("Summarize."),

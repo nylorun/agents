@@ -17,7 +17,7 @@ import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-it("C10: explicit port collision fails with EXIT_PORT_IN_USE", async () => {
+it("explicit port collision fails with EXIT_PORT_IN_USE", async () => {
   const port = await freePort();
   const squatter = createServer();
   await new Promise<void>((resolve) =>
@@ -35,7 +35,7 @@ it("C10: explicit port collision fails with EXIT_PORT_IN_USE", async () => {
   }
 });
 
-it("C10: binding outside loopback without allowNonLoopback fails", async () => {
+it("binding outside loopback without allowNonLoopback fails", async () => {
   const root = await mkdtemp(join(tmpdir(), "nylorun-nonloop-"));
   await mkdir(join(root, "home"), { recursive: true });
   const port = await freePort();
@@ -63,7 +63,7 @@ it("C10: binding outside loopback without allowNonLoopback fails", async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-it("C10: allowNonLoopback permits non-loopback bind", async () => {
+it("allowNonLoopback permits non-loopback bind", async () => {
   // Binding 0.0.0.0 may be restricted; use the flag with 127.0.0.1 still allowed,
   // and assert the check is skipped for non-loopback when flag is set by expecting
   // listen to proceed past the loopback guard (EADDRINUSE or success).

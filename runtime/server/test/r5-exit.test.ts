@@ -1,5 +1,5 @@
 /**
- * The R5 exit (step 1), as the design proposes it: every tool call in a session, cancelled ones
+ * Every tool call in a session, cancelled ones
  * included, appears in the log with its outcome and as a row at `/calls/tool`. A call
  * interrupted by a crash is sent again with the same key, and the session continues. A sandbox
  * command interrupted by a crash, or any call interrupted three times, fails to the model. A
@@ -207,7 +207,7 @@ async function toolCalls(runtime: Started) {
 const refund = (url: string) => http({ name: "refund", input: z.object({ charge: z.string(), amount: z.number() }), url });
 const refundAgent = (url: string) => Agent({ id: "bot", name: "Bot" }).tools(refund(url)).build();
 
-describe("the R5 exit", { timeout: 60_000 }, () => {
+describe("tool calls in the log, end to end", { timeout: 60_000 }, () => {
   it("records a call that ran, in the log and at /calls/tool, with its key on the request", async () => {
     const service = await refundService();
     const runtime = await boot({ model: oneCall("refund", { charge: "ch_1", amount: 30 }), agent: refundAgent(service.url) });
@@ -227,7 +227,7 @@ describe("the R5 exit", { timeout: 60_000 }, () => {
       error: null,
     });
     expect(service.requests().map((request) => request.key)).toEqual([row!.effectId]);
-    // Its span (R7.1): the effect id, and the Tool Gate's own start and end from its crossing.
+    // Its span: the effect id, and the Tool Gate's own start and end from its crossing.
     expect(event!.effectId).toBe(row!.effectId);
     const gate = event!.gate as { startedAt: string; endedAt: string };
     expect(Date.parse(gate.endedAt)).toBeGreaterThanOrEqual(Date.parse(gate.startedAt));
@@ -293,7 +293,7 @@ describe("the R5 exit", { timeout: 60_000 }, () => {
       expect.objectContaining({ status: "cancelled", error: expect.objectContaining({ code: "tool.cancelled" }) }),
     ]);
     expect((await toolCalls(runtime))[0]).toMatchObject({ status: "cancelled" });
-    // The cancelled turn's span (R7.1).
+    // The cancelled turn's span.
     const items = (await (await fetch(`${runtime.url}/v1/sessions/s1/items`, { headers })).json()) as {
       items: { type: string; payload: Record<string, unknown> }[];
     };
@@ -304,7 +304,7 @@ describe("the R5 exit", { timeout: 60_000 }, () => {
     });
   });
 
-  it("fails a sandbox command a crash interrupted to the model, and never runs it again (Q2)", async () => {
+  it("fails a sandbox command a crash interrupted to the model, and never runs it again", async () => {
     let execs = 0;
     let release!: () => void;
     const released = new Promise<void>((resolve) => (release = resolve));

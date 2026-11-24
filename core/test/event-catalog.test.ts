@@ -106,7 +106,7 @@ describe("event catalog", () => {
     }
   });
 
-  it("names a layer for every type: the agent's record or the Runtime's (ADR-159)", () => {
+  it("names a layer for every type: the agent's record or the Runtime's", () => {
     for (const type of EVENT_TYPES) {
       expect(EVENT_LAYERS).toContain(EVENT_CATALOG[type].layer);
       expect(eventLayer(type)).toBe(EVENT_CATALOG[type].layer);

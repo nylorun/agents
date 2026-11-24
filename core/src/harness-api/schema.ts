@@ -103,7 +103,7 @@ export const EffectTargetSchema = z.discriminatedUnion("kind", [
    * the effect id: `schedule_wake` books the session's next turn; `memory` is a
    * call of the `memory` tool, with Anthropic's memory tool parameters as its input,
    * on the Agent's memories; `triggers` lists, creates and deletes the triggers the session made
-   * (D83, `TriggerToolInputSchema`). Answered at once, unless the Tenant's tool policy holds it
+   * (`TriggerToolInputSchema`). Answered at once, unless the Tenant's tool policy holds it
    * for a person; the harness never executes it.
    */
   z.object({ kind: z.literal("runtime"), operation: z.enum(["schedule_wake", "memory", "triggers"]) }).strict(),
@@ -119,7 +119,7 @@ export const EffectTargetSchema = z.discriminatedUnion("kind", [
  * A model effect that writes a compaction's summary says so (`purpose: "summary"`): it is no
  * assistant message, and the compaction edit that follows names it (`CompactionFactsSchema`).
  *
- * An `inputs` effect (D85, revision 4) asks core for the messages steered into the running turn
+ * An `inputs` effect (revision 4) asks core for the messages steered into the running turn
  * (`delivery: "steer"`), before a step: core takes them in the transaction that journals the
  * effect and answers `{value: {events}}` at once, the messages' input events in order (none when
  * nothing waits). The journal keeps the answer, so a replay takes the same messages at that step.
@@ -294,7 +294,7 @@ export const RunRoutingSchema = z
          */
         environment: z.record(z.string(), z.string()).optional(),
         /**
-         * The sandbox is a computer (ADR-149, Harness API 5.6): an Agent Substrate actor whose
+         * The sandbox is a computer (Harness API 5.6): an Agent Substrate actor whose
          * engine runs no loop. A harness opens it with `computer.open` and sends its sandbox
          * calls to it through the sandbox gateway.
          */
@@ -371,7 +371,7 @@ export const TurnAgentSchema = z
      */
     selfWake: z.boolean().optional(),
     /**
-     * The version the session runs declares `harness.engine.triggers` (D83): our engine offers
+     * The version the session runs declares `harness.engine.triggers`: our engine offers
      * the root agent the `triggers` tool, a `runtime` effect.
      */
     triggers: z.literal(true).optional(),
@@ -391,7 +391,7 @@ export const TurnMemorySchema = z
   .object({
     access: z.enum(["read_write", "read_only"]),
     instructions: z.string().optional(),
-    /** Absent when the version sets `harness.memory.index: false` (ADR-100): nothing is pinned. */
+    /** Absent when the version sets `harness.memory.index: false`: nothing is pinned. */
     index: z.string().optional(),
     truncated: z.boolean(),
     /**
@@ -426,7 +426,7 @@ export const TurnStartSchema = z
      */
     loop: document.optional(),
     /**
-     * The role the session was opened with (`PUT /v1/sessions/{id}` `role`, ADR-157), so a harness
+     * The role the session was opened with (`PUT /v1/sessions/{id}` `role`), so a harness
      * can use its settings for that role. Absent for a session opened without one.
      */
     role: z.string().min(1).max(64).optional(),
@@ -636,7 +636,7 @@ export const harnessRequests = {
     result: z.object({ base64: z.string() }).strict(),
   },
   /**
-   * Opens the computer of the run's session (ADR-149, Harness API 5.6): `environmentId` must be
+   * Opens the computer of the run's session (Harness API 5.6): `environmentId` must be
    * the run's `routing.sandbox.environmentId` with `computer: true`. Core wakes it, waits until it
    * is ready, writes a seed onto a new disk and runs the disk's setup when needed, and answers the
    * sandbox gateway's URL for it, a ticket the gateway and the computer check, and when the ticket
@@ -722,7 +722,7 @@ export const harnessRequests = {
           effectId: id.optional(),
           base64: z.string().optional(),
           /**
-           * `model` (ADR-139, revision 5): a file stored only for the model to see, never an
+           * `model` (revision 5): a file stored only for the model to see, never an
            * output. Only our own engine sends it; core accepts it within v5.
            */
           audience: ArtifactAudienceSchema.optional(),

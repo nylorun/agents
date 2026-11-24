@@ -1,5 +1,5 @@
 /**
- * The Postgres Session Store (architecture §12.2, session-store.md §2–§3): the `SessionStore`
+ * The Postgres Session Store: the `SessionStore`
  * of the one Tenant a database holds, its state in the schema `nylorun` and its record in
  * `nylorun_streams`, queried through Drizzle (`schema.ts`). See `store/types.ts` for the
  * invariants it keeps.
@@ -621,7 +621,7 @@ class PostgresTx implements Tx {
   async delete(table: DocTable, id: string): Promise<void> {
     this.check();
     // A session's record rows and log head stay: a session created again with this id
-    // continues its log (per-session record deletion is deferred, Durable Streams §15).
+    // continues its log (per-session record deletion is deferred).
     const t = DOCUMENTS[table];
     await this.db.delete(t).where(eq(t.id, id));
   }
@@ -1445,7 +1445,7 @@ class PostgresTx implements Tx {
     };
   }
 
-  // --- control bus (D21) ---------------------------------------------------
+  // --- control bus ---------------------------------------------------
 
   async signal(signal: ControlSignal): Promise<void> {
     this.check();
@@ -1851,7 +1851,7 @@ class PostgresTx implements Tx {
     return rows.map((row) => row.id);
   }
 
-  // --- triggers (track T4) ----------------------------------------------------
+  // --- triggers ----------------------------------------------------
 
   async agentTriggers(agentId: string): Promise<AgentTriggerRow[]> {
     this.check();
@@ -2013,7 +2013,7 @@ class PostgresTx implements Tx {
       .returning({ id: triggerRuns.id });
     return deleted.length;
   }
-  // --- memory (track T5) ------------------------------------------------------
+  // --- memory ------------------------------------------------------
 
   async memory(agentId: string, path: string, options: { lock?: boolean } = {}): Promise<MemoryRow | undefined> {
     this.check();
@@ -2215,7 +2215,7 @@ class PostgresTx implements Tx {
     return this.db
       .select()
       .from(artifacts)
-      // A file stored only for the model (ADR-139) is never listed.
+      // A file stored only for the model is never listed.
       .where(
         and(
           isNull(artifacts.audience),
@@ -2479,13 +2479,13 @@ class PostgresTx implements Tx {
     const db = this.db;
     if (scope === "sessions" || scope === "all") {
       for (const table of SESSION_TABLES) await db.delete(table);
-      // A session's booked wake (T4) goes with it, and the triggers its agents made (D83).
+      // A session's booked wake goes with it, and the triggers its agents made.
       await db.delete(agentTriggers).where(or(eq(agentTriggers.kind, "wake"), inArray(agentTriggers.origin, ["wake", "agent"])));
       await db.delete(toolCrossings);
       // A session's artifacts go with it (their versions by cascade).
       await db.delete(artifacts).where(isNotNull(artifacts.sessionId));
       // The record goes with the sessions, and the Tenant moves to a new basin: the ids it
-      // frees start again in an empty one (Durable Streams §8.1).
+      // frees start again in an empty one.
       await db.delete(sessionEvents);
       await db.delete(sessionLogHeads);
       await db.update(tenant).set({
@@ -2500,7 +2500,7 @@ class PostgresTx implements Tx {
       await db.delete(agentEvents);
       await db.delete(agentTriggers);
       await db.delete(triggerRuns);
-      // Memories belong to the Agents (D72).
+      // Memories belong to the Agents.
       await db.delete(memories);
       await db.delete(memoryVersions);
       await db.delete(sandboxSignals);

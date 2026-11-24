@@ -314,7 +314,7 @@ describe("our engine's own tools (protocol 15)", () => {
   });
 });
 
-describe("model failure outcomes (Model Calls §6)", () => {
+describe("model failure outcomes", () => {
   const agent = () => Agent({ id: "failing", name: "Failing" }).build();
 
   it("fails the turn with model.<code> when the model effect completed with a failure", async () => {
@@ -366,7 +366,7 @@ describe("model failure outcomes (Model Calls §6)", () => {
   });
 });
 
-describe("segment rollover (Model Calls §10)", () => {
+describe("segment rollover", () => {
   it("yields between steps and continues the same turn in the next segment", async () => {
     const manifest = Agent({ id: "roller", name: "Roller" })
       .tools({ name: "job", inputSchema: z.object({}), execute: async () => "unused" })
@@ -418,7 +418,7 @@ describe("segment rollover (Model Calls §10)", () => {
   });
 });
 
-describe("steered messages (D85)", () => {
+describe("steered messages", () => {
   const manifest = Agent({ id: "steered", name: "Steered" })
     .tools({ name: "job", inputSchema: z.object({}), execute: async () => "unused" })
     .build().manifest;

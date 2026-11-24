@@ -100,7 +100,7 @@ function blocks(xml: string, name: string): string[] {
  * The `s3` adapter over the plain S3 API: PutObject, multipart upload, GetObject with Range,
  * HeadObject, DeleteObject and ListObjectsV2, signed with SigV4 by aws4fetch (MIT, no
  * dependencies, built on `fetch` and web streams). It uses no server's admin, KMS or lifecycle
- * API (D35), so RustFS, S3, R2 or any S3 server sits behind it.
+ * API, so RustFS, S3, R2 or any S3 server sits behind it.
  *
  * Uploads stream: the body is counted and hashed as it arrives and sent in parts of
  * `partSize`, so memory stays at about one part whatever the size, and a body that passes

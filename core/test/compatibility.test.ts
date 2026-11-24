@@ -190,7 +190,7 @@ describe("checkCompatibility", () => {
     expect(PROTOCOL_FEATURES).not.toContain("gateway-credentials");
     expect(HOST_PROTOCOL.features).toContain("gateway-credentials");
     expect(checkCompatibility({ version: 18, required: [...PROTOCOL_FEATURES] }, HOST_PROTOCOL)).toMatchObject({ ok: true });
-    // Protocol 17 is additive: the session queue (D76), whose refusal has a code.
+    // Protocol 17 is additive: the session queue, whose refusal has a code.
     expect(PROTOCOL_FEATURES).toContain("session-queue");
     expect(checkCompatibility({ version: 17, required: [...PROTOCOL_FEATURES] }, HOST_PROTOCOL)).toMatchObject({ ok: true });
     for (const code of ["session_busy", "queue_full"]) expect(ERROR_CODES).toContain(code);
@@ -204,9 +204,9 @@ describe("checkCompatibility", () => {
     expect(ERROR_CODES).not.toContain("agent_upgrade_unavailable");
     for (const code of ["environment_immutable", "environment_unsuitable", "environment_busy"])
       expect(ERROR_CODES).not.toContain(code);
-    // Protocol 11 removed sandbox resources (R2d): no `sandboxes` Host feature.
+    // Protocol 11 removed sandbox resources: no `sandboxes` Host feature.
     expect(HOST_PROTOCOL.features).not.toContain("sandboxes");
-    // The compatibility window for protocol 4 to 10 clients is closed (R2d Q3).
+    // The compatibility window for protocol 4 to 10 clients is closed.
     for (const removed of ["runtime-tenants", "admin-status", "subject-tokens", "browser-access", "derived-principals"])
       expect(HOST_PROTOCOL.features).not.toContain(removed);
     // Protocol 15 changed what a session pins and which tool names are reserved: 14 clients are
@@ -260,7 +260,7 @@ describe("checkCompatibility", () => {
 
 });
 
-describe("keys by name (F9 I1, /v1/tenant/keys)", () => {
+describe("keys by name (/v1/tenant/keys)", () => {
   it("retires the operator-keys Host feature with the Admin API (protocol 8)", () => {
     expect(OPTIONAL_HOST_FEATURES).not.toContain("operator-keys");
     expect(HOST_PROTOCOL.features).not.toContain("operator-keys");

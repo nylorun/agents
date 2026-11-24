@@ -4,7 +4,7 @@ import { sessionHref } from "@/session-open";
 import { Badge } from "@/components/ui/badge";
 import { date } from "@/components/agents";
 
-/** The payload of an `agent.egress` event (D67), as Studio reads it. */
+/** The payload of an `agent.egress` event, as Studio reads it. */
 export interface EgressPayload {
   readonly host: string;
   readonly port: number;
@@ -30,7 +30,7 @@ function bytes(n: number): string {
 }
 
 /**
- * One connection the Agent's sandbox opened through egress-gate. It is the Agent's (D67): the
+ * One connection the Agent's sandbox opened through egress-gate. It is the Agent's: the
  * turns listed were running when it opened, which says when, not which one made it.
  */
 export function EgressRow({

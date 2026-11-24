@@ -6,7 +6,7 @@ import type { ModelProvider } from "../src/core/provider.js";
 import { startTestTenant } from "./support/tenant.js";
 
 /**
- * Flow Agents Phase 3, end to end: a ReAct agent delegates to a flow agent. The flow runs
+ * Flow agents, end to end: a ReAct agent delegates to a flow agent. The flow runs
  * in its own linked session (its agents in theirs), and its output returns to the parent
  * as the tool result.
  */
@@ -82,7 +82,7 @@ describe("a flow agent as a subagent, end to end", { timeout: 30_000 }, () => {
 
     const last = events.at(-1)!;
     expect(last.type, JSON.stringify(last.payload)).toBe("turn.completed");
-    // The summarizer sees the flow's input beside the searcher's notes (D12).
+    // The summarizer sees the flow's input beside the searcher's notes.
     const summary = "summary of Original request:\nWhy is the sky blue?\n\nnotes on Why is the sky blue?";
     expect(last.payload.output).toBe(`lead heard: ${JSON.stringify(summary)}`);
 
@@ -112,7 +112,7 @@ describe("a flow agent as a subagent, end to end", { timeout: 30_000 }, () => {
     );
   });
 
-  it("refuses a flow subagent whose inputSchema can't take the task, and gives a string one the task (ADR-162)", async () => {
+  it("refuses a flow subagent whose inputSchema can't take the task, and gives a string one the task", async () => {
     const tenant = await startTestTenant({ applicationKey: APP, modelProvider: provider });
     cleanups.push(() => tenant.close());
     const typed = Agent({ id: "research", description: "Researches a question and reports back." })

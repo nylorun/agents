@@ -30,7 +30,7 @@ const agentOf = (request: HostEffect) =>
 /**
  * `message.assistant` for a completed model effect: the step's text and tool calls. The
  * provider returns a `ModelCandidate` or a bare string. A step that said nothing (no text, no
- * tool calls; a structured answer) is still one event, with `text: ""` (R7.1): every model call
+ * tool calls; a structured answer) is still one event, with `text: ""`: every model call
  * has its outcome row. Readers that build a conversation skip it (`isEmptyAssistantMessage`).
  */
 export function assistantMessage(request: HostEffect, value: unknown) {
@@ -79,7 +79,7 @@ export function assistantMessage(request: HostEffect, value: unknown) {
 }
 
 /**
- * `context.compacted` for a compaction a harness reported with its transcript edit (Q4, protocol
+ * `context.compacted` for a compaction a harness reported with its transcript edit (protocol
  * 15): its facts, the last summary call's step and model facts, and the agent. Every summary
  * effect it names must be a completed, successful model call of turn `turnId` made for a summary
  * (`purpose: "summary"`); otherwise the edit is refused (`invalid`).
@@ -124,7 +124,7 @@ export async function contextCompacted(
   };
 }
 
-/** `model.failed` for a model effect that completed with a failure outcome (Model Calls §6.4). */
+/** `model.failed` for a model effect that completed with a failure outcome. */
 export function modelFailed(request: HostEffect, value: unknown) {
   if (!isModelFailureOutcome(value)) return undefined;
   const invocationId = (request.context as { invocationId?: unknown })
@@ -140,13 +140,13 @@ export function modelFailed(request: HostEffect, value: unknown) {
   };
 }
 
-/** A gate's own start and end of a call (R7.1). */
+/** A gate's own start and end of a call. */
 export interface GateTimes {
   readonly startedAt: string;
   readonly endedAt: string;
 }
 
-/** What the usage ledger holds for a model call (R7.1): its `model_usage` row's columns. */
+/** What the usage ledger holds for a model call: its `model_usage` row's columns. */
 export interface MeteredCall {
   readonly startedAt: string | null;
   readonly endedAt: string | null;
@@ -171,7 +171,7 @@ export function durationBetween(startedAt: string | undefined, endedAt: string |
 }
 
 /**
- * The timing a model call's outcome event carries (R7.1): its effect id, the journal's window
+ * The timing a model call's outcome event carries: its effect id, the journal's window
  * (`startedAt` on the row to `settledAt`), and, when the gate metered the call (`metered`), the
  * gate's own start and end, the first token's time and the metered usage.
  */
@@ -205,14 +205,14 @@ export function modelOutcomeFacts(
   };
 }
 
-/** What the Tenant's tool policy did with a call, when it did more than allow it (R7.1). */
+/** What the Tenant's tool policy did with a call, when it did more than allow it. */
 export interface ToolPolicyFact {
   readonly decision: "ask" | "deny";
   readonly reason: string;
   readonly approvedBy?: string;
 }
 
-/** What the journal knows of a tool call when it ends (R5.1, R7.1), for its `tool.completed`. */
+/** What the journal knows of a tool call when it ends, for its `tool.completed`. */
 export interface ToolCallFacts {
   readonly status: ToolCallStatus;
   readonly kind?: ToolCallKind;
@@ -230,7 +230,7 @@ export interface ToolCallFacts {
 
 /**
  * `tool.completed` for a tool call that ended: its output, or the tool error it reported, and
- * how it ended (R5.1).
+ * how it ended.
  */
 export function toolCompleted(request: HostEffect, value: unknown, facts?: ToolCallFacts) {
   const ids = toolIds(request.context);
@@ -251,7 +251,7 @@ export function toolCompleted(request: HostEffect, value: unknown, facts?: ToolC
           error: {
             code: String(outcome.code ?? "tool.failed"),
             message: String(outcome.message ?? ""),
-            // `credential_rejected` (R2b C1): which server.
+            // `credential_rejected`: which server.
             ...(typeof outcome.server === "string" ? { server: outcome.server } : {}),
             // And the gateway that refused the Runtime's workload token (#496).
             ...(typeof outcome.gateway === "string" ? { gateway: outcome.gateway } : {}),
@@ -259,7 +259,7 @@ export function toolCompleted(request: HostEffect, value: unknown, facts?: ToolC
           },
         }
       : { output: outcome?.kind === "completed" ? outcome.output : value };
-  // Credential values the server echoed, replaced before the outcome was recorded (R2b C8).
+  // Credential values the server echoed, replaced before the outcome was recorded.
   const redacted =
     (outcome?.kind === "completed" || outcome?.kind === "failed") &&
     typeof outcome.redacted === "number" &&

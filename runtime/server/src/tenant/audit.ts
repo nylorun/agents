@@ -1,5 +1,5 @@
 /**
- * The Tenant's stream as the API writes and reads it (ADR-159): who a request acts as on the
+ * The Tenant's stream as the API writes and reads it: who a request acts as on the
  * stream, and its audit read, `GET /v1/tenant/audit`, newest first. The record module writes the
  * events (`record/tenant.ts`), each in the transaction of the change it records.
  */

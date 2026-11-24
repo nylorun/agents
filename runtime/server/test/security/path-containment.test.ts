@@ -1,5 +1,5 @@
 /**
- * G7 — Path containment after normalisation/symlinks.
+ * Path containment after normalisation/symlinks.
  */
 import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -15,7 +15,7 @@ afterEach(async () => {
     await rm(root, { recursive: true, force: true });
 });
 
-it("G7: tenantPaths rejects a Tenant directory that is a symlink out of the Host root", async () => {
+it("tenantPaths rejects a Tenant directory that is a symlink out of the Host root", async () => {
   const hostRoot = await mkdtemp(join(tmpdir(), "sec-path-"));
   roots.push(hostRoot);
   const outside = await mkdtemp(join(tmpdir(), "sec-path-outside-"));
@@ -25,7 +25,7 @@ it("G7: tenantPaths rejects a Tenant directory that is a symlink out of the Host
   expect(() => tenantPaths(hostRoot)).toThrow(/escapes/);
 });
 
-it("G7: a symlinked Tenant directory inside the Host root is allowed", async () => {
+it("a symlinked Tenant directory inside the Host root is allowed", async () => {
   const hostRoot = await mkdtemp(join(tmpdir(), "sec-path-"));
   roots.push(hostRoot);
   mkdirSync(join(hostRoot, "data"));
@@ -33,7 +33,7 @@ it("G7: a symlinked Tenant directory inside the Host root is allowed", async () 
   expect(tenantPaths(hostRoot).home).toMatch(/tenant\/home$/);
 });
 
-it("G7: the live Tenant directory is hostRoot/tenant", async () => {
+it("the live Tenant directory is hostRoot/tenant", async () => {
   const host = await startSecurityHost();
   const a = host.tenant;
   expect(a.paths.root).toBe(join(host.hostRoot, "tenant"));

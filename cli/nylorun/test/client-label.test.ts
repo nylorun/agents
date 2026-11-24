@@ -1,4 +1,4 @@
-/** The CLI names itself to the Runtime (`Nylorun-Client: cli`, ADR-159), over any SDK's label. */
+/** The CLI names itself to the Runtime (`Nylorun-Client: cli`), over any SDK's label. */
 import { describe, expect, it } from "vitest";
 import { CLIENT_LABEL, labelledFetch } from "../src/client-label.js";
 

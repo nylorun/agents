@@ -58,7 +58,7 @@ export class FilesClient {
   }
 
   /**
-   * Uploads one file from a stream, so a large file never sits in memory (ADR-93). `sha256` is
+   * Uploads one file from a stream, so a large file never sits in memory. `sha256` is
    * required: the bytes aren't read before they are sent. The Runtime refuses a body with another
    * hash and stores nothing.
    */

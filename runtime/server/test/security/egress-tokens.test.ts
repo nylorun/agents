@@ -1,5 +1,5 @@
 /**
- * Egress tokens (F7.2, `sandbox/egress-token.ts`): what a pod's harness receives at join and
+ * Egress tokens (`sandbox/egress-token.ts`): what a pod's harness receives at join and
  * egress-gate accepts as its proxy credential. Everything else is refused: another family's
  * token (run, host, subject, capability link), another Tenant's or audience's, an expired one, one
  * signed by a revoked key, an oversized one, and a header that could name another key.

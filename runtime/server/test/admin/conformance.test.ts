@@ -69,7 +69,7 @@ async function startHost() {
   return { ...runtime, database: database.sql };
 }
 
-it("A5: the Admin API is gone: /v1/admin/* answers as any unknown route does, with any key", async () => {
+it("the Admin API is gone: /v1/admin/* answers as any unknown route does, with any key", async () => {
   // A known key learns there is no such route (404); the admin key is no credential (401).
   const runtime = await startHost();
   const { url, adminKey, managementKey, applicationKey } = runtime;

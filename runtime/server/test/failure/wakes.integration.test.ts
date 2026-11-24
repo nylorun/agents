@@ -1,10 +1,10 @@
 /**
- * Failure cases of architecture §17 about wakes and Restate's state, on Postgres + Restate + S2
+ * Failure cases about wakes and Restate's state, on Postgres + Restate + S2
  * (`README.md`):
  *
- * - §17.1 duplicate wake;
- * - §17.2 a wake lost between commit and send;
- * - §17.11 Restate state wiped.
+ * - 1 duplicate wake;
+ * - 2 a wake lost between commit and send;
+ * - 11 Restate state wiped.
  */
 import { afterEach, describe, expect, it } from "vitest";
 import type { ModelProvider } from "../../src/core/provider.js";
@@ -51,8 +51,8 @@ function countingModel() {
   return model;
 }
 
-describe.skipIf(!STACK_ENABLED)("§17 wake failures on Postgres, Restate and S2", () => {
-  it("§17.1 duplicate wakes, deduped or not, during and after a turn run it once", async () => {
+describe.skipIf(!STACK_ENABLED)("wake failures on Postgres, Restate and S2", () => {
+  it("duplicate wakes, deduped or not, during and after a turn run it once", async () => {
     const t = failureTenant();
     const model = controlledModel();
     t.onDispose(() => model.release());
@@ -90,7 +90,7 @@ describe.skipIf(!STACK_ENABLED)("§17 wake failures on Postgres, Restate and S2"
     expect(await sessionRow(node)).toMatchObject({ status: "completed", owner: null });
   });
 
-  it("§17.2 a wake lost between commit and send: the Tenant sweep on Restate delivers it from the outbox", async () => {
+  it("a wake lost between commit and send: the Tenant sweep on Restate delivers it from the outbox", async () => {
     const t = failureTenant();
     const model = countingModel();
     const lost: Wake[] = [];
@@ -133,7 +133,7 @@ describe.skipIf(!STACK_ENABLED)("§17 wake failures on Postgres, Restate and S2"
     expect(model.calls).toBe(1);
   });
 
-  it("§17.11 Restate state wiped: Workers re-arm the sweeps at startup and runnable sessions resume", async () => {
+  it("Restate state wiped: Workers re-arm the sweeps at startup and runnable sessions resume", async () => {
     const t = failureTenant();
     const model = countingModel();
     // The first process: its Worker stops before the message's wake is delivered.

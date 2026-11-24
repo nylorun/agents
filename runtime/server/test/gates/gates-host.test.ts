@@ -2,7 +2,7 @@
  * The gates service's listener (`host/gates.ts`, `api/gate/routes.ts`) on 127.0.0.1:0, with
  * stub Tenant vaults (the ledger, signing keys and sessions on the file's database) and the
  * provider stubbed as the global `fetch`. Requests to the gate use the real `fetch`, captured
- * before any stub. Model calls carry a session's run token (F5), minted as an advance would.
+ * before any stub. Model calls carry a session's run token, minted as an advance would.
  */
 import { request } from "node:http";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -345,7 +345,7 @@ describe("the gates service", () => {
     expect((await runs.store.tx((t) => t.modelUsageTotals({ scope: "turn", id: "turn-1" }))).calls).toBeGreaterThan(0);
   });
 
-  describe("credentials (F5)", () => {
+  describe("credentials", () => {
     it("refuses a model call with no credential, core's credential or a bad token: 401 gate_unauthorized", async () => {
       const provider = vi.fn();
       vi.stubGlobal("fetch", provider);
@@ -389,7 +389,7 @@ describe("the gates service", () => {
       });
       expect(response.status).toBe(401);
       expect(await response.json()).toMatchObject({ error: { code: "gate_unauthorized" } });
-      // Action deliveries are gone (track R2).
+      // Action deliveries are gone.
       const deliveries = await realFetch(`${server.url}/nylorun/v1/deliveries`, {
         method: "POST",
         headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
@@ -488,7 +488,7 @@ describe("the gates service", () => {
     await vi.waitFor(() => expect(upstream?.aborted).toBe(true));
   });
 
-  describe("keyed calls (P1.2)", () => {
+  describe("keyed calls", () => {
     /** A provider whose answer the test releases, counting calls. */
     function heldProvider() {
       let calls = 0;

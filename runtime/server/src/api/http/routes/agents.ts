@@ -1,5 +1,5 @@
 /**
- * Agents (`/v1/agents/**`, protocol 16; Environments from protocol 11, D55, D56): make one from a
+ * Agents (`/v1/agents/**`, protocol 16; Environments from protocol 11): make one from a
  * saved agent manifest or find it by id, read it, list them by label, state or manifest, read its
  * lifecycle stream, stop, reset, fork and delete it, work its disk versions, and write its vault's
  * secrets. Ids may hold `/`, sent percent-encoded as one path segment (`users%2Falice%2Ftriage`).
@@ -193,7 +193,7 @@ export function agentRoutes(api: OpenAPIHono<TenantEnv>): void {
       tags: ["Agents"],
       summary: "Create, find or move an Agent",
       description:
-        "Creates the Agent, its vault and its compute from a saved agent manifest, within the Tenant's limits, or answers the one with this id, so get-or-create is one call. `manifest: \"name\"` records that it tracks the manifest (its latest version, and each version saved later) and `\"name@n\"` that it is pinned; the version it runs is `resolvedVersion`. On an existing one, labels replace, `owner` sets or (with `null`) clears the owner guard, and `manifest` moves it with its id, disk, vault and sessions: a harness-only change applies at once (each session's next turn runs it), a runtime change of a pod at its next start (`targetVersion`, `waitingFor: start`), and a version that adds a required secret once a value is set (`waitingFor: secrets`). Its manifest's name, kind, harness and storage are fixed (`409 agent_fixed_field`): fork it to change them. One kind change is not: on a Runtime whose pods are computers, a `PUT` that moves a `virtual` Agent to a `pod` version makes it a computer in place (ADR-154), keeping its id, sessions, memory, vault, triggers, events and labels; `from` then seeds its new volume from a disk version of another Agent with the same owner, its virtual workspace is deleted, and `agent.version_changed` records `kindFrom` and `kindTo`. A manifest save never does: a tracking Agent stays on its version. `?dryRun=true` answers the move's plan and changes nothing. Creating an Agent opens no session. Kind `pod` needs sandbox pods (`nylorun local sandbox enable`) and is created at once.",
+        "Creates the Agent, its vault and its compute from a saved agent manifest, within the Tenant's limits, or answers the one with this id, so get-or-create is one call. `manifest: \"name\"` records that it tracks the manifest (its latest version, and each version saved later) and `\"name@n\"` that it is pinned; the version it runs is `resolvedVersion`. On an existing one, labels replace, `owner` sets or (with `null`) clears the owner guard, and `manifest` moves it with its id, disk, vault and sessions: a harness-only change applies at once (each session's next turn runs it), a runtime change of a pod at its next start (`targetVersion`, `waitingFor: start`), and a version that adds a required secret once a value is set (`waitingFor: secrets`). Its manifest's name, kind, harness and storage are fixed (`409 agent_fixed_field`): fork it to change them. One kind change is not: on a Runtime whose pods are computers, a `PUT` that moves a `virtual` Agent to a `pod` version makes it a computer in place, keeping its id, sessions, memory, vault, triggers, events and labels; `from` then seeds its new volume from a disk version of another Agent with the same owner, its virtual workspace is deleted, and `agent.version_changed` records `kindFrom` and `kindTo`. A manifest save never does: a tracking Agent stays on its version. `?dryRun=true` answers the move's plan and changes nothing. Creating an Agent opens no session. Kind `pod` needs sandbox pods (`nylorun local sandbox enable`) and is created at once.",
       request: {
         params: agentId,
         query: z.object({
@@ -578,7 +578,7 @@ export function agentRoutes(api: OpenAPIHono<TenantEnv>): void {
         vaultActorOf(scope),
         ...(write.viaFromSlot ? [{ viaFromSlot: true }] : []),
       );
-      // A move that waited for this secret goes on (track T3).
+      // A move that waited for this secret goes on.
       await secretWritten(c.env.tenant, id);
       return jsonResponse(200, secret);
     },

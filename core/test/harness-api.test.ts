@@ -246,7 +246,7 @@ describe("Harness API 5", () => {
   });
 });
 
-describe("published contract (R4.5)", () => {
+describe("published contract", () => {
   it("derives effect ids from the turn and segment, and tells a segment's own", async () => {
     const { effectIdOf, isEffectIdOf } = await import("../src/harness-api/index.js");
     expect(effectIdOf("t1", 0, "model", "i1")).toBe("t1:0:model:i1");

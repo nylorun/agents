@@ -21,7 +21,7 @@ Directories follow the Docker images: `runtime/` builds `ghcr.io/nylorun/runtime
 | `cli/legacy/`       | `@nylorun/cli`: nylorun under another name; its `nylorun` runs nylorun's       |
 | `examples/`         | Generated application shell and authored demonstrations                        |
 | `scripts/`          | Repository development, validation, and release tooling                        |
-| `docs/`             | Self-hosting, upgrading, reference and release docs ([index](./docs/README.md)) |
+| `docs/`             | Self-hosting, upgrading and reference docs ([index](./docs/README.md))         |
 
 What each package publishes: [docs/reference/packages.md](./docs/reference/packages.md).
 
@@ -67,7 +67,6 @@ Agent edits in `examples/` restart the application through `tsx watch`; start a
 new session after definition changes. Stop development before changing
 dependencies, then rerun setup. The examples model provider lives in the
 Tenant's vault: run `npm run configure` (or replace it from Studio).
-Vocabulary: [runtime/server/src/CONTEXT.md](./runtime/server/src/CONTEXT.md).
 
 To run the examples on another Tenant, set `NYLORUN_TENANT` (its Host root is
 `~/.nylorun/tenants/<name>/`), or `NYLORUN_HOME` (and `NYLORUN_COMPOSE_PROJECT`
@@ -165,7 +164,7 @@ commit for the `stack`, `smoke-starter`, `smoke-dev` and `acceptance` jobs. `che
 their tests, and `integration` runs the Runtime's integration tests against it
 (`npm run test:stack:up --workspace @nylorun/runtime`, then
 `NYLORUN_TEST_STACK=1 npm run test:integration --workspace @nylorun/runtime`).
-Releases publish both images; see [Releasing](./docs/contributing/releasing.md).
+Releases publish both images.
 
 ## Generated examples and dependencies
 
@@ -204,8 +203,7 @@ To run the full tier on a branch before merging, use
 reverted or fixed forward before the next release, which needs the full suite
 to pass.
 
-See [Releasing](./docs/contributing/releasing.md) for administrators and
-[Docker Compose reference](./docs/self-hosting/docker-compose.md) for application hosting.
+See the [Docker Compose reference](./docs/self-hosting/docker-compose.md) for application hosting.
 
 | Problem                         | Action                                                                                                                                                                          |
 | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

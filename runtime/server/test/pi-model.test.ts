@@ -166,7 +166,7 @@ it("preserves context, assistant tool calls, tool results and model controls thr
   expect(body.temperature).toBe(0.2);
   expect(body.max_tokens ?? body.max_completion_tokens).toBe(80);
 });
-describe("an image a tool returned (R2b C11, Q23)", () => {
+describe("an image a tool returned", () => {
   const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
   const reference = { artifactId: "af_screenshot", version: 1, name: "files__screenshot-result-2.png" };
   const screenshot: RuntimeModelCall = {
@@ -335,7 +335,7 @@ describe("files a message names (protocol 12, 15)", () => {
     expect(result).toMatchObject({ code: "unsupported_input", message: expect.stringContaining('File "a.png" (application/zip)') });
   });
 });
-describe("native blocks: PDFs, Office documents, audio and video (multimodal messages M4)", () => {
+describe("native blocks: PDFs, Office documents, audio and video (multimodal messages)", () => {
   const PDF = new TextEncoder().encode("%PDF-1.7 bytes");
   const pdf = Buffer.from(PDF).toString("base64");
   const media = (name: string, mediaType: string) => ({
@@ -697,7 +697,7 @@ it("streams one code path and maps every usage counter", async () => {
     evidence: {
       extras: {
         producer: { provider: "custom", api: "openai-completions", model: "test-model" },
-        // The first stream event's time from the call (R7.1).
+        // The first stream event's time from the call.
         firstTokenMs: expect.any(Number),
       },
     },

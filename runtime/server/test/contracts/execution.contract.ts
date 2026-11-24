@@ -1,5 +1,5 @@
 /**
- * Durable Session Execution contract (architecture §12.3). Every
+ * Durable Session Execution contract. Every
  * `DurableExecution` runs this suite: the in-process implementation and the
  * Restate adapter.
  *
@@ -237,7 +237,7 @@ export function executionContract(
       expect(fired[0]!.at).toBeGreaterThanOrEqual(at - 20);
     });
 
-    it("reconciles a pod Environment one run at a time, retries and fires its timers (F7.2)", async () => {
+    it("reconciles a pod Environment one run at a time, retries and fires its timers", async () => {
       const runs: { sandboxId: string; trigger: string; at: number }[] = [];
       // Runs in progress, per sandbox: one at a time for each.
       const running = new Map<string, number>();

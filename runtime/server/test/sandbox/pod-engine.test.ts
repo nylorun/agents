@@ -1,5 +1,5 @@
 /**
- * The engine's side of a pod sandbox (F7.2): it stays off the network until a known-blocked
+ * The engine's side of a pod sandbox: it stays off the network until a known-blocked
  * address refuses (the NetworkPolicy is in force), and its `local` backend runs commands in the
  * pod's workspace with the egress proxy and none of the engine's own variables.
  */
@@ -131,7 +131,7 @@ describe("the local backend", () => {
   });
 });
 
-describe("credentials for skills in a pod (R2c)", () => {
+describe("credentials for skills in a pod", () => {
   it("gives every command the session's variables, and the proxy wins over them", async () => {
     const workspace = await realpath(await mkdtemp(join(tmpdir(), "nylorun-local-")));
     dirs.push(workspace);
@@ -179,14 +179,14 @@ describe("credentials for skills in a pod (R2c)", () => {
       for (const name of ["SSL_CERT_FILE", "NODE_EXTRA_CA_CERTS", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE", "GIT_SSL_CAINFO", "AWS_CA_BUNDLE"])
         expect(env[name]).toBe(caBundleFile);
       expect(env.HTTPS_PROXY).toBe("http://nylorun:e@egress:4200");
-      // Node's fetch, pnpm and yarn reach the gate only with this (ADR-92 §10).
+      // Node's fetch, pnpm and yarn reach the gate only with this.
       expect(env.NODE_USE_ENV_PROXY).toBe("1");
     } finally {
       host.stop();
     }
   });
 
-  it("says nothing at join about an engine of the image's own (ADR-161)", async () => {
+  it("says nothing at join about an engine of the image's own", async () => {
     const root = await mkdtemp(join(tmpdir(), "nylorun-pod-"));
     dirs.push(root);
     const joinFile = join(root, "join");

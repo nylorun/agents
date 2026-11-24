@@ -1,5 +1,5 @@
 /**
- * Steer (D85, Host feature `steer`): a message sent with `delivery: "steer"` while a session's
+ * Steer (Host feature `steer`): a message sent with `delivery: "steer"` while a session's
  * turn runs waits marked `steer`, and our engine takes it into the running turn before its next
  * step (the `inputs` effect): its `command.message` is written under the running turn, then
  * `queue.taken` with the step, and the next model call reads it after the tool results. A steer

@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { Verdict as VerdictValue } from "../../types/workflow.js";
 
 /**
- * Zod schema for Loop verify outcomes (loops.md §3.2).
+ * Zod schema for Loop verify outcomes.
  * Extensible via `.extend({ data: ... })` as in the design examples.
  * Feedback is required on failure — enforced by `isVerdict` / `VerdictSchema`.
  */

@@ -1,5 +1,5 @@
 /**
- * Agent folders (track T6, D79): `PUT /v1/agent-manifests/{name}` with a folder by hash. The
+ * Agent folders: `PUT /v1/agent-manifests/{name}` with a folder by hash. The
  * Runtime reads the files the compiler needs from the definition file store, compiles them with
  * `@nylorun/core/folder`, and keeps the folder as the version's source; a folder that does not
  * compile is `422 folder_invalid` with the compiler's own diagnostics.
@@ -185,7 +185,7 @@ describe("saving an agent folder", () => {
   });
 });
 
-describe("saving a flow folder (track T7)", () => {
+describe("saving a flow folder", () => {
   const md = (name: string, description: string, body = "") => `---\nname: ${name}\ndescription: ${description}\n---\n${body}`;
   const BRIEF = {
     "AGENT.md": md("brief", "Drafts and publishes a brief."),
@@ -224,7 +224,7 @@ describe("saving a flow folder (track T7)", () => {
   });
 });
 
-describe("comparing two versions' sources (track T7)", () => {
+describe("comparing two versions' sources", () => {
   it("lists the files added, removed and changed by hash, and how many stayed", async () => {
     const first = { ...TRIAGE, "AGENT.md": TRIAGE["AGENT.md"].replace("name: triage", "name: compare") };
     const second = {
@@ -275,7 +275,7 @@ describe("comparing two versions' sources (track T7)", () => {
   });
 });
 
-describe("the folder limits are the Tenant's (track T7)", () => {
+describe("the folder limits are the Tenant's", () => {
   const setLimits = async (limits: Record<string, number>) => {
     const response = await fetch(`${runtime.url}/v1/tenant/limits`, {
       method: "PUT",

@@ -1,7 +1,7 @@
 /**
- * F4.1, the Tool Gate: remote MCP servers are opened through the gate (the loop never
+ * The Tool Gate: remote MCP servers are opened through the gate (the loop never
  * authorizes one), the gate refuses servers a session does not declare, and HTTP tool calls
- * cross it (R2 M3).
+ * cross it.
  */
 import { createServer, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -140,7 +140,7 @@ describe("the gate's MCP handler", () => {
   });
 });
 
-describe("a session's MCP requests under its run token (F5)", () => {
+describe("a session's MCP requests under its run token", () => {
   let runs: RunFixture;
   beforeAll(async () => {
     runs = await runFixture();
@@ -307,7 +307,7 @@ describe("a session's MCP requests under its run token (F5)", () => {
   });
 });
 
-describe("HTTP tool calls through the gate (R2 M3)", () => {
+describe("HTTP tool calls through the gate", () => {
   let runs: RunFixture;
   beforeAll(async () => {
     runs = await runFixture();
@@ -414,7 +414,7 @@ describe("HTTP tool calls through the gate (R2 M3)", () => {
       });
     expect((await send(mine.token, body("http-c"))).status).toBe(403);
     expect((await send(token, body(undefined))).status).toBe(400);
-    // A run's call needs its key, and its journal row (R5.6).
+    // A run's call needs its key, and its journal row.
     const unkeyed = await send(mine.token, body(undefined, "nope"));
     expect(unkeyed.status).toBe(400);
     expect(await unkeyed.json()).toMatchObject({ error: { code: "key_required" } });

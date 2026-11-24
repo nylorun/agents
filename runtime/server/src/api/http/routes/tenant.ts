@@ -7,7 +7,7 @@
  * created again starts in an empty basin; the old basin is deleted after a grace period.
  *
  * Every change of a setting here records `settings.changed` (`policy.changed` for the tool
- * policy) on the Tenant's stream in the transaction that writes it (ADR-159), naming the setting
+ * policy) on the Tenant's stream in the transaction that writes it, naming the setting
  * and never its value.
  */
 import type { OpenAPIHono } from "@hono/zod-openapi";
@@ -142,7 +142,7 @@ async function sandboxView(ctx: TenantContext): Promise<unknown> {
 const SANDBOX_VIEW_TEXT =
   "`config` is the Tenant's settings as stored: only what it set, in exactly the shape `PUT` takes, so a client changes one setting by putting `config` back with that change. `effective` is the configuration in force: `config` with every default filled in, sizes in MiB (`memoryMiB`).";
 
-/** The Tenant's cluster for pod sandboxes (F7.2), from the sandboxes service; null without one. */
+/** The Tenant's cluster for pod sandboxes, from the sandboxes service; null without one. */
 async function clusterOf(ctx: TenantContext) {
   if (!ctx.pods) return null;
   try {
@@ -382,7 +382,7 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
       path: "/v1/tenant/sandbox",
       tags: ["Tenant"],
       summary: "Set the Tenant's Agent compute settings",
-      description: `Replaces the Tenant's settings (Tenant setting \`environments.config\`): the limits every Agent's runtime must fit, the pods' stop grace and where harnesses may run (\`engine.images\`, retired by ADR-161, is refused). A setting left out takes its default. Answers like \`GET\`: ${SANDBOX_VIEW_TEXT}`,
+      description: `Replaces the Tenant's settings (Tenant setting \`environments.config\`): the limits every Agent's runtime must fit, the pods' stop grace and where harnesses may run (\`engine.images\` is retired and refused). A setting left out takes its default. Answers like \`GET\`: ${SANDBOX_VIEW_TEXT}`,
       request: { body: body(PutTenantEnvironmentsRequest) },
       responses: {
         200: json(TenantSandboxView, "The settings now stored and the configuration now in force"),
@@ -399,7 +399,7 @@ export function tenantRoutes(api: OpenAPIHono<TenantEnv>): void {
         await writeSandboxConfig(t, config);
         await t.tenantEvent("settings.changed", { key: ENVIRONMENTS_CONFIG_SETTING }, apiActor(c.get("scope")));
       });
-      // Pods' idle timers follow the new limits.idle (D36).
+      // Pods' idle timers follow the new limits.idle.
       await rearmPodTimers(ctx);
       return jsonResponse(200, await sandboxView(ctx));
     },

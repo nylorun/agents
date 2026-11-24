@@ -2,7 +2,7 @@
  * `nylorun agents`: the Tenant's Agents (protocol 16: each is one version of an agent manifest
  * made live, with one environment and one vault, and the sessions that run on it), through the
  * Runtime API of the installation `target.ts` picks: create or find one by id from a saved
- * manifest, move it to another version (`pin`, `track`, `put`; track T3) and apply a pending one
+ * manifest, move it to another version (`pin`, `track`, `put`) and apply a pending one
  * (`restart`), fork it, stop, reset or delete it, keep and restore versions of its disk, and
  * write its secrets. The manifests themselves are `agent-manifests.ts`
  * and `apply.ts`. A secret's value comes from a file or standard input, never from the command
@@ -110,7 +110,7 @@ const SAVE_REMOVED =
 
 /**
  * The manifest an Agent runs, as the list prints it: `name@version`, the version it moves to
- * (track T3), and whether it tracks.
+ *, and whether it tracks.
  */
 export function manifestOf(agent: AgentView): string {
   const name = parseAgentManifestRef(agent.manifest)?.name ?? agent.manifest;
@@ -142,7 +142,7 @@ async function list(deps: StackDeps, args: readonly string[]): Promise<number> {
   const labels = labelsOf(flags);
   const state = flags.values.get("--state");
   const manifest = flags.values.get("--manifest");
-  // Moving to another version (track T3); --behind is its former name.
+  // Moving to another version; --behind is its former name.
   const outdated = flags.booleans.has("--outdated") || flags.booleans.has("--behind");
   const filter = {
     ...(labels ? { labels } : {}),
@@ -230,7 +230,7 @@ async function put(deps: StackDeps, args: readonly string[]): Promise<number> {
   return 0;
 }
 
-/** `pin <id> <version>` and `track <id>`: moves an Agent within its manifest (track T3). */
+/** `pin <id> <version>` and `track <id>`: moves an Agent within its manifest. */
 async function move(deps: StackDeps, args: readonly string[], pin: boolean): Promise<number> {
   const usage = pin ? "nylorun agents pin <id> <version>" : "nylorun agents track <id>";
   const flags = parseFlags(args, {}, usage);
@@ -393,7 +393,7 @@ async function secrets(deps: StackDeps, args: readonly string[]): Promise<number
     const toolPrefix = flags.values.get("--tool-prefix");
     const routing = { ...(via === undefined ? {} : { via }), ...(toolPrefix === undefined ? {} : { toolPrefix }) };
     if (path === undefined) {
-      // A slot its manifest declares (D64): the value only, piped in; the binding is the slot's.
+      // A slot its manifest declares: the value only, piped in; the binding is the slot's.
       const value = await readSecret(deps, `value of ${name}`, `printf %s "$TOKEN" | nylorun agents secrets put ${id} ${name}`);
       const { client } = await runtimeClient(deps, flags);
       printJson(deps, await runtimeCall(() => client.agents.secrets.put(id, name, { value, ...routing })));
@@ -419,7 +419,7 @@ async function secrets(deps: StackDeps, args: readonly string[]): Promise<number
   throw usageError(`Usage: nylorun agents secrets <list|get|put|rm> …\n\n${agentsUsage}`);
 }
 
-/** `nylorun agents triggers <list|put|pause|resume|run|rm|new-secret> …` (track T4, D83, D88). */
+/** `nylorun agents triggers <list|put|pause|resume|run|rm|new-secret> …`. */
 async function triggers(deps: StackDeps, args: readonly string[]): Promise<number> {
   const [verb, ...rest] = args;
   if (isHelp(verb)) throw new HelpRequest(usageLinesOf(agentsUsage, "triggers"));
@@ -504,7 +504,7 @@ async function triggers(deps: StackDeps, args: readonly string[]): Promise<numbe
   throw usageError(`Usage: nylorun agents triggers <list|put|pause|resume|run|rm|new-secret> …\n\n${agentsUsage}`);
 }
 
-/** `nylorun agents memories <ls|cat|put|rm|versions> …` (track T5). */
+/** `nylorun agents memories <ls|cat|put|rm|versions> …`. */
 async function memories(deps: StackDeps, args: readonly string[]): Promise<number> {
   const [verb, ...rest] = args;
   if (isHelp(verb)) throw new HelpRequest(usageLinesOf(agentsUsage, "memories"));
@@ -567,7 +567,7 @@ async function memories(deps: StackDeps, args: readonly string[]): Promise<numbe
   throw usageError(`Usage: nylorun agents memories <ls|cat|put|rm|versions> …\n\n${agentsUsage}`);
 }
 
-/** `nylorun agents runs <id>` (track T4). */
+/** `nylorun agents runs <id>`. */
 async function runs(deps: StackDeps, args: readonly string[]): Promise<number> {
   const usage = "nylorun agents runs <id> [--trigger <id>] [--limit <n>] [--cursor <c>]";
   const flags = parseFlags(args, { values: ["--trigger", "--limit", "--cursor"] }, usage);

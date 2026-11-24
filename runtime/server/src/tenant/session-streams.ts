@@ -1,5 +1,5 @@
 /**
- * Live delivery over Durable Streams (architecture §12.4, "Reading"): session history
+ * Live delivery over Durable Streams ("Reading"): session history
  * (`GET /v1/sessions/:id/items`) and session SSE (`GET /v1/sessions/:id/events`).
  *
  * - **Streams.** A session's events are in `sessions/<id>` in the Tenant's current basin

@@ -1,5 +1,5 @@
 /**
- * The trace route's spans (R7.5): a turn's log rows mapped by the same `spanOf` the projector
+ * The trace route's spans: a turn's log rows mapped by the same `spanOf` the projector
  * posts with, under the installation's resource and content opt-ins, so the route and the
  * exporter agree span for span.
  */

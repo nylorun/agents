@@ -1,6 +1,6 @@
 /**
- * Lease renewal of an advance (§10.6). One beat renews the session's ownership lease and
- * re-mints the run token when it nears its end (F5, `run-grants.ts`). The harness asks for a
+ * Lease renewal of an advance. One beat renews the session's ownership lease and
+ * re-mints the run token when it nears its end (`run-grants.ts`). The harness asks for a
  * beat every `renewEveryMs` (`lease.renew`) and gets the current token back; until it holds the
  * run, core beats itself (`startHeartbeat`).
  *

@@ -1,5 +1,5 @@
 /**
- * The gates' metrics (ADR-159), read in memory: a model call through the meter, a remote MCP
+ * The gates' metrics, read in memory: a model call through the meter, a remote MCP
  * request through the gate's handler (with its client span when spans export), an HTTP tool's
  * request, and core's turn
  * and queue points from what commits. The egress counters are tested with egress-gate itself

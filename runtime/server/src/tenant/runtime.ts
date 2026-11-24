@@ -12,7 +12,7 @@
  *
  * Execution: the Host passes its `TenantExecution` (`TenantOpenHooks.execution`); without
  * one, the Tenant runs its own in-process `MemoryExecution`. No lock file: several processes may open a Tenant, and ownership of each
- * session (§10.6) keeps its advances apart.
+ * session keeps its advances apart.
  */
 import { computerManagers } from "../sandbox/computer.js";
 import type { ServerResponse, IncomingMessage } from "node:http";
@@ -123,12 +123,12 @@ export type TenantOpenHooks = {
    */
   toolGate?: ToolGate;
   /**
-   * Runs vault writes and token signing (the `keys` service's client, F4.2). With one, this
+   * Runs vault writes and token signing (the `keys` service's client). With one, this
    * process never reads, creates or holds the vault key. Without one, it does them here.
    */
   keys?: Keys;
   /**
-   * The run grants the gates service's clients read (F5): each advance mints its session's
+   * The run grants the gates service's clients read: each advance mints its session's
    * run token into them. Give the same object to `modelGate` and `toolGate`.
    */
   runGrants?: RunGrants;
@@ -157,12 +157,12 @@ export type TenantOpenHooks = {
   /** How long a retired stream basin is kept after a reset (tests). Default 60 s. */
   retireGraceMs?: number;
   /**
-   * The Object store, owned by the caller (the Host's `s3` BlobStore, D35). Without one the
+   * The Object store, owned by the caller (the Host's `s3` BlobStore). Without one the
    * Tenant keeps blobs on disk under `paths.blobs` (the `fs` adapter: embedding, tests).
    */
   blobs?: BlobStore;
   /**
-   * The Tenant's harness (F6.1, F6.2): `memory` (default) runs one in this process over a memory
+   * The Tenant's harness: `memory` (default) runs one in this process over a memory
    * channel, with the Tenant's MCP pool and SandboxManager; `json` the same through JSON with
    * every frame validated (tests). `remote` runs none: harnesses attach with
    * `TenantHandle.attachHarness` (the Harness API listener, `NYLORUN_HARNESS=remote`), and the
@@ -174,7 +174,7 @@ export type TenantOpenHooks = {
   /** Sees each frame of the in-process harness's channel (tests and benchmarks). */
   harnessTap?: MemoryPortsOptions["tap"];
   /**
-   * Sandbox pods (F7.2): the sandboxes service (`NYLORUN_SANDBOXES_URL`) and the Runtime image
+   * Sandbox pods: the sandboxes service (`NYLORUN_SANDBOXES_URL`) and the Runtime image
    * pods copy the engine from. Without it, kind `pod` is `agent_unavailable`.
    */
   pods?: TenantPods;
@@ -183,7 +183,7 @@ export type TenantOpenHooks = {
    * the variables it names for the Agent's owner to the stand-in, under the vault's own.
    */
   credentialProvider?: CredentialProvider;
-  /** How the trace route makes spans (R7.5): the Host's `OTEL_*` resource and content opt-ins. */
+  /** How the trace route makes spans: the Host's `OTEL_*` resource and content opt-ins. */
   traces?: TraceOptions;
 } & OpenedTenant;
 
@@ -213,12 +213,12 @@ export class TenantRuntime implements TenantHandle {
     private readonly hosts?: HostAuthority
   ) {}
 
-  /** The Tenant's side of a sandbox pod's join (F7.2). */
+  /** The Tenant's side of a sandbox pod's join. */
   hostAuthority(): HostAuthority | undefined {
     return this.ctx.closing || this.ctx.closed ? undefined : this.hosts;
   }
 
-  /** The custom harness a per-harness token is for (R4.1), or undefined. */
+  /** The custom harness a per-harness token is for, or undefined. */
   harnessOfToken(token: string): Promise<string | undefined> {
     return harnessOfToken(this.ctx.store, token);
   }
@@ -237,14 +237,14 @@ export class TenantRuntime implements TenantHandle {
     mkdirSync(paths.logs, { recursive: true });
 
     const store: SessionStore = hooks.store;
-    // Turn durations for operators (ADR-159), from the turns this process's commits end.
+    // Turn durations for operators, from the turns this process's commits end.
     store.onCommit(recordTurnEnds);
     let wired: StreamsWiring | undefined;
     let control: TenantContext["control"];
     let detach: (() => Promise<void>) | undefined;
     let harness: InProcessHarness | undefined;
     try {
-      // With the keys service (F4.2) the key lives in the gateway: this process never reads,
+      // With the keys service the key lives in the gateway: this process never reads,
       // creates or holds it, and the gateway reports a missing key on its readiness.
       let kek = hooks.keys
         ? undefined
@@ -276,7 +276,7 @@ export class TenantRuntime implements TenantHandle {
         return kek;
       };
       const opened = store;
-      // A seeded Tenant setting wins over the Host default (A18).
+      // A seeded Tenant setting wins over the Host default.
       const seededBackend = await opened.tx((t) =>
         t.getSetting("sandbox.backend")
       );
@@ -306,7 +306,7 @@ export class TenantRuntime implements TenantHandle {
       const inProcess = harnessMode === "memory" || harnessMode === "json";
       const preference = seededBackend ?? config.sandbox.backend;
       // With a harness in this process, the Tenant's MCP pool and SandboxManager are its
-      // executors; otherwise the harness holds both (F6.2).
+      // executors; otherwise the harness holds both.
       // The pool opens every server through the Tool Gate: core never authorizes an MCP
       // connection outside a gate (protocol 15).
       const mcp = inProcess ? new McpPool({ openRemote: openMcpThrough(toolGate) }) : undefined;
@@ -341,7 +341,7 @@ export class TenantRuntime implements TenantHandle {
             logger: config.logger,
             preference,
           });
-      // A pod sandbox's workspace is in its pod, served by its engine (F7.2).
+      // A pod sandbox's workspace is in its pod, served by its engine.
       const sandbox: WorkspacePort = hooks.pods
         ? withPodWorkspaces(workspaces, {
             get server() {
@@ -638,7 +638,7 @@ export class TenantRuntime implements TenantHandle {
       ["detach", () => this.detach()],
       ["mcp", () => ctx.mcp?.close()],
       ["session streams", () => endAllStreams(ctx.sessionStreams)],
-      // Bounded: an advance that ignores its abort is abandoned; its lease lapses (§11.4).
+      // Bounded: an advance that ignores its abort is abandoned; its lease lapses.
       ["idle", () => waitForIdle(ctx, Math.max(0, idleBy - Date.now()))],
       [
         "harness",
@@ -677,7 +677,7 @@ export class TenantRuntime implements TenantHandle {
 }
 
 /**
- * Open a Tenant Runtime from an explicit `TenantConfig`. No listen() (A1).
+ * Open a Tenant Runtime from an explicit `TenantConfig`. No listen().
  * Implements `OpenTenantRuntime`.
  */
 export async function openTenantRuntime(

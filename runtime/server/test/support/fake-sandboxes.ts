@@ -1,5 +1,5 @@
 /**
- * An in-memory sandboxes service (F7.2): what the Go service and agent-sandbox do, as far as
+ * An in-memory sandboxes service: what the Go service and agent-sandbox do, as far as
  * core sees it through `SandboxesClient`. A `PUT` with a new `opId` applies the spec; `Running`
  * gets a pod (a new UID) that is ready at once (or after `readyAfterMs`), `Suspended` loses it.
  * The join token of each name is kept as its Secret is. Tests drive what the cluster does on

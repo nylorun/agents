@@ -1,5 +1,5 @@
 /**
- * The headers a vault credential may send (R2b C2): a `headers` credential's names and an
+ * The headers a vault credential may send: a `headers` credential's names and an
  * identity header. The core schema checks their syntax; this module refuses the names the
  * Runtime sets itself, so a credential can never replace them.
  */
@@ -46,7 +46,7 @@ export function modelHeaderError(name: string): string | undefined {
 }
 
 /**
- * The secret values of a credential's `headers`, as a server could echo them (R2b C8, Q16): each
+ * The secret values of a credential's `headers`, as a server could echo them: each
  * value of at least 8 characters, and the token of a `Bearer …` value. The identity header names
  * the session owner and is no secret, so it is left out.
  */

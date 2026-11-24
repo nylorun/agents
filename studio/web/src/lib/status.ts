@@ -1,5 +1,5 @@
 /**
- * DESIGN.md's status dots: three greys, no color. The darker the dot, the more it needs you; the
+ * Studio's status dots: three greys, no color. The darker the dot, the more it needs you; the
  * word beside it carries the meaning.
  */
 export const STATUS_DOT = {

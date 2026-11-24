@@ -33,7 +33,7 @@ describe("stateOf", () => {
       });
   });
 
-  it("needs a person while a session waits on one, even beside a working session (D66)", () => {
+  it("needs a person while a session waits on one, even beside a working session", () => {
     const found = stateOf(on, [
       { id: "busy", status: "running" },
       { id: "held", status: "paused" },

@@ -4,7 +4,7 @@
  * inline or by the Tenant default (keyed by the session id); created on the first sandbox tool
  * call, stopped after its idle timeout, reattached on the next call. Each session's calls on a
  * workspace run in the order it sends them, and different sessions' calls run at the same time
- * (D66): the sessions of one Environment run their turns at once. Opening, stopping and removing
+ *: the sessions of one Environment run their turns at once. Opening, stopping and removing
  * a workspace run alone: a stop or removal waits for the calls running, and calls that come after
  * it wait for it.
  *
@@ -16,7 +16,7 @@
  * reconcile once per process, as the Tenant sweep does in core's process.
  *
  * A folder the harness asks for (`mountFolder`: our engine's skill folders, `/skills/<name>@<hash>/`,
- * D66, protocol 15) is written read-only, once per open handle: the harness decides which folders
+ * protocol 15) is written read-only, once per open handle: the harness decides which folders
  * and when, and gives their bytes; the manager only writes them (`skills.ts`).
  */
 import { posix } from "node:path";
@@ -83,7 +83,7 @@ export interface SandboxSessionRef {
    * that epoch or later, never one a restore or a lost volume retired.
    */
   readonly hostEpoch?: number;
-  /** Variables every command of the call gets (R2c): secret names set to the sentinel, plain values. */
+  /** Variables every command of the call gets: secret names set to the sentinel, plain values. */
   readonly environment?: Readonly<Record<string, string>>;
   /**
    * Who the call's events are claimed for, passed back to `emit`: in a harness, the run that
@@ -112,7 +112,7 @@ interface Live {
   readonly running: Set<Promise<unknown>>;
   /** When the last call ended (ms since the epoch). */
   lastUsedAt: number;
-  /** Each session's queue: its calls run in order (D66). */
+  /** Each session's queue: its calls run in order. */
   readonly lanes: Map<string, Promise<unknown>>;
   /** Stops and removals, one at a time; a call waits until none is pending. */
   gate: Promise<unknown>;
@@ -274,7 +274,7 @@ export class SandboxManager {
 
   /**
    * Runs `call` in session `sessionId`'s queue on `live`: after its earlier calls, and after any
-   * stop or removal pending, beside other sessions' calls (D66).
+   * stop or removal pending, beside other sessions' calls.
    */
   private inLane<T>(live: Live, sessionId: string, call: () => Promise<T>): Promise<T> {
     const task = (live.lanes.get(sessionId) ?? Promise.resolve()).then(async () => {
@@ -439,7 +439,7 @@ export class SandboxManager {
   }
 
   /**
-   * One operation on the disk of the session's sandbox (R2d step 3, `sandbox/disk-fs.ts`), in the
+   * One operation on the disk of the session's sandbox (`sandbox/disk-fs.ts`), in the
    * same queue as its tool calls, starting it first when it is stopped.
    */
   async disk(

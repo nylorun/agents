@@ -31,7 +31,7 @@ export const LIST_PAGE_DEFAULT = 50;
 export const LIST_PAGE_MAX = 100;
 
 /**
- * The turn index states each A2A state is (profile v2 §1): a paused turn by what its first open
+ * The turn index states each A2A state is (profile v2): a paused turn by what its first open
  * interaction asks for. `SUBMITTED` (a queued message), `REJECTED` and anything else: none.
  */
 const TURN_STATES: Readonly<Partial<Record<TaskState, readonly TurnState[]>>> = {

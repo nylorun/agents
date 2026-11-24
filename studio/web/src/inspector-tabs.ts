@@ -9,7 +9,7 @@ export type InspectorTab = "manifest" | "record" | "events" | "usage";
 /** The Manifest tab's views: the manifest the session pinned, and the Agent it runs on. */
 export type ManifestTabView = "declared" | "deployed";
 /**
- * The Events tab's views: the log, a turn's trace (ADR-159), and a workflow's `progress` and
+ * The Events tab's views: the log, a turn's trace, and a workflow's `progress` and
  * `iterations`.
  */
 export type EventsTabView = "log" | "trace" | "progress" | "iterations";

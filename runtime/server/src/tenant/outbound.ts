@@ -208,7 +208,7 @@ export class OutboundFailed extends Error {
     message: string,
     readonly code: string,
     /**
-     * The request was sent in full before it failed, as `send()`'s `lost` (R2b C7): the server
+     * The request was sent in full before it failed, as `send()`'s `lost`: the server
      * may have acted on it. False for a failure to resolve or connect.
      */
     readonly sent = false,
@@ -219,7 +219,7 @@ export class OutboundFailed extends Error {
 }
 
 /**
- * A `fetch` under the Host's address policy (F9 C2): the literal-IP and DNS checks of `post`
+ * A `fetch` under the Host's address policy: the literal-IP and DNS checks of `post`
  * on the address actually connected to, `localhost` rewritten for the local stack, no
  * redirects (`redirect: "error"`; a 3xx answer rejects), an answer of at most `maxResponseBytes`
  * and a `timeoutMs` timeout unless the caller passes a signal, both the caller's (a Tenant's

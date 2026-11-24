@@ -1,5 +1,5 @@
 /**
- * Shutdown of an advance (architecture §10.5–10.7, §11.4; `tenant/worker.ts` "Abort reasons")
+ * Shutdown of an advance (`tenant/worker.ts` "Abort reasons")
  * with the in-process execution:
  *
  * - closing a Tenant waits for its advances only for the advance grace period, then abandons

@@ -1,5 +1,5 @@
 /**
- * Native file blocks (M4): a marker text part pi-ai carries through untouched, rewritten in the
+ * Native file blocks: a marker text part pi-ai carries through untouched, rewritten in the
  * provider payload into each API's own block. The fixtures are payloads pi-ai built for a user
  * message `["Files for this turn:", <marker>, "after"]` (recorded from `onPayload`), and the last
  * test has pi-ai build them again and checks the body each provider would receive.

@@ -14,7 +14,7 @@ function files(dir) {
   );
 }
 
-test("SD-I5: studio package deps stay admin and agents among @nylorun/*", () => {
+test("studio package deps stay admin and agents among @nylorun/*", () => {
   const pkg = JSON.parse(readFileSync(join(studioRoot, "package.json"), "utf8"));
   for (const field of [
     "dependencies",
@@ -40,7 +40,7 @@ test("SD-I5: studio package deps stay admin and agents among @nylorun/*", () => 
   assert.deepEqual(nylorun, ["@nylorun/admin", "@nylorun/agents"]);
 });
 
-test("SD-I5: browser sources exclude the engine and the host", () => {
+test("browser sources exclude the engine and the host", () => {
   const webSrc = join(studioRoot, "web/src");
   const forbidden = [
     /@nylorun\/harness/,

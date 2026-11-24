@@ -1,5 +1,5 @@
 /**
- * Flow host: the Session Store side of workflow sessions (architecture §10–12).
+ * Flow host: the Session Store side of workflow sessions.
  *
  * Every function that touches state takes the caller's transaction `t: Tx` and
  * is async. Nothing here publishes, notifies or schedules directly (seam rule
@@ -138,7 +138,7 @@ function text(value: JsonValue): string {
 }
 
 /**
- * What a flow `agent` effect sends its linked session (D12): the stage's input, and, when the
+ * What a flow `agent` effect sends its linked session: the stage's input, and, when the
  * engine sent the flow's own input beside it, that input first as the original request. Pure,
  * so a replayed effect sends the same message.
  */
@@ -372,7 +372,7 @@ export async function wakeLinkedWorkflow(input: {
 
   await settleAgentEffect({ t, effect, outcome });
 
-  // A workflow paused on its agents' interactions goes on (R7.1, `tenant/turn-timing.ts`).
+  // A workflow paused on its agents' interactions goes on (`tenant/turn-timing.ts`).
   resumeTurn(workflow);
   workflow.status = "runnable";
   await t.put("sessions", workflow.id, workflow);
@@ -437,7 +437,7 @@ export function pathDepth(path: string): number {
   return path.split("/").filter(Boolean).length;
 }
 
-/** Plan a cancel cascade for a workflow session: linked agents deepest first (SD-P11 / WF-R53). */
+/** Plan a cancel cascade for a workflow session: linked agents deepest first. */
 export async function planCancelCascade(input: {
   readonly t: Tx;
   readonly workflowSessionId: string;
@@ -452,7 +452,7 @@ export async function planCancelCascade(input: {
 }
 
 /**
- * Cancel sibling work under a Parallel/Map parent when one branch fails (PAR-R6).
+ * Cancel sibling work under a Parallel/Map parent when one branch fails.
  * Agent turns listed in `agentSessionIds` are returned for the caller to cancel.
  * When `cancelEffectIds` is provided, those effects are marked cancelled and their
  * paths are included in the sibling path set.
@@ -559,7 +559,7 @@ function waitsFromSession(
 }
 
 /**
- * Aggregate human waits across the workflow session and linked agent sessions (WF-R51).
+ * Aggregate human waits across the workflow session and linked agent sessions.
  */
 export async function aggregateWaits(input: {
   readonly t: Tx;
@@ -620,7 +620,7 @@ export function flowInteractionOf(
 }
 
 /**
- * Look up which session owns an interaction id. Used for 409 foreign approvals (WF-R52).
+ * Look up which session owns an interaction id. Used for 409 foreign approvals.
  */
 export async function findInteractionOwner(input: {
   readonly t: Tx;
@@ -648,7 +648,7 @@ export async function findInteractionOwner(input: {
 
 /**
  * If approve/respond targets an interaction owned by a linked agent session,
- * return a 409 message naming that session (WF-R52 / LOOP-A4).
+ * return a 409 message naming that session.
  */
 export async function foreignInteractionConflict(input: {
   readonly t: Tx;

@@ -1,4 +1,4 @@
-// Writes the Harness API's JSON Schema document next to the compiled module (R4.5, Q4).
+// Writes the Harness API's JSON Schema document next to the compiled module.
 import { writeFileSync } from "node:fs";
 import { harnessApiJsonSchema } from "../dist/harness-api/json-schema.js";
 

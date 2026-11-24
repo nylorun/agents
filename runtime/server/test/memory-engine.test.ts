@@ -1,5 +1,5 @@
 /**
- * Agent memory through our engine (track T5, D72): an agent whose version sets `harness.memory`
+ * Agent memory through our engine: an agent whose version sets `harness.memory`
  * is offered `memory` with Anthropic's schema and reads its memory index, pinned after the
  * instructions at the session's first turn. A call is served by the Runtime and versioned to the
  * turn; the next session's index shows it; `memory.<command>` is taken as the tool.

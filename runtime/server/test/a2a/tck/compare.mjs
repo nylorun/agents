@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Reads the A2A TCK's JUnit report and fails only on failures the known-failures list does not
- * name (A2A-E18):
+ * name:
  *
  *   node runtime/server/test/a2a/tck/compare.mjs <junitreport.xml> <tck-known-failures.txt>
  *

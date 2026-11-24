@@ -9,7 +9,7 @@
 /** The profile's page: every extension's card entry links it. */
 export const A2A_PROFILE_URL = "https://docs.nylorun.com/a2a/profile/v2";
 
-/** The extension URIs (exact strings; profile v2 §2). */
+/** The extension URIs (exact strings; profile v2). */
 export const A2A_EXTENSIONS = {
   /** An open interaction on a status message, and the caller's answer on a reply message. */
   interactions: "https://docs.nylorun.com/a2a/interactions/v1",

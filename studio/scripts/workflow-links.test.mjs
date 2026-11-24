@@ -31,7 +31,7 @@ const fixtures = [
   },
 ];
 
-test("SD-P9/WF-C10: linksFromEvents builds agent→workflow links", () => {
+test("linksFromEvents builds agent→workflow links", () => {
   const links = linksFromEvents(fixtures, "wf-session-1", {
     workflowAgentId: "fix-tests",
   });

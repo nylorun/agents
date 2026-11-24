@@ -1,5 +1,5 @@
 /**
- * Pod Agents in the Runtime (F7.2, S3–S8, protocol 16; pod Environments from protocol 11) against
+ * Pod Agents in the Runtime (S3–S8, protocol 16; pod Environments from protocol 11) against
  * an in-memory sandboxes service (`fake-sandboxes.ts`): create at once, join → host token, a turn
  * whose harness runs in the pod (its own engine, the `local` backend, over the Harness API
  * listener with a host token), relaunch, stop, idle, a pod that moves at its next start, PVC
@@ -244,7 +244,7 @@ describe("pod Agents", { timeout: 90_000 }, () => {
     expect(refused.body.code).toBe("agent_unavailable");
   });
 
-  it("runs two sessions' turns at once in one pod's engine, their commands side by side (D66)", async () => {
+  it("runs two sessions' turns at once in one pod's engine, their commands side by side", async () => {
     const { name } = await createPod("run/two");
     const workspace = await mkdtemp(join(tmpdir(), "nylorun-pod-ws-"));
     const harnessRoot = await mkdtemp(join(tmpdir(), "nylorun-pod-harness-"));
@@ -504,7 +504,7 @@ describe("pod Agents", { timeout: 90_000 }, () => {
     await until("the Sandbox is deleted", async () => fake.sandboxes.has(name), (has) => !has);
   });
 
-  it("refuses engine.images, and copies the engine into every image (ADR-161)", async () => {
+  it("refuses engine.images, and copies the engine into every image", async () => {
     const refused = await call("PUT", "/v1/tenant/sandbox", { requestId: "engine-on", limits: { idle: "10m" }, engine: { images: ["ghcr.io/nylorun/bot-worker"] } });
     expect(refused.status).toBe(400);
     const { name } = await createPod("engine/one", { image: "ghcr.io/nylorun/bot-worker:0.38.0-beta" });

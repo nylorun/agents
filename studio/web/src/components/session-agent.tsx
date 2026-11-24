@@ -180,7 +180,7 @@ export function SessionAgentPanel({
 }
 
 /**
- * The connections the Agent's sandbox opened while this session had a turn running (D67). They
+ * The connections the Agent's sandbox opened while this session had a turn running. They
  * are the Agent's: another session's turn may have been running too, and each row says so.
  * Reads the Agent's `agent.egress` events and keeps those naming this session; the newest 50.
  */

@@ -70,7 +70,7 @@ describe("Transport headers and compatibility", () => {
       expect(call.headers.get("authorization")).toBe("Bearer secret");
       expect(call.headers.get(TENANT_HEADER)).toBeNull();
       expect(call.headers.get(PROTOCOL_HEADER)).toBe(String(PROTOCOL_VERSION));
-      // The Runtime's telemetry labels the request by client (ADR-159).
+      // The Runtime's telemetry labels the request by client.
       expect(call.headers.get("nylorun-client")).toBe("sdk");
     }
   });

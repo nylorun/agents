@@ -20,8 +20,7 @@ Tenant over its APIs, so they work on a remote installation too
 ([below](#remote-installations)). Depends on `@nylorun/core`,
 `@nylorun/admin` and `@nylorun/agents` among Nylorun packages and never imports
 `@nylorun/runtime`; `start`, `stop` and the `local` commands load neither
-`@nylorun/agents` nor `@nylorun/admin`. Vocabulary:
-[runtime/server/src/CONTEXT.md](../../runtime/server/src/CONTEXT.md).
+`@nylorun/agents` nor `@nylorun/admin`.
 
 Prerequisites, installed by the developer (nylorun never downloads them): Node
 24 or newer, and Docker with Compose v2 ([Docker
@@ -543,7 +542,7 @@ from a terminal.
 An agent runs from a saved **agent manifest** (protocol 16): one named, versioned
 document with a harness section (instructions, tools, skills, MCP servers,
 plugins) and a runtime section (kind, image, network, setup, files, secret
-slots). Author it as an agent folder (tracks T6 and T7), one folder per agent:
+slots). Author it as an agent folder, one folder per agent:
 
 ```
 agents/support/AGENT.md        # frontmatter (name, description), then the instructions

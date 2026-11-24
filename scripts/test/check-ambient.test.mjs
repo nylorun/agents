@@ -85,7 +85,7 @@ test("allows ambient reads only in host/main.ts", () => {
 test("fails on console. under runtime/server/src/tenant", () => {
   const runtimeSrc = fixture({
     "tenant/runtime.ts": `export function log(msg: string) {\n  console.warn(msg);\n}\n`,
-    "core/runtime.ts": `console.log("host path may still use console until D12 elsewhere");\n`,
+    "core/runtime.ts": `console.log("host path may still use console elsewhere");\n`,
   });
   try {
     const result = checkAmbient({ runtimeSrc });

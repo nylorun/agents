@@ -1,5 +1,5 @@
 /**
- * Triggers (track T4, D74): an agent manifest's `runtime.triggers` start the Agent's turns with
+ * Triggers: an agent manifest's `runtime.triggers` start the Agent's turns with
  * no client connected. Triggers start active with a new Agent; a fire records one run, keyed by
  * its due time, on the session the trigger names; a fire after downtime is late, never a backfill;
  * a schedule adds at most one queued message to a busy session; pause, resume and run by hand; the
@@ -247,7 +247,7 @@ describe("an Agent's triggers", () => {
       }),
     });
     const before = (await triggers("moves")).find((t) => t.id === "keep").nextRunAt;
-    // A tracking Agent of kind none moves to a saved version at once (T3).
+    // A tracking Agent of kind none moves to a saved version at once.
     const saved = await writeManifest(
       runtime.url,
       headers,

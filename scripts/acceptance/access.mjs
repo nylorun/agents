@@ -1,5 +1,5 @@
 /**
- * Access acceptance (Phase 1) on a local Tenant, under a temporary
+ * Access acceptance on a local Tenant, under a temporary
  * NYLORUN_HOME and a unique Tenant name (never ~/.nylorun):
  *
  *   node scripts/acceptance/access.mjs
@@ -63,7 +63,7 @@ function deskAgent(service) {
     .build();
 }
 
-/** The Tenant's tool policy rule that holds each of the desk's lookups for a person (R5 step 2). */
+/** The Tenant's tool policy rule that holds each of the desk's lookups for a person. */
 const DESK_APPROVAL = { effect: "ask", tool: "lookup_order", agent: "desk" };
 
 /** Replaces the Tenant's tool policy, with the management key. */
@@ -90,7 +90,7 @@ function subjectHeaders(as) {
 }
 
 /**
- * A1: each subject's own Agent (the app's to make from the manifest `desk`, owner-guarded to the
+ * Each subject's own Agent (the app's to make from the manifest `desk`, owner-guarded to the
  * person, with a bearer secret), session on it and approved turn.
  */
 async function a1(runtime, tenant, app) {
@@ -376,7 +376,7 @@ try {
         await setToolPolicy(runtime, tenant.managementKey, [DESK_APPROVAL]);
         const people = await a1(runtime, tenant, app);
 
-        // A2: every subject streams its own session while all three turns run.
+        // Every subject streams its own session while all three turns run.
         const streams = new AbortController();
         const seen = Object.fromEntries(Object.keys(people).map((role) => [role, []]));
         const reading = Object.values(people).map(async (person) => {

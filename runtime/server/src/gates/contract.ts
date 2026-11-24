@@ -1,9 +1,9 @@
 /**
- * The gates service's wire format (blueprint §15, P1.1). Not in the published OpenAPI documents:
- * harnesses call it, and its bodies are published in `@nylorun/core/harness-api` (R4.5).
+ * The gates service's wire format. Not in the published OpenAPI documents:
+ * harnesses call it, and its bodies are published in `@nylorun/core/harness-api`.
  *
  * `POST /nylorun/v1/model-calls`
- * - Headers: `Authorization: Bearer <run token>` (F5, `tenant/run-token.ts`), `Idempotency-Key:
+ * - Headers: `Authorization: Bearer <run token>` (`tenant/run-token.ts`), `Idempotency-Key:
  *   <effect id>`, and optionally `Nylorun-Tenant: <tenant id>`, which must then be the token's
  *   Tenant. Core's credential (`NYLORUN_GATES_TOKEN`) is refused: only a run calls the model.
  * - Body: `ModelCallBody`, at most the Tenant's Runtime limit `modelCallBytes` (`PUT
@@ -15,7 +15,7 @@
  *   session's (a cancel, a new turn, a takeover), `400 invalid_request` for a malformed Tenant
  *   header or a bad body, `409 gate_conflict` when a different request already runs under the
  *   same key.
- * - With an `Idempotency-Key` the call outlives its client (P1.2): a re-send with the same key
+ * - With an `Idempotency-Key` the call outlives its client: a re-send with the same key
  *   and body joins it, or gets its outcome for 30 minutes. Without one, a client that goes
  *   away aborts the call.
  *

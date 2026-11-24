@@ -1,5 +1,5 @@
 /**
- * An Agent's secrets (protocol 16; an Environment's from protocol 11, D56):
+ * An Agent's secrets (protocol 16; an Environment's from protocol 11):
  * `PUT|GET|DELETE /v1/agents/{id}/secrets/{name}` and the list, end to end over the Runtime API
  * and a remote MCP server. A write replaces by name, values are write-only, a second credential
  * for a host or a URL is refused at write (`409 credential_conflict`), a token caller reaches

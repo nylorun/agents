@@ -1,5 +1,5 @@
 /**
- * Studio's Tenant › Traffic (ADR-159): the Runtime's own metrics, read live from each process's
+ * Studio's Tenant › Traffic: the Runtime's own metrics, read live from each process's
  * `/metrics` (OpenTelemetry's Prometheus exporter, in memory since the process started). Studio
  * stores none of it and emits none of its own.
  */

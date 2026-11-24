@@ -8,7 +8,7 @@ import { checkFolder } from "../src/folder-check.js";
 import { packFolder } from "../src/folder-pack.js";
 
 /**
- * A vendored Agent Plugin (track T7): `plugins/<name>/` in an agent folder folds into the manifest
+ * A vendored Agent Plugin: `plugins/<name>/` in an agent folder folds into the manifest
  * exactly as `.plugin()` folds the same package into a TypeScript agent.
  */
 

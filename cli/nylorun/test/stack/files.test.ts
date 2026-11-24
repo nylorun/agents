@@ -73,13 +73,13 @@ describe("compose.yaml", () => {
     }
   });
 
-  it("passes the Host identity's providers from the shell to the gateway only (ADR-71)", () => {
+  it("passes the Host identity's providers from the shell to the gateway only", () => {
     const gateway = compose.slice(compose.indexOf("  gateway:"), compose.indexOf("  runtime:"));
     expect(gateway).toContain("NYLORUN_MODEL_HOST_IDENTITY: ${NYLORUN_MODEL_HOST_IDENTITY:-}");
     expect(compose.slice(compose.indexOf("  runtime:"))).not.toContain("NYLORUN_MODEL_HOST_IDENTITY");
   });
 
-  it("passes the credential provider's URL and token from the shell to the gateway and the runtime (CP-E)", () => {
+  it("passes the credential provider's URL and token from the shell to the gateway and the runtime", () => {
     const gateway = compose.slice(compose.indexOf("  gateway:"), compose.indexOf("  runtime:"));
     const runtime = compose.slice(compose.indexOf("  runtime:"), compose.indexOf("  studio:"));
     for (const block of [gateway, runtime]) {
@@ -119,7 +119,7 @@ describe("compose.yaml", () => {
     return text.slice(start, end === -1 ? undefined : end);
   };
 
-  it("splits the networks: the stores on an internal one, the harness on its own (F6.2)", () => {
+  it("splits the networks: the stores on an internal one, the harness on its own", () => {
     expect(compose).toContain("  store: # the stores: no egress, no published port\n    name: nylorun-shop-store\n    internal: true\n");
     expect(compose).toMatch(/\n {2}harness: #[^\n]*\n {4}name: nylorun-shop-harness\n {4}labels/);
     const networks = (name: string) => /\n {4}networks: \[([^\]]*)\]/.exec(service(compose, name))?.[1];
@@ -230,7 +230,7 @@ describe("compose.yaml", () => {
     expect(runtime).not.toContain("gateway: {");
   });
 
-  it("hides the vault key and the Compose secrets from the runtime container (F4.2)", () => {
+  it("hides the vault key and the Compose secrets from the runtime container", () => {
     const runtime = compose.slice(compose.indexOf("  runtime:"), compose.indexOf("  studio:"));
     for (const target of ["/nylorun/keys", "/nylorun/docker"])
       expect(runtime).toMatch(

@@ -244,7 +244,7 @@ describe("nylorun status and tenant on a remote installation", { timeout: 20_000
     expect(none.requests).toEqual([]);
   });
 
-  it("tenant models set --host-identity sends the project and location and no key (ADR-71)", async () => {
+  it("tenant models set --host-identity sends the project and location and no key", async () => {
     const host = await runtime();
     const result = await nylorun(
       [

@@ -19,7 +19,7 @@ const EMPTY_CONTEXT: ContextSnapshot = Object.freeze({
 });
 
 /**
- * A message's context (ADR-157, Host feature `message-context`): the items of the turn's latest
+ * A message's context (Host feature `message-context`): the items of the turn's latest
  * input that carries `metadata.context`, for every model call of that turn. A later turn's calls
  * never see them: the block is rendered after the history, not kept in it.
  */

@@ -1,5 +1,5 @@
 /**
- * G4 — Cross-Tenant fuzz for every §5.3 Tenant route family. A Host serves one Tenant, so
+ * Cross-Tenant fuzz for every Tenant route family. A Host serves one Tenant, so
  * two Tenants are two installations (two Hosts, two databases): a credential or a Tenant
  * named for the other one reaches nothing.
  */
@@ -17,7 +17,7 @@ import {
 const agentA = Agent({ id: "agent-a", name: "A" }).build();
 const agentB = Agent({ id: "agent-b", name: "B" }).build();
 
-it("G4: cross-Tenant ids and credentials never leak or mutate the other Tenant", async () => {
+it("cross-Tenant ids and credentials never leak or mutate the other Tenant", async () => {
   const options = {
     sandboxBackend: "virtual" as const,
     model: { kind: "scripted" as const, output: "ok" },

@@ -131,7 +131,7 @@ export function createHost(options: CreateHostOptions): HostServer {
       const started = Date.now();
       inFlight.add(res);
       res.once("close", () => inFlight.delete(res));
-      // D§11: `Host` first, before anything reads the request.
+      // `Host` first, before anything reads the request.
       if (hostAllowed(headerValue(req, "host"))) return void next(req, res);
       sendRejected(
         res,

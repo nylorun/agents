@@ -1,5 +1,5 @@
 /**
- * The message bridge between an embedded Studio and its embedder (Studio §8.8).
+ * The message bridge between an embedded Studio and its embedder.
  *
  * - Before `init`, Studio cannot know its parent's origin (no Referer, and Firefox
  *   has no `ancestorOrigins`), so `ready` goes to each allowlisted origin with that

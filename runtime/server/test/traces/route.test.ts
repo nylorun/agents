@@ -1,5 +1,5 @@
 /**
- * The trace route (R7.5): a turn's spans as OTLP JSON, built by the projector's own mapping, so
+ * The trace route: a turn's spans as OTLP JSON, built by the projector's own mapping, so
  * the route and the exporter give the same spans for the same turn.
  */
 import { createServer } from "node:http";

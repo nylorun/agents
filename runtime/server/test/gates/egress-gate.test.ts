@@ -1,9 +1,9 @@
 /**
- * egress-gate (F7.2, `gates/egress.ts`): a CONNECT proxy that opens a tunnel only with a live
+ * egress-gate (`gates/egress.ts`): a CONNECT proxy that opens a tunnel only with a live
  * egress token, only to a host the sandbox's spec allows, on 443 or 80, never to an IP literal or
  * a private address. Name resolution and dialling go through test hooks: every allowed name
  * "resolves" to a local echo server, which the hook's address check lets through. Each
- * connection is recorded once (R7.3), on the test Tenant's record.
+ * connection is recorded once, on the test Tenant's record.
  */
 import { createServer as createTcpServer, connect, type Server as TcpServer, type Socket } from "node:net";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
@@ -125,7 +125,7 @@ const sockets: Socket[] = [];
 /**
  * Opens a tunnel. On an open 443 tunnel it then sends a ClientHello naming the target, as a TLS
  * client does, and reads the echo server's copy back, so the tunnel is past the gate's SNI check
- * (ADR-92 §11). `serverName` overrides the name sent; `null` sends none.
+ *. `serverName` overrides the name sent; `null` sends none.
  */
 async function tunnel(proxy: EgressGate, target: string, authorization?: string, serverName?: string | null): Promise<Answer> {
   const answer = await send(
@@ -218,7 +218,7 @@ describe("egress-gate", () => {
     expect((await tunnel(proxy, "wild.test:443", basic(raw))).status).toBe(403);
   });
 
-  it("counts each connection once by outcome and refusal reason, and an allowed one's bytes (ADR-159)", async () => {
+  it("counts each connection once by outcome and refusal reason, and an allowed one's bytes", async () => {
     const test = startTestTelemetry();
     try {
       sandboxes.set("sbx_1", { epoch: 1, allow: ["allowed.test"] });
@@ -259,7 +259,7 @@ describe("egress-gate", () => {
     });
   });
 
-  it("closes a 443 tunnel whose ClientHello names another host, or none, or isn't TLS (ADR-92 §11)", async () => {
+  it("closes a 443 tunnel whose ClientHello names another host, or none, or isn't TLS", async () => {
     sandboxes.set("sbx_1", { epoch: 1, allow: ["allowed.test", "*.wild.test"] });
     const proxy = await gate({ helloMs: 2_000 });
     const raw = await token();
@@ -423,7 +423,7 @@ describe("egress-gate", () => {
   it("runs in the gateway over the Tenant's keys (`--service egress`)", async () => {
     sandboxes.set("sbx_1", { epoch: 1, allow: ["allowed.test"] });
     const vaults: TenantVaults = {
-      // No session on the sandbox binds a shell secret (R2c): every host is a tunnel.
+      // No session on the sandbox binds a shell secret: every host is a tunnel.
       open: async () =>
         ({ tenantId: runs.tenantId, store: runs.store, environmentSecretBound: async () => false }) as unknown as TenantVault,
     };
@@ -543,7 +543,7 @@ async function sessionRows(): Promise<{ sessionId: string; body: Record<string, 
 const egressOf = async (id: string) =>
   (await runs.store.tx((t) => t.agentEvents(id, { types: ["agent.egress"] }))) as Record<string, any>[];
 
-describe("egress-gate events (R7.3, D67)", () => {
+describe("egress-gate events", () => {
   it("records one agent.egress per tunnel, naming the turns that ran when it opened", async () => {
     await podAgent("egress-held", ["allowed.test"]);
     await sessionOn("egress-held-s", "egress-held", "turn-1");
@@ -756,7 +756,7 @@ describe("egress-gate helpers", () => {
       expect(await store.live(id), id).toBeUndefined();
   });
 
-  it("reads an owned pod Agent's owner, and the Tenant's egress ceiling once it sets one (CP-E)", async () => {
+  it("reads an owned pod Agent's owner, and the Tenant's egress ceiling once it sets one", async () => {
     const now = new Date().toISOString();
     await runs.store.tx(async (t) => {
       await t.createEnvironment(

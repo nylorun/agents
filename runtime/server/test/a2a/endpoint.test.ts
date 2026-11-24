@@ -140,7 +140,7 @@ beforeAll(async () => {
   // The roled agent's next version declares a role; its Agent tracks it.
   const roled = built.find((agent) => agent.id === "roled")!;
   await saveManifest(runtime.url, runtime.headers(), manifestOf(roled, { name: "roled", roles: { builder: "anthropic/claude-sonnet-4-5" } }));
-  // The guarded agent's save waits for a person (R5 step 2).
+  // The guarded agent's save waits for a person.
   await setToolPolicy(runtime, [{ effect: "ask", tool: "save", agent: "guarded" }]);
   const handler = createA2aHandler({
     basePath: "/a2a",

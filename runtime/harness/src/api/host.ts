@@ -13,7 +13,7 @@
  * which replayed outcomes count toward. A cancel skips the shaping: its outcome is discarded.
  *
  * A tool call whose gate hop lost its answer (`executors.resends`) is sent again with the same
- * key (R5.3): the harness waits a moment and asks core again with the same intent, and core
+ * key: the harness waits a moment and asks core again with the same intent, and core
  * counts the send, answering `execute` again or the call's outcome once it reached its cap.
  */
 import {
@@ -126,7 +126,7 @@ export function apiHost(
         const kind = runAbortKind(signal);
         // The call goes on at its gate: the next run re-sends it and collects its outcome.
         if (recoverable && kind === "shutdown") throw error;
-        // The hop lost the answer: core counts one more send, and the call goes again (R5.3).
+        // The hop lost the answer: core counts one more send, and the call goes again.
         if (!model && kind === undefined && executors.resends?.(effect, error, run)) {
           const delays = engine.resendDelaysMs;
           await pause(delays[Math.min(resent, delays.length - 1)]!, signal);
@@ -243,7 +243,7 @@ export function apiHost(
       : undefined;
 
   /**
-   * A sandbox `read` of a file the model reads as media (ADR-139), which our engine runs over
+   * A sandbox `read` of a file the model reads as media, which our engine runs over
    * the run's sandbox files and the artifact seam: undefined for every other call.
    */
   const media = async (effect: HostEffect) => {

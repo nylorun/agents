@@ -1,6 +1,6 @@
 /**
  * The server name (SNI) in a TLS ClientHello, read from the first bytes a client sends through a
- * tunnel (ADR-92 §11). egress-gate compares it with the CONNECT host, so a tunnel opened to an
+ * tunnel. egress-gate compares it with the CONNECT host, so a tunnel opened to an
  * allowed host can't ask a shared front end for another one (domain fronting by SNI).
  *
  * The ClientHello may span several TLS records; they are reassembled up to `MAX_HELLO_BYTES`.

@@ -1,5 +1,5 @@
 /**
- * Moving an Agent between versions of its manifest (track T3, D73): `PUT /v1/agents/{id}` with
+ * Moving an Agent between versions of its manifest: `PUT /v1/agents/{id}` with
  * another version (or `?dryRun=true` for the plan), the wait for a required secret the version
  * adds, and a secret the version drops staying in the vault, unused.
  */
@@ -111,7 +111,7 @@ describe("moving an Agent", () => {
     expect(plan.body.plan).toMatchObject({ applies: "refused", refusals: [{ field: "kind" }] });
   });
 
-  it("names each required secret of the version it runs that is unset, until it is set (track T7)", async () => {
+  it("names each required secret of the version it runs that is unset, until it is set", async () => {
     const slots = {
       ORDERS_TOKEN: { type: "environment_variable" as const, required: true },
       SPARE: { type: "environment_variable" as const },

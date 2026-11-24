@@ -6,7 +6,7 @@
 
 @custom-variant dark (&:is(.dark *));
 
-/* Studio's DESIGN.md (studio/DESIGN.md): shadcn's Zinc base color, with --destructive in zinc and
+/* Studio's design: shadcn's Zinc base color, with --destructive in zinc and
    the Sage scale for charts. Color lives in charts only. */
 :root {
   --background: #ffffff;
@@ -89,7 +89,7 @@
   * { @apply border-border; }
   html, body, #root { height: 100%; overflow: hidden; }
   body { @apply bg-background text-foreground; }
-  /* DESIGN.md: Space Grotesk for headings only; a heading that names an id keeps font-mono. */
+  /* Space Grotesk for headings only; a heading that names an id keeps font-mono. */
   h1, h2, h3 { @apply font-heading; }
 }
 

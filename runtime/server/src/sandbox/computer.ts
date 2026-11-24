@@ -1,17 +1,17 @@
 /**
- * Computers in core (ADR-149, ADR-150): a pod Agent on an Agent Substrate cluster whose sandboxes
+ * Computers in core: a pod Agent on an Agent Substrate cluster whose sandboxes
  * service renders computers (`NYLORUN_SANDBOX_GATEWAY_URL` set). Its engine runs no loop: its
  * sessions' runs go to the harness container, and its commands and files go through the sandbox
- * gateway with a ticket core signs here (`computer-ticket.key`, Ed25519; ADR-148).
+ * gateway with a ticket core signs here (`computer-ticket.key`, Ed25519).
  *
  * - `computerAccess` wakes the computer when it isn't running (as a turn start does), waits until
  *   the sandboxes service says it is ready (its wake-up probe answered), records its first contact
  *   (`agent.running` or `agent.relaunched`, the pod's UID for the lost check), and answers where it
  *   is and a ticket. Core's own uses (the sandbox route, disk versions, artifacts) open it so.
  * - `openComputer` is what a harness gets with `computer.open`: the same, once a seed being copied
- *   onto a new volume is written (R2d step 3), with the disk's setup run through the computer when
- *   its marker isn't the recipe's (R2d step 2; `prepareComputerDisk`), and a version's start check
- *   passed (T3).
+ *   onto a new volume is written, with the disk's setup run through the computer when
+ *   its marker isn't the recipe's (`prepareComputerDisk`), and a version's start check
+ *   passed.
  */
 import { createPrivateKey, randomUUID, sign, type KeyObject } from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -72,7 +72,7 @@ export async function computerAccess(ctx: TenantContext, id: string, signal?: Ab
   const pods = ctx.pods;
   if (!computers || !pods) return fail(409, `Agent ${id} is not a computer on this Runtime.`, { code: "agent_unavailable" });
   const started = Date.now();
-  // Whether it had to wake (ADR-154 D1): it was not wanted running, or not running yet.
+  // Whether it had to wake: it was not wanted running, or not running yet.
   const asleep = await wakePod(ctx, id);
   const deadline = Date.now() + hostTuning().pods.readyDeadlineMs;
   for (;;) {
@@ -107,13 +107,13 @@ export async function computerAccess(ctx: TenantContext, id: string, signal?: Ab
   }
 }
 
-/** How long the disk's measure before an idle suspend may take (ADR-154 D1). */
+/** How long the disk's measure before an idle suspend may take. */
 export const DISK_MEASURE_TIMEOUT_MS = 20_000;
 /** What the measure runs on the computer: the size of what its disk keeps, in KiB. */
 export const DISK_MEASURE_COMMAND = "du -sk /workspace /skills";
 
 /**
- * The size of running computer `name`'s disk in bytes (ADR-154 D1): `du` of `/workspace` and
+ * The size of running computer `name`'s disk in bytes: `du` of `/workspace` and
  * `/skills` through the computer, within `DISK_MEASURE_TIMEOUT_MS`. Undefined when it could not
  * be measured: the caller goes on without it. It does not wake the computer: it asks only one
  * that runs.
@@ -202,7 +202,7 @@ export function openComputer(ctx: TenantContext, id: string, signal?: AbortSigna
 
 async function openOnce(ctx: TenantContext, id: string, signal?: AbortSignal): Promise<ComputerAccess> {
   let access = await computerAccess(ctx, id, signal);
-  // A new volume being seeded from a disk version (R2d step 3): wait until core has written it.
+  // A new volume being seeded from a disk version: wait until core has written it.
   const deadline = Date.now() + hostTuning().pods.readyDeadlineMs;
   for (;;) {
     const environment = await ctx.store.tx((t) => t.environment(id));
@@ -230,7 +230,7 @@ interface Marker {
 const MARKER = "/harness/setup.json";
 const VOLUME = "/harness/volume-id";
 
-/** The disk's setup, run through the computer when its marker isn't the recipe's (R2d step 2). */
+/** The disk's setup, run through the computer when its marker isn't the recipe's. */
 export async function prepareComputerDisk(
   ctx: TenantContext,
   id: string,

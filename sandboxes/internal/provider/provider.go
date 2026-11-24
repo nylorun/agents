@@ -1,4 +1,4 @@
-// Package provider is the keys provider (ADR-142): the one credential provider Agent Substrate's
+// Package provider is the keys provider: the one credential provider Agent Substrate's
 // egress gateway asks for the header of a keyed request, as `sandboxes provider`. It runs as a
 // pod beside the egress, in Substrate's namespace, and does what Substrate's own providers do:
 // it serves mutual TLS with its servicedns pod certificate, admits only the egress gateway's
@@ -68,7 +68,7 @@ type Tenant struct {
 	Outside *Outside `json:"outside,omitempty"`
 }
 
-// Outside is an outside credential source (the CP-E contract): Cloud's is Connections.
+// Outside is an outside credential source: Cloud's is Connections.
 type Outside struct {
 	URL   string `json:"url"`
 	Token string `json:"token"`

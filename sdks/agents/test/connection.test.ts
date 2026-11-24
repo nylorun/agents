@@ -61,7 +61,7 @@ async function writeProjectLink(
   return root;
 }
 
-describe("resolveConnection (C1)", () => {
+describe("resolveConnection", () => {
   it("uses explicit options and never mixes with environment", async () => {
     process.env.NYLORUN_RUNTIME_URL = "http://env.example";
     process.env.NYLORUN_TENANT = "tn_00000000000000000000000099";
@@ -235,7 +235,7 @@ describe("resolveConnection (C1)", () => {
   });
 });
 
-describe("createClient (C2)", () => {
+describe("createClient", () => {
   it("with no arguments uses resolveConnection (project-link)", async () => {
     const root = await mkdtemp(join(tmpdir(), "nylorun-client-"));
     await writeProjectLink(root);
@@ -263,7 +263,7 @@ describe("createClient (C2)", () => {
   });
 });
 
-describe("compatibility re-exports (C7)", () => {
+describe("compatibility re-exports", () => {
   it("re-exports PROTOCOL_FEATURES, ERROR_CODES, ErrorCode and compareVersions", () => {
     expect(PROTOCOL_FEATURES).toContain("management-api");
     expect(ERROR_CODES).toContain("connection_missing");

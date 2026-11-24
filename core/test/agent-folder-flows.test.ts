@@ -9,7 +9,7 @@ import { compileAgentFolder, folderTextPaths, type AgentFolderDiagnostic, type A
 import { Agent, DELEGATE_INPUT_SCHEMA, http } from "../src/define.js";
 import { harnessSectionOf, sectionGaps } from "../src/definition/sections.js";
 
-/** Flows, subagents and vendored plugins in an agent folder (track T7, design §3.3, §3.8). */
+/** Flows, subagents and vendored plugins in an agent folder. */
 
 const encoder = new TextEncoder();
 

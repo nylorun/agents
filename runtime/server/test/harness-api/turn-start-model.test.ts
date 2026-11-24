@@ -177,7 +177,7 @@ it("leaves the descriptor out of a flow's turn.start", () => {
   expect(start).not.toHaveProperty("agent");
 });
 
-it("names the session's role to our harness only (ADR-157)", () => {
+it("names the session's role to our harness only", () => {
   const ctx = { flowLimits: {}, config: {} } as unknown as TenantContext;
   const segmentOf = (current: Record<string, unknown>) =>
     ({

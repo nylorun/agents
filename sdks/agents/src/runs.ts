@@ -1,5 +1,5 @@
 /**
- * The Tenant's runs (D83, Host feature `agent-triggers`): `client.runs.stream()` follows every
+ * The Tenant's runs (Host feature `agent-triggers`): `client.runs.stream()` follows every
  * run of every Agent's triggers, from a cursor, as `GET /v1/runs/stream` serves them. For an
  * application key that reads Agents (`agents:read`).
  */

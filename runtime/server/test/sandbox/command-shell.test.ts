@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { commandShell, localExec } from "../../src/adapters/sandbox/local.js";
 
-describe("the pod's command shell (ADR-92 §10)", () => {
+describe("the pod's command shell", () => {
   it("is bash where the image has it, else /bin/sh", () => {
     expect(commandShell((path) => path === "/bin/bash")).toBe("/bin/bash");
     expect(commandShell(() => false)).toBe("/bin/sh");

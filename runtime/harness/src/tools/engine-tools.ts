@@ -1,5 +1,5 @@
 /**
- * What our engine adds to each agent of a session (protocol 15, ADR-100): the model-facing text
+ * What our engine adds to each agent of a session (protocol 15): the model-facing text
  * and tools that come with the session's Environment, its memory and loop settings, and the
  * agent's skills, as the agent declares them (`engine`, `agent-folder/2`) or, when it declares
  * nothing, every default of `agent-folder/1`. The Runtime states facts in `turn.start` (the
@@ -9,9 +9,9 @@
  * - instructions: the skills' usage and catalog; the sandbox note; the skills' folder note;
  *   the artifact notes; the wake note; the memory rules; the plan and connection notes;
  * - tools: the sandbox tools; the skill tools; `save_artifact`; `read_artifact`;
- *   `schedule_wake` when the session's version sets `runtime.selfWake` (track T4); `memory`
- *   when it sets `harness.memory` (track T5); and, for the root agent, `triggers` when it
- *   declares `harness.engine.triggers` (D83, `turn.start.agent.triggers`), `update_plan` when it
+ *   `schedule_wake` when the session's version sets `runtime.selfWake`; `memory`
+ *   when it sets `harness.memory`; and, for the root agent, `triggers` when it
+ *   declares `harness.engine.triggers` (`turn.start.agent.triggers`), `update_plan` when it
  *   sets `harness.loop.plan` and `request_connection` when it sets `harness.loop.connections` (A2A
  *   profile v2).
  *
@@ -53,7 +53,7 @@ export interface EngineToolOptions {
 export interface EngineTools {
   readonly tools: readonly DurableSessionTool[];
   readonly instructions: readonly string[];
-  /** The text blocks the agent got (ADR-100), in order. */
+  /** The text blocks the agent got, in order. */
   readonly blocks?: readonly EngineBlockUse[];
   /** The engine features the agent got. */
   readonly features?: EngineFeatures;

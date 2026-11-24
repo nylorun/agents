@@ -49,7 +49,7 @@ function platformLine(): string {
 
 /**
  * `nylorun doctor sandbox`: the Tenant's sandbox report (`GET /v1/tenant/sandbox`, Management API)
- * of the installation `target.ts` picks (F2-4).
+ * of the installation `target.ts` picks.
  */
 export async function doctorSandbox(
   deps: StackDeps,

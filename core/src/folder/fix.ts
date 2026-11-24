@@ -1,5 +1,5 @@
 /**
- * The compiler's fix-its, applied to text (`nylorun check --fix`, track T7): each diagnostic's
+ * The compiler's fix-its, applied to text (`nylorun check --fix`): each diagnostic's
  * `fix` (`AgentFolderFix`) is one edit, and this makes it, touching nothing else. Like the
  * compiler it is pure: it is given the text of each file a fix names, and answers the new text
  * of each it changed.

@@ -132,7 +132,7 @@ const analystBox = (version: number) => ({
   savedBy: { actor: "application" },
   createdAt: time,
   agents: version === 2 ? 1 : version === 3 ? 1 : 0,
-  // v1 was saved as JSON; v2 and v3 from an agent folder (track T6).
+  // v1 was saved as JSON; v2 and v3 from an agent folder.
   ...(version === 1 ? {} : { source: { compiler: "agent-folder/1", ...sourceSize(version) } }),
 });
 /** The agent folder analyst-box v2 and v3 were saved from: v3 changed AGENT.md and added a skill. */

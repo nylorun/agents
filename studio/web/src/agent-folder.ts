@@ -1,5 +1,5 @@
 /**
- * Agent folders in Studio (track T7): Upload folder and a version's Source view. A folder picked
+ * Agent folders in Studio: Upload folder and a version's Source view. A folder picked
  * in the browser is hashed with WebCrypto, the files the Runtime does not hold are uploaded by
  * hash (`HEAD`, then `PUT /v1/files/sha256:<hex>`), and the folder is sent by hash to
  * `PUT /v1/agent-manifests/{name}` (`application/vnd.nylorun.folder+json`): first with

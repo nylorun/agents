@@ -1,5 +1,5 @@
 /**
- * Harness connections (F6.1): a run is bound to the connection that leased it. Another
+ * Harness connections: a run is bound to the connection that leased it. Another
  * connection gets `run_not_held` for it. When the holder's connection is lost the advance
  * keeps the lease, as a Worker that died would: it lapses, the next advance takes the session
  * over (an effect the lost harness was running becomes `uncertain`), and the segment is offered

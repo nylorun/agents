@@ -1,5 +1,5 @@
 /**
- * Our engine's outputs folder (protocol 15, Q5): a convention of our engine, not of the Runtime.
+ * Our engine's outputs folder (protocol 15): a convention of our engine, not of the Runtime.
  * When an agent's segment ends its turn `completed` in a session with a sandbox, our engine saves
  * the files under its outputs directory (`/workspace/outputs` by default) as a version of the
  * session's folder artifact `outputs`, over the artifact seam (`artifact.write` with

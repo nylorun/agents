@@ -1,5 +1,5 @@
 /**
- * `nylorun apply --agent [<id>]` (track T7): after a manifest is saved, or found unchanged, make the
+ * `nylorun apply --agent [<id>]`: after a manifest is saved, or found unchanged, make the
  * Agent that runs it, or move it to the latest version, as `nylorun agents put <id> --manifest
  * <name>` does. The id defaults to the manifest's name. What happened is printed, with what the
  * Agent needs a person for (an unset required secret).

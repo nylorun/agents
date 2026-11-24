@@ -1,12 +1,12 @@
 /**
- * egress-gate and the outside credential provider (v0.25 CP-E, `gates/credential-provider.ts`):
- * for an Agent with an owner, a host the provider lists, exactly or by a `*.suffix` (v0.26 TM-E1),
+ * egress-gate and the outside credential provider (`gates/credential-provider.ts`):
+ * for an Agent with an owner, a host the provider lists, exactly or by a `*.suffix`,
  * passes the allowlist on 443 (inside the Tenant's egress ceiling), is terminated with a leaf of
  * the egress CA, and each of its requests goes to the provider's forward route with the sandbox's
  * own headers and the engine's provider headers; the Runtime never holds a value. A host it doesn't
  * list is refused as before, an Agent with no owner is never asked about, a provider that is down
  * answers nothing, and the vault's binding wins for a host it binds. Its environment answer gives
- * each variable the stand-in, a stand-in of its own or a plain value (TM-E2). The provider is a
+ * each variable the stand-in, a stand-in of its own or a plain value. The provider is a
  * local HTTP server; every name "resolves" to 127.0.0.1, which the address hook lets through.
  */
 import { once } from "node:events";
@@ -220,7 +220,7 @@ afterAll(async () => {
   echo.close();
 });
 
-describe("egress-gate and the credential provider (CP-E)", () => {
+describe("egress-gate and the credential provider", () => {
   it("lets a host the provider lists through, and hands each request to its forward route as the sandbox sent it", async () => {
     listed = ["API.Vercel.test", "10.0.0.1", "*.wild.test"];
     const written: EgressConnection[] = [];
@@ -271,7 +271,7 @@ describe("egress-gate and the credential provider (CP-E)", () => {
     expect(logs).toContainEqual({ message: "egress_terminated", fields: { sandboxId: "sbx_1", host: "api.vercel.test", via: "provider" } });
   });
 
-  it("keeps a `*.suffix` host and matches it as network.allow does, dropping IPs and bad patterns (TM-E1)", async () => {
+  it("keeps a `*.suffix` host and matches it as network.allow does, dropping IPs and bad patterns", async () => {
     listed = ["*.GoogleAPIs.com", "*.googleapis.com.", "10.0.0.1", "*.10.0.0.1", "*.com", "*.", "**.x.com", "a..b.com", "[::1]", "api.vercel.test"];
     const client = createCredentialProvider({ url: providerUrl, token: TOKEN }, { logger });
     expect(await client.hosts("sbx_1", OWNER)).toEqual(["*.googleapis.com", "api.vercel.test"]);
@@ -299,7 +299,7 @@ describe("egress-gate and the credential provider (CP-E)", () => {
     expect(hostCalls()).toHaveLength(1);
   });
 
-  it("reads v2 host entries with the header each key goes in (ADR-142), and v1 names as Authorization", async () => {
+  it("reads v2 host entries with the header each key goes in, and v1 names as Authorization", async () => {
     listed = [
       { host: "api.github.com", header: "Authorization", format: "token {value}" },
       { host: "API.Vercel.com.", header: "X-Api-Key" },
@@ -426,7 +426,7 @@ describe("egress-gate and the credential provider (CP-E)", () => {
     ]);
   });
 
-  it("gives each variable its stand-in or plain value, and drops entries it can't read (TM-E2)", async () => {
+  it("gives each variable its stand-in or plain value, and drops entries it can't read", async () => {
     variables = [
       "LINEAR_API_KEY",
       { name: "STRIPE_API_KEY", standIn: "sk_live_nylorun_managed" },

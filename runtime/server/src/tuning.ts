@@ -1,5 +1,5 @@
 /**
- * Host tuning (B15): the timings, retries, poll intervals and internal sizes of the Runtime's
+ * Host tuning: the timings, retries, poll intervals and internal sizes of the Runtime's
  * processes, one typed schema with a default each. An operator sets any of them in
  * `NYLORUN_TUNING`, a JSON object of the groups below (`{"tenant":{"openTimeoutMs":60000}}`),
  * read once when a process starts (`parseStackConfig`, then `useHostTuning` in `host/main.ts`).
@@ -29,8 +29,7 @@ export const S3_MIN_PART_BYTES = 5 * 1024 * 1024;
 export const S3_MAX_PART_BYTES = 5 * 1024 * 1024 * 1024;
 
 /**
- * How long a wake's dedupe key merges repeated wakes, at least (Durable Session Execution
- * §12.3): a wake sent again within a day must not start a second advance. A floor of the
+ * How long a wake's dedupe key merges repeated wakes, at least: a wake sent again within a day must not start a second advance. A floor of the
  * design, so a setting may only raise it.
  */
 export const DEDUPE_RETENTION_MIN_MS = 24 * 60 * 60_000;
@@ -81,7 +80,7 @@ const positiveShare = () => z.number().gt(0).max(1);
 
 export const HostTuningSchema = z
   .strictObject({
-    /** The keys service and its client (F4.2), and the egress CA's certificates (R2c). */
+    /** The keys service and its client, and the egress CA's certificates. */
     keys: group({
       /** The largest request body the keys service reads. */
       bodyBytes: bytes(MIB),
@@ -110,7 +109,7 @@ export const HostTuningSchema = z
       /** The clock skew accepted when a token's times are checked (the Runtime's and an issuer's). */
       clockToleranceSeconds: count(30, 0),
     }),
-    /** Core's Harness API listener and server (F6.2). */
+    /** Core's Harness API listener and server. */
     harnessApi: group({
       /** The largest `host/join` or `host/renew` body. */
       joinBodyBytes: bytes(8 * KIB),
@@ -127,7 +126,7 @@ export const HostTuningSchema = z
       /** How the Tenant's own harness reconnects to its loopback listener. */
       loopbackBackoff: backoff(50, 500),
       /**
-       * Segment rollover (Model Calls §10): a turn ends its segment at a step boundary after this
+       * Segment rollover: a turn ends its segment at a step boundary after this
        * many steps or this long, and continues in a new one, well inside the advance deadline.
        */
       rolloverSteps: count(50),
@@ -178,7 +177,7 @@ export const HostTuningSchema = z
       openTimeoutMs: ms(30_000),
       /** Retries of an open that failed outside the Tenant. */
       openRetry: backoff(1_000, 30_000),
-      /** The ownership lease of an advance (§10.6); renewed every third while it runs. */
+      /** The ownership lease of an advance; renewed every third while it runs. */
       ownerLeaseMs: ms(30_000),
       /** The shortest `busy` retry, so a lease about to lapse is not polled in a tight loop. */
       busyRetryMinMs: ms(25),
@@ -198,11 +197,11 @@ export const HostTuningSchema = z
       /** How long a pending Environment seed holds the disk before another process may take it over. */
       seedLeaseMs: ms(10 * MINUTE),
       /**
-       * The longest a pod Agent waiting to start on a new version (track T3) stays idle before it
+       * The longest a pod Agent waiting to start on a new version stays idle before it
        * stops, so its next start applies the version: its own `lifecycle.idle` when shorter.
        */
       upgradeIdleMs: ms(MINUTE),
-      /** How long a pod may take to start on a new version before it goes back to the one it ran (T3). */
+      /** How long a pod may take to start on a new version before it goes back to the one it ran. */
       upgradeStartMs: ms(10 * MINUTE),
     }),
     /** The Tenant's sweep (`tenant/sweep.ts`): outbox, orphaned sessions, stale pods. */
@@ -244,7 +243,7 @@ export const HostTuningSchema = z
       /** How long a finished task's push configs are kept, for `GetTaskPushNotificationConfig`. */
       pushConfigRetentionMs: ms(7 * 24 * HOUR),
     }),
-    /** Triggers (track T4, D74): server timing; the Tenant's own bounds are its Runtime limits. */
+    /** Triggers: server timing; the Tenant's own bounds are its Runtime limits. */
     triggers: group({
       /**
        * How long after it was due a fire counts as late (the server was down or asleep), and how
@@ -253,7 +252,7 @@ export const HostTuningSchema = z
       lateGraceMs: ms(2 * MINUTE),
       /** How many upcoming fires the save check reads to find a cron's smallest gap. */
       intervalCheckFires: count(100, 2, 10_000),
-      /** The clock skew a webhook delivery's `webhook-timestamp` may have, either way (D75). */
+      /** The clock skew a webhook delivery's `webhook-timestamp` may have, either way. */
       webhookToleranceMs: ms(5 * MINUTE),
     }),
     /** Durable Session Execution: Restate, or the in-process execution. */
@@ -267,7 +266,7 @@ export const HostTuningSchema = z
       advanceGraceMs: ms(30_000, 0),
       /** How long stopping waits for running handlers after aborting them. */
       stopGraceMs: ms(30_000, 0),
-      /** How long a wake's dedupe key merges repeated wakes. At least 24 hours (§12.3). */
+      /** How long a wake's dedupe key merges repeated wakes. At least 24 hours. */
       dedupeRetentionMs: ms(DEDUPE_RETENTION_MIN_MS, DEDUPE_RETENTION_MIN_MS),
       /** The in-process execution: the first retry of a handler that throws, doubled after each. */
       memoryRetryMs: ms(50),
@@ -403,7 +402,7 @@ export const HostTuningSchema = z
       inflightTtlMs: ms(30 * MINUTE),
       inflightMax: count(10_000),
     }),
-    /** egress-gate (F7.2): sandbox pods' CONNECT proxy. */
+    /** egress-gate: sandbox pods' CONNECT proxy. */
     egress: group({
       /** Tunnels one sandbox may hold open at once. */
       maxTunnelsPerSandbox: count(64),
@@ -436,7 +435,7 @@ export const HostTuningSchema = z
       /** How many Agents' answers are kept. */
       cacheEntries: count(4_096),
     }),
-    /** Sandbox pods through the sandboxes service (F7.2). */
+    /** Sandbox pods through the sandboxes service. */
     pods: group({
       /** How long a pod may take to be ready before its start fails. */
       readyDeadlineMs: ms(5 * MINUTE),
@@ -533,7 +532,7 @@ export const HostTuningSchema = z
       /** How many characters of a failed setup command's output its report keeps (the end). */
       setupReportTailChars: count(4 * KIB),
     }),
-    /** Traces (R7.2): the OTLP exporter. */
+    /** Traces: the OTLP exporter. */
     traces: group({
       /** How long one OTLP request may take. */
       timeoutMs: ms(10_000),

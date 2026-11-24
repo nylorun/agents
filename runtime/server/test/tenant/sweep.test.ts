@@ -1,6 +1,6 @@
 /**
  * The advance's ownership steps and the Tenant sweep's steps, on a Postgres Tenant schema
- * (architecture §10.5–10.6, §12.3): the wake outbox, orphaned sessions and linked agents.
+ *: the wake outbox, orphaned sessions and linked agents.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Wake } from "../../src/execution/types.js";

@@ -358,7 +358,7 @@ describe("agent folders: messages in the compiler's own words", () => {
     expect(warnings(typo.diagnostics)).toEqual([expect.objectContaining({ code: "loop_key", message: expect.stringContaining("Did you mean 'plan'?") })]);
   });
 
-  it("takes loop.compaction: threshold and keepTokens, and a role's over them (ADR-157)", () => {
+  it("takes loop.compaction: threshold and keepTokens, and a role's over them", () => {
     const set = compile({
       "AGENT.md":
         "---\nname: shop\ndescription: Orders.\nloop:\n  compaction:\n    threshold: 40000\n    keepTokens: 15000\n    roles:\n      builder: { threshold: 120000 }\n---\nGo.\n",

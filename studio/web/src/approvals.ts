@@ -1,5 +1,5 @@
 /**
- * The approvals a paused session waits on (R5 step 2): the approval interactions of its last
+ * The approvals a paused session waits on: the approval interactions of its last
  * `turn.paused`, unless a later event answered or ended the turn. A tool call the Tool Gate held
  * names its tool, why, and its input; `approve` on the session answers it by its id.
  */

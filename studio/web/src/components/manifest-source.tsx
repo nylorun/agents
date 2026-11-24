@@ -11,7 +11,7 @@ import { ReadState } from "@/components/resource-layout";
 import { SidePanel } from "@/components/data-table";
 
 /**
- * A manifest version's Source view (track T7): the agent folder it was saved from, read only, as
+ * A manifest version's Source view: the agent folder it was saved from, read only, as
  * a tree (`GET .../versions/{v}/source`), each file marked when it was added or changed since the
  * version before (`GET .../source/diff`). A file opens beside it (`.../source/files/{path}`): its
  * text, or its size for one that is not text. A version saved as JSON has no source.

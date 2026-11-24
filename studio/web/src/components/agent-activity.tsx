@@ -29,7 +29,7 @@ import {
 /** The Agent's events: all of them, its lifecycle, or the connections its sandbox opened. */
 type View = "any" | "lifecycle" | "triggers" | "connections";
 
-/** The changes to the Agent's own triggers (D83, D88). */
+/** The changes to the Agent's own triggers. */
 const TRIGGER_TYPES: readonly AgentEventType[] = [
   "agent.trigger_created",
   "agent.trigger_updated",
@@ -46,7 +46,7 @@ function byWhom(payload: Record<string, unknown>): string {
   return payload.origin === "api" ? "A client" : "An agent";
 }
 
-/** A trigger change in words (D88): "API (app_x) changed daily: timezone, schedule". */
+/** A trigger change in words: "API (app_x) changed daily: timezone, schedule". */
 export function triggerDetailOf(event: Pick<AgentEvent, "type" | "payload">): string | undefined {
   const payload = event.payload as Record<string, unknown>;
   const id = String(payload.triggerId ?? "");

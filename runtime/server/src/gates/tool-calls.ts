@@ -1,15 +1,15 @@
 /**
- * Keyed tool calls in the gates service (F4.1 G3): remote MCP calls and HTTP tool calls (R2 M3).
+ * Keyed tool calls in the gates service: remote MCP calls and HTTP tool calls.
  * A call sent with an `Idempotency-Key` (the loop's effect id) runs once:
  *
  * - While it runs, and for 30 minutes after, a re-send joins it or gets its answer from memory
- *   (`inflight.ts`), as model calls do (P1.2). So a runtime that dies or shuts down mid-call
+ *   (`inflight.ts`), as model calls do. So a runtime that dies or shuts down mid-call
  *   leaves nothing `uncertain`: the next owner re-sends the call and gets its answer.
  * - The gate also writes a `tool_crossings` row before it calls the server, and the answer
  *   after. A re-send that finds the answer gets it. One that finds a row without an answer,
  *   for a call this gateway is not running, was lost with an earlier gateway (a restart mid
- *   call): it is started again under the same key (R5.3), so the tool sees the key twice and
- *   a tool that honors it acts once. Core counts the sends and stops at its cap (R5.4).
+ *   call): it is started again under the same key, so the tool sees the key twice and
+ *   a tool that honors it acts once. Core counts the sends and stops at its cap.
  * - A re-send that another gateway process started or settled between this one's read and its
  *   write answers `{uncertain: true}`: not answered here, so the caller sends it again later.
  *
@@ -35,7 +35,7 @@ export interface ToolCalls {
   /**
    * Runs `call` under `key`, joins the call running under it, or answers it from its crossing.
    * Rejects with `InflightConflict` when a different request (`hash`) already ran under it, and
-   * as `InflightCalls.run` does for `owner`, the run that sends it (F5).
+   * as `InflightCalls.run` does for `owner`, the run that sends it.
    */
   run(
     tenantId: string | undefined,
@@ -93,7 +93,7 @@ export function createToolCalls(options: ToolCallsOptions): ToolCalls {
         if (row.answer !== null && row.answer !== undefined) return row.answer as ToolCallAnswer;
         // Started here a moment ago: join it.
         if (inflight.has(key)) return inflight.run(key, hash, () => Promise.resolve(ELSEWHERE), owner);
-        // Otherwise it was lost with an earlier gateway: it starts again below (R5.3).
+        // Otherwise it was lost with an earlier gateway: it starts again below.
       }
       return inflight.run(key, hash, async (signal) => {
         const startedAt = iso();

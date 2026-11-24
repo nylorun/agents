@@ -174,7 +174,7 @@ describe("createInfra", () => {
     await infra.close();
   });
 
-  it("builds each configured client and checks each but S2 (D48)", async () => {
+  it("builds each configured client and checks each but S2", async () => {
     const infra = createInfra({
       services: new Set(["core"] as const),
       endpoints: {

@@ -1,5 +1,5 @@
 /**
- * Harness-owned state (R4.2): a custom harness's turn state is stored as it sent it, capped, and
+ * Harness-owned state: a custom harness's turn state is stored as it sent it, capped, and
  * handed back only to it; it cannot pause for approvals; and a tool it runs itself is journaled
  * like ours, as a `harness` call (protocol 15: the call names its target), so the log records
  * what really ran.
@@ -95,7 +95,7 @@ it("hands the harness the Tenant's Runtime limits in turn.start, and holds its s
   const leased = acme.request("lease", {});
   await message(runtime, 1);
   const { run, input } = (await leased) as { run: { runId: string }; input: TurnStart };
-  // Only the limits a harness must respect (B15).
+  // Only the limits a harness must respect.
   expect(input.limits).toEqual({ ...HARNESS_LIMIT_DEFAULTS, harnessStateBytes: 1024 });
   await expect(
     acme.request("turn.completed", { runId: run.runId, status: "completed", state: { blob: "x".repeat(2048) } })
@@ -197,11 +197,11 @@ it("journals a tool the harness runs itself, and records a call that names no ta
     context: { callId: `c${n}`, invocationId: `i${n}` },
   });
   const declared = intent("apply_patch", 1, { kind: "harness" });
-  // With its span's context (R7.4), which the harness may hand to what it runs.
+  // With its span's context, which the harness may hand to what it runs.
   await expect(
     acme.request("effect.intent", { runId: run.runId, effect: declared, requestHash: effectRequestHash(declared) })
   ).resolves.toEqual({ status: "execute", traceparent: expect.stringMatching(/^00-[0-9a-f]{32}-[0-9a-f]{16}-01$/) });
-  // A Runtime token the harness's tool printed (its egress proxy, say): never recorded (HC14).
+  // A Runtime token the harness's tool printed (its egress proxy, say): never recorded.
   const part = (value: object) => Buffer.from(JSON.stringify(value)).toString("base64url");
   const egress = `${part({ alg: "ES256", typ: "nylorun-egress+jwt" })}.${part({ sub: "env" })}.${"s".repeat(64)}`;
   await acme.request("effect.outcome", {

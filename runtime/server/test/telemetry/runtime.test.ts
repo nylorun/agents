@@ -1,5 +1,5 @@
 /**
- * A Runtime's live telemetry (ADR-159), read in memory: every API request makes one
+ * A Runtime's live telemetry, read in memory: every API request makes one
  * `http.server.request.duration` point labelled with its declared route and `nylorun.client`; a
  * turn makes its model call's points, its `gen_ai.invoke_agent.duration` and, queued, its
  * `nylorun.queue.wait`. With span export a request makes one server span, which parents the turn

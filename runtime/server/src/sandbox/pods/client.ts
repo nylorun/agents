@@ -1,5 +1,5 @@
 /**
- * The sandboxes service's client (F7.2, D32): the Go service (`sandboxes/`) that alone holds
+ * The sandboxes service's client: the Go service (`sandboxes/`) that alone holds
  * the cluster credentials and drives agent-sandbox Sandboxes in the Tenant's namespace. Core
  * reaches it at `NYLORUN_SANDBOXES_URL` with `NYLORUN_SANDBOXES_TOKEN`; nothing else does.
  *
@@ -17,8 +17,8 @@ export interface PodSpec {
   readonly image?: string;
   /**
    * What the workload runs: `engine` (default), our engine copied from `harnessImage`; or
-   * `image`, the image's own entrypoint, for a custom harness built into it (R4.4). No image
-   * carries our engine (ADR-161).
+   * `image`, the image's own entrypoint, for a custom harness built into it. No image
+   * carries our engine.
    */
   readonly entrypoint?: "engine" | "image";
   /** The Runtime image the engine is copied from; not with `entrypoint: "image"`. */
@@ -37,7 +37,7 @@ export interface PodSpec {
   readonly joinToken?: string;
   /**
    * The Agent's resolved network. agent-sandbox ignores it (egress-gate enforces it); the
-   * Substrate backend renders the actor's egress policy from it (ADR-138).
+   * Substrate backend renders the actor's egress policy from it.
    */
   readonly network?: {
     readonly preset: string;
@@ -45,7 +45,7 @@ export interface PodSpec {
     readonly suffixes: readonly string[];
   };
   /**
-   * The hosts the sandbox has a key for, each with its header (ADR-142, `keys.ts`). agent-sandbox
+   * The hosts the sandbox has a key for, each with its header (`keys.ts`). agent-sandbox
    * ignores them; on Agent Substrate each becomes an https rule the keys provider fills.
    */
   readonly keys?: {
@@ -87,7 +87,7 @@ export interface ClusterInfo {
   readonly context: string;
   readonly controllerVersion?: string;
   readonly apiVersion?: string;
-  /** `agent-sandbox` (also when absent: older services) or `substrate` (ADR-138, preview). */
+  /** `agent-sandbox` (also when absent: older services) or `substrate` (preview). */
   readonly backend?: "agent-sandbox" | "substrate";
   readonly atespace?: string;
   readonly hostAddress?: string;

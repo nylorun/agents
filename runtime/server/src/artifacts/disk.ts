@@ -1,5 +1,5 @@
 /**
- * An Environment's disk versions (R2d step 3, Host feature `environment-disk-versions`). A
+ * An Environment's disk versions (Host feature `environment-disk-versions`). A
  * version is a folder artifact version (manifest `nylorun.folder.v2`: files with mode and
  * modification time, links, empty directories) of the one folder artifact the Environment owns
  * (`artifacts.environment_id`), its files content-addressed in the Object store as every folder's
@@ -14,7 +14,7 @@
  * - **Restore** puts a version back: on a virtual Environment at once; on a pod as a reset whose
  *   new volume is seeded before any turn (`disk_seed`, run once the new pod's engine connects).
  *   **Fork** (`from` on a create, and `POST .../fork`) and the **recovery of a lost volume** (from
- *   the latest version) are seeds too. A fork onto other setup (Q17) keeps its seed, `written`,
+ *   the latest version) are seeds too. A fork onto other setup keeps its seed, `written`,
  *   until the engine has run that setup on the written disk; turns wait for both.
  *
  * Nothing here runs inside a transaction but the lease and the commit. No event type is new:
@@ -55,7 +55,7 @@ import { collectContent, contentEpoch, contentKey, encodeManifest, readManifest,
 import { contentTypeFor } from "@nylorun/core/contracts";
 
 /**
- * The Tenant's Runtime limits a copy reads when it starts (B15): `diskVersionEntries` and
+ * The Tenant's Runtime limits a copy reads when it starts: `diskVersionEntries` and
  * `diskVersionBytes` (within the Environment's own `limits.disk`), `chunkBytes` (one range of a
  * file moved at a time, which crosses in one Harness API frame), `diskLeaseMs` (a lease lasts
  * this long unless renewed; a copy renews it every quarter of it) and `diskPodWaitMs` (how long a
@@ -176,7 +176,7 @@ function heartbeat(ctx: TenantContext, id: string, limits: CopyLimits, ms = limi
           options.seed !== undefined &&
           seed?.artifactId === options.seed.artifactId &&
           seed.version === options.seed.version;
-        // A seed with setup stays, written, until the engine reports the setup done (Q17).
+        // A seed with setup stays, written, until the engine reports the setup done.
         const next = !written ? {} : seed.setup ? { diskSeed: { ...seed, written: true as const } } : { diskSeed: null };
         await t.updateEnvironment(id, { diskOp: null, ...next }, new Date().toISOString());
       });
@@ -194,7 +194,7 @@ function heartbeat(ctx: TenantContext, id: string, limits: CopyLimits, ms = limi
 
 /** Waits until the engine of pod Environment `id` is connected, starting the pod when it is stopped. */
 async function awaitEngine(ctx: TenantContext, id: string, waitMs: number): Promise<void> {
-  // A computer (ADR-149) has no engine connection: it is ready once it answers through the gateway.
+  // A computer has no engine connection: it is ready once it answers through the gateway.
   if (ctx.pods?.computer) {
     await computerAccess(ctx, id);
     return;
@@ -582,7 +582,7 @@ export async function sweepPendingSeeds(ctx: TenantContext): Promise<void> {
 
 /**
  * After a pod Environment was found `lost`: when its disk has a version, it gets a new volume
- * seeded from the latest one, instead of refusing turns until a reset (R6 Q9: eager).
+ * seeded from the latest one, instead of refusing turns until a reset (eager).
  */
 export async function recoverLostVolume(ctx: TenantContext, id: string): Promise<boolean> {
   const recovered = await ctx.store.tx(async (t) => {

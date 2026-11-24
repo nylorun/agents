@@ -1,5 +1,5 @@
 /**
- * The Repo brief agent (track R2's exit), end to end against an in-process Runtime: one turn
+ * The Repo brief agent, end to end against an in-process Runtime: one turn
  * runs a pipe, a switch, a map over remote MCP calls, a parallel review, a loop whose writer
  * runs a skill's script in the sandbox and calls an HTTP tool, and an HTTP stage that
  * publishes the brief. Nothing of the agent's runs in this process except the services it
@@ -38,7 +38,7 @@ const BRIEF = [
 
 type Call = { name: string; args: Record<string, unknown> };
 
-/** The repo-brief skill's folder in the sandbox: one per version (D66). */
+/** The repo-brief skill's folder in the sandbox: one per version. */
 const SKILL_FOLDER = skillFolderOf(
   Agent({ id: "folder" }).skills(REPO_BRIEF_SKILLS).build().manifest.skills!["repo-brief"]!,
 );

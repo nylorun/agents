@@ -1,5 +1,5 @@
 /**
- * The `memory` tool's calls (track T5, D72): a `runtime` effect, operation `memory`, which core
+ * The `memory` tool's calls: a `runtime` effect, operation `memory`, which core
  * serves in the transaction that journals the call, as it does `schedule_wake`. So a replayed turn
  * applies a write once and sees the same `view`, and a BYO harness gets the same answers by sending
  * the same target. The input is Anthropic's memory tool's: `command` and its parameters.

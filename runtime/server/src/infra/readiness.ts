@@ -1,6 +1,6 @@
 /**
- * Aggregate readiness of the Host's infrastructure (architecture §13, §14.3):
- * the Runtime's `/ready` covers Postgres and Restate. S2 is left out (D48): it only
+ * Aggregate readiness of the Host's infrastructure:
+ * the Runtime's `/ready` covers Postgres and Restate. S2 is left out: it only
  * serves API listeners (history, SSE, AG-UI, A2A), so an outage degrades those reads
  * and never makes the Runtime unready. Its health shows in the Tenant's status
  * (`GET /v1/tenant`, `streams.reachable`).
@@ -49,7 +49,7 @@ export function createReadiness(
   };
 }
 
-/** The standard checks for whichever infrastructure the Host was built with. Never S2 (D48). */
+/** The standard checks for whichever infrastructure the Host was built with. Never S2. */
 export function infraProbes(infra: {
   database?: PostgresClient;
   execution?: DurableExecution;

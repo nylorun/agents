@@ -1,5 +1,5 @@
 /**
- * Run tokens (F5, gate trust): the ES256 JWT core mints for one advance's lease of a session.
+ * Run tokens (gate trust): the ES256 JWT core mints for one advance's lease of a session.
  * It is the only credential of a model call at the gates, and the credential of a session's
  * remote MCP calls. The gates take session, turn and agent from it, never from the body, and
  * check on every call that the lease it names is still the session's (`staleRun`).
@@ -66,7 +66,7 @@ export async function mintRunToken(
   const tenantId = signer.config.tenantId;
   const iat = Math.floor(Date.now() / 1000);
   const exp = iat + hostTuning().keys.runTokenTtlSeconds;
-  // Signed by the keys service (F4.2): this process never holds the private key.
+  // Signed by the keys service: this process never holds the private key.
   const { token } = await signer.keys.sign({
     typ: RUN_TOKEN_TYP,
     claims: {
@@ -174,7 +174,7 @@ export async function verifyRunToken(
 
 /**
  * Why calls under `claims` are stale, or undefined while its lease is still the session's
- * (G4): the session's epoch is the token's, its active turn is the token's, and it is not
+ *: the session's epoch is the token's, its active turn is the token's, and it is not
  * cancelled. One indexed read of the session row.
  */
 export async function staleRun(store: SessionStore, claims: RunClaims): Promise<string | undefined> {

@@ -3,7 +3,7 @@ import { dirname } from "node:path";
 import type { Logger } from "./types.js";
 
 /**
- * Tenant logger (D12): JSON lines to `logs/tenant.log` with `tenantId` on every record.
+ * Tenant logger: JSON lines to `logs/tenant.log` with `tenantId` on every record.
  * Never writes to the process stdout/stderr APIs.
  */
 export function createTenantLogger(options: {

@@ -5,7 +5,7 @@
  * wakes from its outbox after commit, `Tx.wake`), then aborts a cancelled advance and cascades
  * workflow cancels to the linked agent sessions, one transaction each.
  *
- * Wakes (`t.wake`, architecture §12.3) carry the command type as the reason and a dedupe
+ * Wakes (`t.wake`) carry the command type as the reason and a dedupe
  * key naming the cause: `<type>:<turnId>:<segment>` for `message`, `approve` and `respond`
  * (every accepted one writes a new checkpoint segment), except that a workflow's `approve` and
  * `respond` name `<type>:<turnId>:<interactionId>`: a flow resumes in the same segment.
@@ -15,14 +15,14 @@
  * any Worker. It then aborts an advance running on this process (`ctx.abortLocal`); every
  * other process aborts its own on the signal (`control.ts`).
  *
- * A message to a session whose turn runs or waits (protocol 17, D76) is queued
+ * A message to a session whose turn runs or waits (protocol 17) is queued
  * (`session_queue`, `message.queued`) unless it asks `delivery: "reject"`, which is
  * `409 session_busy`. A turn that ends takes every queued message in the same transaction
  * (`startQueuedTurn`): client messages and queued ones start a turn through one door,
  * `beginMessageTurn`, which writes each one's `command.message`. A start the Agent refuses leaves
  * the queue waiting, tried again by the Tenant sweep until the Runtime limit `queuedStartMs`, then
  * failed (`queue.failed`, Host feature `queue-recovery`). A message that asks
- * `delivery: "steer"` (D85) waits marked `steer`, and the running turn takes it before a step
+ * `delivery: "steer"` waits marked `steer`, and the running turn takes it before a step
  * (`takeSteeredMessages`, the `inputs` effect); one it doesn't take starts the next turn like
  * any other.
  */
@@ -84,7 +84,7 @@ export async function command(
   input: SessionCommand,
   scope: AuthScope,
   /**
-   * The W3C trace context the request carried (R7.4): a `message` records it on its
+   * The W3C trace context the request carried: a `message` records it on its
    * `command.message`, and the turn joins the caller's trace. Not part of the command's identity.
    */
   options: {
@@ -120,7 +120,7 @@ export async function command(
       return existing.response;
     }
     let event: LiveEvent;
-    // A tool call the Tool Gate held, which this `approve` answers (R5 step 2).
+    // A tool call the Tool Gate held, which this `approve` answers.
     let held: ToolRow | undefined;
     // The turn a `cancel` ended, if one was active.
     let cancelledTurnId: string | null = null;
@@ -150,7 +150,7 @@ export async function command(
           cancelledTurnId,
           ["invoking", "held"]
         )) {
-          // A tool call ends `cancelled` with its `tool.completed` (R5.1); it may have run.
+          // A tool call ends `cancelled` with its `tool.completed`; it may have run.
           if (effect.request.kind === "tool") {
             await settleToolRow(t, s, effect, {
               kind: "failed",
@@ -164,7 +164,7 @@ export async function command(
             "Turn cancelled before model outcome was durably recorded";
           await t.put("effects", effect.request.effectId, effect);
         }
-      // The cancelled turn's span (R7.1): its duration, agent and totals.
+      // The cancelled turn's span: its duration, agent and totals.
       const ended = cancelledTurnId !== null ? await endTurn(t, s, cancelledTurnId) : {};
       event = await t.event(
         id,
@@ -235,7 +235,7 @@ export async function command(
         command.type === "approve" &&
         (held = await heldCall(t, s, command.interactionId)) !== undefined
       ) {
-        // A tool call the Tool Gate held for approval (R5 step 2). Approved: the replay sends it
+        // A tool call the Tool Gate held for approval. Approved: the replay sends it
         // again and the gate runs it. Denied: it fails to the model as `tool.denied`, unsent.
         if (s.status !== "paused") fail(409, "Session is not awaiting a response");
         if (command.approved) {
@@ -250,7 +250,7 @@ export async function command(
             message: "A person denied this call; it was not sent.",
           });
       } else if (isWorkflowManifest(s.manifest)) {
-        // Approvals owned by linked agent sessions must be answered there (WF-R52).
+        // Approvals owned by linked agent sessions must be answered there.
         const conflict = await foreignInteractionConflict({
           t,
           workflowSessionId: id,
@@ -310,12 +310,12 @@ export async function command(
       }
     }
     if (command.type !== "cancel" && command.type !== "message") {
-      // A paused turn goes on: its wait for a person is not its running time (R7.1).
+      // A paused turn goes on: its wait for a person is not its running time.
       resumeTurn(s);
       s.status = "runnable";
       s.waits = undefined;
       // A flow answers each interaction in the same segment, as a held tool call's approval is
-      // answered (R5 step 2): the interaction names the cause.
+      // answered: the interaction names the cause.
       const cause =
         isWorkflowManifest(s.manifest) || held !== undefined
           ? command.interactionId
@@ -330,7 +330,7 @@ export async function command(
     // A cancel ends the turn, not the queue: the messages waiting start the next one.
     if (command.type === "cancel") await startQueuedTurn(ctx, t, s, id);
     await t.put("sessions", id, s);
-    // Direct cancel of a linked agent fails that node with agent.cancelled (WF-R54). The agent
+    // Direct cancel of a linked agent fails that node with agent.cancelled. The agent
     // session is locked above, before wakeLinkedWorkflow locks its workflow.
     if (command.type === "cancel")
       await wakeLinkedWorkflow({
@@ -352,7 +352,7 @@ export async function command(
     return response;
   });
   if (input.type === "cancel") ctx.abortLocal(id, cancelledTurn ?? undefined);
-  // Cascade cancel linked agents deepest-first under existing fencing (WF-R53).
+  // Cascade cancel linked agents deepest-first under existing fencing.
   for (const agentId of cascadeCancelIds) {
     try {
       await command(
@@ -389,7 +389,7 @@ export interface TurnMessage {
   /** Set for a message that waited in the session's queue. */
   queuedMessageId?: string;
   trace?: TraceContext;
-  /** What sent it when not a client (track T4): a trigger's run, or the session's own wake. */
+  /** What sent it when not a client: a trigger's run, or the session's own wake. */
   cause?: MessageCause;
 }
 
@@ -402,7 +402,7 @@ export interface MessageCause {
 
 /**
  * How a message was taken: it started a turn, or waits in the session's queue, marked with the
- * delivery that applied (D85): `steer` when the running turn may take it before a step.
+ * delivery that applied: `steer` when the running turn may take it before a step.
  */
 export type MessageAnswer =
   | { status: "accepted"; turnId: string; cursor: string }
@@ -414,7 +414,7 @@ export type MessageAnswer =
  * an idle session whose queue was left waiting (its Agent refused the start when the last turn
  * ended, `startQueuedTurn`) tries the start again with all of them, this one last. Past `sessionQueuedMessages` it is
  * `429 queue_full`. `waiting` is the queue's length, read under the session's lock. `asked`
- * `steer` (D85) marks a waiting message so the running turn may take it before a step; a
+ * `steer` marks a waiting message so the running turn may take it before a step; a
  * workflow session can't, so it waits as `queue`.
  */
 export async function acceptMessage(
@@ -469,7 +469,7 @@ export async function acceptMessage(
 }
 
 /**
- * Takes the messages steered into session `s`'s running turn (D85), before step `step`: the
+ * Takes the messages steered into session `s`'s running turn, before step `step`: the
  * `inputs` effect, in the transaction that journals it (`harness-api/record.ts`). Only `steer`
  * rows whose turn request (variant, `removeTools`) is the running turn's join it; the rest wait
  * for the turn's end. Writes each one's `command.message` under the turn, then one `queue.taken`
@@ -535,7 +535,7 @@ async function turnMessage(
     "parts" in command ? await resolveMessageParts(t, command.parts, id, accessOf(scope)) : undefined;
   const fileArtifacts = (parts?.pinned ?? []).flatMap((part) => (part.type === "file" ? [part.artifactId] : []));
   const data = "data" in command ? (command.data as JsonValue) : undefined;
-  // A message's context (ADR-157) rides as its input's metadata, for its own turn only.
+  // A message's context rides as its input's metadata, for its own turn only.
   const context = "context" in command && command.context?.length ? command.context : undefined;
   let input: unknown;
   if (isWorkflowManifest(s.manifest)) {
@@ -627,7 +627,7 @@ async function beginMessageTurn(
   startTurn(s);
   if (first.trace) s.turnTrace = first.trace;
   else delete s.turnTrace;
-  // A trigger's run or a booked wake among the messages started it (track T4).
+  // A trigger's run or a booked wake among the messages started it.
   const cause = messages.find((message) => message.cause)?.cause;
   if (cause) s.turnCause = { kind: cause.kind, triggerId: cause.triggerId, runId: cause.runId };
   else delete s.turnCause;
@@ -677,7 +677,7 @@ type QueuedRow = Awaited<ReturnType<Tx["queuedMessages"]>>[number];
 
 /**
  * Starts the next turn of session `s` (locked) from its queue, when it takes messages and messages
- * wait (protocol 17, D76): in the transaction that ended the last turn, a cancel's, a message's
+ * wait (protocol 17): in the transaction that ended the last turn, a cancel's, a message's
  * that joined a queue left waiting, or the Tenant sweep's (`retryQueuedStarts`). Our engine takes
  * every queued message that carries the same turn manifest as the first, a workflow one. Writes
  * `queue.taken`. Returns nothing when nothing started: an empty queue, or an Agent that refused
@@ -857,11 +857,11 @@ export async function retryQueuedStarts(
   }
 }
 
-/** Core's own commands (R4.9): the flow host's, and a drain's cancels. */
+/** Core's own commands: the flow host's, and a drain's cancels. */
 const CORE_PRINCIPALS: Readonly<Record<string, "flow-host" | "core">> = { "flow-host": "flow-host", drain: "core" };
 
 /**
- * Who sent a command (R4.9), from its credential and never its body: a client over the Runtime
+ * Who sent a command, from its credential and never its body: a client over the Runtime
  * API (an application, or a person through it or a token), or core itself.
  */
 export function commandWriter(scope: AuthScope): EventWriter {
@@ -877,7 +877,7 @@ export function commandWriter(scope: AuthScope): EventWriter {
   return { source: { kind: "client", id: principal.id }, principal };
 }
 
-/** The held tool call of the session's active turn that `interactionId` names (R5 step 2). */
+/** The held tool call of the session's active turn that `interactionId` names. */
 async function heldCall(t: Tx, s: Session, interactionId: string): Promise<ToolRow | undefined> {
   const row = await t.get<ToolRow>("effects", interactionId);
   if (row?.status !== "held") return undefined;

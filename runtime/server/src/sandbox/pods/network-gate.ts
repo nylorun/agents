@@ -1,6 +1,6 @@
 /**
  * The engine in a pod sandbox stays off the network until the pod's NetworkPolicy is in force
- * (F7.2). kindnet applies a new pod's policy asynchronously: a fresh pod reached the API server
+ *. kindnet applies a new pod's policy asynchronously: a fresh pod reached the API server
  * (`10.96.0.1:443`) for 0.5 to 5 s after it started (8a). So before the engine joins, or runs
  * anything, it connects to addresses the policy must block (the API server's service address,
  * `KUBERNETES_SERVICE_HOST:KUBERNETES_SERVICE_PORT`, which the kubelet always sets) until each
@@ -11,7 +11,7 @@
  * in this namespace before) starts the pod into a namespace whose policy has long been in force.
  * The gate then takes `harness.wakeNetworkConfirmations` failed probes of
  * `harness.wakeNetworkProbeMs` (1 of 150 ms) instead of three of a second: 152 ms instead of
- * 3.0 s per wake (the A2 wake lab). It trusts a wake's quick check only while nothing answers:
+ * 3.0 s per wake. It trusts a wake's quick check only while nothing answers:
  * once a blocked address connects, the policy is not in force, and the gate goes back to the full
  * check for every address.
  */

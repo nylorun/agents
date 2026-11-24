@@ -1,5 +1,5 @@
 /**
- * Vendored Agent Plugins (track T7, design §3.4): `plugins/<name>/` holds an Agent Plugin exactly
+ * Vendored Agent Plugins: `plugins/<name>/` holds an Agent Plugin exactly
  * as its author published it. The compiler folds it as the SDK's `.plugin()` does: its skills and
  * its `mcp.json` servers join the agent's, each labelled with the plugin's name and version, and
  * `harness.plugins` lists the plugins they came from. Unlike the SDK's loader, which skips an

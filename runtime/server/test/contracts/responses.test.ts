@@ -298,7 +298,7 @@ it("the Tenant's sandbox settings: GET's config puts back unchanged, and engine.
     expect(refused.status).toBe(400);
     expect(await refused.text()).toContain("memoryMiB");
 
-    // engine.images is retired (ADR-161): refused in a PUT.
+    // engine.images is retired: refused in a PUT.
     const retired = await fetch(`${rt.url}/v1/tenant/sandbox`, {
       method: "PUT",
       headers: { ...management(), "content-type": "application/json" },

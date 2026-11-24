@@ -1,5 +1,5 @@
 /**
- * Trusted issuers (Host feature `trusted-issuers`, F9 I2): JWTs from the operator's own
+ * Trusted issuers (Host feature `trusted-issuers`): JWTs from the operator's own
  * identity provider, declared in the identity file (`identity-file.ts`), accepted as bearers.
  * A token is one of theirs when its unverified `iss` names a configured issuer; it is then
  * verified like this, and nothing else is tried:
@@ -17,7 +17,7 @@
  *   `maxLifetime`); an `iat` in the future is still refused;
  * - a subject the template renders from scalar claims, valid and not reserved.
  *
- * The result is the `token` AuthScope (F9-D12) with `issuer`: only its expiry ends it. An
+ * The result is the `token` AuthScope with `issuer`: only its expiry ends it. An
  * expired token is `401 token_expired`; every other refusal is `401 credential_invalid`
  * (`resource-server.ts`), its reason logged.
  */
@@ -43,7 +43,7 @@ import {
 /**
  * The longest issuer token read: a bearer arrives in a request's headers, which Node refuses past
  * `http.maxHeaderSize` (16 KiB unless `--max-http-header-size` says otherwise). A dependency's
- * constant, not a limit (B15).
+ * constant, not a limit.
  */
 export const MAX_ISSUER_TOKEN_BYTES = maxHeaderSize;
 /** Subjects the Runtime keeps for itself: never an issuer token's. */

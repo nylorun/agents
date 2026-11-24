@@ -1,4 +1,4 @@
-// Package computer is the computer agent (ADR-154 decision 4): what runs in an Agent Substrate
+// Package computer is the computer agent: what runs in an Agent Substrate
 // actor that is a computer, in place of the engine's `--service computer`
 // (runtime/server/src/harness/computer.ts). It serves the same routes with the same tickets and
 // the same answers, which the contract test (testdata/contract.json) holds both to:

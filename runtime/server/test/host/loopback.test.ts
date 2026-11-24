@@ -70,7 +70,7 @@ function assertRejected(
   expect(ERROR_CODES).toContain(parsed.code);
 }
 
-it("A3: Host 127.0.0.1 / localhost / [::1] with listening port are accepted", async () => {
+it("Host 127.0.0.1 / localhost / [::1] with listening port are accepted", async () => {
   const { url } = await startTestHost();
   const port = new URL(url).port;
   for (const host of [
@@ -85,7 +85,7 @@ it("A3: Host 127.0.0.1 / localhost / [::1] with listening port are accepted", as
   }
 });
 
-it("A3: foreign Host is 421 host_rejected on every route including /health", async () => {
+it("foreign Host is 421 host_rejected on every route including /health", async () => {
   const module = createFakeModule();
   const { url } = await startTestHost({ module });
   const port = new URL(url).port;
@@ -107,7 +107,7 @@ it("A3: foreign Host is 421 host_rejected on every route including /health", asy
   }
 });
 
-it("A3: wrong port in Host is rejected; non-configured host rejected with allowNonLoopback", async () => {
+it("wrong port in Host is rejected; non-configured host rejected with allowNonLoopback", async () => {
   const { url } = await startTestHost();
   const port = Number(new URL(url).port);
   const wrong = await rawRequest(`${url}/health`, {
@@ -131,7 +131,7 @@ it("A3: wrong port in Host is rejected; non-configured host rejected with allowN
   assertRejected(foreign.status, foreign.body, "host_rejected", 421);
 });
 
-it("A4: any Origin header yields 403 origin_rejected; no Access-Control-* headers", async () => {
+it("any Origin header yields 403 origin_rejected; no Access-Control-* headers", async () => {
   const { url } = await startTestHost();
   const port = new URL(url).port;
   for (const origin of ["http://localhost:3000", "null", ""]) {
@@ -155,7 +155,7 @@ it("A4: any Origin header yields 403 origin_rejected; no Access-Control-* header
   expect(cors).toEqual([]);
 });
 
-it("A5: body with non-application/json content type is 415", async () => {
+it("body with non-application/json content type is 415", async () => {
   const { url } = await startTestHost();
   const port = new URL(url).port;
   const res = await rawRequest(`${url}/v1/agents`, {
@@ -181,7 +181,7 @@ it("A5: body with non-application/json content type is 415", async () => {
   expect(charset.status).toBe(200);
 });
 
-it("A6: security rejections match RejectedResponseSchema and ERROR_CODES", async () => {
+it("security rejections match RejectedResponseSchema and ERROR_CODES", async () => {
   const { url } = await startTestHost();
   const port = new URL(url).port;
   const cases: Array<{

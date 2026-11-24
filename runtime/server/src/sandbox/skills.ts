@@ -1,6 +1,6 @@
 /**
  * Folders a harness mounts in a sandbox (protocol 15): our engine's skill folders,
- * `/skills/<name>@<hash>/` (`skillFolderOf`, track R2 M4, D66), each one version's files,
+ * `/skills/<name>@<hash>/` (`skillFolderOf`), each one version's files,
  * read-only, so the model can read them and run their scripts with bash. Our engine decides which
  * folders and when (before each sandbox call); the SandboxManager writes them once per open
  * handle (`mountFolder`). A version's folder is written once and never replaced: sessions whose

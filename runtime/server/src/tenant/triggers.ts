@@ -1,5 +1,5 @@
 /**
- * Triggers (track T4, D74): what starts an Agent's turns with no client connected.
+ * Triggers: what starts an Agent's turns with no client connected.
  *
  * An agent manifest declares them in `runtime.triggers`; whether each one is on and when it fires
  * next is the Agent's, in `agent_triggers`. Postgres holds that truth, and one durable timer per
@@ -26,7 +26,7 @@
  * A schedule's runs are moved by a fixed offset (jitter), from a hash of the Agent and trigger id:
  * up to `triggerJitterPercent` of its interval and `triggerJitterMaxMs`.
  *
- * **Origins** (D83). A row's definition comes from where it was made (`origin`, `definitionOf`):
+ * **Origins**. A row's definition comes from where it was made (`origin`, `definitionOf`):
  * `manifest`, the entry of the version the Agent runs; `agent`, the row's own (a trigger an agent
  * made with the `triggers` tool, `agent-triggers.ts`); `wake`, a session's booked wake. Every
  * origin fires through `fireTimer` and `deliverRun`; only where its definition comes from differs.
@@ -71,7 +71,7 @@ function parseTimerKey(key: string): { agentId: string; triggerId: string } | un
   return at <= 0 ? undefined : { agentId: rest.slice(0, at), triggerId: rest.slice(at + 1) };
 }
 
-/** A webhook trigger's endpoint id: `wh_` and 128 random bits, kept across moves (D75). */
+/** A webhook trigger's endpoint id: `wh_` and 128 random bits, kept across moves. */
 export const newEndpointId = () => `wh_${randomBytes(16).toString("hex")}`;
 
 /** A webhook endpoint's path, under the Runtime API's origin. */
@@ -141,7 +141,7 @@ export function nextFireAt(agentId: string, triggerId: string, trigger: Trigger,
 }
 
 /**
- * Why `triggers` cannot be saved (D74): more than `triggersPerAgent`, a cron or time zone croner
+ * Why `triggers` cannot be saved: more than `triggersPerAgent`, a cron or time zone croner
  * refuses, two runs closer than `triggerMinIntervalMs` over the next `triggers.intervalCheckFires`
  * fires, an `at` that is not in the future, a prompt past `triggerPromptChars`.
  */
@@ -203,27 +203,27 @@ async function pinnedOf(t: Tx, agent: Environment): Promise<{ triggers: Record<s
   return {
     triggers: (body?.runtime?.triggers ?? {}) as Record<string, Trigger>,
     declared: harness?.engine?.triggers === true,
-    // The version declares the Runtime's `nylorun-triggers` plugin (ADR-106).
+    // The version declares the Runtime's `nylorun-triggers` plugin.
     plugin: Array.isArray(plugins) && plugins.some((item) => item?.name === "nylorun-triggers"),
   };
 }
 
 /**
- * The line an agent-made trigger's run starts with under the `nylorun-triggers` plugin (ADR-106):
+ * The line an agent-made trigger's run starts with under the `nylorun-triggers` plugin:
  * which trigger woke the turn, and that nobody is watching.
  */
 export function triggerFrame(triggerId: string, title: string | null | undefined): string {
   return `[trigger ${triggerId}${title ? ` · ${title}` : ""} · nobody is watching]`;
 }
 
-/** Where a row's definition comes from (D83): its origin, or `wake` for a booked wake written before origins. */
+/** Where a row's definition comes from: its origin, or `wake` for a booked wake written before origins. */
 export function originOf(row: Pick<AgentTriggerRow, "origin" | "kind">): AgentTriggerRow["origin"] {
   return row.kind === "wake" ? "wake" : row.origin;
 }
 
 /**
- * The definition trigger row `row` fires with (D83): a booked wake's, from its session and note;
- * an agent-made or put trigger's own, from the row (D88); a manifest trigger's, the entry of the version the
+ * The definition trigger row `row` fires with: a booked wake's, from its session and note;
+ * an agent-made or put trigger's own, from the row; a manifest trigger's, the entry of the version the
  * Agent runs (`manifest`, read once by the caller). Undefined when it has none.
  */
 export function definitionOf(row: AgentTriggerRow, manifest: Readonly<Record<string, Trigger>>): Trigger | undefined {
@@ -242,7 +242,7 @@ export function definitionOf(row: AgentTriggerRow, manifest: Readonly<Record<str
 const NO_AGENT_FIELDS = { title: null, definition: null, createdSessionId: null, createdTurnId: null, principal: null } as const;
 
 /**
- * Writes the state of a new Agent's triggers (D74): every trigger of the version it is made from
+ * Writes the state of a new Agent's triggers: every trigger of the version it is made from
  * starts active, with its next time. Arm them after the commit (`armAgentTriggers`).
  */
 export async function createAgentTriggers(t: Tx, agent: Environment, now = new Date()): Promise<void> {
@@ -273,11 +273,11 @@ export async function createAgentTriggers(t: Tx, agent: Environment, now = new D
 }
 
 /**
- * After Agent `agent` (locked) moved from manifest version `from` to the version it now runs (track
- * T3, D73), in the move's transaction: its triggers merge by id. One the new version adds arrives
+ * After Agent `agent` (locked) moved from manifest version `from` to the version it now runs,
+ * in the move's transaction: its triggers merge by id. One the new version adds arrives
  * paused (`new`), one it drops loses its state (its runs stay), and one whose timing changed gets a
  * new generation and next time; a changed prompt or session applies at the next fire. Only rows of
- * origin `manifest` merge (D83): an agent's and a booked wake stay as they are, but for an agent's
+ * origin `manifest` merge: an agent's and a booked wake stay as they are, but for an agent's
  * paused `undeclared`, which resumes on a version that declares `harness.engine.triggers`. A
  * manifest trigger whose id an agent's trigger holds is not added. The sweep arms what changed
  * (`reconcileTriggers`).
@@ -408,8 +408,8 @@ export async function fireTimer(ctx: TenantContext, key: string): Promise<void> 
     if (due > now) return row;
     const agent = await liveEnvironment(t, agentId, { lock: true });
     if (!agent) return undefined;
-    // A booked wake (D77) is its own trigger: its session, with its note as the message; an
-    // agent's (D83) is the row's own definition.
+    // A booked wake is its own trigger: its session, with its note as the message; an
+    // agent's is the row's own definition.
     const pinned = await pinnedOf(t, agent);
     const origin = originOf(row);
     const trigger = definitionOf(row, pinned.triggers);
@@ -455,7 +455,7 @@ export async function fireTimer(ctx: TenantContext, key: string): Promise<void> 
   if (armed) await armTrigger(ctx, armed);
 }
 
-/** Why an agent's trigger is paused: the version its Agent runs lacks `harness.engine.triggers` (D83). */
+/** Why an agent's trigger is paused: the version its Agent runs lacks `harness.engine.triggers`. */
 export const UNDECLARED = "undeclared";
 
 /** What makes a run: its cause's key, when it was due, whether late. */
@@ -463,7 +463,7 @@ interface RunCause {
   runKey: string;
   dueAt: string;
   late: boolean;
-  /** A webhook's delivery: its body, as data under the prompt (D75). */
+  /** A webhook's delivery: its body, as data under the prompt. */
   payload?: WebhookPayload;
 }
 
@@ -474,7 +474,7 @@ export interface WebhookPayload {
   readonly receivedAt: string;
 }
 
-/** Who writes a triggered message: core, for the trigger (R4.9). */
+/** Who writes a triggered message: core, for the trigger. */
 const triggerWriter = (triggerId: string): EventWriter => ({
   source: { kind: "core", id: "runtime" },
   principal: { kind: "trigger", id: triggerId },
@@ -516,7 +516,7 @@ export async function deliverRun(
     title: row.title ?? null,
     streamedAt: null,
   };
-  // Under the `nylorun-triggers` plugin, an agent-made trigger's run is framed (ADR-106).
+  // Under the `nylorun-triggers` plugin, an agent-made trigger's run is framed.
   const framed = origin === "agent" && (await pinnedOf(t, agent)).plugin ? { ...trigger, prompt: `${triggerFrame(triggerId, row.title)}\n${trigger.prompt}` } : trigger;
   const outcome = await runOutcome(ctx, t, agent, triggerId, framed, row.kind, id, firedAt, cause.payload, row.createdSessionId ?? null);
   Object.assign(run, outcome);
@@ -545,7 +545,7 @@ async function runOutcome(
   runId: string,
   firedAt: string,
   payload: WebhookPayload | undefined,
-  /** The session whose agent made the trigger (D83): a session it opens is that session's owner's. */
+  /** The session whose agent made the trigger: a session it opens is that session's owner's. */
   createdBy: string | null,
 ): Promise<Partial<Outcome>> {
   const skipped = (reason: string, sessionId: string | null = null): Partial<Outcome> => ({ status: "skipped", reason, sessionId });
@@ -590,7 +590,7 @@ async function runOutcome(
 
 /**
  * The message a run sends: the trigger's prompt, as core wrote it for the trigger, and under it a
- * webhook's payload as a second text part, labelled as data from an outside sender (D75). The
+ * webhook's payload as a second text part, labelled as data from an outside sender. The
  * label names the data; it does not stop a model following it: the tool policy and the gates do.
  */
 function triggerMessage(
@@ -683,7 +683,7 @@ export function triggerView(row: AgentTriggerRow, trigger: Trigger, origin = "")
 
 /**
  * `GET /v1/agents/{id}/triggers`: the manifest's triggers the Agent holds, and the triggers its
- * agents made (D83); never a session's booked wake.
+ * agents made; never a session's booked wake.
  */
 export async function listTriggers(ctx: TenantContext, agentId: string, origin = ""): Promise<{ triggers: TriggerView[] }> {
   return ctx.store.tx(async (t) => {
@@ -759,7 +759,7 @@ export async function setTriggerStatus(
 }
 
 /**
- * `DELETE /v1/agents/{id}/triggers/{triggerId}` (D83, D88): deletes a trigger one of the Agent's
+ * `DELETE /v1/agents/{id}/triggers/{triggerId}`: deletes a trigger one of the Agent's
  * agents made (origin `agent`) or a client put (origin `api`), with `agent.trigger_deleted`. A
  * manifest's is the manifest's to drop (`409 trigger_from_manifest`); its runs stay.
  */
@@ -816,7 +816,7 @@ export async function listRuns(
 }
 
 // ---------------------------------------------------------------------------
-// Webhooks (D75)
+// Webhooks
 
 /**
  * `POST .../triggers/{triggerId}/secret`: a new signing secret for a webhook trigger, made and
@@ -853,7 +853,7 @@ export interface InboundDelivery {
 const unsigned = (): never => fail(401, "The delivery is not signed with this endpoint's secret", { code: "credential_invalid" });
 
 /**
- * `POST /v1/webhooks/{endpointId}` (D75), after the route read the body within
+ * `POST /v1/webhooks/{endpointId}`, after the route read the body within
  * `webhookBodyBytes`: Standard Webhooks headers present, the timestamp within the Host's
  * `triggers.webhookToleranceMs`, and a signature the keys service verifies with the sealed secret,
  * or `401` and nothing is written. A paused trigger answers `409 trigger_paused` only after that,
@@ -902,7 +902,7 @@ export async function receiveWebhook(
 }
 
 // ---------------------------------------------------------------------------
-// Booked wakes (D77)
+// Booked wakes
 
 /** The id of session `sessionId`'s booked wake among its Agent's triggers: one per session. */
 export const wakeIdOf = (sessionId: string) => `wake:${sessionId}`;
@@ -919,7 +919,7 @@ const DURATION_UNITS: Record<string, number> = { s: 1_000, m: 60_000, h: 3_600_0
 const wakeFailed = (message: string) => ({ kind: "failed", code: "tool.invalid-input", message });
 
 /**
- * `schedule_wake` (D77), served by the record in the call's transaction (a `runtime` effect): on
+ * `schedule_wake`, served by the record in the call's transaction (a `runtime` effect): on
  * session `s` (locked), when the version it runs sets `runtime.selfWake`. `{in | at, note}` books
  * its next turn, replacing a booking before, at least `triggerMinIntervalMs` and at most
  * `wakeMaxAheadMs` ahead, the note at most `wakeNoteChars`; `{cancel: true}` removes the booking.

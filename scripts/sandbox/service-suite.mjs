@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// The sandboxes service on a real cluster (F7.2 8a), driven directly, with busybox pods:
+// The sandboxes service on a real cluster, driven directly, with busybox pods:
 //
 //   npm run test:sandboxes:service -- --context kind-nylorun --host-address 172.17.0.1
 //   npm run test:sandboxes:service -- --context docker-desktop

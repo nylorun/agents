@@ -4,7 +4,7 @@
   "schemaVersion": 39,
   "version": 1,
   "editable": true,
-  "description": "The Runtime's golden signals from its OpenTelemetry metrics (ADR-159): rate, errors, duration and saturation for the API, the model and tool gates, egress, turns and the queue.",
+  "description": "The Runtime's golden signals from its OpenTelemetry metrics: rate, errors, duration and saturation for the API, the model and tool gates, egress, turns and the queue.",
   "tags": [
     "nylorun",
     "opentelemetry"

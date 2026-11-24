@@ -1,5 +1,5 @@
 /**
- * The text diff `nylorun apply` prints under a plan's change to the instructions (track T7): the
+ * The text diff `nylorun apply` prints under a plan's change to the instructions: the
  * plan carries the instructions before and after (`from`, `to`), and the lines that differ print
  * as `-` and `+`, without the lines both keep. Pure.
  */

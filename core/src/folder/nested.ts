@@ -1,5 +1,5 @@
 /**
- * The folders inside an agent folder (track T7, D80; design §3.3, §3.8), compiled by the same
+ * The folders inside an agent folder, compiled by the same
  * compiler, one level in:
  *
  * - **Subagents.** `agents/<id>/` of an agent (no `flow.json` beside it) is an agent folder
@@ -209,7 +209,7 @@ function nestedChecks(ctx: FolderContext): void {
     roles: `roles are the root agent's: ${what} runs in the root agent's session, on its model`,
   };
   for (const [key, message] of Object.entries(keys)) if (ctx.front[key] !== undefined) refuse(message, AGENT_FILE, [key]);
-  // Triggers are the root agent's (D83): a subagent of a parent without them fails engine_subset.
+  // Triggers are the root agent's: a subagent of a parent without them fails engine_subset.
   if (
     isObject(ctx.front.engine) &&
     ctx.front.engine.triggers === true &&
@@ -331,7 +331,7 @@ function composeFlow(ctx: FolderContext): boolean {
       });
   }
   const noted = new Set<string>();
-  // agent-folder/4 (ADR-164): a flow root's mcp.json, skills/, plugins/ and tools are the library
+  // agent-folder/4: a flow root's mcp.json, skills/, plugins/ and tools are the library
   // its stages draw on, not its own.
   const library = !ctx.scope && ctx.engineFacts().v4 !== undefined;
   for (const [path, kind] of ctx.kinds) {

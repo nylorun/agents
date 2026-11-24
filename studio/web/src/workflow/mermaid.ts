@@ -15,7 +15,7 @@ import {
  * stage as a stack (it runs once per item), over several a box around them; a loop its body and
  * verifier, with a dotted retry edge back; an embedded flow agent a box holding its own stages.
  * Agents are rounded boxes, tools and HTTP stages subroutines with their request on a second
- * line. The text carries its own zinc `classDef`s (DESIGN.md: no color outside charts), so it
+ * line. The text carries its own zinc `classDef`s (no color outside charts), so it
  * reads the same pasted anywhere. Needs Mermaid 11.3 or later (the stack shape).
  */
 export function mermaidFromManifest(manifest: WorkflowManifest): string {
@@ -33,7 +33,7 @@ export function mermaidFromManifest(manifest: WorkflowManifest): string {
   return `${lines.join("\n")}\n`;
 }
 
-/** Zinc and white, as DESIGN.md sets every diagram. */
+/** Zinc and white, as Studio draws every diagram. */
 const CLASS_DEFS = [
   "  classDef terminal fill:#09090b,stroke:#09090b,color:#ffffff",
   "  classDef agent fill:#ffffff,stroke:#a1a1aa,color:#09090b",

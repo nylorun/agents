@@ -1,5 +1,5 @@
 /**
- * An Agent's memories (track T5, D72), shaped like Anthropic's memory stores: list, read, write
+ * An Agent's memories, shaped like Anthropic's memory stores: list, read, write
  * whole, delete, and the versions every change leaves. A memory's path is relative to
  * `/memories`, with `/` percent-encoded (`conventions%2Frelease.md`), as an Agent id is. The
  * caller reaches an Agent's memories as it reaches the Agent; writes are `agents:write`.

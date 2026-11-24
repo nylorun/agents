@@ -34,14 +34,14 @@ export function hostPaths(hostRoot: string): HostPaths {
 
 /**
  * Absolute paths of the Tenant directory, `<hostRoot>/tenant/`: a Host serves one Tenant
- * (tenancy.md §1), so the directory has no id segment. Asserts that it stays inside the Host
+ *, so the directory has no id segment. Asserts that it stays inside the Host
  * root after realpath.
  *
  * The directory holds what stays on the Host (the Tenant's data is its database): `home/`,
  * `sandboxes/`, `blobs/` (the `fs` BlobStore, when the Host has no
  * Object store), `logs/tenant.log`. The vault key is the one exception:
  * it lives beside the Tenant directory, in `<hostRoot>/keys/vault-kek`, which the local stack
- * mounts only into the gateway (F4.2), never into the runtime container.
+ * mounts only into the gateway, never into the runtime container.
  */
 export function tenantPaths(hostRoot: string): TenantPaths {
   mkdirSync(hostRoot, { recursive: true });

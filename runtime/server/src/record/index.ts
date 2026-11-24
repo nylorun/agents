@@ -1,5 +1,5 @@
 /**
- * The record module (blueprint D27): the one write path into the record. It builds each event
+ * The record module: the one write path into the record. It builds each event
  * on the `nylorun.event/2` envelope, checks it against the event catalog, and holds the only
  * insert into `session_events` and `session_log_heads`, whose Postgres statements it runs
  * through the store's `RecordWriter` (`store/postgres/record-writer.ts`;

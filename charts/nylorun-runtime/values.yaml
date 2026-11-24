@@ -1,5 +1,5 @@
 # The Nylorun Runtime on an Agent Substrate cluster (charts/nylorun-runtime/README.md).
-# Every Agent with a sandbox gets a computer (ADR-149): the loop runs in the harness, and
+# Every Agent with a sandbox gets a computer: the loop runs in the harness, and
 # commands and files reach the Agent's actor through the sandbox gateway and atenet-router.
 
 # The Runtime, Studio and sandboxes images. Pin them by digest in production
@@ -73,7 +73,7 @@ restate:
   storage: 10Gi
   storageClass: ""
   resources: {}
-  # Partition snapshots to the object store (ADR-147 decision 11), under `path`: on a new disk
+  # Partition snapshots to the object store, under `path`: on a new disk
   # Restate restores from the latest. `interval` writes one each time it passes; empty: none.
   snapshots:
     enabled: true
@@ -103,7 +103,7 @@ substrate:
     enabled: false
     ownerTokenSecret: ""
 
-# The keys provider (ADR-141, ADR-142): Substrate's egress asks it for the header of a keyed
+# The keys provider: Substrate's egress asks it for the header of a keyed
 # request, and it asks the gateway's decide route. It runs in Substrate's namespace, one per
 # cluster, so one release enables it. Install Substrate with
 #   --credential-provider='[{"name":"keys.nylorun.dev","address":"nylorun-keys-provider.<systemNamespace>.svc:50051"}]'
@@ -113,7 +113,7 @@ keysProvider:
 
 computer:
   port: 8080
-  # What serves a computer (ADR-154 decision 4): `go`, the computer agent (one static binary from
+  # What serves a computer: `go`, the computer agent (one static binary from
   # `image`, mounted at /nylo), or `engine`, the Runtime's engine in computer mode, for a Runtime
   # that can't move yet. Moving a Tenant's computers between them gives each a new volume from its
   # latest disk version: take a disk version of every computer first (MIGRATION.md).
@@ -175,7 +175,7 @@ extraEnv:
   gateway: []
   harness: []
 
-# Metrics (ADR-159): the runtime and the gateway serve Prometheus /metrics on port 9464, the port
+# Metrics: the runtime and the gateway serve Prometheus /metrics on port 9464, the port
 # named `metrics` on the <name>-runtime-internal and <name>-gateway Services (never the public
 # one). `from` lists the NetworkPolicy peers that may scrape it, such as
 # [{ namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: monitoring } } }]; empty,

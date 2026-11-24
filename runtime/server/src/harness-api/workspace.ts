@@ -1,5 +1,5 @@
 /**
- * The workspace feature (F6.2): what core does with the Tenant's sandbox workspaces outside a
+ * The workspace feature: what core does with the Tenant's sandbox workspaces outside a
  * run. `ctx.sandbox` is a `WorkspacePort`: the sandbox tool route (`POST
  * /v1/sessions/:id/sandbox/:tool`), Tenant status, the Tenant sweep, a sandbox resource's deletion and a sandboxes reset.
  *
@@ -12,9 +12,9 @@
  *   stop idle workspaces and list them (`workspace.sweep`), decides which owners are gone, and
  *   removes theirs (`workspace.remove`); it also keeps the `sandboxes` table in step with the
  *   list.
- * - **Computers** (ADR-149): a pod Agent's workspace when the Tenant's pod Agents are computers,
+ * - **Computers**: a pod Agent's workspace when the Tenant's pod Agents are computers,
  *   through a SandboxManager on the computer backend (`sandbox/computer.ts`).
- * - **Pod sandboxes** (F7.2, `withPodWorkspaces`): a session attached to a pod sandbox has its
+ * - **Pod sandboxes** (`withPodWorkspaces`): a session attached to a pod sandbox has its
  *   workspace in the pod, served by the sandbox's engine (its host connection). Its tool calls
  *   and disk operations go there whatever serves the other workspaces; with the pod stopped or
  *   starting they are `409 agent_unavailable`.
@@ -45,7 +45,7 @@ export interface WorkspacePort {
     input: unknown,
     signal: AbortSignal
   ): Promise<SandboxToolOutcome>;
-  /** One operation on the disk of the workspace of `session` (R2d step 3). */
+  /** One operation on the disk of the workspace of `session`. */
   disk(
     session: SandboxSessionRef,
     sandbox: SandboxManifest | undefined,
@@ -91,7 +91,7 @@ export interface RemoteWorkspaceOptions {
   readonly logger: Logger;
   /** The sandbox backend preference, reported while no harness serves workspaces. */
   readonly preference: string;
-  /** The pod sandbox whose host serves these workspaces (F7.2). */
+  /** The pod sandbox whose host serves these workspaces. */
   readonly pod?: string;
   /** With `pod`: the oldest host epoch that may serve them (`SandboxSessionRef.hostEpoch`). */
   readonly minEpoch?: number;
@@ -221,7 +221,7 @@ export function remoteWorkspace(options: RemoteWorkspaceOptions): WorkspacePort 
 }
 
 /**
- * Routes the workspaces of sessions attached to a pod sandbox to that sandbox's engine (F7.2);
+ * Routes the workspaces of sessions attached to a pod sandbox to that sandbox's engine;
  * everything else goes to `base`. `podOf` says whether a sandbox resource is a pod sandbox.
  */
 export function withPodWorkspaces(
@@ -229,7 +229,7 @@ export function withPodWorkspaces(
   options: Omit<RemoteWorkspaceOptions, "pod"> & {
     readonly isPod: (environmentId: string) => Promise<boolean>;
     /**
-     * Computers (ADR-149): a pod Agent's workspace, reached through the sandbox gateway rather
+     * Computers: a pod Agent's workspace, reached through the sandbox gateway rather
      * than a pod's host connection.
      */
     readonly computer?: (environmentId: string) => WorkspacePort;

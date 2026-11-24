@@ -1,12 +1,12 @@
 /**
- * F8.2 folder artifacts and the turn-end export: a turn that writes files into
+ * Folder artifacts and the turn-end export: a turn that writes files into
  * `/workspace/outputs` of its (virtual) sandbox yields the session's `outputs` folder, whose tree
  * matches the workspace; later turns add versions only when something changed, unchanged files
  * are not stored again, and the folder reads as a tree, one file by path with Range, a diff
  * between versions, a zip and capability links. Every test runs on the `fs` BlobStore.
  *
- * Pod sandboxes (F7.2b) are read through the same `WorkspaceReader` seam; their half of the
- * F8.2 exit comes with them.
+ * Pod sandboxes are read through the same `WorkspaceReader` seam; their half of these
+ * tests comes with them.
  */
 import { createHash } from "node:crypto";
 import { crc32, inflateRawSync } from "node:zlib";
@@ -374,7 +374,7 @@ it("skips an export past its Agent's own total, which its manifest sets", async 
   });
 });
 
-it("exports the outputs of a sandbox a harness holds over WebSocket (F6.2)", async () => {
+it("exports the outputs of a sandbox a harness holds over WebSocket", async () => {
   const runtime = await boot(
     turns([[bash("mkdir -p outputs/site && printf '<p>hi</p>' > outputs/site/index.html && printf 'x' > scratch.txt")]]),
     { harness: "ws" },

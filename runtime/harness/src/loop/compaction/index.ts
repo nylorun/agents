@@ -1,5 +1,5 @@
 /**
- * Compaction (Model Calls §8): when history no longer fits the model's window, the engine
+ * Compaction: when history no longer fits the model's window, the engine
  * asks the model to summarize the older part and keeps the rest verbatim.
  *
  * The cut rules and the summary format are adapted from the compaction in pi's
@@ -63,7 +63,7 @@ export function contextBudget(
 
 /**
  * The estimate above which a model call compacts first: the model's window minus the reply reserve,
- * or the configured `threshold` when it is lower (ADR-157). Undefined with neither.
+ * or the configured `threshold` when it is lower. Undefined with neither.
  */
 export function compactionLimit(
   budget: ContextBudget | undefined,
@@ -222,7 +222,7 @@ export async function compact(
 ): Promise<readonly TranscriptEntry[] | undefined> {
   const { transcript } = input;
   const config = input.config ?? DEFAULT_COMPACTION_CONFIG;
-  // An agent without `read_artifact` (ADR-100) is offered it in no line, a summary's either.
+  // An agent without `read_artifact` is offered it in no line, a summary's either.
   const readable = input.files?.artifactReads !== false;
   const tokensBefore = estimateTokens(transcript, input.turnId, input.files, config);
   const window = input.budget?.contextWindow ?? tokensBefore;

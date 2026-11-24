@@ -1,5 +1,5 @@
 /**
- * Definition files and skills (track R2 M4): the upload route, an agent manifest refused while
+ * Definition files and skills: the upload route, an agent manifest refused while
  * it names a file the Runtime does not hold, the skill tools the Runtime serves itself, and a
  * skill's files in the session's virtual sandbox. Skills need a sandbox (protocol 16): every
  * manifest here that carries one has a runtime section of kind `virtual`.
@@ -215,7 +215,7 @@ describe("PUT and HEAD /v1/files/{file}", () => {
     expect(sha256(new Uint8Array(await new Response(held!.body).arrayBuffer()))).toBe(sha256(streamedBytes));
   });
 
-  it("takes the SDK's streamed upload of a file it never holds whole (ADR-93)", async () => {
+  it("takes the SDK's streamed upload of a file it never holds whole", async () => {
     const runtime = await boot();
     // 64 MiB of one repeated chunk, made as it is read: the source has no bytes to hand over.
     const chunk = new Uint8Array(1024 * 1024).fill(3);
@@ -477,7 +477,7 @@ describe.each(["memory", "ws"] as const)("skills on a %s harness", (harness) => 
     const BIG = RUNTIME_LIMIT_DEFAULTS.chunkBytes + 3;
     writeFileSync(join(folderOfPlugin, "skills/triage/references/big.txt"), "a".repeat(BIG));
     const agent = Agent({ id: "triager", instructions: "Triage." }).plugin(folderOfPlugin).build();
-    // The version's own folder (D66).
+    // The version's own folder.
     const folder = skillFolderOf(agent.manifest.skills!.triage!);
     expect(folder).toMatch(/^\/skills\/triage@[0-9a-f]{12}$/);
     const runtime = await boot({

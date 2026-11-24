@@ -102,7 +102,7 @@ export interface HarnessExecutors {
    * call names its server and the server's own tool name, an HTTP call the declared tool, and a
    * `sandbox` call runs in the sandbox `routing.sandbox.spec` names. What it answers is the
    * tool's whole result: our engine shapes it before it is recorded. `call.traceparent` is the
-   * call's span context from core's `execute` answer (R7.4): a sandbox command gets it as
+   * call's span context from core's `execute` answer: a sandbox command gets it as
    * `TRACEPARENT`.
    */
   tool(
@@ -123,13 +123,13 @@ export interface HarnessExecutors {
   /** Stops a recoverable tool call at its gate after a user cancel. Never rejects. */
   cancelAtGate?(effect: HostEffect, run: HarnessRun): Promise<void>;
   /**
-   * True when `error` says the hop to the tool call's gate lost its answer (R5.3): sending the
+   * True when `error` says the hop to the tool call's gate lost its answer: sending the
    * call again with the same key joins it, collects its answer, or runs it again. The harness
    * then asks core first (`effect.intent`), which counts the send and stops at its cap.
    */
   resends?(effect: HostEffect, error: unknown, run: HarnessRun): boolean;
   /**
-   * Readies the session's MCP servers before an agent's segment runs (F6.2): discovers their
+   * Readies the session's MCP servers before an agent's segment runs: discovers their
    * tools when the run has no MCP facts yet (`turn.start.mcp`), reconnects them after. `record`
    * keeps what it found in the session (`session.mcp`; the first snapshot recorded wins) and
    * answers the facts the segment runs with. Undefined: nothing to change.
@@ -142,7 +142,7 @@ export interface HarnessExecutors {
   readonly files?: HarnessFiles;
 }
 
-/** What core's `execute` answer says of a tool call beside running it (R7.4). */
+/** What core's `execute` answer says of a tool call beside running it. */
 export interface ToolCallContext {
   readonly traceparent?: string;
 }

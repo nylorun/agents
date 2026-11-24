@@ -1,6 +1,6 @@
 /**
- * How the CLI names itself to the Runtime, for the Runtime's telemetry (`nylorun.client=cli`,
- * ADR-159): the `Nylorun-Client` header on every request it sends, replacing the label the SDKs
+ * How the CLI names itself to the Runtime, for the Runtime's telemetry (`nylorun.client=cli`):
+ * the `Nylorun-Client` header on every request it sends, replacing the label the SDKs
  * it uses would send (`sdk`).
  */
 

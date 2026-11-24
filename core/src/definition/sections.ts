@@ -199,7 +199,7 @@ export function sectionGapsAt(manifest: Pick<AgentManifestV8, "harness" | "runti
  * The loop manifest the harness runs for a version of an agent manifest: the harness section
  * with the manifest's name as its id, in the shape the engine reads (agent manifest v7, workflow
  * manifest v3). The fields only the Runtime reads (`credential`, a skill's `secrets`, `plugins`,
- * `loop`, the harness id) stay out; `engine` (ADR-100), which our engine reads, goes in.
+ * `loop`, the harness id) stay out; `engine`, which our engine reads, goes in.
  */
 export function loopManifestOf(
   manifest: Pick<AgentManifestV8, "name" | "description" | "metadata" | "harness">,
@@ -232,7 +232,7 @@ export function loopManifestOf(
     ...(harness.tools === undefined ? {} : { tools: harness.tools }),
     ...(skills.length === 0 ? {} : { skills: Object.fromEntries(skills) }),
     ...(servers.length === 0 ? {} : { mcpServers: Object.fromEntries(servers) }),
-    // What the agent declares of our engine (ADR-100): the harness reads it for this agent, and
+    // What the agent declares of our engine: the harness reads it for this agent, and
     // an embedded subagent carries its own.
     ...(harness.engine === undefined ? {} : { engine: harness.engine }),
   };

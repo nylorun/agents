@@ -36,7 +36,7 @@ export const sessionTone = (status: string) =>
 
 /**
  * The sessions that run on the Agent (its view lists them), by last activity as Studio read it:
- * none is special (D71). A row opens the session.
+ * none is special. A row opens the session.
  */
 export function AgentSessionsTab({
   agent,

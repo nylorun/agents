@@ -1,5 +1,5 @@
 /**
- * The meter (`gates/meter.ts`, P1.3): what a call records in the usage ledger, and that the
+ * The meter (`gates/meter.ts`): what a call records in the usage ledger, and that the
  * ledger never fails the call.
  */
 import { describe, expect, it } from "vitest";
@@ -55,7 +55,7 @@ describe("usageRow", () => {
     });
   });
 
-  it("keeps the gate's start and end of the call and the first token's time (R7.1)", () => {
+  it("keeps the gate's start and end of the call and the first token's time", () => {
     const timed = { ...answered, evidence: { ...answered.evidence, extras: { ...answered.evidence!.extras, firstTokenMs: 312.4 } } };
     const startedAt = new Date("2030-05-17T13:44:58.000Z");
     expect(usageRow(request, timed, at, { startedAt, endedAt: at })).toMatchObject({
@@ -68,7 +68,7 @@ describe("usageRow", () => {
     expect(untimed).not.toHaveProperty("firstTokenMs");
   });
 
-  it("keeps the adapter's attempts and retries, well-formed retries only (Model Calls §6)", () => {
+  it("keeps the adapter's attempts and retries, well-formed retries only", () => {
     const extras = (more: Record<string, unknown>) => ({
       ...answered,
       evidence: { ...answered.evidence, extras: { ...answered.evidence!.extras, ...more } },
@@ -147,7 +147,7 @@ describe("createMeter", () => {
       tokens: 15,
       costUsd: 0.002,
     });
-    // The gate's timing of the call (R7.1): now() before and after it.
+    // The gate's timing of the call: now() before and after it.
     expect(await store.tx((t) => t.modelUsageOf(request.effectId))).toMatchObject({
       startedAt: at.toISOString(),
       endedAt: at.toISOString(),

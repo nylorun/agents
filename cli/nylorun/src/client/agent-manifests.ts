@@ -1,5 +1,5 @@
 /**
- * `nylorun agent-manifests`: the Tenant's agent manifests (protocol 16, track T2), named and
+ * `nylorun agent-manifests`: the Tenant's agent manifests (protocol 16), named and
  * versioned documents with a harness and a runtime section, through the Runtime API. They are
  * saved with `nylorun apply` (`apply.ts`), which composes them from a folder's files; these
  * commands read and delete them.

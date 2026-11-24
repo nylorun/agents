@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 #
-# ghcr.io/nylorun/computer: the computer agent (ADR-154 decision 4), one static file at /computer.
+# ghcr.io/nylorun/computer: the computer agent, one static file at /computer.
 # A computer's template mounts this image at /nylo, as an image volume, and runs /nylo/computer in
 # the Agent's own image (any Linux image with /bin/sh). It is versioned by its protocol, not with
 # the Runtime: a new tag is a new template for new computers only. Build from the monorepo root:

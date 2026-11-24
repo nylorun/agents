@@ -1,13 +1,13 @@
 /**
- * Placement (F7.2, D38): where a session's harness runs, checked when the session opens and
+ * Placement: where a session's harness runs, checked when the session opens and
  * never downgraded afterwards. The Tenant maps harness ids (`nylorun`, or `*` for the rest) to
  * the hosts they may run on (`environments.config` `placement`): `harness-container` (the
  * Runtime's harness: in process, or the harness container) and `sandbox` (the engine in a pod).
- * Default: both. `"*": { hosts: [] }` refuses every harness the map does not name (R4.1).
+ * Default: both. `"*": { hosts: [] }` refuses every harness the map does not name.
  *
  * A session on a pod Environment runs on `sandbox` (on `harness-container` when pod Agents are
- * computers, ADR-149); every other session (a virtual or `none`
- * Environment, or none) on `harness-container` (D52). A host the Tenant does not allow is
+ * computers); every other session (a virtual or `none`
+ * Environment, or none) on `harness-container`. A host the Tenant does not allow is
  * `409 placement_refused`. A pod Environment needs sandbox pods: without a cluster (`nylorun
  * sandbox enable`), or with the sandboxes service not ready, it is `409 agent_unavailable`.
  */
@@ -21,7 +21,7 @@ import type { TenantPods } from "../tenant/context.js";
 import { fail, failRetryLater } from "../tenant/http.js";
 import { hostTuning } from "../tuning.js";
 
-/** Our harness's id (blueprint D38): what a session runs unless its Environment names another. */
+/** Our harness's id: what a session runs unless its Environment names another. */
 export const HARNESS_ID = DEFAULT_HARNESS;
 
 export const DEFAULT_PLACEMENT: readonly SandboxPlacementHost[] = ["harness-container", "sandbox"];
@@ -43,7 +43,7 @@ export function checkPlacement(
   config: TenantSandboxConfig,
   kind: EnvironmentKind | undefined,
   harness: string = HARNESS_ID,
-  /** Pod Agents are computers (ADR-149): their harness runs in the harness container. */
+  /** Pod Agents are computers: their harness runs in the harness container. */
   computers = false,
 ): void {
   const host: SandboxPlacementHost = kind === "pod" && !computers ? "sandbox" : "harness-container";

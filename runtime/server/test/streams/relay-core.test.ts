@@ -1,5 +1,5 @@
 /**
- * The stream relay over the in-memory record (Durable Streams §7, §20): S2 equals the record,
+ * The stream relay over the in-memory record: S2 equals the record,
  * replays are harmless, lost streams and slots are refilled from the record, and rows of an
  * old basin generation never reach the new one.
  */

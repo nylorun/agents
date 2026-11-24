@@ -48,7 +48,7 @@ export type WorkflowManifest = {
   readonly sandbox?: unknown;
 };
 
-/** How Studio lays out a control node (workflows.md §11). */
+/** How Studio lays out a control node. */
 export type TreeLayout = "row" | "fork" | "lanes" | "map" | "loop" | "leaf";
 
 export type TreeNodeKind =

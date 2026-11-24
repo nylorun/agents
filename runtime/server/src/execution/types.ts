@@ -1,9 +1,16 @@
 /**
- * The Durable Session Execution seam (architecture §12.3).
+ * The Durable Session Execution seam.
  *
  * Durable Session Execution decides when to look at a session again; `advance` is
- * safe to repeat (§10.1). What it owns and what the Session Store owns is said once,
- * under "Durable Session Execution" in `src/CONTEXT.md`. Restate is the supported
+ * safe to repeat. It owns when a session runs: it delivers each wake at least
+ * once, runs at most one advance per session, retries an invocation whose attempt
+ * failed (so an advance whose Worker died runs again and takes the session over),
+ * and keeps every timer. It journals no effect and holds no session state. The
+ * Session Store owns what happened: the checkpoint, the effect journal, the
+ * Record, the lease, and the outbox that hands each committed request to it. Two
+ * Session Store mechanisms overlap it on purpose: the lease's epoch fences an
+ * advance that outlives its attempt, and the Worker's advance deadline bounds
+ * what an abort timeout cannot stop (`tenant/worker.ts`). Restate is the supported
  * implementation
  * (`adapters/execution/restate.ts`); `execution/memory.ts` is the in-process
  * implementation used by unit tests, `startEphemeralRuntime` and a Host
@@ -34,7 +41,7 @@
  *   armed Tenant is a no-op. The sweep sends the outbox's undelivered wakes and,
  *   as a backstop for what an implementation lost, re-wakes orphaned sessions
  *   (`tenant/sweep.ts`).
- * - **One reconcile per sandbox at a time** (F7.2). `sandbox` runs
+ * - **One reconcile per sandbox at a time**. `sandbox` runs
  *   `WorkerHandlers.sandbox` for the key `<tenantId>:<sandboxId>` at least once
  *   after a `reconcile` resolves, never overlapping another run for the key. A
  *   run that answers `retryAfterMs` runs again after it (one pending retry per
@@ -43,7 +50,7 @@
  *   the earlier time, and the run it causes is told which timer fired.
  */
 
-/** Why a session is woken (§12.3, "Where wakes come from"). */
+/** Why a session is woken ("Where wakes come from"). */
 export type WakeReason =
   /** Session commands. */
   | "message"
@@ -55,7 +62,7 @@ export type WakeReason =
   | "flow"
   /** The Tenant sweep and `busy` re-wakes. */
   | "recover"
-  /** A long turn ended a segment at a step boundary and continues in the next (Model Calls §10). */
+  /** A long turn ended a segment at a step boundary and continues in the next. */
   | "rollover";
 
 export const WAKE_REASONS: readonly WakeReason[] = [
@@ -107,7 +114,7 @@ export interface SandboxResult {
 /** What a Worker runs when Durable Session Execution calls it. */
 export interface WorkerHandlers {
   /**
-   * Advances one session (§10.5). `signal` aborts when the Worker stops or the
+   * Advances one session. `signal` aborts when the Worker stops or the
    * session is cancelled through the control bus. Throw only on
    * infrastructure errors.
    */
@@ -121,7 +128,7 @@ export interface WorkerHandlers {
   /** A durable timer set with `timer` fired. Required when `timer` is used. */
   fire?(tenantId: string, key: string): Promise<void>;
   /**
-   * Reconciles one pod sandbox (F7.2), serialized per sandbox. Throw only on infrastructure
+   * Reconciles one pod sandbox, serialized per sandbox. Throw only on infrastructure
    * errors. Required when `sandbox` is used.
    */
   sandbox?(
@@ -142,7 +149,7 @@ export interface DurableExecution {
    */
   timer(tenantId: string, key: string, at: Date): Promise<void>;
   /**
-   * A pod sandbox's reconcile, or one of its timers (F7.2): see "One reconcile per sandbox
+   * A pod sandbox's reconcile, or one of its timers: see "One reconcile per sandbox
    * at a time". Absent where pods are not supported.
    */
   sandbox?(tenantId: string, sandboxId: string, signal: SandboxSignal): Promise<void>;
@@ -155,7 +162,7 @@ export interface DurableExecution {
   /**
    * Stops delivering, aborts running advances' signals and waits for them, up to the
    * implementation's stop grace (Host tuning `execution.stopGraceMs`). Handlers still running then are
-   * abandoned: their sessions' leases lapse and the next advance takes over (§11.4).
+   * abandoned: their sessions' leases lapse and the next advance takes over.
    */
   stop(): Promise<void>;
   /**

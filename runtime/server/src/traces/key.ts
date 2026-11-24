@@ -1,9 +1,9 @@
 /**
- * The Tenant's trace key (R7.2, Q3): 32 random bytes in the Tenant setting `trace.key` (base64),
+ * The Tenant's trace key: 32 random bytes in the Tenant setting `trace.key` (base64),
  * created on first use under the signing keys' lock, as the egress CA is. It is not sealed: it
  * keys trace ids so nobody computes them from a session id, and anyone who can read the setting
  * can read the log the ids point at. Core reads it in both process modes; the gateway never
- * needs it (a tool call's `traceparent` is on its journal row, R7.4).
+ * needs it (a tool call's `traceparent` is on its journal row).
  *
  * Read once per store and kept: a Tenant reset keeps its settings.
  */

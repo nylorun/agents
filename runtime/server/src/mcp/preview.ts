@@ -1,5 +1,5 @@
 /**
- * A remote MCP server's tools before an agent names it (R2b C12, `POST /v1/tenant/mcp/preview`,
+ * A remote MCP server's tools before an agent names it (`POST /v1/tenant/mcp/preview`,
  * `nylorun tenant mcp inspect`, an Environment's Secrets tab in Studio). It runs where plaintext credentials live:
  * the keys service (`keys/keys.ts`, `previewMcp`), in the gateway or in process.
  *
@@ -7,7 +7,7 @@
  * URL (its headers, and its `via`), under the Host's address policy, within 15 s; then it closes.
  * It never calls a tool, and sends no identity header: no person asked. A server that answers
  * `401` is `authRequired`, with its RFC 9728 protected-resource metadata when it publishes any,
- * read under the same policy. No credential value sent is in the answer (`scrubValues`, C8).
+ * read under the same policy. No credential value sent is in the answer (`scrubValues`).
  *
  * Each tool's `modelName` is the name Nylorun's engine would give it (`mcpToolNames` of
  * `@nylorun/harness`, protocol 15): the Runtime itself names no tool, and a harness of your own

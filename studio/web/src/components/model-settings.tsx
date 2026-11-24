@@ -36,7 +36,7 @@ type CatalogProvider = Awaited<ReturnType<ManagementModels["catalog"]>>["provide
 type ConfiguredProvider = Awaited<
   ReturnType<ManagementModels["providers"]>
 >["providers"][number];
-/** A custom endpoint's window, output limit, reasoning, inputs and pi-ai compat (Model Calls §7). */
+/** A custom endpoint's window, output limit, reasoning, inputs and pi-ai compat. */
 type CustomModelSettings = NonNullable<ConfiguredProvider["settings"]>;
 type ModelInput = CatalogProvider["models"][number]["inputs"][number];
 

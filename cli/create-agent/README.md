@@ -51,23 +51,3 @@ Without a Project link, set `NYLORUN_RUNTIME_URL` and `NYLORUN_SERVER_KEY`
 before a production start. Tenant data, including the
 vault, lives in the Tenant's Docker volumes. Definitions have no model provider or
 `agent.run()`.
-
-`starter/` is the canonical template. `compatibility.json` pins core, harness,
-agents, admin and Runtime. `nylorun` pins the Runtime and Studio images
-it runs (`cli/nylorun/package.json` `nylorun`). The examples recipe adds local
-package dependencies. Run `npm run examples:sync` after template changes, then
-`npm install --prefix examples`. Sync preserves authored agents, tests,
-credentials, and local state; it rejects conflicting edits to generated files.
-
-The default examples registry contains the release starter. Advanced examples
-remain outside that registry for later migration.
-
-`npm run test:starter` (`cli/create-agent/scripts/smoke-starter.mjs`) packs the
-workspace, scaffolds the starter from the packed creator, installs `nylorun`
-(and `@nylorun/cli`, which it checks prints nylorun's help)
-beside it (never into it), runs `nylorun start` in it and
-`npm run dev` against a temporary local Tenant, then resets that Tenant,
-seeds the fixture model and runs one turn with the starter's assistant.
-
-See [Releasing](../../docs/contributing/releasing.md) for the Changesets beta workflow. Nothing is
-published by the smoke check.

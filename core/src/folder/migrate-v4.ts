@@ -1,5 +1,5 @@
 /**
- * `agent-folder/3` → `agent-folder/4` (ADR-164): each subagent folder becomes one file,
+ * `agent-folder/3` → `agent-folder/4`: each subagent folder becomes one file,
  * `agents/<id>.md`, and what it held moves into the manifest's library. `nylorun migrate folder
  * <dir> --to 4` plans it here, applies it to a copy, and writes it only when the copy compiles to
  * the same agent manifest.

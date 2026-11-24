@@ -1,5 +1,5 @@
 /**
- * Reads the record back for the stream relay (Durable Streams §7.2–7.3): a session's rows to
+ * Reads the record back for the stream relay: a session's rows to
  * refill a gap in S2, every log head to reconcile after a fresh slot, and the Tenant's current
  * basin generation to tell obsolete rows apart. The trace projector reads a turn's start
  * (`createPostgresTurnMessages`).
@@ -85,9 +85,9 @@ export function createPostgresRecordReader(
 }
 
 /**
- * The trace projector's read of a turn's start (R7.2): the `command.message` that started turn
+ * The trace projector's read of a turn's start: the `command.message` that started turn
  * `turnId` of `sessionId`, or undefined when the log has none. One session's rows, filtered on
- * the turn id in the event (the record has no turn column; no index yet, R8).
+ * the turn id in the event (the record has no turn column; no index yet).
  */
 export function createPostgresTurnMessages(
   sql: Sql,

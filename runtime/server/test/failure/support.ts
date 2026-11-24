@@ -1,6 +1,5 @@
 /**
- * Harness for the failure cases of architecture §17 on the real infrastructure (see `README.md`
- * for the case map). Every Tenant here keeps its state in the test stack's Postgres, runs its
+ * Harness for the failure cases on the real infrastructure. Every Tenant here keeps its state in the test stack's Postgres, runs its
  * advances through the test stack's Restate, and relays its events to the test stack's s2-lite:
  *
  *   npm run test:stack:up -w @nylorun/runtime

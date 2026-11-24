@@ -1,5 +1,5 @@
 /**
- * `nylorun-operate status` (A5, I-D5): whether the Tenant is open and, when it is not, why,
+ * `nylorun-operate status`: whether the Tenant is open and, when it is not, why,
  * from the database and from the running Host's `/ready`. It replaces the Admin API's status.
  */
 import { mkdtemp, rm } from "node:fs/promises";

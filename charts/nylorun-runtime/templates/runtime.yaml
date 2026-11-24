@@ -51,7 +51,7 @@ spec:
             - { name: api, containerPort: 4000 }
             - { name: harness, containerPort: 4200 }
             - { name: worker, containerPort: 9080 }
-            # Prometheus /metrics (ADR-159); OTEL_* settings go in extraEnv.runtime.
+            # Prometheus /metrics; OTEL_* settings go in extraEnv.runtime.
             - { name: metrics, containerPort: 9464 }
           env:
             - { name: NYLORUN_HOME, value: /nylorun }
@@ -83,7 +83,7 @@ spec:
             - { name: NYLORUN_HARNESS_ALLOWED_HOSTS, value: "{{ $n }}-runtime-internal:4200" }
             - name: NYLORUN_HARNESS_TOKEN
               valueFrom: { secretKeyRef: { name: {{ $secret }}, key: harnessToken } }
-            # Pod Agents are computers on this cluster (ADR-149).
+            # Pod Agents are computers on this cluster.
             - { name: NYLORUN_SANDBOXES_URL, value: "http://{{ $n }}-sandboxes:4300" }
             - name: NYLORUN_SANDBOXES_TOKEN
               valueFrom: { secretKeyRef: { name: {{ $secret }}, key: sandboxesToken } }

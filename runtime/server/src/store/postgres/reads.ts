@@ -157,7 +157,7 @@ function publicToolCall(body: ToolRowBody): ToolCall {
     skill: body.skill ?? null,
     plugin: body.plugin ?? null,
     status,
-    // A row written before R5 counted no sends: it was sent once.
+    // An older row counted no sends: it was sent once.
     attempts: body.attempts ?? 1,
     input: request.input ?? null,
     error,
@@ -260,7 +260,7 @@ export function createPostgresReadStore(source: PostgresClient, tenantId: string
                 ? undefined
                 : eq(artifacts.sessionId, filters.sessionId),
               filters.kind === undefined ? undefined : eq(artifacts.kind, filters.kind),
-              // A file stored only for the model (ADR-139) is never listed.
+              // A file stored only for the model is never listed.
               isNull(artifacts.audience),
               // Labels are a flat string map serialized by JSON.stringify. Match its exact
               // key/value pair: jsonb rejects NUL/unpaired surrogate escapes labels may hold.
@@ -438,7 +438,7 @@ export function createPostgresReadStore(source: PostgresClient, tenantId: string
         await requireSession(tx, id, access);
         const cursor = readCursor(tenantId, "tool-calls", { sessionId: id, turnId });
         const key = keyOf(cursor.decode(page.cursor), 2);
-        // In the order of their first send; a row written before R5 has no `startedAt`.
+        // In the order of their first send; an older row has no `startedAt`.
         const startedAt = sql<string>`coalesce(${effects.body}->>'startedAt', '')`;
         const rows = await tx
           .select({ id: effects.id, body: effects.body, startedAt })
@@ -466,7 +466,7 @@ export function createPostgresReadStore(source: PostgresClient, tenantId: string
       read(async (tx) => {
         await requireSession(tx, id, access);
         // The record has no turn column: one session's rows, on the turn id in the event (no
-        // index yet, R8).
+        // index yet).
         const rows = await tx
           .select({ body: sessionEvents.body })
           .from(sessionEvents)

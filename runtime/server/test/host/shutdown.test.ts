@@ -5,7 +5,7 @@
 import { expect, it } from "vitest";
 import { createFakeModule, getJson, startTestHost } from "./support.js";
 
-it("C6: close stops accepting", async () => {
+it("close stops accepting", async () => {
   const module = createFakeModule();
   const { url, host } = await startTestHost({ module });
   expect((await getJson(`${url}/health`)).status).toBe(200);

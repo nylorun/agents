@@ -1,5 +1,5 @@
 /**
- * R2b C7 and C8 at the Tool Gate: the gate answers a tool call's failure with a code and no
+ * Tool call failures at the Tool Gate: the gate answers a tool call's failure with a code and no
  * credential value, before it records the answer in `tool_crossings`; the loop's client turns a
  * coded answer into the failed outcome the model sees, and only a call lost with the gateway (a
  * restart) stays uncertain.
@@ -177,7 +177,7 @@ describe("the loop's client of the gate", () => {
     });
   });
 
-  it("gives mcp.lost to the model for every tool: it may have run, and the model decides (R5)", async () => {
+  it("gives mcp.lost to the model for every tool: it may have run, and the model decides", async () => {
     const connection = await gate({ lookup: failure("mcp.lost", { retryable: true }) as never });
     expect(await callMcpTool(connection.client, "lookup", {})).toMatchObject({
       kind: "failed",
@@ -186,7 +186,7 @@ describe("the loop's client of the gate", () => {
     });
   });
 
-  it("throws GateCallLost for a call another gateway process holds, so it is sent again (R5.3)", async () => {
+  it("throws GateCallLost for a call another gateway process holds, so it is sent again", async () => {
     const connection = await gate({
       charge: { ok: false, error: { uncertain: true, message: "Another gateway process is running this tool call" } },
     });

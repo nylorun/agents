@@ -21,7 +21,7 @@ export interface WorkflowErrorPayload {
 }
 
 /**
- * LiveEvent payloads for workflow sessions (`workflows.md` §11, `loops.md` §4.6).
+ * LiveEvent payloads for workflow sessions.
  *
  * @deprecated Use the event catalog (`EVENT_CATALOG`, `SessionEventOf<"node.agent">` in
  * `@nylorun/core/contracts`): it types the events the Runtime writes. `node.completed` is

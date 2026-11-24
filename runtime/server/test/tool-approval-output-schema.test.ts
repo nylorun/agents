@@ -7,7 +7,7 @@ import { startToolServer, type ToolServer } from "./support/tool-server.js";
 import { setToolPolicy } from "./support/tool-policy.js";
 
 /**
- * An HTTP tool with an output schema that the Tenant's tool policy asks about (R5 step 2)
+ * An HTTP tool with an output schema that the Tenant's tool policy asks about
  * pauses for the approval instead of failing as `tool.invalid-output`; approving makes the call
  * and checks its answer against the schema, and denying fails it as `tool.denied` without
  * calling the service.

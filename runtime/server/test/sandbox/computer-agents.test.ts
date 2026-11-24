@@ -1,13 +1,13 @@
 /**
- * Computer Agents in the Runtime (ADR-149, ADR-154) against an in-memory sandboxes service
+ * Computer Agents in the Runtime against an in-memory sandboxes service
  * (`fake-sandboxes.ts`) and a sandbox gateway that serves each computer's routes
  * (`harness/computer.ts`) from a local workspace:
  *
- * - R3: a turn does not wake a sleeping computer; its first command does, and a failed one is
+ * - A turn does not wake a sleeping computer; its first command does, and a failed one is
  *   still asked to run by a turn.
- * - D1: an idle suspend measures the disk first (`diskBytes` on `agent.suspended`), and a wake
+ * - An idle suspend measures the disk first (`diskBytes` on `agent.suspended`), and a wake
  *   logs how long it waited.
- * - R13: a `virtual` Agent becomes a computer with an explicit `PUT`, keeping its sessions,
+ * - A `virtual` Agent becomes a computer with an explicit `PUT`, keeping its sessions,
  *   memory, vault and triggers, seeded from another Agent's disk version; a save alone does not
  *   move it, and every refusal.
  * - Disk versions copy the computer's own disk (`POST /v1/disk`): a snapshot holds its files, and
@@ -208,8 +208,8 @@ async function sleepingComputer(id: string, manifest: string): Promise<string> {
 /** The sandbox name of Agent `id`'s first computer. */
 const nameOf = (id: string) => podName(runtime.handle.envelope.id, id, 0);
 
-describe("a computer wakes on its first command (R3)", { timeout: 90_000 }, () => {
-  it("measures the disk before an idle suspend (D1)", async () => {
+describe("a computer wakes on its first command", { timeout: 90_000 }, () => {
+  it("measures the disk before an idle suspend", async () => {
     await sleepingComputer("wake/one", "wake-one");
     const suspended = (await events("wake/one")).find((event) => event.type === "agent.suspended");
     expect(suspended?.payload).toEqual({ reason: "idle", diskBytes: 16 * 1024 });
@@ -277,7 +277,7 @@ describe("disk versions of a computer", { timeout: 90_000 }, () => {
   });
 });
 
-describe("a virtual Agent becomes a computer (R13)", { timeout: 90_000 }, () => {
+describe("a virtual Agent becomes a computer", { timeout: 90_000 }, () => {
   /** A virtual Agent `id` of manifest `manifest`, with a session, a memory, a secret and a trigger. */
   async function virtualAgent(id: string, manifest: string): Promise<void> {
     await save(manifest, { kind: "virtual" }, { memory: true });

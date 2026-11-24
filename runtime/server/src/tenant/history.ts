@@ -1,5 +1,5 @@
 /**
- * One history (blueprint P0.3): the own loop's model-facing transcript is a fold of the
+ * One history: the own loop's model-facing transcript is a fold of the
  * session's record, not a copy on the session row.
  *
  * - **Write.** After a segment that keeps the engine's state (a rollover, or a settle that is

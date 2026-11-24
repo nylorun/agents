@@ -3,7 +3,7 @@ import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import { compileAgentFolder, folderTextPaths, type AgentFolderDiagnostic, type AgentFolderEntry } from "../src/folder/index.js";
 
-/** agent-folder/4 (ADR-164, D97): a subagent is one file, drawing on the manifest's library. */
+/** agent-folder/4: a subagent is one file, drawing on the manifest's library. */
 
 const encoder = new TextEncoder();
 

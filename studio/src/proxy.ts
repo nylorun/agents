@@ -7,10 +7,10 @@ const LOCAL_OWNER = "local-developer";
 const COVERAGE = "/v1/tenant/credential-coverage";
 /** One Agent (protocol 16): its id is one percent-encoded path segment. */
 const AGENT = String.raw`/v1/agents/[^/]+`;
-/** The agent manifests (protocol 16, track T2), and one by its name. */
+/** The agent manifests (protocol 16), and one by its name. */
 const MANIFESTS = "/v1/agent-manifests";
 const MANIFEST = String.raw`/v1/agent-manifests/[^/]+`;
-/** A version's source (track T6): the folder it was saved from, and one of its files. */
+/** A version's source: the folder it was saved from, and one of its files. */
 const MANIFEST_SOURCE = String.raw`${MANIFEST}/versions/[1-9]\d*/source`;
 const MANIFEST_SOURCE_FILE = String.raw`${MANIFEST_SOURCE}/files/[^/]+`;
 /** A definition file by its hash (`PUT /v1/files/sha256:<hex>`), which an agent folder names. */
@@ -74,7 +74,7 @@ function isAgentWrite(method: string, path: string): boolean {
 
 /**
  * Management API checks Studio's key makes as itself: a preview of the tools behind a URL
- * (`POST /v1/tenant/mcp/preview`, R2b C12), which may send an Agent's credential, and an Agent's
+ * (`POST /v1/tenant/mcp/preview`), which may send an Agent's credential, and an Agent's
  * credential coverage (`POST /v1/tenant/credential-coverage`), which reads no secret.
  */
 function isManagementCheck(method: string, path: string): boolean {
@@ -101,7 +101,7 @@ export type StudioProxyOptions = {
 };
 
 /**
- * The header a client names itself with, for the Runtime's telemetry (ADR-159): Studio labels
+ * The header a client names itself with, for the Runtime's telemetry: Studio labels
  * every request it sends the Runtime `studio`, whatever the browser sent. Studio emits no
  * telemetry itself.
  */
@@ -198,7 +198,7 @@ export async function proxyRuntime(
     method === "GET" &&
     (path === "/v1/sessions" ||
       // A session's model usage, for its Usage tab: its totals, its model and tool calls; and its
-      // model. A turn's trace, for the Events tab's Trace view (ADR-159).
+      // model. A turn's trace, for the Events tab's Trace view.
       /^\/v1\/sessions\/[^/]+(?:\/(items|events|manifest|usage|calls\/model|calls\/tool|model))?$/.test(path) ||
       /^\/v1\/sessions\/[^/]+\/turns\/[^/]+\/trace$/.test(path) ||
       path === "/v1/tenant" ||

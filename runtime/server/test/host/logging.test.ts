@@ -7,7 +7,7 @@ import {
   tenantHeaders,
 } from "./support.js";
 
-it("C9: Host logger records routing outcome without bearer or session ids", async () => {
+it("Host logger records routing outcome without bearer or session ids", async () => {
   const lines: string[] = [];
   const sessionId = "sess_secret_should_not_appear";
   const module = createFakeModule();

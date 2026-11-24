@@ -302,7 +302,7 @@ describe("compaction and files (protocol 12)", () => {
     expect(JSON.stringify(calls[0]!.call.prompt)).not.toContain('"media"');
   });
 
-  it("offers read_artifact in no line for an agent without it (ADR-100)", async () => {
+  it("offers read_artifact in no line for an agent without it", async () => {
     const calls: { call: ModelCall; invocationId: string }[] = [];
     const next = await compact({
       transcript: [
@@ -510,7 +510,7 @@ describe("compaction in the turn loop", () => {
     expect(replay).toEqual(result);
   });
 
-  it("drops the pinned text at a compaction, so the next segment pins it afresh (track T5)", async () => {
+  it("drops the pinned text at a compaction, so the next segment pins it afresh", async () => {
     const manifest = agent().manifest;
     const checkpoint = createDurableCheckpoint({
       manifest,
@@ -532,7 +532,7 @@ describe("compaction in the turn loop", () => {
     ).toBeUndefined();
   });
 
-  it("compacts at the Agent's threshold, far below the window (ADR-157)", async () => {
+  it("compacts at the Agent's threshold, far below the window", async () => {
     const manifest = agent().manifest;
     const checkpoint = createDurableCheckpoint({
       manifest,
@@ -570,7 +570,7 @@ describe("compaction in the turn loop", () => {
   });
 });
 
-describe("compaction settings an Agent sets (ADR-157)", () => {
+describe("compaction settings an Agent sets", () => {
   it("fires at the lower of the threshold and the window line", () => {
     const budget = { contextWindow: 1_000_000, reserve: 16_384 };
     expect(compactionLimit(budget)).toBe(983_616);

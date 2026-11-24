@@ -1,6 +1,6 @@
 /**
  * On Agent Substrate a pod's commands reach keyed hosts through Substrate's egress, which ends TLS
- * with its own CA (ADR-142). With no egress proxy, the engine still writes a trust bundle (the
+ * with its own CA. With no egress proxy, the engine still writes a trust bundle (the
  * public roots, the join's CA and Substrate's egress CA) and names it in the trust variables; with
  * neither the CA file nor a proxy it sets nothing, as before.
  */

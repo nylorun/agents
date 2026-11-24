@@ -3,7 +3,7 @@ import { chmod, readFile } from "node:fs/promises";
 import { CliError } from "../errors.js";
 
 /**
- * Restate request identity (Runtime Architecture §9.1, §12.3). Restate signs
+ * Restate request identity. Restate signs
  * every request to the Worker endpoint with an Ed25519 private key; the
  * Runtime accepts only requests that verify against the public key.
  *

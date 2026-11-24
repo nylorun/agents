@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Pod sandboxes end to end (F7.2 8b, S10) on a real cluster:
+// Pod sandboxes end to end (S10) on a real cluster:
 //
 //   npm run test:sandboxes -- --context kind-nylorun --host-address 172.17.0.1
 //   npm run test:sandboxes -- --context docker-desktop
@@ -23,7 +23,7 @@
 // - the sandboxes container restarted (`docker restart`) right after a create;
 // - reset → a new, empty volume; PVC and pod deleted → `agent.lost`, turns refused
 //   (`agent_lost`) until a reset;
-// - credentials for skills (R2c): an `environment_secret` slot of the runtime, its value written
+// - credentials for skills: an `environment_secret` slot of the runtime, its value written
 //   into the Agent's vault, is `nylorun_managed` in the pod, and a public header-echo host it is
 //   bound to receives the real header through egress-gate;
 // - no pod mounts a host path; `nylorun sandbox disable` → kind pod is `agent_unavailable`.
@@ -109,7 +109,7 @@ http.createServer((req, res) => {
 const STUB_ALIAS = "pods-model";
 
 /**
- * Appended to every turn's command; runs only in a session with the probe credential (R2c). It
+ * Appended to every turn's command; runs only in a session with the probe credential. It
  * prints the variable the pod sees, then asks a public header-echo service (the first that
  * answers) what `Authorization` it received, and prints only its sha256: the real value never
  * reaches the session.
@@ -207,7 +207,7 @@ try {
     const completed = async (session) => (await items(session)).filter((item) => item.type === "turn.completed").length;
     /**
      * The history once it holds `n` `turn.completed`. `/items` reads the session's stream, which
-     * the relay feeds from the record after commit (Durable Streams §7, §9.4), so it can trail the
+     * the relay feeds from the record after commit, so it can trail the
      * session view, most after a restart. The relay keeps a session's order: what the record holds
      * before that event is in the history too.
      */
@@ -274,7 +274,7 @@ try {
       tenant = await stack.tenant();
       await api("PUT", "/v1/tenant/sandbox", {
         requestId: randomUUID(),
-        // The echo hosts the credentials step's Agent reaches (R2c), in place of the dev preset.
+        // The echo hosts the credentials step's Agent reaches, in place of the dev preset.
         limits: { idle: "10m", network: ECHO_HOSTS },
         lifecycle: { stopGrace: "10s" },
       });
@@ -310,7 +310,7 @@ try {
         network: { allowedHosts: ECHO_HOSTS },
         secrets: { PROBE_TOKEN: { type: "environment_secret", allowedHosts: ECHO_HOSTS } },
       });
-      // The runtime declares the slot (D64): its name is the variable the pod sees, and the
+      // The runtime declares the slot: its name is the variable the pod sees, and the
       // Agent's vault holds only the value.
       const written = await api("PUT", `${agentPath("pods/creds")}/secrets/PROBE_TOKEN`, {
         requestId: randomUUID(),

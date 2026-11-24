@@ -1,5 +1,5 @@
 /**
- * R2 M3: HTTP tools in the manifest. A tool is an agent or an HTTP request (never both), `fn`
+ * HTTP tools in the manifest. A tool is an agent or an HTTP request (never both), `fn`
  * and `command` are reserved, and `approval` is static: on an HTTP tool, or on a remote MCP
  * server for all its tools.
  */
@@ -106,7 +106,7 @@ describe("the manifest's HTTP tools", () => {
     expect(hashManifest(restored.manifest)).toBe(hashManifest(json));
     const tool = restored.getBinding().tools[0]!;
     expect(httpToolOf(tool)).toEqual({ http: json.tools[0]!.http, approval: "always" });
-    // The Tool Gate holds such a call (R5 step 2): the tool itself never asks.
+    // The Tool Gate holds such a call: the tool itself never asks.
     expect(tool.approval).toBeUndefined();
   });
 });
@@ -117,7 +117,7 @@ describe("http()", () => {
     expect(() =>
       http({ name: "refund", input: z.object({}), url: "https://example.com/x", timeoutMs: 2 ** 31 }),
     ).toThrow(/timeoutMs/);
-    // Tool approvals are the Tenant's tool policy (R5 step 2).
+    // Tool approvals are the Tenant's tool policy.
     expect(() =>
       http({ name: "refund", input: z.object({}), url: "https://example.com/x", approval: "always" } as never),
     ).toThrow(/approval was removed/);

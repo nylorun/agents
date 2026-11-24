@@ -1,7 +1,7 @@
 /**
- * An Agent's lifecycle stream (blueprint D39, F7.1; an Environment's before protocol 16):
+ * An Agent's lifecycle stream (an Environment's before protocol 16):
  * `agent.created`, `agent.attached`, `agent.detached` and `agent.deleted` (and the rest of
- * `AGENT_EVENT_TYPES`, egress-gate's `agent.egress` for every connection among them, D67), on
+ * `AGENT_EVENT_TYPES`, egress-gate's `agent.egress` for every connection among them), on
  * the `nylorun.agent-event/1` envelope, numbered from 0 per Agent id in
  * `nylorun_streams.agent_events`. The record module is its only writer, as for session events;
  * the store runs the two statements through `AgentRecordWriter` in the caller's transaction, under

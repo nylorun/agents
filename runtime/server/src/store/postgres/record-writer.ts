@@ -1,7 +1,7 @@
 /**
- * The record's Postgres statements (Durable Streams §6), which the record module runs through
- * `RecordWriter` (`record/append.ts`, blueprint D27): the only inserts into `session_events`
- * and `session_log_heads`. They sit here, behind the driver boundary (session-store.md §3), and
+ * The record's Postgres statements, which the record module runs through
+ * `RecordWriter` (`record/append.ts`): the only inserts into `session_events`
+ * and `session_log_heads`. They sit here, behind the driver boundary, and
  * run in the store's transaction under the caller's session row lock.
  */
 import { eq, sql } from "drizzle-orm";

@@ -1,5 +1,4 @@
-// Package substrate runs the Tenant's sandboxes as Agent Substrate actors (ADR-138, Phase 1:
-// preview). It keeps the sandboxes service's contract with core: one actor per sandbox
+// Package substrate runs the Tenant's sandboxes as Agent Substrate actors (preview). It keeps the sandboxes service's contract with core: one actor per sandbox
 // incarnation (the Sandbox name sbx-<16>-g<gen>), with an ActorTemplate rendered for it from the
 // same Spec the agent-sandbox driver renders a pod from.
 package substrate
@@ -36,12 +35,12 @@ const (
 	// CAFile is the edge's CA plus Substrate's egress CA, for NODE_EXTRA_CA_CERTS.
 	CAFile = "/tmp/.nylorun-ca.pem"
 	// BlockedProbe is the address the engine's network check expects refused: an actor's TCP
-	// connects all reach atunnel, except link-local ones (lab §3.5).
+	// connects all reach atunnel, except link-local ones.
 	BlockedProbe = "169.254.169.254:80"
 )
 
-// ReconnectTuning is the engine's reconnect without its 5 s wait after a restore (lab §3.8:
-// 4.9 s -> 0.22 s at p50). It is merged under the operator's own tuning.
+// ReconnectTuning is the engine's reconnect without its 5 s wait after a restore (4.9 s
+// -> 0.22 s at p50). It is merged under the operator's own tuning.
 var ReconnectTuning = map[string]any{"harness": map[string]any{
 	"reconnectStopMs": 0, "reconnect": map[string]any{"minMs": 1, "maxMs": 1000}}}
 
@@ -56,7 +55,7 @@ type Network struct {
 // Settings are the Tenant-wide parts of a template.
 type Settings struct {
 	Atespace string
-	// ImageMirrors maps a workload image's repository to its mirror (ADR-161): the template
+	// ImageMirrors maps a workload image's repository to its mirror: the template
 	// names the mirror, and the state keeps the image as resolved, under the Agent's name.
 	ImageMirrors driver.Mirrors
 	// HarnessURL and GatesURL are the edge's addresses for actors.
@@ -65,7 +64,7 @@ type Settings struct {
 	EdgeHost string
 	// EdgeAddress is the address EdgeHost resolves to (the Docker host's, as `enable` found it).
 	// The wrapper pins it in the actor's /etc/hosts, so reaching the edge needs no DNS lookup: a
-	// restored actor's first lookup can be lost (P1.8). Egress routes the edge by its TLS name,
+	// restored actor's first lookup can be lost. Egress routes the edge by its TLS name,
 	// so the address only has to be one the actor can dial. Empty leaves the edge to DNS.
 	EdgeAddress string
 	// EdgePorts are the edge's ports.
@@ -75,16 +74,16 @@ type Settings struct {
 	// WorkerSelector picks the worker pool; empty for any.
 	WorkerSelector map[string]string
 	// KeysProvider is the keys provider's name, the host of its ate-secret:// references
-	// (ADR-142); empty when keys are off, and keyed hosts are then passed through like any other.
+	//; empty when keys are off, and keyed hosts are then passed through like any other.
 	KeysProvider string
-	// ComputerPort, when not 0, makes every sandbox a computer (ADR-149): its engine runs
+	// ComputerPort, when not 0, makes every sandbox a computer: its engine runs
 	// `--service computer` on this port, with no join token, edge or loop.
 	ComputerPort int
 	// TicketKey is the PEM public key the computer checks tickets with (with ComputerPort).
 	TicketKey string
 	// ComputerAgent is what serves a computer (with ComputerPort, entrypoint engine): AgentGo, the
 	// computer agent from ComputerImage, or AgentEngine (the default when empty), the Runtime's
-	// engine in computer mode, from the spec's harnessImage (ADR-154 decision 4).
+	// engine in computer mode, from the spec's harnessImage.
 	ComputerAgent string
 	// ComputerImage is the computer agent's image (ghcr.io/nylorun/computer, by digest), for
 	// AgentGo.
@@ -152,7 +151,7 @@ func renderComputer(s Settings, spec driver.Spec, images Resolved) (map[string]a
 	if len(spec.Command) > 0 {
 		container["command"] = spec.Command
 	} else if spec.Entrypoint == driver.EntrypointEngine && s.ComputerAgentGo() {
-		// The computer agent (ADR-154 decision 4): its own image in place of the Runtime's, at the
+		// The computer agent: its own image in place of the Runtime's, at the
 		// same volume and path, run as the actor's only process. It does the wrapper's work itself,
 		// so starting it needs no shell, and it reads the same variables.
 		image := images.Computer
@@ -178,7 +177,7 @@ func renderComputer(s Settings, spec driver.Spec, images Resolved) (map[string]a
 			volumes = append(volumes, map[string]any{"name": EngineVolume, "image": map[string]any{"reference": images.Harness}})
 		}
 		container["command"] = append([]string{"/bin/sh", "-c", computerWrapper, "nylorun-computer"}, computerArgs()...)
-		// ResumeActor returns only once the engine answers (ADR-148 decision 4).
+		// ResumeActor returns only once the engine answers.
 		container["wakeupProbe"] = map[string]any{
 			"httpGet":        map[string]any{"path": "/ready", "port": s.ComputerPort},
 			"timeoutSeconds": 120,
@@ -196,7 +195,7 @@ func baseVolumes() ([]any, []any) {
 		map[string]any{"name": "trust", "mountPath": TrustDir},
 		map[string]any{"name": "workspace", "mountPath": "/workspace"},
 		map[string]any{"name": "harness", "mountPath": "/harness"},
-		// The engine writes the session's skills here (track R2 M4), as the pods driver's volume.
+		// The engine writes the session's skills here, as the pods driver's volume.
 		// A volume, not a directory the wrapper makes at the root: an image that runs as a user
 		// other than root (uid 1000, as most computer images) can't create /skills.
 		map[string]any{"name": "skills", "mountPath": "/skills"},
@@ -334,7 +333,7 @@ func deepMerge(into, from map[string]any) {
 
 // RenderTemplate is the ActorTemplate for a sandbox incarnation, before its name is set. The
 // spec is normalized. joinToken is the incarnation's; it lives in the template's environment
-// until the incarnation is deleted (Phase 1b replaces it with an identity join).
+// until the incarnation is deleted.
 func RenderTemplate(s Settings, spec driver.Spec, images Resolved, joinToken string) (map[string]any, error) {
 	if s.Computer() {
 		return renderComputer(s, spec, images)
@@ -348,7 +347,7 @@ func RenderTemplate(s Settings, spec driver.Spec, images Resolved, joinToken str
 		"NYLORUN_GATES_URL":             s.GatesURL,
 		"NYLORUN_SANDBOX_BLOCKED_PROBE": BlockedProbe,
 		// Substrate's egress CA, which commands must trust for hosts whose keys the egress adds
-		// (ADR-142): the engine writes it with the public roots into the bundle the trust
+		//: the engine writes it with the public roots into the bundle the trust
 		// variables name.
 		"NYLORUN_SANDBOX_EGRESS_CA_FILE": TrustDir + "/egress.pem",
 	}
@@ -385,7 +384,7 @@ func RenderTemplate(s Settings, spec driver.Spec, images Resolved, joinToken str
 		map[string]any{"name": "trust", "mountPath": TrustDir},
 		map[string]any{"name": "workspace", "mountPath": "/workspace"},
 		map[string]any{"name": "harness", "mountPath": "/harness"},
-		// The engine writes the session's skills here (track R2 M4), as the pods driver's volume.
+		// The engine writes the session's skills here, as the pods driver's volume.
 		// A volume, not a directory the wrapper makes at the root: an image that runs as a user
 		// other than root (uid 1000, as most computer images) can't create /skills.
 		map[string]any{"name": "skills", "mountPath": "/skills"},
@@ -542,7 +541,7 @@ func ToProto(rendered map[string]any, name string) (*ateapi.ActorTemplate, error
 // EgressPolicy is the actor's singleton policy: the edge passed through (the engine's
 // WebSocket and its gates), the Agent's hosts over TLS (passed through, 443) and cleartext HTTP
 // (80), and, with keys on, an https rule per keyed host whose header Substrate's egress fills from
-// the keys provider (ADR-142). A keyed pattern leaves the passthrough rule: Substrate refuses two
+// the keys provider. A keyed pattern leaves the passthrough rule: Substrate refuses two
 // rules that tie on a name and port, and an exact keyed host already wins over a wildcard.
 func EgressPolicy(s Settings, network Network, keys *driver.SpecKeys) (*ateapi.EgressPolicy, error) {
 	edgePorts := make([]any, 0, len(s.EdgePorts))

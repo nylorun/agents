@@ -1,5 +1,5 @@
 /**
- * The Runtime's primitives as its own Agent Plugins (ADR-106, D84): an `agent-folder/3` folder
+ * The Runtime's primitives as its own Agent Plugins: an `agent-folder/3` folder
  * declares them by name under `plugins:`, they compile to the `agent-folder/2` declarations they
  * stand for plus `harness.engine.plugins`, and the engine presents their tools as server
  * `nylorun`, each keeping its effect.
@@ -122,7 +122,7 @@ describe("agent-folder/3", () => {
     expect(result.diagnostics.find((item) => item.code === "v3_refused")!.message).toContain("migrate folder <dir> --to 3");
   });
 
-  it("keeps loop as the harness's own settings, such as compaction (ADR-157), beside what the plugins stand for", () => {
+  it("keeps loop as the harness's own settings, such as compaction, beside what the plugins stand for", () => {
     const result = compile({
       "AGENT.md": agent(`${ALL}loop:\n  compaction:\n    threshold: 40000\n    roles: { builder: { threshold: 120000 } }\n`),
       "runtime.json": JSON.stringify({ kind: "virtual" }),

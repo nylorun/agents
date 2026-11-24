@@ -8,7 +8,7 @@
 # The BlobStore suite runs against its RustFS when NYLORUN_TEST_S3_ENDPOINT is set
 # (http://127.0.0.1:59000 by default; CI's integration job sets it).
 #
-# The R7 exit test's stock OpenTelemetry Collector is in the `traces` profile, so the other jobs
+# The tracing end-to-end test's stock OpenTelemetry Collector is in the `traces` profile, so the other jobs
 # do not start it: `NYLORUN_TEST_PROFILES=traces npm run test:stack:up -w @nylorun/runtime`. It
 # writes what it receives to NYLORUN_TEST_OTEL_DIR (default /tmp/nylorun-test-otel), which
 # `up.mjs` creates writable for it.
@@ -21,7 +21,7 @@ name: nylorun-test
 services:
   postgres: # Session Store
     image: postgres:17.11
-    # Logical replication for the stream relay (Durable Streams §14). Every test file has its
+    # Logical replication for the stream relay. Every test file has its
     # own database and pool, and files run in parallel: room for many connections.
     # wal_sender_timeout=24s: Postgres asks for a keepalive reply every 12s (half of it), and a
     # caught-up relay confirms past WAL that holds none of its rows (other test databases,
@@ -95,7 +95,7 @@ services:
     tmpfs:
       - /data:uid=10001,gid=10001,mode=0700 # the image runs as rustfs (10001)
 
-  otel-collector: # the R7 exit test's stock collector (profile `traces`), file exporter
+  otel-collector: # the tracing end-to-end test's stock collector (profile `traces`), file exporter
     image: otel/opentelemetry-collector:0.161.0
     profiles: [traces]
     command: ["--config=/etc/otelcol/nylorun.yaml"]

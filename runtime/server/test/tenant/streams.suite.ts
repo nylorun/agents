@@ -1,5 +1,5 @@
 /**
- * The Tenant's Durable Streams seam end to end (architecture §12.4, §11.1, §11.5, §17): history,
+ * The Tenant's Durable Streams seam end to end: history,
  * session SSE, tool calls and cancel, read from streams. Runs on the in-memory streams
  * (`streams.test.ts`) and on s2-lite (`streams.integration.test.ts`).
  *

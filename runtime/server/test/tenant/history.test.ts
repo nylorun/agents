@@ -1,5 +1,5 @@
 /**
- * One history (blueprint P0.3): the edits a settled segment records and the fold that rebuilds
+ * One history: the edits a settled segment records and the fold that rebuilds
  * the transcript from them.
  */
 import { describe, expect, it } from "vitest";

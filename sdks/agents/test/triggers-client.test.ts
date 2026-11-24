@@ -1,7 +1,7 @@
 /**
- * The triggers capability's client calls (D83, Host feature `agent-triggers`):
- * `client.agents.deleteTrigger` and `client.runs.stream`; and `client.agents.putTrigger` (D88,
- * Host feature `api-triggers`).
+ * The triggers capability's client calls (Host feature `agent-triggers`):
+ * `client.agents.deleteTrigger` and `client.runs.stream`; and `client.agents.putTrigger` (Host
+ * feature `api-triggers`).
  */
 import { describe, expect, it } from "vitest";
 import { HOST_PROTOCOL } from "@nylorun/core/compatibility";

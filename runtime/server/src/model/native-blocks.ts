@@ -1,5 +1,5 @@
 /**
- * Native file blocks (multimodal messages, M4): a PDF, an office document, audio or video the
+ * Native file blocks (multimodal messages): a PDF, an office document, audio or video the
  * model reads, carried to the provider in its own block. pi-ai's messages hold only text and
  * images, so a file goes in as a marker text part (`add`), which pi-ai never merges or escapes,
  * and the provider payload pi-ai builds is rewritten before it is sent (`rewrite`, from the

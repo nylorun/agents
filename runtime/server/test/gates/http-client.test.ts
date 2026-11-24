@@ -2,7 +2,7 @@
  * The loop's HTTP client of the gates service (`gates/http-client.ts`): what it sends, and the
  * failure outcome each kind of hop failure becomes. Never a throw, except when the caller
  * aborts: `resolveEffect` would mark a throw `uncertain`. The credential is the session's run
- * token (F5); the body names no session, turn or agent.
+ * token; the body names no session, turn or agent.
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";

@@ -1,5 +1,4 @@
-# ghcr.io/nylorun/computer: the computer agent (images/computer, ADR-154 decision 4 in
-# nylorun/factory), one static file a computer's template mounts at /nylo.
+# ghcr.io/nylorun/computer: the computer agent (images/computer), one static file a computer's template mounts at /nylo.
 # On a pull request that changes it: go vet and the agent's tests (the contract included), then an
 # amd64 build and its smoke test.
 # By hand, from main: the same, then a push of one version tag for amd64 and arm64. It is

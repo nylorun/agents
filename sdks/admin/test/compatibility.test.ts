@@ -35,7 +35,7 @@ describe("B3 /health compatibility cache", () => {
       for (const call of authenticated) {
         expect(call.headers.authorization).toBe(`Bearer ${MANAGEMENT_KEY}`);
         expect(call.headers["nylorun-protocol"]).toBe(String(PROTOCOL_VERSION));
-        // The Runtime's telemetry labels the request by client (ADR-159).
+        // The Runtime's telemetry labels the request by client.
         expect(call.headers["nylorun-client"]).toBe("sdk");
       }
     } finally {

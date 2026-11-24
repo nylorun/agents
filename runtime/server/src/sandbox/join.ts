@@ -1,5 +1,5 @@
 /**
- * Join token → host token (F7.2, D42): how a pod sandbox's engine becomes the sandbox's host.
+ * Join token → host token: how a pod sandbox's engine becomes the sandbox's host.
  *
  * Core mints a join token (32 random bytes) per incarnation of a pod sandbox (a create, a
  * reset), keeps only its sha256 (`sandbox_resources.join_token_hash`), and hands the plaintext
@@ -24,7 +24,7 @@
  * and the pod (`tenant/host-token.ts`). `renew` mints a new pair at the same epoch while the
  * host is current; it is refused once the epoch moved.
  *
- * The answer also carries the installation's egress CA certificate (R2c, D50): the engine adds it
+ * The answer also carries the installation's egress CA certificate: the engine adds it
  * to the trust bundle every command gets, so a host egress-gate terminates TLS for (one an
  * `environment_secret` is bound to) is trusted. Only the certificate: its key stays in keys.
  *
@@ -208,7 +208,7 @@ export function hostAuthority(ctx: TenantContext): HostAuthority {
         };
       });
       if ("lost" in joined) {
-        // With a disk version, a new volume seeded from the latest one (R2d step 3).
+        // With a disk version, a new volume seeded from the latest one.
         void recoverLostVolume(ctx, sandboxId).catch(() => undefined);
         return refuse("the volume was replaced: the sandbox is lost");
       }
@@ -220,7 +220,7 @@ export function hostAuthority(ctx: TenantContext): HostAuthority {
       if (joined.seeded) {
         // The engine connects next; the seed waits for it, then writes the version.
         void runPendingSeed(ctx, sandboxId);
-        // A fork onto other setup (Q17): the engine runs it once the version is written.
+        // A fork onto other setup: the engine runs it once the version is written.
         if (joined.afterSeed) return { ...answer, seeded: true, afterSeed: true, ...(joined.setup ? { setup: joined.setup } : {}) };
         return { ...answer, seeded: true };
       }

@@ -47,7 +47,7 @@ export function builtAgentOf(run: BuiltAgent | AgentTool | { build(): BuiltAgent
 
 /**
  * Project a tool for use as a workflow node.
- * Unlike agent tools, workflow tool nodes may take any JSON Schema root type (workflows.md §9).
+ * Unlike agent tools, workflow tool nodes may take any JSON Schema root type.
  * Built without `bindTool` so we skip the agent-only object-input rule in `normalizeSchema`.
  */
 export function bindToolNode(tool: ToolDefinition): BoundToolDefinition {

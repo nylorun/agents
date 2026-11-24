@@ -36,7 +36,7 @@ it("matches a sandbox call's input on the skills' folder", () => {
   expect(skillOfToolCall(agent, sandbox("read"), { path: "/skills/notes/references/a.md" })).toBe(
     "notes",
   );
-  // A version's folder (D66).
+  // A version's folder.
   expect(
     skillOfToolCall(agent, sandbox("bash"), {
       command: "python /skills/triage@0123456789ab/scripts/run.py",

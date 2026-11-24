@@ -1,5 +1,5 @@
 /**
- * Flow ceilings for the engine (`workflows.md` §13): the Tenant's Runtime limits `flowMapItems`
+ * Flow ceilings for the engine: the Tenant's Runtime limits `flowMapItems`
  * and `flowLoopIterations`, which a flow's `turn.start.options.flowLimits` carries.
  */
 

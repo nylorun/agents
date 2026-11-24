@@ -1,10 +1,10 @@
 /**
- * An Environment's disk as files (R2d step 3): what a version holds and how it is put back. A
+ * An Environment's disk as files: what a version holds and how it is put back. A
  * disk is one or two roots, named by the first segment of every path: `workspace/…` (the
  * sandbox's `/workspace`) and, in a pod, `harness/…` (the engine's `/harness`, where a vendor
  * harness keeps its state). Both backends use this over their own directories: the pod's volume
  * (`adapters/sandbox/local.ts`) and the virtual workspace's host directory
- * (`adapters/sandbox/virtual.ts`). A computer (ADR-149) runs it on its own disk, behind its
+ * (`adapters/sandbox/virtual.ts`). A computer runs it on its own disk, behind its
  * `POST /v1/disk` (`harness/computer.ts`; the computer agent's port is
  * `sandboxes/internal/computer/disk.go`), which core reaches through its handle's `diskOp`.
  *

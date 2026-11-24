@@ -16,7 +16,7 @@
  *   session cookie's name, `[A-Za-z0-9_-]+`. `nylorun start` sets
  *   `nylorun_studio_<tenant>`, so Studios on one host keep their own sessions.
  * - `NYLORUN_STUDIO_FRAME_ANCESTORS` (default none): exact origins, separated
- *   by spaces, that may frame the dashboard (Studio §8.9). Wildcards are refused.
+ *   by spaces, that may frame the dashboard. Wildcards are refused.
  * - `NYLORUN_STUDIO_ANALYTICS_ID` (default none): the Google Analytics
  *   measurement id the dashboard reports page views to. `nylorun start` sets it
  *   unless the developer opted out of telemetry.

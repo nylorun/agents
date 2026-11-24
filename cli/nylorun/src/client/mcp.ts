@@ -1,6 +1,6 @@
 /**
- * `nylorun tenant mcp inspect <url>`: a remote MCP server's tools before an agent names it (R2b
- * C12), through the Management API (`POST /v1/tenant/mcp/preview`) of the installation
+ * `nylorun tenant mcp inspect <url>`: a remote MCP server's tools before an agent names it,
+ * through the Management API (`POST /v1/tenant/mcp/preview`) of the installation
  * `target.ts` picks. It never starts a local Tenant, and the Runtime never calls a tool. `--agent <id>`
  * sends that Agent's credential for the URL (protocol 16; it replaced `--environment`, which
  * replaced `--vault`); an Agent's secrets are written on the Runtime API

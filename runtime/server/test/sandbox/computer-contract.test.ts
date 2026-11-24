@@ -1,5 +1,5 @@
 /**
- * The computer's contract (ADR-154 decision 4): the cases in
+ * The computer's contract: the cases in
  * `sandboxes/internal/computer/testdata/contract.json`, against the engine's `--service computer`
  * routes (`computerHandler` on the local backend, real processes in a temporary workspace). The
  * computer agent runs the same file in Go (`sandboxes/internal/computer/contract_test.go`), so

@@ -1,5 +1,5 @@
 /**
- * A computer restored mid-session (ADR-149): the harness, a service over a loopback WebSocket
+ * A computer restored mid-session: the harness, a service over a loopback WebSocket
  * with its own SandboxManager per computer (`harness/service.ts`), keeps the access
  * `computer.open` answered. A restore gives the computer a new volume and a new pod name
  * (`-g0` → `-g1`); the next `bash` of the same session must reach the new volume, not the last

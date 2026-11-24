@@ -1,7 +1,7 @@
 /**
- * File artifacts (blueprint D35, F8.1): an opaque id, a name, numbered immutable versions,
+ * File artifacts: an opaque id, a name, numbered immutable versions,
  * metadata in Postgres and bytes in the Object store behind the `BlobStore` seam. Folders
- * (F8.2) are written by the turn-end export (`./export.ts`, `./folders.ts`) and read here.
+ * are written by the turn-end export (`./export.ts`, `./folders.ts`) and read here.
  *
  * - **Uploads stream.** The body goes to the store as it arrives, at a fresh random key, counted
  *   against the per-file cap and what is left of each total it counts towards (`maxBytes`,
@@ -65,7 +65,7 @@ export interface UploadInput {
   /** The body's declared length (`Content-Length`): one past the limits is refused unread. */
   readonly declaredBytes?: number;
   readonly source: ArtifactSource;
-  /** `model`: a new artifact stored only for the model to see (ADR-139). */
+  /** `model`: a new artifact stored only for the model to see. */
   readonly audience?: ArtifactAudience;
   /** The turn that saved it (a harness's `artifact.write`), for the event. */
   readonly turnId?: string | null;

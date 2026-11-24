@@ -1,5 +1,5 @@
 /**
- * The `keys` service's wire format (F4.2): `POST /nylorun/v1/keys/{operation}` with
+ * The `keys` service's wire format: `POST /nylorun/v1/keys/{operation}` with
  * `{args}`, the operation's arguments in order, on the gateway's listener with the stack's
  * gates token. Internal: only core calls it, so it is not in the published OpenAPI documents.
  *

@@ -1,5 +1,5 @@
 /**
- * Our engine's outputs folder (protocol 15, Q5): at a completed turn's end it saves the sandbox's
+ * Our engine's outputs folder (protocol 15): at a completed turn's end it saves the sandbox's
  * outputs directory as a version of the session's `outputs` folder over the artifact seam, and
  * claims why when it stores nothing. It never fails the turn.
  */

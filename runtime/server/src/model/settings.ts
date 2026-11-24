@@ -3,7 +3,7 @@ import { join } from "node:path";
 
 /**
  * Collect likely secret strings from an explicit env map and optional auth.json
- * under `root`. Callers must pass values; no ambient environment or cwd (A7).
+ * under `root`. Callers must pass values; no ambient environment or cwd.
  */
 export function projectSecrets(
   root: string,

@@ -1,6 +1,6 @@
 /**
  * Sandbox lifecycle driven by the Tenant sweep: idle stop, stale record reset and the
- * once-per-process reconcile (architecture §12.3, "Timers").
+ * once-per-process reconcile ("Timers").
  */
 import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";

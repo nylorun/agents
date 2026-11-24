@@ -1,5 +1,5 @@
 /**
- * `nylorun migrate folder <dir> --to 2` (ADR-100): makes an `agent-folder/1` folder an
+ * `nylorun migrate folder <dir> --to 2`: makes an `agent-folder/1` folder an
  * `agent-folder/2` one, in place, declaring every engine feature it gets today by default, so no
  * prompt and no tool changes until the author removes a line:
  *
@@ -33,14 +33,14 @@ feature the folder gets today by default (the sandbox tools, save_artifact and t
 when runtime.json has a computer, read_artifact, tool search). Nothing the model reads or may
 call changes, which it checks before it writes; then remove the lines the agent does not need.
 
-With --to 3, makes an agent-folder/2 folder agent-folder/3 (ADR-106): the Runtime's plugins
+With --to 3, makes an agent-folder/2 folder agent-folder/3: the Runtime's plugins
 (plugins: [nylorun-memory, ...]) in place of memory, loop's plan, connections and ask, runtime.selfWake and engine's
 sandbox, artifacts and triggers, with mcpServers.nylorun turning off the tools the folder left
 out, and memory's instructions moved to the end of AGENT.md's body. Every agent keeps the same
 tools and features, which it checks before it writes; the words the model reads become the
 plugins'. Reads no Runtime.
 
-With --to 4, makes an agent-folder/3 folder agent-folder/4 (ADR-164): each subagent folder,
+With --to 4, makes an agent-folder/3 folder agent-folder/4: each subagent folder,
 agents/<id>/, becomes one file, agents/<id>.md, listing exactly the tools, skills and servers it had,
 and what it held moves into the root's tools/, skills/ and mcp.json, the manifest's library. A tool
 that moves up is kept out of the root agent's own tools (disallowedTools). It stops, writing nothing,
@@ -103,7 +103,7 @@ function effects(manifest: AgentManifestV8): string {
   return JSON.stringify({ root: tools(preview), pinned: preview.pinned.length, agents: Object.fromEntries(Object.entries(preview.agents).map(([id, item]) => [id, tools(item)])) });
 }
 
-/** `nylorun migrate folder <dir> --to 3` (ADR-106). */
+/** `nylorun migrate folder <dir> --to 3`. */
 async function migrateToV3(deps: StackDeps, dir: string): Promise<number> {
   const cwd = deps.cwd ?? process.cwd();
   const where = relative(cwd, dir) || ".";
@@ -193,7 +193,7 @@ function subagentsOf(manifest: AgentManifestV8) {
   return found;
 }
 
-/** `nylorun migrate folder <dir> --to 4` (ADR-164). */
+/** `nylorun migrate folder <dir> --to 4`. */
 async function migrateToV4(deps: StackDeps, dir: string): Promise<number> {
   const cwd = deps.cwd ?? process.cwd();
   const where = relative(cwd, dir) || ".";

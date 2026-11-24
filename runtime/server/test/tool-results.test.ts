@@ -1,5 +1,5 @@
 /**
- * R2b C11 end to end over the Tenant API: MCP and HTTP tool results that fit. A result too large
+ * Tool results, end to end over the Tenant API: MCP and HTTP tool results that fit. A result too large
  * to show becomes an artifact of the session and the model gets a preview, which it reads on with
  * `read_artifact`; an image becomes an artifact and goes to the model as a file; each part of a
  * mixed result is shaped alone; an answer past 8 MiB (the Tenant's `toolAnswerBytes`) is
@@ -210,7 +210,7 @@ async function run(agent = "reader") {
 
 /**
  * The largest entry of a session's record, in bytes: a transcript edit's largest entry (an edit
- * fills its event up to the record entry limit, B15), else the event.
+ * fills its event up to the record entry limit), else the event.
  */
 const largest = (recorded: readonly LiveEvent[]) =>
   Math.max(
@@ -257,7 +257,7 @@ afterAll(async () => {
   for (const server of servers) await new Promise((resolve) => server.close(resolve));
 });
 
-describe("a result too large to show (Q22)", () => {
+describe("a result too large to show", () => {
   it("stores 200 KiB of text as an artifact, previews it, and read_artifact pages through it", async () => {
     const pages: string[] = [];
     const seen: Seen[] = [];
@@ -330,7 +330,7 @@ describe("a result too large to show (Q22)", () => {
   });
 });
 
-describe("images and other files (Q23)", () => {
+describe("images and other files", () => {
   it("stores a PNG as an artifact and gives it to the model as a file", async () => {
     const seen = once("files__screenshot");
     const result = await run();
@@ -431,7 +431,7 @@ describe("the gate's cap", () => {
   });
 });
 
-describe("read_artifact (Q24)", () => {
+describe("read_artifact", () => {
   it("is offered to every agent (protocol 12)", async () => {
     once("files__screenshot");
     await run();
@@ -599,7 +599,7 @@ describe("one step's results share a budget", () => {
     expect((await download(last.artifactId)).toString("utf8")).toBe(chunk(n));
 
     // No entry near 1 MiB; only the entry holding the step's results passes 64 KiB, and every
-    // event fits the record entry limit (a transcript edit fills events up to it, B15).
+    // event fits the record entry limit (a transcript edit fills events up to it).
     const entries = result.recorded.flatMap((event) =>
       event.type === "transcript.updated" ? (event.payload as { entries: unknown[] }).entries : [event],
     );

@@ -12,7 +12,7 @@
  * external I/O runs inside a tx.
  *
  * `wake` goes to `DurableExecution.wake`, which calls the Tenant's `advance` (`advance.ts`)
- * under ownership (§10.6); `abortLocal` aborts an advance running on this process.
+ * under ownership; `abortLocal` aborts an advance running on this process.
  */
 import type { TenantComputers } from "../sandbox/computer.js";
 import type { SessionHistory } from "./history.js";
@@ -65,13 +65,13 @@ export interface Session {
   manifestHash: string;
   /**
    * The agent manifest version the session runs (protocol 16): its Agent's when it opened, and
-   * again at a turn's first segment when its Agent's version changed since (T3, `repinTurn`).
+   * again at a turn's first segment when its Agent's version changed since (`repinTurn`).
    * Absent on a session opened before protocol 16.
    */
   definition?: { name: string; version: number };
   /** The pinned version's `harness.loop`: passed to the harness, never read by the Runtime. */
   loop?: Record<string, unknown>;
-  /** Validated turn-manifest variants, keyed by hash (loops.md §4.2). */
+  /** Validated turn-manifest variants, keyed by hash. */
   variants?: Record<string, AgentManifest>;
   /**
    * What the active turn's first message asked of its manifest: a variant (`manifest`) and the
@@ -99,20 +99,20 @@ export interface Session {
    * turn it started (`linkedTurnEnd` in `core/flow-host.ts`).
    */
   lastTurnId?: string;
-  /** When the active turn started (R7.1, `turn-timing.ts`); absent on a turn started before. */
+  /** When the active turn started (`turn-timing.ts`); absent on a turn started before. */
   turnStartedAt?: string;
-  /** How long the active turn has waited paused for a person, in ms (R7.1). */
+  /** How long the active turn has waited paused for a person, in ms. */
   pausedMs?: number;
-  /** Since when the active turn waits paused (R7.1); absent while it runs. */
+  /** Since when the active turn waits paused; absent while it runs. */
   pausedAt?: string;
   /**
-   * The trace context the active turn's message arrived with (R7.4): its trace is the caller's,
+   * The trace context the active turn's message arrived with: its trace is the caller's,
    * and the context core hands on (to the harness, tools and sandbox commands) is in it.
    */
   turnTrace?: TraceContext;
   /**
-   * What started the active turn when not a client (track T4): the trigger's run, or the session's
-   * own booked wake. A memory version written in the turn names its run (track T5).
+   * What started the active turn when not a client: the trigger's run, or the session's
+   * own booked wake. A memory version written in the turn names its run.
    */
   turnCause?: { kind: "trigger" | "self"; triggerId: string; runId: string };
   /**
@@ -134,8 +134,8 @@ export interface Session {
   /** The Agent's recipe version when the session last pinned (shown, never enforced). */
   environmentVersion?: number;
   /**
-   * The harness that runs the session's turns (R4.1), pinned when it opened: its manifest's
-   * `harness.id`, else `nylorun`. Absent on a session opened before R4: ours (`harnessOf`).
+   * The harness that runs the session's turns, pinned when it opened: its manifest's
+   * `harness.id`, else `nylorun`. Absent on a session an older Runtime opened: ours (`harnessOf`).
    */
   harness?: string;
   /**
@@ -168,7 +168,7 @@ export interface Session {
    */
   model?: SessionModelChoice;
   /**
-   * The Agent's memory as the session's last turn started (track T5): the newest memory version
+   * The Agent's memory as the session's last turn started: the newest memory version
    * then (`seen`), and whether that turn's first segment asked the harness to pin the index again
    * (`refresh`: someone else wrote the memory since the turn before). Absent before its first turn.
    */
@@ -197,7 +197,7 @@ export type AuthScope =
    */
   | { kind: "management"; principalId: string }
   /**
-   * A trusted issuer's token (Host feature `trusted-issuers`, F9-D12): one subject, with the
+   * A trusted issuer's token (Host feature `trusted-issuers`): one subject, with the
    * issuer's scopes and Agent grants, until `expiresAt` (ms). Only its expiry ends it.
    */
   | {
@@ -233,11 +233,11 @@ export interface TenantContext {
   readonly vault: VaultService;
   /**
    * The MCP pool of the Tenant's in-process harness. Absent when harnesses run elsewhere
-   * (`NYLORUN_HARNESS=remote`): each keeps its own (F6.2).
+   * (`NYLORUN_HARNESS=remote`): each keeps its own.
    */
   readonly mcp?: McpPool;
   /**
-   * The workspace feature (F6.2): the Tenant's SandboxManager with an in-process harness,
+   * The workspace feature: the Tenant's SandboxManager with an in-process harness,
    * else the harness that serves workspaces (`harness-api/workspace.ts`).
    */
   readonly sandbox: WorkspacePort;
@@ -247,40 +247,40 @@ export interface TenantContext {
    */
   readonly scriptedModel: boolean;
   /**
-   * Serves every model call (blueprint §15, protocol 15): the vault's model in this process or
+   * Serves every model call (protocol 15): the vault's model in this process or
    * the gates service, or a scripted model (`providerModelGate`).
    */
   readonly modelGate: ModelGate;
   /**
-   * Serves remote MCP servers and HTTP tools (blueprint §12, F4.1): in this process, or the
+   * Serves remote MCP servers and HTTP tools: in this process, or the
    * gates service.
    */
   readonly toolGate: ToolGate;
   /**
-   * Vault writes that touch a secret, and all token signing (blueprint §14, F4.2): in this
+   * Vault writes that touch a secret, and all token signing: in this
    * process, or the gateway's keys service. Call it instead of `vault`'s sealing methods and
    * `signingKeys`' private key.
    */
   readonly keys: Keys;
   /**
-   * The Object store's `BlobStore` seam (D35): the Host's `s3` store (RustFS in the local
+   * The Object store's `BlobStore` seam: the Host's `s3` store (RustFS in the local
    * stack), or the `fs` store under `paths.blobs` without one. Bytes only; Postgres holds what
    * they mean, and a blob counts once a committed row names its key.
    */
   readonly blobs: BlobStore;
   /**
-   * How the trace route (R7.5) makes spans: the resource and the content the installation exports
-   * (R7.2). Absent: `service.name` `nylorun`, no content.
+   * How the trace route makes spans: the resource and the content the installation exports
+   *. Absent: `service.name` `nylorun`, no content.
    */
   readonly traces?: TraceOptions;
   /**
-   * The run token of each session an advance of this process owns (F5): the credential the
+   * The run token of each session an advance of this process owns: the credential the
    * HTTP gate clients present for that session's model and MCP calls (`run-grants.ts`).
-   * Absent when the gates run in this process, which needs no token (G6).
+   * Absent when the gates run in this process, which needs no token.
    */
   readonly runGrants?: RunGrants;
   /**
-   * The Harness API server (D37): advances offer their segments here, and the Tenant's
+   * The Harness API server: advances offer their segments here, and the Tenant's
    * harnesses (the in-process one, or attached ones) run them.
    */
   readonly harness: HarnessApiServer;
@@ -296,7 +296,7 @@ export interface TenantContext {
   control?: { close(): Promise<void> };
   /** The Tenant's signing keys: capability links, run and host tokens. */
   readonly signingKeys: SigningKeys;
-  /** The Worker id this process writes as session `owner` (§10.6). */
+  /** The Worker id this process writes as session `owner`. */
   readonly workerId: string;
   /** How long an advance's ownership lease lasts; the heartbeat renews it. */
   readonly ownerLeaseMs: number;
@@ -319,7 +319,7 @@ export interface TenantContext {
    */
   abortLocal(sessionId: string, turnId?: string): void;
   /**
-   * Sandbox pods (F7.2): the sandboxes service and the Runtime image pods copy the engine from.
+   * Sandbox pods: the sandboxes service and the Runtime image pods copy the engine from.
    * Absent without a cluster (`nylorun local sandbox enable`): kind `pod` is `agent_unavailable`.
    */
   readonly pods?: TenantPods;
@@ -336,7 +336,7 @@ export interface TenantContext {
    */
   sandboxSignal(sandboxId: string, signal: SandboxSignal): Promise<boolean>;
   /**
-   * Seam: arm a durable timer (`DurableExecution.timer`; track T4's triggers), outside any tx. The
+   * Seam: arm a durable timer (`DurableExecution.timer`; triggers), outside any tx. The
    * latest time for a key wins. `false` while the Tenant is closing (not armed): what it was for
    * is in Postgres, and the sweep arms it again.
    */
@@ -401,7 +401,7 @@ export async function lockedSession(
   return owned(await t.lockSession<Session>(id), access);
 }
 
-/** An advance's hold on its session (§10.6): every write the advance makes presents `epoch`. */
+/** An advance's hold on its session: every write the advance makes presents `epoch`. */
 export interface Lease {
   readonly sessionId: string;
   readonly owner: string;
@@ -437,11 +437,11 @@ export interface TenantPods {
   readonly client: SandboxesClient;
   /** The Runtime image the pods copy the engine from (`NYLORUN_SANDBOX_HARNESS_IMAGE`). */
   readonly harnessImage: string;
-  /** Computers (ADR-149): every pod Agent is one, reached through the sandbox gateway. */
+  /** Computers: every pod Agent is one, reached through the sandbox gateway. */
   readonly computer?: TenantComputers;
 }
 
-/** The harness a session runs (R4.1): the one it pinned, else ours. */
+/** The harness a session runs: the one it pinned, else ours. */
 export function harnessOf(session: Pick<Session, "harness">): string {
   return session.harness ?? DEFAULT_HARNESS;
 }

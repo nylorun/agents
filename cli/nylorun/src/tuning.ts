@@ -1,5 +1,5 @@
 /**
- * The CLI's own timings and sizes (B15): how long `nylorun` waits for the local stack, how often
+ * The CLI's own timings and sizes: how long `nylorun` waits for the local stack, how often
  * it polls, the healthchecks it writes into the Compose file, and the waits of `nylorun local
  * sandbox`. Each has a default, the value the CLI used before it was configuration. Set any part
  * in `NYLORUN_CLI_TUNING`, a JSON object of the groups below

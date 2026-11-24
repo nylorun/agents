@@ -1,6 +1,5 @@
 /**
- * Turn latency of the in-process harness and of a harness over a loopback WebSocket (F6.1 H1,
- * F6.2). Not part of `npm test`:
+ * Turn latency of the in-process harness and of a harness over a loopback WebSocket. Not part of `npm test`:
  *
  *   (cd runtime && npx vitest bench --run test/bench)
  *

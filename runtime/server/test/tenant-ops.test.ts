@@ -35,7 +35,7 @@ async function tempRoot(prefix: string): Promise<string> {
 const agentReset = Agent({ id: "agent-reset", name: "Reset" }).build();
 const agentAll = Agent({ id: "agent-all", name: "All" }).build();
 
-it("GET /v1/tenant returns TenantStatusSchema with secrets redacted (A14)", async () => {
+it("GET /v1/tenant returns TenantStatusSchema with secrets redacted", async () => {
   const runtime = await startTestTenant({
     applicationKey: "status-app-key-16chars",
   });
@@ -57,7 +57,7 @@ it("GET /v1/tenant returns TenantStatusSchema with secrets redacted (A14)", asyn
   expect(serialized).not.toContain(runtime.managementKey);
 });
 
-it("summary() returns counts only with no string fields (A15)", async () => {
+it("summary() returns counts only with no string fields", async () => {
   const runtime = await startTestTenant();
   closers.push(runtime);
   const summary = await runtime.handle.summary();
@@ -72,7 +72,7 @@ it("summary() returns counts only with no string fields (A15)", async () => {
   }
 });
 
-it("drain(cancel) stops scheduling and clears running work (A16)", async () => {
+it("drain(cancel) stops scheduling and clears running work", async () => {
   const runtime = await startTestTenant();
   closers.push(runtime);
   await runtime.handle.drain("cancel", 1_000);
@@ -81,7 +81,7 @@ it("drain(cancel) stops scheduling and clears running work (A16)", async () => {
   expect(summary.runningSessions).toBe(0);
 });
 
-it("POST /v1/tenant/reset sessions preserves principals and clears sessions (A17)", async () => {
+it("POST /v1/tenant/reset sessions preserves principals and clears sessions", async () => {
   const runtime = await startTestTenant({
     applicationKey: "reset-app-key-16chars!",
   });
@@ -130,7 +130,7 @@ it("POST /v1/tenant/reset sessions preserves principals and clears sessions (A17
   ).toBe(200);
 });
 
-it("PUT /v1/tenant/config/seed is insert-if-absent (A18)", async () => {
+it("PUT /v1/tenant/config/seed is insert-if-absent", async () => {
   const runtime = await startTestTenant({
     applicationKey: "seed-app-key-16chars!!",
   });
@@ -184,7 +184,7 @@ it("PUT /v1/tenant/config/seed is insert-if-absent (A18)", async () => {
   expect(JSON.stringify(modelBody)).not.toContain("sk-seed-secret-value");
 });
 
-it("startEphemeralRuntime opens a private Host with one Tenant (A19)", async () => {
+it("startEphemeralRuntime opens a private Host with one Tenant", async () => {
   const hostRoot = await tempRoot("ephemeral-host-");
   const runtime = await startEphemeralRuntime({
     database: testPool(),
@@ -212,7 +212,7 @@ it("startEphemeralRuntime opens a private Host with one Tenant (A19)", async () 
   TenantStatusSchema.parse(await status.json());
 });
 
-it("reset agents deletes the Agents, then renames and clears the sandboxes directory (A17)", async () => {
+it("reset agents deletes the Agents, then renames and clears the sandboxes directory", async () => {
   const runtime = await startTestTenant();
   closers.push(runtime);
   const sandboxes = join(runtime.root, "tenant", "sandboxes");
@@ -247,7 +247,7 @@ it("reset agents deletes the Agents, then renames and clears the sandboxes direc
   expect((await fetch(`${runtime.url}/v1/agent-manifests/agent-reset`, { headers: runtime.headers() })).status).toBe(200);
 });
 
-it("reset all clears agent manifests, Agents with their secrets, and tenant log (A17)", async () => {
+it("reset all clears agent manifests, Agents with their secrets, and tenant log", async () => {
   const runtime = await startTestTenant({ applicationKey: "reset-all-key-16chars" });
   closers.push(runtime);
 

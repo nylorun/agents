@@ -1,5 +1,5 @@
 /**
- * Shared fixtures for WS-G security suites (hostile Host). A Host serves one Tenant, the one
+ * Shared fixtures for the security suites (hostile Host). A Host serves one Tenant, the one
  * Tenant of a database of the Host's own on the test stack; a suite that needs a second
  * Tenant starts a second Host (installation).
  */
@@ -153,7 +153,7 @@ export const HOSTILE_ENV_KEYS = [
 ] as const;
 
 /**
- * Apply the §23 hostile environment onto `process.env`.
+ * Apply the hostile environment onto `process.env`.
  * Returns a restore function.
  */
 export function applyHostileEnv(evilJsPath: string): () => void {

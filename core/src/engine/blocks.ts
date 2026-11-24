@@ -1,5 +1,5 @@
 /**
- * Our engine's text blocks (ADR-100): every piece of text our engine adds to an agent's system
+ * Our engine's text blocks: every piece of text our engine adds to an agent's system
  * text, by name and version, in one place the compiler, the harness and the SDK share. A block's
  * text is the engine's unless the agent's manifest replaces its wording
  * (`engine.instructions.<block>`); the facts a block names (the skills, the servers, the skill
@@ -100,7 +100,7 @@ export const ARTIFACTS_READ_TEXT =
 export const WAKE_TEXT =
   "You can book this session's next turn with schedule_wake, to check on something later or keep a routine going. Booking again replaces the booking you have.";
 
-/** `triggers` (D83): what the `triggers` tool is for, and where a trigger's runs go. */
+/** `triggers`: what the `triggers` tool is for, and where a trigger's runs go. */
 export const TRIGGERS_TEXT =
   "You can set up triggers with the triggers tool, so the work goes on when nobody is here: a schedule (five-field cron, in a time zone), one time (at), or a delay (in, such as 30m, 2h or 1d), each with the prompt that will be your message when it runs. " +
   "session: this runs it here, as a follow-up in this conversation; session: own runs it in a session of its own, kept across its runs. " +
@@ -119,7 +119,7 @@ export const TOOL_SEARCH_TEXT =
   "Some tools of these MCP servers are not in your tool list. Find them with tool_search (a few words of what you need), then run one with tool_call, passing its name and arguments that match its inputSchema.";
 
 /**
- * The memory rule no folder replaces (ADR-100): text from outside the conversation is data. It
+ * The memory rule no folder replaces: text from outside the conversation is data. It
  * protects the agent, not the author's style, so a replaced `memory` wording keeps it.
  */
 export const MEMORY_DATA_RULE =

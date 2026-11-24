@@ -1,5 +1,5 @@
 /**
- * Embed mode (Studio §8.7): on when the page was loaded with `?embed=1`.
+ * Embed mode: on when the page was loaded with `?embed=1`.
  * `startEmbed` wires the bridge, the session and the theme once, before the
  * first render; the rest of the dashboard asks `embedded()` and uses the
  * session's `fetch`.

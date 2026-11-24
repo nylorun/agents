@@ -1,7 +1,7 @@
 /**
- * Versions per turn (track T3, D73): a session runs the version its Agent runs, taken again at a
+ * Versions per turn: a session runs the version its Agent runs, taken again at a
  * turn's first segment (`repinTurn`), and keeps it for the rest of the turn. The Agent's version
- * is moved here through the store; the API that moves it is T3's next step.
+ * is moved here through the store; the API that moves it is tested elsewhere.
  */
 import { expect, it } from "vitest";
 import { Agent, hashManifest, loopManifestOf } from "@nylorun/core/define";
@@ -47,7 +47,7 @@ async function turn(runtime: Runtime, id: string, key: string): Promise<Record<s
   return session;
 }
 
-/** Moves Agent `agent` to version `version` of its manifest, as T3's moves will. */
+/** Moves Agent `agent` to version `version` of its manifest, as a move does. */
 async function move(runtime: Runtime, agent: string, version: number, hash: string): Promise<void> {
   await withTestSessionStore(runtime, (store) =>
     store.tx(async (t) => {

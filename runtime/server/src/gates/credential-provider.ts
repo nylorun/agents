@@ -1,5 +1,5 @@
 /**
- * The credential provider (v0.25 CP-E): a service outside the Runtime that holds a person's keys
+ * The credential provider: a service outside the Runtime that holds a person's keys
  * and adds them to the requests their Agents' sandboxes send, so the Runtime never sees a value.
  * The Host's operator names it with `NYLORUN_CREDENTIAL_PROVIDER_URL` and
  * `NYLORUN_CREDENTIAL_PROVIDER_TOKEN` (Host feature `credential-provider`); without them nothing
@@ -8,12 +8,12 @@
  * Three calls, each with `Authorization: Bearer <token>`:
  * - `POST <url>/v1/hosts` `{ agentId, owner }` → `{ hosts: (string | { host, header?, format? })[] }`:
  *   the hosts the owner's keys are bound to, each an exact host name or a `*.<suffix>` pattern
- *   (`*.googleapis.com`, v0.26 TM-E1), with the header the key goes in (v2, ADR-142). A pattern matches as `network.allow`'s do: `run.googleapis.com` and
+ *   (`*.googleapis.com`), with the header the key goes in (v2). A pattern matches as `network.allow`'s do: `run.googleapis.com` and
  *   `a.b.googleapis.com`, never `googleapis.com` itself. An IP literal or a malformed entry is
  *   dropped. egress-gate lets a pod Agent's sandbox reach them (inside the Tenant's egress
  *   ceiling), terminates TLS for them on 443 and hands each request on;
  * - `POST <url>/v1/environment` `{ agentId, owner }` → `{ variables: Entry[] }`: the variables each
- *   of a pod Agent's segments sets, under the vault's own (v0.26 TM-E2). An entry is a name (`"X"`,
+ *   of a pod Agent's segments sets, under the vault's own. An entry is a name (`"X"`,
  *   set to the stand-in `nylorun_managed`, as before v0.26), `{ name, standIn }` (set to that
  *   stand-in, shaped like the vendor's keys) or `{ name, value }` (set to that plain value, a
  *   setting beside a key and never a secret). A `standIn` or `value` is 1 to 1,024 printable
@@ -24,8 +24,8 @@
  *   plus `nylorun-provider-host`, `-agent`, `-owner` and, in place of a bearer the sandbox's own
  *   `Authorization` would clash with, `nylorun-provider-token`. The provider sends it on to
  *   `https://<host>/<path>` and streams the answer back (`egress-credentials.ts`). Retires with
- *   egress-gate (ADR-142);
- * - `POST <url>/v1/fetch` `{ agentId, owner, host }` → `{ value }` (v2, ADR-142): the whole header
+ *   egress-gate;
+ * - `POST <url>/v1/fetch` `{ agentId, owner, host }` → `{ value }` (v2): the whole header
  *   value of the owner's key for `host`, asked by the keys provider beside Agent Substrate's
  *   egress after the Tenant allowed it, never by the Runtime. `404` when there is no such key.
  *
@@ -99,7 +99,7 @@ export interface CredentialProvider {
    */
   hosts(agentId: string, owner: string | undefined): Promise<readonly string[]>;
   /**
-   * The same hosts, each with the header its key goes in (contract v2, ADR-142). Optional for a
+   * The same hosts, each with the header its key goes in (contract v2). Optional for a
    * provider an embedder supplies: without it every host's key goes in `Authorization`.
    */
   keyedHosts?(agentId: string, owner: string | undefined): Promise<readonly ProviderHost[]>;
@@ -211,7 +211,7 @@ export function createCredentialProvider(
 const HEADER = /^[!#$%&'*+.^_`|~0-9A-Za-z-]{1,128}$/;
 
 /**
- * The hosts of a `/v1/hosts` answer (contract v2, ADR-142): each entry is a host name or a
+ * The hosts of a `/v1/hosts` answer (contract v2): each entry is a host name or a
  * `*.<suffix>` pattern, or `{ host, header?, format? }` naming the header the key goes in
  * (`Authorization` by default; `format` is the source's own business). Lowercase, without a
  * trailing root dot, once each, the first entry for a host winning; an IP literal or a malformed

@@ -1,6 +1,6 @@
 /**
  * What a commit asks of other components outside the session's wakes, on a real Tenant runtime
- * (on Postgres; architecture §12.3, F7.2): a pod sandbox's reconcile and timer go through the
+ * (on Postgres): a pod sandbox's reconcile and timer go through the
  * outbox, so a crash between the commit and the send loses neither, and a host revocation goes
  * on the control bus, so it reaches every process with the Tenant open.
  */

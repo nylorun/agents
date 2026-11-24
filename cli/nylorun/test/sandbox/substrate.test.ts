@@ -157,7 +157,7 @@ describe("substrate settings", () => {
     expect(renderComposeFile("nylorun-shop", "shop", { sandboxes: true })).not.toContain("EDGE_HARNESS_PORT");
   });
 
-  it("keeps the keys port and token in .env, publishes the port and hands the token to the gateway (ADR-142)", () => {
+  it("keeps the keys port and token in .env, publishes the port and hands the token to the gateway", () => {
     const sandboxes = {
       token: "a".repeat(64), image: "ghcr.io/nylorun/sandboxes:0.45.0-beta", harnessPort: 8790, gatesPort: 8791, egressPort: 8792,
       hostAddress: "192.168.65.254", bind: "127.0.0.1", edgeHarnessPort: 8793, edgeGatesPort: 8794, edgeKeysPort: 8795, keysToken: "b".repeat(64),
@@ -171,7 +171,7 @@ describe("substrate settings", () => {
     expect(renderComposeFile("nylorun-shop", "shop", { sandboxes: true, sandboxEdge: true })).not.toContain("EDGE_KEYS_PORT");
   });
 
-  it("deploys the keys provider beside Substrate's egress, admitting only the egress (ADR-142)", () => {
+  it("deploys the keys provider beside Substrate's egress, admitting only the egress", () => {
     const manifests = keysProviderManifests("ghcr.io/nylorun/sandboxes:0.49.0-beta", {
       "nylorun-sbx-shop": { decideUrl: "https://edge:8795/nylorun/v1/egress/decide", token: "t", edgeCa: "ca" },
     }) as { kind: string; metadata: { namespace: string }; spec?: unknown; stringData?: Record<string, string> }[];

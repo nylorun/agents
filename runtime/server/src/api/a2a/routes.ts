@@ -19,7 +19,7 @@
  *   with the task that will take it: `SUBMITTED`, its id the queued message's own until a turn
  *   takes it, then that turn's state. `metadata.delivery: "reject"` keeps v1's
  *   `UnsupportedOperationError` (reason `CONTEXT_BUSY`). `metadata.delivery: "steer"` (Host
- *   feature `a2a-steer`, ADR-140) is a session message's steer (D85): the running turn takes the
+ *   feature `a2a-steer`) is a session message's steer: the running turn takes the
  *   message before its next step, and its task is then that turn's; the task's `metadata.delivery`
  *   answers `steered`, or `queued` when it started a turn or waits as a queued message. A queued
  *   task never waits for good (Host feature `queue-recovery`): one whose turn the Agent refused to
@@ -125,7 +125,7 @@ interface Caller {
   readonly scope: AuthScope;
   readonly access: SessionAccess;
   readonly agentId: string;
-  /** The request's trace context (R7.4): a message's turn joins the caller's trace. */
+  /** The request's trace context: a message's turn joins the caller's trace. */
   readonly trace?: TraceContext;
   /** The profile extensions the request activated (`A2A-Extensions`). */
   readonly extensions: ReadonlySet<string>;
@@ -277,7 +277,7 @@ async function operation(
 /**
  * What the card of Agent `agentId` says (the manifest version it runs), or a `404` when it is
  * missing or the caller may not use it. Every caller's session runs on that Agent, with its disk
- * and vault (D66, D70): an app that serves several audiences makes an Agent for each.
+ * and vault: an app that serves several audiences makes an Agent for each.
  */
 async function definitionFor(
   ctx: TenantContext,
@@ -414,7 +414,7 @@ async function ownedTask(
 
 /**
  * What a session command answered: a turn that took it, or the queue it waits in, with the
- * delivery that applied there (D85): `steer` when the running turn may take it before a step.
+ * delivery that applied there: `steer` when the running turn may take it before a step.
  */
 type Accepted =
   | { turnId: string; cursor: string; queuedMessageId?: undefined; delivery?: undefined }
@@ -429,7 +429,7 @@ async function run(
   conflict: () => Promise<A2aError>,
   /**
    * What a message to a busy session does: queued (profile v2), steered into its running turn
-   * (`a2a-steer`, D85; queued when no turn may take it), or `409`.
+   * (`a2a-steer`; queued when no turn may take it), or `409`.
    */
   delivery: "queue" | "reject" | "steer" = "reject"
 ): Promise<Accepted> {
@@ -593,9 +593,9 @@ async function sendMessage(
   if (send.returnImmediately) await caughtUp(caller.ctx, sessionId, accepted.cursor, signal);
   else await settled(caller.ctx, sessionId, accepted, signal);
   const { task } = await ownedTask(caller, taskId, send.historyLength);
-  // A new message that asked to steer (`a2a-steer`, ADR-140) is told what applied: `steered`
+  // A new message that asked to steer (`a2a-steer`) is told what applied: `steered`
   // when it waited marked `steer` behind a running turn, which takes it before its next step
-  // (D85); `queued` when it started a turn, or waits as an ordinary queued message (a workflow).
+  //; `queued` when it started a turn, or waits as an ordinary queued message (a workflow).
   // A steer the turn doesn't take after all (past its last step) starts the next turn.
   if (send.delivery === "steer" && send.taskId === undefined)
     return {
@@ -794,7 +794,7 @@ async function messageBody(
 
 /**
  * The question a text or data reply answers: the task must be active and paused on one. An
- * approval takes only an `interactions/v1` answer: text never approves (profile v2 §1).
+ * approval takes only an `interactions/v1` answer: text never approves (profile v2).
  */
 function replyTarget(owned: OwnedTask): string {
   const { session } = owned;

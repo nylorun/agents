@@ -1,5 +1,5 @@
 /**
- * `.nyloignore` (track T7): the files `packFolder` leaves out of an agent folder, in gitignore
+ * `.nyloignore`: the files `packFolder` leaves out of an agent folder, in gitignore
  * syntax. Blank lines and `#` comments are skipped; `!` re-includes what an earlier line left out;
  * a trailing `/` matches directories only; a pattern with a `/` before its end is anchored at the
  * folder, and one without matches a name at any depth; `*`, `?`, `[…]` and `**` glob as in git.

@@ -1,5 +1,5 @@
 /**
- * One model call's attempts (Model Calls §6): pi-ai's transient errors, plus a stream the provider
+ * One model call's attempts: pi-ai's transient errors, plus a stream the provider
  * or a gateway cut before its last chunk, are tried again with pi-ai's backoff, up to the Tenant's
  * `modelAttempts`. Each retry is reported, so a call that needed one is visible in the gate's log.
  */
@@ -87,7 +87,7 @@ function wait(ms: number, signal: AbortSignal): Promise<boolean> {
   });
 }
 
-/** A retry as the ledger and the call's event keep it (Model Calls §6). */
+/** A retry as the ledger and the call's event keep it. */
 export interface RecordedRetry {
   readonly attempt: number;
   readonly delayMs: number;
@@ -116,7 +116,7 @@ export function modelRetries(value: unknown): RecordedRetry[] {
 }
 
 /**
- * `attempts` and `retries` for a model call's event (Model Calls §6): how many times the gate
+ * `attempts` and `retries` for a model call's event: how many times the gate
  * called the provider, and each retry: the ledger's columns and the event's fields alike. None
  * unless `attempts` is a positive whole number (a call a Runtime before 0.50 served).
  */

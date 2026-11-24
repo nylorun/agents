@@ -1,5 +1,5 @@
 /**
- * Key roles (protocol 8, A1): a management key, issued only with `nylorun-operate` on the
+ * Key roles (protocol 8): a management key, issued only with `nylorun-operate` on the
  * Tenant's machine or from `NYLORUN_MANAGEMENT_KEY_FILE`, reaches the Management API
  * (`/v1/tenant/*`) and `/v1/me` as itself, and nothing else. Studio's key holds role `studio`.
  * Since the cut (protocol 8), application keys no longer reach `/v1/tenant/*`.

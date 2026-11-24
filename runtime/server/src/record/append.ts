@@ -1,5 +1,5 @@
 /**
- * The only write path into the record (Durable Streams §6, blueprint D27): the session's log
+ * The only write path into the record: the session's log
  * head allocates the next sequence, the event is built on the envelope and checked against the
  * catalog, and its row is written, both in the caller's transaction. The database holds one
  * Tenant, so rows are keyed by session alone; the Tenant id is the caller's and goes into the
@@ -8,7 +8,7 @@
  *
  * The two statements run through `RecordWriter`, which the store implements on its
  * transaction (`store/postgres/record-writer.ts`): the database driver stays behind
- * `store/postgres/` (session-store.md §3), and this module decides what is written.
+ * `store/postgres/`, and this module decides what is written.
  *
  * Every entry is held to the Tenant's Runtime limit `recordEntryBytes`, which the caller reads
  * and passes: an event whose payload is larger is refused (`RecordEntryTooLargeError`) before
@@ -85,7 +85,7 @@ export interface AppendInput<T extends EventType> {
   time: Date;
   type: T;
   payload: EventPayload<T>;
-  /** Who wrote it (R4.9). */
+  /** Who wrote it. */
   writer?: EventWriter;
   /** The Tenant's Runtime limit `recordEntryBytes`: the most bytes the payload may hold, as JSON. */
   maxEntryBytes: number;

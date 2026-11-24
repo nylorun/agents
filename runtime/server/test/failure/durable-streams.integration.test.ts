@@ -1,5 +1,5 @@
 /**
- * Durable Streams failure cases (Durable Streams §13, §20) on the test stack's Postgres
+ * Durable Streams failure cases on the test stack's Postgres
  * (logical replication) and s2-lite: the stream relay keeps every S2 stream equal to the
  * record through a relay crash, an S2 outage, a slot Postgres invalidated, and a takeover by
  * another process.

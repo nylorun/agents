@@ -1,5 +1,5 @@
 /**
- * Model Gate contract (blueprint §15, P1.1). Every `ModelGate` runs this suite: the in-process
+ * Model Gate contract. Every `ModelGate` runs this suite: the in-process
  * gate, and the HTTP client against the gates service. The provider is a stubbed global
  * `fetch`, which the gates service (in this test process) uses as well.
  */
@@ -19,7 +19,7 @@ export interface ModelGateHarness {
   gate: ModelGate;
   /**
    * Who the calls are for, when the gate serves only that (the HTTP gate serves the sessions
-   * its run tokens name, F5): merged into every request.
+   * its run tokens name): merged into every request.
    */
   scope?: Partial<Pick<ModelGateRequest, "tenantId" | "sessionId" | "turnId" | "agentId">>;
   dispose?(): Promise<void>;
@@ -236,7 +236,7 @@ export function modelGateContract(name: string, factory: ModelGateFactory) {
       const gate = await open();
       const call = request();
       await expect(gate.call(call, controller.signal)).rejects.toThrow();
-      // A gate whose calls outlive the caller (P1.2) stops one only on an explicit cancel.
+      // A gate whose calls outlive the caller stops one only on an explicit cancel.
       if (gate.recovers) {
         expect(upstream?.aborted).toBe(false);
         await gate.cancel!(call);

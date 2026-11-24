@@ -1,7 +1,7 @@
 {{- $n := include "nylorun.name" . -}}
 {{- $secret := include "nylorun.secret" . -}}
 # The gateway (`--service gates,keys,egress`): the Model and Tool Gates, keys, and the egress
-# service's decide route the keys provider asks (ADR-142). The only holder of the vault key and of
+# service's decide route the keys provider asks. The only holder of the vault key and of
 # credentials.
 apiVersion: apps/v1
 kind: Deployment
@@ -35,7 +35,7 @@ spec:
           ports:
             - { name: gates, containerPort: 4100 }
             - { name: egress, containerPort: 4200 }
-            # Prometheus /metrics (ADR-159); OTEL_* settings go in extraEnv.gateway.
+            # Prometheus /metrics; OTEL_* settings go in extraEnv.gateway.
             - { name: metrics, containerPort: 9464 }
           env:
             - { name: NYLORUN_HOME, value: /nylorun }
@@ -105,7 +105,7 @@ spec:
       ports: [{ port: 4200 }]
     {{- include "nylorun.metrics.ingress" . | nindent 4 }}
 ---
-# The harness (`--service harness`): every loop (ADR-149). It holds the harness token only.
+# The harness (`--service harness`): every loop. It holds the harness token only.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -183,7 +183,7 @@ spec:
             - { name: PORT, value: "3000" }
             - { name: NYLORUN_STUDIO_PUBLIC_PORT, value: "3000" }
             - { name: NYLORUN_STUDIO_SESSION_COOKIE, value: "nylorun_studio_{{ .Values.tenant.name }}" }
-            # Tenant › Traffic reads the runtime's and the gateway's own metrics, live (ADR-159).
+            # Tenant › Traffic reads the runtime's and the gateway's own metrics, live.
             - { name: NYLORUN_STUDIO_METRICS_URLS, value: "runtime=http://{{ $n }}-runtime-internal:9464/metrics,gateway=http://{{ $n }}-gateway:9464/metrics" }
           {{- with .Values.resources.studio }}
           resources: {{- toYaml . | nindent 12 }}

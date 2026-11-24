@@ -37,7 +37,7 @@ type State =
   | { kind: "closed" };
 
 /**
- * Deep Tenant module (§8): the Host's one Tenant over an injected opener (tenancy.md §5).
+ * Deep Tenant module: the Host's one Tenant over an injected opener.
  *
  * `start` opens it once, even when requests or Worker calls ask at the same time. An open that
  * fails for a reason in the Tenant (a `TenantOpenError`, or a timeout) is kept as the Tenant's

@@ -24,7 +24,7 @@ async function folder(files: Record<string, string>) {
   return { dir, deps };
 }
 
-describe("nylorun check --explain (ADR-100)", () => {
+describe("nylorun check --explain", () => {
   it("prints each engine feature, on or off, with the tools and text it adds", async () => {
     const { deps } = await folder({
       "AGENT.md":
@@ -54,7 +54,7 @@ describe("nylorun check --explain (ADR-100)", () => {
   });
 });
 
-describe("nylorun migrate folder --to 2 (ADR-100)", () => {
+describe("nylorun migrate folder --to 2", () => {
   it("declares what an agent-folder/1 folder gets by default, so nothing its model sees changes", async () => {
     const { dir, deps } = await folder({
       "AGENT.md": AGENT,
@@ -89,7 +89,7 @@ describe("nylorun migrate folder --to 2 (ADR-100)", () => {
     await expect(migrateCommand(deps, ["folder", "helper", "--to", "5"])).rejects.toMatchObject({ exitCode: 2 });
   });
 
-  it("makes an agent-folder/2 folder agent-folder/3 with the plugins it uses (ADR-106)", async () => {
+  it("makes an agent-folder/2 folder agent-folder/3 with the plugins it uses", async () => {
     const { deps, dir } = await folder({
       "AGENT.md":
         "---\nname: helper\ndescription: Helps.\nformat: agent-folder/2\nmemory:\n  access: read_write\n  instructions: Keep notes short.\nloop: { plan: true }\nengine:\n  sandbox: [bash, read]\n  artifacts: { read: true, save: false }\n  outputs: true\n---\nHelp.\n",
@@ -114,7 +114,7 @@ describe("nylorun migrate folder --to 2 (ADR-100)", () => {
   });
 });
 
-describe("nylorun migrate folder --to 4 (ADR-164)", () => {
+describe("nylorun migrate folder --to 4", () => {
   const tool = (name: string) => JSON.stringify({ description: `The ${name} tool.`, inputSchema: { type: "object" }, http: { url: `https://tools.example.com/${name}` } });
   const ROOT = "---\nname: helper\ndescription: Helps.\nformat: agent-folder/3\nplugins: [ nylorun-artifacts, nylorun-sandbox ]\n---\nHelp.\n";
 

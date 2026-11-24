@@ -1,5 +1,5 @@
 /**
- * R2b C10 in our engine (protocol 15): from the turn's MCP facts, our engine defers an agent's
+ * Deferred MCP tools in our engine (protocol 15): from the turn's MCP facts, our engine defers an agent's
  * MCP tools by the manifest's setting or by the model's window, keeps them out of the model's
  * list with a note on their servers, finds them with `tool_search` (BM25, run by our harness)
  * and runs one with `tool_call` as that tool's own call, by its identity.
@@ -159,7 +159,7 @@ describe("deferred tools in our engine", () => {
     expect(JSON.stringify(h.results[0])).toContain("tool.unknown");
   });
 
-  it("never asks for approval itself: the Tool Gate holds a call its policy asks about (R5 step 2)", async () => {
+  it("never asks for approval itself: the Tool Gate holds a call its policy asks about", async () => {
     const h = host([
       { name: TOOL_CALL_TOOL, args: { name: "github__create_issue", arguments: { title: "x" } } },
     ]);
@@ -168,7 +168,7 @@ describe("deferred tools in our engine", () => {
   });
 });
 
-describe("deciding deferral (Q21)", () => {
+describe("deciding deferral", () => {
   const manifest = Agent({ id: "a" })
     .mcp({ s: { type: "streamable-http", url: "https://s.example.invalid/mcp" } })
     .build().manifest;

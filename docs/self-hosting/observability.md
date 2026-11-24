@@ -17,7 +17,7 @@ a team runs. It is for **operators** running the Runtime.
 
 Some facts are in both, such as a model call's time and tokens. Each question reads one source:
 cost, audit and Studio's Usage read the log; latency and rates read telemetry. When they differ,
-the log is right. Vocabulary: [runtime/server/src/CONTEXT.md](../../runtime/server/src/CONTEXT.md).
+the log is right.
 
 This guide changes in the same pull request as anything a developer or an operator can observe.
 

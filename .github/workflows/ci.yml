@@ -269,10 +269,10 @@ jobs:
       - name: Supervisor and release tooling
         run: node --test scripts/test/processes.test.mjs scripts/test/development.test.mjs scripts/test/release.test.mjs scripts/test/version-policy.test.mjs scripts/test/pins.test.mjs
   # Runtime integration tests against the Docker test stack (Postgres 17,
-  # Restate, s2-lite, RustFS, and the OTel Collector of the R7 exit test) in
+  # Restate, s2-lite, RustFS, and the OTel Collector of the tracing end-to-end test) in
   # runtime/server/test/stack/compose.yaml, with test
-  # Tenants in Postgres. They include the architecture §17 failure suite
-  # (runtime/server/test/failure/README.md), which recreates the stack's Restate, and
+  # Tenants in Postgres. They include the failure suite
+  # (runtime/server/test/failure/), which recreates the stack's Restate, and
   # the BlobStore conformance suite against the stack's RustFS. Then the runtime unit suite
   # with the gates over HTTP (NYLORUN_TEST_MODEL_GATE=http).
   integration:
@@ -293,7 +293,7 @@ jobs:
       - run: npm ci
       # Workspaces run in flag order: keep dependency order.
       - run: npm run build --workspace @nylorun/core --workspace @nylorun/agents --workspace @nylorun/admin --workspace @nylorun/harness --workspace @nylorun/runtime
-      # With the `traces` profile: the stock OpenTelemetry Collector of the R7 exit test.
+      # With the `traces` profile: the stock OpenTelemetry Collector of the tracing end-to-end test.
       - name: Start the test stack
         env:
           NYLORUN_TEST_PROFILES: traces
@@ -305,7 +305,7 @@ jobs:
         run: npm run test:integration --workspace @nylorun/runtime
       # `check` runs the unit suite with the gates in process; this runs it again with model
       # calls, remote MCP, HTTP tools and keys crossing a gates service on 127.0.0.1 with run
-      # tokens, as the local stack does (F5).
+      # tokens, as the local stack does.
       - name: Runtime unit tests, gates over HTTP
         env:
           NYLORUN_TEST_MODEL_GATE: http
@@ -321,7 +321,7 @@ jobs:
   # stack's Tenant through @nylorun/admin, a Studio login, a Project linked by
   # `nylorun start`, the Restate identity key,
   # UID/GID ownership of the bind-mounted Host root, then `nylorun reset`. In
-  # parallel, architecture §17 case 3 on its own stack (test:failure): the
+  # parallel, the killed-Worker failure case on its own stack (test:failure): the
   # runtime container killed mid model call (`docker compose kill`), then
   # started; the effect must become uncertain with no second model call
   # (scripts/smoke-failure.mjs), and the harness container killed mid model call
@@ -335,9 +335,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # test:t4-exit: track T4's exit test (scripts/t4-exit.mjs), schedules and a webhook on a
-        # Compose Tenant with no client, a restart across due times included. test:t5-exit: track
-        # T5's (scripts/t5-exit.mjs), a memory written in one fire and read in the next, with an
+        # test:t4-exit: the triggers end-to-end test (scripts/t4-exit.mjs), schedules and a webhook on a
+        # Compose Tenant with no client, a restart across due times included. test:t5-exit: the
+        # memory end-to-end test (scripts/t5-exit.mjs), a memory written in one fire and read in the next, with an
         # upgrade in between.
         smoke: ["test:stack", "test:failure", "test:acceptance:access", "test:redteam", "test:t4-exit", "test:t5-exit"]
     runs-on: ubuntu-latest
@@ -398,16 +398,16 @@ jobs:
   # on docker0's gateway (scripts/sandbox/kind.yaml). Every suite runs `nylorun sandbox
   # enable` itself, which installs agent-sandbox v1.0.10.
   #
-  # service: go vet and go test; S0, the API server checked from a Compose-style
-  # container; F7.2 8a, the service suite with busybox pods
+  # service: go vet and go test; the API server checked from a Compose-style
+  # container; the service suite with busybox pods
   # (scripts/sandbox/service-suite.mjs): enable probes NetworkPolicy, then create,
   # suspend and resume with the service restarted mid-operation, delete, and no
-  # docker.sock anywhere; F7.2 8c, the network invariant and the red-team from inside
+  # docker.sock anywhere; the network invariant and the red-team from inside
   # the sandbox namespace (scripts/sandbox/pod-stack.mjs), each on a Tenant of its own
   # with a joined pod sandbox.
   #
-  # pods: F7.2 8b, pod sandboxes end to end (scripts/sandbox/suite.mjs); R4, a custom
-  # harness as a pod's image (scripts/sandbox/harness-pod.mjs); T2's and T3's exit tests
+  # pods: pod sandboxes end to end (scripts/sandbox/suite.mjs); a custom
+  # harness as a pod's image (scripts/sandbox/harness-pod.mjs); the manifest and move end-to-end tests
   # (scripts/sandbox/t2-exit.mjs, t3-exit.mjs).
   sandboxes:
     needs: scope
@@ -449,7 +449,7 @@ jobs:
           for key in gatesToken harnessToken sandboxesToken adminKey; do
             grep -Eq "^  ${key}: \"[0-9a-f]{64}\"$" /tmp/chart.yaml || { echo "${key} is not 32 bytes of hex"; exit 1; }
           done
-          # /metrics (ADR-159): port 9464 on the runtime and gateway containers and internal Services.
+          # /metrics: port 9464 on the runtime and gateway containers and internal Services.
           [ "$(grep -c '{ name: metrics, containerPort: 9464 }' /tmp/chart.yaml)" = 2 ]
           [ "$(grep -c '{ name: metrics, port: 9464, targetPort: metrics }' /tmp/chart.yaml)" = 2 ]
           helm template t charts/nylorun-runtime --kube-version 1.37.0 \
@@ -545,18 +545,18 @@ jobs:
           docker build --file examples/harness-minimal/Dockerfile --tag "$NYLORUN_EXAMPLE_HARNESS_IMAGE" .
           kind load docker-image --name nylorun "$NYLORUN_EXAMPLE_HARNESS_IMAGE"
           npm run test:sandboxes:harness -- --context kind-nylorun --host-address 172.17.0.1
-      # T2's exit test as one scenario: nylorun apply on three files, the Agent triage and its
+      # The manifest end-to-end test as one scenario: nylorun apply on three files, the Agent triage and its
       # session triage-inbox on a pod, an undeclared secret refused at save, and Studio's list.
-      - name: T2 exit test
+      - name: Agents from one manifest, end to end
         if: matrix.leg == 'pods'
         timeout-minutes: 25
         env:
           NYLORUN_STUDIO_IMAGE: nylorun-studio:ci
         run: npm run test:t2-exit -- --context kind-nylorun --host-address 172.17.0.1
-      # T3's exit test as one scenario: a busy pod Agent moves three times (an instruction change
+      # The move end-to-end test as one scenario: a busy pod Agent moves three times (an instruction change
       # at the next turn, a runtime change at the pod's next start on the same volume, a failed
       # setup that goes back), keeping its id, vault, session and disk.
-      - name: T3 exit test
+      - name: Agents that move between versions, end to end
         if: matrix.leg == 'pods'
         timeout-minutes: 25
         run: npm run test:t3-exit -- --context kind-nylorun --host-address 172.17.0.1

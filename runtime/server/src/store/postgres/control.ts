@@ -1,5 +1,5 @@
 /**
- * The control bus on Postgres (blueprint D21, D48): how one process tells the others with the
+ * The control bus on Postgres: how one process tells the others with the
  * Tenant open to act now. `session.cancel` aborts the advance of a cancelled turn;
  * `sessions.reset` moves the session streams to the Tenant's new basin generation;
  * `host.revoked` closes a pod sandbox's host connections of an older epoch. Nothing

@@ -1,6 +1,6 @@
 /**
  * Builds the Host's Durable Session Execution from the stack configuration
- * (architecture §6, §12.3, §14.5).
+ *.
  *
  * With `NYLORUN_RESTATE_INGRESS_URL` and `NYLORUN_RESTATE_ADMIN_URL` the Host
  * uses Restate:
@@ -27,7 +27,7 @@ import {
   type StackConfig,
 } from "../host/stack-config.js";
 
-/** Where a Worker serves the Restate endpoint (architecture §14.3). */
+/** Where a Worker serves the Restate endpoint. */
 export const WORKER_LISTEN = { host: "0.0.0.0", port: 9080 } as const;
 
 export interface CreateExecutionOptions {
@@ -79,7 +79,7 @@ export function validateExecutionConfig(
 }
 
 /**
- * The deployment a Worker registers with Restate (§14.6): `<NYLORUN_WORKER_URL>/nylorun/<version>`,
+ * The deployment a Worker registers with Restate: `<NYLORUN_WORKER_URL>/nylorun/<version>`,
  * the version being `NYLORUN_WORKER_VERSION` or the Runtime's. Restate sends new invocations to
  * the latest deployment of a service and keeps each running invocation on the deployment it
  * started on, so during a rolling upgrade the Workers of one version share that version's

@@ -8,7 +8,7 @@ import { withPolicyNotes, type ToolRule } from "@/tenant-spec";
 import { ManifestSpec } from "@/components/manifest-spec";
 import { ActionMenu, CodeBlock, SidePanel, TableToolbar, type MenuAction } from "@/components/data-table";
 
-/** A move within its manifest (track T3), or applying a pending version. */
+/** A move within its manifest, or applying a pending version. */
 export type ManifestMove = "move" | "track" | "pin" | "restart" | "retry";
 
 /**

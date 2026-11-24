@@ -80,7 +80,7 @@ export async function runSandboxTool(
   signal: AbortSignal,
   report: (value: SandboxToolReport) => void,
   limits: SandboxToolLimits = DEFAULT_SANDBOX_TOOL_LIMITS,
-  /** Variables every command gets (R2c): secret names set to the sentinel, plain values. */
+  /** Variables every command gets: secret names set to the sentinel, plain values. */
   environment?: Readonly<Record<string, string>>
 ): Promise<SandboxToolOutcome> {
   const lineOf = (line: string) => (line.length > limits.lineChars ? `${line.slice(0, limits.lineChars)}…` : line);
@@ -114,7 +114,7 @@ export async function runSandboxTool(
       report({ path });
       const content = await handle.readFile(path);
       if (content === undefined) return failed("sandbox.not_found", `No file at ${path}`);
-      // A binary file decodes to garbage the model can't tell from text (ADR-139): say so instead.
+      // A binary file decodes to garbage the model can't tell from text: say so instead.
       if (looksBinary(content))
         return failed(
           "sandbox.binary_file",

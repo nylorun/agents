@@ -69,7 +69,7 @@ async function commitLinkedMessage(
   });
 }
 
-it("WF-R22: deriveSessionId is stable for (workflowSessionId, path)", () => {
+it("deriveSessionId is stable for (workflowSessionId, path)", () => {
   const a = deriveSessionId("wf-1", "review/security");
   const b = deriveSessionId("wf-1", "review/security");
   const c = deriveSessionId("wf-1", "review/style");
@@ -78,7 +78,7 @@ it("WF-R22: deriveSessionId is stable for (workflowSessionId, path)", () => {
   expect(a.startsWith("wf_")).toBe(true);
 });
 
-it("LOOP-R28/R6: verify-agent sessions differ across Loop iterations", () => {
+it("verify-agent sessions differ across Loop iterations", () => {
   const path = "polish/judge";
   const iter1 = deriveAgentEffectSessionId("wf-1", path, {
     turnId: "turn-1",
@@ -101,7 +101,7 @@ it("LOOP-R28/R6: verify-agent sessions differ across Loop iterations", () => {
   expect(iter2).toBe(deriveSessionId("wf-1", path, "verify", "turn-1", "2"));
 });
 
-it("PAR-R6/A2: cancelSiblingWork with cancelEffectIds cancels pending siblings", async () => {
+it("cancelSiblingWork with cancelEffectIds cancels pending siblings", async () => {
   const { store, put, get } = await testStore();
   await put("sessions", "wf-1", {
     id: "wf-1",
@@ -157,7 +157,7 @@ it("PAR-R6/A2: cancelSiblingWork with cancelEffectIds cancels pending siblings",
   expect((await get("effects", "e-tests"))?.status).toBe("cancelled");
 });
 
-it("WF-L1 / PAR-A4: countActiveFlowWork counts running agents and tool nodes in flight of the turn", async () => {
+it("countActiveFlowWork counts running agents and tool nodes in flight of the turn", async () => {
   const { store, put } = await testStore();
   await put("sessions", "wf-1", {
     id: "wf-1",
@@ -187,7 +187,7 @@ it("WF-L1 / PAR-A4: countActiveFlowWork counts running agents and tool nodes in 
   expect(await store.tx((t) => countActiveFlowWork(t, "wf-1", "turn-1"))).toBe(2);
 });
 
-it("PAR-R6: cancelSiblingWork lists the sibling agents to cancel", async () => {
+it("cancelSiblingWork lists the sibling agents to cancel", async () => {
   const { store, put, get } = await testStore();
   await put("sessions", "wf-1", {
     id: "wf-1",
@@ -218,7 +218,7 @@ it("PAR-R6: cancelSiblingWork lists the sibling agents to cancel", async () => {
   expect(result.agentSessionIds).toEqual([agentId]);
 });
 
-it("WF-R53 / SD-P11: planCancelCascade orders agents deepest-first", async () => {
+it("planCancelCascade orders agents deepest-first", async () => {
   const { store, put } = await testStore();
   await put("sessions", "wf-1", { id: "wf-1" });
   const shallow = deriveSessionId("wf-1", "a");
@@ -244,7 +244,7 @@ it("WF-R53 / SD-P11: planCancelCascade orders agents deepest-first", async () =>
   expect(plan.agentSessionIds).toEqual([deep, shallow]);
 });
 
-it("WF-R53: cancelQueuedEffects cancels the turn's queued effects only", async () => {
+it("cancelQueuedEffects cancels the turn's queued effects only", async () => {
   const { store, put, get } = await testStore();
   await put("sessions", "wf-1", { id: "wf-1" });
   await put("effects", "p", {
@@ -263,7 +263,7 @@ it("WF-R53: cancelQueuedEffects cancels the turn's queued effects only", async (
   expect((await get("effects", "p"))?.status).toBe("pending");
 });
 
-it("WF-R51: aggregateWaits lists linked agent interactions with owning session and path", async () => {
+it("aggregateWaits lists linked agent interactions with owning session and path", async () => {
   const { store, put } = await testStore();
   await put("sessions", "wf-1", {
     id: "wf-1",
@@ -300,7 +300,7 @@ it("WF-R51: aggregateWaits lists linked agent interactions with owning session a
   ]);
 });
 
-it("WF-R52 / LOOP-A4: foreignInteractionConflict returns 409 naming owner session", async () => {
+it("foreignInteractionConflict returns 409 naming owner session", async () => {
   const { store, put } = await testStore();
   const agentId = deriveSessionId("wf-1", "polish/writer");
   await put("sessions", "wf-1", { id: "wf-1", status: "paused", waits: [] });
@@ -329,7 +329,7 @@ it("WF-R52 / LOOP-A4: foreignInteractionConflict returns 409 naming owner sessio
   });
 });
 
-it("D12: a stage's message carries the flow's input as the original request", () => {
+it("a stage's message carries the flow's input as the original request", () => {
   expect(linkedMessageInput({ input: "draft" })).toBe("draft");
   expect(linkedMessageInput({ input: { x: 1 } })).toEqual({ x: 1 });
   expect(linkedMessageInput({ input: "draft", flowInput: "Write about tides." })).toBe(
@@ -389,7 +389,7 @@ it("records a verifier agent's verdict as loop.verified when its turn settles", 
   ]);
 });
 
-it("WF-R54: wakeLinkedWorkflow records agent.cancelled", async () => {
+it("wakeLinkedWorkflow records agent.cancelled", async () => {
   const { store, put, get, woken } = await testStore();
   const agentId = deriveSessionId("wf-1", "branch");
   await put("sessions", "wf-1", {
@@ -456,7 +456,7 @@ it("wakeLinkedWorkflow wakes nothing when the transaction rolls back", async () 
   expect((await get("effects", "eff-1"))?.status).toBe("pending");
 });
 
-it("WF-C9: reconcilePendingAgentEffect wakes on settled linked turns", async () => {
+it("reconcilePendingAgentEffect wakes on settled linked turns", async () => {
   const { store, put, get, woken } = await testStore();
   const agentId = deriveSessionId("wf-1", "writer");
   await put("sessions", "wf-1", {

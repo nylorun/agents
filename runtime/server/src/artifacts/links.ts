@@ -5,7 +5,7 @@
  * service, like run tokens: `sub` is the artifact, `ver` the version, `aud`
  * `nylorun-artifact`, and it lives at most `keys.tokenTtlMaxSeconds` (Host tuning,
  * so a key rotation never revokes a live link). A link opens nothing once its artifact
- * is deleted. A folder's link (F8.2) opens its zip, or with a `path` claim one of its files.
+ * is deleted. A folder's link opens its zip, or with a `path` claim one of its files.
  */
 import { randomUUID } from "node:crypto";
 import { errors, jwtVerify } from "jose";
@@ -46,7 +46,7 @@ export async function mintArtifactLink(
     ),
   );
   const iat = Math.floor(Date.now() / 1000);
-  // Signed by the keys service (F4.2): this process never holds the private key.
+  // Signed by the keys service: this process never holds the private key.
   const { token } = await ctx.keys.sign({
     typ: ARTIFACT_LINK_TOKEN_TYPE,
     claims: {

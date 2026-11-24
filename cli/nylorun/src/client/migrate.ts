@@ -1,5 +1,5 @@
 /**
- * `nylorun migrate v8 <agent.json>`: a one-off for protocol 16 (track T2). It writes the three
+ * `nylorun migrate v8 <agent.json>`: a one-off for protocol 16. It writes the three
  * authoring files `nylorun apply` reads from an agent manifest v7 (or a workflow manifest v3), as
  * `agents save` took it, and the environment manifest v1 its sessions ran in, if any:
  *
@@ -14,7 +14,7 @@
  * It writes nothing over an existing file, reads nothing from a Runtime, and prints the gaps
  * `nylorun apply` would refuse, to fix in the files first.
  *
- * `nylorun migrate folder <dir>` (`convert.ts`, track T7) writes the agent folder of a three-file
+ * `nylorun migrate folder <dir>` (`convert.ts`) writes the agent folder of a three-file
  * folder.
  */
 import { existsSync } from "node:fs";
@@ -87,7 +87,7 @@ export async function migrateCommand(deps: StackDeps, args: readonly string[]): 
     return 0;
   }
   if (version === "folder") {
-    // `--to 2` or `--to 3`: an agent folder made agent-folder/2 (ADR-100) or agent-folder/3 (ADR-106) in place.
+    // `--to 2` or `--to 3`: an agent folder made agent-folder/2 or agent-folder/3 in place.
     const to = rest.indexOf("--to");
     if (to < 0) return migrateFolderCommand(deps, rest);
     const value = rest[to + 1];

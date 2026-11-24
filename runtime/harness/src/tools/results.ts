@@ -1,5 +1,5 @@
 /**
- * Tool results that fit (R2b C11, Q22–Q24; protocol 15): our engine shapes what a tool returned
+ * Tool results that fit (protocol 15): our engine shapes what a tool returned
  * before it reports the outcome (`effect.outcome`), since the record refuses an entry past the
  * Runtime limit `recordEntryBytes` and a step's results are one transcript entry. The Tool Gate
  * already refused an answer past `toolAnswerBytes` (`mcp.too-large`, `http.too-large`) and
@@ -25,7 +25,7 @@
  * Each stored result's key (`spillKey`) is the call's effect id with the bytes' hash: a call run
  * again after a crash, which the gate answers with the same bytes, writes nothing new, and other
  * bytes never take the key of a preview already recorded. The model reads a stored result with
- * `read_artifact`; for an agent without it (ADR-100), the stub says `retrievable: false`.
+ * `read_artifact`; for an agent without it, the stub says `retrievable: false`.
  */
 import { createHash } from "node:crypto";
 import {
@@ -105,7 +105,7 @@ export interface ShapeContext {
   readonly limits: Pick<RuntimeLimits, "modelFileBytes">;
   readonly config: ToolResultConfig;
   /**
-   * False when the call's agent has no `read_artifact` (ADR-100, an `agent-folder/2` agent
+   * False when the call's agent has no `read_artifact` (an `agent-folder/2` agent
    * without `engine.artifacts.read`): a cut result says `retrievable: false`, since the model
    * cannot read the rest. It is stored all the same, for people. Default true.
    */
@@ -340,7 +340,7 @@ async function shapeBinary(
     DEFAULT_CONTENT_TYPE;
   const name = nameOf(ctx, contentType, index);
   const kept = await ctx.store(fromBase64(data), { name, contentType, index });
-  // An image the turn's model reads goes to it as a file, beside the part (Q23).
+  // An image the turn's model reads goes to it as a file, beside the part.
   if (part.type === "image" && "artifactId" in kept) {
     const file: ToolResultFile = {
       mediaType: contentType,

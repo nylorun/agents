@@ -10,7 +10,7 @@ import { hostTuning } from "../tuning.js";
 export const DEFAULT_SANDBOX_IMAGE = "python:3.13-slim";
 export const DEFAULT_SANDBOX_CPUS = 2;
 export const DEFAULT_SANDBOX_MEMORY_MIB = 1024;
-/** The default of the Tenant's Environment setting `limits.idle` (`environments.config`, D36). */
+/** The default of the Tenant's Environment setting `limits.idle` (`environments.config`). */
 export const DEFAULT_SANDBOX_IDLE = "15m";
 
 /** Package registries, toolchain downloads and code hosts. Concrete names so every backend can express them. */
@@ -72,7 +72,7 @@ export function resolveNetwork(manifest: SandboxManifest | undefined): ResolvedN
 /**
  * How long the sandbox may sit idle: its spec's `idle`, which `sandboxSpecOf` sets from the
  * Environment's `lifecycle.idle` within the Tenant's `limits.idle`; else that setting's default
- * (`DEFAULT_SANDBOX_IDLE`, D36).
+ * (`DEFAULT_SANDBOX_IDLE`).
  */
 export function idleMsOf(manifest: SandboxManifest | undefined): number {
   return parseSandboxDuration(manifest?.idle ?? DEFAULT_SANDBOX_IDLE) ?? parseSandboxDuration(DEFAULT_SANDBOX_IDLE)!;

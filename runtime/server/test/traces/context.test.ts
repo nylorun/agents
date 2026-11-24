@@ -1,5 +1,5 @@
 /**
- * Trace context in and out (R7.4): a command's `traceparent` is recorded and its turn joins the
+ * Trace context in and out: a command's `traceparent` is recorded and its turn joins the
  * caller's trace; the turn's context goes to the harness (`TurnStart.trace`), a tool call's to an
  * HTTP tool (`traceparent`, beside `Idempotency-Key`) and to a sandbox command (`TRACEPARENT`).
  * The HTTP tool runs through the gates service (`NYLORUN_TEST_MODEL_GATE=http`), whose Tool Gate
@@ -105,7 +105,7 @@ const hookAgent = (url: string) =>
     .tools(http({ name: "hook", input: z.object({ n: z.number() }), url }))
     .build().manifest;
 
-describe("trace context (R7.4)", { timeout: 60_000 }, () => {
+describe("trace context", { timeout: 60_000 }, () => {
   for (const gate of ["http", "in-process"] as const)
     it(`sends an HTTP tool its span's traceparent beside Idempotency-Key (${gate} Tool Gate), under the caller's trace`, async () => {
       if (gate === "http") vi.stubEnv("NYLORUN_TEST_MODEL_GATE", "http");

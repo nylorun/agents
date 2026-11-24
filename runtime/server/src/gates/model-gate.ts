@@ -1,5 +1,5 @@
 /**
- * The Model Gate seam (blueprint §15, P1.1). Every vault-backed model call of the loop goes
+ * The Model Gate seam. Every vault-backed model call of the loop goes
  * through one `ModelGate`: the call, who it is for, and nothing else. The gate owns what the
  * call needs that the loop must not hold: the provider credential, pi-ai, its retries and
  * idle watchdog, failure classification and scrubbing.
@@ -17,16 +17,16 @@ export type { ModelCallSettings } from "../model/pi-model.js";
 
 /**
  * One model call, as the loop hands it to the gate. JSON-safe: it crosses the network. Over
- * HTTP the session, turn and agent travel in the run token, not the body (F5): the gate's route
+ * HTTP the session, turn and agent travel in the run token, not the body: the gate's route
  * fills them in from its claims.
  */
 export interface ModelGateRequest {
   readonly tenantId: string;
   readonly sessionId: string;
   readonly turnId: string;
-  /** The session's agent, for the usage ledger and its budgets (P1.3). */
+  /** The session's agent, for the usage ledger and its budgets. */
   readonly agentId: string;
-  /** The effect's journal id; sent as `Idempotency-Key` (acted on from P1.2). */
+  /** The effect's journal id; sent as `Idempotency-Key`. */
   readonly effectId: string;
   readonly invocationId: string;
   /**
@@ -49,7 +49,7 @@ export interface ModelGate {
    */
   call(request: ModelGateRequest, signal: AbortSignal): Promise<ModelGateOutcome>;
   /**
-   * True when a call outlives the caller's process (the gates service, P1.2): after a takeover
+   * True when a call outlives the caller's process (the gates service): after a takeover
    * or a shutdown, re-sending the journaled request joins the call or returns its outcome
    * instead of calling the provider again. The in-process gate dies with the loop.
    */

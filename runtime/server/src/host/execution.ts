@@ -1,5 +1,5 @@
 /**
- * The Host's Durable Session Execution (architecture §6, §12.3, §14.8): one per process,
+ * The Host's Durable Session Execution: one per process,
  * for the Tenant the Host serves.
  *
  * - `tenantExecution` is what the Host passes to its Tenant when it opens it
@@ -11,7 +11,7 @@
  *   ingress.
  * - `armAll` arms the listed Tenants' sweeps (tests, recovery). Arming is idempotent; opening
  *   the Tenant arms its own at every start, which is what recovers from lost Restate state:
- *   the sweep re-wakes `runnable` sessions without a live owner (§14.8).
+ *   the sweep re-wakes `runnable` sessions without a live owner.
  * - `disarm` stops a Tenant's sweep.
  *
  * **Order at startup.** Call `start` before opening the Tenant. Opening the Tenant arms its

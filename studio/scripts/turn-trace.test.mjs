@@ -84,7 +84,7 @@ test("turns in the order they first appear, and span times", () => {
   assert.equal(formatSpanTime(125_000), "2 min 5 s");
 });
 
-test("the Events views split on each type's layer (ADR-159)", () => {
+test("the Events views split on each type's layer", () => {
   assert.deepEqual(EVENT_VIEWS.map((v) => v.value), ["agent", "runtime", "all"]);
   assert.equal(inView("message.assistant", "agent"), true);
   assert.equal(inView("message.assistant", "runtime"), false);

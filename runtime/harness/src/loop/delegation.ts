@@ -25,7 +25,7 @@ export interface DelegationHost {
   ): {
     readonly definition: AgentDefinition;
     readonly onModelCall: ModelAdapter;
-    /** Whether the child has `read_artifact` (ADR-100), when it is not the parent's. */
+    /** Whether the child has `read_artifact`, when it is not the parent's. */
     readonly artifactReads?: boolean;
   };
   /**
@@ -52,14 +52,14 @@ export interface ExecuteInternals {
   /** Set when this invocation is an agent used as a tool. */
   readonly delegated?: AgentRef;
   /**
-   * Segment rollover (Model Calls §10): end the invocation with `yielded` at the next step
+   * Segment rollover: end the invocation with `yielded` at the next step
    * boundary once this many steps ran, or this much time passed, in this invocation.
    */
   readonly yieldAfter?: { readonly steps?: number; readonly ms?: number };
   /** The loop's settings (compaction, a failed child's partial output). Default `DEFAULT_LOOP_CONFIG`. */
   readonly loop?: LoopConfig;
   /**
-   * The messages steered into the running turn (D85), asked before every step but the turn's
+   * The messages steered into the running turn, asked before every step but the turn's
    * first: each one's input as its message gave it, which the loop reads as a user message. Set
    * for the root invocation only; an agent used as a tool never takes them.
    */
@@ -145,7 +145,7 @@ export async function runDelegation(
             onModelCall: child.onModelCall,
             signal,
             // A child calls the same model, and reads its files as the parent does, with
-            // `read_artifact` as it declares (ADR-100).
+            // `read_artifact` as it declares.
             ...(options.model === undefined ? {} : { model: options.model }),
             ...(options.files === undefined
               ? {}

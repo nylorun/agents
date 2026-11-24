@@ -1,7 +1,7 @@
 /**
  * What the gates service opens of the Tenant: its vault's host model, and nothing else. The
  * full Tenant (`TenantRuntime.open`) migrates its database, creates its key file and starts
- * its services; the gate does none of that. The database holds one Tenant (tenancy.md §1):
+ * its services; the gate does none of that. The database holds one Tenant:
  * the gate reads which one from it, refuses a database whose Tenant schema isn't at this
  * build's version (the Runtime migrates it when it opens the Tenant) and never creates a vault
  * key. The vault is opened once and kept.
@@ -29,7 +29,7 @@ import { SigningKeys } from "../tenant/signing-keys.js";
 /** The Tenant, as a model call needs it. */
 export interface TenantVault {
   readonly tenantId: string;
-  /** The Tenant's store, for the usage ledger (P1.3). */
+  /** The Tenant's store, for the usage ledger. */
   readonly store: SessionStore;
   /** The Tenant's home: secrets found there are redacted from failure messages. */
   readonly root: string;
@@ -44,11 +44,11 @@ export interface TenantVault {
    * credential from the vault of the session's Agent.
    */
   authorizeMcp(sessionId: string, request: McpCredentialRequest): Promise<AuthorizeResult>;
-  /** Vault writes and token signing with the Tenant's vault key (the keys service, F4.2). */
+  /** Vault writes and token signing with the Tenant's vault key (the keys service). */
   keys(): Keys;
-  /** Whether the Environment's vault has an `environment_secret` bound to `host` (R2c). */
+  /** Whether the Environment's vault has an `environment_secret` bound to `host`. */
   environmentSecretBound(environmentId: string, host: string): Promise<boolean>;
-  /** The header an `environment_secret` sets on one request to `host` (R2c). */
+  /** The header an `environment_secret` sets on one request to `host`. */
   releaseEnvironmentSecret(environmentId: string, host: string): ReturnType<VaultService["releaseEnvironmentSecret"]>;
 }
 
@@ -72,7 +72,7 @@ export interface TenantVaultsOptions {
   readonly sql: PostgresClient;
   /** The Host root; the gate reads `keys/vault-kek` and `tenant/home` under it. */
   readonly hostRoot: string;
-  /** How the keys service's tool preview reaches a server (`NYLORUN_ENDPOINT_*`, R2b C12). */
+  /** How the keys service's tool preview reaches a server (`NYLORUN_ENDPOINT_*`). */
   readonly delivery?: OutboundPolicy;
 }
 

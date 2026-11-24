@@ -96,7 +96,7 @@ function TenantNavigation({
   tenant?: StudioTenantInfo;
   active: boolean;
 }>) {
-  // Embedded, the app owns the Tenant's name too (Studio §8.7).
+  // Embedded, the app owns the Tenant's name too.
   const named = tenant !== undefined && !embedded();
   const title = named ? tenant.name : "Runtime";
   return (
@@ -169,7 +169,7 @@ export function AppSidebar({
     <Sidebar collapsible="icon">
       <SidebarHeader>
         <SidebarMenu>
-          {/* Embedded, the app owns the branding (Studio §8.7). */}
+          {/* Embedded, the app owns the branding. */}
           {embedded() ? null : (
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" asChild>

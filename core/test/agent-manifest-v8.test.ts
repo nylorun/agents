@@ -72,7 +72,7 @@ describe("agent manifest v8 (protocol 16)", () => {
     expect(JSON.stringify(requires.error?.issues)).toContain("harness.requires left the API");
     const harness = RuntimeSectionSchema.safeParse({ kind: "pod", harness: "acme" });
     expect(JSON.stringify(harness.error?.issues)).toContain("runtime.harness moved to harness.id");
-    // Triggers (track T4): a map by id, each with exactly one of schedule, at or webhook.
+    // Triggers: a map by id, each with exactly one of schedule, at or webhook.
     const triggers = RuntimeSectionSchema.safeParse({ kind: "pod", triggers: { daily: { schedule: "0 9 * * *", session: "s", prompt: "Wake." } } });
     expect(triggers.success).toBe(true);
     const both = RuntimeSectionSchema.safeParse({
@@ -143,7 +143,7 @@ describe("checks between the sections", () => {
     expect(sectionGaps({ harness: { mcpServers: server("LINEAR_KEY", "https://other.example/mcp") }, runtime })[0]).toBe(
       'harness.mcpServers.linear.credential "LINEAR_KEY" is bound to https://mcp.linear.app:443/mcp, not to an MCP server\'s URL https://other.example/mcp',
     );
-    // A server that names no credential keeps matching the vault by its URL (Q2).
+    // A server that names no credential keeps matching the vault by its URL.
     expect(sectionGaps({ harness: { mcpServers: { linear: { ...server("x").linear, credential: undefined } } }, runtime })).toEqual(
       [],
     );

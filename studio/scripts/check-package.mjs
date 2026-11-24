@@ -37,7 +37,7 @@ for (const field of [
     if (manifest[field]?.[name])
       throw new Error(`Studio must not depend on ${name}`);
 
-/** Design §15: UI packages are build-time only; the server needs admin and agents alone. */
+/** UI packages are build-time only; the server needs admin and agents alone. */
 const UI_DEV_DEPS = [
   "react",
   "react-dom",
@@ -53,7 +53,7 @@ const UI_DEV_DEPS = [
 ];
 for (const name of UI_DEV_DEPS) {
   if (manifest.dependencies?.[name])
-    throw new Error(`Studio UI package ${name} must be a devDependency (design §15).`);
+    throw new Error(`Studio UI package ${name} must be a devDependency.`);
   if (!manifest.devDependencies?.[name])
     throw new Error(`Studio UI package ${name} must be listed in devDependencies.`);
 }
@@ -63,7 +63,7 @@ if (runtimeDeps.join(",") !== "@nylorun/admin,@nylorun/agents")
     "Studio runtime dependencies must be only @nylorun/admin and @nylorun/agents (plus Node built-ins).",
   );
 
-/** SD-I5: browser sources must not pull engine, host or Action execution. */
+/** Browser sources must not pull engine, host or Action execution. */
 function walk(dir) {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) =>
     entry.isDirectory() ? walk(join(dir, entry.name)) : [join(dir, entry.name)],
@@ -80,7 +80,7 @@ for (const path of walk("web/src")) {
     /@nylorun\/admin(?!\/client["'])/,
   ])
     if (pattern.test(source))
-      throw new Error(`SD-I5: ${path} must not import the engine or the host (${pattern})`);
+      throw new Error(`${path} must not import the engine or the host (${pattern})`);
 }
 
 // What the image copies: the server entry and the built dashboard.

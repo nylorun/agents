@@ -1,5 +1,5 @@
 /**
- * R2 M6: the Runtime runs agents from their manifests alone. A definition whose tools would run
+ * The Runtime runs agents from their manifests alone. A definition whose tools would run
  * the developer's code (no `http`, no `agent`, not a built-in) is refused at save, and so is a
  * flow agent with a `tool` stage.
  */

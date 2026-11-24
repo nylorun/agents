@@ -53,7 +53,7 @@ interface Sweep {
   running: boolean;
 }
 
-/** A pod sandbox's reconciles (one at a time) and timers (F7.2). */
+/** A pod sandbox's reconciles (one at a time) and timers. */
 interface SandboxState {
   tenantId: string;
   sandboxId: string;
@@ -224,7 +224,7 @@ export class MemoryExecution implements DurableExecution {
       for (const entry of state.timers.values()) if (entry.handle) clearTimeout(entry.handle);
     for (const state of this.keys.values()) state.controller?.abort();
     // Bounded: a handler that ignores its abort is abandoned and runs on unwaited. An
-    // abandoned advance's lease lapses and the next advance takes the session over (§11.4).
+    // abandoned advance's lease lapses and the next advance takes the session over.
     await settleWithin(this.inflight, this.stopGraceMs);
   }
 

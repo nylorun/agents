@@ -35,7 +35,7 @@ function leaf(
 }
 
 /**
- * Build a drawable tree from a workflow manifest v3 (workflows.md §11). Leaves are drawn at
+ * Build a drawable tree from a workflow manifest v3. Leaves are drawn at
  * their session paths (the paths `node.agent` and `node.started` events carry); control
  * stages at their stage keys (`route`, `@1`), which Loop events carry. A nested flow agent
  * is drawn inline under its own id. A chain is a row, a switch a fork, a parallel lanes, a map

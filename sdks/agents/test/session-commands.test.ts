@@ -68,7 +68,7 @@ describe("session commands", () => {
     expect(sent).toEqual([]);
   });
 
-  it("sends context with a message, when the Runtime serves message-context (ADR-157)", async () => {
+  it("sends context with a message, when the Runtime serves message-context", async () => {
     const { client, bodies } = accepting();
     const session = client.session("s1");
     const context = [{ type: "bot", value: "[bot] Nylo" }, { value: { tasks: 2 } }];

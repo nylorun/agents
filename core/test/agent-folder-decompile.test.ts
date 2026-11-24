@@ -75,7 +75,7 @@ const TRIAGE: AgentManifestV8 = {
 };
 
 describe("folderOfManifest: the folder compiles back to the same manifest", () => {
-  it("writes T6's triage as AGENT.md, mcp.json with Bearer ${GITHUB_TOKEN}, and runtime.json", () => {
+  it("writes the triage agent as AGENT.md, mcp.json with Bearer ${GITHUB_TOKEN}, and runtime.json", () => {
     const folder = roundTrip(TRIAGE);
     expect([...folder.files.keys()]).toEqual(["AGENT.md", "mcp.json", "runtime.json"]);
     expect(text(folder, "AGENT.md")).toBe(
@@ -528,7 +528,7 @@ describe("folderOfManifest: what it cannot write the same way, in notes", () => 
     expect(folder.exact).toBe(false);
     expect(folder.notes).toEqual([
       "Agent spare is embedded, and no node names it: a folder holds only the agents its flows name, so it is left out.",
-      'agents/writer/: The agent\'s display name "Brief writer" is left out: in a folder an agent\'s name is its id (design §3.2).',
+      'agents/writer/: The agent\'s display name "Brief writer" is left out: in a folder an agent\'s name is its id.',
       "agents/sub/: It embeds an agent writer that differs from the one in agents/writer/, and a flow root's agents/ holds one agent of an id: the one there is used.",
     ]);
     expect([...folder.files.keys()]).toEqual(["AGENT.md", "agents/sub/AGENT.md", "agents/sub/flow.json", "agents/writer/AGENT.md", "flow.json"]);

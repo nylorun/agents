@@ -1,5 +1,5 @@
 /**
- * The Tenant sweep (architecture §12.3, "Timers"): one self-re-arming pass per Tenant, armed
+ * The Tenant sweep ("Timers"): one self-re-arming pass per Tenant, armed
  * with `DurableExecution.armSweep` when the Tenant opens. It replaces every in-process timer
  * and startup scan the Tenant runtime used to keep. It reconciles the Session Store with what
  * Durable Session Execution was asked to do; it never decides when a session advances:
@@ -22,11 +22,11 @@
  *    `sweep.orphanScanMs`: `running` or `runnable` sessions with no owner, or an owner whose lease
  *    expired, are woken with reason `recover`, page by page within `sweep.drainBudgetMs`; a scan
  *    the budget cut short goes on at the next pass. Neither a lost wake (step 1) nor a Worker
- *    that died mid-advance (the execution retries that advance, which takes over, §11.4)
+ *    that died mid-advance (the execution retries that advance, which takes over)
  *    needs it: it is the backstop for what the execution itself lost or ended without an
  *    advance, such as an in-process execution's queue when its process stopped, an advance
  *    for a Tenant not open on its Worker, an invocation an operator killed, Restate's state
- *    wiped (§17.11), or a parked outbox row.
+ *    wiped, or a parked outbox row.
  * 4. **Sandboxes.** Idle sandboxes are stopped, records of compute no longer held are marked
  *    stopped, and sandboxes whose session or Environment is gone are removed, by the
  *    workspace feature (`harness-api/workspace.ts`: here, or in the harness that serves
@@ -34,7 +34,7 @@
  *    orphan scan, pod Environments whose change stalled get a reconcile (`reconcileStalePods`).
  *    Environments unused for their `lifecycle.deleteAfter` are deleted
  *    (`sweepUnusedAgents`).
- *    Triggers (track T4, `triggers.ts`): on this process's first pass every active trigger's
+ *    Triggers (`triggers.ts`): on this process's first pass every active trigger's
  *    timer is armed, later overdue ones only, and runs past `triggerRunRetentionMs` are deleted.
  * 5. **Control signals.** Signals on the control bus older than `sweep.signalRetentionMs` are
  *    deleted: followers read back only the last two minutes (`store/postgres/control.ts`).
@@ -149,14 +149,14 @@ export async function sweep(ctx: TenantContext): Promise<void> {
       : []),
     // Environments unused for their `lifecycle.deleteAfter`: one query when none is due.
     ["agents", () => sweepUnusedAgents(ctx, now.getTime())],
-    // Pods slower than `tenant.upgradeStartMs` to start on a new version go back (track T3).
+    // Pods slower than `tenant.upgradeStartMs` to start on a new version go back.
     ["starts", () => sweepStartChecks(ctx, now.getTime())],
-    // Triggers (track T4): every active one armed on this process's first pass, overdue ones after;
+    // Triggers: every active one armed on this process's first pass, overdue ones after;
     // runs past their retention deleted.
     ["triggers", () => reconcileTriggers(ctx, first)],
-    // The Tenant runs stream's outbox (D83): runs not appended after their commit.
+    // The Tenant runs stream's outbox: runs not appended after their commit.
     ["runs-stream", () => streamMissedRuns(ctx)],
-    // Seeds of new volumes whose engine is connected and no process copies (R2d step 3).
+    // Seeds of new volumes whose engine is connected and no process copies.
     ["seeds", () => sweepPendingSeeds(ctx)],
     // A harness elsewhere closes its own idle MCP connections.
     ["mcp", async () => ctx.mcp?.sweep()],
@@ -331,7 +331,7 @@ export async function wakeOrphanedSessions(
 }
 
 /**
- * Pod sandboxes (F7.2) whose change has not finished (creating, deleting, an old volume still
+ * Pod sandboxes whose change has not finished (creating, deleting, an old volume still
  * to delete, an expiry not yet recorded), that should run but whose engine is not connected, or
  * that run past their idle limit (a wake that armed no idle timer: the reconcile arms it),
  * and whose row has not moved for `sweep.stalePodMs` (a minute), get a reconcile: a pod or volume deleted outside
@@ -360,7 +360,7 @@ async function reconcileStalePods(ctx: TenantContext, now: Date): Promise<void> 
 /**
  * Whether the sweep asks for a reconcile of `row`'s pod (`reconcileStalePods`): its row has not
  * moved for `staleMs`, and its change is unfinished, its engine is not connected, or it runs
- * past its idle limit. A computer (ADR-149) the Runtime wants running qualifies on every pass,
+ * past its idle limit. A computer the Runtime wants running qualifies on every pass,
  * whatever its row says: nothing else looks at it while a harness holds a ticket (its row's
  * `observed` doesn't follow a resume), so the sweep is what finds it drained to another worker
  * (`drainedAt`, recorded once) or deleted outside the Runtime.

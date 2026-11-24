@@ -55,7 +55,7 @@ async function withStudio(
             r.method !== "GET" &&
             !r.path.endsWith("/links") &&
             r.path !== "/v1/tenant/credential-coverage" &&
-            // Studio's server records the loopback sign-in itself (ADR-159): not a resource.
+            // Studio's server records the loopback sign-in itself: not a resource.
             r.path !== "/v1/tenant/audit/studio-sign-in",
         ),
         [],

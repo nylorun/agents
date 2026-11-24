@@ -17,7 +17,7 @@ export interface StackEndpoints {
    */
   s3: { endpoint?: string; accessKeyId: string; secretAccessKey: string };
   /**
-   * The stock OpenTelemetry Collector of the R7 exit test (profile `traces`): its OTLP/HTTP traces
+   * The stock OpenTelemetry Collector of the tracing end-to-end test (profile `traces`): its OTLP/HTTP traces
    * URL, and the directory its file exporter writes `traces.jsonl` to.
    */
   otel: { tracesUrl: string; dir: string };

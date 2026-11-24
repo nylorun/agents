@@ -1,10 +1,10 @@
 /**
- * The installation's egress CA (R2c, D50, E12): one long-lived certificate authority whose
+ * The installation's egress CA: one long-lived certificate authority whose
  * certificate every pod sandbox trusts, and whose key signs the short-lived leaf egress-gate
  * presents when it terminates TLS for a host an `environment_secret` is bound to. Only keys holds
  * the key: it lives in the Tenant setting `egress.ca`, sealed under the vault KEK like a signing
  * key, beside the certificate in the clear. Created on first use under the signing keys' lock.
- * No rotation yet (R8, with the KeyRoot seam).
+ * No rotation yet (with the KeyRoot seam).
  */
 import { X509Certificate } from "node:crypto";
 import type { SessionStore, Tx } from "../store/types.js";

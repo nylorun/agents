@@ -1,11 +1,11 @@
 /**
- * What a segment starts from (§10.5): in one transaction the session's state is rebased onto
+ * What a segment starts from: in one transaction the session's state is rebased onto
  * the turn's manifest, a transcript still on the row is recorded, and the segment's completed
- * outcomes are read; then the transcript is folded from the record (P0.3). `buildTurnStart`
+ * outcomes are read; then the transcript is folded from the record. `buildTurnStart`
  * turns that into the run's `turn.start`: the checkpoint goes without its transcript, which the
  * harness holds at the fold's cursor or reads once.
  *
- * A pod Agent's sandbox variables are its vault's (R2c), then, with an outside credential
+ * A pod Agent's sandbox variables are its vault's, then, with an outside credential
  * provider (`gates/credential-provider.ts`) and an owner on the Agent, each variable the provider
  * names for that owner, set to the value it gives (the stand-in `nylorun_managed`, a stand-in of
  * its own or a plain value) and never over a vault variable.
@@ -73,7 +73,7 @@ export interface SegmentStart {
   readonly sandbox: {
     readonly ownerId: string;
     readonly environmentId?: string;
-    /** Variables every sandbox command gets (R2c): secret names set to the sentinel, plain values. */
+    /** Variables every sandbox command gets: secret names set to the sentinel, plain values. */
     readonly environment?: Readonly<Record<string, string>>;
     /** The sandbox spec the session pinned when it opened; absent without a sandbox. */
     readonly spec?: SandboxManifest;
@@ -84,24 +84,24 @@ export interface SegmentStart {
    */
   readonly agent?: TurnAgent;
   /**
-   * The Agent is a pod (F7.2): its engine runs the segment. Its lifecycle state, and whether its
-   * new volume is still being seeded from a disk version (R2d step 3).
+   * The Agent is a pod: its engine runs the segment. Its lifecycle state, and whether its
+   * new volume is still being seeded from a disk version.
    */
   readonly pod?: {
     readonly id: string;
     readonly pod: SandboxPodState;
     readonly seeding?: boolean;
-    /** It starts on a new version (track T3) and has not joined yet: a failed start goes back. */
+    /** It starts on a new version and has not joined yet: a failed start goes back. */
     readonly starting?: boolean;
   };
-  /** The turn's span context (R7.4): what `TurnStart.trace` hands the harness. */
+  /** The turn's span context: what `TurnStart.trace` hands the harness. */
   readonly trace?: TraceContext;
   /**
    * The model the turn's calls use (protocol 15), as the segment starts: what `TurnStart.model`
    * hands an agent's harness. Absent for a flow, and when the Tenant has no model.
    */
   readonly model?: ModelDescriptor;
-  /** The Agent's memory (track T5): its access, instructions and the index the harness pins. */
+  /** The Agent's memory: its access, instructions and the index the harness pins. */
   readonly memory?: TurnMemory;
 }
 
@@ -122,7 +122,7 @@ export async function startSegment(
     id,
     lease.epoch,
     async (t, current) => {
-      // A turn's first segment runs the version its Agent runs now (T3, D73).
+      // A turn's first segment runs the version its Agent runs now.
       if (options.harness && (await repinTurn(t, current))) await t.put("sessions", id, current);
       // The model the segment's calls use, and why: `session.model` when it changed since.
       if (
@@ -132,7 +132,7 @@ export async function startSegment(
       )
         await t.put("sessions", id, current);
       // A transcript left on our engine's state by an older Runtime is recorded once; another
-      // harness's state is its own (R4.2).
+      // harness's state is its own.
       const limits = await readRuntimeLimits(t);
       if (!isWorkflowManifest(current.manifest) && current.checkpoint && harnessOf(current) === HARNESS_ID) {
         await adoptStoredTranscript(t, current, limits.recordEntryBytes);
@@ -153,7 +153,7 @@ export async function startSegment(
         ...workspace,
         ...(Object.keys(environment).length > 0 ? { environment } : {}),
         ...(current.sandbox === undefined ? {} : { spec: current.sandbox }),
-        // A pod Agent's sandbox is a computer when the Tenant's are (ADR-149).
+        // A pod Agent's sandbox is a computer when the Tenant's are.
         ...(resource?.kind === "pod" && ctx.pods?.computer ? { computer: true as const } : {}),
       };
       const turnId = current.activeTurnId;
@@ -189,11 +189,11 @@ export async function startSegment(
       : undefined;
   const provided = await withProviderVariables(ctx, opened, providerAsk);
   const started = model ? { ...provided, model } : provided;
-  // One history (P0.3): the engine resumes from the transcript folded from the record.
+  // One history: the engine resumes from the transcript folded from the record.
   const { current } = started;
   const cp = current.checkpoint as DurableCheckpoint | undefined;
   if (isWorkflowManifest(current.manifest)) return { ...started, transcript: [], cursor: -1 };
-  // Another harness's state says nothing about its transcript (R4.2): fold it every segment.
+  // Another harness's state says nothing about its transcript: fold it every segment.
   if (harnessOf(current) !== HARNESS_ID) {
     const { transcript, cursor } = await foldSession(ctx, current);
     return { ...started, transcript, cursor };
@@ -258,7 +258,7 @@ export function buildTurnStart(ctx: TenantContext, segment: SegmentStart): TurnS
     // The agent manifest version the session pinned, and its harness's own settings (protocol 16).
     ...(current.definition === undefined ? {} : { definition: current.definition }),
     ...(current.loop === undefined || flow ? {} : { loop: current.loop }),
-    // The session's role (ADR-157): only our harness is sent it, as another v5 harness's schema
+    // The session's role: only our harness is sent it, as another v5 harness's schema
     // may not know the field.
     ...(current.role === undefined || flow || harnessOf(current) !== HARNESS_ID ? {} : { role: current.role }),
     ...(segment.memory && !flow ? { memory: segment.memory } : {}),
@@ -266,7 +266,7 @@ export function buildTurnStart(ctx: TenantContext, segment: SegmentStart): TurnS
 }
 
 /**
- * The Agent's memory as the segment starts (track T5, D72), when the version the session runs sets
+ * The Agent's memory as the segment starts, when the version the session runs sets
  * `harness.memory`: its access (the same in every turn), the agent's instructions, and the index of
  * its memories, newest first, within the Tenant's index limits; no index when it sets
  * `harness.memory.index: false`. `refresh` at a turn's first segment when someone other than the
@@ -281,7 +281,7 @@ async function turnMemoryOf(t: Tx, s: Session, limits: RuntimeLimits): Promise<T
     access: settings.access ?? "read_write",
     ...(settings.instructions === undefined ? {} : { instructions: settings.instructions }),
   } as const;
-  // A version that sets `harness.memory.index: false` (ADR-100) pins no index: none is rendered.
+  // A version that sets `harness.memory.index: false` pins no index: none is rendered.
   if (settings.index === false) return { ...base, truncated: false };
   const { index, truncated } = await renderMemoryIndex(t, s.agentId, limits);
   // Within Harness API 5 only our harness, the Runtime's own version, is sent `refresh`.
@@ -329,8 +329,8 @@ function agentOf(
 }
 
 /**
- * Whether the manifest version the session runs sets `runtime.selfWake` (track T4, D77) and
- * declares `harness.engine.triggers` (D83).
+ * Whether the manifest version the session runs sets `runtime.selfWake` and
+ * declares `harness.engine.triggers`.
  */
 async function pinnedEngineFacts(t: Tx, s: Pick<Session, "definition">): Promise<{ selfWake: boolean; triggers: boolean }> {
   if (!s.definition) return { selfWake: false, triggers: false };
@@ -340,7 +340,7 @@ async function pinnedEngineFacts(t: Tx, s: Pick<Session, "definition">): Promise
 }
 
 /**
- * The context of turn `turnId`'s span (R7.4): its trace (the caller's when its message carried a
+ * The context of turn `turnId`'s span: its trace (the caller's when its message carried a
  * `traceparent`) and its span, as the trace projector derives them, with the caller's
  * `tracestate`.
  */

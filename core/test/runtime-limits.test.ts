@@ -29,7 +29,7 @@ describe("Runtime limits", () => {
       chunkBytes: 16 * 1024 * 1024,
       folderEntries: 10_000,
     });
-    // The values the literals they replace held (B15).
+    // The values the literals they replace held.
     expect(RUNTIME_LIMIT_DEFAULTS).toMatchObject({
       requestBodyBytes: 1024 * 1024,
       inlineFileBytes: 20 * 1024 * 1024,
@@ -75,7 +75,7 @@ describe("Runtime limits", () => {
     expect(RUNTIME_LIMIT_CEILINGS.a2aWaitMs).toMatchObject({ value: TIMER_MAX_MS, unit: "milliseconds" });
     expect(runtimeLimitIssues({ modelRequestMs: TIMER_MAX_MS + 1 })[0]).toContain("JavaScript timer");
     expect(inlineBodyBytes({ inlineFileBytes: 3 * 1024, requestBodyBytes: 1024 })).toBe(5 * 1024);
-    // About the 28 MiB the endpoints read before (B15).
+    // About the 28 MiB the endpoints read before.
     expect(inlineBodyBytes(RUNTIME_LIMIT_DEFAULTS)).toBe(Math.ceil((20 * 1024 * 1024) / 3) * 4 + 1024 * 1024);
     expect(inlineBodyBytes({ inlineFileBytes: RUNTIME_LIMIT_CEILINGS.inlineFileBytes.value, requestBodyBytes: 1 })).toBe(
       JS_STRING_MAX_LENGTH,
@@ -138,8 +138,8 @@ describe("Runtime limits", () => {
   });
 });
 
-describe("the folder limits (track T7)", () => {
-  it("default to T6's fixed values, and the compiler takes lower ones as input", () => {
+describe("the folder limits", () => {
+  it("default to the compiler's fixed values, and the compiler takes lower ones as input", () => {
     expect({
       files: RUNTIME_LIMIT_DEFAULTS.folderFiles,
       totalBytes: RUNTIME_LIMIT_DEFAULTS.folderBytes,

@@ -178,7 +178,7 @@ it("returns an unavailable backend as a failed tool result the model can read", 
   }
 });
 
-it("fails a backend failure during a write tool to the model as tool.interrupted, and never re-runs it (R5)", async () => {
+it("fails a backend failure during a write tool to the model as tool.interrupted, and never re-runs it", async () => {
   const backend = fakeBackend({ available: true, execThrows: true });
   const results: unknown[] = [];
   const runtime = await boot({

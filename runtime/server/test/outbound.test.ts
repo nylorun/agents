@@ -114,7 +114,7 @@ describe("requests", () => {
   });
 });
 
-describe("guardedFetch (F9 C2)", () => {
+describe("guardedFetch", () => {
   it("sends a form or JSON body with its headers and answers a Response", async () => {
     const seen: { method?: string; type?: string; body: string; host?: string }[] = [];
     const port = await serve((req, res) => {

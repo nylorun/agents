@@ -1,5 +1,5 @@
 /**
- * Webhook signing secrets (track T4, D75): the keys service makes a trigger's Standard Webhooks
+ * Webhook signing secrets: the keys service makes a trigger's Standard Webhooks
  * secret, seals it with the Tenant's vault key for the trigger's row, and is the only place that
  * opens it, to verify a delivery. The secret leaves keys once, when it is made, for its owner.
  *

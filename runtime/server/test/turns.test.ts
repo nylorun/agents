@@ -1,5 +1,5 @@
 /**
- * The turn index (A2A design §9, Host feature `turns`): each turn's row is written with the
+ * The turn index (Host feature `turns`): each turn's row is written with the
  * events that change it, so it agrees with the session's log through completion, failure,
  * cancellation and a pause for approval; `GET /v1/turns` pages the rows in the order they
  * changed, one session's or the whole feed, scoped to the caller; and the migration's backfill

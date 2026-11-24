@@ -1,6 +1,6 @@
 /**
- * Computer backend (ADR-149, ADR-150): a pod Agent's sandbox on Agent Substrate, reached through
- * the sandbox gateway and Substrate's router (ADR-148). Its handle sends each operation to the
+ * Computer backend: a pod Agent's sandbox on Agent Substrate, reached through
+ * the sandbox gateway and Substrate's router. Its handle sends each operation to the
  * computer's engine (`harness/computer.ts`) with a ticket core signs: `open` (a harness asks core
  * with `computer.open`; core in process) wakes the computer, runs its disk's setup, and answers
  * the gateway URL for this computer, the ticket and when it expires. A ticket is asked for again

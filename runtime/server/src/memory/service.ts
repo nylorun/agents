@@ -1,5 +1,5 @@
 /**
- * Agent memory (track T5, D72): the one place memories change. The `memory` tool's commands
+ * Agent memory: the one place memories change. The `memory` tool's commands
  * (Anthropic's memory tool: `create`, `str_replace`, `insert`, `delete`, `rename`) and the API's
  * writes both go through `applyMemoryCommand`, so paths, limits, versions and locks are the same
  * for a model and for a person. Reads are `viewMemory` (the tool's `view`) and the API's.
@@ -381,7 +381,7 @@ async function rename(a: Applied, rawOld: string, rawNew: string): Promise<Memor
 // --- the pinned index ------------------------------------------------------------
 
 /**
- * The index a session pins (`turn.start.memory.index`, design §6.3): a line per memory, newest
+ * The index a session pins (`turn.start.memory.index`): a line per memory, newest
  * first, `- <path>`, then ` — <description>` when it has one, within `memoryIndexLines` lines and
  * `memoryIndexBytes` bytes. `truncated` when some memories were left out; the harness tells the
  * model to view folders for the rest.

@@ -120,7 +120,7 @@ test("compute lists the sandbox, the backends found, what an Agent may ask for, 
   const env = Object.fromEntries(sections[2].rows.map((row) => [row.label, [row.value, row.note]]));
   assert.deepEqual(env["Most resources"], ["4 CPUs · 8 GiB memory", undefined]);
   assert.deepEqual(env["Most Agents"], ["100", "22 in use"]);
-  assert.equal(env["Engine images"], undefined, "engine.images is retired (ADR-161)");
+  assert.equal(env["Engine images"], undefined, "engine.images is retired");
   assert.equal(sections[3].rows[0].value, "The harness container and the sandbox");
 });
 

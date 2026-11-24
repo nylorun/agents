@@ -1,5 +1,5 @@
 /**
- * `nylorun apply --watch [--save]` (track T7, design §6): checks the folders and plans their
+ * `nylorun apply --watch [--save]`: checks the folders and plans their
  * manifests at once, then again on each change to them (debounced), until interrupted. It saves
  * only with `--save`: each save is a new immutable version that moves the Agents tracking the
  * name, so `--watch --save` is for a development manifest. A cycle that fails (a Runtime that
