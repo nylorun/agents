@@ -436,3 +436,23 @@ it("surfaces a child's empty answer as a failed tool result and filters history 
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+it("runs an agent used as a tool that an Agent Plugin brought as it runs any other", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "delegation-"));
+  const model = script({ root: [[{ name: "researcher", args: { task: "A" } }]], child: (task) => [{ name: "search_orders", args: { query: task } }] });
+  const runtime = await boot(directory, model);
+  try {
+    const researcher = Agent({ id: "researcher", description: "Researches.", tools: [search(runtime.service)] });
+    const manifest = structuredClone(Agent({ id: "bot", tools: [researcher] }).build().manifest) as { tools: Record<string, unknown>[] };
+    // The label a folder's compiler gives a plugin's subagent: the run never reads it.
+    manifest.tools.find((tool) => tool.name === "researcher")!.plugin = { name: "research", version: "1.0.0" };
+    await start(runtime, manifest);
+    const done = await until(runtime, ["completed", "failed", "uncertain"]);
+    expect(done.status, JSON.stringify((await items(runtime)).filter((item) => /fail|error/.test(item.type)))).toBe("completed");
+    expect(runtime.service.calls.map((call) => call.input.query)).toEqual(["A"]);
+    expect(JSON.stringify(model.seen.filter((item) => item.agent === "root").at(-1)!.prompt)).toContain("answer A");
+  } finally {
+    await runtime.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});

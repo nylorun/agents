@@ -185,6 +185,26 @@ describe("saving an agent folder", () => {
   });
 });
 
+describe("saving an agent-folder/4 folder with an Agent Plugin's subagents", () => {
+  const md = (front: string, body: string) => `---\n${front}---\n${body}`;
+  const BOT = {
+    "AGENT.md": md("name: reviewer-bot\ndescription: Reviews documents.\nformat: agent-folder/4\n", "Review what the person shares.\n"),
+    "plugins/review/plugin.json": JSON.stringify({ $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json", name: "review", version: "1.2.0" }),
+    "plugins/review/agents/design_critic.md": md("name: review-design\ndescription: Critiques a design.\nlicense: Apache-2.0\n", "Critique the design.\n"),
+  };
+
+  it("saves each as an agent used as a tool, labelled with its plugin, and keeps the plugin's file in the source", async () => {
+    const saved = await saveFolder("reviewer-bot", BOT);
+    expect(saved.status, JSON.stringify(saved.body)).toBe(200);
+    const manifest = (await get("/v1/agent-manifests/reviewer-bot")).body.manifest;
+    expect(manifest.harness.tools).toEqual([
+      expect.objectContaining({ name: "review-design", description: "Critiques a design.", agent: expect.objectContaining({ id: "review-design" }), plugin: { name: "review", version: "1.2.0" } }),
+    ]);
+    const source = await get("/v1/agent-manifests/reviewer-bot/versions/1/source");
+    expect(source.body.entries.map((entry: { path: string }) => entry.path)).toContain("plugins/review/agents/design_critic.md");
+  });
+});
+
 describe("saving a flow folder", () => {
   const md = (name: string, description: string, body = "") => `---\nname: ${name}\ndescription: ${description}\n---\n${body}`;
   const BRIEF = {

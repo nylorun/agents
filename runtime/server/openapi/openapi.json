@@ -51,7 +51,8 @@
         "queue-recovery",
         "a2a-steer",
         "computer-move",
-        "model-roles"
+        "model-roles",
+        "plugin-subagents"
       ]
     },
     "description": "For developers: agent manifests, Agents, sessions (with AG-UI and A2A) and artifacts, through `@nylorun/agents`. Every Tenant serves it on its one URL, beside the Management API (`/openapi/management.json`). Every request sends `Nylorun-Protocol`. Who may call each operation is its `security` and its `x-nylorun-credentials` and `x-nylorun-scopes` (the subject scopes that reach it) fields: an application key (servers) or a trusted issuer's token (browsers and apps)."
@@ -6605,6 +6606,9 @@
                             "always"
                           ]
                         },
+                        "plugin": {
+                          "$ref": "#/components/schemas/PluginLabel"
+                        },
                         "fn": {
                           "description": "Reserved for a later kind of tool; refused for now."
                         },
@@ -6956,6 +6960,9 @@
                             "always"
                           ]
                         },
+                        "plugin": {
+                          "$ref": "#/components/schemas/PluginLabel"
+                        },
                         "fn": {
                           "description": "Reserved for a later kind of tool; refused for now."
                         },
@@ -7305,6 +7312,9 @@
                             "never",
                             "always"
                           ]
+                        },
+                        "plugin": {
+                          "$ref": "#/components/schemas/PluginLabel"
                         },
                         "fn": {
                           "description": "Reserved for a later kind of tool; refused for now."
@@ -7790,6 +7800,9 @@
                         "always"
                       ]
                     },
+                    "plugin": {
+                      "$ref": "#/components/schemas/PluginLabel"
+                    },
                     "fn": {
                       "description": "Reserved for a later kind of tool; refused for now."
                     },
@@ -8166,6 +8179,9 @@
                               "never",
                               "always"
                             ]
+                          },
+                          "plugin": {
+                            "$ref": "#/components/schemas/PluginLabel"
                           },
                           "fn": {
                             "description": "Reserved for a later kind of tool; refused for now."
@@ -24331,6 +24347,9 @@
                               "always"
                             ]
                           },
+                          "plugin": {
+                            "$ref": "#/components/schemas/PluginLabel"
+                          },
                           "fn": {
                             "description": "Reserved for a later kind of tool; refused for now."
                           },
@@ -24613,6 +24632,9 @@
                     "never",
                     "always"
                   ]
+                },
+                "plugin": {
+                  "$ref": "#/components/schemas/PluginLabel"
                 },
                 "fn": {
                   "description": "Reserved for a later kind of tool; refused for now."

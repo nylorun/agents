@@ -121,7 +121,8 @@
           "queue-recovery",
           "a2a-steer",
           "computer-move",
-          "model-roles"
+          "model-roles",
+          "plugin-subagents"
         ]
       }
     },
@@ -218,7 +219,8 @@
           "queue-recovery",
           "a2a-steer",
           "computer-move",
-          "model-roles"
+          "model-roles",
+          "plugin-subagents"
         ]
       }
     },
@@ -315,7 +317,8 @@
           "queue-recovery",
           "a2a-steer",
           "computer-move",
-          "model-roles"
+          "model-roles",
+          "plugin-subagents"
         ]
       }
     },
@@ -412,7 +415,8 @@
           "queue-recovery",
           "a2a-steer",
           "computer-move",
-          "model-roles"
+          "model-roles",
+          "plugin-subagents"
         ]
       }
     },
@@ -509,7 +513,8 @@
           "queue-recovery",
           "a2a-steer",
           "computer-move",
-          "model-roles"
+          "model-roles",
+          "plugin-subagents"
         ]
       }
     },
@@ -606,7 +611,8 @@
           "queue-recovery",
           "a2a-steer",
           "computer-move",
-          "model-roles"
+          "model-roles",
+          "plugin-subagents"
         ]
       }
     },
@@ -703,7 +709,8 @@
           "queue-recovery",
           "a2a-steer",
           "computer-move",
-          "model-roles"
+          "model-roles",
+          "plugin-subagents"
         ]
       }
     },
@@ -800,7 +807,8 @@
           "queue-recovery",
           "a2a-steer",
           "computer-move",
-          "model-roles"
+          "model-roles",
+          "plugin-subagents"
         ]
       }
     },
@@ -897,7 +905,8 @@
           "queue-recovery",
           "a2a-steer",
           "computer-move",
-          "model-roles"
+          "model-roles",
+          "plugin-subagents"
         ]
       }
     },
@@ -994,7 +1003,8 @@
           "queue-recovery",
           "a2a-steer",
           "computer-move",
-          "model-roles"
+          "model-roles",
+          "plugin-subagents"
         ]
       }
     },
@@ -1091,7 +1101,8 @@
           "queue-recovery",
           "a2a-steer",
           "computer-move",
-          "model-roles"
+          "model-roles",
+          "plugin-subagents"
         ]
       }
     },
@@ -1188,7 +1199,8 @@
           "queue-recovery",
           "a2a-steer",
           "computer-move",
-          "model-roles"
+          "model-roles",
+          "plugin-subagents"
         ]
       }
     },
@@ -1318,7 +1330,8 @@
           "queue-recovery",
           "a2a-steer",
           "computer-move",
-          "model-roles"
+          "model-roles",
+          "plugin-subagents"
         ]
       }
     },
@@ -1415,7 +1428,8 @@
           "queue-recovery",
           "a2a-steer",
           "computer-move",
-          "model-roles"
+          "model-roles",
+          "plugin-subagents"
         ]
       }
     },
@@ -1512,7 +1526,8 @@
           "queue-recovery",
           "a2a-steer",
           "computer-move",
-          "model-roles"
+          "model-roles",
+          "plugin-subagents"
         ]
       }
     },
@@ -1609,7 +1624,8 @@
           "queue-recovery",
           "a2a-steer",
           "computer-move",
-          "model-roles"
+          "model-roles",
+          "plugin-subagents"
         ]
       }
     },
@@ -1706,7 +1722,8 @@
           "queue-recovery",
           "a2a-steer",
           "computer-move",
-          "model-roles"
+          "model-roles",
+          "plugin-subagents"
         ]
       }
     },
@@ -1803,7 +1820,8 @@
           "queue-recovery",
           "a2a-steer",
           "computer-move",
-          "model-roles"
+          "model-roles",
+          "plugin-subagents"
         ]
       }
     },
@@ -1900,7 +1918,8 @@
           "queue-recovery",
           "a2a-steer",
           "computer-move",
-          "model-roles"
+          "model-roles",
+          "plugin-subagents"
         ]
       }
     },

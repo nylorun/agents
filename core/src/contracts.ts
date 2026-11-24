@@ -285,6 +285,8 @@ const toolManifestSchema = z
       .optional(),
     http: httpToolTargetSchema.optional(),
     approval: z.enum(APPROVAL_MODES).optional(),
+    /** The Agent Plugin an agent used as a tool came from (Host feature `plugin-subagents`). */
+    plugin: pluginLabelSchema.optional(),
     fn: reservedToolKind,
     command: reservedToolKind,
   })
@@ -300,6 +302,12 @@ const toolManifestSchema = z
         code: "custom",
         path: ["approval"],
         message: `Tool '${tool.name}' takes approval only as an HTTP tool`,
+      });
+    if (tool.plugin !== undefined && tool.agent === undefined)
+      ctx.addIssue({
+        code: "custom",
+        path: ["plugin"],
+        message: `Tool '${tool.name}' takes a plugin label only as an agent used as a tool`,
       });
     const parameters = tool.http && httpInputIssue(tool.http, tool.inputSchema);
     if (parameters) ctx.addIssue({ code: "custom", path: ["http", "url"], message: `Tool '${tool.name}': ${parameters}` });

@@ -28,7 +28,7 @@ export { initCommand, initUsage } from "./init.js";
 export const checkUsage = `nylorun check [<dir>...] [--fix] [--explain] [--json]
 
 Compiles each agent folder (default .) offline, with the compiler the Runtime runs, and prints
-every problem by file, line and column. A folder holds AGENT.md; a folder without one checks each
+every problem by file, line and column, then what each Agent Plugin under plugins/ brings. A folder holds AGENT.md; a folder without one checks each
 subfolder that has one. Exits 1 when a folder does not compile. Reads no Runtime.
 
 A problem one edit fixes says (fixable with --fix): an unknown key with one did-you-mean, CRLF
@@ -134,6 +134,34 @@ async function fixFolder(pack: PackedFolder, diagnostics: readonly AgentFolderDi
   return { fixed: result.changes, unfixed };
 }
 
+/**
+ * `check`'s lines for the Agent Plugins a compiled manifest holds: one per plugin, with the
+ * subagents, skills and MCP servers it brings, as each is labelled in the manifest.
+ */
+export function pluginLines(manifest: unknown): string[] {
+  const harness = (manifest as { harness?: Record<string, unknown> } | undefined)?.harness ?? {};
+  type Label = { name: string; version?: string };
+  const plugins = new Map<string, { subagents: string[]; skills: string[]; servers: string[] }>();
+  const add = (label: unknown, part: "subagents" | "skills" | "servers", name: string) => {
+    if (typeof label !== "object" || label === null || typeof (label as Label).name !== "string") return;
+    const { name: plugin, version } = label as Label;
+    const key = typeof version === "string" ? `${plugin} ${version}` : plugin;
+    const parts = plugins.get(key) ?? { subagents: [], skills: [], servers: [] };
+    parts[part].push(name);
+    plugins.set(key, parts);
+  };
+  for (const tool of Array.isArray(harness.tools) ? (harness.tools as Record<string, unknown>[]) : [])
+    if (tool.agent !== undefined && typeof tool.name === "string") add(tool.plugin, "subagents", tool.name);
+  for (const [name, skill] of Object.entries((harness.skills ?? {}) as Record<string, { plugin?: unknown }>)) add(skill?.plugin, "skills", name);
+  for (const [name, server] of Object.entries((harness.mcpServers ?? {}) as Record<string, { plugin?: unknown }>)) add(server?.plugin, "servers", name);
+  return [...plugins.entries()]
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([plugin, parts]) => {
+      const listed = (["subagents", "skills", "servers"] as const).filter((part) => parts[part].length > 0).map((part) => `${part} ${parts[part].sort().join(", ")}`);
+      return `  plugin ${plugin}: ${listed.join("; ")}`;
+    });
+}
+
 /** `check --explain`'s lines for one folder: each agent, then each feature, on or off. */
 export function explainLines(agents: readonly ExplainedAgent[]): string[] {
   const lines: string[] = [];
@@ -219,6 +247,7 @@ export async function checkCommand(deps: StackDeps, args: readonly string[]): Pr
     const files = `${pack.entries.length} ${pack.entries.length === 1 ? "file" : "files"}`;
     if (compiled.manifest) {
       deps.out(`${label}: ok, agent manifest ${compiled.manifest.name} (${files}, ${compiled.compiler})`);
+      for (const line of pluginLines(compiled.manifest)) deps.out(line);
       if (explain) for (const line of explainLines(explainEngine(compiled.manifest))) deps.out(line);
     } else {
       const errors = compiled.diagnostics.filter((item) => item.severity === "error").length;

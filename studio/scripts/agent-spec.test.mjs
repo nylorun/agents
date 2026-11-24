@@ -190,6 +190,25 @@ test("a session's spec is its harness, with notes of plugin and approval, and th
   assert.equal(harnessSpec(pinned).some((section) => section.id === "sandbox"), false);
 });
 
+test("a plugin's subagent reads as a subagent from its plugin", () => {
+  const sections = harnessSpec({
+    tools: [
+      {
+        name: "egm-design",
+        description: "Critiques a design.",
+        inputSchema: { type: "object", properties: { task: { type: "string" } }, required: ["task"] },
+        agent: { name: "egm-design", instructions: ["Critique."] },
+        plugin: { name: "egm", version: "0.1.1" },
+      },
+    ],
+  });
+  const tools = sections.find((section) => section.id === "tools");
+  assert.deepEqual(
+    tools.rows.map((row) => [row.label, row.value, row.note]),
+    [["egm-design", "Subagent · Critiques a design.", "from egm 0.1.1"]],
+  );
+});
+
 test("a flow agent's harness is its stages to draw; any other agent's is not", () => {
   const flow = { kind: "workflow", workflowSchemaVersion: 3, root: { agent: "fetch" }, agents: { fetch: {} } };
   assert.equal(flowOf(flow, "research/digest")?.id, "research/digest");

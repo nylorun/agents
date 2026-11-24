@@ -38,6 +38,26 @@ async function write(root: string, files: Record<string, string>): Promise<void>
 }
 
 describe("nylorun init and check", () => {
+  it("lists what each plugin brings under its plugin: subagents, skills and servers", async () => {
+    const dir = await temporaryDir();
+    const deps = await remote(dir);
+    const md = (front: string, body: string) => `---\n${front}---\n${body}`;
+    await write(join(dir, "bot"), {
+      "AGENT.md": md("name: bot\ndescription: A bot.\nformat: agent-folder/4\nplugins: [nylorun-sandbox]\n", "Help.\n"),
+      "runtime.json": JSON.stringify({ kind: "virtual" }),
+      "agents/history.md": md("name: history\ndescription: Searches past work.\n", "Search.\n"),
+      "plugins/review/plugin.json": JSON.stringify({ $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json", name: "review", version: "1.2.0" }),
+      "plugins/review/agents/design_critic.md": md("name: review-design\ndescription: Critiques a design.\nlicense: Apache-2.0\n", "Critique.\n"),
+      "plugins/review/agents/zoom_out.md": md("name: review-zoom-out\ndescription: Looks at the whole.\n", "Zoom out.\n"),
+      "plugins/review/skills/checklist/SKILL.md": md("name: checklist\ndescription: A review checklist.\n", "Check.\n"),
+    });
+    expect(await checkCommand(deps, ["bot"])).toBe(0);
+    expect(deps.lines.slice(-2)).toEqual([
+      "bot: ok, agent manifest bot (7 files, agent-folder/4)",
+      "  plugin review 1.2.0: subagents review-design, review-zoom-out; skills checklist",
+    ]);
+  });
+
   it("writes an AGENT.md that checks, and refuses to write over one", async () => {
     const dir = await temporaryDir();
     const deps = await remote(dir);

@@ -6,8 +6,12 @@
  * invalid part with a warning, a folder is strict: an invalid skill or server is an error, as in
  * the agent's own `skills/` and `mcp.json`, read by the same code.
  *
- * What a plugin holds that Nylorun does not run (Claude Code's hooks, commands and agents, other
- * tools' settings) is kept with the source and noted.
+ * A plugin's subagent files, `agents/*.md`, are the manifest's subagents in agent-folder/4: the
+ * format 4 expansion reads them as it reads the folder's own (`compileFormat4`), so they never reach
+ * this fold. In older formats they are noted with the migration.
+ *
+ * What a plugin holds that Nylorun does not run (Claude Code's hooks and commands, other tools'
+ * settings) is kept with the source and noted.
  */
 import type { AgentFolderEntry } from "./compile.js";
 import { addInner, foldersUnder, isObject, jsonPosition, quietJson, type FolderContext } from "./context.js";
@@ -21,7 +25,7 @@ const AUTHOR_KEYS = ["name", "email", "url"];
 const READ = new Set([PLUGIN_FILE, "mcp.json", ".mcp.json", "skills"]);
 /** Parts of plugins for other tools, which Nylorun does not run. */
 const NOT_RUN: Readonly<Record<string, string>> = {
-  agents: "Claude Code's subagents (agents/*.md) are not run by Nylorun: write an agent as agents/<id>/ in the agent folder",
+  agents: "A plugin's subagents (agents/*.md) run in agent-folder/4: nylorun migrate folder <dir> --to 4",
   hooks: "Hooks are not run by Nylorun",
   commands: "Slash commands are not run by Nylorun",
   "output-styles": "Output styles are not run by Nylorun",
@@ -48,8 +52,30 @@ export interface FoldedPlugins {
 /** The files of `plugins/<name>/` the compiler reads, relative to the plugin's folder. */
 export function pluginTextPaths(paths: readonly string[]): string[] {
   return paths.filter(
-    (path) => path === PLUGIN_FILE || path === "mcp.json" || path === ".mcp.json" || /^skills\/[^/]+\/SKILL\.md$/.test(path),
+    (path) =>
+      path === PLUGIN_FILE ||
+      path === "mcp.json" ||
+      path === ".mcp.json" ||
+      /^skills\/[^/]+\/SKILL\.md$/.test(path) ||
+      pluginSubagentFile(path) !== undefined ||
+      pluginSubagentFlow(path),
   );
+}
+
+/** A plugin's subagent file, relative to the plugin's folder (`agents/<file>.md`): its file name, or undefined. */
+export function pluginSubagentFile(path: string): string | undefined {
+  return /^agents\/([^/]+)\.md$/.exec(path)?.[1];
+}
+
+/** A JSON file beside a plugin's subagent files, such as the flow file a subagent's `flow:` names. */
+export function pluginSubagentFlow(path: string): boolean {
+  return /^agents\/[^/]+\.json$/.test(path);
+}
+
+/** A plugin's label as its `plugin.json` gives it, read quietly: undefined when it names none. */
+export function pluginLabelOf(manifest: unknown): PluginLabel | undefined {
+  if (!isObject(manifest) || !isPluginName(manifest.name)) return undefined;
+  return { name: manifest.name, ...(typeof manifest.version === "string" ? { version: manifest.version } : {}) };
 }
 
 /** Folds every plugin under `plugins/`. */
@@ -115,7 +141,7 @@ function foldPlugin(ctx: FolderContext, folder: string, paths: readonly string[]
         ctx.report("note", "plugin_part_ignored", `The extension namespace '${namespace}' is not run by Nylorun`, file, ["extensions", namespace], { key: true });
   }
   if (!valid) return;
-  const label: PluginLabel = { name: manifest.name as string, ...(typeof manifest.version === "string" ? { version: manifest.version } : {}) };
+  const label = pluginLabelOf(manifest)!;
 
   // mcp.json, as Agent Plugins writes it: with its $schema. Claude Code's .mcp.json when there is none.
   const mcpFile = paths.includes("mcp.json") ? "mcp.json" : paths.includes(".mcp.json") ? ".mcp.json" : undefined;

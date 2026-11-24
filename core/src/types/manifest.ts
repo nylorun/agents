@@ -67,6 +67,11 @@ export interface ToolManifest {
    * agent (workflow manifest v3) runs in its own linked session on the Runtime.
    */
   readonly agent?: AgentManifest | WorkflowManifest;
+  /**
+   * The Agent Plugin an agent used as a tool came from, as a plugin's skills and MCP servers are
+   * labelled: only with `agent`. Shown by `nylorun check` and Studio; the run ignores it.
+   */
+  readonly plugin?: PluginLabel;
   /** Present when the Runtime runs this tool as an HTTP request. Never with `agent`. */
   readonly http?: HttpToolTarget;
   /**

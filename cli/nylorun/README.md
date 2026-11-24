@@ -549,8 +549,8 @@ agents/support/AGENT.md        # frontmatter (name, description), then the instr
 agents/support/mcp.json        # MCP servers; "Authorization": "Bearer ${GITHUB_TOKEN}" names a slot
 agents/support/runtime.json    # kind, network, secrets (optional)
 agents/support/skills/<skill>/SKILL.md, tools/<tool>.json, triggers/<id>.md, files/**
-agents/support/agents/<id>.md   # a subagent (agent-folder/4), offered to support as the tool <id>
-agents/support/plugins/<name>/ # a vendored Agent Plugin: its skills and mcp.json servers
+agents/support/agents/<id>.md   # a subagent (agent-folder/4), offered to support as the tool its name names
+agents/support/plugins/<name>/ # a vendored Agent Plugin: its skills, mcp.json servers and, in agent-folder/4, agents/*.md subagents
 ```
 
 A small one, with an HTTP tool and GitHub's MCP server. `AGENT.md`:
@@ -740,14 +740,21 @@ Write a brief of at most 200 words from the facts you are given, for a reader ne
 is a whole flow as a folder: a switch, a map, a parallel stage, a loop and an HTTP
 tool stage. Without `flow.json`, each subagent is the agent's tool `<id>`, called
 with `{ task }`, one level deep. In `format: agent-folder/4` a subagent is one file,
-`agents/<id>.md`: it gets the root's `tools/`, `skills/`, `mcp.json` servers and
+`agents/<id>.md`, named by its frontmatter `name` whatever the file is called, as Claude Code and
+Cursor name theirs: it gets the root's `tools/`, `skills/`, `mcp.json` servers and
 Runtime plugins a subagent can use, and narrows them with `tools`,
 `disallowedTools`, `skills` and `mcpServers` (`tools: [read, grep, glob]`); a
 file with `flow: ./<id>.flow.json` is driven by that flow. Older formats write a
 subagent as a folder, `agents/<id>/`, and `nylorun migrate folder <dir> --to 4`
 turns each into a file. `plugins/<name>/`
 folds a plugin's skills and `mcp.json` servers in as `.plugin()` does, and notes
-what Nylorun does not run (hooks, commands).
+what Nylorun does not run (hooks, commands). In `agent-folder/4` a plugin's
+`agents/*.md` are subagents too, read by the same rules as the root's own files: each
+inherits the library and narrows it with its own keys, a name already taken by
+another subagent or a tool is `plugin_duplicate`, and its tool carries the plugin's
+label, `plugin: { name, version }`, as the plugin's skills and servers do. `nylorun
+check` prints a line per plugin with the subagents, skills and servers it brings.
+In older formats a plugin's `agents/` is a note naming `--to 4`.
 
 `nylorun pull support[@3] [--out <dir>]` writes back the folder a version was
 saved from, byte for byte. A version saved as JSON or from TypeScript has none:

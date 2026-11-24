@@ -13,8 +13,12 @@
  * You find earlier work for a bot…
  * ```
  *
+ * A subagent is named by its frontmatter `name`, whatever its file is called, as Claude Code and
+ * Cursor name theirs. An Agent Plugin's `agents/*.md` under `plugins/<name>/` are subagents too, read
+ * by the same rules and labelled with the plugin; no subagent inherits another.
+ *
  * The compiler keeps every check it has by **expanding** format 4 into the layout format 3 already
- * compiles: each `agents/<id>.md` becomes a virtual `agents/<id>/` holding the file's bytes as its
+ * compiles: each subagent file becomes a virtual `agents/<name>/` holding the file's bytes as its
  * `AGENT.md` and a copy of the library (the same bytes and hashes), or, for a file with `flow:`,
  * its flow file and the library tools the flow names. The subagent's compile then narrows what it
  * inherited (`narrowFront`, `narrowParts`), and every diagnostic is moved back to the file people
@@ -25,6 +29,7 @@ import { parseMarkdown } from "./frontmatter.js";
 import { PLUGIN_NAMES, pluginOfTool, pluginTools, RUNTIME_SERVER, type PluginName } from "../plugins/index.js";
 import { suggestion } from "./suggest.js";
 import type { ReportOptions } from "./context.js";
+import { pluginLabelOf, pluginSubagentFile, pluginSubagentFlow, type PluginLabel } from "./plugins.js";
 
 /** The format name a v4 folder writes. */
 export const AGENT_FOLDER_V4 = "agent-folder/4";
@@ -56,6 +61,7 @@ export const HOST_KEYS = [
   "autoCompactWindow",
   "experimental",
   "is_background",
+  "license",
 ] as const;
 /** Claude Code's tool names that are ours under another spelling. */
 export const CLAUDE_TOOL_ALIASES: Readonly<Record<string, string>> = { Read: "read", Grep: "grep", Glob: "glob", Write: "write", Edit: "edit", Bash: "bash" };
@@ -110,10 +116,10 @@ export function subagentFileId(path: string): string | undefined {
   return match?.[1];
 }
 
-/** The path `flow:` names, from the file at `agents/<id>.md`: `./x` and `x` from `agents/`, `/x` from the root. */
-export function flowPathOf(value: unknown): string | undefined {
+/** The path `flow:` names, from a subagent file in `dir`: `./x` and `x` from `dir`, `/x` from the root. */
+export function flowPathOf(value: unknown, dir = "agents"): string | undefined {
   if (typeof value !== "string" || value === "") return undefined;
-  const target = value.startsWith("/") ? value.slice(1) : `agents/${value.replace(/^\.\//, "")}`;
+  const target = value.startsWith("/") ? value.slice(1) : `${dir}/${value.replace(/^\.\//, "")}`;
   return target.split("/").some((segment) => segment === "" || segment === "." || segment === "..") ? undefined : target;
 }
 
@@ -133,7 +139,18 @@ function flowNames(tree: unknown): { agents: Set<string>; tools: Set<string> } {
   return { agents, tools };
 }
 
-const isLibrary = (path: string) => path === "mcp.json" || /^(tools|skills|plugins)\//.test(path);
+/** A plugin's subagent folder: `plugins/<name>/agents/`, with what it holds. Never in the library. */
+const PLUGIN_AGENTS = /^plugins\/([^/]+)\/agents\/(.+)$/;
+const isLibrary = (path: string) => (path === "mcp.json" || /^(tools|skills|plugins)\//.test(path)) && !PLUGIN_AGENTS.test(path);
+/** A name a subagent can go by: the tool the model calls. */
+const SUBAGENT_NAME = /^[A-Za-z0-9_-]{1,64}$/;
+
+/** One subagent file: the name it compiles to, where it was written, and the plugin it came from. */
+interface SubagentSource {
+  readonly name: string;
+  readonly path: string;
+  readonly plugin?: PluginLabel;
+}
 
 /**
  * Compiles a format 4 folder: expands its subagent files, compiles the result as `compile` does a
@@ -142,16 +159,63 @@ const isLibrary = (path: string) => path === "mcp.json" || /^(tools|skills|plugi
 export function compileFormat4(input: CompileAgentFolderInput, compile: (input: CompileAgentFolderInput) => CompiledAgentFolder): CompiledAgentFolder {
   const byPath = new Map(input.entries.map((entry) => [entry.path, entry]));
   const library = input.entries.filter((entry) => isLibrary(entry.path));
-  const ids = input.entries.map((entry) => subagentFileId(entry.path)).filter((id): id is string => id !== undefined).sort(compare);
-  const fronts = new Map(ids.map((id) => [id, frontOf(input.files.get(`agents/${id}.md`)) ?? {}]));
   const flowRoot = byPath.has(FLOW_FILE);
   const entries: AgentFolderEntry[] = [];
   const files = new Map<string, Uint8Array>(input.files);
   const extra: AgentFolderDiagnostic[] = [];
-  /** Where each subagent's flow file is, by id. */
+  /** Where each subagent's flow file is, by name. */
   const flows = new Map<string, string>();
 
-  // A folder under agents/ is format 3's: refused, and left out of the expansion.
+  // Every subagent file, the folder's own and its plugins', by the name it goes by.
+  const sources = new Map<string, SubagentSource>();
+  const fronts = new Map<string, Record<string, unknown>>();
+  const labels = new Map<string, PluginLabel>();
+  const nameOf = (front: Record<string, unknown>, fallback: string) => (typeof front.name === "string" && SUBAGENT_NAME.test(front.name) ? front.name : fallback);
+  const take = (source: SubagentSource, front: Record<string, unknown>) => {
+    const other = sources.get(source.name);
+    const tool = byPath.has(`tools/${source.name}.json`) ? `tools/${source.name}.json` : undefined;
+    if (other || (tool && source.plugin)) {
+      const where = other?.path ?? tool!;
+      extra.push(
+        source.plugin || other?.plugin
+          ? { severity: "error", code: "plugin_duplicate", message: `${source.name} is also ${where}: an agent has one subagent or tool of a name`, file: source.path }
+          : { severity: "error", code: "tool_twice", message: `${other!.path} and ${source.path} both name the subagent ${source.name}: rename one`, file: source.path },
+      );
+      return;
+    }
+    sources.set(source.name, source);
+    fronts.set(source.name, front);
+    if (source.plugin) labels.set(source.name, source.plugin);
+  };
+  for (const entry of [...input.entries].sort((a, b) => compare(a.path, b.path))) {
+    const id = subagentFileId(entry.path);
+    if (id === undefined) continue;
+    const front = frontOf(input.files.get(entry.path)) ?? {};
+    take({ name: nameOf(front, id), path: entry.path }, front);
+  }
+  const pluginLabels = new Map<string, PluginLabel | undefined>();
+  for (const entry of [...input.entries].sort((a, b) => compare(a.path, b.path))) {
+    const match = PLUGIN_AGENTS.exec(entry.path);
+    if (!match) continue;
+    const [, plugin, rest] = match as unknown as [string, string, string];
+    const file = pluginSubagentFile(`agents/${rest}`);
+    // A flow file a subagent's `flow:` names is read from where it is when it is named.
+    if (file === undefined && pluginSubagentFlow(`agents/${rest}`)) continue;
+    if (file === undefined) {
+      extra.push({ severity: "note", code: "plugin_part_ignored", message: "Kept with the source: a plugin's subagents are its agents/*.md files", file: entry.path });
+      continue;
+    }
+    if (!pluginLabels.has(plugin)) pluginLabels.set(plugin, pluginLabelOf(jsonOf(input.files.get(`plugins/${plugin}/plugin.json`))));
+    // A plugin whose plugin.json names it nothing is refused by the plugin's own checks.
+    const label = pluginLabels.get(plugin);
+    if (!label) continue;
+    const front = frontOf(input.files.get(entry.path)) ?? {};
+    take({ name: nameOf(front, file), path: entry.path, plugin: label }, front);
+  }
+  const names = [...sources.keys()].sort(compare);
+
+  // A folder under agents/ is format 3's: refused, and left out of the expansion. A plugin's
+  // subagent files are read above, not as the plugin's parts.
   const folders = new Set<string>();
   for (const entry of input.entries) {
     const segments = entry.path.split("/");
@@ -166,6 +230,7 @@ export function compileFormat4(input: CompileAgentFolderInput, compile: (input: 
       folders.add(segments[1]!);
       continue;
     }
+    if (PLUGIN_AGENTS.test(entry.path)) continue;
     entries.push(entry);
   }
 
@@ -175,20 +240,21 @@ export function compileFormat4(input: CompileAgentFolderInput, compile: (input: 
     const bytes = input.files.get(source.path);
     if (bytes) files.set(path, bytes);
   };
-  /** Expands one subagent file at `prefix` (`agents/<id>/`); `nested` is a flow subagent's own agents/ under a root driven by a model loop. */
-  const expand = (prefix: string, id: string, namespace: string | undefined) => {
-    const source = byPath.get(`agents/${id}.md`);
-    if (!source) return;
+  /** Expands one subagent file at `prefix` (`agents/<name>/`); `namespace` is a flow subagent's own agents/ under a root driven by a model loop. */
+  const expand = (prefix: string, name: string, namespace: string | undefined) => {
+    const written = sources.get(name);
+    const source = written && byPath.get(written.path);
+    if (!written || !source) return;
     add(`${prefix}${AGENT_FILE}`, source);
-    const front = fronts.get(id) ?? {};
+    const front = fronts.get(name) ?? {};
     if (front.flow === undefined) {
       for (const entry of library) add(prefix + entry.path, entry);
       return;
     }
-    const flowPath = flowPathOf(front.flow);
+    const flowPath = flowPathOf(front.flow, written.path.slice(0, written.path.lastIndexOf("/")));
     const flowEntry = flowPath === undefined ? undefined : byPath.get(flowPath);
     if (!flowEntry || !flowPath) return;
-    flows.set(id, flowPath);
+    flows.set(name, flowPath);
     add(`${prefix}${FLOW_FILE}`, flowEntry);
     const names = flowNames(jsonOf(input.files.get(flowPath)));
     for (const tool of names.tools) {
@@ -199,13 +265,15 @@ export function compileFormat4(input: CompileAgentFolderInput, compile: (input: 
     if (namespace === undefined) return;
     for (const stage of names.agents) if (fronts.has(stage) && !entries.some((entry) => entry.path === `${namespace}${stage}/${AGENT_FILE}`)) expand(`${namespace}${stage}/`, stage, namespace);
   };
-  for (const id of ids) {
-    const front = fronts.get(id) ?? {};
-    const prefix = `agents/${id}/`;
-    expand(prefix, id, front.flow !== undefined && !flowRoot ? `${prefix}agents/` : undefined);
+  for (const name of names) {
+    const front = fronts.get(name) ?? {};
+    const prefix = `agents/${name}/`;
+    expand(prefix, name, front.flow !== undefined && !flowRoot ? `${prefix}agents/` : undefined);
   }
 
   const compiled = compile({ ...input, entries, files });
+  /** Where a subagent's file was written, by name. */
+  const writtenAt = (name: string) => sources.get(name)?.path ?? `agents/${name}.md`;
   /** A path of the expansion, as the folder people wrote names it. */
   const real = (path: string): string => {
     let rest = path;
@@ -218,10 +286,10 @@ export function compileFormat4(input: CompileAgentFolderInput, compile: (input: 
     }
     if (id === undefined) {
       const bare = /^agents\/([^/]+)$/.exec(path)?.[1];
-      return bare !== undefined && fronts.has(bare) ? `agents/${bare}.md` : path;
+      return bare !== undefined && fronts.has(bare) ? writtenAt(bare) : path;
     }
-    if (rest === AGENT_FILE || rest === "") return `agents/${id}.md`;
-    if (rest === FLOW_FILE) return flows.get(id) ?? `agents/${id}.md`;
+    if (rest === AGENT_FILE || rest === "") return writtenAt(id);
+    if (rest === FLOW_FILE) return flows.get(id) ?? writtenAt(id);
     return rest;
   };
   const seen = new Set<string>();
@@ -242,7 +310,18 @@ export function compileFormat4(input: CompileAgentFolderInput, compile: (input: 
     (a, b) => order[a.severity] - order[b.severity] || compare(a.file ?? "", b.file ?? "") || (a.line ?? 0) - (b.line ?? 0) || (a.column ?? 0) - (b.column ?? 0),
   );
   const failed = diagnostics.some((item) => item.severity === "error");
-  return { ...(failed || !compiled.manifest ? {} : { manifest: compiled.manifest }), diagnostics, compiler: AGENT_FOLDER_V4 };
+  return { ...(failed || !compiled.manifest ? {} : { manifest: labelled(compiled.manifest, labels) }), diagnostics, compiler: AGENT_FOLDER_V4 };
+}
+
+/** The manifest with each plugin subagent's tool labelled with its plugin, as a plugin's skills and servers are. */
+function labelled<T extends CompiledAgentFolder["manifest"]>(manifest: T, labels: ReadonlyMap<string, PluginLabel>): T {
+  const harness = (manifest as { harness?: { tools?: unknown } } | undefined)?.harness;
+  if (labels.size === 0 || !harness || !Array.isArray(harness.tools)) return manifest;
+  const tools = (harness.tools as Record<string, unknown>[]).map((tool) => {
+    const label = typeof tool.name === "string" && tool.agent !== undefined ? labels.get(tool.name) : undefined;
+    return label ? { ...tool, plugin: label } : tool;
+  });
+  return { ...manifest, harness: { ...harness, tools } } as T;
 }
 
 /** What a subagent file, or a format 4 root, keeps of what it inherits. Undefined: everything. */
