@@ -403,7 +403,7 @@ describe("agent folders: vendored Agent Plugins", () => {
     ]);
   });
 
-  it("refuses a plugin without its schemas, a server named twice, and a credential for the agent's own server", () => {
+  it("refuses a plugin with a bad name, a server named twice, and a credential for the agent's own server", () => {
     const result = compile({
       "AGENT.md": agentMd("parent", "P.", "Parent.\n", "mcpServers:\n  own: { credential: OWN }\n"),
       "mcp.json": JSON.stringify({ mcpServers: { github: { type: "sse", url: "https://a.example.com/" }, own: { type: "sse", url: "https://b.example.com/" } } }),
@@ -414,10 +414,30 @@ describe("agent folders: vendored Agent Plugins", () => {
     expect(errors(result.diagnostics).map((item) => [item.code, item.file, item.line ?? null])).toEqual([
       ["unknown_key", "AGENT.md", 5],
       ["plugin_invalid", "plugins/bare/plugin.json", 1],
-      ["plugin_invalid", "plugins/bare/plugin.json", 1],
-      ["plugin_invalid", "plugins/docs/mcp.json", 1],
       ["plugin_duplicate", "plugins/docs/mcp.json", 3],
     ]);
+  });
+
+  it("reads a plugin without $schema as Agent Plugins 1.0.0, and refuses one naming another format", () => {
+    const plain = compile({
+      "AGENT.md": agentMd("parent", "P.", "Parent.\n"),
+      "runtime.json": JSON.stringify({ kind: "virtual" }),
+      "plugins/docs/plugin.json": JSON.stringify({ name: "docs", version: "1.2.0" }),
+      "plugins/docs/mcp.json": JSON.stringify({ mcpServers: { wiki: { type: "streamable-http", url: "https://wiki.example.com/mcp" } } }),
+      "plugins/docs/skills/triage/SKILL.md": "---\nname: triage\ndescription: Triage an issue.\n---\nBody.\n",
+    });
+    expect(errors(plain.diagnostics)).toEqual([]);
+    const harness = plain.manifest!.harness as { skills: Record<string, { plugin?: unknown }>; mcpServers: Record<string, { plugin?: unknown }> };
+    expect(harness.skills.triage!.plugin).toEqual({ name: "docs", version: "1.2.0" });
+    expect(harness.mcpServers.wiki!.plugin).toEqual({ name: "docs", version: "1.2.0" });
+
+    const newer = compile({
+      "AGENT.md": agentMd("parent", "P.", "Parent.\n"),
+      "plugins/docs/plugin.json": JSON.stringify({ $schema: "https://agent-plugins.org/schemas/2.0.0/plugin.schema.json", name: "docs" }),
+      "plugins/wiki/plugin.json": JSON.stringify({ name: "wiki" }),
+      "plugins/wiki/mcp.json": JSON.stringify({ $schema: "https://agent-plugins.org/schemas/2.0.0/mcp.schema.json", mcpServers: {} }),
+    });
+    expect(errors(newer.diagnostics).map((item) => item.file)).toEqual(["plugins/docs/plugin.json", "plugins/wiki/mcp.json"]);
   });
 
   it("reads the files of nested folders and plugins, and only those the compiler needs", () => {

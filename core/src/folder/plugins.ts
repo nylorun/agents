@@ -105,7 +105,7 @@ function foldPlugin(ctx: FolderContext, folder: string, paths: readonly string[]
     );
   }
   if (!paths.includes(PLUGIN_FILE)) {
-    error("plugin_invalid", `${prefix} has no plugin.json: an Agent Plugin names itself there, with the Agent Plugins $schema and its name`, file);
+    error("plugin_invalid", `${prefix} has no plugin.json: an Agent Plugin names itself there, with its name`, file);
     return;
   }
   const manifest = ctx.readJson(file);
@@ -120,8 +120,9 @@ function foldPlugin(ctx: FolderContext, folder: string, paths: readonly string[]
       const close = ctx.suggest(key, PLUGIN_KEYS);
       ctx.report("warning", "plugin_unknown_key", `plugin.json has no field '${key}' in Agent Plugins 1.0.0: it is not read.${close ? ` Did you mean '${close}'?` : ""}`, file, [key], { key: true });
     }
-  if (manifest.$schema !== AGENT_PLUGINS_PLUGIN_SCHEMA)
-    invalid(`plugin.json names the Agent Plugins 1.0.0 plugin schema in $schema (${AGENT_PLUGINS_PLUGIN_SCHEMA})`, manifest.$schema === undefined ? [] : ["$schema"]);
+  // No $schema reads as Agent Plugins 1.0.0, as other hosts read it; another format is refused.
+  if (manifest.$schema !== undefined && manifest.$schema !== AGENT_PLUGINS_PLUGIN_SCHEMA)
+    invalid(`plugin.json's $schema names another format: Nylorun reads Agent Plugins 1.0.0 (${AGENT_PLUGINS_PLUGIN_SCHEMA}), or no $schema`, ["$schema"]);
   if (!isPluginName(manifest.name))
     invalid("name is required: 1-64 lowercase letters, digits, hyphens and periods, starting and ending with a letter or digit", manifest.name === undefined ? [] : ["name"]);
   for (const field of ["version", "description", "homepage", "repository", "license"])
@@ -143,15 +144,16 @@ function foldPlugin(ctx: FolderContext, folder: string, paths: readonly string[]
   if (!valid) return;
   const label = pluginLabelOf(manifest)!;
 
-  // mcp.json, as Agent Plugins writes it: with its $schema. Claude Code's .mcp.json when there is none.
+  // mcp.json, as Agent Plugins writes it: no $schema reads as 1.0.0, and one naming another format is
+  // refused. Claude Code's .mcp.json when there is none.
   const mcpFile = paths.includes("mcp.json") ? "mcp.json" : paths.includes(".mcp.json") ? ".mcp.json" : undefined;
   if (mcpFile === "mcp.json" && paths.includes(".mcp.json"))
     ctx.report("note", "plugin_part_ignored", "Claude Code's server file is not read: the plugin's mcp.json is", `${prefix}.mcp.json`);
   if (mcpFile === "mcp.json") {
     const value = quietJson(ctx, prefix + "mcp.json");
-    if (value && value.$schema === undefined)
-      ctx.report("error", "plugin_invalid", `A plugin's mcp.json names the Agent Plugins MCP schema in $schema (${AGENT_PLUGINS_MCP_SCHEMA}), as Agent Plugins requires`, prefix + "mcp.json", [], {
-        at: jsonPosition(ctx, prefix + "mcp.json", []),
+    if (value && value.$schema !== undefined && value.$schema !== AGENT_PLUGINS_MCP_SCHEMA)
+      ctx.report("error", "plugin_invalid", `A plugin's mcp.json $schema names another format: Nylorun reads Agent Plugins 1.0.0 (${AGENT_PLUGINS_MCP_SCHEMA}), or no $schema`, prefix + "mcp.json", ["$schema"], {
+        at: jsonPosition(ctx, prefix + "mcp.json", ["$schema"]),
       });
   }
 
