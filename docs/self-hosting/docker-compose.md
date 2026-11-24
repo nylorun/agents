@@ -479,10 +479,11 @@ offers it `request_connection`, which pauses the turn on an interaction whose `m
 `connection`), or a flow (`kind: "workflow"`); and `runtime`, the
 Agent's kind and what it gets (`image`, `network`, `setup`, `files`, `limits`, `lifecycle` and
 the secret slots, `secrets`). Its JSON Schema is
-`https://docs.nylorun.com/schemas/agent-manifest/v8.5.json` (v8 with `harness.model`,
+`https://docs.nylorun.com/schemas/agent-manifest/v8.6.json` (v8 with `harness.model`,
 `harness.roles`, `harness.engine` with `triggers` and `plugins`, `harness.memory.index`, a secret
-slot's `toolPrefix` and `runtime.limits.triggers`; `v8.4.json` is the same without
-`harness.roles`, `v8.3.json` without `harness.engine.plugins` too, `v8.2.json` the same without `harness.engine.triggers` and
+slot's `toolPrefix`, `runtime.limits.triggers` and a tool's `plugin`, the Agent Plugin an agent
+used as a tool came from, Host feature `plugin-subagents`; `v8.5.json` is the same without a
+tool's `plugin`, `v8.4.json` without `harness.roles` too, `v8.3.json` without `harness.engine.plugins` too, `v8.2.json` the same without `harness.engine.triggers` and
 `limits.triggers`, `v8.1.json` without `harness.engine`, `harness.memory.index` and `toolPrefix`
 too, and `v8.json` without `harness.model` too)
 (`@nylorun/core/schemas/agent-manifest.json`; clients drop `$schema` before they save):

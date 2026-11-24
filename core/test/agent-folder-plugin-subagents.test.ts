@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import { compileAgentFolder, folderTextPaths, type AgentFolderDiagnostic, type AgentFolderEntry } from "../src/folder/index.js";
+import { AgentManifestV8Schema } from "../src/contracts.js";
 
 /** An Agent Plugin's `agents/*.md` are subagents of the agent that installs it, in agent-folder/4. */
 
@@ -90,6 +91,22 @@ describe("a plugin's subagents", () => {
     ]);
   });
 
+  it("may be driven by a flow file beside them, naming the library's tools", () => {
+    const result = compile({
+      "AGENT.md": ROOT(4),
+      ...LIBRARY,
+      ...PLUGIN,
+      "plugins/review/agents/writer.md": md("name: writer\ndescription: Writes.\n", "Write.\n"),
+      "plugins/review/agents/publish.md": md("name: publish\ndescription: Writes, then files it.\nflow: ./publish.flow.json\n"),
+      "plugins/review/agents/publish.flow.json": JSON.stringify({ chain: [{ agent: "writer" }, { tool: "get_task" }] }),
+    });
+    expect(errors(result.diagnostics)).toEqual([]);
+    const publish = toolOf(result.manifest, "publish")!;
+    expect(publish.agent!.kind).toBe("workflow");
+    expect(publish.plugin).toEqual({ name: "review", version: "1.2.0" });
+    expect(result.diagnostics.filter((item) => item.code === "plugin_part_ignored")).toEqual([]);
+  });
+
   it("never inherit one another: one tool each, one level deep", () => {
     const result = compile({
       "AGENT.md": ROOT(4),
@@ -159,5 +176,13 @@ describe("the Elephant-Goldfish Model's personas", () => {
     ]);
     for (const subagent of subagents) expect(subagent.plugin).toEqual({ name: "egm", version: "0.1.1" });
     expect(toolOf(result.manifest, "egm-design")!.description).toContain("Design Critic");
+  });
+
+  it("make a manifest the Runtime accepts, which takes a label only on an agent used as a tool", () => {
+    const result = compile({ "AGENT.md": ROOT(4), ...LIBRARY, ...egm });
+    expect(AgentManifestV8Schema.safeParse(result.manifest).success).toBe(true);
+    const manifest = structuredClone(result.manifest) as { harness: { tools: Tool[] } };
+    manifest.harness.tools.find((item) => item.name === "search_work")!.plugin = { name: "egm" };
+    expect(AgentManifestV8Schema.safeParse(manifest).success).toBe(false);
   });
 });

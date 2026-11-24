@@ -3,6 +3,25 @@
 What changed between beta releases and what to do about it, newest first. For which
 versions work together, read [Compatibility](https://docs.nylorun.com/docs/compatibility).
 
+# An Agent Plugin's subagents, and subagents named by `name`
+
+Additive. A manifest whose plugins hold no `agents/*.md` compiles to the same agent manifest.
+
+- **A plugin's `agents/*.md` are subagents in `agent-folder/4`.** Each Agent Plugin under
+  `plugins/<name>/` brings its subagent files as the folder's own: the same library and narrowing
+  keys, the same checks, reported at the file in the plugin. Its tool in `harness.tools` carries
+  `plugin: { name, version }`, as the plugin's skills and MCP servers do. In formats 1 to 3 the
+  plugin's `agents/` stays a note, which now names `nylorun migrate folder <dir> --to 4`.
+- **A subagent file is named by its frontmatter `name`,** whatever the file is called, as in Claude
+  Code and Cursor; it no longer has to match the file name. A name is the tool the model calls:
+  letters, digits, `_` and `-` (`name_invalid` otherwise). A name used by two subagent files, or by
+  a subagent file and a tool, is `plugin_duplicate` when a plugin's file is one of them and
+  `tool_twice` otherwise.
+- **`license`** in a subagent file is noted and ignored, like the other hosts' keys.
+- **Upgrade the Runtime with the packages.** A manifest carrying the label needs a Runtime with the
+  Host feature `plugin-subagents`; an older one refuses the field. The agent manifest's JSON Schema
+  is published as `agent-manifest/v8.6.json` and the harness file's as `harness-manifest/v1.6.json`.
+
 # Subagents are files: `agent-folder/4`
 
 Additive. Nothing to do: formats 1 to 3 compile as before.

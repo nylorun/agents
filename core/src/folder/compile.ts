@@ -716,6 +716,9 @@ function compileFolder(input: CompileAgentFolderInput, scope?: FolderScope): Com
       error("name_missing", "name is required: the agent manifest's name", AGENT_FILE, front.name === undefined ? undefined : ["name"]);
     else if (!isAgentManifestName(front.name))
       error("name_invalid", "name is 1-64 letters, digits, '.', '_' and '-', starting with a letter or digit", AGENT_FILE, ["name"]);
+    // A subagent file goes by its name, whatever the file is called: the tool the model calls.
+    else if (v4File && !/^[A-Za-z0-9_-]{1,64}$/.test(front.name))
+      error("name_invalid", "name is the tool the model calls: 1-64 letters, digits, '_' and '-'", AGENT_FILE, ["name"]);
     else if (input.name !== undefined && front.name !== input.name)
       error(
         "name_mismatch",

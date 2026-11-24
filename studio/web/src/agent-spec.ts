@@ -259,8 +259,9 @@ function harnessSections(harness: Json, add: Add): void {
             : tool.kind === "flow-subagent"
               ? `Subagent · flow${tool.description ? ` · ${tool.description}` : ""}`
               : `Code${tool.description ? ` · ${tool.description}` : ""}`,
-        ...(typeof raw.credential === "string" ? { note: `uses ${raw.credential}`, tab: "vault" as const } : {}),
-        ...(tool.approval ? { note: "each call waits for approval" } : {}),
+        // Approval's note, when there is one, takes the place of the credential's, as before.
+        ...notes(fromPlugin(tool.plugin), tool.approval ? "each call waits for approval" : typeof raw.credential === "string" && `uses ${raw.credential}`),
+        ...(typeof raw.credential === "string" ? { tab: "vault" as const } : {}),
         json: raw,
       };
     }),

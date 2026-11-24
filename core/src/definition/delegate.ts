@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { BuiltAgent } from "../types/agent.js";
-import type { AgentManifest } from "../types/manifest.js";
+import type { AgentManifest, PluginLabel } from "../types/manifest.js";
 import type { WorkflowManifest } from "../types/workflow.js";
 import type { BuiltWorkflow } from "./workflow/types.js";
 import type { JsonObject } from "../types/shared.js";
@@ -23,6 +23,8 @@ export interface Delegate {
   readonly agent?: BuiltAgent;
   /** The authored flow agent, when the child is one and available locally. */
   readonly workflow?: BuiltWorkflow;
+  /** The Agent Plugin the child came from, kept from the manifest's tool entry: identity only. */
+  readonly plugin?: PluginLabel;
 }
 
 /** True when the delegate is a flow agent, which runs in its own linked session. */
@@ -113,10 +115,10 @@ export function delegateTool(item: unknown): ToolDefinition {
   return withDelegate(built.manifest as AgentManifest, built as BuiltAgent);
 }
 
-/** Rebuild the delegating tool from a manifest's `agent` body. */
+/** Rebuild the delegating tool from a manifest's `agent` body, with its entry's `plugin` label. */
 export function delegateFromManifest(
   manifest: AgentManifest | WorkflowManifest,
-  tool: { readonly description?: string; readonly inputSchema: JsonObject }
+  tool: { readonly description?: string; readonly inputSchema: JsonObject; readonly plugin?: PluginLabel }
 ): ToolDefinition {
   return withDelegate(manifest, undefined, tool);
 }
@@ -124,7 +126,7 @@ export function delegateFromManifest(
 function withDelegate(
   manifest: AgentManifest | WorkflowManifest,
   agent: BuiltAgent | undefined,
-  declared?: { readonly description?: string; readonly inputSchema: JsonObject },
+  declared?: { readonly description?: string; readonly inputSchema: JsonObject; readonly plugin?: PluginLabel },
   workflow?: BuiltWorkflow
 ): ToolDefinition {
   const description = declared ? declared.description : manifest.description;
@@ -138,6 +140,7 @@ function withDelegate(
     manifest,
     ...(agent ? { agent } : {}),
     ...(workflow ? { workflow } : {}),
+    ...(declared?.plugin ? { plugin: declared.plugin } : {}),
   });
   Object.defineProperty(definition, DELEGATE, { value: delegate, enumerable: false });
   return Object.freeze(definition);

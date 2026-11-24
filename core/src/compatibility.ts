@@ -347,6 +347,12 @@ export const OPTIONAL_HOST_FEATURES = [
    * `400 unknown_role`.
    */
   "model-roles",
+  /**
+   * An Agent Plugin's subagents: a `harness.tools` entry that embeds an agent may carry
+   * `plugin: { name, version }`, the plugin it came from, as a plugin's skills and MCP servers do.
+   * The label changes nothing about the run. A Runtime without this feature refuses the field.
+   */
+  "plugin-subagents",
 ] as const;
 export type OptionalHostFeature = (typeof OPTIONAL_HOST_FEATURES)[number];
 export interface ProtocolRange {

@@ -28,9 +28,11 @@ export type ToolView = {
   http?: { method: string; url: string };
   /** Each call waits for approval. */
   approval?: true;
+  /** The Agent Plugin a subagent came from. */
+  plugin?: PluginLabel;
 };
 
-/** The Agent Plugin that brought a skill or a server: its `plugin.json` name and version. */
+/** The Agent Plugin that brought a skill, a server or a subagent: its `plugin.json` name and version. */
 export type PluginLabel = { name: string; version?: string };
 
 export type SkillView = {
@@ -115,6 +117,7 @@ function toolView(tool: Json): ToolView {
       ? { http: { method: typeof http.method === "string" ? http.method : "POST", url: String(http.url) } }
       : {}),
     ...(tool.approval === "always" ? { approval: true as const } : {}),
+    ...(isRecord(agent) ? pluginOf(tool.plugin) : {}),
   };
 }
 
@@ -165,13 +168,14 @@ export function manifestView(manifest: unknown): ManifestView {
         }))
     : [];
   const plugins = new Map<string, PluginLabel>();
-  for (const item of [...skills, ...mcpServers])
+  const tools = toolsOf(root.tools);
+  for (const item of [...skills, ...mcpServers, ...tools])
     if (item.plugin && !plugins.has(pluginText(item.plugin)))
       plugins.set(pluginText(item.plugin), item.plugin);
   return {
     ...(typeof root.description === "string" ? { description: root.description } : {}),
     instructions: instructionsOf(root.instructions),
-    tools: toolsOf(root.tools),
+    tools,
     skills,
     mcpServers,
     plugins: [...plugins.values()],

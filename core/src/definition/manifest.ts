@@ -97,5 +97,7 @@ function projectTool(
     ...(http === undefined ? {} : { http: { ...http.http } }),
     // A pinned manifest's, from before the Tenant's tool policy: identity only.
     ...(http?.approval === undefined ? {} : { approval: http.approval }),
+    // The Agent Plugin an agent used as a tool came from: identity only.
+    ...(delegate?.plugin === undefined ? {} : { plugin: delegate.plugin }),
   };
 }
