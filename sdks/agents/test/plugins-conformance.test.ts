@@ -40,6 +40,26 @@ it("reads a plugin.json and mcp.json without $schema as Agent Plugins 1.0.0", ()
   expect(loaded.diagnostics.map((item) => item.code)).toEqual(["plugin.unknown-field"]);
 });
 
+it("carries a plugin's files whole when it holds any beyond its parts, leaving secret-shaped ones out", () => {
+  const directory = root();
+  write(directory, "plugin.json", JSON.stringify({ name: "review", version: "1.0.0" }));
+  write(directory, "skills/checklist/SKILL.md", "---\nname: checklist\ndescription: A checklist.\n---\nRead resources/standard.md.\n");
+  write(directory, "resources/standard.md", "# The standard\n");
+  write(directory, ".env", "TOKEN=x\n");
+  write(directory, "key.pem", "-----BEGIN-----\n");
+  const loaded = loadPlugin(directory);
+  expect(Object.keys(loaded.files ?? {}).sort()).toEqual(["plugin.json", "resources/standard.md", "skills/checklist/SKILL.md"]);
+  expect(Object.keys(loaded.fileSources ?? {})).toHaveLength(3);
+  const manifest = Agent({ id: "bot" }).plugin(directory).build().manifest;
+  expect(manifest.plugins).toEqual([{ name: "review", version: "1.0.0", files: loaded.files }]);
+
+  const plain = root();
+  write(plain, "plugin.json", JSON.stringify({ name: "plain" }));
+  write(plain, "skills/notes/SKILL.md", "---\nname: notes\ndescription: Notes.\n---\nNotes.\n");
+  expect(loadPlugin(plain).files).toBeUndefined();
+  expect(Agent({ id: "bot" }).plugin(plain).build().manifest.plugins).toBeUndefined();
+});
+
 it("rejects an unsupported schema before discovering components", () => {
   const directory = root();
   write(directory, "plugin.json", JSON.stringify({ $schema: "https://example.com/other", name: "demo" }));

@@ -90,6 +90,26 @@ const context = (
   signal: new AbortController().signal,
 });
 
+describe("load_skill from a plugin mounted whole", () => {
+  it("answers the plugin's folder, pluginPath, beside the skill's own", async () => {
+    const { channel } = core();
+    const files = { "resources/standard.md": hash("b"), "skills/triage/SKILL.md": hash("a") };
+    const output = await runSkillTool(call("load_skill", { name: "triage" }), {
+      ...context(channel, { sandboxed: true }),
+      agent: { skills: { triage: { ...triage, plugin: { name: "review" } } }, plugins: [{ name: "review", files }] },
+    });
+    expect(output).toMatchObject({
+      kind: "completed",
+      output: { pluginPath: expect.stringMatching(/^\/plugins\/review@[0-9a-f]{12}\/$/) },
+    });
+    const elsewhere = await runSkillTool(call("load_skill", { name: "triage" }), {
+      ...context(channel, { sandboxed: false }),
+      agent: { skills: { triage: { ...triage, plugin: { name: "review" } } }, plugins: [{ name: "review", files }] },
+    });
+    expect((elsewhere as { output: Record<string, unknown> }).output.pluginPath).toBeUndefined();
+  });
+});
+
 describe("load_skill", () => {
   it("answers the instructions after the frontmatter, the resources, and the sandbox folder", async () => {
     const { channel } = core();
