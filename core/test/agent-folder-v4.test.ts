@@ -149,9 +149,18 @@ describe("agent-folder/4: subagent files", () => {
     expect(errors(file.diagnostics)).toEqual([expect.objectContaining({ code: "subagent_file", file: "agents/new.md" })]);
   });
 
-  it("checks a file's name against its file name", () => {
+  it("names a subagent by its name, whatever its file is called", () => {
     const result = compile({ "AGENT.md": ROOT(4), ...LIBRARY, "agents/history.md": md("name: past\ndescription: Searches.\n", "Search.\n") });
-    expect(errors(result.diagnostics)).toEqual([expect.objectContaining({ code: "name_mismatch", file: "agents/history.md", message: expect.stringContaining("agents/history.md") })]);
+    expect(errors(result.diagnostics)).toEqual([]);
+    expect(subagentTools(result.manifest, "past")).toBeDefined();
+    expect(subagentTools(result.manifest, "history")).toBeUndefined();
+  });
+
+  it("requires a name a model can call, and reports one missing at the file", () => {
+    const missing = compile({ "AGENT.md": ROOT(4), ...LIBRARY, "agents/history.md": md("description: Searches.\n", "Search.\n") });
+    expect(errors(missing.diagnostics)).toEqual([expect.objectContaining({ code: "name_missing", file: "agents/history.md" })]);
+    const invalid = compile({ "AGENT.md": ROOT(4), ...LIBRARY, "agents/history.md": md("name: past.work\ndescription: Searches.\n", "Search.\n") });
+    expect(errors(invalid.diagnostics)).toEqual([expect.objectContaining({ code: "name_invalid", file: "agents/history.md" })]);
   });
 
   it("reads a schema beside the file", () => {
