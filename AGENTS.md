@@ -60,3 +60,25 @@ npm test          # package, tooling and examples tests (needs Docker)
 npm run check --workspace @nylorun/runtime   # one package
 cd sandboxes && go vet ./... && go test ./...
 ```
+
+## Verifying your work
+
+Run these before you report a task done, and paste their output:
+
+| Check | Command | Healthy result |
+| --- | --- | --- |
+| Build and standard checks | `npm run check` | Exits 0 |
+| Tests | `npm test` (needs Docker) | Every test passes; none skipped that passed before |
+| One package | `npm run check --workspace <package>` | Exits 0, for each package you changed |
+| Sandboxes (Go) | `cd sandboxes && go vet ./... && go test ./...` | No findings; tests pass, when you changed `sandboxes/` |
+| Release notes | `npx changeset status` | A changeset for each package you changed |
+
+If a check fails, fix the code, not the check or the test. A bug fix starts with a test that fails for
+the reason you expect, committed before the fix.
+
+## Mistakes to avoid
+
+Corrections for mistakes agents have made in this repo more than once. Add one, with what to do
+instead, when a mistake happens a second time.
+
+- None recorded yet.
