@@ -1,7 +1,8 @@
 /**
  * Definition files: the files a definition names by content hash, uploaded once
- * with `PUT /v1/files/sha256:<hex>` and held by the Runtime. Today they are the files of a
- * skill's folder (`SkillManifest.files`). Shared by the SDK, the wire schema and the Runtime.
+ * with `PUT /v1/files/sha256:<hex>` and held by the Runtime: the files of a skill's folder
+ * (`SkillManifest.files`), and those of an Agent Plugin mounted whole (`PluginManifest.files`).
+ * Shared by the SDK, the wire schema and the Runtime.
  */
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils.js";
@@ -37,6 +38,20 @@ export function skillFolderOf(skill: { readonly name: string; readonly files: Re
   return `${SKILLS_MOUNT}/${skill.name}@${bytesToHex(sha256(utf8ToBytes(canonical(skill.files)))).slice(0, 12)}`;
 }
 
+/** Where a session's sandbox holds each mounted Agent Plugin's files, read-only: `/plugins/<name>@<hash>/`. */
+export const PLUGINS_MOUNT = "/plugins";
+/** The longest path of a file in a mounted plugin's folder, as `SKILL_FILE_PATH_MAX` is a skill's. */
+export const PLUGIN_FILE_PATH_MAX =
+  FILE_PATH_MAX - `${PLUGINS_MOUNT}/${"n".repeat(FILE_NAME_MAX)}@${"0".repeat(12)}/`.length;
+
+/**
+ * The folder of a sandbox that holds one version of an Agent Plugin's files, read-only:
+ * `/plugins/<name>@<12 hex>`, the hex from the SHA-256 of its canonical file map, as `skillFolderOf`.
+ */
+export function pluginFolderOf(plugin: { readonly name: string; readonly files: Readonly<Record<string, string>> }): string {
+  return `${PLUGINS_MOUNT}/${plugin.name}@${bytesToHex(sha256(utf8ToBytes(canonical(plugin.files)))).slice(0, 12)}`;
+}
+
 const FILE_HASH = /^sha256:[0-9a-f]{64}$/;
 
 /** `sha256:<hex>`, the way a manifest names a definition file. */
@@ -54,6 +69,19 @@ export function skillFilePathIssue(path: string): string | undefined {
   for (const segment of path.split("/"))
     if (segment === "" || segment === "." || segment === "..")
       return "must not have empty, . or .. segments";
+  return undefined;
+}
+
+/** Why `files` is not a mounted plugin's file map, or undefined when it is. */
+export function pluginFilesIssue(files: unknown): string | undefined {
+  if (!files || typeof files !== "object" || Array.isArray(files))
+    return `files must map each path in the plugin's folder to sha256:<hex>`;
+  for (const [path, hash] of Object.entries(files)) {
+    const issue = path.length > PLUGIN_FILE_PATH_MAX ? `must be 1 to ${PLUGIN_FILE_PATH_MAX} characters` : skillFilePathIssue(path)?.replace("the skill's folder", "the plugin's folder");
+    if (issue) return `file path ${JSON.stringify(path.slice(0, FILE_PATH_MAX))} ${issue}`;
+    if (!isDefinitionFileHash(hash))
+      return `file ${JSON.stringify(path)} must name its content as sha256:<64 lowercase hex>`;
+  }
   return undefined;
 }
 
@@ -77,10 +105,33 @@ export function skillFilesIssue(files: unknown): string | undefined {
  * agents it uses as tools, and those of a flow's agents, as `sha256:<hex>`.
  */
 export function definitionFilesOf(document: unknown, into = new Set<string>()): Set<string> {
-  for (const skill of skillsOf(document))
-    for (const hash of Object.values(skill.files ?? {}))
+  for (const owner of [...skillsOf(document), ...mountedPluginsOf(document)])
+    for (const hash of Object.values(owner.files ?? {}))
       if (isDefinitionFileHash(hash)) into.add(hash);
   return into;
+}
+
+/**
+ * Every Agent Plugin a definition document mounts whole (a loop manifest's `plugins` with
+ * `files`): its agents', those of the agents it uses as tools, and those of a flow's agents. A
+ * plugin two agents carry comes once for each.
+ */
+export function* mountedPluginsOf(
+  document: unknown,
+): Generator<{ readonly name?: unknown; readonly files?: Readonly<Record<string, unknown>> }> {
+  if (!document || typeof document !== "object") return;
+  const value = document as {
+    kind?: string;
+    agents?: Record<string, unknown>;
+    plugins?: { name?: unknown; files?: Record<string, unknown> }[];
+    tools?: { agent?: unknown }[];
+  };
+  if (value.kind === "workflow") {
+    for (const agent of Object.values(value.agents ?? {})) yield* mountedPluginsOf(agent);
+    return;
+  }
+  if (Array.isArray(value.plugins)) for (const plugin of value.plugins) if (plugin?.files) yield plugin;
+  for (const tool of value.tools ?? []) yield* mountedPluginsOf(tool.agent);
 }
 
 /**

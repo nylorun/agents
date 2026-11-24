@@ -47,7 +47,8 @@ export function agentFrom<Info = unknown>(
     own.length > 0 ||
     manifest.instructions !== undefined ||
     manifest.skills !== undefined ||
-    manifest.mcpServers !== undefined
+    manifest.mcpServers !== undefined ||
+    manifest.plugins !== undefined
   )
     parts.push(
       Object.freeze({
@@ -56,6 +57,7 @@ export function agentFrom<Info = unknown>(
         ...(manifest.instructions === undefined ? {} : { instructions: manifest.instructions }),
         ...(manifest.skills === undefined ? {} : { skills: manifest.skills }),
         ...(manifest.mcpServers === undefined ? {} : { mcpServers: manifest.mcpServers }),
+        ...(manifest.plugins === undefined ? {} : { plugins: manifest.plugins }),
       })
     );
   const session = sessionTools.map((item) => {

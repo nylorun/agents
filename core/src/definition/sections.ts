@@ -10,6 +10,7 @@ import type {
   AgentManifest,
   HarnessSection,
   McpServerManifest,
+  PluginManifest,
   SkillManifest,
   WorkflowHarnessSection,
 } from "../types/manifest.js";
@@ -198,8 +199,9 @@ export function sectionGapsAt(manifest: Pick<AgentManifestV8, "harness" | "runti
 /**
  * The loop manifest the harness runs for a version of an agent manifest: the harness section
  * with the manifest's name as its id, in the shape the engine reads (agent manifest v7, workflow
- * manifest v3). The fields only the Runtime reads (`credential`, a skill's `secrets`, `plugins`,
- * `loop`, the harness id) stay out; `engine`, which our engine reads, goes in.
+ * manifest v3). The fields only the Runtime reads (`credential`, a skill's `secrets`, the plugins'
+ * labels, `loop`, the harness id) stay out; `engine`, which our engine reads, goes in, and so do the
+ * plugins whose files are mounted, with their `files`.
  */
 export function loopManifestOf(
   manifest: Pick<AgentManifestV8, "name" | "description" | "metadata" | "harness">,
@@ -224,6 +226,7 @@ export function loopManifestOf(
   const servers = Object.entries(harness.mcpServers ?? {}).map(
     ([key, { credential: _, ...server }]): [string, McpServerManifest] => [key, server as McpServerManifest],
   );
+  const mounted = (harness.plugins ?? []).filter((plugin) => plugin.files !== undefined);
   return {
     manifestSchemaVersion: 7,
     ...identity,
@@ -232,6 +235,7 @@ export function loopManifestOf(
     ...(harness.tools === undefined ? {} : { tools: harness.tools }),
     ...(skills.length === 0 ? {} : { skills: Object.fromEntries(skills) }),
     ...(servers.length === 0 ? {} : { mcpServers: Object.fromEntries(servers) }),
+    ...(mounted.length === 0 ? {} : { plugins: mounted }),
     // What the agent declares of our engine: the harness reads it for this agent, and
     // an embedded subagent carries its own.
     ...(harness.engine === undefined ? {} : { engine: harness.engine }),
@@ -272,11 +276,15 @@ export function harnessSectionOf(
   };
 }
 
-/** The Agent Plugins whose labels a loop manifest's skills and servers carry, each once, by name. */
-export function pluginsOf(loop: AgentManifest | WorkflowManifest): { name: string; version?: string }[] {
+/**
+ * The Agent Plugins a loop manifest was composed with, each once, by name: those it mounts (with
+ * their `files`), and those whose labels its skills, servers and subagents carry.
+ */
+export function pluginsOf(loop: AgentManifest | WorkflowManifest): PluginManifest[] {
   if ("kind" in loop) return [];
-  const byName = new Map<string, { name: string; version?: string }>();
-  for (const item of [...Object.values(loop.skills ?? {}), ...Object.values(loop.mcpServers ?? {})])
+  const byName = new Map<string, PluginManifest>();
+  for (const plugin of loop.plugins ?? []) byName.set(plugin.name, { ...plugin });
+  for (const item of [...Object.values(loop.skills ?? {}), ...Object.values(loop.mcpServers ?? {}), ...(loop.tools ?? [])])
     if (item.plugin !== undefined && !byName.has(item.plugin.name))
       byName.set(item.plugin.name, { ...item.plugin });
   return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));

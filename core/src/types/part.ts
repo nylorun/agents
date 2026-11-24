@@ -1,6 +1,7 @@
 import type { AgentTool } from "./agent.js";
 import type {
   McpServerManifest,
+  PluginManifest,
   SkillManifest,
 } from "./manifest.js";
 import type { ToolDefinition } from "./tool.js";
@@ -38,4 +39,6 @@ export interface PartDeclaration<Info = unknown> {
    */
   readonly skillSecrets?: Readonly<Record<string, readonly string[]>>;
   readonly mcpServers?: Readonly<Record<string, McpServerManifest>>;
+  /** Agent Plugins mounted whole, with their `files`; the files' bytes are in `skillFiles`. */
+  readonly plugins?: readonly PluginManifest[];
 }

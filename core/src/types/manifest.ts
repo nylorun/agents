@@ -15,6 +15,16 @@ export interface PluginLabel {
 }
 
 /**
+ * An Agent Plugin an agent was composed with. `files` is set when the plugin holds files beyond the
+ * parts the manifest carries (its skills, servers and subagent files): then every file of the
+ * plugin but secret-shaped ones, by path, as `sha256:<hex>`, mounted read-only in the sandbox at
+ * `/plugins/<name>@<hash>/` (`pluginFolderOf`).
+ */
+export interface PluginManifest extends PluginLabel {
+  readonly files?: Readonly<Record<string, string>>;
+}
+
+/**
  * Whether each call waits for a person's approval, in a manifest saved before the Tenant's tool
  * policy (the Tool Gate holds such a call). New definitions use the Tenant's tool policy instead.
  */
@@ -172,6 +182,8 @@ export interface AgentManifest {
   readonly tools?: readonly ToolManifest[];
   readonly skills?: Readonly<Record<string, SkillManifest>>;
   readonly mcpServers?: Readonly<Record<string, McpServerManifest>>;
+  /** The Agent Plugins whose files are mounted in the sandbox: each with its `files`. */
+  readonly plugins?: readonly PluginManifest[];
   /** What the agent needs of its session's Environment, checked when a session opens. */
   readonly requires?: AgentRequirements;
   /**
@@ -276,8 +288,11 @@ export interface AgentHarnessSection {
   readonly tools?: readonly ToolManifest[];
   readonly skills?: Readonly<Record<string, HarnessSkill>>;
   readonly mcpServers?: Readonly<Record<string, HarnessMcpServer>>;
-  /** The Agent Plugins folded into it when it was composed, so a version records what built it. */
-  readonly plugins?: readonly PluginLabel[];
+  /**
+   * The Agent Plugins folded into it when it was composed, so a version records what built it; one
+   * with `files` is mounted in the sandbox.
+   */
+  readonly plugins?: readonly PluginManifest[];
   readonly outputSchema?: JsonObject;
   /** The harness's own settings: passed to it in `turn.start`, never read by the Runtime. */
   readonly loop?: JsonObject;

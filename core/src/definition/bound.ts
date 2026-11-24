@@ -1,5 +1,6 @@
 import type {
   McpServerManifest,
+  PluginManifest,
   SandboxManifest,
   SkillManifest,
 } from "../types/manifest.js";
@@ -56,5 +57,7 @@ export interface DefinitionPart {
   /** The secret slots each skill's scripts read, by skill name. Not a manifest field. */
   readonly skillSecrets?: Readonly<Record<string, readonly string[]>>;
   readonly mcpServers?: Readonly<Record<string, McpServerManifest>>;
+  /** Agent Plugins mounted whole, with their `files`. */
+  readonly plugins?: readonly PluginManifest[];
   readonly sandbox?: SandboxManifest;
 }

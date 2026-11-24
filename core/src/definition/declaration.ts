@@ -33,6 +33,7 @@ export function compileDeclaration<Info>(declaration: PartDeclaration<Info>): De
     ...(declaration.mcpServers === undefined || Object.keys(declaration.mcpServers).length === 0
       ? {}
       : { mcpServers: declaration.mcpServers }),
+    ...(declaration.plugins === undefined || declaration.plugins.length === 0 ? {} : { plugins: declaration.plugins }),
     // Definitions declare no sandbox; carry one through so the build can refuse it by name.
     ...(sandbox === undefined ? {} : { sandbox }),
   };

@@ -3,6 +3,18 @@
 What changed between beta releases and what to do about it, newest first. For which
 versions work together, read [Compatibility](https://docs.nylorun.com/docs/compatibility).
 
+# A plugin's own files are in the sandbox
+
+Additive. Upgrade the Runtime with the packages.
+
+- **A vendored plugin's files are mounted.** A plugin holding files beyond its `plugin.json`,
+  `mcp.json`, `skills/` and `agents/*.md` carries all its files, but secret-shaped ones, on its
+  `harness.plugins` entry, and the harness mounts them read-only at `/plugins/<name>@<hash>/`.
+  `load_skill` answers a plugin skill's `pluginPath`, where the skill's references to the plugin's
+  files are found. A plugin of skills and servers only is unchanged.
+- **Schemas and Host feature:** agent manifest `v8.7`, harness file `v1.7`, Host feature
+  `plugin-files`. A Runtime without it refuses a manifest carrying a plugin's `files`.
+
 # A vendored plugin needs no `$schema`
 
 Additive. Nothing to do.

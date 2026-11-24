@@ -6,7 +6,7 @@ import {
   LOOPBACK_HOSTS,
   McpServerManifestSchema,
 } from "@nylorun/core/contracts";
-import { loadSkillsFromDirectory, type LoadedSkill } from "../skills/load.js";
+import { hashFolder, loadSkillsFromDirectory, type LoadedSkill } from "../skills/load.js";
 
 export const PLUGIN_SCHEMA =
   "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json";
@@ -57,7 +57,32 @@ export interface LoadedPlugin {
   readonly description?: string;
   readonly skills: Readonly<Record<string, LoadedSkill>>;
   readonly mcpServers: Readonly<Record<string, McpServerManifest>>;
+  /**
+   * When the plugin holds files beyond its plugin.json, servers, skills and subagent files: all its
+   * files but secret-shaped ones, by path, as `sha256:<hex>`, mounted read-only in the sandbox at
+   * `/plugins/<name>@<hash>/`; `fileSources` says where to read each one's bytes.
+   */
+  readonly files?: Readonly<Record<string, string>>;
+  readonly fileSources?: LoadedSkill["sources"];
   readonly diagnostics: readonly PluginDiagnostic[];
+}
+
+/** A plugin file a manifest already carries: its plugin.json, servers, skills and subagent files. */
+const carried = (path: string) =>
+  path === "plugin.json" || path === "mcp.json" || path === ".mcp.json" || path.startsWith("skills/") || /^agents\/[^/]+\.md$/.test(path);
+const isSecretShaped = (base: string) => base === ".env" || base.startsWith(".env.") || base.endsWith(".pem") || base.endsWith(".key");
+
+/** The plugin's files to mount, when it holds any a manifest doesn't carry. */
+function pluginFiles(root: string, diagnostics: PluginDiagnostic[]): Pick<LoadedPlugin, "files" | "fileSources"> {
+  const hashed = hashFolder(root, diagnostics as never, { boundary: root, codePrefix: "plugin" });
+  const paths = Object.keys(hashed.files)
+    .filter((path) => !isSecretShaped(path.split("/").at(-1)!))
+    .sort();
+  if (!paths.some((path) => !carried(path))) return {};
+  const files = Object.fromEntries(paths.map((path) => [path, hashed.files[path]!]));
+  const hashes = new Set(Object.values(files));
+  const fileSources = Object.fromEntries(Object.entries(hashed.sources).filter(([hash]) => hashes.has(hash)));
+  return { files, fileSources };
 }
 
 export function loadPlugin(directory: string): LoadedPlugin {
@@ -121,8 +146,10 @@ export function loadPlugin(directory: string): LoadedPlugin {
   }
   const skills = loadSkills(root, diagnostics);
   const mcpServers = loadMcp(root, diagnostics);
+  const mounted = pluginFiles(root, diagnostics);
   return {
     root,
+    ...mounted,
     name: parsed.name,
     ...(typeof parsed.version === "string" ? { version: parsed.version } : {}),
     ...(typeof parsed.description === "string" ? { description: parsed.description } : {}),

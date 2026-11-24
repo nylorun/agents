@@ -139,9 +139,13 @@ function flowNames(tree: unknown): { agents: Set<string>; tools: Set<string> } {
   return { agents, tools };
 }
 
-/** A plugin's subagent folder: `plugins/<name>/agents/`, with what it holds. Never in the library. */
+/**
+ * A plugin's subagent folder: `plugins/<name>/agents/`, with what it holds. Its files stay in the
+ * library as the plugin's files (mounted with the plugin), but a subagent's compile never reads them
+ * as subagents: no subagent inherits another.
+ */
 const PLUGIN_AGENTS = /^plugins\/([^/]+)\/agents\/(.+)$/;
-const isLibrary = (path: string) => (path === "mcp.json" || /^(tools|skills|plugins)\//.test(path)) && !PLUGIN_AGENTS.test(path);
+const isLibrary = (path: string) => path === "mcp.json" || /^(tools|skills|plugins)\//.test(path);
 /** A name a subagent can go by: the tool the model calls. */
 const SUBAGENT_NAME = /^[A-Za-z0-9_-]{1,64}$/;
 
@@ -215,7 +219,7 @@ export function compileFormat4(input: CompileAgentFolderInput, compile: (input: 
   const names = [...sources.keys()].sort(compare);
 
   // A folder under agents/ is format 3's: refused, and left out of the expansion. A plugin's
-  // subagent files are read above, not as the plugin's parts.
+  // subagent files are read above as subagents, and stay in the entries as the plugin's files.
   const folders = new Set<string>();
   for (const entry of input.entries) {
     const segments = entry.path.split("/");
@@ -230,7 +234,6 @@ export function compileFormat4(input: CompileAgentFolderInput, compile: (input: 
       folders.add(segments[1]!);
       continue;
     }
-    if (PLUGIN_AGENTS.test(entry.path)) continue;
     entries.push(entry);
   }
 

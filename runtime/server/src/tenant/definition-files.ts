@@ -16,6 +16,7 @@ import { randomUUID } from "node:crypto";
 import {
   definitionFilesOf,
   isDefinitionFileHash,
+  mountedPluginsOf,
   skillsOf,
   type DefinitionFileView,
 } from "@nylorun/core/contracts";
@@ -123,8 +124,9 @@ export async function putDefinitionFile(
 
 /**
  * Why `document` cannot be stored for the files it names: the files the Tenant does not hold
- * (`missing`), else each skill whose files hold more than `limitBytes` together (`oversized`).
- * A file a skill names at two paths counts twice: a sandbox holds both.
+ * (`missing`), else each skill, and each Agent Plugin mounted whole, whose files hold more than
+ * `limitBytes` together (`oversized`; a plugin's name is `plugin:<name>`). A file named at two paths
+ * counts twice: a sandbox holds both.
  */
 export async function definitionFileIssues(
   t: Tx,
@@ -137,11 +139,15 @@ export async function definitionFileIssues(
   const missing = named.filter((sha256) => !held.has(sha256));
   if (missing.length > 0) return { missing, oversized: [] };
   const oversized: { name: string; bytes: number }[] = [];
-  for (const skill of skillsOf(document)) {
+  const owners = [
+    ...[...skillsOf(document)].map((skill) => ({ name: String(skill.name), files: skill.files })),
+    ...[...mountedPluginsOf(document)].map((plugin) => ({ name: `plugin:${String(plugin.name)}`, files: plugin.files })),
+  ];
+  for (const owner of owners) {
     let bytes = 0;
-    for (const hash of Object.values(skill.files ?? {}))
+    for (const hash of Object.values(owner.files ?? {}))
       if (typeof hash === "string") bytes += held.get(hash) ?? 0;
-    if (bytes > limitBytes) oversized.push({ name: String(skill.name), bytes });
+    if (bytes > limitBytes) oversized.push({ name: owner.name, bytes });
   }
   return { missing, oversized };
 }

@@ -13,7 +13,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { PROTOCOL_VERSION } from "@nylorun/core/compatibility";
 import { Agent, AgentsClient } from "@nylorun/agents";
 import { SKILL_TOTAL_BYTES_DEFAULT } from "@nylorun/core/contracts";
-import { DELEGATE_INPUT_SCHEMA, skillFolderOf } from "@nylorun/core/define";
+import { DELEGATE_INPUT_SCHEMA, pluginFolderOf, skillFolderOf } from "@nylorun/core/define";
 import { RUNTIME_LIMIT_DEFAULTS } from "@nylorun/core/harness-api";
 import type { BlobStore } from "../src/blob/index.js";
 import type { ModelProvider } from "../src/core/provider.js";
@@ -520,5 +520,36 @@ describe.each(["memory", "ws"] as const)("skills on a %s harness", (harness) => 
     // The session pins the manifest's harness section: our harness words the skills' folders.
     const { manifest } = await session.manifest();
     expect(manifest).not.toHaveProperty("runtime");
+  });
+
+  it("mounts a plugin holding files beyond its skills where load_skill says, and refuses a save missing one", async () => {
+    const folderOfPlugin = pluginFolder();
+    writeFileSync(join(folderOfPlugin, "STANDARD.md"), "Severity: P0 to P3.\n");
+    const agent = Agent({ id: "reviewer", instructions: "Review." }).plugin(folderOfPlugin).build();
+    const plugin = agent.manifest.plugins![0]!;
+    const folder = pluginFolderOf({ name: plugin.name, files: plugin.files! });
+    expect(folder).toMatch(/^\/plugins\/ops@[0-9a-f]{12}$/);
+
+    const refusing = await boot();
+    const refused = await saveOn(refusing, { ...agent.manifest });
+    expect(refused.status).toBe(400);
+    expect((refused.body as { details: { missing: string[] } }).details.missing).toContain(sha256("Severity: P0 to P3.\n"));
+
+    const runtime = await boot({
+      harness,
+      modelProvider: scripted([
+        { name: "load_skill", args: { name: "triage" } },
+        { name: "bash", args: { command: `cat ${folder}/STANDARD.md` } },
+      ]),
+    });
+    const client = new AgentsClient({ url: runtime.url, key: APP });
+    await client.agentManifests.save({ agent, runtime: { kind: "virtual" } });
+    await client.agents.put("review", { manifest: "reviewer" });
+    const session = await client.createSession({ agent: "review", ownerUserId: "ada" });
+    await session.input("Review this.", { idempotencyKey: "m1" });
+    expect(await settle(runtime, session.id)).toBe("completed");
+    const [loaded, ran] = await toolOutcomes(runtime, session.id);
+    expect(loaded.output).toMatchObject({ pluginPath: `${folder}/` });
+    expect(ran.output.stdout).toContain("Severity: P0 to P3.");
   });
 });

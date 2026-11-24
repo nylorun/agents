@@ -16,7 +16,7 @@ import { engineConfig } from "./fixtures.js";
 import { apiHost } from "../src/api/host.js";
 import type { HarnessExecutors, HarnessFiles, HarnessRun } from "../src/api/executors.js";
 import type { HostEffect } from "../src/run/durable.js";
-import { definitionFileChunks, sandboxSkillsOf } from "../src/tools/skills.js";
+import { definitionFileChunks, sandboxPluginsOf, sandboxSkillsOf } from "../src/tools/skills.js";
 
 const SKILL = `sha256:${"a".repeat(64)}`;
 const SCRIPT = `sha256:${"b".repeat(64)}`;
@@ -215,5 +215,27 @@ describe("skill folders", () => {
     expect(h.fetched.map((f) => f.offset)).toEqual([0, 4, 8, 12]);
     expect(h.fetched.every((f) => f.length === 4)).toBe(true);
     expect(fromBase64(toBase64(new Uint8Array()))).toHaveLength(0);
+  });
+});
+
+describe("an Agent Plugin mounted whole", () => {
+  it("is mounted once at its folder for the tree, the root's and its subagents' alike", () => {
+    const files = { "resources/standard.md": SCRIPT, "plugin.json": CHILD };
+    const tree = {
+      manifestSchemaVersion: 7,
+      id: "bot",
+      plugins: [{ name: "review", files }],
+      tools: [
+        {
+          name: "helper",
+          agent: { manifestSchemaVersion: 7, id: "helper", plugins: [{ name: "review", files }] },
+        },
+      ],
+    } as unknown as AgentManifest;
+    const folders = sandboxPluginsOf(tree);
+    expect([...folders.keys()]).toEqual([
+      expect.stringMatching(/^\/plugins\/review@[0-9a-f]{12}$/),
+    ]);
+    expect([...folders.values()]).toEqual([files]);
   });
 });

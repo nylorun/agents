@@ -72,7 +72,7 @@ export function scopedSchema(scope: FolderScope, value: string, fail: (code: str
 export function folderParts(ctx: FolderContext) {
   const isFlow = [...ctx.kinds.values()].includes("flow");
   let plugins: FoldedPlugins | undefined;
-  const folded = () => (plugins ??= isFlow ? { servers: new Map(), skills: new Map() } : foldPlugins(ctx));
+  const folded = () => (plugins ??= isFlow ? { servers: new Map(), skills: new Map(), mounted: new Map() } : foldPlugins(ctx));
   return {
     /** Adds the plugins' MCP servers, before `AGENT.md` says how the agent uses them. */
     mergeServers(servers: Record<string, Record<string, unknown>>): void {
@@ -128,7 +128,7 @@ export function folderParts(ctx: FolderContext) {
     compose(): boolean {
       if (ctx.scope && ctx.scope.role !== "plugin") nestedChecks(ctx);
       if (isFlow) return composeFlow(ctx);
-      composeAgent(ctx);
+      composeAgent(ctx, folded().mounted);
       return true;
     },
   };
@@ -234,7 +234,7 @@ function nestedChecks(ctx: FolderContext): void {
 }
 
 /** An agent: its `agents/` are tools, and its plugins are listed. */
-function composeAgent(ctx: FolderContext): void {
+function composeAgent(ctx: FolderContext, mounted: FoldedPlugins["mounted"]): void {
   if (ctx.front.inputSchema !== undefined)
     ctx.report(
       "error",
@@ -287,6 +287,8 @@ function composeAgent(ctx: FolderContext): void {
     const label = isObject(item) && isObject(item.plugin) ? (item.plugin as { name: string; version?: string }) : undefined;
     if (label && !labels.has(label.name)) labels.set(label.name, { ...label });
   }
+  // A plugin mounted whole carries its files, whether or not its parts carry its label.
+  for (const plugin of mounted.values()) labels.set(plugin.name, plugin as { name: string; version?: string });
   if (labels.size > 0) harness.plugins = [...labels.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 

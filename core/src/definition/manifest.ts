@@ -4,6 +4,7 @@ import type {
   AgentRequirements,
   HarnessEngine,
   McpServerManifest,
+  PluginManifest,
   SkillManifest,
   ToolManifest,
 } from "../types/manifest.js";
@@ -41,9 +42,11 @@ export function createManifest(input: {
   const tools = authored.flatMap((part) => (part.tools ?? []).map((tool) => projectTool(tool)));
   const skills: Record<string, SkillManifest> = {};
   const mcpServers: Record<string, McpServerManifest> = {};
+  const plugins = new Map<string, PluginManifest>();
   for (const part of authored) {
     Object.assign(skills, part.skills ?? {});
     Object.assign(mcpServers, part.mcpServers ?? {});
+    for (const plugin of part.plugins ?? []) plugins.set(plugin.name, plugin);
   }
   return deepFreeze({
     manifestSchemaVersion: 7,
@@ -65,6 +68,7 @@ export function createManifest(input: {
     ...(tools.length === 0 ? {} : { tools }),
     ...(Object.keys(skills).length === 0 ? {} : { skills }),
     ...(Object.keys(mcpServers).length === 0 ? {} : { mcpServers }),
+    ...(plugins.size === 0 ? {} : { plugins: [...plugins.values()].sort((a, b) => a.name.localeCompare(b.name)) }),
     ...(input.requires === undefined ? {} : { requires: copyRequirements(input.requires) }),
     ...(input.engine === undefined ? {} : { engine: JSON.parse(JSON.stringify(input.engine)) as HarnessEngine }),
   });

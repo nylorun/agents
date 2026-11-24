@@ -29,10 +29,12 @@ import {
  * agent manifest `v8.3`, harness file `v1.3` and runtime file `v1.2`, then `harness.engine.plugins`
  *, published as agent manifest `v8.4` and harness file `v1.4`, then `harness.roles`
  *, published as agent manifest `v8.5` and harness file `v1.5`, then a tool's `plugin` label (Host
- * feature `plugin-subagents`), published as agent manifest `v8.6` and harness file `v1.6`.
+ * feature `plugin-subagents`), published as agent manifest `v8.6` and harness file `v1.6`, then a
+ * plugin's mounted `files` (Host feature `plugin-files`), published as agent manifest `v8.7` and
+ * harness file `v1.7`.
  */
-const AGENT_MANIFEST_REVISION = 6;
-const HARNESS_MANIFEST_FILE_REVISION = 6;
+const AGENT_MANIFEST_REVISION = 7;
+const HARNESS_MANIFEST_FILE_REVISION = 7;
 const RUNTIME_MANIFEST_FILE_REVISION = 2;
 
 function document(schema: z.ZodType, id: string, title: string): Record<string, unknown> {

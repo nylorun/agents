@@ -353,6 +353,14 @@ export const OPTIONAL_HOST_FEATURES = [
    * The label changes nothing about the run. A Runtime without this feature refuses the field.
    */
   "plugin-subagents",
+  /**
+   * An Agent Plugin mounted whole: an agent manifest's `harness.plugins` entry, and the loop
+   * manifest's `plugins`, may carry `files` (by path, as `sha256:<hex>`) for a plugin holding files
+   * beyond its skills, servers and subagent files. They are definition files, checked at save, and
+   * the harness mounts them read-only at `/plugins/<name>@<hash>/`; `load_skill` answers a plugin
+   * skill's `pluginPath`. A Runtime without this feature refuses the field.
+   */
+  "plugin-files",
 ] as const;
 export type OptionalHostFeature = (typeof OPTIONAL_HOST_FEATURES)[number];
 export interface ProtocolRange {

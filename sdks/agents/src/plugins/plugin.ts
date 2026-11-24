@@ -1,4 +1,4 @@
-import type { PartDeclaration, PluginLabel } from "@nylorun/core/define";
+import type { PartDeclaration, PluginLabel, PluginManifest } from "@nylorun/core/define";
 import { skillsDeclaration } from "../skills/skills.js";
 import {
   loadPlugin,
@@ -35,7 +35,8 @@ function warn(loaded: LoadedPlugin): void {
 
 /**
  * The part a plugin adds: its skills and remote MCP servers, each labelled with the plugin's name
- * and version. The plugin itself is not in the manifest; the labels say where each part came from.
+ * and version, and, when it holds files beyond those parts, the plugin with its `files`, mounted
+ * in the sandbox.
  */
 export function partFromPlugin(loaded: LoadedPlugin): PluginPart {
   const label: PluginLabel = {
@@ -44,9 +45,14 @@ export function partFromPlugin(loaded: LoadedPlugin): PluginPart {
   };
   const skills = Object.values(loaded.skills);
   const servers = Object.entries(loaded.mcpServers);
+  const declared = skills.length === 0 ? undefined : skillsDeclaration(skills, label);
+  const mounted: PluginManifest | undefined = loaded.files ? { ...label, files: loaded.files } : undefined;
+  const skillFiles = { ...(declared?.skillFiles ?? {}), ...(loaded.fileSources ?? {}) };
   return {
     id: `plugin:${loaded.name}`,
-    ...(skills.length === 0 ? {} : skillsDeclaration(skills, label)),
+    ...(declared ?? {}),
+    ...(Object.keys(skillFiles).length === 0 ? {} : { skillFiles }),
+    ...(mounted ? { plugins: [mounted] } : {}),
     ...(servers.length === 0
       ? {}
       : {
