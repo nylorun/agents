@@ -155,6 +155,14 @@ describe("SendMessage params", () => {
       expect(() => parseSendParams(message({ parts: [{ text: "a" }], metadata: { removeTools } }))).toThrow(/removeTools/);
   });
 
+  it("takes metadata.skill, on the message or the request, and refuses a bad one", () => {
+    expect(parseSendParams(message({ parts: [{ text: "a" }], metadata: { skill: "egm-review" } })).skill).toBe("egm-review");
+    expect(parseSendParams({ ...message({ parts: [{ text: "a" }] }), metadata: { skill: "notes" } }).skill).toBe("notes");
+    expect(parseSendParams(message({ parts: [{ text: "a" }] })).skill).toBeUndefined();
+    for (const skill of ["", 1, "x".repeat(65)])
+      expect(() => parseSendParams(message({ parts: [{ text: "a" }], metadata: { skill } }))).toThrow(/skill/);
+  });
+
   it("takes metadata.role, on the message or the request, and refuses a bad one", () => {
     expect(parseSendParams(message({ parts: [{ text: "a" }], metadata: { role: "builder" } })).role).toBe("builder");
     expect(parseSendParams({ ...message({ parts: [{ text: "a" }] }), metadata: { role: "deep-research" } }).role).toBe("deep-research");
