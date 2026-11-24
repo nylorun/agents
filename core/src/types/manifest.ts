@@ -96,6 +96,12 @@ export interface SkillManifest {
   readonly name: string;
   readonly description: string;
   /**
+   * Only a person starts this skill (`SKILL.md`'s `disable-model-invocation: true`): the model's
+   * catalog and `load_skill` leave it out unless the turn's message names it (`skill`), and an
+   * agent used as a tool never gets it. Absent means the model may load it.
+   */
+  readonly disableModelInvocation?: true;
+  /**
    * Every file of the skill's folder, by its path in the folder (`/`-separated, e.g.
    * `SKILL.md`, `scripts/run.py`, `assets/logo.png`), as `sha256:<hex>`: the definition files
    * the Runtime holds and serves. `SKILL.md` is required.

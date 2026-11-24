@@ -3,6 +3,18 @@
 What changed between beta releases and what to do about it, newest first. For which
 versions work together, read [Compatibility](https://docs.nylorun.com/docs/compatibility).
 
+# Skills only a person starts
+
+Additive. Upgrade the Runtime with the packages.
+
+- **`disable-model-invocation: true` in a `SKILL.md`** keeps the skill from the model until a
+  person starts it. It was an unknown key before (`unknown_key`); it is carried as the skill's
+  `disableModelInvocation`.
+- **A message's `skill`** names the skill a person starts for that turn (`MessageOptions.skill` in
+  the SDK, `metadata.skill` on an A2A message). The model is offered it for that turn and told the
+  person started it; an agent used as a tool never gets it. An unknown name is `400 unknown_skill`.
+  A message naming a skill waits for its own turn. Host feature `person-started-skills`.
+
 # A plugin's own files are in the sandbox
 
 Additive. Upgrade the Runtime with the packages.

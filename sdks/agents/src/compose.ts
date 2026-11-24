@@ -145,6 +145,7 @@ function harnessSkill(skill: LoadedSkill): HarnessSkill {
     name: skill.name,
     description: skill.description,
     files: { ...skill.files },
+    ...(skill.disableModelInvocation ? { disableModelInvocation: true as const } : {}),
     ...(skill.secrets === undefined ? {} : { secrets: [...skill.secrets] }),
   };
 }

@@ -184,7 +184,8 @@ export const SCHEMA_URLS = {
 } as const;
 const SKILL_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 export const AGENT_KEYS = ["name", "description", "format", "harness", "inputSchema", "outputSchema", "mcpServers", "skills", "memory", "loop", "model", "roles", "engine", "plugins", "metadata"] as const;
-const SKILL_KEYS = ["name", "description", "license", "compatibility", "metadata", "allowed-tools"];
+/** Agent Skills' keys, and Claude Code's `disable-model-invocation`: a skill only a person starts. */
+const SKILL_KEYS = ["name", "description", "license", "compatibility", "metadata", "allowed-tools", "disable-model-invocation"];
 export const TRIGGER_KEYS = ["schedule", "timezone", "at", "webhook", "session"] as const;
 export const MCP_KEYS = ["$schema", "mcpServers"] as const;
 export const SERVER_KEYS = ["type", "url", "headers"] as const;
@@ -1230,6 +1231,11 @@ function compileFolder(input: CompileAgentFolderInput, scope?: FolderScope): Com
       error("skill_invalid", "description is required, at most 1024 characters", entryPath, data.description === undefined ? undefined : ["description"]);
       valid = false;
     }
+    const personOnly = data["disable-model-invocation"];
+    if (personOnly !== undefined && typeof personOnly !== "boolean") {
+      error("skill_invalid", "disable-model-invocation is true or false: true keeps the skill from the model until a person starts it", entryPath, ["disable-model-invocation"]);
+      valid = false;
+    }
     const files: Record<string, string> = {};
     for (const path of paths.sort(compare)) {
       const relative = path.slice(`skills/${folder}/`.length);
@@ -1242,7 +1248,7 @@ function compileFolder(input: CompileAgentFolderInput, scope?: FolderScope): Com
       files[relative] = `sha256:${byPath.get(path)!.sha256}`;
     }
     if (!valid) continue;
-    skills[skillName] = { name: skillName, description: skillDescription, files };
+    skills[skillName] = { name: skillName, description: skillDescription, files, ...(personOnly === true ? { disableModelInvocation: true } : {}) };
     origins.push([["harness", "skills", skillName], { file: entryPath, path: [] }]);
   }
   parts.mergeSkills(skills);

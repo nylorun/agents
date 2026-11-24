@@ -53,7 +53,8 @@
         "computer-move",
         "model-roles",
         "plugin-subagents",
-        "plugin-files"
+        "plugin-files",
+        "person-started-skills"
       ]
     },
     "description": "For developers: agent manifests, Agents, sessions (with AG-UI and A2A) and artifacts, through `@nylorun/agents`. Every Tenant serves it on its one URL, beside the Management API (`/openapi/management.json`). Every request sends `Nylorun-Protocol`. Who may call each operation is its `security` and its `x-nylorun-credentials` and `x-nylorun-scopes` (the subject scopes that reach it) fields: an application key (servers) or a trusted issuer's token (browsers and apps)."
@@ -6426,6 +6427,7 @@
               "manifest_changed",
               "folder_invalid",
               "unknown_role",
+              "unknown_skill",
               "internal_error"
             ]
           },
@@ -6645,6 +6647,12 @@
                         },
                         "plugin": {
                           "$ref": "#/components/schemas/PluginLabel"
+                        },
+                        "disableModelInvocation": {
+                          "type": "boolean",
+                          "enum": [
+                            true
+                          ]
                         }
                       },
                       "required": [
@@ -6840,6 +6848,11 @@
                 },
                 "minItems": 1,
                 "maxItems": 16
+              },
+              "skill": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
               },
               "content": {
                 "type": "string",
@@ -7005,6 +7018,12 @@
                         },
                         "plugin": {
                           "$ref": "#/components/schemas/PluginLabel"
+                        },
+                        "disableModelInvocation": {
+                          "type": "boolean",
+                          "enum": [
+                            true
+                          ]
                         }
                       },
                       "required": [
@@ -7200,6 +7219,11 @@
                 },
                 "minItems": 1,
                 "maxItems": 16
+              },
+              "skill": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
               },
               "data": {
                 "$ref": "#/components/schemas/JsonValue"
@@ -7364,6 +7388,12 @@
                         },
                         "plugin": {
                           "$ref": "#/components/schemas/PluginLabel"
+                        },
+                        "disableModelInvocation": {
+                          "type": "boolean",
+                          "enum": [
+                            true
+                          ]
                         }
                       },
                       "required": [
@@ -7559,6 +7589,11 @@
                 },
                 "minItems": 1,
                 "maxItems": 16
+              },
+              "skill": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
               },
               "parts": {
                 "type": "array",
@@ -7857,6 +7892,12 @@
                     },
                     "plugin": {
                       "$ref": "#/components/schemas/PluginLabel"
+                    },
+                    "disableModelInvocation": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
                     }
                   },
                   "required": [
@@ -8243,6 +8284,12 @@
                           },
                           "plugin": {
                             "$ref": "#/components/schemas/PluginLabel"
+                          },
+                          "disableModelInvocation": {
+                            "type": "boolean",
+                            "enum": [
+                              true
+                            ]
                           }
                         },
                         "required": [
@@ -9886,6 +9933,9 @@
                   ],
                   "additionalProperties": false
                 }
+              },
+              "skill": {
+                "type": "string"
               },
               "delivery": {
                 "type": "string",
@@ -24439,6 +24489,12 @@
                           },
                           "plugin": {
                             "$ref": "#/components/schemas/PluginLabel"
+                          },
+                          "disableModelInvocation": {
+                            "type": "boolean",
+                            "enum": [
+                              true
+                            ]
                           }
                         },
                         "required": [
@@ -24731,6 +24787,12 @@
                 },
                 "plugin": {
                   "$ref": "#/components/schemas/PluginLabel"
+                },
+                "disableModelInvocation": {
+                  "type": "boolean",
+                  "enum": [
+                    true
+                  ]
                 },
                 "secrets": {
                   "type": "array",

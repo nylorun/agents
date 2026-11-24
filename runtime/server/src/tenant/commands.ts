@@ -490,6 +490,8 @@ export async function takeSteeredMessages(
   const runningTools = canonical([...new Set(running?.removeTools ?? [])].sort());
   const rows = (await t.queuedMessages(id)).filter((row) => {
     if (row.delivery !== "steer") return false;
+    // A message that starts a skill waits for a turn of its own.
+    if ((row.command as { skill?: unknown }).skill !== undefined) return false;
     const request = turnManifestRequestOf(row.command as MessageEventBody);
     if (request?.manifest !== undefined) return false;
     return canonical([...(request?.removeTools ?? [])].sort()) === runningTools;
@@ -536,10 +538,13 @@ async function turnMessage(
   const fileArtifacts = (parts?.pinned ?? []).flatMap((part) => (part.type === "file" ? [part.artifactId] : []));
   const data = "data" in command ? (command.data as JsonValue) : undefined;
   // A message's context rides as its input's metadata, for its own turn only.
-  const context = "context" in command && command.context?.length ? command.context : undefined;
+  let context = "context" in command && command.context?.length ? command.context : undefined;
+  // The skill a person starts with it: one of the root agent's skills, offered for this turn.
+  const skill = "skill" in command ? command.skill : undefined;
   let input: unknown;
   if (isWorkflowManifest(s.manifest)) {
     if (context) fail(400, "A workflow session takes no message context: send it in the message.");
+    if (skill !== undefined) fail(400, "A workflow session runs no skill a person starts: its stages carry their own.", { code: "unknown_skill" });
     input =
       "content" in command
         ? command.content
@@ -554,6 +559,19 @@ async function turnMessage(
       store: variantStore(s),
     });
     if (!resolved.ok) fail(400, resolved.message);
+    if (skill !== undefined) {
+      const skills = Object.keys(s.manifest.skills ?? {}).sort();
+      if (!skills.includes(skill))
+        fail(400, `The session's agent has no skill ${skill}${skills.length === 0 ? "" : `: it has ${skills.join(", ")}`}.`, {
+          code: "unknown_skill",
+          details: { skill, skills },
+        });
+      // The model reads it with the message: the person started this skill for the turn.
+      context = [
+        ...(context ?? []),
+        { type: "skill", value: `The person started the skill ${skill} for this turn: load it with load_skill and follow it.` },
+      ];
+    }
     input =
       "content" in command
         ? command.content
@@ -562,11 +580,12 @@ async function turnMessage(
         : typeof data === "string"
         ? data
         : JSON.stringify(data);
-    if (context)
+    const metadata = { ...(context ? { context } : {}), ...(skill !== undefined ? { skill } : {}) };
+    if (context || skill !== undefined)
       input =
         typeof input === "string"
-          ? { text: input, metadata: { context } }
-          : { ...(input as Record<string, unknown>), metadata: { context } };
+          ? { text: input, metadata }
+          : { ...(input as Record<string, unknown>), metadata };
   }
   return { command, input, fileArtifacts, writer: commandWriter(scope), ...(trace ? { trace } : {}) };
 }
@@ -709,7 +728,9 @@ export async function startQueuedTurn(
       return undefined;
     }
     // Messages that ask the same of their turn's manifest (a variant, `removeTools`) share a turn.
-    const manifestOf = (row: QueuedRow) => canonical(turnManifestRequestOf(row.command as MessageEventBody) ?? null);
+    // and the same skill a person starts (none, or one) share a turn.
+    const manifestOf = (row: QueuedRow) =>
+      canonical([turnManifestRequestOf(row.command as MessageEventBody) ?? null, (row.command as { skill?: string }).skill ?? null]);
     const batch = isWorkflowManifest(s.manifest) ? [queued[0]!] : [];
     if (batch.length === 0)
       for (const row of queued) {

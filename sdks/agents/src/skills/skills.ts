@@ -71,6 +71,7 @@ export function skillsDeclaration(
           description: skill.description,
           files: skill.files,
           ...(plugin === undefined ? {} : { plugin }),
+          ...(skill.disableModelInvocation ? { disableModelInvocation: true as const } : {}),
         },
       ])
     ),

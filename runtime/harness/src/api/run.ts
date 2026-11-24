@@ -6,6 +6,7 @@
  * A run core stopped for a shutdown or a lost lease is given back (`lease.release`); core
  * settles nothing for it, as it never did for an advance it stopped.
  */
+import { startedSkillsOf, withPersonStartedSkills } from "../tools/person-started.js";
 import {
   fromBase64,
   type CompactionFacts,
@@ -111,9 +112,11 @@ export async function runTurn(ctx: RunContext, run: HarnessRun): Promise<void> {
     // The triggers the agent sets up itself: the version declares `harness.engine.triggers`,
     // for the root agent only.
     const triggers = start.engine === "agent" && start.agent?.triggers === true;
+    // Skills only a person starts: the root's turn offers those its input names, a subagent none.
+    const started = startedSkillsOf(checkpoint.input);
     const engineTools = (agent: AgentManifest) =>
       engineToolsFor(
-        agent,
+        withPersonStartedSkills(agent, agent.id === rootId ? started : undefined),
         start.agent,
         ctx.engine,
         memory && {

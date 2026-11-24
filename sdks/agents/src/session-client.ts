@@ -227,6 +227,12 @@ export type MessageOptions = CommandOptions & {
   delivery?: MessageDelivery;
   removeTools?: readonly string[];
   context?: readonly MessageContextItem[];
+  /**
+   * The skill a person starts with this message: one of the agent's skills, offered to the model
+   * for this turn even when only a person may start it. Needs the Host feature
+   * `person-started-skills`; an unknown name is `400 unknown_skill`.
+   */
+  skill?: string;
 };
 export class SessionClient {
   readonly sandbox: SessionSandbox;
@@ -270,6 +276,7 @@ export class SessionClient {
       ...(options.delivery ? { delivery: options.delivery } : {}),
       ...(await this.removeToolsOf(options)),
       ...(await this.contextOf(options)),
+      ...(await this.skillOf(options)),
     };
     return this.command(
       typeof value === "string"
@@ -293,7 +300,7 @@ export class SessionClient {
         ...(options.delivery ? { delivery: options.delivery } : {}),
         ...(await this.removeToolsOf(options)),
         ...(await this.contextOf(options)),
-      ...(await this.contextOf(options)),
+        ...(await this.skillOf(options)),
       },
       options.signal
     );
@@ -309,6 +316,12 @@ export class SessionClient {
     if (!options.context?.length) return {};
     await this.transport.requireFeature("message-context", options.signal);
     return { context: options.context.map((item) => ({ ...item })) };
+  }
+  /** A message's `skill`, when it names one; a Runtime without `person-started-skills` refuses it. */
+  private async skillOf(options: MessageOptions): Promise<{ skill?: string }> {
+    if (options.skill === undefined) return {};
+    await this.transport.requireFeature("person-started-skills", options.signal);
+    return { skill: options.skill };
   }
   /** Approve (or deny) a held tool call. Without an idempotency key, a new one is made. */
   approve(interactionId: string, approved: boolean, options: Partial<CommandOptions> = {}) {

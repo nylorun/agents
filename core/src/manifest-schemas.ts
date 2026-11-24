@@ -30,8 +30,8 @@ import {
  *, published as agent manifest `v8.4` and harness file `v1.4`, then `harness.roles`
  *, published as agent manifest `v8.5` and harness file `v1.5`, then a tool's `plugin` label (Host
  * feature `plugin-subagents`), published as agent manifest `v8.6` and harness file `v1.6`, then a
- * plugin's mounted `files` (Host feature `plugin-files`), published as agent manifest `v8.7` and
- * harness file `v1.7`.
+ * plugin's mounted `files` (Host feature `plugin-files`) and a skill's `disableModelInvocation`
+ * (Host feature `person-started-skills`), published as agent manifest `v8.7` and harness file `v1.7`.
  */
 const AGENT_MANIFEST_REVISION = 7;
 const HARNESS_MANIFEST_FILE_REVISION = 7;

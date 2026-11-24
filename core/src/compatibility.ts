@@ -361,6 +361,14 @@ export const OPTIONAL_HOST_FEATURES = [
    * skill's `pluginPath`. A Runtime without this feature refuses the field.
    */
   "plugin-files",
+  /**
+   * Skills only a person starts: a skill may carry `disableModelInvocation: true`
+   * (`SKILL.md`'s `disable-model-invocation`), which keeps it from the model's catalog and
+   * `load_skill`, and from agents used as tools. A message's `skill` (an A2A message's
+   * `metadata.skill`) names one of the root agent's skills for its turn: the model is offered it
+   * and told the person started it. An unknown name is `400 unknown_skill`.
+   */
+  "person-started-skills",
 ] as const;
 export type OptionalHostFeature = (typeof OPTIONAL_HOST_FEATURES)[number];
 export interface ProtocolRange {
@@ -542,6 +550,11 @@ export const ERROR_CODES = [
    * (Host feature `model-roles`): `400`. `details.roles` lists the roles it declares.
    */
   "unknown_role",
+  /**
+   * A message whose `skill` names none of its session's agent's skills (Host feature
+   * `person-started-skills`): `400`. `details.skills` lists the skills the agent has.
+   */
+  "unknown_skill",
   "internal_error",
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
