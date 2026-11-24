@@ -187,7 +187,8 @@ describe("pod Agents", { timeout: 90_000 }, () => {
     expect(first.epoch).toBe(1);
     expect((await hosts.renew(first.hostToken)).epoch).toBe(1);
     await until("observed running", () => view("join/one"), (body) => body.compute.pod.observed === "running");
-    expect(await events("join/one")).toEqual(["agent.created", "agent.running"]);
+    // The join is what made it running: its awake time starts there.
+    expect(await events("join/one")).toEqual(["agent.created", "agent.resumed", "agent.running"]);
 
     // Relaunch: a new pod on the same volume joins; the old pod's tokens stop working.
     const uid = fake.relaunch(name);

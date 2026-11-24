@@ -243,7 +243,10 @@ export function decide(facts: PodFacts): PodDecision {
 
   let desired = pod.desired;
   let rev = pod.rev;
-  if (facts.trigger === "idle" && desired === "running" && !facts.busy) {
+  // Ready on this revision but not yet seen running (the idle timer and the ready poll fired
+  // together): it runs first, and its idle period starts now, below.
+  const becomingReady = status.ready && pod.observed === "creating" && status.opId === opIdOf(pod);
+  if (facts.trigger === "idle" && desired === "running" && !facts.busy && !becomingReady) {
     const last = Date.parse(pod.lastActiveAt ?? row.createdAt);
     const due = last + facts.config.idleMs;
     if (now >= due) {
@@ -254,7 +257,7 @@ export function decide(facts: PodFacts): PodDecision {
       patch.hostEpoch = pod.hostEpoch + 1;
       events.push(event("agent.suspended", { reason: "idle" }));
     } else arm.push({ timer: "idle", at: due });
-  } else if (facts.trigger === "idle" && desired === "running") {
+  } else if (facts.trigger === "idle" && desired === "running" && !becomingReady) {
     // Busy: a turn's end arms the timer again, but look again anyway, so a turn that never ends
     // cleanly doesn't keep the pod running for good.
     arm.push({ timer: "idle", at: now + facts.config.idleMs });
@@ -329,8 +332,9 @@ export function decide(facts: PodFacts): PodDecision {
       // The image it runs, pinned by digest from now on.
       const digest = pod.imageDigest === undefined ? imageDigestOf(status.imageID, facts.image) : undefined;
       if (digest !== undefined) patch.imageDigest = digest;
-      // Whatever woke it, a running pod has an idle timer (the idle trigger armed its own above).
-      if (facts.trigger !== "idle")
+      // Whatever woke it, a running pod has an idle timer (the idle trigger armed its own above,
+      // unless this is when it became ready).
+      if (facts.trigger !== "idle" || becomingReady)
         arm.push({ timer: "idle", at: lastActive + facts.config.idleMs });
       return done();
     }
