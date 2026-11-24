@@ -421,6 +421,7 @@ describe("agent folders: vendored Agent Plugins", () => {
   it("reads a plugin without $schema as Agent Plugins 1.0.0, and refuses one naming another format", () => {
     const plain = compile({
       "AGENT.md": agentMd("parent", "P.", "Parent.\n"),
+      "runtime.json": JSON.stringify({ kind: "virtual" }),
       "plugins/docs/plugin.json": JSON.stringify({ name: "docs", version: "1.2.0" }),
       "plugins/docs/mcp.json": JSON.stringify({ mcpServers: { wiki: { type: "streamable-http", url: "https://wiki.example.com/mcp" } } }),
       "plugins/docs/skills/triage/SKILL.md": "---\nname: triage\ndescription: Triage an issue.\n---\nBody.\n",

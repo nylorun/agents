@@ -3,6 +3,14 @@
 What changed between beta releases and what to do about it, newest first. For which
 versions work together, read [Compatibility](https://docs.nylorun.com/docs/compatibility).
 
+# A vendored plugin needs no `$schema`
+
+Additive. Nothing to do.
+
+- **`plugin.json` and a plugin's `mcp.json` may leave `$schema` out.** Without one they read as Agent
+  Plugins 1.0.0, as other hosts read them, so a plugin published for Claude Code or Codex loads as it
+  is. A `$schema` that names another format is still refused.
+
 # An Agent Plugin's subagents, and subagents named by `name`
 
 Additive. A manifest whose plugins hold no `agents/*.md` compiles to the same agent manifest.

@@ -88,10 +88,11 @@ export function loadPlugin(directory: string): LoadedPlugin {
         path: manifestPath,
       });
   }
-  if (parsed.$schema !== PLUGIN_SCHEMA)
+  // No $schema reads as Agent Plugins 1.0.0, as other hosts read it; another format is refused.
+  if (parsed.$schema !== undefined && parsed.$schema !== PLUGIN_SCHEMA)
     throw new PluginError(
       "plugin.schema-unsupported",
-      "plugin.json $schema must be the Agent Plugins 1.0.0 plugin schema",
+      "plugin.json $schema, when present, must be the Agent Plugins 1.0.0 plugin schema",
       diagnostics
     );
   if (!isPluginName(parsed.name))
@@ -188,7 +189,7 @@ function loadMcp(
 ): Readonly<Record<string, McpServerManifest>> {
   const location = join(root, "mcp.json");
   if (!existsSync(location)) return {};
-  return loadMcpServers(location, diagnostics, { boundary: root });
+  return loadMcpServers(location, diagnostics, { boundary: root, schemaOptional: true });
 }
 
 /**
@@ -200,7 +201,12 @@ function loadMcp(
 export function loadMcpServers(
   location: string,
   diagnostics: PluginDiagnostic[],
-  options: { readonly boundary?: string; readonly codePrefix?: string } = {}
+  options: {
+    readonly boundary?: string;
+    readonly codePrefix?: string;
+    /** A plugin's mcp.json: no $schema reads as Agent Plugins 1.0.0. */
+    readonly schemaOptional?: boolean;
+  } = {}
 ): Readonly<Record<string, McpServerManifest>> {
   const prefix = options.codePrefix ?? "plugin";
   const boundary = options.boundary ?? dirname(resolve(location));
@@ -235,7 +241,7 @@ export function loadMcpServers(
     });
     return {};
   }
-  if (parsed.$schema !== MCP_SCHEMA) {
+  if (parsed.$schema !== MCP_SCHEMA && !(options.schemaOptional && parsed.$schema === undefined)) {
     diagnostics.push({
       severity: "warning",
       code: `${prefix}.mcp-invalid`,
