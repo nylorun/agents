@@ -1,34 +1,31 @@
 # The keys provider
 
-The provider Substrate's egress gateway calls for one request's header value, so an actor's request reaches a keyed host without the actor ever holding the key. It serves `ate-secret://` references and asks the Tenant's own egress service to decide, then fetches from the person's outside source (Cloud's Connections) when the decision says so. The key passes through it and is never written anywhere.
+The credential provider Agent Substrate's egress gateway asks for the header of a keyed request, run as `sandboxes provider`. It runs as a pod beside the egress, in Substrate's namespace, and does what Substrate's own providers do: mutual TLS with its servicedns pod certificate, only the egress gateway's identity admitted, and the value read live from where it is stored (`provider.go:1-6`). It stores nothing and decides nothing.
 
 ## Interface
 
-- `Config`, `Tenant`, `Outside` (`provider.go`): the config file, one entry per Tenant by its atespace: `decideUrl`, `token`, `edgeCa`, and an optional `outside` (`url`, `token`, `ca`).
-- `Server` (`provider.go`): `Name`, `ConfigFile`, `Budget`, `Log`; `FetchSecret` is the gRPC call `credprovider.CredentialProvider` serves.
-- `Reference`, `ParseReference(name, raw)` (`provider.go`): `ate-secret://<name>/<base64url sandbox id>/<host>`.
-- `Actor`, `ParseActor(raw)` (`provider.go`): the egress gateway's identity, `spiffe://<trust domain>/actor/<atespace>/<name>`.
-- `DefaultName` (`keys.nylorun.dev`), `DefaultBudget` (3 s) (`provider.go`).
-- `post(ctx, client, target, token, body, out)` (`provider.go`): the JSON call the decisions and the outside fetch both use.
+- `Server` (`provider.go:80-87`): the provider's name, its config file, its budget and its logger.
+- `Config`, `Tenant`, `Outside` (`provider.go:54-76`): the tenants, each with a decide URL, a token, an edge CA and an outside source.
+- `ParseReference` (`provider.go:105`), `Reference` (`provider.go:102`): `ate-secret://<provider>/<sandbox>/<host>` split into its parts.
+- `ParseActor` (`provider.go:125`), `Actor` (`provider.go:122`): the atespace and name a caller's actor reference holds.
+- `DefaultName` (`provider.go:45`), `DefaultBudget` (`provider.go:48`): `keys.nylorun.dev`, and 3 s for one `FetchSecret`.
+- `ServerTLS`, `DefaultInjector` (`tls.go:19`, `tls.go:13`): the mutual TLS config, and the only identity it admits.
 
 ## Rules
 
-- A reference must be scheme `ate-secret`, that host, and a path of exactly two segments: a base64url sandbox id and a host; anything else is `InvalidArgument` (`ParseReference`).
-- The host may be a lowercase DNS name or one with `*` as its leftmost label (`provider.go`, `hostPattern`).
-- An identity that is not an actor's SPIFFE ID is `PermissionDenied` (`ParseActor`, `FetchSecret`).
-- An atespace the config has no Tenant for is `PermissionDenied` (`fetch`).
-- The budget covers decide and fetch together, 3 s when the server names none (`fetch`).
-- A decision with `value` is the answer; with `fetch` and no outside source it is `NotFound`; with neither it is `Unavailable` (`fetch`).
-- `403` and `401` become `PermissionDenied`, `404` `NotFound`, `400` `InvalidArgument`, and every other answer `Unavailable`, so the egress gateway retries only what can succeed (`post`).
-- An answer over 16 KiB, or one that is not JSON, is `Unavailable` (`post`, `maxValue`).
-- The config file is re-read only when its modification time changed, and the per-CA HTTP clients are dropped with it (`load`).
+- The sandbox id in a reference is base64url-encoded, so an id may hold a slash (`provider.go:8-9`).
+- A reference's segments must match `^[A-Za-z0-9_-]{1,344}$` and its host the host pattern; anything else is refused (`provider.go:96-105`).
+- A value is at most 16 KiB (`provider.go:51`).
+- One `FetchSecret` takes at most `DefaultBudget`, 3 s, under the egress gateway's own 5 s (`provider.go:48`).
+- Only the egress gateway's SPIFFE ID is admitted: `spiffe://cluster.local/ns/ate-system/sa/atenet-egress` (`tls.go:11-13`).
+- The decision is the tenant's: a vault value comes back, or `fetch` with the Agent, owner and host of a person's key (`provider.go:11-14`).
 
 ## Side effects
 
-- Reads `ConfigFile` (`load`).
-- Sends POSTs to each Tenant's `decideUrl` and to its outside source (`fetch`).
-- Logs one line per released key and one per refusal, with the sandbox, host, atespace, actor and duration; never the value (`FetchSecret`).
+- Posts to the tenant's decide URL, through the edge, with its token (`provider.go:11`).
+- On `fetch`, posts to the outside credential source's `/v1/fetch` (`provider.go:13-14`).
+- Reads its config file and logs the sandbox, host and outcome, never a value (`provider.go:85`).
 
 ## Verification
 
-- Run: `go test ./...` (from `sandboxes/`)
+- Run: `go test ./...` from `sandboxes/` (`go.mod`)
