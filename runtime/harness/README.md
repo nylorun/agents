@@ -94,7 +94,7 @@ The authoritative session/action wire schemas live in `/contracts` and do not im
 
 - [scripts](./scripts/README.md): the package's two release checks, the packed tarball and the manifest, source and exports it must keep.
 - [src](./src/README.md): the engine's source: the run entry points, the loop, the flow engine, the Harness API harness and its own tools.
-- `test/` (no README): the `vitest` suites, their fixtures and the type tests; it holds only tests.
+- [test](./test/README.md): the `vitest` suites, their fixtures and the type tests.
 
 ## Rules across folders
 
