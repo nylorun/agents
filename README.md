@@ -25,8 +25,8 @@ Define agents as files. Run them on durable infrastructure you host.
 
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="./.github/assets/how-it-works-dark.png">
-    <img alt="Clients (CLI, Agents SDK, Admin SDK, Studio, HTTP) call the Runtime API and Management API. Inside the Runtime: sessions, a store on Postgres, artifacts on RustFS, sandboxes (virtual, or pods on Kubernetes), durable execution on Restate and durable streams on S2. Calls to model providers, MCP servers, HTTP tools and the web leave through the gateway, which holds the keys." src="./.github/assets/how-it-works-light.png" width="720">
+    <source media="(prefers-color-scheme: dark)" srcset="./.github/assets/how-it-works-dark.svg">
+    <img alt="Clients (CLI, Agents SDK, Admin SDK, HTTP) and Studio call the Runtime API. The Runtime runs core and the loop, and reaches Restate for durable execution, Postgres for state and sessions, s2-lite for streams, RustFS for objects, and the Sandboxes service, which asks Agent Substrate for one actor per Agent and runs a computer agent inside it. The Harness runs every loop and reaches model providers, MCP servers and tools only through the gateway, which holds the vault key and asks the keys provider to unwrap it. Commands reach each Agent's computer through the sandbox gateway, which checks tickets and tunnels over Substrate's atenet-router. The chart deploys these as separate Deployments, StatefulSets and DaemonSets, warms the image cache with a DaemonSet, and runs only on Kubernetes 1.37 or later; Docker Compose runs the same parts on one machine." src="./.github/assets/how-it-works-light.svg" width="880">
   </picture>
 </p>
 
