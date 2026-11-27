@@ -1,0 +1,145 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1234 660" width="1234" height="660" role="img" aria-label="Sixteen parts: clients and Studio reach the Runtime, which drives Restate, the harness and the Sandboxes service; the harness reaches models only through the gateway, and commands reach each Agent's computer through the sandbox gateway and Substrate's router.">
+  <title>How Nylorun works</title>
+  <desc>Sixteen parts: clients and Studio reach the Runtime, which drives Restate, the harness and the Sandboxes service; the harness reaches models only through the gateway, and commands reach each Agent's computer through the sandbox gateway and Substrate's router.</desc>
+  <defs>
+    <marker id="arw" viewBox="0 0 8 8" refX="7.5" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0.6 L8,4 L0,7.4 z" fill="#6e7781"/>
+    </marker>
+    <marker id="arwm" viewBox="0 0 8 8" refX="7.5" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0.6 L8,4 L0,7.4 z" fill="#1a7f37"/>
+    </marker>
+  </defs>
+  <style>
+    .box   { fill: #ffffff; stroke: #d0d7de; stroke-width: 1 }
+    .frame { fill: none; stroke: #afb8c1; stroke-width: 1; stroke-dasharray: 6 6 }
+    .t     { fill: #1f2328; font: 600 12.5px -apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif }
+    .s     { fill: #59636e; font: 400 10.5px -apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif }
+    .ln    { fill: none; stroke: #6e7781; stroke-width: 1.1 }
+    .main  { fill: none; stroke: #1a7f37; stroke-width: 2 }
+    .lbl   { fill: #ffffff }
+    .ll    { fill: #59636e; font: 400 10.5px -apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif }
+    .ft    { fill: #1f2328; font: 600 11px -apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif }
+    .fs    { fill: #59636e; font: 400 10px -apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif }
+    .note  { fill: #59636e; font: italic 400 10.5px -apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif }
+    .cap   { fill: #59636e; font: 400 11.5px -apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif }
+  </style>
+  <rect width="1234" height="660" fill="#ffffff"/>
+  <g transform="translate(-8,-18)">
+    <rect class="box" x="20" y="150" width="150" height="68" rx="7"/>
+    <text class="t" x="32" y="174">Clients</text>
+    <text class="s" x="32" y="192">CLI, SDKs,</text>
+    <text class="s" x="32" y="207">app server</text>
+    <rect class="box" x="290" y="150" width="180" height="68" rx="7"/>
+    <text class="t" x="302" y="174">Runtime</text>
+    <text class="s" x="302" y="192">core,loop</text>
+    <text class="s" x="302" y="207">:4000 API · :9080 worker</text>
+    <rect class="box" x="550" y="150" width="170" height="68" rx="7"/>
+    <text class="t" x="562" y="174">Harness</text>
+    <text class="s" x="562" y="192">every loop,</text>
+    <text class="s" x="562" y="207">workspace</text>
+    <rect class="box" x="800" y="150" width="160" height="68" rx="7"/>
+    <text class="t" x="812" y="174">Gateway</text>
+    <text class="s" x="812" y="192">gates,keys,egress</text>
+    <text class="s" x="812" y="207">:4100 · :4200</text>
+    <rect class="box" x="1040" y="150" width="190" height="68" rx="7"/>
+    <text class="t" x="1052" y="174">Models, MCP, tools</text>
+    <text class="s" x="1052" y="192">HTTPS; keys in</text>
+    <text class="s" x="1052" y="207">the vault</text>
+    <rect class="box" x="20" y="290" width="150" height="68" rx="7"/>
+    <text class="t" x="32" y="314">Postgres</text>
+    <text class="s" x="32" y="332">bundled · :5432</text>
+    <text class="s" x="32" y="347">state, sessions</text>
+    <rect class="box" x="290" y="290" width="180" height="68" rx="7"/>
+    <text class="t" x="302" y="314">Restate</text>
+    <text class="s" x="302" y="332">durable execution</text>
+    <text class="s" x="302" y="347">:8080 · :9070</text>
+    <rect class="box" x="1040" y="290" width="190" height="68" rx="7"/>
+    <text class="t" x="1052" y="314">Keys provider</text>
+    <text class="s" x="1052" y="332">ate-system · :50051</text>
+    <text class="s" x="1052" y="347">optional</text>
+    <rect class="box" x="20" y="430" width="150" height="64" rx="7"/>
+    <text class="t" x="32" y="454">s2-lite</text>
+    <text class="s" x="32" y="472">streams :8080</text>
+    <text class="s" x="32" y="487">history, events</text>
+    <rect class="box" x="290" y="430" width="180" height="68" rx="7"/>
+    <text class="t" x="302" y="454">Sandboxes</text>
+    <text class="s" x="302" y="472">computer lifecycle</text>
+    <text class="s" x="302" y="487">:4300</text>
+    <rect class="box" x="550" y="430" width="170" height="68" rx="7"/>
+    <text class="t" x="562" y="454">Sandbox gateway</text>
+    <text class="s" x="562" y="472">tickets checked</text>
+    <text class="s" x="562" y="487">:4400</text>
+    <rect class="box" x="800" y="430" width="160" height="68" rx="7"/>
+    <text class="t" x="812" y="454">atenet-router</text>
+    <text class="s" x="812" y="472">Substrate's</text>
+    <text class="s" x="812" y="487">:8444</text>
+    <rect class="box" x="1040" y="430" width="190" height="68" rx="7"/>
+    <text class="t" x="1052" y="454">Computer agent</text>
+    <text class="s" x="1052" y="472">in the Agent's actor</text>
+    <text class="s" x="1052" y="487">port :8080</text>
+    <rect class="box" x="290" y="560" width="180" height="64" rx="7"/>
+    <text class="t" x="302" y="584">Substrate API</text>
+    <text class="s" x="302" y="602">makes each actor</text>
+    <rect class="box" x="20" y="560" width="150" height="64" rx="7"/>
+    <text class="t" x="32" y="584">RustFS</text>
+    <text class="s" x="32" y="602">S3 :9000</text>
+    <text class="s" x="32" y="617">objects</text>
+    <rect class="box" x="290" y="30" width="150" height="56" rx="7"/>
+    <text class="t" x="302" y="54">Studio</text>
+    <text class="s" x="302" y="72">:3000, the web UI</text>
+    <path class="ln" d="M 890 150 L 890.0 135.0 Q 890 128 883.0 128.0 L 192.0 128.0 Q 185 128 185.0 135.0 L 185.0 263.0 Q 185 270 178.0 270.0 L 162.0 270.0 Q 155 270 155.0 277.0 L 155 290" marker-end="url(#arw)"/>
+    <rect class="lbl" x="541.7" y="114.5" width="36.6" height="13" rx="2"/>
+    <text class="ll" x="560" y="124" text-anchor="middle">vault</text>
+    <path class="ln main" d="M 170 184 L 290 184" marker-end="url(#arwm)"/>
+    <rect class="lbl" x="211.7" y="158.5" width="36.6" height="13" rx="2"/>
+    <text class="ll" x="230" y="168" text-anchor="middle">HTTPS</text>
+    <path class="ln main" d="M 365 86 L 365 150" marker-end="url(#arwm)"/>
+    <path class="ln main" d="M 550 184 L 470 184" marker-end="url(#arwm)"/>
+    <rect class="lbl" x="483.1" y="158.5" width="53.8" height="13" rx="2"/>
+    <text class="ll" x="510" y="168" text-anchor="middle">ws :4200</text>
+    <path class="ln main" d="M 720 184 L 800 184" marker-end="url(#arwm)"/>
+    <rect class="lbl" x="741.7" y="158.5" width="36.6" height="13" rx="2"/>
+    <text class="ll" x="760" y="168" text-anchor="middle">gates</text>
+    <path class="ln main" d="M 960 184 L 1040 184" marker-end="url(#arwm)"/>
+    <rect class="lbl" x="981.7" y="158.5" width="36.6" height="13" rx="2"/>
+    <text class="ll" x="1000" y="168" text-anchor="middle">HTTPS</text>
+    <path class="ln main" d="M 310 218 L 310 290" marker-end="url(#arwm)"/>
+    <rect class="lbl" x="320.0" y="236.5" width="82.4" height="13" rx="2"/>
+    <text class="ll" x="324" y="246" text-anchor="start">durable :8080</text>
+    <path class="ln main" d="M 450 290 L 450 218" marker-end="url(#arwm)"/>
+    <rect class="lbl" x="456.0" y="266.5" width="42.3" height="13" rx="2"/>
+    <text class="ll" x="460" y="276" text-anchor="start">worker</text>
+    <path class="ln main" d="M 470 206 L 513.0 206.0 Q 520 206 520.0 213.0 L 520.0 397.0 Q 520 404 513.0 404.0 L 447.0 404.0 Q 440 404 440.0 411.0 L 440 430" marker-end="url(#arwm)"/>
+    <rect class="lbl" x="530.0" y="252.5" width="93.8" height="13" rx="2"/>
+    <text class="ll" x="534" y="262" text-anchor="start">lifecycle :4300</text>
+    <path class="ln main" d="M 680 218 L 680 430" marker-end="url(#arwm)"/>
+    <rect class="lbl" x="690.0" y="342.5" width="88.1" height="13" rx="2"/>
+    <text class="ll" x="694" y="352" text-anchor="start">commands :4400</text>
+    <path class="ln main" d="M 720 464 L 800 464" marker-end="url(#arwm)"/>
+    <rect class="lbl" x="738.8" y="446.5" width="42.3" height="13" rx="2"/>
+    <text class="ll" x="760" y="456" text-anchor="middle">tunnel</text>
+    <path class="ln main" d="M 960 464 L 1040 464" marker-end="url(#arwm)"/>
+    <rect class="lbl" x="981.7" y="446.5" width="36.6" height="13" rx="2"/>
+    <text class="ll" x="1000" y="456" text-anchor="middle">:8080</text>
+    <path class="ln main" d="M 380 498 L 380 560" marker-end="url(#arwm)"/>
+    <rect class="lbl" x="390.0" y="524.5" width="76.7" height="13" rx="2"/>
+    <text class="ll" x="394" y="534" text-anchor="start">makes actors</text>
+    <path class="ln" d="M 290 196 L 252.0 196.0 Q 245 196 245.0 203.0 L 245 594" marker-end="url(#arw)"/>
+    <path class="ln" d="M 245 324 L 170 324" marker-end="url(#arw)"/>
+    <rect class="lbl" x="194.4" y="306.5" width="25.2" height="13" rx="2"/>
+    <text class="ll" x="207" y="316" text-anchor="middle">SQL</text>
+    <path class="ln" d="M 245 462 L 170 462" marker-end="url(#arw)"/>
+    <rect class="lbl" x="183.0" y="444.5" width="48.1" height="13" rx="2"/>
+    <text class="ll" x="207" y="454" text-anchor="middle">streams</text>
+    <path class="ln" d="M 245 594 L 170 594" marker-end="url(#arw)"/>
+    <rect class="lbl" x="197.3" y="576.5" width="19.4" height="13" rx="2"/>
+    <text class="ll" x="207" y="586" text-anchor="middle">S3</text>
+    <path class="ln" d="M 1040 312 L 1007.0 312.0 Q 1000 312 1000.0 305.0 L 1000.0 247.0 Q 1000 240 993.0 240.0 L 937.0 240.0 Q 930 240 930.0 233.0 L 930 218" marker-end="url(#arw)"/>
+    <rect class="lbl" x="1008.0" y="258.5" width="76.7" height="13" rx="2"/>
+    <text class="ll" x="1012" y="268" text-anchor="start">decide :4200</text>
+    <path class="ln" d="M 95 494 L 95 560" marker-end="url(#arw)"/>
+    <rect class="lbl" x="98.0" y="520.5" width="59.5" height="13" rx="2"/>
+    <text class="ll" x="102" y="530" text-anchor="start">under s2/</text>
+  </g>
+  <text class="cap" x="12" y="648">Runs as Docker Compose on one machine (nylorun start) or as the chart charts/nylorun-runtime on Kubernetes 1.37 or later; the images ship on ghcr.io/nylorun.</text>
+</svg>
