@@ -1,29 +1,30 @@
-# Tickets
+# Computer tickets
 
-Reads, signs and checks the ticket core gives a computer: a compact JWS signed with Ed25519 (`alg: EdDSA`), with `aud: "nylorun-computer"`, `sub` the sandbox's name and `exp` in seconds. The sandbox gateway checks a ticket before it tunnels, and the computer checks the same ticket again, so a request reaches a computer only with a ticket for that computer.
+Reads and checks the tickets that let the Runtime reach a computer: compact JWS tokens core signs with Ed25519, `aud: "nylorun-computer"`, `sub` the sandbox's name and `exp` in seconds (`ticket.go:1-4`). The sandbox gateway (`internal/gateway`) checks them, and the computer's engine checks them again with the public key its template carries.
 
 ## Interface
 
-- `Audience` (`ticket.go`): `nylorun-computer`, every ticket's `aud`.
-- `Claims` (`ticket.go`): `aud`, `sub`, `exp`.
-- `LoadPrivate(path)` (`ticket.go`): a PKCS #8 PEM Ed25519 private key.
-- `PublicPEM(private)` (`ticket.go`): the key's public half as SPKI PEM, which a template carries.
-- `Sign(private, subject, expires)` (`ticket.go`): a ticket, for tests and tools; core signs the real ones.
-- `Verify(token, public, now) (Claims, error)` (`ticket.go`): signature, audience and expiry; `ErrInvalid` is every ticket that does not hold.
-- `Check(token, public, subject, now) string` (`ticket.go`): the computer's own check, `""` when the ticket holds for `subject`, else the reason in the engine's words: `no ticket`, `malformed`, `alg`, `signature`, `audience`, `subject` or `expired`.
+- `Audience` (`ticket.go:21`): the only audience a ticket may name.
+- `Claims` (`ticket.go:24-28`): `Audience`, `Subject`, `Expires`.
+- `LoadPrivate` (`ticket.go:31`): the signing key from a PKCS #8 PEM file.
+- `PublicPEM` (`ticket.go:52`): the public key as PEM, for a template's environment.
+- `Sign` (`ticket.go:61`): a ticket for a subject that expires at a time.
+- `Verify` (`ticket.go:73`): the claims of a valid ticket, or `ErrInvalid`.
+- `Check` (`ticket.go:119`): the subject when the ticket is valid for it, else a short reason.
+- `ErrInvalid` (`ticket.go:70`): what every rejection wraps.
 
 ## Rules
 
-- Only `EdDSA` is accepted; any other `alg` is `alg` (`Verify`, `Check`).
-- A ticket's `sub` must be the computer's name, and its `exp` must be in the future at `now` (`Verify`, `Check`).
-- `Check` matches the engine's `checkTicket` in `runtime/server/src/harness/computer.ts`: it decodes base64url as leniently as Node's `Buffer.from(s, "base64url")` and takes `exp` as any JSON number, compared in milliseconds (`Check`).
-- `LoadPrivate` refuses a file that is not PEM or not an Ed25519 key (`LoadPrivate`).
-- No secret is kept in the package: a key is read from a path the caller names (`LoadPrivate`).
+- A ticket must be three base64url parts (`ticket.go:75-76`).
+- Only `alg: EdDSA` is accepted (`ticket.go:84-87`).
+- The signature is checked over `header.payload` with the public key, before the claims are read (`ticket.go:90-91`).
+- The audience must be `nylorun-computer`, the subject must not be empty, and `now < exp` (`ticket.go:101-108`).
+- `Check` decodes base64url as leniently as Node does and reads `exp` as any JSON number, so it answers where the engine would (`ticket.go:116-118`).
 
 ## Side effects
 
-- Reads the key file `LoadPrivate` is given, and nothing else (`ticket.go`).
+- Reads a PEM file when it is asked for the private key; it writes nothing and keeps nothing (`ticket.go:31`).
 
 ## Verification
 
-- Run: `go test ./...` (from `sandboxes/`); the cases are the engine's own, so a change here is checked against `runtime/server/src/harness/computer.ts`.
+- Run: `go test ./...` from `sandboxes/` (`go.mod`)
