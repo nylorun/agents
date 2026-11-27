@@ -1,49 +1,42 @@
 # The Agent Substrate backend
 
-Runs each sandbox as an Agent Substrate actor (`ateapi.v1`), for a Host without Kubernetes Sandboxes: it renders an actor template from the spec, creates or repoints the actor and its egress policy, and keeps each sandbox's last request in a ConfigMap of the Tenant's namespace. It is the second `Backend` behind the same `/v1/pods` API, and the one `nylorun local sandbox enable` uses on a Host that runs Substrate.
+Runs the Tenant's sandboxes as Agent Substrate actors, one per sandbox incarnation (the Sandbox name `sbx-<16>-g<gen>`), each with an ActorTemplate rendered from the same `driver.Spec` the agent-sandbox driver renders a pod from (`template.go:1-4`). It is the `substrate` backend (preview), beside `internal/driver`.
 
 ## Interface
 
-- `API` (`driver.go`): the part of Substrate's Control service the driver uses: atespace, actor templates, actors, egress policies.
-- `Resolver` (`driver.go`): `Resolve` pins an image reference to its digest.
-- `Options`, `New(api, o)` (`driver.go`): `Settings`, `Namespace`, `Kube`, `Resolver`, `Log`, `Now`, `PollInterval` (250 ms), `CallTimeout` (2 min), `ResumeFor` (5 min), `RetryWait` (250 ms, doubled to 5 s).
-- `Driver` (`driver.go`): `Put`, `Delete`, `Status`, `Wait`, `Ping`, `Synced`, `Run(ctx, interval)`, `WatchWorkers`, `DrainWorker`.
-- `Compute(name, actor, state)` (`driver.go`): the status from an actor and the kept state.
-- `Moving`, `RepointRefused` (`driver.go`): the `message` a status carries while a change is in flight, and the reason a repoint was refused.
-- `RegistryResolver` (`resolve.go`): pins a ref to `name@sha256:…` with an anonymous remote HEAD, cached for 1 h.
-- `Setup(ctx, api, atespace, principal)` (`setup.go`): the atespace and its access policy.
-- `ConnOptions`, `Dial(ctx, o)`, `ServerTrust(ctx, kube)` (`conn.go`): the gRPC connection to `ate-api-server`, and the service-DNS trust bundle.
-- `Settings`, `Network`, `Resolved`, `RenderTemplate`, `TemplateName`, `ToProto`, `EgressPolicy`, `KeyReference`, `EngineReference`, `RepointRefusal`, `RunsAgent` (`template.go`): the actor template's shape and rules.
-- Constants (`template.go`): `InfoDir` (`/run/nylorun/actor`), `TrustDir` (`/run/nylorun/trust`), `EngineDir` (`/nylo`), `JoinFile` (`/tmp/.nylorun-join`), `CAFile` (`/tmp/.nylorun-ca.pem`), `BlockedProbe` (`169.254.169.254:80`), `EngineVolume` (`nylo`), `AgentFile` (`/computer`), `DefaultKeysProvider` (`keys.nylorun.dev`), `AgentGo`, `AgentEngine`.
-- `ReconnectTuning` (`template.go`): the engine's reconnect without its 5 s wait after a restore, merged under the operator's own tuning.
-- Constants of the drain (`drain.go`): `WorkerPoolLabel` (`ate.dev/worker-pool`), `DrainWindow` (29 min).
-- Dial constants (`conn.go`): `servicedns.podcert.ate.dev/identity`, `podcert.ate.dev/canarying=live`, port 443, 1 h tokens.
+- `Driver`, `New`, `Options` (`driver.go:77`, `driver.go:86`, `driver.go:51-72`): the backend, its Substrate client and the timings it runs on.
+- `Driver.Put`, `Delete`, `Status`, `Wait`, `Run` (`driver.go:222`, `driver.go:587`, `driver.go:646`, `driver.go:714`, `driver.go:745`): the calls the API makes, and the ping loop that reports when Substrate has answered.
+- `API`, `Resolver` (`driver.go:28-43`, `driver.go:46-48`): the part of Substrate's Control service used, and the image resolver.
+- `Compute` (`driver.go:669`): an actor and a sandbox's state as the `driver.Status` core reads.
+- `WatchWorkers`, `DrainWorker`, `DrainWindow`, `WorkerPoolLabel` (`drain.go:43`, `drain.go:72`, `drain.go:32`, `drain.go:28`): the drain that suspends a stopping worker's actors.
+- `Settings`, `RenderTemplate`, `Resolved` (`template.go:56-91`, `template.go:337`, `template.go:250-259`): the Tenant-wide template parts, the template itself, and its images by digest.
+- `KeyReference`, `RunsAgent` (`template.go:245`, `template.go:263`): a keyed host's `ate-secret://` reference, and whether a template runs the computer agent.
+- `InfoDir`, `TrustDir`, `EngineDir`, `JoinFile`, `CAFile`, `BlockedProbe` (`template.go:26-40`): the paths a template writes inside an actor.
+- `Dial`, `ConnOptions` (`conn.go:64`, `conn.go:42-49`): the gRPC connection to Substrate with this service's token.
+- `ServerTrust` (`conn.go:104`): the CA Substrate's API service's certificate chains to.
+- `Setup`, `SetupAPI` (`setup.go:25`, `setup.go:16-21`): the Tenant's atespace and its editor binding, run once by `sandboxes substrate-setup`.
+- `RegistryResolver`, `Resolve` (`resolve.go:16`, `resolve.go:27`): an image reference pinned to its digest.
 
 ## Rules
 
-- A `Put` that repeats the opId the state records, on an actor that exists, is a no-op and answers the current status (`Put`).
-- An actor in `DELETING` is `409 deleting`; an image that does not resolve to a digest is `422 invalid_spec`, since Substrate runs images by digest (`Put`).
-- A new sandbox needs a `joinToken` unless it is a computer (`Put`).
-- An actor keeps the engine it was created with: Substrate repoints only to a template with identical volumes, and the engine is a pinned image volume, so a newer engine waits for a new incarnation; moving between the engine and the computer agent changes the volume, so it is refused (`RepointRefused`) and the computer gets a new volume from its latest disk version (`Put`, `RepointRefusal`).
-- The state ConfigMap is `<name>-state` in the Tenant's namespace, because Substrate's actors carry no labels or annotations (`driver.go`, `stateSuffix`).
-- One call is bounded by `CallTimeout` (2 min, since a suspend writes a snapshot); bringing an actor to `Running` may use `ResumeFor` (5 min) in one call, because cancelling it would cancel the image pull or restore in flight (`Options`).
-- Retries wait `RetryWait`, doubling to 5 s, and a change ends as `Moving` while it is in flight (`drive`, `Moving`).
-- An atespace `Setup` already made is left alone; it makes the principal an editor of the `default` access policy (`setup.go`).
-- A worker that turns `Terminating` drains its actors over `DrainWindow` (29 min), 8 at a time: each is suspended, not deleted (`drain.go`).
-- A registry reference is resolved to a digest and cached 1 h; `index.docker.io/` is read as `docker.io/` (`resolve.go`).
-- The connection is TLS 1.3 to `<apiService>.<systemNamespace>.svc:443`, with a token whose audience is that name, and a port-forward when no endpoint is set (`conn.go`, `Dial`).
-- A keyed host becomes an `ate-secret://<provider>/<base64url sandbox>/<host>` reference, so the actor never holds the key (`template.go`, `KeyReference`).
-- A computer's engine runs `--service computer` on its port, with no join token, edge or loop (`template.go`, `renderComputer`).
+- The service keeps no state of its own: each sandbox's last request lives in the ConfigMap `<name>-state` in the Tenant's namespace (`driver.go:74-76`, `driver.go:145`).
+- A spec whose op id the state already holds is a no-op (`driver.go:241-243`).
+- Images are resolved to a digest before a template names them; a tag is refused (`driver.go:246-249`, `resolve.go:26-30`).
+- An actor keeps the engine or computer agent it was created with; a request to change it is logged and the kept image wins (`driver.go:282-298`).
+- Substrate refuses a repoint to a template with different volumes: the request is recorded as refused, the status says `RepointRefused`, and the actor keeps its volumes (`driver.go:394-405`).
+- A resume is retried while Substrate is busy or the actor is between states, with a pause doubling from `RetryWait` to 5 s, for `ResumeFor` (5 min) in all (`driver.go:65-72`, `driver.go:418-449`).
+- A suspend is one synchronous call, so its snapshot is written before it returns (`driver.go:522-523`).
+- A sandbox whose worker stopped reports `Moving` until it runs on another worker (`driver.go:390-392`, `driver.go:698-702`).
+- On a worker pod's SIGTERM, the drain suspends that worker's actors, at most 8 at once, for 29 minutes after the deletion (`drain.go:19-35`, `drain.go:30-32`).
+- Every template disables golden snapshots: each incarnation is its own (`template.go:228-232`, `template.go:430-434`).
 
 ## Side effects
 
-- Calls Substrate's Control service: atespace, templates, actors, egress policies (`driver.go`).
-- Reads and writes the ConfigMap `<name>-state`, and deletes it with the sandbox (`driver.go`).
-- Opens a port-forward to `ate-api-server` when no endpoint is set (`conn.go`).
-- Sends anonymous HEAD requests to a registry to resolve a digest (`resolve.go`).
-- Watches worker pods and calls `SuspendActor` on the actors a draining worker runs (`drain.go`).
-- Logs the kept-image and drain decisions (`driver.go`, `drain.go`).
+- gRPC calls to Substrate's Control service: atespaces, templates, actors, egress policies (`driver.go:28-43`).
+- Creates, updates and deletes the `<name>-state` ConfigMaps in the Tenant's namespace (`driver.go:160-187`).
+- Watches every worker pod labelled `ate.dev/worker-pool` (`drain.go:28`, `drain.go:44-46`).
+- HEAD requests to image registries, anonymously, cached for an hour (`resolve.go:13-15`, `resolve.go:44`).
 
 ## Verification
 
-- Run: `go test ./...` (from `sandboxes/`)
+- Run: `go test ./...` from `sandboxes/` (`go.mod`)
