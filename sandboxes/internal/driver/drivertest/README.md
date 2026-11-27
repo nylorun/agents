@@ -1,20 +1,19 @@
-# The driver's fake cluster
+# A fake cluster for the driver's tests
 
-A dynamic-client fake for the four resources the driver touches, so tests drive a whole apply-and-read cycle with no cluster. It is a package of its own so the driver's tests and the API's can share it.
+Fakes the cluster the driver and the API talk to, so their tests need no API server (`fake.go:1`). It is a package of its own because the driver's tests and the API's tests both use it.
 
 ## Interface
 
-- `NewFakeClient(objects ...runtime.Object) *fake.FakeDynamicClient` (`fake.go`): a dynamic fake with a list kind registered for Sandboxes, Pods, claims and Secrets, and a reactor for server-side apply on Sandboxes.
+- `NewFakeClient` (`fake.go:24`): a dynamic client over the objects it is given, for the driver's and the API's tests.
 
 ## Rules
 
-- A server-side apply is emulated as create-or-replace: a new object gets a UID `uid-<n>` and generation 1; an existing one keeps its UID, keeps its generation when `spec` is unchanged and bumps it by one when it changed, and keeps its `status` (`fake.go`).
-- Only `types.ApplyPatchType` patches on `sandboxes` are handled; any other patch falls through to the fake's own tracker (`fake.go`).
+- None found: it holds no rule the driver relies on beyond the fake client's own behaviour.
 
 ## Side effects
 
-- Writes only to the fake client's tracker, in memory; nothing reaches a cluster or a file (`fake.go`).
+- None found: it keeps its objects in memory.
 
 ## Verification
 
-- Run: `go test ./...` (from `sandboxes/`)
+- Run: `go test ./...` from `sandboxes/` (`go.mod`)
