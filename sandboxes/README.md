@@ -6,13 +6,13 @@ The sandboxes service: a small Go service that drives
 cluster credentials; the Runtime's core calls it with a bearer token. It keeps no state: the
 operation id of the last apply is an annotation (`nylorun.dev/op`) on the Sandbox.
 
-`nylorun sandbox enable --context <name>` installs what it needs into that context, writes
+`nylorun local sandbox enable --context <name>` installs what it needs into that context, writes
 `<Host root>/sandboxes/cluster.json` and `token` (mounted read-only at
 `/run/nylorun/sandboxes`), and adds the `sandboxes` service to the Tenant's Compose file.
 With `--backend substrate` (preview) it drives [Agent Substrate](https://github.com/agent-substrate/substrate)
 v1.0 actors instead, through Substrate's gRPC API (below).
 Image: `ghcr.io/nylorun/sandboxes:<runtime version>` (a change here needs a
-`@nylorun/runtime` changeset; see RELEASING.md).
+`@nylorun/runtime` changeset; see AGENTS.md).
 
 ## API (`:4300`)
 
@@ -239,3 +239,38 @@ Subcommands: `sandboxes edge-cert <host> <dir>` writes `edge-ca.pem`, `edge.crt`
 | `NYLORUN_SANDBOXES_EDGE_HARNESS_UPSTREAM`, `_GATES_UPSTREAM`, `_KEYS_UPSTREAM` | where the edge forwards (`http://runtime:4200`, `http://gateway:4100`, `http://gateway:4200`) |
 
 `sandboxes healthcheck` probes `/ready` (the image has no shell).
+
+## Folders
+
+- [cmd](./cmd/README.md): the module's two commands.
+- [cmd/sandboxes](./cmd/sandboxes/README.md): the service itself — API, backends, edge, gateway, keys provider.
+- [cmd/computer](./cmd/computer/README.md): the computer agent an actor runs when it is a computer.
+- [internal](./internal/README.md): the packages the commands are built from.
+- [internal/api](./internal/api/README.md): the HTTP routes core calls.
+- [internal/computer](./internal/computer/README.md): the computer agent's routes, commands, files and disk.
+- [internal/config](./internal/config/README.md): `cluster.json`, the token file and the environment.
+- [internal/driver](./internal/driver/README.md): the agent-sandbox backend.
+- [internal/driver/drivertest](./internal/driver/drivertest/README.md): a fake cluster for tests.
+- [internal/edge](./internal/edge/README.md): the TLS front actors reach the Runtime through.
+- [internal/gateway](./internal/gateway/README.md): the sandbox gateway into Substrate's router.
+- [internal/provider](./internal/provider/README.md): the keys provider.
+- [internal/substrate](./internal/substrate/README.md): the Agent Substrate backend.
+- [internal/ticket](./internal/ticket/README.md): computer tickets.
+
+## Rules across folders
+
+- A backend keeps no state of its own: the agent-sandbox driver puts the last op id on the Sandbox (`internal/driver/sandbox.go:3-4`), the Substrate driver in the ConfigMap `<name>-state` (`internal/substrate/driver.go:74-76`).
+- Only core holds `NYLORUN_SANDBOXES_TOKEN`; every `/v1/` route checks it and `/health` and `/ready` do not (`internal/api/api.go:1-2`, `internal/api/api.go:83-90`).
+- A computer is reached through the gateway with a ticket in `X-Nylorun-Ticket`, checked by the gateway and again by the computer (`internal/gateway/gateway.go:1-3`, `internal/computer/computer.go:6-8`).
+- Images are pinned by digest before any backend names them (`internal/substrate/resolve.go:26-30`).
+
+## Side effects across folders
+
+- The Kubernetes API server, through the Tenant's credentials: Sandboxes, pods, claims, Secrets and ConfigMaps (`internal/driver/sandbox.go:28-31`, `internal/substrate/driver.go:148-187`).
+- Substrate's Control service over gRPC, when the `substrate` backend runs (`internal/substrate/driver.go:28-43`).
+- The image registries, over HTTPS, to resolve a reference (`internal/substrate/resolve.go:44`).
+- The edge's and the gateway's listen addresses, and the provider's gRPC port (`README.md:238`, `cmd/sandboxes/main.go:368-369`, `cmd/sandboxes/main.go:425`).
+
+## Verification
+
+- Run: `go test ./...` from `sandboxes/` (`go.mod`)
