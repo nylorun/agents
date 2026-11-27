@@ -16,7 +16,7 @@ A step is one model call and the tool calls it asks for. This folder builds the 
 
 ## Rules
 
-- One prepared model call per invocation: a step that would prepare a second fails (`run.ts`).
+- A model adapter may report only one prepared call per invocation; a second fails `model.adapter-invalid-options` (`run.ts`).
 - The step reports `model.requested` and `model.prepared`, and a failed model call ends the step as `model.<code>` (`run.ts`).
 - Two calls with one id are made one before they are sealed (`canonicalize.ts`).
 - A slot's key is its part id, part order and slot name, and two parts may not take the same key (`slot-assembly.ts`, `slotKey`, `checkedSlot`).

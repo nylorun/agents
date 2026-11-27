@@ -6,15 +6,16 @@ Turns an authored agent, or a manifest with its implementations, into the one ob
 
 - `AgentDefinition` (`agent-definition.ts`): the manifest with its `parts`, `registry`, `output`, `manifest` and `hash`, and its `implementations`.
 - `definitionFor(agent)` (`agent-definition.ts`): the definition of an authored agent, checked and hashed.
-- `definitionFromBinding(binding)` (`agent-definition.ts`): the definition of a binding, which keeps live schemas and executable snapshots.
+- `definitionFromBinding(binding)` (`agent-definition.ts`): the definition of a binding: its manifest, parts, registry, tools and implementations.
 - `tryDefinitionFor(agent)` (`agent-definition.ts`): the definition, or `undefined` when the value is not an agent.
 - `ToolRegistry` (`registry.ts`): the tools a definition offers by name.
 - `checkCompatibility(manifest, state)`, `CompatibilityResult` (`compatibility.ts`): a saved state against a manifest's hash.
 
 ## Rules
 
-- A definition's manifest is checked by `AgentManifestSchema` and its `hash` is `hashManifest(manifest)` (`agent-definition.ts`).
-- `checkCompatibility` fails on a manifest hash the state does not carry (`compatibility.ts`).
+- The definition keeps the binding's own `manifest`, and its `hash` is `hashManifest(manifest)` (`agent-definition.ts`).
+- A tool name registered twice under one definition fails `tool.invalid` (`registry.ts`).
+- `checkCompatibility` fails `execution.incompatible` when the state's `manifestHash` (when it has one), its `agentId`, or a `version` other than 1, differs (`compatibility.ts`).
 - `tryDefinitionFor` answers `undefined` rather than throwing for a value that is not an agent (`agent-definition.ts`).
 
 ## Side effects

@@ -23,7 +23,7 @@ Keeps a long conversation inside the model's context: estimates what the transcr
 
 ## Side effects
 
-- A compaction's summary is a model call with `purpose: "summary"`, which the host journals like any other; the record writes no assistant message for it (`index.ts`, `compact`).
+- A compaction's summary is a model call; the transcript records one `compaction` entry and the kept tail in place of the summarized history, never an assistant message, and a durable run journals the call with `purpose: "summary"` (`index.ts`, `compact`; `../../run/durable.ts`).
 
 ## Verification
 
