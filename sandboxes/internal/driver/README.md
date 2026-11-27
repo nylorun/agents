@@ -1,39 +1,35 @@
 # The agent-sandbox backend
 
-Drives agent-sandbox Sandboxes (`agents.x-k8s.io/v1beta1`, controller v1.0.10) in one namespace with the dynamic client: it renders the pod shape from a spec, applies it server-side, and reads status from namespace informers. It keeps no state of its own: the operation id of the last apply is an annotation on the Sandbox, and the claim, pods and join Secret carry the rest.
+Implements a sandbox as an `agents.x-k8s.io` Sandbox and a sandbox template, so a sandbox is a pod the cluster's controllers run and the operator can see.
 
 ## Interface
 
-- `Driver` (`sandbox.go`): `Put`, `Delete`, `Status`, `Wait`, `Ping`, `Synced`, `Namespace`, `Cache`, `WithMirrors`; built by `New(client, namespace, urls)`.
-- `Spec` (`sandbox.go`): the PUT body: `opId`, `mode`, `image`, `entrypoint`, `harnessImage`, `command`, `cpus`, `memoryMiB`, `storageGiB`, `stopGraceSeconds`, `shutdownTime`, `shutdownPolicy`, `env`, `joinToken`, `network`, `keys`.
-- `SpecKeys`, `KeyHost`, `MaxKeyHosts` (`sandbox.go`): the keyed hosts, at most 200.
-- `Name(tenant, id, volumeGen)`, `NamePattern`, `ValidateName` (`sandbox.go`): `sbx-<lowercase base32(sha256("<tenant>/<id>"))[:16]>-g<volumeGen>`.
-- `Render(namespace, name, spec, urls)` (`sandbox.go`): the Sandbox object, golden-tested in `testdata/sandbox.golden.json`.
-- `Status` (`status.go`): `name`, `exists`, `deleting`, `mode`, `ready`, `suspended`, `expired`, `podUID`, `podPhase`, `imageID`, `volume`, `opId`, `shutdownTime`, `reason`, `message`, `drainedAt`.
-- `Waits` (`status.go`): the states `?wait=` accepts, `ready`, `suspended`, `expired` and `gone`.
-- `Cache`, `NewCache`, `Compute` (`status.go`): the Sandbox, Pod and claim informers, and the status derived from them.
-- `Mirrors`, `NewMirrors` (`mirror.go`): image repository to mirror, `To` and `From`.
-- Constants (`sandbox.go`): `APIVersion`, `FieldManager` (`nylorun-sandboxes`), `OpAnnotation` (`nylorun.dev/op`), `RoleLabel`, `SandboxLabel`, `ManagedLabel`, `DefaultImage` (`python:3.13-slim`), `JoinDir`, `JoinFile`, `VolumeName` (`data`).
-- [drivertest](./drivertest/README.md): the fake dynamic client the tests and the service suite drive it with.
+- `GVKs` (`sandbox.go:27-32`): the four kinds the backend works with, at `APIVersion` (`sandbox.go:36`).
+- `FieldManager` (`sandbox.go:38`): `nylorun-sandboxes`, the manager every write goes through.
+- `Spec` (`sandbox.go:77-131`): the body a sandbox is created with.
+- `SpecKeys`, `KeyHost` (`sandbox.go:112-125`): the settings a sandbox's environment carries.
+- `SpecNetwork` (`sandbox.go:171-175`): the egress a sandbox's pod is given.
+- `Error` (`sandbox.go:181`): why a sandbox can't be created, in the API's own error shape.
+- `ValidateName` (`sandbox.go:194`), `Normalize` (`sandbox.go:202`): a sandbox's name.
+- `Render` (`sandbox.go:341`): a sandbox spec as YAML.
+- `New` (`sandbox.go:494`), `WithMirrors` (`sandbox.go:500`): the backend and the image mirrors it rewrites references with.
+- `Put` (`sandbox.go:534`), `Delete` (`sandbox.go:578`), `Status` (`sandbox.go:610`), `Wait` (`sandbox.go:619`): the operations the API calls.
+- `Cache` (`status.go:58`), `NewCache` (`status.go:75`), `Start` (`status.go:101`): the polled status the API reads.
+- `Status` (`status.go:17-46`), `Waits` (`status.go:49-50`): a sandbox's state and how long a wait may last.
+- `Mirrors` (`mirror.go:15`), `NewMirrors` (`mirror.go:21`): image references rewritten to the mirrors `enable` found.
 
 ## Rules
 
-- A spec whose `opId` the Sandbox already records is a no-op: `Put` returns the current status (`sandbox.go`, `Put`).
-- `ValidateName` accepts only `NamePattern`, and `Spec.Normalize` refuses `entrypoint: builtin` and the reserved environment names (`HOME`, `NYLORUN_POD_UID`, `NYLORUN_SANDBOX_JOIN_FILE`, `NYLORUN_HARNESS_URL`, `NYLORUN_GATES_URL`, `NYLORUN_EGRESS_PROXY`, `NYLORUN_SANDBOX_KIND`) (`sandbox.go`).
-- Every apply is server-side with `FieldManager` `nylorun-sandboxes`, so another writer's fields stay (`sandbox.go`, `Put`).
-- The join token is written to Secret `<name>-join`, key `token`, before the Sandbox is applied; the same value is not rewritten (`secret.go`, `putJoinSecret`).
-- The Secret's role grants get, create, update, patch and delete, and no list or watch (`sandbox.go`, `Render`).
-- The pod runs as uid 1000, mounts the claim at the workspace, and reads the join token at `JoinDir`/`JoinFile` (`sandbox.go`).
-- `?wait=` is limited to `Waits`, and an unknown value is `400 invalid_request`; the wait wakes on informer events, not a poll (`status.go`, `Cache.Wait`).
-- Status is read only from the informers, so nothing is fetched per request except the apply (`status.go`).
+- A sandbox is created, updated and deleted through `FieldManager` and the Tenant's credentials; no status is written by hand (`sandbox.go:38`).
+- The last op id lives on the Sandbox itself, so a restart loses nothing (`sandbox.go:3-4`).
+- A wait ends at `Waits`, and the status cache answers from its last poll (`status.go:49-50`).
+- An image reference is rewritten to a mirror only when `<name>` has been mirrored, and pinned by digest before it is written (`mirror.go:1-4`).
 
 ## Side effects
 
-- Applies, deletes and reads Sandboxes, Pods, claims and Secrets in the configured namespace through the dynamic client (`sandbox.go`, `status.go`, `secret.go`).
-- Runs three informers (Sandboxes, Pods labelled `nylorun.dev/role=sandbox`, claims) for the namespace (`status.go`, `NewCache`).
-- Writes the join Secret, and deletes it with the sandbox (`secret.go`).
-- Writes one log line per apply and per wait (`sandbox.go`).
+- The Kubernetes API server: Sandboxes, sandbox templates, egresses and claims, in the Tenant's namespace (`sandbox.go:28-31`).
+- The image registries, over HTTPS, to resolve a reference to a digest (`mirror.go`).
 
 ## Verification
 
-- Run: `go test ./...` (from `sandboxes/`); `go test ./internal/driver -update` rewrites the golden file.
+- Run: `go test ./...` from `sandboxes/` (`go.mod`)
