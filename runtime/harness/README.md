@@ -89,3 +89,26 @@ that alone.
 ## Client types
 
 The authoritative session/action wire schemas live in `/contracts` and do not import durable checkpoint types. Use `@nylorun/agents` for the session client and to save agents (`saveAgent`); the Runtime runs agents from their manifests alone, so a tool there is an `http()` tool or a remote MCP server's. Historical root client types remain for deferred local tooling; they are not the new wire contract.
+
+## Folders
+
+- [scripts](./scripts/README.md): the package's two release checks, the packed tarball and the manifest, source and exports it must keep.
+- [src](./src/README.md): the engine's source: the run entry points, the loop, the flow engine, the Harness API harness and its own tools.
+- [test](./test/README.md): the `vitest` suites, their fixtures and the type tests.
+
+## Rules across folders
+
+- The package exports only what `src/index.ts` and `src/run/index.ts` name, and `scripts/check-package.mjs` fails on an export added or removed there without the check's list.
+- Nothing under `src/` may import or depend on `@nylorun/runtime`, `@nylorun/agent`, `@nylorun/studio` or `@nylorun/create-harness` (`scripts/check-package.mjs`).
+- The harness makes no model call: a step projects the `ModelCall` and the host resolves it as an effect (`src/loop/step/run.ts`, `src/run/durable.ts`).
+- A checkpoint is refused unless its `version`, `engineVersion` and `manifestHash` match the manifest it resumes (`src/run/durable.ts`, `src/flow/engine.ts`).
+- Effect ids come from stable names, never from call order, so a replay lines up (`src/run/durable.ts`, `src/flow/paths.ts`).
+
+## Side effects across folders
+
+- Everything outside the package goes through the host: a `DurableHost` resolving each effect, or the Harness API channel in `src/api/` for leases, events, artifacts and the definition's files.
+- With a sandbox, a turn's skills are mounted at `/skills/<name>@<hash>/` before a sandbox call, and a completed turn's outputs directory is saved as the session's `outputs` folder artifact (`src/tools/skills.ts`, `src/tools/outputs.ts`).
+
+## Verification
+
+- Run: `npm test` from `runtime/harness/`. `npm run check` adds the format check, the build, the type tests and the package checks in `scripts/`.
