@@ -24,12 +24,12 @@ The tools, and the text the model reads with them, that the engine adds to an ag
 
 ## Rules
 
-- The tools and blocks come in one order, which keeps the prompt's prefix stable: instructions first, then the sandbox, skill, artifact, wake, memory, plan and connection tools (`engine-tools.ts`).
-- The tools are offered after the agent's own and before the session's MCP tools, and are not part of the hashed manifest (`engine-tools.ts`).
+- The blocks and tools come in one order, which keeps the prompt's prefix stable, and `engineToolsFor` passes the agent and the options through unchanged (`engine-tools.ts`; the order is `engineProjection`'s in `@nylorun/core/engine`).
+- The tools are offered after the agent's own and before the session's MCP tools (`../../run/durable.ts`, `engineTools`).
 - A tool past the artifact, skill, result and plan limits is cut or stored, never refused (`plan.ts` `cut`, `results.ts` `shapeToolOutcome`).
 - `read_artifact` pages text at `artifactPageBytes`, escaped as JSON, and in whole characters (`artifacts.ts`, `text-page.ts`).
 - A tool result never passes its cap: a result that cannot be stored keeps its preview and says why (`results.ts`).
-- One step's results share a `StepBudget`, held under the run's `recordEntryBytes` less `entryEnvelopeBytes` (`results.ts`, `StepBudget`).
+- One step's results share a `StepBudget`: `stepBudgetBytes`, and no more than the record's `recordEntryBytes` less `entryEnvelopeBytes` (`results.ts`, `StepBudget`).
 - `spillKey` is the call's effect id with the bytes' hash, so the same answer twice writes no new artifact (`results.ts`).
 - A media `read` a model cannot read fails `sandbox.unreadable` before anything is stored, and a file whose first bytes are not its kind fails `sandbox.binary_file` (`read-media.ts`).
 - A skill only a person starts is left out of the catalog, `load_skill`'s names and its answer unless the turn's input names it (`person-started.ts`).
@@ -41,7 +41,7 @@ The tools, and the text the model reads with them, that the engine adds to an ag
 - Skill files come over the Harness API's `definition.file` seam, a range at a time (`skills.ts`, `definitionFileChunks`).
 - Mounting skills writes into the session's sandbox through the host's files executor (`skills.ts`, `mountSkills`).
 - `update_plan` claims a `plan.updated` event for the run's turn (`plan.ts`).
-- A completed turn saves its outputs directory as the session's `outputs` folder artifact, before the turn ends, and a failure there is claimed and does not fail the turn (`outputs.ts`, `saveOutputs`).
+- A completed turn saves its outputs directory as the session's `outputs` folder artifact before the turn ends, while the run is held, for a root agent whose features declare outputs and whose run has a sandbox and a files executor (`outputs.ts`, `saveOutputs`; `../../api/run.ts`).
 - `ask`, `request_connection` and a sandbox call pause the turn or leave it to the host; each is one effect (`ask.ts`, `connection.ts`, `sandbox.ts`).
 
 ## Verification

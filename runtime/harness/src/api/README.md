@@ -17,9 +17,9 @@ The entry a Runtime process uses: `createHarness` says `hello` on the Harness AP
 
 - The harness holds one pending `lease` at a time and starts again `leaseRetryMs` after a refused one (`harness.ts`).
 - A lease is renewed every `renewEveryMs` with a new run token, and a run that loses it is aborted with `ownership.lost` (`harness.ts`, `abort.ts`).
-- `stop()` aborts the runs with `shutdown` and waits for their leases to be given back, at most `waitMs`; a run that ignores the abort is left to its lease lapsing (`harness.ts`).
+- `stop()` aborts the runs with `shutdown` and waits for them to finish, at most `waitMs` (`harness.ts`).
 - A tool call whose gate hop lost its answer is sent again after `resendDelaysMs`, the last delay repeating (`harness.ts`).
-- `maxRuns` holds no more runs than it states, and none when it is unset (`harness.ts`).
+- A harness holds no more than `maxRuns` live runs, and any number when it is unset (`maxRuns = options.maxRuns ?? Infinity`, `harness.ts`).
 - An effect is recorded before the work it stands for is done, and an `uncertain` one is never run again (`host.ts`).
 - An effect request is checked by its hash, so a replay of a different request is refused (`host.ts`, `effectRequestHash`).
 
