@@ -1,28 +1,25 @@
-# The edge
+# The TLS edge for Substrate actors
 
-A TLS front for the Tenant's actors, for the Substrate backend: actors reach the Harness API and the gates by a name that resolves to the Docker host, and Substrate's egress refuses a WebSocket upgrade on a cleartext connection. The edge terminates that TLS on one certificate and forwards to the service on the Compose network.
+The TLS front that Agent Substrate's actors reach the Runtime through. Substrate's egress gateway refuses WebSocket upgrades on cleartext and on intercepted HTTP, so an actor's engine reaches the Harness API and the gates over TLS the gateway passes through by name; the edge terminates that TLS and forwards to the Runtime's listeners on the Compose network, with the Host they accept (`edge.go:1-5`).
 
 ## Interface
 
-- `Route` (`edge.go`): `Name` (for logs), `Listen` (inside the container, `:8443`) and `Upstream` (the service on the Compose network, `http://runtime:4200`).
-- `Server` (`edge.go`): `Cert`, `Routes`, `Log`; `Run(ctx)` serves every route and returns the first listener's error.
-- `Proxy(upstream, log)` (`edge.go`): the reverse proxy a route serves.
-- `WriteCert(dir, host, now)` (`cert.go`): writes a CA and a leaf certificate for `host`.
+- `Route` (`edge.go:21-27`): a name, its listen address and the upstream URL it forwards to.
+- `Server` (`edge.go:31-34`): the certificate and the routes to serve.
+- `Proxy` (`edge.go:39`): the handler for one upstream.
+- `Server.Run` (`edge.go:56`): serves every route until the context ends.
+- `WriteCert` (`cert.go:20`): the edge's CA and its certificate for a host, written into a directory for `enable`.
 
 ## Rules
 
-- Each route serves TLS 1.2 or newer with the server's one certificate, and a `ReadHeaderTimeout` of 10 s (`edge.go`, `Run`).
-- The proxy sends the upstream's `Host`, which its allow-list accepts, and deletes `Forwarded` (`edge.go`, `Proxy`).
-- `FlushInterval` is -1, so WebSocket upgrades and server-sent events stream as they come (`edge.go`, `Proxy`).
-- An upstream error answers `502` and one warning line (`edge.go`, `Proxy`).
-- `WriteCert` writes `edge-ca.pem`, `edge.crt` and `edge.key` (mode 0600) in `dir`, and keeps no CA key: a new certificate is a new CA, so `nylorun local sandbox enable` rewrites it (`cert.go`).
+- A route is reached by the name its certificate carries, which is the Host the upstream accepts (`edge.go:1-5`).
+- The edge's CA is handed to a template so an actor trusts the edge (`substrate/template.go:72-73`).
 
 ## Side effects
 
-- Listens on every route's address until the context ends (`edge.go`, `Run`).
-- Writes the three certificate files under `dir` (`cert.go`).
-- Logs one line per route when it starts, and a warning per failed upstream (`edge.go`).
+- Listens on each route's address and forwards requests to its upstream over the network (`edge.go:21-27`, `edge.go:56`).
+- `WriteCert` writes the CA and the host's certificate and key into the directory it is given (`cert.go:20`).
 
 ## Verification
 
-- Run: `go test ./...` (from `sandboxes/`)
+- Run: `go test ./...` from `sandboxes/` (`go.mod`)
