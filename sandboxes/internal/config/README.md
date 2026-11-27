@@ -1,39 +1,29 @@
 # The service's configuration
 
-Reads the files `nylorun local sandbox enable` writes under `<Host root>/sandboxes/` and the service's environment, and validates them before anything dials a cluster. One `Cluster` serves either backend: the agent-sandbox fields, or the `substrate` object that replaces them and turns every sandbox into a computer.
+Reads the files `nylorun local sandbox enable` writes under `<Host root>/sandboxes/`, mounted read-only at `/run/nylorun/sandboxes`, and the service's environment (`config.go:1-3`). Everything the service needs to reach its cluster comes through here.
 
 ## Interface
 
-- `Load(getenv) (Config, error)` (`config.go`): the environment plus `<NYLORUN_SANDBOXES_DIR>/cluster.json` (default `/run/nylorun/sandboxes`).
-- `ParseCluster(raw) (Cluster, error)` (`config.go`): decodes and validates `cluster.json`, and fills `Mirrors`.
-- `Cluster` (`config.go`): `context`, `server`, `dial`, `tlsServerName`, `caData`, `namespace`, `controllerVersion`, `hostAddress`, `bindAddress`, `ports`, `networkPolicy`, `enabledAt`, `backend`, `substrate`, `inCluster`, `imageMirrors`.
-- `Substrate`, `Edge`, `Computer`, `Ports`, `NetworkPolicy` (`config.go`): `atespace`, `systemNamespace`, `apiService`, `endpoint`, `serviceAccount`, `version`, `edge`, `computer`, `workerSelector`, `keysProvider`; the edge's `host`, `harnessPort`, `gatesPort`, `keysPort`.
-- `Config` (`config.go`): `Cluster`, `Listen`, `Token`, `TokenFile`, `ComputerAgent`, `ComputerImage`.
-- `(*Config).ParseFlags(args)` (`config.go`): `--computer-agent go|engine` and `--computer-image`.
-- `(Config).Rest()` (`config.go`): the client-go configuration, in-cluster or from `dial`, `tlsServerName` and `caData`.
-- `(Cluster).EdgeURLs()`, `(Cluster).PodURLs()` (`config.go`): the edge's `https://` URLs for actors, and the `http://` URLs a pod uses on the Docker host.
-- `(*Substrate).ComputerPort()` (`config.go`): the computer's port, `DefaultComputerPort` (8080) when unset, 0 when sandboxes are not computers.
-- `DefaultDir` (`config.go`): `/run/nylorun/sandboxes`.
-- `BackendAgentSandbox`, `BackendSubstrate` (`config.go`): `agent-sandbox` and `substrate`.
-- `ComputerAgentGo`, `ComputerAgentEngine` (`config.go`): `go` and `engine`.
+- `Cluster` (`config.go:24-58`): `cluster.json` — `context`, `server`, `dial`, `tlsServerName`, `caData`, `namespace`, `controllerVersion`, `hostAddress`, `bindAddress`, `ports`, `networkPolicy`, `enabledAt`, `backend`, `substrate`, `inCluster`, `imageMirrors`.
+- `Substrate`, `Computer`, `Edge` (`config.go:68`, `config.go:96`, `config.go:117`): the parts of `cluster.json` the Substrate backend adds.
+- `NetworkPolicy` (`config.go:134`): what `enable`'s egress probe found.
+- `Config` (`config.go:140-154`): the cluster, the listen address, the bearer token, the token file and the computer's agent.
+- `Load` (`config.go:190`): the environment and `<dir>/cluster.json` as one `Config`.
+- `ParseFlags` (`config.go:163`): `--computer-agent go|engine` and `--computer-image`.
+- `DefaultDir` (`config.go:187`), `BackendAgentSandbox`/`BackendSubstrate` (`config.go:63-64`), `ComputerAgentGo`/`ComputerAgentEngine` (`config.go:157-160`).
 
 ## Rules
 
-- `NYLORUN_SANDBOXES_TOKEN` is required and must be at least 32 characters (`Load`).
-- `cluster.json` needs a `namespace`; outside a cluster it also needs `dial` as `host:port` and base64 `caData` (`ParseCluster`).
-- `inCluster` needs `backend: substrate`; an absent backend is `agent-sandbox` (`ParseCluster`).
-- `backend: substrate` needs `substrate.atespace`, `systemNamespace`, `apiService` and `serviceAccount`, and either `edge.host` with `harnessPort` and `gatesPort` or `substrate.computer` (`ParseCluster`).
-- Any backend but `agent-sandbox` and `substrate` is refused (`ParseCluster`).
-- `imageMirrors` is validated by `driver.NewMirrors`: one mirror per repository, no repository mapped to itself or twice (`ParseCluster`).
-- `--computer-agent go` needs `--computer-image`; any value but `go` and `engine` is refused (`ParseFlags`).
-- The listen address defaults to `:4300` (`Load`).
+- `NYLORUN_SANDBOXES_TOKEN` is required and at least 32 characters, else `Load` fails (`config.go:195-198`).
+- The directory is `NYLORUN_SANDBOXES_DIR`, default `/run/nylorun/sandboxes` (`config.go:191-194`); the token file is `<dir>/token` (`config.go:211`).
+- `cluster.json` must name a namespace; a cluster reached by `dial` needs `caData` (or `inCluster`), and `dial` must be `host:port` (`config.go:221-231`).
+- `inCluster` needs the `substrate` backend, and that backend needs `atespace`, `systemNamespace`, `apiService` and `serviceAccount` (`config.go:238-243`).
+- `--computer-agent go` needs `--computer-image`; anything but `go` or `engine` is refused, as are extra arguments (`config.go:170-181`).
 
 ## Side effects
 
-- Reads `<NYLORUN_SANDBOXES_DIR>/cluster.json` and names `<NYLORUN_SANDBOXES_DIR>/token` as the API server's token file (`Load`).
-- Reads `NYLORUN_SANDBOXES_TOKEN`, `_DIR` and `_LISTEN` (`Load`).
-- Writes nothing (`config.go`).
+- Reads `<dir>/cluster.json` at startup and no other file (`config.go:203`).
 
 ## Verification
 
-- Run: `go test ./...` (from `sandboxes/`)
+- Run: `go test ./...` from `sandboxes/` (`go.mod`)
