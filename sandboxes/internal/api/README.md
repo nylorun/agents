@@ -1,30 +1,29 @@
 # The sandboxes service's HTTP API
 
-The API the Runtime's core calls, over whichever backend runs the Tenant's sandboxes: the same `/v1/pods` routes serve agent-sandbox's Sandboxes and Agent Substrate's actors. It holds the bearer token's check, the `?wait=` poll, and the `Backend` interface both drivers implement, so a backend only decides how a sandbox is put, read and waited for.
+The HTTP surface the Runtime's core calls: it turns a request into a call on a `Backend` and writes the sandbox's status back as JSON (`api.go:1-9`). Only core holds the bearer token; `/health` and `/ready` are open so a health check can probe the process (`api.go:1-2`).
 
 ## Interface
 
-- `Server` (`api.go`): `Handler()` returns the routes; fields `Driver` (a `Backend`), `Cluster` (`config.Cluster`), `Token` and `Log`.
-- `Backend` (`api.go`): `Put`, `Delete`, `Status`, `Wait`, `Ping`, `Synced`.
-- `Info` (`api.go`): `GET /v1/info`'s body: `backend`, `namespace`, `context`, `controllerVersion`, `apiVersion`, `hostAddress`, `ports`, `networkPolicy`, and with Substrate `atespace`, `substrateVersion`, `computer`.
-- `MaxWait` (`api.go`): 30 s, the most `GET ?wait=` blocks.
-- Routes (`api.go`): `GET /health`, `GET /ready`, `GET /v1/info`, `PUT /v1/pods/{name}`, `GET /v1/pods/{name}`, `DELETE /v1/pods/{name}`.
+- `Handler` (`api.go:81-96`): the routes — `GET /health` (`api.go:83`), `GET /ready` (`api.go:86`), `GET /v1/info` (`api.go:87`), `PUT /v1/pods/{name}` (`api.go:88`), `GET /v1/pods/{name}` (`api.go:89`), `DELETE /v1/pods/{name}` (`api.go:90`).
+- `Server` (`api.go:50`): the backend, the token and the logger its handlers use.
+- `Info` (`api.go:62`): what `GET /v1/info` answers about the cluster.
+- `Backend` (`api.go:38-47`): what the API needs of a driver — `Put`, `Delete`, `Status`, `Wait`, `Ping`, `Synced`.
+- `MaxWait` (`api.go:35`): 30 s, the longest a `?wait=` may ask for.
+- `Ready` (`api.go:116`): the check behind `GET /ready`.
 
 ## Rules
 
-- Every `/v1` route needs `Authorization: Bearer <token>`, compared in constant time over SHA-256 digests; a miss is `401 unauthorized` with `WWW-Authenticate: Bearer` (`api.go`, `auth`).
-- `/health` is open and answers `{"status":"ok"}`; `/ready` is open and answers 503 with a reason until the backend has synced and its `Ping` answered within the last 5 s (`api.go`, `Ready`).
-- The PUT body is one JSON object, at most 64 KiB, and an unknown field is `400 invalid_request` (`api.go`, `put`).
-- `?timeoutMs` is capped at `MaxWait` (30 s), and `?wait` takes only the states `driver.Waits` names; the answer adds `met` to the status (`api.go`, `get`; `driver.Waits`).
-- `/v1/info` reports `backend` as `agent-sandbox` when `cluster.json` names none, and `ateapi.v1` as `apiVersion` with Substrate (`api.go`, `info`).
-- Any other route is `404 not_found`; every error is `{"error": {"code", "message"}}` (`api.go`).
+- Every `/v1/` route goes through the bearer check (`s.auth`, `api.go:87-90`); `/health` and `/ready` do not (`api.go:83-86`).
+- `timeoutMs` is an integer from 0 to 30000: a negative value, a non-number or one above `MaxWait` is `400 invalid_request` (`api.go:201-206`).
+- Without `?wait=` the answer is the status (`api.go:197`); with it, `{status, met}` (`api.go:214`).
+- An unknown path answers `404 not_found` (`api.go:91-94`).
+- Every answer is JSON and `Cache-Control: no-store` (`api.go:230-233`).
 
 ## Side effects
 
-- Calls the `Backend`: Kubernetes objects in the agent-sandbox backend, Substrate's API in the other (`api.go`).
-- Writes one log line per PUT, and a warning per failed PUT (`api.go`, `put`).
-- Reads the cluster's recorded configuration, never a file of its own (`api.go`).
+- Changes the cluster only through `Backend` (`api.go:38-47`); it holds no client of its own.
+- Logs each delete with the sandbox's name and `opId`, at Info when it works and Warn when it fails (`api.go:222-226`).
 
 ## Verification
 
-- Run: `go test ./...` (from `sandboxes/`)
+- Run: `go test ./...` from `sandboxes/` (`go.mod`)
