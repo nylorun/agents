@@ -1,31 +1,26 @@
 # The sandbox gateway
 
-The computers' one way in. A caller with a ticket for a sandbox asks for `/{sandbox}/{path}`; the gateway checks the ticket, opens an mTLS CONNECT tunnel to Substrate's `atenet-router` for that actor, and proxies the request inside it, ticket included, so the computer checks it too. It holds no Kubernetes rights and keeps no state.
+The one client of Agent Substrate's router the Runtime adds. Core and the harness call `/{sandbox}/…` with a computer ticket; the gateway checks it, opens an mTLS CONNECT tunnel to atenet-router with `ate-target-actor: <atespace>/<sandbox>`, and proxies the request to the computer's engine inside it (`gateway.go:1-5`).
 
 ## Interface
 
-- `Header` (`gateway.go`): `X-Nylorun-Ticket`, the header a caller puts its ticket in and the gateway passes on.
-- `Router` (`gateway.go`): `Address` (`atenet-router.ate-system.svc:8444`), `ServerName`, `CredentialFile` (this pod's podCertificate), `CAFile` (the router's serving CA).
-- `Server` (`gateway.go`): `Public` (the ticket key), `Atespace`, `Port` (the computer's port), `Router`, `Log`, `Now`, `Dial`; `Handler()` serves `GET /healthz` and `/{sandbox}/{path...}`.
-- `Connect(ctx, dial, address, actor, authority)` (`gateway.go`): the CONNECT tunnel to the router for one actor.
-- `LoadPublic(path)` (`gateway.go`): the ticket public key from PEM.
+- `Header` (`gateway.go:31`): `X-Nylorun-Ticket`, the header every request carries its ticket in.
+- `Router` (`gateway.go:34-44`): the router's address, the name its certificate is checked against, this pod's credential and the router's CA.
+- `Server`, `Handler` (`gateway.go:47-57`, `gateway.go:67`): the gateway's settings and its HTTP handler.
+- `Connect` (`gateway.go:155`): the mTLS CONNECT tunnel to the router for one actor.
+- `LoadPublic` (`gateway.go:197`): the ticket key's public half from a PEM file.
 
 ## Rules
 
-- A sandbox name that is not `driver.NamePattern` is `404 not_found` (`gateway.go`, `serve`).
-- A ticket that is missing, expired or for another sandbox is `401 unauthorized`; the ticket's `sub` must be the sandbox in the path (`gateway.go`, `serve`).
-- The tunnel goes to `<atespace>/<sandbox>` with the computer's port as its authority (`gateway.go`, `Handler`).
-- The upstream host is `<sandbox>:<port>`, so the computer sees its own name (`gateway.go`, `Handler`).
-- `FlushInterval` is -1 and compression is off, so a stream arrives as it is written (`gateway.go`, `Handler`).
-- A tunnel the router refuses is `502 computer_unreachable` (`gateway.go`, `Handler`).
-- The router's credential and CA files are read per handshake and per dial, so a rotated certificate needs no restart (`gateway.go`, `Router`).
+- A request's ticket must be valid for the sandbox in its path, else `401` (`gateway.go:1-3`).
+- The tunnel names its actor as `<atespace>/<sandbox>` in `ate-target-actor` (`gateway.go:1-4`).
+- It holds no Kubernetes rights and keeps no state: the router resumes, parks and routes each request (`gateway.go:4-5`).
 
 ## Side effects
 
-- Opens TLS connections to `atenet-router` (`gateway.go`, `Router.dial`).
-- Reads the credential bundle and the router's CA file (`gateway.go`).
-- Logs a warning per unreachable computer (`gateway.go`).
+- Opens an mTLS connection to atenet-router and proxies each request through it (`gateway.go:130-155`).
+- Reads its credential and CA files and the ticket's public key (`gateway.go:41-43`, `gateway.go:197`).
 
 ## Verification
 
-- Run: `go test ./...` (from `sandboxes/`)
+- Run: `go test ./...` from `sandboxes/` (`go.mod`)
