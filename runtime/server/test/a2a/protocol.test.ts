@@ -406,7 +406,7 @@ describe("buildTask", () => {
     expect(task.status.state).toBe("TASK_STATE_COMPLETED");
   });
 
-  it("reports a failure by code only, and a cancellation", () => {
+  it("reports a failure by its code and the Runtime's own reason, never a provider's message, and a cancellation", () => {
     const failed = buildTask({
       contextId: "ctx",
       turnId,
@@ -416,6 +416,15 @@ describe("buildTask", () => {
     expect(failed.status.state).toBe("TASK_STATE_FAILED");
     expect(JSON.stringify(failed.status.message)).toContain("model_error");
     expect(JSON.stringify(failed)).not.toContain("secret detail");
+    // The Runtime's own reasons are fixed text, so the task says them: the caller can tell a run
+    // that couldn't be replayed from a model that failed.
+    const drifted = buildTask({
+      contextId: "ctx",
+      turnId,
+      session: { status: "failed", activeTurnId: null, lastTurnId: turnId },
+      events: [sent, event("turn.failed", turnId, { error: { code: "model.failed", message: "Effect identity request drift" } })],
+    })!;
+    expect(drifted.status.message!.parts).toEqual([{ text: "The agent failed (model.failed): Effect identity request drift." }]);
     const cancelled = buildTask({
       contextId: "ctx",
       turnId,
