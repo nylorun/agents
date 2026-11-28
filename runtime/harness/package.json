@@ -71,7 +71,7 @@
   "devDependencies": {
     "@types/node": "^26.6.6",
     "@typescript/native": "npm:typescript@^7.0.2",
-    "prettier": "^3.9.10",
+    "prettier": "^3.10.1",
     "typescript": "npm:@typescript/typescript6@^6.0.2",
     "vitest": "^5.1.0",
     "zod": "^4.6.7"
