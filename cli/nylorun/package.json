@@ -35,11 +35,11 @@
     "@nylorun/core": "0.55.0-beta"
   },
   "devDependencies": {
-    "@earendil-works/pi-ai": "1.5.2",
+    "@earendil-works/pi-ai": "1.6.0",
     "@nylorun/agents": "file:../../sdks/agents",
     "typescript": "npm:@typescript/typescript6@^6.0.2",
-    "@types/node": "^26.6.6",
-    "vitest": "^5.1.0"
+    "@types/node": "^26.6.10",
+    "vitest": "^5.1.1"
   },
   "bin": {
     "nylorun": "dist/cli.js",
