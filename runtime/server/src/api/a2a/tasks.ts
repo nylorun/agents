@@ -246,10 +246,25 @@ function queueFailureText(payload: Record<string, any>): string {
   return `The message never started a turn.${reason}`;
 }
 
-function failureText(code: unknown): string {
-  return typeof code === "string" && code !== ""
-    ? `The agent failed (${code}).`
-    : "The agent failed.";
+/**
+ * The Runtime's own reasons a turn fails: fixed text it writes about its run, never a model's or a
+ * provider's message, which may carry what the caller mustn't see. A failed task says one of these
+ * after its code, so the caller can tell a run that couldn't go on from a model that failed.
+ */
+const RUNTIME_REASONS = new Set([
+  "Effect identity request drift",
+  "The session's lease was lost",
+  "The run is stopping",
+  "Not connected to core",
+  "The harness has not said hello yet",
+]);
+
+function failureText(error: unknown): string {
+  const { code, message } = (error && typeof error === "object" ? error : {}) as { code?: unknown; message?: unknown };
+  if (typeof code !== "string" || code === "") return "The agent failed.";
+  return typeof message === "string" && RUNTIME_REASONS.has(message)
+    ? `The agent failed (${code}): ${message}.`
+    : `The agent failed (${code}).`;
 }
 
 const UNCERTAIN_TEXT =
@@ -450,7 +465,7 @@ export function updatesOf(event: LiveEvent, view: TaskView): StreamResponse[] {
       if (event.type === "turn.cancelled") return [status("TASK_STATE_CANCELED", metadata ? { metadata } : {})];
       return [
         status("TASK_STATE_FAILED", {
-          message: agentMessage(`${event.turnId}:failed`, failureText(payload.error?.code), contextId, taskId),
+          message: agentMessage(`${event.turnId}:failed`, failureText(payload.error), contextId, taskId),
           ...(metadata ? { metadata } : {}),
         }),
       ];
@@ -529,7 +544,7 @@ export function buildTask(input: BuildTaskInput): Task | undefined {
     else if (terminal.type === "turn.cancelled") state = "TASK_STATE_CANCELED";
     else {
       state = "TASK_STATE_FAILED";
-      message = agentMessage(`${turnId}:failed`, failureText(payload.error?.code), contextId, taskId);
+      message = agentMessage(`${turnId}:failed`, failureText(payload.error), contextId, taskId);
     }
     const telemetry = telemetryOf(payload, input.traceId);
     if (telemetry) metadata[A2A_EXTENSIONS.telemetry] = telemetry;
