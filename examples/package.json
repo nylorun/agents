@@ -18,7 +18,7 @@
     "triage": "tsx --env-file-if-exists=.env src/triage.ts"
   },
   "dependencies": {
-    "zod": "^4.6.6",
+    "zod": "^4.6.7",
     "@nylorun/agents": "file:../sdks/agents",
     "@nylorun/harness": "file:../runtime/harness",
     "@nylorun/runtime": "file:../runtime/server",
