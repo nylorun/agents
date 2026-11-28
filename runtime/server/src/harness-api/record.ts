@@ -137,8 +137,19 @@ export async function recordIntent(
     signal.throwIfAborted();
     const existing = await t.get<StoredEffect>("effects", request.effectId);
     if (existing) {
-      if (hashOf(existing) !== requestHash)
+      if (hashOf(existing) !== requestHash) {
+        // What changed between the journal and the replay, for the fix at its source: the effect
+        // and both hashes, never the request itself.
+        ctx.config.logger.warn("effect drift on replay", {
+          sessionId: request.sessionId,
+          turnId: request.turnId,
+          effectId: request.effectId,
+          kind: request.kind,
+          journaled: hashOf(existing),
+          replayed: requestHash,
+        });
         throw new HarnessApiError("effect_drift", "Effect identity request drift");
+      }
       if (existing.status === "completed") return { status: "completed", outcome: existing.outcome! };
       // A call its previous owner left running at the gate: re-send it, same key and request,
       // to join it or collect its outcome.
