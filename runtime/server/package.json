@@ -1,6 +1,6 @@
 {
   "name": "@nylorun/runtime",
-  "version": "0.58.0-beta",
+  "version": "0.59.0-beta",
   "description": "Nylorun Runtime: the agent execution Host on Postgres, Restate and S2, and model providers.",
   "type": "module",
   "license": "Apache-2.0",
@@ -65,8 +65,8 @@
     "@hono/node-server": "^2.1.8",
     "@hono/zod-openapi": "^1.6.3",
     "@modelcontextprotocol/sdk": "^1.32.2",
-    "@nylorun/core": "0.54.0-beta",
-    "@nylorun/harness": "0.38.0-beta",
+    "@nylorun/core": "0.55.0-beta",
+    "@nylorun/harness": "0.38.1-beta",
     "@opentelemetry/api": "1.9.1",
     "@opentelemetry/context-async-hooks": "2.12.0",
     "@opentelemetry/exporter-metrics-otlp-http": "0.223.0",
